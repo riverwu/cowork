@@ -17,6 +17,7 @@ function App() {
   const [dbReady, setDbReady] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
   const loadAppState = useAppStore((s) => s.load);
+  const refreshMcp = useAppStore((s) => s.refreshMcp);
   const initSession = useSessionStore((s) => s.initialize);
   const sessionReady = useSessionStore((s) => s.initialized);
 
@@ -26,8 +27,10 @@ function App() {
         setDbReady(true);
         await loadAppState();
         await initSession();
-        // Connect MCP servers (non-blocking, errors logged)
-        mcpManager.initialize().catch((err) => console.error("MCP init:", err));
+        // Connect MCP servers (non-blocking), refresh status when done
+        mcpManager.initialize()
+          .then(() => refreshMcp())
+          .catch((err) => { console.error("MCP init:", err); refreshMcp(); });
       })
       .catch((err) => setDbError(String(err)));
   }, [loadAppState, initSession]);

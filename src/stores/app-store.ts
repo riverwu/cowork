@@ -1,18 +1,26 @@
 import { create } from "zustand";
 import { listSources, getSettings } from "@/lib/db";
+import { mcpManager } from "@/lib/mcp";
 import type { Source, Settings } from "@/types";
+
+interface McpStatus {
+  id: string;
+  name: string;
+  connected: boolean;
+  toolCount: number;
+}
 
 interface AppState {
   initialized: boolean;
   sources: Source[];
   settings: Settings | null;
   hasApiKey: boolean;
-
-  /** Check if user has gone through setup. */
   isFirstTime: boolean;
+  mcpServers: McpStatus[];
 
   load: () => Promise<void>;
   refreshSources: () => Promise<void>;
+  refreshMcp: () => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -21,21 +29,33 @@ export const useAppStore = create<AppState>((set) => ({
   settings: null,
   hasApiKey: false,
   isFirstTime: true,
+  mcpServers: [],
 
   load: async () => {
     const [sources, settings] = await Promise.all([listSources(), getSettings()]);
     const hasApiKey = !!(settings.anthropicApiKey || settings.openaiApiKey);
+    const mcpServers = mcpManager.getServerStatus().map((s) => ({
+      id: s.id, name: s.name, connected: s.connected, toolCount: s.toolCount,
+    }));
     set({
       initialized: true,
       sources,
       settings,
       hasApiKey,
       isFirstTime: sources.length === 0,
+      mcpServers,
     });
   },
 
   refreshSources: async () => {
     const sources = await listSources();
     set({ sources, isFirstTime: sources.length === 0 });
+  },
+
+  refreshMcp: () => {
+    const mcpServers = mcpManager.getServerStatus().map((s) => ({
+      id: s.id, name: s.name, connected: s.connected, toolCount: s.toolCount,
+    }));
+    set({ mcpServers });
   },
 }));

@@ -69,8 +69,9 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     }
   }
 
-  // 3. Build system prompt
+  // 3. Build system prompt (includes tool list so LLM knows its capabilities)
   const system = buildSystemPrompt({
+    tools: toolDefs,
     memoryContext: memoryContext || undefined,
     knowledgeContext: knowledgeContext || undefined,
   });

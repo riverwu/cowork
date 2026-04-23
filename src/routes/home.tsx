@@ -7,12 +7,12 @@ import { ViewContainer } from "@/components/views/view-container";
 import { useSessionStore } from "@/stores/session-store";
 import {
   IconClock, IconChart, IconTaskList, IconMail, IconTrend,
-  IconFolder, IconPlus, IconPlay, IconCheck, IconDocument, IconClose,
+  IconFolder, IconPlus, IconPlay, IconCheck, IconDocument, IconClose, IconChannel,
 } from "@/components/icons";
 import { t } from "@/lib/i18n";
 
 export function Home() {
-  const { initialized, hasApiKey, sources, load } = useAppStore();
+  const { initialized, hasApiKey, sources, mcpServers, load } = useAppStore();
   const {
     messages, isStreaming, streamingText, steps, artifacts,
     knowledgeRefs, error, clearConversation,
@@ -140,7 +140,7 @@ export function Home() {
       </div>
 
       {/* Right panel: Apps + artifact views */}
-      <RightPanel sources={sources} hasViews={hasViews} />
+      <RightPanel sources={sources} mcpServers={mcpServers} hasViews={hasViews} />
     </div>
   );
 }
@@ -157,7 +157,11 @@ function DashboardCard({ title, icon, children }: { title: string; icon: React.R
   );
 }
 
-function RightPanel({ sources, hasViews }: { sources: { id: string; name: string; status: string }[]; hasViews: boolean }) {
+function RightPanel({ sources, mcpServers, hasViews }: {
+  sources: { id: string; name: string; status: string }[];
+  mcpServers: { id: string; name: string; connected: boolean; toolCount: number }[];
+  hasViews: boolean;
+}) {
   return (
     <div className="w-[300px] shrink-0 border-l border-[var(--border)] bg-[var(--surface-lowest)] flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -185,6 +189,26 @@ function RightPanel({ sources, hasViews }: { sources: { id: string; name: string
             <OutputRow icon={<IconCheck size={12} />} title="CRM数据同步" time="昨天" color="text-[var(--success)]" />
           </div>
         </div>
+
+        {/* MCP Connections status */}
+        {mcpServers.length > 0 && (
+          <div className="mt-6">
+            <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--on-surface)] mb-3">
+              <IconChannel size={13} /> {t("connections.title")}
+            </h2>
+            <div className="space-y-1">
+              {mcpServers.map((s) => (
+                <div key={s.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12px]">
+                  <span className={`w-1.5 h-1.5 rounded-full ${s.connected ? "bg-[var(--success)]" : "bg-[var(--on-surface-tertiary)]"}`} />
+                  <span className="flex-1 truncate text-[var(--on-surface-secondary)]">{s.name}</span>
+                  <span className="text-[var(--on-surface-tertiary)]">
+                    {s.connected ? `${s.toolCount} tools` : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       {hasViews && (
         <div className="border-t border-[var(--border)]">
