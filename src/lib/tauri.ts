@@ -22,3 +22,8 @@ export async function readFileText(path: string): Promise<string> {
 export async function parseDocument(path: string): Promise<string> {
   return invoke<string>("parse_document", { path });
 }
+
+/** Read an environment variable from the system. */
+export async function getEnv(key: string): Promise<string | null> {
+  return invoke<string | null>("get_env", { key });
+}

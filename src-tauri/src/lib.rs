@@ -11,6 +11,7 @@ pub fn run() {
             commands::fs::scan_directory,
             commands::fs::read_file_text,
             commands::fs::parse_document,
+            commands::env::get_env,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

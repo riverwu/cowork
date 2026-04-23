@@ -8,7 +8,7 @@ export class AnthropicProvider implements LLMProvider {
   constructor(apiKey: string, model?: string, baseURL?: string) {
     this.client = new Anthropic({
       apiKey,
-      dangerouslyAllowBrowser: true, // Desktop app — no server
+      dangerouslyAllowBrowser: true,
       ...(baseURL ? { baseURL } : {}),
     });
     this.model = model || "claude-sonnet-4-20250514";
@@ -28,12 +28,16 @@ export class AnthropicProvider implements LLMProvider {
 
     let fullText = "";
     const toolCalls: ToolCall[] = [];
+
+    // Track current content block type and state
+    let currentBlockType: string | null = null;
     let currentToolId = "";
     let currentToolName = "";
     let currentToolInput = "";
 
     for await (const event of stream) {
       if (event.type === "content_block_start") {
+        currentBlockType = event.content_block.type;
         if (event.content_block.type === "tool_use") {
           currentToolId = event.content_block.id;
           currentToolName = event.content_block.name;
@@ -46,17 +50,20 @@ export class AnthropicProvider implements LLMProvider {
         } else if (event.delta.type === "input_json_delta") {
           currentToolInput += event.delta.partial_json;
         }
+        // Skip thinking_delta, signature_delta — these are from extended thinking
+        // compatible providers (MiniMax etc.), we don't surface them.
       } else if (event.type === "content_block_stop") {
-        if (currentToolName) {
+        // Only process tool_use blocks at stop
+        if (currentBlockType === "tool_use" && currentToolName) {
           const input = currentToolInput ? JSON.parse(currentToolInput) : {};
           const tc: ToolCall = { id: currentToolId, name: currentToolName, input };
           toolCalls.push(tc);
           yield { type: "tool-call", ...tc };
-          currentToolName = "";
-          currentToolInput = "";
         }
-      } else if (event.type === "message_stop") {
-        // handled after loop
+        // Reset block tracking
+        currentBlockType = null;
+        currentToolName = "";
+        currentToolInput = "";
       }
     }
 
