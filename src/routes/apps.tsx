@@ -1,209 +1,301 @@
 import { useEffect, useState } from "react";
-import { createSkill, deleteSkill } from "@/lib/db";
+import { createSkill } from "@/lib/db";
 import { skillRegistry } from "@/lib/ai/skill-registry";
 import { mcpManager, MCP_PRESETS } from "@/lib/mcp";
 import {
-  IconPlus, IconPlay, IconClock, IconClose,
-  IconServer, IconWarning, IconSpinner, IconSettings,
+  IconPlus, IconPlay, IconClose,
+  IconServer, IconWarning, IconSpinner, IconPuzzle, IconFolder,
 } from "@/components/icons";
 import { t } from "@/lib/i18n";
-import type { SkillRecord, SkillDefinition, SkillType } from "@/types";
+import type { SkillRecord, SkillDefinition } from "@/types";
+
+/** Unified tool item — either a skill or an MCP server. */
+interface ToolItem {
+  id: string;
+  name: string;
+  kind: "skill" | "mcp";
+  description: string;
+  status: "active" | "connecting" | "connected" | "error" | "disabled";
+  error?: string;
+  // Skill-specific
+  skillRecord?: SkillRecord;
+  dirPath?: string;
+  hasScripts?: boolean;
+  // MCP-specific
+  toolCount?: number;
+  builtin?: boolean;
+}
 
 export function AppsPage() {
   const [apps, setApps] = useState<SkillRecord[]>([]);
-  const [skills, setSkills] = useState<SkillRecord[]>([]);
-  const [mcpStatus, setMcpStatus] = useState<Array<{
-    id: string; name: string; connected: boolean; toolCount: number;
-    builtin: boolean; enabled: boolean;
-    status: "connecting" | "connected" | "error" | "disabled";
-    error?: string;
-  }>>([]);
-  const [showCreate, setShowCreate] = useState<SkillType | null>(null);
-  const [showAddMcp, setShowAddMcp] = useState(false);
+  const [tools, setTools] = useState<ToolItem[]>([]);
+  const [showCreateApp, setShowCreateApp] = useState(false);
+  const [showAddTool, setShowAddTool] = useState(false);
+  const [selectedTool, setSelectedTool] = useState<ToolItem | null>(null);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    loadData();
+    const unsub = skillRegistry.onChange(loadData);
+    const unsub2 = mcpManager.onChange(loadData);
+    return () => { unsub(); unsub2(); };
+  }, []);
 
-  async function loadData() {
-    // Skills from in-memory registry (loaded from filesystem)
-    const allSkills = skillRegistry.getAll().map((s) => s.record);
-    setApps(allSkills.filter((s) => s.type === "app"));
-    setSkills(allSkills.filter((s) => s.type === "skill"));
-    setMcpStatus(mcpManager.getServerStatus());
+  function loadData() {
+    // Apps
+    const allSkills = skillRegistry.getAll();
+    setApps(allSkills.filter((s) => s.record.type === "app").map((s) => s.record));
+
+    // Unified tools: skills + MCP
+    const toolItems: ToolItem[] = [];
+
+    // Add skill-type
+    for (const loaded of allSkills.filter((s) => s.record.type === "skill")) {
+      toolItems.push({
+        id: loaded.record.id,
+        name: loaded.record.name,
+        kind: "skill",
+        description: loaded.record.definition.purpose,
+        status: "active",
+        skillRecord: loaded.record,
+        dirPath: loaded.dirPath,
+        hasScripts: loaded.hasScripts,
+      });
+    }
+
+    // Add MCP servers
+    for (const server of mcpManager.getServerStatus()) {
+      toolItems.push({
+        id: `mcp_${server.id}`,
+        name: server.name,
+        kind: "mcp",
+        description: server.connected ? `${server.toolCount} ${t("tools.providedTools")}` : "",
+        status: server.status as ToolItem["status"],
+        error: server.error,
+        toolCount: server.toolCount,
+        builtin: server.builtin,
+      });
+    }
+
+    setTools(toolItems);
   }
 
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-4xl mx-auto px-8 py-8">
-        {/* Section 1: Apps */}
+        {/* Apps Section */}
         <section className="mb-10">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-[18px] font-bold text-[var(--on-surface)]">{t("apps.myApps")}</h1>
-            <button onClick={() => setShowCreate("app")} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--primary)] hover:bg-[var(--primary-dark)] text-white text-[13px] font-medium cursor-pointer transition-colors">
+            <button onClick={() => setShowCreateApp(true)} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--primary)] hover:bg-[var(--primary-dark)] text-white text-[13px] font-medium cursor-pointer transition-colors">
               <IconPlus size={14} /> {t("apps.create")}
             </button>
           </div>
           {apps.length === 0 ? (
-            <EmptyState text={t("apps.noApps")} />
+            <div className="bg-[var(--surface-lowest)] rounded-xl border border-[var(--border)] p-8 text-center">
+              <p className="text-[13px] text-[var(--on-surface-tertiary)]">{t("apps.noApps")}</p>
+            </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              {apps.map((app) => <SkillCard key={app.id} record={app} onRefresh={loadData} isFilesystem={app.id.startsWith("fs_")} />)}
+              {apps.map((app) => (
+                <div key={app.id} className="bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl p-4 hover:shadow-[var(--shadow-md)] transition-all group">
+                  <div className="flex items-start justify-between mb-2">
+                    <h3 className="text-[14px] font-semibold text-[var(--on-surface)]">{app.name}</h3>
+                    <button className="p-1.5 rounded-lg text-[var(--primary-accent)] hover:bg-[var(--primary-accent-light)] opacity-0 group-hover:opacity-100 transition-all cursor-pointer">
+                      <IconPlay size={14} />
+                    </button>
+                  </div>
+                  <p className="text-[12px] text-[var(--on-surface-secondary)] leading-relaxed line-clamp-2">{app.definition.purpose || "—"}</p>
+                </div>
+              ))}
             </div>
           )}
         </section>
 
-        {/* Section 2: Skills */}
-        <section className="mb-10">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[16px] font-bold text-[var(--on-surface)]">{t("skills.title")}</h2>
-            <button onClick={() => setShowCreate("skill")} className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[var(--border)] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] text-[13px] font-medium cursor-pointer transition-colors">
-              <IconPlus size={14} /> {t("skills.add")}
-            </button>
-          </div>
-          {skills.length === 0 ? (
-            <EmptyState text={t("skills.noSkills")} />
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {skills.map((skill) => <SkillCard key={skill.id} record={skill} onRefresh={loadData} isFilesystem={skill.id.startsWith("fs_")} />)}
-            </div>
-          )}
-        </section>
-
-        {/* Section 3: MCP Connections */}
+        {/* Tools Section (unified: skills + MCP) */}
         <section>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-[16px] font-bold text-[var(--on-surface)] flex items-center gap-2">
-              <IconServer size={16} /> {t("connections.title")}
-            </h2>
-            <button onClick={() => setShowAddMcp(true)} className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[var(--border)] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] text-[13px] font-medium cursor-pointer transition-colors">
-              <IconPlus size={14} /> {t("connections.add")}
+            <h2 className="text-[16px] font-bold text-[var(--on-surface)]">{t("tools.title")}</h2>
+            <button onClick={() => setShowAddTool(true)} className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[var(--border)] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] text-[13px] font-medium cursor-pointer transition-colors">
+              <IconPlus size={14} /> {t("tools.add")}
             </button>
           </div>
-          <div className="space-y-2">
-            {mcpStatus.map((s) => <McpCard key={s.id} server={s} onRefresh={loadData} />)}
-            {mcpStatus.length === 0 && <EmptyState text={t("connections.noConnections")} />}
-          </div>
+          {tools.length === 0 ? (
+            <div className="bg-[var(--surface-lowest)] rounded-xl border border-[var(--border)] p-8 text-center">
+              <p className="text-[13px] text-[var(--on-surface-tertiary)]">{t("tools.noTools")}</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {tools.map((tool) => (
+                <ToolCard key={tool.id} tool={tool} onClick={() => setSelectedTool(tool)} />
+              ))}
+            </div>
+          )}
         </section>
       </div>
 
-      {showCreate && <CreateSkillDialog type={showCreate} onClose={() => setShowCreate(null)} onCreated={loadData} />}
-      {showAddMcp && <AddMcpDialog onClose={() => setShowAddMcp(false)} onAdded={loadData} />}
+      {showCreateApp && <CreateAppDialog onClose={() => setShowCreateApp(false)} onCreated={loadData} />}
+      {showAddTool && <AddToolDialog onClose={() => setShowAddTool(false)} onAdded={loadData} />}
+      {selectedTool && <ToolDetailDialog tool={selectedTool} onClose={() => setSelectedTool(null)} onRefresh={loadData} />}
     </div>
   );
 }
 
-// ---- Shared Components ----
+// ---- Tool Card ----
 
-function EmptyState({ text }: { text: string }) {
+function ToolCard({ tool, onClick }: { tool: ToolItem; onClick: () => void }) {
+  const isSkill = tool.kind === "skill";
+  const statusColors: Record<string, string> = {
+    active: "bg-emerald-50 text-emerald-600",
+    connected: "bg-emerald-50 text-emerald-600",
+    connecting: "bg-amber-50 text-amber-600",
+    error: "bg-red-50 text-red-500",
+    disabled: "bg-[var(--surface-low)] text-[var(--on-surface-tertiary)]",
+  };
+  const iconBg = statusColors[tool.status] || statusColors.active;
+
   return (
-    <div className="bg-[var(--surface-lowest)] rounded-xl border border-[var(--border)] p-8 text-center">
-      <p className="text-[13px] text-[var(--on-surface-tertiary)]">{text}</p>
-    </div>
+    <button
+      onClick={onClick}
+      className="w-full bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl px-4 py-3 flex items-center gap-4 hover:shadow-[var(--shadow-sm)] hover:border-[var(--on-surface-tertiary)] transition-all cursor-pointer text-left"
+    >
+      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>
+        {tool.status === "connecting" ? <IconSpinner size={16} />
+          : isSkill ? <IconPuzzle size={16} />
+          : <IconServer size={16} />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-medium text-[var(--on-surface)]">{tool.name}</span>
+          <span className={`text-[10px] px-1.5 py-[1px] rounded-full font-medium ${isSkill ? "bg-purple-50 text-purple-600" : "bg-blue-50 text-blue-600"}`}>
+            {isSkill ? t("tools.type.skill") : t("tools.type.mcp")}
+          </span>
+          {tool.builtin && <span className="text-[10px] px-1.5 py-[1px] rounded-full bg-gray-100 text-gray-500">{t("connections.builtin")}</span>}
+        </div>
+        <div className="text-[11px] text-[var(--on-surface-tertiary)] truncate">
+          {tool.description || (tool.status === "error" ? t("connections.error") : tool.status === "connecting" ? t("connections.connecting") : t("connections.disabled"))}
+        </div>
+      </div>
+      {tool.status === "error" && <IconWarning size={14} className="text-[var(--error)] shrink-0" />}
+    </button>
   );
 }
 
-function SkillCard({ record, onRefresh, isFilesystem }: { record: SkillRecord; onRefresh: () => void; isFilesystem?: boolean }) {
-  const isApp = record.type === "app";
+// ---- Tool Detail Dialog ----
 
-  async function handleDelete() {
-    await deleteSkill(record.id);
+function ToolDetailDialog({ tool, onClose, onRefresh }: { tool: ToolItem; onClose: () => void; onRefresh: () => void }) {
+  const isSkill = tool.kind === "skill";
+
+  async function handleMcpToggle() {
+    const mcpId = tool.id.replace("mcp_", "");
+    if (tool.status === "disabled") await mcpManager.enableServer(mcpId);
+    else await mcpManager.removeServer(mcpId);
+    onRefresh();
+  }
+
+  async function handleMcpReconnect() {
+    await mcpManager.reconnectServer(tool.id.replace("mcp_", ""));
     onRefresh();
   }
 
   return (
-    <div className="bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl p-4 hover:shadow-[var(--shadow-md)] transition-all group">
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <h3 className="text-[14px] font-semibold text-[var(--on-surface)]">{record.name}</h3>
-          <span className={`text-[10px] px-1.5 py-[1px] rounded-full font-medium ${isApp ? "bg-blue-50 text-blue-600" : "bg-purple-50 text-purple-600"}`}>
-            {isApp ? "App" : "Skill"}
+    <DialogOverlay onClose={onClose}>
+      <div className="px-6 py-4 border-b border-[var(--border)] flex items-center gap-3">
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isSkill ? "bg-purple-50 text-purple-600" : "bg-blue-50 text-blue-600"}`}>
+          {isSkill ? <IconPuzzle size={16} /> : <IconServer size={16} />}
+        </div>
+        <div className="flex-1">
+          <h2 className="text-[15px] font-semibold text-[var(--on-surface)]">{tool.name}</h2>
+          <span className={`text-[10px] px-1.5 py-[1px] rounded-full font-medium ${isSkill ? "bg-purple-50 text-purple-600" : "bg-blue-50 text-blue-600"}`}>
+            {isSkill ? t("tools.type.skill") : t("tools.type.mcp")}
           </span>
-          {isFilesystem && (
-            <span className="text-[10px] px-1.5 py-[1px] rounded-full bg-gray-100 text-gray-500 font-medium">FS</span>
-          )}
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {isApp && (
-            <button className="p-1.5 rounded-lg text-[var(--primary-accent)] hover:bg-[var(--primary-accent-light)] cursor-pointer">
-              <IconPlay size={14} />
-            </button>
-          )}
-          <button onClick={handleDelete} className="p-1.5 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--error)] hover:bg-red-50 cursor-pointer">
-            <IconClose size={12} />
-          </button>
-        </div>
+        <button onClick={onClose} className="p-1 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] cursor-pointer"><IconClose size={16} /></button>
       </div>
-      <p className="text-[12px] text-[var(--on-surface-secondary)] leading-relaxed line-clamp-2 mb-2">
-        {record.definition.purpose || "—"}
-      </p>
-      <div className="flex items-center gap-2 text-[11px] text-[var(--on-surface-tertiary)]">
-        <IconClock size={11} />
-        <span>v{record.version}</span>
-        {record.definition.requiredConfig && Object.keys(record.definition.requiredConfig).length > 0 && (
-          <span className="flex items-center gap-1 text-amber-600">
-            <IconSettings size={10} /> Config
-          </span>
+
+      <div className="px-6 py-5 space-y-4">
+        {/* Description */}
+        {tool.skillRecord?.definition.purpose && (
+          <div>
+            <label className="text-[12px] font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">{t("skills.purpose")}</label>
+            <p className="text-[13px] text-[var(--on-surface)] mt-1">{tool.skillRecord.definition.purpose}</p>
+          </div>
+        )}
+
+        {/* Instructions */}
+        {tool.skillRecord?.definition.instructions && tool.skillRecord.definition.instructions.length > 0 && (
+          <div>
+            <label className="text-[12px] font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">{t("skills.instructions")}</label>
+            <ul className="mt-1 space-y-0.5">
+              {tool.skillRecord.definition.instructions.map((inst, i) => (
+                <li key={i} className="text-[12px] text-[var(--on-surface-secondary)] flex items-start gap-1.5">
+                  <span className="text-[var(--on-surface-tertiary)] mt-0.5">-</span>
+                  {inst}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Directory (skill) */}
+        {tool.dirPath && (
+          <div>
+            <label className="text-[12px] font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">{t("tools.directory")}</label>
+            <div className="flex items-center gap-1.5 mt-1 text-[12px] text-[var(--on-surface-secondary)]">
+              <IconFolder size={12} />
+              <span className="font-mono">{tool.dirPath}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Scripts */}
+        {tool.hasScripts && (
+          <div>
+            <label className="text-[12px] font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">{t("tools.scripts")}</label>
+            <p className="text-[12px] text-[var(--on-surface-secondary)] mt-1">{tool.dirPath}/scripts/</p>
+          </div>
+        )}
+
+        {/* MCP: tool count */}
+        {!isSkill && tool.toolCount !== undefined && tool.toolCount > 0 && (
+          <div>
+            <label className="text-[12px] font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">{t("tools.providedTools")}</label>
+            <p className="text-[13px] text-[var(--on-surface)] mt-1">{tool.toolCount} tools</p>
+          </div>
+        )}
+
+        {/* Status */}
+        <div>
+          <label className="text-[12px] font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">{t("tools.status")}</label>
+          <div className="flex items-center gap-2 mt-1">
+            <span className={`w-2 h-2 rounded-full ${tool.status === "active" || tool.status === "connected" ? "bg-emerald-500" : tool.status === "error" ? "bg-red-500" : tool.status === "connecting" ? "bg-amber-500" : "bg-gray-400"}`} />
+            <span className="text-[13px] text-[var(--on-surface)]">{tool.status}</span>
+          </div>
+          {tool.error && <p className="text-[12px] text-[var(--error)] mt-1">{tool.error}</p>}
+        </div>
+
+        {/* MCP actions */}
+        {!isSkill && (
+          <div className="flex gap-2 pt-2">
+            {tool.status === "error" && (
+              <button onClick={handleMcpReconnect} className="px-3 py-1.5 rounded-lg text-[12px] bg-[var(--primary-accent)] text-white hover:bg-[var(--primary)] cursor-pointer">{t("connections.reconnect")}</button>
+            )}
+            <button onClick={handleMcpToggle} className={`px-3 py-1.5 rounded-lg text-[12px] cursor-pointer ${tool.status === "disabled" ? "bg-[var(--surface-low)] text-[var(--primary-accent)]" : "bg-red-50 text-[var(--error)]"}`}>
+              {tool.status === "disabled" ? t("connections.enable") : t("connections.disable")}
+            </button>
+          </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function McpCard({ server, onRefresh }: {
-  server: { id: string; name: string; connected: boolean; toolCount: number; builtin: boolean; enabled: boolean; status: string; error?: string };
-  onRefresh: () => void;
-}) {
-  async function handleToggle() {
-    if (server.enabled) await mcpManager.removeServer(server.id);
-    else await mcpManager.enableServer(server.id);
-    onRefresh();
-  }
-  async function handleReconnect() { await mcpManager.reconnectServer(server.id); onRefresh(); }
-
-  const cfg: Record<string, { bg: string; icon: React.ReactNode }> = {
-    connecting: { bg: "bg-amber-50 text-amber-600", icon: <IconSpinner size={14} /> },
-    connected: { bg: "bg-emerald-50 text-emerald-600", icon: <IconServer size={16} /> },
-    error: { bg: "bg-red-50 text-red-500", icon: <IconWarning size={16} /> },
-    disabled: { bg: "bg-[var(--surface-low)] text-[var(--on-surface-tertiary)]", icon: <IconServer size={16} /> },
-  };
-  const c = cfg[server.status] || cfg.disabled;
-
-  return (
-    <div className="bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl px-4 py-3">
-      <div className="flex items-center gap-4">
-        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${c.bg}`}>{c.icon}</div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-[13px] font-medium text-[var(--on-surface)]">{server.name}</span>
-            {server.builtin && <span className="text-[10px] px-1.5 py-[1px] rounded-full bg-blue-50 text-blue-600 font-medium">{t("connections.builtin")}</span>}
-          </div>
-          <div className="text-[11px] text-[var(--on-surface-tertiary)]">
-            {server.connected ? `${server.toolCount} ${t("connections.tools")}` : server.status === "error" ? t("connections.error") : server.enabled ? t("connections.connecting") : t("connections.disabled")}
-          </div>
-        </div>
-        <div className="flex items-center gap-1">
-          {server.status === "error" && <button onClick={handleReconnect} className="px-2.5 py-1 rounded-lg text-[11px] text-[var(--primary-accent)] hover:bg-[var(--surface-low)] cursor-pointer">{t("connections.reconnect")}</button>}
-          <button onClick={handleToggle} className={`px-2.5 py-1 rounded-lg text-[11px] cursor-pointer ${server.enabled ? "text-[var(--on-surface-tertiary)] hover:text-[var(--error)] hover:bg-red-50" : "text-[var(--primary-accent)] hover:bg-[var(--surface-low)]"}`}>
-            {server.enabled ? t("connections.disable") : t("connections.enable")}
-          </button>
-        </div>
-      </div>
-      {server.status === "error" && server.error && (
-        <div className="mt-2 px-3 py-2 rounded-lg bg-red-50 text-[11px] text-red-600">{server.error}</div>
-      )}
-    </div>
+    </DialogOverlay>
   );
 }
 
 // ---- Dialogs ----
 
-function CreateSkillDialog({ type, onClose, onCreated }: { type: SkillType; onClose: () => void; onCreated: () => void }) {
+function CreateAppDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState("");
   const [purpose, setPurpose] = useState("");
   const [instructions, setInstructions] = useState("");
   const [saving, setSaving] = useState(false);
-
-  const isApp = type === "app";
-  const title = isApp ? t("apps.create") : t("skills.add");
 
   async function handleSave() {
     if (!name.trim() || !purpose.trim()) return;
@@ -212,42 +304,35 @@ function CreateSkillDialog({ type, onClose, onCreated }: { type: SkillType; onCl
       purpose: purpose.trim(),
       instructions: instructions.trim() ? instructions.split("\n").filter(Boolean) : undefined,
     };
-    await createSkill({ name: name.trim(), type, definition });
-    onCreated();
-    onClose();
+    await createSkill({ name: name.trim(), type: "app", definition });
+    onCreated(); onClose();
   }
 
   return (
     <DialogOverlay onClose={onClose}>
       <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold text-[var(--on-surface)]">{title}</h2>
+        <h2 className="text-[15px] font-semibold">{t("apps.create")}</h2>
         <button onClick={onClose} className="p-1 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] cursor-pointer"><IconClose size={16} /></button>
       </div>
       <div className="px-6 py-5 space-y-4">
-        <Field label={t("apps.name")}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={isApp ? "Weekly Sales Analysis" : "Image Generator"} className={inputClass} />
-        </Field>
-        <Field label={isApp ? t("apps.goal") : t("skills.purpose")}>
-          <textarea value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder={isApp ? t("apps.goalPlaceholder") : t("skills.purposePlaceholder")} rows={3} className={`${inputClass} resize-none`} />
-        </Field>
-        <Field label={t("skills.instructions")}>
-          <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder={t("skills.instructionsPlaceholder")} rows={4} className={`${inputClass} resize-none`} />
-        </Field>
+        <Field label={t("apps.name")}><input value={name} onChange={(e) => setName(e.target.value)} placeholder="Weekly Sales Analysis" className={inputClass} /></Field>
+        <Field label={t("apps.goal")}><textarea value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder={t("apps.goalPlaceholder")} rows={3} className={`${inputClass} resize-none`} /></Field>
+        <Field label={t("skills.instructions")}><textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder={t("skills.instructionsPlaceholder")} rows={4} className={`${inputClass} resize-none`} /></Field>
       </div>
       <div className="px-6 py-4 border-t border-[var(--border)] flex justify-end gap-2">
         <button onClick={onClose} className="px-4 py-2 rounded-lg text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer">{t("apps.cancel")}</button>
-        <button onClick={handleSave} disabled={!name.trim() || !purpose.trim() || saving} className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer disabled:opacity-40">
-          {saving ? "..." : t("apps.save")}
-        </button>
+        <button onClick={handleSave} disabled={!name.trim() || !purpose.trim() || saving} className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer disabled:opacity-40">{saving ? "..." : t("apps.save")}</button>
       </div>
     </DialogOverlay>
   );
 }
 
-function AddMcpDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
-  const [mode, setMode] = useState<"presets" | "custom">("presets");
+function AddToolDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const [tab, setTab] = useState<"service" | "skill">("service");
   const [id, setId] = useState("");
   const [command, setCommand] = useState("");
+  const [skillName, setSkillName] = useState("");
+  const [skillPurpose, setSkillPurpose] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -256,48 +341,62 @@ function AddMcpDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () =
     try { await mcpManager.addServer(p.id, { command: p.command, args: p.args }); onAdded(); onClose(); }
     catch (e) { setError(String(e)); setConnecting(false); }
   }
-  async function handleCustom() {
+
+  async function handleCustomMcp() {
     if (!id.trim() || !command.trim()) return;
     setConnecting(true); setError(null);
     try { const parts = command.trim().split(/\s+/); await mcpManager.addServer(id.trim(), { command: parts[0], args: parts.slice(1) }); onAdded(); onClose(); }
     catch (e) { setError(String(e)); setConnecting(false); }
   }
 
+  async function handleCreateSkill() {
+    if (!skillName.trim() || !skillPurpose.trim()) return;
+    setConnecting(true); setError(null);
+    try {
+      await createSkill({ name: skillName.trim(), type: "skill", definition: { purpose: skillPurpose.trim() } });
+      onAdded(); onClose();
+    } catch (e) { setError(String(e)); setConnecting(false); }
+  }
+
   return (
     <DialogOverlay onClose={onClose}>
       <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between">
-        <h2 className="text-[15px] font-semibold">{t("connections.add")}</h2>
+        <h2 className="text-[15px] font-semibold">{t("tools.add")}</h2>
         <button onClick={onClose} className="p-1 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] cursor-pointer"><IconClose size={16} /></button>
       </div>
       <div className="px-6 py-5">
         <div className="flex gap-1 mb-4 p-1 rounded-lg bg-[var(--surface-low)]">
-          {(["presets", "custom"] as const).map((m) => (
-            <button key={m} onClick={() => setMode(m)} className={`flex-1 py-1.5 rounded-md text-[12px] font-medium cursor-pointer transition-colors ${mode === m ? "bg-[var(--surface-lowest)] text-[var(--on-surface)] shadow-sm" : "text-[var(--on-surface-tertiary)]"}`}>
-              {m === "presets" ? t("connections.presets") : t("connections.custom")}
-            </button>
+          {([["service", t("tools.addService")], ["skill", t("tools.installSkill")]] as const).map(([key, label]) => (
+            <button key={key} onClick={() => setTab(key)} className={`flex-1 py-1.5 rounded-md text-[12px] font-medium cursor-pointer transition-colors ${tab === key ? "bg-[var(--surface-lowest)] text-[var(--on-surface)] shadow-sm" : "text-[var(--on-surface-tertiary)]"}`}>{label}</button>
           ))}
         </div>
-        {mode === "presets" ? (
-          <div className="space-y-2">
+
+        {tab === "service" ? (
+          <div className="space-y-3">
             {MCP_PRESETS.map((p) => (
               <button key={p.id} onClick={() => handlePreset(p)} disabled={connecting} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--border)] hover:bg-[var(--surface-low)] text-left cursor-pointer transition-all disabled:opacity-40">
-                <div className="w-8 h-8 rounded-lg bg-[var(--surface-container)] flex items-center justify-center text-[var(--on-surface-secondary)]"><IconServer size={15} /></div>
-                <div className="flex-1">
-                  <div className="text-[13px] font-medium text-[var(--on-surface)]">{p.label}</div>
-                  <div className="text-[11px] text-[var(--on-surface-tertiary)]">{p.description}</div>
-                </div>
-                {p.requiresEnv && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">API Key</span>}
+                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center"><IconServer size={15} /></div>
+                <div className="flex-1"><div className="text-[13px] font-medium text-[var(--on-surface)]">{p.label}</div><div className="text-[11px] text-[var(--on-surface-tertiary)]">{p.description}</div></div>
               </button>
             ))}
+            <div className="pt-2 space-y-3">
+              <Field label={t("connections.id")}><input value={id} onChange={(e) => setId(e.target.value)} placeholder={t("connections.idPlaceholder")} className={inputClass} /></Field>
+              <Field label={t("connections.command")}><input value={command} onChange={(e) => setCommand(e.target.value)} placeholder={t("connections.commandPlaceholder")} className={`${inputClass} font-mono`} /></Field>
+              <button onClick={handleCustomMcp} disabled={!id.trim() || !command.trim() || connecting} className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer disabled:opacity-40">{t("connections.add")}</button>
+            </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            <Field label={t("connections.id")}><input value={id} onChange={(e) => setId(e.target.value)} placeholder={t("connections.idPlaceholder")} className={inputClass} /></Field>
-            <Field label={t("connections.command")}><input value={command} onChange={(e) => setCommand(e.target.value)} placeholder={t("connections.commandPlaceholder")} className={`${inputClass} font-mono`} /></Field>
-            <div className="flex justify-end"><button onClick={handleCustom} disabled={!id.trim() || !command.trim() || connecting} className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer disabled:opacity-40">{connecting ? "..." : t("connections.add")}</button></div>
+          <div className="space-y-3">
+            <p className="text-[12px] text-[var(--on-surface-tertiary)] mb-2">
+              在对话中告诉 AI "从 GitHub 安装 xxx skill"，或手动创建：
+            </p>
+            <Field label={t("apps.name")}><input value={skillName} onChange={(e) => setSkillName(e.target.value)} placeholder="deep-research" className={inputClass} /></Field>
+            <Field label={t("skills.purpose")}><input value={skillPurpose} onChange={(e) => setSkillPurpose(e.target.value)} placeholder={t("skills.purposePlaceholder")} className={inputClass} /></Field>
+            <button onClick={handleCreateSkill} disabled={!skillName.trim() || !skillPurpose.trim() || connecting} className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer disabled:opacity-40">{t("skills.add")}</button>
           </div>
         )}
-        {error && <div className="mt-3 flex items-start gap-2 p-3 rounded-lg bg-[var(--error-light)] text-[var(--error)] text-[12px]"><IconWarning size={14} /><span>{error}</span></div>}
+
+        {error && <div className="mt-3 p-3 rounded-lg bg-[var(--error-light)] text-[var(--error)] text-[12px]">{error}</div>}
       </div>
     </DialogOverlay>
   );
@@ -306,9 +405,7 @@ function AddMcpDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () =
 function DialogOverlay({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-[var(--surface-lowest)] rounded-2xl border border-[var(--border)] shadow-[var(--shadow-lg)] w-[480px] max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        {children}
-      </div>
+      <div className="bg-[var(--surface-lowest)] rounded-2xl border border-[var(--border)] shadow-[var(--shadow-lg)] w-[500px] max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>{children}</div>
     </div>
   );
 }

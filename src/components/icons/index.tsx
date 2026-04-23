@@ -287,6 +287,14 @@ export function IconServer(props: IconProps) {
   );
 }
 
+export function IconPuzzle(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M7 3H4C3.45 3 3 3.45 3 4V7.5H4.5C5.05 3.5 6 4 6 5C6 6 5.05 6.5 4.5 6.5H3V10C3 10.55 3.45 11 4 11H7.5V9.5C7.5 8.95 8 8 9 8C10 8 10.5 8.95 10.5 9.5V11H14C14.55 11 15 10.55 15 10V7H13.5C12.95 7 12 6.5 12 5.5C12 4.5 12.95 4 13.5 4H15V4C15 3.45 14.55 3 14 3H10.5V4.5C10.5 5.05 10 6 9 6C8 6 7.5 5.05 7.5 4.5V3H7Z" />
+    </svg>
+  );
+}
+
 export function IconSpinner(props: IconProps) {
   return (
     <svg {...defaults(props)} className={`animate-spin ${props.className || ""}`}>
