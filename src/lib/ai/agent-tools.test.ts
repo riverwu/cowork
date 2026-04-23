@@ -107,7 +107,7 @@ describe("Agent Tool Chain Diagnostics", () => {
       console.log(`[Diagnostic] System prompt length: ${prompt.length} chars`);
       console.log(`[Diagnostic] System prompt mentions 'tools available': ${prompt.includes("tools available")}`);
 
-      expect(prompt).toContain("Your tools");
+      expect(prompt).toContain("Available Tools");
       expect(prompt).toContain("web_search");
 
       // Verify each tool is mentioned
@@ -118,11 +118,12 @@ describe("Agent Tool Chain Diagnostics", () => {
       }
     });
 
-    it("system prompt tells LLM to use web tools", () => {
+    it("system prompt includes tool guidance", () => {
       const prompt = buildSystemPrompt();
       expect(prompt).toContain("web_search");
-      expect(prompt).toContain("web_fetch");
-      expect(prompt).toContain("run_python");
+      expect(prompt).toContain("apply_patch");
+      expect(prompt).toContain("shell");
+      expect(prompt).toContain("read_file");
     });
   });
 
