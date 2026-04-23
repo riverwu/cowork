@@ -43,11 +43,6 @@ const DEFAULT_SERVERS: Record<string, McpServerEntry> = {
     args: ["--from", "browser-use[cli]", "browser-use", "--mcp"],
     builtin: true,
   },
-  fetch: {
-    command: "uvx",
-    args: ["@anthropic/mcp-server-fetch"],
-    builtin: true,
-  },
 };
 
 /**

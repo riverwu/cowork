@@ -66,6 +66,31 @@ export async function installPythonPackage(pkg: string): Promise<string> {
   return invoke<string>("install_python_package", { package: pkg });
 }
 
+// ---- Web ----
+
+export interface WebFetchResult {
+  url: string;
+  status: number;
+  content_type: string;
+  text: string;
+}
+
+export interface WebSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+/** Fetch a URL and return text content (HTML tags stripped). */
+export async function webFetch(url: string): Promise<WebFetchResult> {
+  return invoke<WebFetchResult>("web_fetch", { url });
+}
+
+/** Search the web using DuckDuckGo. */
+export async function webSearch(query: string, maxResults?: number): Promise<WebSearchResult[]> {
+  return invoke<WebSearchResult[]>("web_search", { query, maxResults });
+}
+
 /** Ensure uv/uvx is installed. Auto-installs if missing. */
 export async function ensureUvInstalled(): Promise<string> {
   return invoke<string>("ensure_uv_installed");

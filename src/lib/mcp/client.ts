@@ -46,6 +46,8 @@ export class McpClient {
       serverId: this.serverId,
     }));
 
+    console.log(`[MCP:${this.serverId}] Discovered ${this.tools.length} tools:`, this.tools.map(t => t.name));
+
     this.initialized = true;
   }
 

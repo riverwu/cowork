@@ -36,6 +36,11 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   const skills = { ...builtinSkills, ...mcpSkills };
   const toolDefs = Object.values(skills).map((s) => s.definition);
 
+  console.log(`[Agent] Tools: ${toolDefs.length} total (${Object.keys(builtinSkills).length} built-in + ${Object.keys(mcpSkills).length} MCP)`);
+  if (Object.keys(mcpSkills).length > 0) {
+    console.log(`[Agent] MCP tools:`, Object.keys(mcpSkills));
+  }
+
   const lastUserMsg = [...params.messages].reverse().find((m) => m.role === "user");
   const query = lastUserMsg?.content || "";
 
