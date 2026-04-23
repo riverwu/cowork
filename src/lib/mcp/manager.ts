@@ -5,13 +5,14 @@
  * Format (compatible with Claude Desktop):
  * {
  *   "mcpServers": {
- *     "filesystem": {
- *       "command": "npx",
- *       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path"],
- *       "env": {}
+ *     "browser": {
+ *       "command": "uvx",
+ *       "args": ["--from", "browser-use[cli]", "browser-use", "--mcp"]
  *     }
  *   }
  * }
+ *
+ * Default servers are auto-configured on first startup.
  */
 
 import { McpClient } from "./client";
@@ -24,20 +25,84 @@ interface McpServerEntry {
   args: string[];
   env?: Record<string, string>;
   enabled?: boolean;
+  /** Whether this is a built-in default server. */
+  builtin?: boolean;
 }
 
 interface McpConfig {
   mcpServers: Record<string, McpServerEntry>;
 }
 
+/**
+ * Default MCP servers — pre-configured and auto-installed on first startup.
+ * These provide core network capabilities without user configuration.
+ */
+const DEFAULT_SERVERS: Record<string, McpServerEntry> = {
+  browser: {
+    command: "uvx",
+    args: ["--from", "browser-use[cli]", "browser-use", "--mcp"],
+    builtin: true,
+  },
+  fetch: {
+    command: "uvx",
+    args: ["@anthropic/mcp-server-fetch"],
+    builtin: true,
+  },
+};
+
+/**
+ * Preset servers available in the "Add Connection" UI.
+ * These are NOT auto-installed — user chooses to add them.
+ */
+export const MCP_PRESETS = [
+  {
+    id: "brave-search",
+    label: "Brave Search",
+    description: "Web search via Brave Search API",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-brave-search"],
+    requiresEnv: "BRAVE_API_KEY",
+  },
+  {
+    id: "filesystem",
+    label: "File System",
+    description: "Enhanced file system operations",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "~"],
+  },
+  {
+    id: "memory",
+    label: "Memory Server",
+    description: "Knowledge graph memory",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-memory"],
+  },
+  {
+    id: "github",
+    label: "GitHub",
+    description: "GitHub repositories, issues, PRs",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-github"],
+    requiresEnv: "GITHUB_PERSONAL_ACCESS_TOKEN",
+  },
+  {
+    id: "postgres",
+    label: "PostgreSQL",
+    description: "Query PostgreSQL databases",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-postgres"],
+  },
+];
+
 class McpManager {
   private clients = new Map<string, McpClient>();
   private config: McpConfig = { mcpServers: {} };
   private configPath: string | null = null;
 
-  /** Load config and connect to all enabled MCP servers. */
+  /** Load config (with defaults on first run) and connect to all enabled servers. */
   async initialize(): Promise<void> {
     await this.loadConfig();
+    await this.ensureDefaults();
     await this.connectAll();
   }
 
@@ -53,16 +118,24 @@ class McpManager {
   }
 
   /** Get connected server info for UI display. */
-  getServerStatus(): Array<{ id: string; name: string; connected: boolean; toolCount: number }> {
-    const status: Array<{ id: string; name: string; connected: boolean; toolCount: number }> = [];
+  getServerStatus(): Array<{
+    id: string; name: string; connected: boolean; toolCount: number;
+    builtin: boolean; enabled: boolean;
+  }> {
+    const status: Array<{
+      id: string; name: string; connected: boolean; toolCount: number;
+      builtin: boolean; enabled: boolean;
+    }> = [];
 
-    for (const id of Object.keys(this.config.mcpServers)) {
+    for (const [id, entry] of Object.entries(this.config.mcpServers)) {
       const client = this.clients.get(id);
       status.push({
         id,
         name: id,
         connected: client?.isConnected() || false,
         toolCount: client?.getTools().length || 0,
+        builtin: entry.builtin || false,
+        enabled: entry.enabled !== false,
       });
     }
 
@@ -76,15 +149,32 @@ class McpManager {
     await this.connectServer(id, entry);
   }
 
-  /** Remove an MCP server. */
+  /** Remove an MCP server (cannot remove built-in, only disable). */
   async removeServer(id: string): Promise<void> {
+    const entry = this.config.mcpServers[id];
+
     const client = this.clients.get(id);
     if (client) {
       await client.disconnect();
       this.clients.delete(id);
     }
-    delete this.config.mcpServers[id];
+
+    if (entry?.builtin) {
+      // Don't delete built-in servers, just disable
+      this.config.mcpServers[id] = { ...entry, enabled: false };
+    } else {
+      delete this.config.mcpServers[id];
+    }
     await this.saveConfig();
+  }
+
+  /** Enable a disabled server. */
+  async enableServer(id: string): Promise<void> {
+    const entry = this.config.mcpServers[id];
+    if (!entry) return;
+    entry.enabled = true;
+    await this.saveConfig();
+    await this.connectServer(id, entry);
   }
 
   /** Reconnect a specific server. */
@@ -118,8 +208,23 @@ class McpManager {
       const content = await readFileText(this.configPath);
       this.config = JSON.parse(content);
     } catch {
-      // No config file yet — that's fine
       this.config = { mcpServers: {} };
+    }
+  }
+
+  /** Ensure default servers are in config. Only runs on first startup. */
+  private async ensureDefaults(): Promise<void> {
+    let changed = false;
+
+    for (const [id, entry] of Object.entries(DEFAULT_SERVERS)) {
+      if (!(id in this.config.mcpServers)) {
+        this.config.mcpServers[id] = { ...entry };
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      await this.saveConfig();
     }
   }
 
@@ -134,12 +239,16 @@ class McpManager {
 
   private async connectAll(): Promise<void> {
     const entries = Object.entries(this.config.mcpServers);
-    for (const [id, entry] of entries) {
-      if (entry.enabled === false) continue;
-      await this.connectServer(id, entry).catch((err) => {
-        console.error(`Failed to connect MCP server '${id}':`, err);
-      });
-    }
+    // Connect in parallel, don't let one failure block others
+    await Promise.allSettled(
+      entries
+        .filter(([, entry]) => entry.enabled !== false)
+        .map(([id, entry]) =>
+          this.connectServer(id, entry).catch((err) => {
+            console.warn(`MCP '${id}' failed to connect:`, err);
+          }),
+        ),
+    );
   }
 
   private async connectServer(id: string, entry: McpServerEntry): Promise<void> {
@@ -153,7 +262,7 @@ class McpManager {
 
     await client.connect();
     this.clients.set(id, client);
-    console.log(`MCP server '${id}' connected: ${client.getTools().length} tools`);
+    console.log(`MCP '${id}' connected: ${client.getTools().length} tools`);
   }
 }
 

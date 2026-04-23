@@ -1,23 +1,23 @@
 import { useEffect, useState } from "react";
 import { listApps, createApp } from "@/lib/db";
-import { mcpManager } from "@/lib/mcp";
+import { mcpManager, MCP_PRESETS } from "@/lib/mcp";
 import {
-  IconPlus, IconPlay, IconClock, IconSettings, IconClose,
+  IconPlus, IconPlay, IconClock, IconClose,
   IconChannel, IconWarning,
 } from "@/components/icons";
-import type { App } from "@/types";
 import { t } from "@/lib/i18n";
-import type { AppDefinition } from "@/types";
+import type { App, AppDefinition } from "@/types";
 
 export function AppsPage() {
   const [apps, setApps] = useState<App[]>([]);
-  const [mcpStatus, setMcpStatus] = useState<Array<{ id: string; name: string; connected: boolean; toolCount: number }>>([]);
+  const [mcpStatus, setMcpStatus] = useState<Array<{
+    id: string; name: string; connected: boolean; toolCount: number;
+    builtin: boolean; enabled: boolean;
+  }>>([]);
   const [showCreateApp, setShowCreateApp] = useState(false);
   const [showAddConnection, setShowAddConnection] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   async function loadData() {
     const [appList, status] = await Promise.all([
@@ -31,7 +31,7 @@ export function AppsPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-4xl mx-auto px-8 py-8">
-        {/* My Apps Section */}
+        {/* My Apps */}
         <section className="mb-10">
           <div className="flex items-center justify-between mb-4">
             <h1 className="text-[18px] font-bold text-[var(--on-surface)]">{t("apps.myApps")}</h1>
@@ -45,7 +45,7 @@ export function AppsPage() {
 
           {apps.length === 0 ? (
             <div className="bg-[var(--surface-lowest)] rounded-xl border border-[var(--border)] p-8 text-center">
-              <p className="text-[13px] text-[var(--on-surface-tertiary)] mb-1">{t("apps.noApps")}</p>
+              <p className="text-[13px] text-[var(--on-surface-tertiary)]">{t("apps.noApps")}</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3">
@@ -56,7 +56,7 @@ export function AppsPage() {
           )}
         </section>
 
-        {/* Connections Section (MCP) */}
+        {/* Connections (MCP) */}
         <section>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-[16px] font-bold text-[var(--on-surface)] flex items-center gap-2">
@@ -70,35 +70,24 @@ export function AppsPage() {
             </button>
           </div>
 
-          {mcpStatus.length === 0 ? (
-            <div className="bg-[var(--surface-lowest)] rounded-xl border border-[var(--border)] p-8 text-center">
-              <p className="text-[13px] text-[var(--on-surface-tertiary)] mb-1">{t("connections.noConnections")}</p>
-              <p className="text-[12px] text-[var(--on-surface-tertiary)]">{t("connections.noConnectionsHint")}</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {mcpStatus.map((server) => (
-                <ConnectionCard key={server.id} server={server} onRefresh={loadData} />
-              ))}
-            </div>
-          )}
+          <div className="space-y-2">
+            {mcpStatus.map((server) => (
+              <ConnectionCard key={server.id} server={server} onRefresh={loadData} />
+            ))}
+            {mcpStatus.length === 0 && (
+              <div className="bg-[var(--surface-lowest)] rounded-xl border border-[var(--border)] p-6 text-center">
+                <p className="text-[13px] text-[var(--on-surface-tertiary)]">{t("connections.noConnections")}</p>
+              </div>
+            )}
+          </div>
         </section>
       </div>
 
-      {/* Create App Dialog */}
-      {showCreateApp && (
-        <CreateAppDialog onClose={() => setShowCreateApp(false)} onCreated={loadData} />
-      )}
-
-      {/* Add Connection Dialog */}
-      {showAddConnection && (
-        <AddConnectionDialog onClose={() => setShowAddConnection(false)} onAdded={loadData} />
-      )}
+      {showCreateApp && <CreateAppDialog onClose={() => setShowCreateApp(false)} onCreated={loadData} />}
+      {showAddConnection && <AddConnectionDialog onClose={() => setShowAddConnection(false)} onAdded={loadData} />}
     </div>
   );
 }
-
-// ---- App Card ----
 
 function AppCard({ app }: { app: App }) {
   return (
@@ -110,32 +99,27 @@ function AppCard({ app }: { app: App }) {
         </button>
       </div>
       <p className="text-[12px] text-[var(--on-surface-secondary)] leading-relaxed line-clamp-2 mb-3">
-        {app.definition.goal || "No description"}
+        {app.definition.goal || "—"}
       </p>
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1 text-[11px] text-[var(--on-surface-tertiary)]">
-          <IconClock size={11} />
-          v{app.version}
-        </span>
-        <span className="text-[11px] text-[var(--on-surface-tertiary)]">
-          {t("apps.lastRun")}: {t("apps.never")}
+          <IconClock size={11} /> v{app.version}
         </span>
       </div>
     </div>
   );
 }
 
-// ---- Connection Card ----
-
 function ConnectionCard({ server, onRefresh }: {
-  server: { id: string; name: string; connected: boolean; toolCount: number };
+  server: { id: string; name: string; connected: boolean; toolCount: number; builtin: boolean; enabled: boolean };
   onRefresh: () => void;
 }) {
-  const [removing, setRemoving] = useState(false);
-
-  async function handleRemove() {
-    setRemoving(true);
-    await mcpManager.removeServer(server.id);
+  async function handleToggle() {
+    if (server.enabled && server.connected) {
+      await mcpManager.removeServer(server.id);
+    } else {
+      await mcpManager.enableServer(server.id);
+    }
     onRefresh();
   }
 
@@ -146,37 +130,46 @@ function ConnectionCard({ server, onRefresh }: {
 
   return (
     <div className="bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl px-4 py-3 flex items-center gap-4">
-      <div className="w-9 h-9 rounded-lg bg-[var(--surface-low)] flex items-center justify-center text-[var(--on-surface-secondary)]">
+      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+        server.connected ? "bg-emerald-50 text-emerald-600" : "bg-[var(--surface-low)] text-[var(--on-surface-tertiary)]"
+      }`}>
         <IconChannel size={16} />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-medium text-[var(--on-surface)]">{server.name}</div>
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-medium text-[var(--on-surface)]">{server.name}</span>
+          {server.builtin && (
+            <span className="text-[10px] px-1.5 py-[1px] rounded-full bg-blue-50 text-blue-600 font-medium">
+              {t("connections.builtin")}
+            </span>
+          )}
+        </div>
         <div className="text-[11px] text-[var(--on-surface-tertiary)]">
-          {server.toolCount} {t("connections.tools")}
+          {server.connected
+            ? `${server.toolCount} ${t("connections.tools")} · ${t("connections.connected")}`
+            : server.enabled ? t("connections.connecting") : t("connections.disabled")}
         </div>
       </div>
-      <span className={`text-[11px] px-2 py-0.5 rounded-full ${
-        server.connected
-          ? "bg-emerald-50 text-emerald-700"
-          : "bg-red-50 text-red-600"
-      }`}>
-        {server.connected ? t("connections.connected") : t("connections.disconnected")}
-      </span>
       <div className="flex items-center gap-1">
-        {!server.connected && (
-          <button onClick={handleReconnect} className="p-1.5 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--primary-accent)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors" title={t("connections.reconnect")}>
-            <IconSettings size={13} />
+        {server.enabled && !server.connected && (
+          <button onClick={handleReconnect} className="px-2.5 py-1 rounded-lg text-[11px] text-[var(--primary-accent)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors">
+            {t("connections.reconnect")}
           </button>
         )}
-        <button onClick={handleRemove} disabled={removing} className="p-1.5 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--error)] hover:bg-red-50 cursor-pointer transition-colors" title={t("connections.remove")}>
-          <IconClose size={13} />
+        <button
+          onClick={handleToggle}
+          className={`px-2.5 py-1 rounded-lg text-[11px] cursor-pointer transition-colors ${
+            server.enabled
+              ? "text-[var(--on-surface-tertiary)] hover:text-[var(--error)] hover:bg-red-50"
+              : "text-[var(--primary-accent)] hover:bg-[var(--surface-low)]"
+          }`}
+        >
+          {server.enabled ? t("connections.disable") : t("connections.enable")}
         </button>
       </div>
     </div>
   );
 }
-
-// ---- Create App Dialog ----
 
 function CreateAppDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState("");
@@ -193,91 +186,41 @@ function CreateAppDialog({ onClose, onCreated }: { onClose: () => void; onCreate
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-[var(--surface-lowest)] rounded-2xl border border-[var(--border)] shadow-[var(--shadow-lg)] w-[480px] max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-[var(--on-surface)]">{t("apps.create")}</h2>
-          <button onClick={onClose} className="p-1 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] cursor-pointer"><IconClose size={16} /></button>
-        </div>
-
-        <div className="px-6 py-5 space-y-4">
-          <div>
-            <label className="block text-[13px] font-medium text-[var(--on-surface)] mb-1.5">{t("apps.name")}</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t("apps.name")}
-              className="w-full px-3 py-2 bg-[var(--surface-low)] border border-[var(--border)] rounded-lg text-[13px] text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none focus:border-[var(--primary-accent)]"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[13px] font-medium text-[var(--on-surface)] mb-1.5">{t("apps.goal")}</label>
-            <textarea
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              placeholder={t("apps.goalPlaceholder")}
-              rows={4}
-              className="w-full px-3 py-2 bg-[var(--surface-low)] border border-[var(--border)] rounded-lg text-[13px] text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none focus:border-[var(--primary-accent)] resize-none"
-            />
-          </div>
-
-          {/* Available tools hint */}
-          <div className="bg-[var(--surface-low)] rounded-lg px-3 py-2.5">
-            <p className="text-[11px] text-[var(--on-surface-tertiary)] mb-1.5">可用工具：</p>
-            <div className="flex flex-wrap gap-1">
-              {["search_knowledge", "read_file", "write_file", "grep", "run_python", "create_artifact"].map((tool) => (
-                <span key={tool} className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-container)] text-[var(--on-surface-secondary)]">{tool}</span>
-              ))}
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">+ MCP tools</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="px-6 py-4 border-t border-[var(--border)] flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors">
-            {t("apps.cancel")}
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!name.trim() || !goal.trim() || saving}
-            className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer transition-colors disabled:opacity-40"
-          >
-            {saving ? t("settings.saving") : t("apps.save")}
-          </button>
-        </div>
+    <DialogOverlay onClose={onClose}>
+      <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between">
+        <h2 className="text-[15px] font-semibold text-[var(--on-surface)]">{t("apps.create")}</h2>
+        <button onClick={onClose} className="p-1 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] cursor-pointer"><IconClose size={16} /></button>
       </div>
-    </div>
+      <div className="px-6 py-5 space-y-4">
+        <Field label={t("apps.name")}>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("apps.name")} className={inputClass} />
+        </Field>
+        <Field label={t("apps.goal")}>
+          <textarea value={goal} onChange={(e) => setGoal(e.target.value)} placeholder={t("apps.goalPlaceholder")} rows={4} className={`${inputClass} resize-none`} />
+        </Field>
+      </div>
+      <div className="px-6 py-4 border-t border-[var(--border)] flex justify-end gap-2">
+        <button onClick={onClose} className="px-4 py-2 rounded-lg text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer">{t("apps.cancel")}</button>
+        <button onClick={handleSave} disabled={!name.trim() || !goal.trim() || saving} className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer disabled:opacity-40">
+          {saving ? "..." : t("apps.save")}
+        </button>
+      </div>
+    </DialogOverlay>
   );
 }
 
-// ---- Add Connection Dialog ----
-
 function AddConnectionDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const [mode, setMode] = useState<"presets" | "custom">("presets");
   const [id, setId] = useState("");
   const [command, setCommand] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Preset connections for quick setup
-  const presets = [
-    { id: "filesystem", label: "File System", command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "~"] },
-    { id: "memory", label: "Memory", command: "npx", args: ["-y", "@modelcontextprotocol/server-memory"] },
-    { id: "brave-search", label: "Brave Search", command: "npx", args: ["-y", "@modelcontextprotocol/server-brave-search"] },
-  ];
-
-  async function handleConnect() {
-    if (!id.trim() || !command.trim()) return;
+  async function handleConnectPreset(preset: typeof MCP_PRESETS[0]) {
     setConnecting(true);
     setError(null);
-
     try {
-      // Parse command string into command + args
-      const parts = command.trim().split(/\s+/);
-      const cmd = parts[0];
-      const args = parts.slice(1);
-
-      await mcpManager.addServer(id.trim(), { command: cmd, args });
+      await mcpManager.addServer(preset.id, { command: preset.command, args: preset.args });
       onAdded();
       onClose();
     } catch (err) {
@@ -286,77 +229,109 @@ function AddConnectionDialog({ onClose, onAdded }: { onClose: () => void; onAdde
     }
   }
 
-  function applyPreset(preset: typeof presets[0]) {
-    setId(preset.id);
-    setCommand(`${preset.command} ${preset.args.join(" ")}`);
+  async function handleConnectCustom() {
+    if (!id.trim() || !command.trim()) return;
+    setConnecting(true);
+    setError(null);
+    try {
+      const parts = command.trim().split(/\s+/);
+      await mcpManager.addServer(id.trim(), { command: parts[0], args: parts.slice(1) });
+      onAdded();
+      onClose();
+    } catch (err) {
+      setError(String(err));
+      setConnecting(false);
+    }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-[var(--surface-lowest)] rounded-2xl border border-[var(--border)] shadow-[var(--shadow-lg)] w-[480px]" onClick={(e) => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-[var(--on-surface)]">{t("connections.add")}</h2>
-          <button onClick={onClose} className="p-1 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] cursor-pointer"><IconClose size={16} /></button>
-        </div>
+    <DialogOverlay onClose={onClose}>
+      <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between">
+        <h2 className="text-[15px] font-semibold text-[var(--on-surface)]">{t("connections.add")}</h2>
+        <button onClick={onClose} className="p-1 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] cursor-pointer"><IconClose size={16} /></button>
+      </div>
 
-        <div className="px-6 py-5 space-y-4">
-          {/* Presets */}
-          <div>
-            <p className="text-[12px] text-[var(--on-surface-tertiary)] mb-2">快速连接：</p>
-            <div className="flex flex-wrap gap-2">
-              {presets.map((preset) => (
-                <button
-                  key={preset.id}
-                  onClick={() => applyPreset(preset)}
-                  className="px-3 py-1.5 rounded-lg text-[12px] border border-[var(--border)] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] hover:border-[var(--primary-accent)] cursor-pointer transition-colors"
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[13px] font-medium text-[var(--on-surface)] mb-1.5">{t("connections.id")}</label>
-            <input
-              value={id}
-              onChange={(e) => setId(e.target.value)}
-              placeholder={t("connections.idPlaceholder")}
-              className="w-full px-3 py-2 bg-[var(--surface-low)] border border-[var(--border)] rounded-lg text-[13px] text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none focus:border-[var(--primary-accent)]"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[13px] font-medium text-[var(--on-surface)] mb-1.5">{t("connections.command")}</label>
-            <input
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              placeholder={t("connections.commandPlaceholder")}
-              className="w-full px-3 py-2 bg-[var(--surface-low)] border border-[var(--border)] rounded-lg text-[13px] text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none focus:border-[var(--primary-accent)] font-mono"
-            />
-          </div>
-
-          {error && (
-            <div className="flex items-start gap-2 p-3 rounded-lg bg-[var(--error-light)] text-[var(--error)] text-[12px]">
-              <IconWarning size={14} />
-              <span>{error}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="px-6 py-4 border-t border-[var(--border)] flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors">
-            {t("apps.cancel")}
-          </button>
+      <div className="px-6 py-5">
+        {/* Tab switch */}
+        <div className="flex gap-1 mb-4 p-1 rounded-lg bg-[var(--surface-low)]">
           <button
-            onClick={handleConnect}
-            disabled={!id.trim() || !command.trim() || connecting}
-            className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer transition-colors disabled:opacity-40"
-          >
-            {connecting ? "连接中..." : t("connections.add")}
-          </button>
+            onClick={() => setMode("presets")}
+            className={`flex-1 py-1.5 rounded-md text-[12px] font-medium cursor-pointer transition-colors ${mode === "presets" ? "bg-[var(--surface-lowest)] text-[var(--on-surface)] shadow-sm" : "text-[var(--on-surface-tertiary)]"}`}
+          >{t("connections.presets")}</button>
+          <button
+            onClick={() => setMode("custom")}
+            className={`flex-1 py-1.5 rounded-md text-[12px] font-medium cursor-pointer transition-colors ${mode === "custom" ? "bg-[var(--surface-lowest)] text-[var(--on-surface)] shadow-sm" : "text-[var(--on-surface-tertiary)]"}`}
+          >{t("connections.custom")}</button>
         </div>
+
+        {mode === "presets" ? (
+          <div className="space-y-2">
+            {MCP_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                onClick={() => handleConnectPreset(preset)}
+                disabled={connecting}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--border)] hover:bg-[var(--surface-low)] hover:border-[var(--primary-accent)] text-left cursor-pointer transition-all disabled:opacity-40"
+              >
+                <div className="w-8 h-8 rounded-lg bg-[var(--surface-container)] flex items-center justify-center text-[var(--on-surface-secondary)]">
+                  <IconChannel size={15} />
+                </div>
+                <div className="flex-1">
+                  <div className="text-[13px] font-medium text-[var(--on-surface)]">{preset.label}</div>
+                  <div className="text-[11px] text-[var(--on-surface-tertiary)]">{preset.description}</div>
+                </div>
+                {preset.requiresEnv && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">API Key</span>
+                )}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Field label={t("connections.id")}>
+              <input value={id} onChange={(e) => setId(e.target.value)} placeholder={t("connections.idPlaceholder")} className={inputClass} />
+            </Field>
+            <Field label={t("connections.command")}>
+              <input value={command} onChange={(e) => setCommand(e.target.value)} placeholder={t("connections.commandPlaceholder")} className={`${inputClass} font-mono`} />
+            </Field>
+            <div className="flex justify-end">
+              <button onClick={handleConnectCustom} disabled={!id.trim() || !command.trim() || connecting} className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer disabled:opacity-40">
+                {connecting ? "..." : t("connections.add")}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="mt-3 flex items-start gap-2 p-3 rounded-lg bg-[var(--error-light)] text-[var(--error)] text-[12px]">
+            <IconWarning size={14} />
+            <span>{error}</span>
+          </div>
+        )}
+      </div>
+    </DialogOverlay>
+  );
+}
+
+// ---- Shared components ----
+
+function DialogOverlay({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-[var(--surface-lowest)] rounded-2xl border border-[var(--border)] shadow-[var(--shadow-lg)] w-[480px] max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {children}
       </div>
     </div>
   );
 }
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-[13px] font-medium text-[var(--on-surface)] mb-1.5">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const inputClass = "w-full px-3 py-2 bg-[var(--surface-low)] border border-[var(--border)] rounded-lg text-[13px] text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none focus:border-[var(--primary-accent)]";
