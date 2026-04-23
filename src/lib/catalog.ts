@@ -171,7 +171,7 @@ export const CATALOG_MCPS: CatalogMcp[] = [
       description: "Web browsing and page automation — navigate pages, click, type, extract content",
       command: "uvx",
       args: ["--from", "browser-use[cli]", "browser-use", "--mcp"],
-      env: { BROWSER_USE_HEADLESS: "true" },
+      env: { BROWSER_USE_HEADLESS: "false" },
       enabled: true,
     },
   },
