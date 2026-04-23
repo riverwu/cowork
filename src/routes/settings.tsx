@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getSettings, saveSettings } from "@/lib/db";
 import { useAppStore } from "@/stores/app-store";
+import { t } from "@/lib/i18n";
 import type { Settings } from "@/types";
 
 const ANTHROPIC_MODELS = [
@@ -15,6 +16,8 @@ const OPENAI_MODELS = [
   { id: "o3-mini", label: "o3 Mini" },
 ];
 
+const inputClass = "w-full px-3 py-2 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-lg text-[13px] text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:outline-none focus:border-[var(--primary-container)] focus:ring-2 focus:ring-[var(--primary-fixed-dim)]/20";
+
 export function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [customModel, setCustomModel] = useState(false);
@@ -25,7 +28,6 @@ export function SettingsPage() {
   useEffect(() => {
     getSettings().then((s) => {
       setSettings(s);
-      // Check if model ID is not in presets — enable custom input
       const presets = s.llmProvider === "anthropic" ? ANTHROPIC_MODELS : OPENAI_MODELS;
       if (s.modelId && !presets.find((m) => m.id === s.modelId)) {
         setCustomModel(true);
@@ -36,16 +38,14 @@ export function SettingsPage() {
   if (!settings) return null;
 
   const models = settings.llmProvider === "anthropic" ? ANTHROPIC_MODELS : OPENAI_MODELS;
-  const currentKey =
-    settings.llmProvider === "anthropic" ? settings.anthropicApiKey : settings.openaiApiKey;
-  const currentBaseUrl =
-    settings.llmProvider === "anthropic" ? settings.anthropicBaseUrl : settings.openaiBaseUrl;
+  const currentKey = settings.llmProvider === "anthropic" ? settings.anthropicApiKey : settings.openaiApiKey;
+  const currentBaseUrl = settings.llmProvider === "anthropic" ? settings.anthropicBaseUrl : settings.openaiBaseUrl;
 
   async function handleSave() {
     if (!settings) return;
     setSaving(true);
     await saveSettings(settings);
-    await loadAppState(); // Refresh app state (hasApiKey etc.)
+    await loadAppState();
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -68,17 +68,16 @@ export function SettingsPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-xl mx-auto py-10 px-6">
-        <h1 className="text-xl font-semibold mb-6">Settings</h1>
+        <h1 className="text-[18px] font-semibold mb-6 text-[var(--on-surface)]">{t("settings.title")}</h1>
 
-        {/* Provider */}
         <section className="mb-6">
-          <label className="block text-sm font-medium mb-2">LLM Provider</label>
+          <label className="block text-[13px] font-medium mb-2 text-[var(--on-surface)]">{t("settings.provider")}</label>
           <div className="flex gap-2">
             {(["anthropic", "openai"] as const).map((p) => (
               <button
                 key={p}
                 onClick={() => updateField("llmProvider", p)}
-                className={`px-4 py-2 rounded text-sm cursor-pointer transition-colors ${
+                className={`px-4 py-[7px] rounded-lg text-[13px] cursor-pointer transition-colors ${
                   settings.llmProvider === p
                     ? "bg-[var(--primary-container)] text-white"
                     : "bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-high)]"
@@ -90,9 +89,8 @@ export function SettingsPage() {
           </div>
         </section>
 
-        {/* API Key */}
         <section className="mb-6">
-          <label className="block text-sm font-medium mb-2">API Key</label>
+          <label className="block text-[13px] font-medium mb-2 text-[var(--on-surface)]">{t("settings.apiKey")}</label>
           <input
             type="password"
             value={currentKey || ""}
@@ -100,16 +98,15 @@ export function SettingsPage() {
               const key = settings.llmProvider === "anthropic" ? "anthropicApiKey" : "openaiApiKey";
               updateField(key, e.target.value);
             }}
-            placeholder={`Enter your ${settings.llmProvider === "anthropic" ? "Anthropic" : "OpenAI"} API key`}
-            className="w-full px-3 py-2 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-lg text-sm text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:outline-none focus:border-[var(--primary-container)] focus:ring-2 focus:ring-[var(--primary-fixed-dim)]/20"
+            placeholder="sk-..."
+            className={inputClass}
           />
         </section>
 
-        {/* API Base URL */}
         <section className="mb-6">
-          <label className="block text-sm font-medium mb-2">
-            API Base URL
-            <span className="text-[var(--outline)] font-normal ml-1">(optional)</span>
+          <label className="block text-[13px] font-medium mb-2 text-[var(--on-surface)]">
+            {t("settings.baseUrl")}
+            <span className="text-[var(--outline)] font-normal ml-1">{t("settings.baseUrl.optional")}</span>
           </label>
           <input
             type="text"
@@ -118,39 +115,27 @@ export function SettingsPage() {
               const key = settings.llmProvider === "anthropic" ? "anthropicBaseUrl" : "openaiBaseUrl";
               updateField(key, e.target.value || undefined);
             }}
-            placeholder={
-              settings.llmProvider === "anthropic"
-                ? "https://api.anthropic.com (default)"
-                : "https://api.openai.com/v1 (default)"
-            }
-            className="w-full px-3 py-2 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-lg text-sm text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:outline-none focus:border-[var(--primary-container)] focus:ring-2 focus:ring-[var(--primary-fixed-dim)]/20"
+            placeholder={settings.llmProvider === "anthropic" ? "https://api.anthropic.com" : "https://api.openai.com/v1"}
+            className={inputClass}
           />
-          <p className="text-xs text-[var(--outline)] mt-1">
-            Custom endpoint for proxies or compatible services (e.g. Ollama, vLLM, Azure OpenAI).
-          </p>
+          <p className="text-[11px] text-[var(--outline)] mt-1.5">{t("settings.baseUrl.hint")}</p>
         </section>
 
-        {/* Model */}
-        <section className="mb-6">
-          <label className="block text-sm font-medium mb-2">Model</label>
+        <section className="mb-8">
+          <label className="block text-[13px] font-medium mb-2 text-[var(--on-surface)]">{t("settings.model")}</label>
           {!customModel ? (
             <>
               <select
                 value={settings.modelId || models[0].id}
                 onChange={(e) => updateField("modelId", e.target.value)}
-                className="w-full px-3 py-2 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-lg text-sm text-[var(--on-surface)] focus:outline-none focus:border-[var(--primary-container)] focus:ring-2 focus:ring-[var(--primary-fixed-dim)]/20"
+                className={inputClass}
               >
                 {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
+                  <option key={m.id} value={m.id}>{m.label}</option>
                 ))}
               </select>
-              <button
-                onClick={() => setCustomModel(true)}
-                className="text-xs text-[var(--primary-container)] mt-1 cursor-pointer hover:underline"
-              >
-                Use custom model ID
+              <button onClick={() => setCustomModel(true)} className="text-[11px] text-[var(--primary-container)] mt-1.5 cursor-pointer hover:underline">
+                {t("settings.customModel")}
               </button>
             </>
           ) : (
@@ -159,29 +144,22 @@ export function SettingsPage() {
                 type="text"
                 value={settings.modelId || ""}
                 onChange={(e) => updateField("modelId", e.target.value)}
-                placeholder="Enter model ID (e.g. claude-sonnet-4-20250514)"
-                className="w-full px-3 py-2 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-lg text-sm text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:outline-none focus:border-[var(--primary-container)] focus:ring-2 focus:ring-[var(--primary-fixed-dim)]/20"
+                placeholder="model-id"
+                className={inputClass}
               />
-              <button
-                onClick={() => {
-                  setCustomModel(false);
-                  updateField("modelId", models[0].id);
-                }}
-                className="text-xs text-[var(--primary-container)] mt-1 cursor-pointer hover:underline"
-              >
-                Choose from presets
+              <button onClick={() => { setCustomModel(false); updateField("modelId", models[0].id); }} className="text-[11px] text-[var(--primary-container)] mt-1.5 cursor-pointer hover:underline">
+                {t("settings.presetModel")}
               </button>
             </>
           )}
         </section>
 
-        {/* Save */}
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-6 py-2 bg-[var(--primary-container)] hover:bg-[var(--primary)] text-white rounded text-sm cursor-pointer transition-colors disabled:opacity-50"
+          className="px-5 py-2 bg-[var(--primary-container)] hover:bg-[var(--primary)] text-white rounded-lg text-[13px] cursor-pointer transition-colors disabled:opacity-50"
         >
-          {saving ? "Saving..." : saved ? "Saved" : "Save"}
+          {saving ? t("settings.saving") : saved ? t("settings.saved") : t("settings.save")}
         </button>
       </div>
     </div>
