@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { IconDocument, IconCheck } from "@/components/icons";
+import { isContextDivider } from "@/stores/session-store";
+import { t } from "@/lib/i18n";
 import type { Message, Artifact } from "@/types";
 
 interface Step {
@@ -39,9 +41,19 @@ export function MessageList({
 
   return (
     <div className="space-y-5">
-      {messages.map((msg) => (
-        <MessageBubble key={msg.id} role={msg.role} content={msg.content} />
-      ))}
+      {messages.map((msg) =>
+        isContextDivider(msg) ? (
+          <div key={msg.id} className="flex items-center gap-3 py-2">
+            <div className="flex-1 h-px bg-[var(--border)]" />
+            <span className="text-[11px] text-[var(--on-surface-tertiary)] whitespace-nowrap">
+              {t("home.clearContextDone")}
+            </span>
+            <div className="flex-1 h-px bg-[var(--border)]" />
+          </div>
+        ) : (
+          <MessageBubble key={msg.id} role={msg.role} content={msg.content} />
+        ),
+      )}
 
       {isStreaming && (
         <div className="space-y-3">

@@ -6,10 +6,14 @@ import {
   createSession, createMessage, listMessages,
   listRecentSessions,
 } from "@/lib/db";
+import { now as dbNow, newId } from "@/lib/db";
 
-/** Max messages sent to LLM (context window management).
- *  UI shows all messages, but only recent ones go to the model. */
+/** Max messages sent to LLM (context window management). */
 const LLM_CONTEXT_WINDOW = 40;
+
+/** Special role for context divider markers. */
+const CONTEXT_DIVIDER_ROLE = "system" as const;
+const CONTEXT_DIVIDER_CONTENT = "__CONTEXT_CLEARED__";
 
 interface KnowledgeRef {
   documentId: string;
@@ -26,15 +30,13 @@ interface SessionState {
   artifacts: Artifact[];
   knowledgeRefs: KnowledgeRef[];
   error: string | null;
-  /** Whether the session has been loaded from DB on startup. */
   initialized: boolean;
 
-  /** Load the persistent session on app startup. Creates one if none exists. */
   initialize: () => Promise<void>;
-  /** Send a user message and run the agent. */
   sendMessage: (content: string) => Promise<void>;
-  /** Clear conversation display (start fresh visually, but history remains in DB). */
-  clearConversation: () => Promise<void>;
+  /** Clear LLM context — conversation history stays visible, but LLM starts fresh.
+   *  Inserts a divider; only messages after divider are sent to LLM. */
+  clearContext: () => void;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -49,17 +51,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   initialized: false,
 
   initialize: async () => {
-    // Try to resume the most recent active session
     const recent = await listRecentSessions(1);
     let sessionId: string;
     let messages: Message[] = [];
 
     if (recent.length > 0 && recent[0].status === "active") {
-      // Resume existing session
       sessionId = recent[0].id;
       messages = await listMessages(sessionId);
     } else {
-      // Create a new session
       const session = await createSession("Cowork");
       sessionId = session.id;
     }
@@ -78,20 +77,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sendMessage: async (content: string) => {
     let { sessionId } = get();
 
-    // Ensure session exists
     if (!sessionId) {
       const session = await createSession("Cowork");
       sessionId = session.id;
       set({ sessionId });
     }
 
-    // Persist user message immediately
     const userMsg = await createMessage({ sessionId, role: "user", content });
     set((s) => ({ messages: [...s.messages, userMsg] }));
 
-    // Build LLM message history (windowed for context management)
+    // Build LLM context: only messages AFTER the last context divider
     const allMessages = get().messages;
-    const windowedMessages = allMessages.slice(-LLM_CONTEXT_WINDOW);
+    const lastDividerIndex = findLastDividerIndex(allMessages);
+    const contextMessages = allMessages.slice(lastDividerIndex);
+    const windowedMessages = contextMessages.slice(-LLM_CONTEXT_WINDOW);
+
     const llmMessages: LLMMessage[] = windowedMessages
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({
@@ -99,7 +99,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         content: m.content,
       }));
 
-    // Start streaming
     set({ isStreaming: true, streamingText: "", steps: [], error: null, knowledgeRefs: [] });
 
     let fullText = "";
@@ -112,7 +111,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         }
       }
 
-      // Persist assistant message
       if (fullText) {
         const assistantMsg = await createMessage({
           sessionId,
@@ -132,22 +130,34 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  clearConversation: async () => {
-    // Create a new session for a fresh start
-    // Old messages remain in DB (accessible via memory system)
-    const session = await createSession("Cowork");
-    set({
-      sessionId: session.id,
-      messages: [],
-      isStreaming: false,
-      streamingText: "",
+  clearContext: () => {
+    // Insert a local divider marker — messages before it won't be sent to LLM
+    const divider: Message = {
+      id: newId(),
+      sessionId: get().sessionId || "",
+      role: CONTEXT_DIVIDER_ROLE,
+      content: CONTEXT_DIVIDER_CONTENT,
+      metadata: null,
+      createdAt: dbNow(),
+    };
+    set((s) => ({
+      messages: [...s.messages, divider],
       steps: [],
-      artifacts: [],
       knowledgeRefs: [],
       error: null,
-    });
+    }));
   },
 }));
+
+/** Find the index after the last context divider. Returns 0 if no divider. */
+function findLastDividerIndex(messages: Message[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === CONTEXT_DIVIDER_ROLE && messages[i].content === CONTEXT_DIVIDER_CONTENT) {
+      return i + 1;
+    }
+  }
+  return 0;
+}
 
 function handleEvent(
   event: AgentEvent,
@@ -181,4 +191,9 @@ function handleEvent(
       set(() => ({ error: event.error }));
       break;
   }
+}
+
+/** Check if a message is a context divider (for UI rendering). */
+export function isContextDivider(message: Message): boolean {
+  return message.role === CONTEXT_DIVIDER_ROLE && message.content === CONTEXT_DIVIDER_CONTENT;
 }

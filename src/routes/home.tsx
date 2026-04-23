@@ -7,7 +7,7 @@ import { ViewContainer } from "@/components/views/view-container";
 import { useSessionStore } from "@/stores/session-store";
 import {
   IconClock, IconChart, IconTaskList, IconMail, IconTrend,
-  IconFolder, IconPlus, IconPlay, IconCheck, IconDocument, IconClose, IconServer,
+  IconFolder, IconPlus, IconPlay, IconCheck, IconDocument, IconServer,
 } from "@/components/icons";
 import { t } from "@/lib/i18n";
 
@@ -15,11 +15,10 @@ export function Home() {
   const { initialized, hasApiKey, sources, mcpServers, load } = useAppStore();
   const {
     messages, isStreaming, streamingText, steps, artifacts,
-    knowledgeRefs, error, clearConversation,
+    knowledgeRefs, error,
   } = useSessionStore();
   const viewPanels = useViewStore((s) => s.panels);
   const addPanel = useViewStore((s) => s.addPanel);
-  const clearViews = useViewStore((s) => s.clear);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -86,19 +85,6 @@ export function Home() {
             {/* Conversation history */}
             {hasConversation && (
               <div className="pb-4">
-                {/* Clear conversation button */}
-                {messages.length > 0 && !isStreaming && (
-                  <div className="flex justify-center mb-4">
-                    <button
-                      onClick={() => { clearConversation(); clearViews(); }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] bg-[var(--surface-low)] hover:bg-[var(--surface-container)] transition-colors cursor-pointer"
-                    >
-                      <IconClose size={10} />
-                      {t("home.clearConversation")}
-                    </button>
-                  </div>
-                )}
-
                 <MessageList
                   messages={messages}
                   isStreaming={isStreaming}
