@@ -30,7 +30,7 @@ vi.mock("@/lib/knowledge/embeddings", () => ({
   generateEmbedding: vi.fn().mockResolvedValue(new Array(1536).fill(0)),
 }));
 
-import { readFileText, parseDocument, writeFile, listDirectory, grep, runPythonScript, initPythonEnv, webSearch, webFetch } from "@/lib/tauri";
+import { readFileText, parseDocument, writeFile, listDirectory, grep, runPythonScript, initPythonEnv, webSearch, webFetch, shellExec } from "@/lib/tauri";
 import { readFile } from "./read-document";
 import { writeFileSkill } from "./write-file";
 import { listDirectorySkill } from "./list-directory";
@@ -40,6 +40,7 @@ import { saveMemory } from "./save-memory";
 import { createArtifactSkill } from "./create-artifact";
 import { webSearchSkill } from "./web-search";
 import { webFetchSkill } from "./web-fetch";
+import { shellExecSkill } from "./shell-exec";
 
 const mockReadFileText = vi.mocked(readFileText);
 const mockParseDocument = vi.mocked(parseDocument);
@@ -49,6 +50,7 @@ const mockGrep = vi.mocked(grep);
 const mockRunPythonScript = vi.mocked(runPythonScript);
 const mockWebSearch = vi.mocked(webSearch);
 const mockWebFetch = vi.mocked(webFetch);
+const mockShellExec = vi.mocked(shellExec);
 const mockInitPythonEnv = vi.mocked(initPythonEnv);
 
 describe("read_file skill", () => {
@@ -260,5 +262,63 @@ describe("web_fetch skill", () => {
     });
     const result = await webFetchSkill.execute({ url: "https://spa.com" });
     expect(result).toContain("JavaScript-rendered");
+  });
+});
+
+describe("shell skill", () => {
+  it("executes a command and returns stdout", async () => {
+    mockShellExec.mockResolvedValue({ stdout: "hello world\n", stderr: "", exit_code: 0, timed_out: false });
+    const result = await shellExecSkill.execute({ command: ["echo", "hello world"] });
+    expect(result).toContain("hello world");
+  });
+
+  it("includes stderr in output", async () => {
+    mockShellExec.mockResolvedValue({ stdout: "", stderr: "warning: something", exit_code: 0, timed_out: false });
+    const result = await shellExecSkill.execute({ command: ["ls", "/bad"] });
+    expect(result).toContain("stderr");
+    expect(result).toContain("warning");
+  });
+
+  it("reports non-zero exit code", async () => {
+    mockShellExec.mockResolvedValue({ stdout: "", stderr: "error", exit_code: 1, timed_out: false });
+    const result = await shellExecSkill.execute({ command: ["false"] });
+    expect(result).toContain("Exit code: 1");
+  });
+
+  it("reports timeout", async () => {
+    mockShellExec.mockResolvedValue({ stdout: "", stderr: "timed out", exit_code: -1, timed_out: true });
+    const result = await shellExecSkill.execute({ command: ["sleep", "999"] });
+    expect(result).toContain("Timed out");
+  });
+
+  it("handles empty command", async () => {
+    const result = await shellExecSkill.execute({ command: [] });
+    expect(result).toContain("empty command");
+  });
+
+  it("passes cwd and timeout", async () => {
+    mockShellExec.mockResolvedValue({ stdout: "ok", stderr: "", exit_code: 0, timed_out: false });
+    await shellExecSkill.execute({ command: ["ls"], cwd: "/tmp", timeout_ms: 5000 });
+
+    expect(mockShellExec).toHaveBeenCalledWith({
+      command: ["ls"],
+      cwd: "/tmp",
+      timeout_ms: 5000,
+    });
+  });
+
+  it("caps timeout at 120000ms", async () => {
+    mockShellExec.mockResolvedValue({ stdout: "ok", stderr: "", exit_code: 0, timed_out: false });
+    await shellExecSkill.execute({ command: ["ls"], timeout_ms: 999999 });
+
+    expect(mockShellExec).toHaveBeenCalledWith(
+      expect.objectContaining({ timeout_ms: 120000 }),
+    );
+  });
+
+  it("returns (no output) for silent commands", async () => {
+    mockShellExec.mockResolvedValue({ stdout: "", stderr: "", exit_code: 0, timed_out: false });
+    const result = await shellExecSkill.execute({ command: ["true"] });
+    expect(result).toBe("(no output)");
   });
 });
