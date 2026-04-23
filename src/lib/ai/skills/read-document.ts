@@ -1,38 +1,44 @@
 import type { Skill } from "./types";
-import { parseDocument } from "@/lib/tauri";
+import { parseDocument, readFileText } from "@/lib/tauri";
 
-export const readDocument: Skill = {
+export const readFile: Skill = {
   definition: {
-    name: "read_document",
+    name: "read_file",
     description:
-      "Read the full contents of a specific document file. Use this when you need the complete text of a file rather than just relevant excerpts from search. Supports PDF, DOCX, XLSX, and text-based files.",
+      "Read the contents of a file. For documents (PDF, DOCX, XLSX), extracts text content. For text files (txt, md, csv, json, code), returns raw content. Use this when you need to see the full content of a specific file.",
     parameters: {
       type: "object",
       properties: {
-        file_path: {
+        path: {
           type: "string",
-          description: "The full path to the file to read",
+          description: "Absolute path to the file",
         },
       },
-      required: ["file_path"],
+      required: ["path"],
     },
   },
 
   async execute(input) {
-    const filePath = input.file_path as string;
+    const path = input.path as string;
     try {
-      const text = await parseDocument(filePath);
+      const ext = path.split(".").pop()?.toLowerCase() || "";
+      const docExtensions = ["pdf", "docx", "xlsx", "xls"];
+
+      const text = docExtensions.includes(ext)
+        ? await parseDocument(path)
+        : await readFileText(path);
+
       if (!text || text.trim().length === 0) {
-        return `The file "${filePath}" appears to be empty or could not be parsed.`;
+        return `File "${path}" is empty or could not be parsed.`;
       }
-      // Truncate very long documents to avoid context overflow
-      const maxLen = 15000;
+
+      const maxLen = 20000;
       if (text.length > maxLen) {
-        return `Document content (truncated to ${maxLen} chars):\n\n${text.slice(0, maxLen)}\n\n[... truncated, ${text.length - maxLen} more characters]`;
+        return `${text.slice(0, maxLen)}\n\n[... truncated, ${text.length - maxLen} more characters]`;
       }
-      return `Document content:\n\n${text}`;
+      return text;
     } catch (err) {
-      return `Failed to read document: ${err}`;
+      return `Error reading file: ${err}`;
     }
   },
 };

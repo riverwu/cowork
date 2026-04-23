@@ -4,7 +4,6 @@ import { getSkills } from "./skills/registry";
 import { buildSystemPrompt } from "./system-prompt";
 import { retrieveRelevant, buildKnowledgeContext } from "@/lib/knowledge";
 import { retrieveMemoryContext, buildMemoryPrompt, extractMemories } from "@/lib/memory";
-import { createArtifact } from "@/lib/db";
 import type { AgentEvent } from "@/types";
 
 const MAX_STEPS = 10;
@@ -124,7 +123,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         const durationMs = Date.now() - startTime;
 
         if (result.startsWith("__ARTIFACT__:")) {
-          const artifact = await handleArtifactResult(result, params.sessionId);
+          const artifact = parseArtifactMarker(result);
           if (artifact) {
             yield { type: "artifact", artifact };
           }
@@ -156,15 +155,26 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   }
 }
 
-async function handleArtifactResult(result: string, sessionId: string) {
+/** Parse artifact marker from create_artifact skill output.
+ *  The skill already saved to DB — we just need the data for the UI event. */
+function parseArtifactMarker(result: string) {
   const firstNewline = result.indexOf("\n");
+  if (firstNewline < 0) return null;
   const header = result.slice(0, firstNewline);
   const content = result.slice(firstNewline + 1);
   const parts = header.split(":");
   if (parts.length < 3) return null;
-  const type = parts[1] as "report" | "table";
-  const title = parts.slice(2).join(":");
-  return createArtifact({ sessionId, type, title, content });
+  return {
+    id: "",  // Already saved in DB by the skill
+    sessionId: null,
+    appId: null,
+    runId: null,
+    type: parts[1] as "report" | "table" | "action_list",
+    title: parts.slice(2).join(":"),
+    content,
+    metadata: null,
+    createdAt: Math.floor(Date.now() / 1000),
+  };
 }
 
 function summarizeResult(result: string): unknown {

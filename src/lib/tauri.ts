@@ -24,6 +24,48 @@ export async function parseDocument(path: string): Promise<string> {
   return invoke<string>("parse_document", { path });
 }
 
+/** Write content to a file. Creates parent dirs if needed. */
+export async function writeFile(path: string, content: string): Promise<void> {
+  return invoke<void>("write_file", { path, content });
+}
+
+/** List directory contents (non-recursive). */
+export async function listDirectory(path: string): Promise<FileInfo[]> {
+  return invoke<FileInfo[]>("list_directory", { path });
+}
+
+/** Search file contents recursively for a pattern. */
+export async function grep(directory: string, pattern: string, maxResults?: number): Promise<GrepMatch[]> {
+  return invoke<GrepMatch[]>("grep", { directory, pattern, maxResults });
+}
+
+export interface GrepMatch {
+  path: string;
+  line_number: number;
+  line: string;
+}
+
+export interface PythonResult {
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+}
+
+/** Execute Python script in the isolated environment. */
+export async function runPythonScript(script: string, timeoutSecs?: number): Promise<PythonResult> {
+  return invoke<PythonResult>("run_python_script", { script, timeoutSecs });
+}
+
+/** Initialize the isolated Python environment. */
+export async function initPythonEnv(): Promise<string> {
+  return invoke<string>("init_python_env");
+}
+
+/** Install a Python package into the isolated environment. */
+export async function installPythonPackage(pkg: string): Promise<string> {
+  return invoke<string>("install_python_package", { package: pkg });
+}
+
 /** Read an environment variable from the system. */
 export async function getEnv(key: string): Promise<string | null> {
   return invoke<string | null>("get_env", { key });

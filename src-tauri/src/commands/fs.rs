@@ -180,3 +180,170 @@ fn parse_xlsx(path: &str) -> Result<String, String> {
 
     Ok(text)
 }
+
+/// Write content to a file. Creates parent directories if needed.
+#[tauri::command]
+pub fn write_file(path: &str, content: &str) -> Result<(), String> {
+    let file_path = Path::new(path);
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+    fs::write(path, content).map_err(|e| format!("Failed to write {}: {}", path, e))
+}
+
+/// List directory contents (non-recursive).
+#[tauri::command]
+pub fn list_directory(path: &str) -> Result<Vec<FileInfo>, String> {
+    let dir = Path::new(path);
+    if !dir.is_dir() {
+        return Err(format!("Not a directory: {}", path));
+    }
+
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let entry = match entry { Ok(e) => e, Err(_) => continue };
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') { continue; }
+        let metadata = match entry.metadata() { Ok(m) => m, Err(_) => continue };
+        let modified_at = metadata.modified().ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs()).unwrap_or(0);
+        let ext = Path::new(&name).extension()
+            .map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+        entries.push(FileInfo {
+            name, path: entry.path().to_string_lossy().to_string(),
+            is_dir: metadata.is_dir(), size: metadata.len(), modified_at, extension: ext,
+        });
+    }
+    entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    Ok(entries)
+}
+
+#[derive(Debug, Serialize)]
+pub struct GrepMatch {
+    pub path: String,
+    pub line_number: u32,
+    pub line: String,
+}
+
+/// Search file contents recursively for a pattern.
+#[tauri::command]
+pub fn grep(directory: &str, pattern: &str, max_results: Option<u32>) -> Result<Vec<GrepMatch>, String> {
+    let dir = Path::new(directory);
+    if !dir.is_dir() { return Err(format!("Not a directory: {}", directory)); }
+    let max = max_results.unwrap_or(50) as usize;
+    let skip_dirs = ["node_modules", "target", ".git", "__pycache__", "dist", "build"];
+    let mut results = Vec::new();
+
+    for entry in WalkDir::new(dir).follow_links(false).into_iter()
+        .filter_entry(|e| { let n = e.file_name().to_string_lossy(); !n.starts_with('.') && !skip_dirs.contains(&n.as_ref()) })
+    {
+        if results.len() >= max { break; }
+        let entry = match entry { Ok(e) => e, Err(_) => continue };
+        if !entry.file_type().is_file() { continue; }
+        if let Ok(meta) = entry.metadata() { if meta.len() > 1_000_000 { continue; } }
+        let content = match fs::read_to_string(entry.path()) { Ok(c) => c, Err(_) => continue };
+        for (i, line) in content.lines().enumerate() {
+            if results.len() >= max { break; }
+            if line.contains(pattern) {
+                results.push(GrepMatch {
+                    path: entry.path().to_string_lossy().to_string(),
+                    line_number: (i + 1) as u32,
+                    line: line.to_string(),
+                });
+            }
+        }
+    }
+    Ok(results)
+}
+
+#[derive(Debug, Serialize)]
+pub struct PythonResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+}
+
+/// Execute Python script in the isolated environment.
+#[tauri::command]
+pub async fn run_python_script(script: String, timeout_secs: Option<u64>) -> Result<PythonResult, String> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::time::{timeout, Duration};
+
+    let home = dirs_next::home_dir().ok_or("Cannot find home directory")?;
+    let venv_python = home.join(".cowork/python/venv/bin/python3");
+    if !venv_python.exists() {
+        return Err("Python environment not initialized. Run init_python_env first.".to_string());
+    }
+
+    let duration = Duration::from_secs(timeout_secs.unwrap_or(30));
+    let result = timeout(duration, async {
+        let output = Command::new(venv_python.to_str().unwrap())
+            .arg("-c").arg(&script)
+            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .output().await.map_err(|e| format!("Failed to run Python: {}", e))?;
+        Ok::<PythonResult, String>(PythonResult {
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            exit_code: output.status.code().unwrap_or(-1),
+        })
+    }).await.map_err(|_| format!("Python timed out after {}s", timeout_secs.unwrap_or(30)))?;
+    result
+}
+
+/// Initialize isolated Python environment via uv.
+#[tauri::command]
+pub async fn init_python_env() -> Result<String, String> {
+    use tokio::process::Command;
+
+    let home = dirs_next::home_dir().ok_or("Cannot find home directory")?;
+    let cowork_dir = home.join(".cowork/python");
+    let venv_dir = cowork_dir.join("venv");
+
+    if venv_dir.join("bin/python3").exists() {
+        return Ok("Python environment already initialized.".to_string());
+    }
+
+    fs::create_dir_all(&cowork_dir).map_err(|e| format!("Failed to create dir: {}", e))?;
+    let uv = which_uv().await?;
+
+    let out = Command::new(&uv).args(["venv", venv_dir.to_str().unwrap(), "--python", "3.12"])
+        .output().await.map_err(|e| format!("uv venv failed: {}", e))?;
+    if !out.status.success() { return Err(format!("uv venv: {}", String::from_utf8_lossy(&out.stderr))); }
+
+    let out = Command::new(&uv).args(["pip", "install", "--python", venv_dir.join("bin/python3").to_str().unwrap(),
+        "pandas", "openpyxl", "python-docx", "matplotlib", "PyPDF2"])
+        .output().await.map_err(|e| format!("pip install failed: {}", e))?;
+    if !out.status.success() { return Err(format!("pip install: {}", String::from_utf8_lossy(&out.stderr))); }
+
+    Ok("Python environment initialized.".to_string())
+}
+
+/// Install a Python package into the isolated environment.
+#[tauri::command]
+pub async fn install_python_package(package: String) -> Result<String, String> {
+    use tokio::process::Command;
+    let home = dirs_next::home_dir().ok_or("Cannot find home directory")?;
+    let venv_python = home.join(".cowork/python/venv/bin/python3");
+    if !venv_python.exists() { return Err("Python environment not initialized.".to_string()); }
+    let uv = which_uv().await?;
+    let out = Command::new(&uv).args(["pip", "install", "--python", venv_python.to_str().unwrap(), &package])
+        .output().await.map_err(|e| format!("Install failed: {}", e))?;
+    if out.status.success() { Ok(format!("Installed {}", package)) }
+    else { Err(format!("Failed: {}", String::from_utf8_lossy(&out.stderr))) }
+}
+
+async fn which_uv() -> Result<String, String> {
+    if let Ok(out) = tokio::process::Command::new("which").arg("uv").output().await {
+        if out.status.success() {
+            let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !p.is_empty() { return Ok(p); }
+        }
+    }
+    let home = dirs_next::home_dir().ok_or("Cannot find home dir")?;
+    for p in [home.join(".cargo/bin/uv"), home.join(".local/bin/uv"), std::path::PathBuf::from("/usr/local/bin/uv")] {
+        if p.exists() { return Ok(p.to_string_lossy().to_string()); }
+    }
+    Err("uv not found. Install: https://docs.astral.sh/uv/getting-started/installation/".to_string())
+}
