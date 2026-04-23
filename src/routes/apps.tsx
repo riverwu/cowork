@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { listSkills, createSkill, deleteSkill } from "@/lib/db";
-import { loadSkillsFromFilesystem, type LoadedSkill } from "@/lib/ai/skill-loader";
+import { createSkill, deleteSkill } from "@/lib/db";
+import { skillRegistry } from "@/lib/ai/skill-registry";
 import { mcpManager, MCP_PRESETS } from "@/lib/mcp";
 import {
   IconPlus, IconPlay, IconClock, IconClose,
@@ -12,7 +12,6 @@ import type { SkillRecord, SkillDefinition, SkillType } from "@/types";
 export function AppsPage() {
   const [apps, setApps] = useState<SkillRecord[]>([]);
   const [skills, setSkills] = useState<SkillRecord[]>([]);
-  const [, setFsSkills] = useState<LoadedSkill[]>([]);
   const [mcpStatus, setMcpStatus] = useState<Array<{
     id: string; name: string; connected: boolean; toolCount: number;
     builtin: boolean; enabled: boolean;
@@ -25,22 +24,11 @@ export function AppsPage() {
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
-    const [dbSkills, fsLoaded, status] = await Promise.all([
-      listSkills(),
-      loadSkillsFromFilesystem().catch(() => []),
-      Promise.resolve(mcpManager.getServerStatus()),
-    ]);
-    // Merge DB skills + filesystem skills (fs takes precedence on ID collision)
-    const allRecords = [...dbSkills];
-    for (const fs of fsLoaded) {
-      if (!allRecords.find((r) => r.id === fs.record.id)) {
-        allRecords.push(fs.record);
-      }
-    }
-    setApps(allRecords.filter((s) => s.type === "app"));
-    setSkills(allRecords.filter((s) => s.type === "skill"));
-    setFsSkills(fsLoaded);
-    setMcpStatus(status);
+    // Skills from in-memory registry (loaded from filesystem)
+    const allSkills = skillRegistry.getAll().map((s) => s.record);
+    setApps(allSkills.filter((s) => s.type === "app"));
+    setSkills(allSkills.filter((s) => s.type === "skill"));
+    setMcpStatus(mcpManager.getServerStatus());
   }
 
   return (

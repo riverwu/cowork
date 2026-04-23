@@ -1,7 +1,8 @@
 import { getConfiguredProvider } from "./providers";
 import type { LLMMessage, StreamEvent } from "./providers/types";
 import { getSkills } from "./skills/registry";
-import { loadSkillTools, getSkillsDir } from "./skill-runner";
+import { skillRegistry } from "./skill-registry";
+import { getSkillsDir } from "./skill-loader";
 import { buildSystemPrompt } from "./system-prompt";
 import { retrieveRelevant, buildKnowledgeContext } from "@/lib/knowledge";
 import { retrieveMemoryContext, buildMemoryPrompt, extractMemories } from "@/lib/memory";
@@ -33,10 +34,9 @@ export interface AgentParams {
 export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent> {
   const provider = await getConfiguredProvider();
 
-  // Merge built-in skills + user skills + MCP tools
+  // Merge built-in skills + user skills (from registry) + MCP tools
   const builtinSkills = getSkills();
-  let userSkills: Record<string, import("./skills/types").Skill> = {};
-  try { userSkills = await loadSkillTools(); } catch { /* ignore */ }
+  const userSkills = skillRegistry.getTools();
   const mcpSkills = mcpManager.getAllSkills();
   const skills = { ...builtinSkills, ...userSkills, ...mcpSkills };
   const toolDefs = Object.values(skills).map((s) => s.definition);
@@ -79,9 +79,10 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     }
   }
 
-  // 3. Build system prompt
-  let skillsDir: string | undefined;
+  // 3. Build system prompt with system paths
+  let skillsDir = "";
   try { skillsDir = await getSkillsDir(); } catch { /* ignore */ }
+  const home = skillsDir.replace(/\/\.cowork\/skills$/, "");
 
   const system = buildSystemPrompt({
     tools: toolDefs,
@@ -89,7 +90,11 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     knowledgeContext: knowledgeContext || undefined,
     planMode: params.planMode,
     workingDirectory: params.workingDirectory,
-    skillsDirectory: skillsDir,
+    systemPaths: {
+      skills: skillsDir,
+      mcp: `${home}/.cowork/mcp.json`,
+      skillsSummary: skillRegistry.getSummary(),
+    },
   });
 
   // 4. Agent loop

@@ -115,7 +115,11 @@ export function buildSystemPrompt(params?: {
   tools?: ToolDefinition[];
   planMode?: boolean;
   workingDirectory?: string;
-  skillsDirectory?: string;
+  systemPaths?: {
+    skills: string;
+    mcp: string;
+    skillsSummary?: string;
+  };
 }): string {
   const sections = [
     IDENTITY,
@@ -130,19 +134,15 @@ export function buildSystemPrompt(params?: {
     sections.push(`## Working Directory\nYour current working directory is: \`${params.workingDirectory}\`\nAll file paths should be relative to or within this directory. Use this as the default cwd for shell commands.`);
   }
 
-  if (params?.skillsDirectory) {
-    sections.push(`## Skills Directory
-Skills are installed at: \`${params.skillsDirectory}\`
+  if (params?.systemPaths) {
+    sections.push(`## System Configuration
+- Skills directory: \`${params.systemPaths.skills}\`
+- MCP config: \`${params.systemPaths.mcp}\`
+- Working directory: \`${params.workingDirectory || "~"}\`
 
-To install a skill from GitHub:
-\`\`\`
-shell: git clone <repo_url> ${params.skillsDirectory}/<skill-name>
-\`\`\`
-
-To create a new skill, create a directory with a SKILL.md file:
-\`\`\`
-${params.skillsDirectory}/<skill-name>/SKILL.md
-\`\`\`
+### Skill Management
+To install a skill: \`git clone <repo> ${params.systemPaths.skills}/<name>\`
+To create a skill: write a SKILL.md in \`${params.systemPaths.skills}/<name>/SKILL.md\`
 
 SKILL.md format:
 \`\`\`
@@ -151,12 +151,14 @@ name: skill-name
 type: skill
 description: What this skill does
 ---
-## Instructions
-- Step 1
-- Step 2
+- Instruction 1
+- Instruction 2
 \`\`\`
 
-Scripts can be placed in a \`scripts/\` subdirectory and executed via shell.`);
+Scripts in \`scripts/\` subdirectory are executable via shell.
+After installing or modifying skills, they auto-reload.
+
+${params.systemPaths.skillsSummary ? `### Installed Skills\n${params.systemPaths.skillsSummary}` : "No skills installed."}`);
   }
 
   if (params?.planMode) {

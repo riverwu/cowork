@@ -8,6 +8,7 @@ import { initDb } from "./lib/db";
 import { useAppStore } from "./stores/app-store";
 import { useSessionStore } from "./stores/session-store";
 import { mcpManager } from "./lib/mcp";
+import { skillRegistry } from "./lib/ai/skill-registry";
 import { t } from "./lib/i18n";
 
 type Page = "home" | "apps" | "knowledge" | "channels" | "settings";
@@ -27,6 +28,8 @@ function App() {
         setDbReady(true);
         await loadAppState();
         await initSession();
+        // Initialize skill registry (filesystem scan)
+        skillRegistry.initialize().catch((err) => console.error("Skills init:", err));
         // Subscribe to MCP state changes for reactive UI updates
         mcpManager.onChange(() => refreshMcp());
         // Connect MCP servers (non-blocking)

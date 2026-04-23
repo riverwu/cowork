@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { runAgent } from "@/lib/ai/agent";
+import { skillRegistry } from "@/lib/ai/skill-registry";
 import type { LLMMessage } from "@/lib/ai/providers/types";
 import type { AgentEvent, Artifact, Message } from "@/types";
 import {
@@ -88,6 +89,24 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   sendMessage: async (content: string) => {
+    // Handle slash commands
+    if (content.trim() === "/reload-skills") {
+      try {
+        const result = await skillRegistry.reload();
+        const msg: Message = {
+          id: newId(), sessionId: get().sessionId || "", role: "assistant",
+          content: `Skills reloaded: ${result.total} total` +
+            (result.added.length ? `, added: ${result.added.join(", ")}` : "") +
+            (result.removed.length ? `, removed: ${result.removed.join(", ")}` : ""),
+          metadata: null, createdAt: dbNow(),
+        };
+        set((s) => ({ messages: [...s.messages, msg] }));
+      } catch (err) {
+        set({ error: `Reload failed: ${err}` });
+      }
+      return;
+    }
+
     let { sessionId } = get();
 
     if (!sessionId) {
