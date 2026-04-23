@@ -1,3 +1,4 @@
+import { httpStreamPost } from "@/lib/tauri";
 import type { LLMProvider, StreamParams, StreamEvent, ToolCall, LLMMessage, ToolDefinition } from "./types";
 
 const DEFAULT_BASE_URL = "https://api.anthropic.com";
@@ -28,24 +29,11 @@ export class AnthropicProvider implements LLMProvider {
       body.tools = tools;
     }
 
-    const response = await fetch(`${this.baseURL}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": this.apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`API error ${response.status}: ${errText}`);
-    }
-
-    if (!response.body) {
-      throw new Error("No response body");
-    }
+    const url = `${this.baseURL}/v1/messages`;
+    const headers: Record<string, string> = {
+      "x-api-key": this.apiKey,
+      "anthropic-version": "2023-06-01",
+    };
 
     let fullText = "";
     const toolCalls: ToolCall[] = [];
@@ -55,60 +43,46 @@ export class AnthropicProvider implements LLMProvider {
     let currentToolInput = "";
     let stopReason: "end" | "tool_use" = "end";
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
+    for await (const data of httpStreamPost(url, headers, JSON.stringify(body))) {
+      if (data === "[DONE]") continue;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      let event;
+      try {
+        event = JSON.parse(data);
+      } catch {
+        continue;
+      }
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const data = line.slice(6).trim();
-        if (!data || data === "[DONE]") continue;
-
-        let event;
-        try {
-          event = JSON.parse(data);
-        } catch {
-          continue;
-        }
-
-        if (event.type === "content_block_start") {
-          currentBlockType = event.content_block?.type || null;
-          if (currentBlockType === "tool_use") {
-            currentToolId = event.content_block.id;
-            currentToolName = event.content_block.name;
-            currentToolInput = "";
-          }
-        } else if (event.type === "content_block_delta") {
-          if (event.delta?.type === "text_delta") {
-            fullText += event.delta.text;
-            yield { type: "text-delta", text: event.delta.text };
-          } else if (event.delta?.type === "input_json_delta") {
-            currentToolInput += event.delta.partial_json;
-          }
-          // Skip thinking_delta, signature_delta
-        } else if (event.type === "content_block_stop") {
-          if (currentBlockType === "tool_use" && currentToolName) {
-            const input = currentToolInput ? JSON.parse(currentToolInput) : {};
-            const tc: ToolCall = { id: currentToolId, name: currentToolName, input };
-            toolCalls.push(tc);
-            yield { type: "tool-call", ...tc };
-          }
-          currentBlockType = null;
-          currentToolName = "";
+      if (event.type === "content_block_start") {
+        currentBlockType = event.content_block?.type || null;
+        if (currentBlockType === "tool_use") {
+          currentToolId = event.content_block.id;
+          currentToolName = event.content_block.name;
           currentToolInput = "";
-        } else if (event.type === "message_delta") {
-          if (event.delta?.stop_reason === "tool_use") {
-            stopReason = "tool_use";
-          }
         }
+      } else if (event.type === "content_block_delta") {
+        if (event.delta?.type === "text_delta") {
+          fullText += event.delta.text;
+          yield { type: "text-delta", text: event.delta.text };
+        } else if (event.delta?.type === "input_json_delta") {
+          currentToolInput += event.delta.partial_json;
+        }
+      } else if (event.type === "content_block_stop") {
+        if (currentBlockType === "tool_use" && currentToolName) {
+          const input = currentToolInput ? JSON.parse(currentToolInput) : {};
+          const tc: ToolCall = { id: currentToolId, name: currentToolName, input };
+          toolCalls.push(tc);
+          yield { type: "tool-call", ...tc };
+        }
+        currentBlockType = null;
+        currentToolName = "";
+        currentToolInput = "";
+      } else if (event.type === "message_delta") {
+        if (event.delta?.stop_reason === "tool_use") {
+          stopReason = "tool_use";
+        }
+      } else if (event.type === "error") {
+        throw new Error(`API error: ${JSON.stringify(event.error)}`);
       }
     }
 
@@ -147,20 +121,13 @@ function toAnthropicMessage(msg: LLMMessage): AnthropicMessage {
     }
     return { role: "assistant", content };
   }
-  // tool result → wrapped in user message
   return {
     role: "user",
     content: [{ type: "tool_result", tool_use_id: msg.toolCallId, content: msg.content }],
   };
 }
 
-interface AnthropicTool {
-  name: string;
-  description: string;
-  input_schema: Record<string, unknown>;
-}
-
-function toAnthropicTool(tool: ToolDefinition): AnthropicTool {
+function toAnthropicTool(tool: ToolDefinition) {
   return {
     name: tool.name,
     description: tool.description,

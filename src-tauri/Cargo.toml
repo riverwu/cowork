@@ -20,6 +20,10 @@ tauri-plugin-fs = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.12", features = ["stream"] }
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 lopdf = "0.35"
 calamine = "0.26"

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { FileInfo } from "@/types";
 
@@ -26,4 +27,53 @@ export async function parseDocument(path: string): Promise<string> {
 /** Read an environment variable from the system. */
 export async function getEnv(key: string): Promise<string | null> {
   return invoke<string | null>("get_env", { key });
+}
+
+/**
+ * Make a streaming POST request via Rust (bypasses browser CORS).
+ * Returns an async iterable of SSE data strings.
+ */
+export async function* httpStreamPost(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+): AsyncGenerator<string> {
+  const requestId = await invoke<string>("http_stream_post", {
+    request: { url, headers, body },
+  });
+
+  // Create a queue to bridge Tauri events → async generator
+  const queue: string[] = [];
+  let resolve: (() => void) | null = null;
+  let done = false;
+  let error: string | null = null;
+
+  const unlisten = await listen<string>(`http-stream-${requestId}`, (event) => {
+    const data = event.payload;
+    if (data === "__DONE__") {
+      done = true;
+      resolve?.();
+    } else if (data.startsWith("__ERROR__:")) {
+      error = data.slice(10);
+      done = true;
+      resolve?.();
+    } else {
+      queue.push(data);
+      resolve?.();
+    }
+  });
+
+  try {
+    while (true) {
+      while (queue.length > 0) {
+        yield queue.shift()!;
+      }
+      if (done) break;
+      await new Promise<void>((r) => { resolve = r; });
+      resolve = null;
+    }
+    if (error) throw new Error(error);
+  } finally {
+    unlisten();
+  }
 }
