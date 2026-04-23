@@ -19,11 +19,21 @@ export class McpClient {
   private serverName: string;
   private tools: McpToolInfo[] = [];
   private initialized = false;
+  /** Called when the underlying process exits unexpectedly. */
+  onProcessExit: ((serverId: string) => void) | null = null;
 
   constructor(config: McpServerConfig & { name?: string }) {
     this.transport = new McpTransport(config);
     this.serverId = config.id;
     this.serverName = config.name || config.id;
+
+    // Propagate transport exit event
+    this.transport.onProcessExit = () => {
+      this.initialized = false;
+      const stderr = this.transport.getLastStderr();
+      console.warn(`[MCP:${this.serverId}] Process exited unexpectedly${stderr ? `\nstderr: ${stderr}` : ""}`);
+      this.onProcessExit?.(this.serverId);
+    };
   }
 
   async connect(): Promise<void> {
@@ -90,7 +100,7 @@ export class McpClient {
   }
 
   isConnected(): boolean {
-    return this.initialized;
+    return this.initialized && this.transport.isConnected();
   }
 
   getId(): string {
@@ -99,6 +109,11 @@ export class McpClient {
 
   getName(): string {
     return this.serverName;
+  }
+
+  /** Get recent stderr output for diagnostics. */
+  getLastStderr(): string {
+    return this.transport.getLastStderr();
   }
 
   /** Convert MCP tools to our Skill interface for the agent. */

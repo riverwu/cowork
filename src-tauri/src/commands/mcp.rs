@@ -37,7 +37,7 @@ pub async fn mcp_spawn(app: AppHandle, config: McpServerConfig) -> Result<McpSpa
     cmd.args(&config.args);
     cmd.stdin(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::null());
+    cmd.stderr(std::process::Stdio::piped());
 
     // Expand PATH for GUI apps (macOS doesn't inherit shell PATH)
     cmd.env("PATH", expanded_path());
@@ -52,6 +52,7 @@ pub async fn mcp_spawn(app: AppHandle, config: McpServerConfig) -> Result<McpSpa
 
     let stdin = child.stdin.take().ok_or("Failed to get stdin")?;
     let stdout = child.stdout.take().ok_or("Failed to get stdout")?;
+    let stderr = child.stderr.take().ok_or("Failed to get stderr")?;
 
     let server_id = config.id.clone();
     let event_name = format!("mcp-stdout-{}", server_id);
@@ -66,6 +67,19 @@ pub async fn mcp_spawn(app: AppHandle, config: McpServerConfig) -> Result<McpSpa
         }
         // Process exited
         let _ = app_clone.emit(&event_name, "__MCP_EXIT__".to_string());
+    });
+
+    // Spawn stderr reader: emit as events for diagnostics
+    let stderr_event_name = format!("mcp-stderr-{}", server_id);
+    let stderr_id = server_id.clone();
+    let app_stderr = app.clone();
+    tokio::spawn(async move {
+        let reader = BufReader::new(stderr);
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            eprintln!("[MCP:{}:stderr] {}", stderr_id, line);
+            let _ = app_stderr.emit(&stderr_event_name, line);
+        }
     });
 
     // Store process handle

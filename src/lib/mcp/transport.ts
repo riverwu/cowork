@@ -22,16 +22,36 @@ export class McpTransport {
   }>();
   private nextRequestId = 1;
   private unlisten: (() => void) | null = null;
+  private unlistenStderr: (() => void) | null = null;
   private connected = false;
+  /** Last stderr lines for diagnostics. */
+  private stderrLines: string[] = [];
+  /** Called when the MCP process exits unexpectedly. */
+  onProcessExit: (() => void) | null = null;
 
   constructor(private config: McpServerConfig) {
     this.serverId = config.id;
+  }
+
+  isConnected(): boolean {
+    return this.connected;
+  }
+
+  /** Get recent stderr output (for error diagnostics). */
+  getLastStderr(): string {
+    return this.stderrLines.slice(-5).join("\n");
   }
 
   async connect(): Promise<void> {
     // Listen for stdout lines from Rust
     this.unlisten = await listen<string>(`mcp-stdout-${this.serverId}`, (event) => {
       this.handleLine(event.payload);
+    });
+
+    // Listen for stderr lines (diagnostics)
+    this.unlistenStderr = await listen<string>(`mcp-stderr-${this.serverId}`, (event) => {
+      this.stderrLines.push(event.payload);
+      if (this.stderrLines.length > 20) this.stderrLines.shift();
     });
 
     // Spawn the subprocess via Rust
@@ -102,6 +122,8 @@ export class McpTransport {
     this.connected = false;
     this.unlisten?.();
     this.unlisten = null;
+    this.unlistenStderr?.();
+    this.unlistenStderr = null;
 
     // Reject pending requests
     for (const [, pending] of this.pendingRequests) {
@@ -119,6 +141,7 @@ export class McpTransport {
         pending.reject(new Error("MCP server process exited"));
       }
       this.pendingRequests.clear();
+      this.onProcessExit?.();
       return;
     }
 

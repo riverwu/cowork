@@ -24,6 +24,8 @@ class McpManager {
   private serverStates = new Map<string, ServerState>();
   private onChangeCallbacks: Array<() => void> = [];
   private initPromise: Promise<void> | null = null;
+  /** Track reconnect attempts per server to prevent infinite loops. */
+  private reconnectAttempts = new Map<string, number>();
 
   onChange(cb: () => void): () => void {
     this.onChangeCallbacks.push(cb);
@@ -166,6 +168,7 @@ class McpManager {
   async reconnectServer(id: string): Promise<void> {
     const existing = this.clients.get(id);
     if (existing) { await existing.disconnect(); this.clients.delete(id); }
+    this.reconnectAttempts.delete(id); // Reset counter on manual reconnect
     const mcp = this.loadedMcps.find((m) => m.id === id);
     if (mcp) await this.connectServer(mcp);
   }
@@ -215,9 +218,30 @@ class McpManager {
         args: mcp.definition.args,
         env: mergedEnv,
       });
+
+      // Handle unexpected process exit: update state + auto-reconnect (max 2 attempts)
+      client.onProcessExit = (serverId) => {
+        this.serverStates.set(serverId, { status: "error", error: "Process exited unexpectedly" });
+        this.clients.delete(serverId);
+        this.notifyChange();
+
+        const attempts = this.reconnectAttempts.get(serverId) || 0;
+        if (attempts < 2) {
+          this.reconnectAttempts.set(serverId, attempts + 1);
+          const mcpDef = this.loadedMcps.find((m) => m.id === serverId);
+          if (mcpDef) {
+            console.log(`[MCP:${serverId}] Auto-reconnecting in 3s (attempt ${attempts + 1}/2)...`);
+            setTimeout(() => this.connectServer(mcpDef), 3000);
+          }
+        } else {
+          console.warn(`[MCP:${serverId}] Max reconnect attempts reached`);
+        }
+      };
+
       await client.connect();
       this.clients.set(mcp.id, client);
       this.serverStates.set(mcp.id, { status: "connected" });
+      this.reconnectAttempts.delete(mcp.id); // Reset on successful connect
       console.log(`MCP '${mcp.id}' connected: ${client.getTools().length} tools`);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);

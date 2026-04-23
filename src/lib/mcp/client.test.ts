@@ -6,6 +6,8 @@ const mockTransport = {
   request: vi.fn(),
   notify: vi.fn(),
   disconnect: vi.fn(),
+  isConnected: vi.fn().mockReturnValue(true),
+  getLastStderr: vi.fn().mockReturnValue(""),
 };
 
 vi.mock("./transport", () => {
@@ -15,6 +17,9 @@ vi.mock("./transport", () => {
       request = mockTransport.request;
       notify = mockTransport.notify;
       disconnect = mockTransport.disconnect;
+      isConnected = mockTransport.isConnected;
+      getLastStderr = mockTransport.getLastStderr;
+      onProcessExit = null;
     },
   };
 });
@@ -94,8 +99,12 @@ describe("McpClient", () => {
     await client.connect();
     expect(client.isConnected()).toBe(true);
 
+    // After disconnect, transport.isConnected returns false
+    mockTransport.isConnected.mockReturnValue(false);
     await client.disconnect();
     expect(client.isConnected()).toBe(false);
     expect(client.getTools()).toHaveLength(0);
+    // Restore for other tests
+    mockTransport.isConnected.mockReturnValue(true);
   });
 });
