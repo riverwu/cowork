@@ -137,6 +137,42 @@ export type AgentEvent =
   | { type: "error"; error: string }
   | { type: "done" };
 
+// ---- Memory ----
+
+export interface CoreFact {
+  key: string;
+  value: string;
+  category: "preference" | "context" | "entity" | "general";
+  source: "auto" | "user" | "reflection";
+  updatedAt: number;
+}
+
+export type MemoryType = "insight" | "preference" | "pattern" | "entity" | "correction";
+
+export interface Memory {
+  id: string;
+  content: string;
+  memoryType: MemoryType;
+  embedding: number[] | null;
+  importance: number;
+  accessCount: number;
+  sessionId: string | null;
+  createdAt: number;
+  lastAccessedAt: number | null;
+}
+
+export type EpisodeOutcome = "success" | "partial" | "failure" | "cancelled";
+
+export interface Episode {
+  id: string;
+  sessionId: string | null;
+  taskSummary: string;
+  outcome: EpisodeOutcome;
+  reflection: string | null;
+  skillsUsed: string[] | null;
+  createdAt: number;
+}
+
 // ---- File system (from Rust commands) ----
 
 export interface FileInfo {

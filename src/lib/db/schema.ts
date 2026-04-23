@@ -97,4 +97,46 @@ export const MIGRATIONS = [
 
   `CREATE INDEX IF NOT EXISTS idx_runs_app ON runs(app_id)`,
   `CREATE INDEX IF NOT EXISTS idx_runs_session ON runs(session_id)`,
+
+  // v2: Memory system
+
+  // Core Facts — always loaded into system prompt
+  `CREATE TABLE IF NOT EXISTS core_facts (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'general' CHECK(category IN ('preference', 'context', 'entity', 'general')),
+    source TEXT DEFAULT 'auto' CHECK(source IN ('auto', 'user', 'reflection')),
+    updated_at INTEGER NOT NULL
+  )`,
+
+  // Semantic Memories — vector-searchable extracted insights
+  `CREATE TABLE IF NOT EXISTS memories (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    memory_type TEXT NOT NULL CHECK(memory_type IN ('insight', 'preference', 'pattern', 'entity', 'correction')),
+    embedding TEXT,
+    importance REAL NOT NULL DEFAULT 0.5,
+    access_count INTEGER NOT NULL DEFAULT 0,
+    session_id TEXT,
+    created_at INTEGER NOT NULL,
+    last_accessed_at INTEGER
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type)`,
+  `CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance DESC)`,
+
+  // Episodic Buffer — task outcomes + reflections for learning
+  `CREATE TABLE IF NOT EXISTS episodes (
+    id TEXT PRIMARY KEY,
+    session_id TEXT,
+    task_summary TEXT NOT NULL,
+    outcome TEXT NOT NULL CHECK(outcome IN ('success', 'partial', 'failure', 'cancelled')),
+    reflection TEXT,
+    skills_used TEXT,
+    embedding TEXT,
+    created_at INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON episodes(outcome)`,
+  `CREATE INDEX IF NOT EXISTS idx_episodes_created ON episodes(created_at DESC)`,
 ];

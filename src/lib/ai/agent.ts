@@ -3,6 +3,7 @@ import type { LLMMessage, StreamEvent } from "./providers/types";
 import { getSkills } from "./skills/registry";
 import { buildSystemPrompt } from "./system-prompt";
 import { retrieveRelevant, buildKnowledgeContext } from "@/lib/knowledge";
+import { retrieveMemoryContext, buildMemoryPrompt, extractMemories } from "@/lib/memory";
 import { createArtifact } from "@/lib/db";
 import type { AgentEvent } from "@/types";
 
@@ -19,48 +20,62 @@ export interface AgentParams {
  * Core agent loop. Async generator that yields events for the UI to consume.
  *
  * Flow:
- *   1. Retrieve relevant knowledge (optional)
- *   2. Build system prompt with knowledge context
- *   3. Loop: call LLM → yield streaming events → execute tool calls → repeat
- *   4. Until LLM stops calling tools (task complete)
+ *   1. Retrieve memory context (core facts + semantic memories + episodes)
+ *   2. Retrieve relevant knowledge (RAG)
+ *   3. Build system prompt with memory + knowledge
+ *   4. Loop: call LLM → yield streaming events → execute tool calls → repeat
+ *   5. Until LLM stops calling tools (task complete)
+ *   6. After completion: extract memories from conversation (async, non-blocking)
  */
 export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent> {
   const provider = await getConfiguredProvider();
   const skills = getSkills();
   const toolDefs = Object.values(skills).map((s) => s.definition);
 
-  // 1. Retrieve knowledge context
+  const lastUserMsg = [...params.messages].reverse().find((m) => m.role === "user");
+  const query = lastUserMsg?.content || "";
+
+  // 1. Retrieve memory context
+  let memoryContext = "";
+  try {
+    const memCtx = await retrieveMemoryContext(query);
+    memoryContext = buildMemoryPrompt(memCtx);
+  } catch {
+    // Memory retrieval failed — continue without
+  }
+
+  // 2. Retrieve knowledge context
   let knowledgeContext = "";
-  if (!params.skipKnowledge) {
-    const lastUserMsg = [...params.messages].reverse().find((m) => m.role === "user");
-    if (lastUserMsg) {
-      try {
-        const results = await retrieveRelevant(lastUserMsg.content, 5);
-        if (results.length > 0) {
-          knowledgeContext = buildKnowledgeContext(results);
-          yield {
-            type: "knowledge-ref",
-            refs: results.map((r) => ({
-              documentId: r.documentId,
-              filename: (r.metadata?.filename as string) || "unknown",
-              snippet: r.content.slice(0, 100),
-            })),
-          };
-        }
-      } catch {
-        // Knowledge retrieval failed (no embeddings yet) — continue without
+  if (!params.skipKnowledge && query) {
+    try {
+      const results = await retrieveRelevant(query, 5);
+      if (results.length > 0) {
+        knowledgeContext = buildKnowledgeContext(results);
+        yield {
+          type: "knowledge-ref",
+          refs: results.map((r) => ({
+            documentId: r.documentId,
+            filename: (r.metadata?.filename as string) || "unknown",
+            snippet: r.content.slice(0, 100),
+          })),
+        };
       }
+    } catch {
+      // Knowledge retrieval failed — continue without
     }
   }
 
-  // 2. Build system prompt
-  const system = buildSystemPrompt(knowledgeContext || undefined);
+  // 3. Build system prompt
+  const system = buildSystemPrompt({
+    memoryContext: memoryContext || undefined,
+    knowledgeContext: knowledgeContext || undefined,
+  });
 
-  // 3. Agent loop
+  // 4. Agent loop
   const currentMessages: LLMMessage[] = [...params.messages];
+  let fullAssistantText = "";
 
   for (let step = 0; step < MAX_STEPS; step++) {
-    // Call LLM with streaming
     let doneEvent: StreamEvent | null = null;
 
     for await (const event of provider.stream({
@@ -82,19 +97,18 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       break;
     }
 
-    // No tool calls → agent is done
+    fullAssistantText += doneEvent.content;
+
     if (doneEvent.stopReason !== "tool_use" || doneEvent.toolCalls.length === 0) {
       break;
     }
 
-    // Add assistant message with tool calls to history
     currentMessages.push({
       role: "assistant",
       content: doneEvent.content,
       toolCalls: doneEvent.toolCalls,
     });
 
-    // Execute each tool call
     for (const toolCall of doneEvent.toolCalls) {
       const skill = skills[toolCall.name];
       if (!skill) {
@@ -109,7 +123,6 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         const result = await skill.execute(toolCall.input as Record<string, unknown>);
         const durationMs = Date.now() - startTime;
 
-        // Check for artifact markers
         if (result.startsWith("__ARTIFACT__:")) {
           const artifact = await handleArtifactResult(result, params.sessionId);
           if (artifact) {
@@ -129,30 +142,31 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   }
 
   yield { type: "done" };
+
+  // 5. Post-completion: extract memories asynchronously
+  // Don't block the UI — fire and forget
+  if (params.messages.length >= 2) {
+    const allMessages: LLMMessage[] = [
+      ...params.messages,
+      ...(fullAssistantText ? [{ role: "assistant" as const, content: fullAssistantText }] : []),
+    ];
+    extractMemories(allMessages, params.sessionId).catch((err) => {
+      console.error("Memory extraction failed:", err);
+    });
+  }
 }
 
-/** Parse artifact markers and create artifact records. */
 async function handleArtifactResult(result: string, sessionId: string) {
-  // Format: __ARTIFACT__:type:title\ncontent
   const firstNewline = result.indexOf("\n");
   const header = result.slice(0, firstNewline);
   const content = result.slice(firstNewline + 1);
-
   const parts = header.split(":");
   if (parts.length < 3) return null;
-
   const type = parts[1] as "report" | "table";
   const title = parts.slice(2).join(":");
-
-  return createArtifact({
-    sessionId,
-    type,
-    title,
-    content,
-  });
+  return createArtifact({ sessionId, type, title, content });
 }
 
-/** Truncate long skill results for the UI event. The full result goes to the LLM. */
 function summarizeResult(result: string): unknown {
   if (result.length <= 200) return result;
   return result.slice(0, 200) + `... (${result.length} chars total)`;
