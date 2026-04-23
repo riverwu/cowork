@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useSessionStore } from "@/stores/session-store";
+import { IconSearch, IconSend } from "@/components/icons";
 import { t } from "@/lib/i18n";
 
 export function CommandBar() {
@@ -36,10 +37,7 @@ export function CommandBar() {
   return (
     <div className="relative">
       <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--on-surface-tertiary)]">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M11 11L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
+        <IconSearch size={14} />
       </div>
       <textarea
         ref={inputRef}
@@ -56,9 +54,7 @@ export function CommandBar() {
         disabled={!input.trim() || isStreaming}
         className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--primary-accent)] hover:bg-[var(--surface-container)] disabled:opacity-20 cursor-pointer transition-colors"
       >
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-          <path d="M2 14L14 8L2 2V6.5L10 8L2 9.5V14Z" fill="currentColor" />
-        </svg>
+        <IconSend size={14} />
       </button>
     </div>
   );

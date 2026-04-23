@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { IconDocument, IconReport, IconFolder } from "@/components/icons";
 import { useAppStore } from "@/stores/app-store";
 import { listDocuments, countDocuments, updateDocumentStatus, listRecentArtifacts } from "@/lib/db";
 import { indexSource } from "@/lib/knowledge";
@@ -71,7 +72,7 @@ export function KnowledgePage() {
                   className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-[var(--surface-lowest)] border border-[var(--border)] text-sm"
                 >
                   <span className="text-[var(--on-surface-tertiary)]">
-                    {artifact.type === "report" ? "📊" : "📄"}
+                    {artifact.type === "report" ? <IconReport size={14} /> : <IconDocument size={14} />}
                   </span>
                   <span className="flex-1 truncate text-[var(--on-surface)]">{artifact.title}</span>
                   <span className="text-xs text-[var(--on-surface-tertiary)]">{formatDate(artifact.createdAt)}</span>
@@ -116,7 +117,7 @@ function SourceCard({ source }: { source: Source }) {
         onClick={handleExpand}
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--surface-low)] cursor-pointer transition-colors"
       >
-        <span>📁</span>
+        <span className="text-[var(--on-surface-secondary)]"><IconFolder size={16} /></span>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate text-[var(--on-surface)]">{source.name}</p>
           <p className="text-xs text-[var(--on-surface-tertiary)] truncate">{source.path}</p>
@@ -145,7 +146,7 @@ function SourceCard({ source }: { source: Source }) {
                 doc.status === "excluded" ? "opacity-40" : ""
               }`}
             >
-              <span className="text-[var(--on-surface-tertiary)]">📄</span>
+              <span className="text-[var(--on-surface-tertiary)]"><IconDocument size={13} /></span>
               <span className="flex-1 truncate text-[var(--on-surface-secondary)]">{doc.filename}</span>
               <span className="text-xs text-[var(--on-surface-tertiary)]">
                 {doc.fileModifiedAt ? formatDate(doc.fileModifiedAt) : ""}

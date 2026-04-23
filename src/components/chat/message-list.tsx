@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { IconDocument, IconCheck } from "@/components/icons";
 import type { Message, Artifact } from "@/types";
 
 interface Step {
@@ -52,7 +53,7 @@ export function MessageList({
                   className="inline-flex items-center px-2 py-0.5 text-[11px] rounded-full bg-[var(--surface-container)] text-[var(--on-surface-secondary)]"
                   title={ref.snippet}
                 >
-                  📄 {ref.filename}
+                  <IconDocument size={12} /> {ref.filename}
                 </span>
               ))}
             </div>
@@ -65,7 +66,7 @@ export function MessageList({
                   {step.status === "running" ? (
                     <span className="inline-block w-3 h-3 border-[1.5px] border-[var(--primary-accent)] border-t-transparent rounded-full animate-spin" />
                   ) : (
-                    <span className="text-[var(--success)] text-[13px]">✓</span>
+                    <span className="text-[var(--success)]"><IconCheck size={13} /></span>
                   )}
                   <span>{formatSkillName(step.skill)}</span>
                   {step.durationMs !== undefined && (

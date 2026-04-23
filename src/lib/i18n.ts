@@ -18,7 +18,7 @@ const zh: Record<string, string> = {
   "home.createApp": "创建应用",
   "home.noPending": "暂无待处理事项",
   "home.noOutputs": "暂无产出记录",
-  "home.configHint": "👋 前往设置页面配置 LLM API 密钥即可开始使用。",
+  "home.configHint": "前往设置页面配置 LLM API 密钥即可开始使用。",
   "home.knowledgeHint": "在知识库页面添加工作文件夹，让 AI 了解你的工作内容。",
   "home.backToHome": "返回首页",
 
@@ -81,7 +81,7 @@ const en: Record<string, string> = {
   "home.createApp": "Create App",
   "home.noPending": "No pending items",
   "home.noOutputs": "No recent outputs yet",
-  "home.configHint": "👋 Go to Settings to configure your LLM API key and start working.",
+  "home.configHint": "Go to Settings to configure your LLM API key and start working.",
   "home.knowledgeHint": "Add a work folder in Knowledge to give AI context about your work.",
   "home.backToHome": "Back to Home",
 

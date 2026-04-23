@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IconDocument } from "@/components/icons";
 import { pickFolder, scanDirectory } from "@/lib/tauri";
 import { createSource } from "@/lib/db";
 import { indexSource } from "@/lib/knowledge";
@@ -61,7 +62,7 @@ export function Welcome() {
           <div className="text-left mb-6 space-y-1">
             {recentFiles.map((f, i) => (
               <div key={i} className="flex items-center gap-2 text-sm py-2 px-3 rounded-lg bg-[var(--surface-lowest)] border border-[var(--border)]">
-                <span className="text-[var(--on-surface-tertiary)]">📄</span>
+                <span className="text-[var(--on-surface-tertiary)]"><IconDocument size={14} /></span>
                 <span className="flex-1 truncate text-[var(--on-surface)]">{f.name}</span>
                 <span className="text-xs text-[var(--on-surface-tertiary)]">{formatDate(f.modified_at)}</span>
               </div>
