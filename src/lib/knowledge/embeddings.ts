@@ -1,47 +1,40 @@
 import { getSettings } from "@/lib/db";
+import { httpPost } from "@/lib/tauri";
 
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const EMBEDDING_DIMENSIONS = 1536;
 
-/** Generate embeddings for one or more texts using the configured provider's embedding API.
- *  Currently uses OpenAI's embedding API regardless of LLM provider choice
- *  (Anthropic doesn't have an embedding API). Falls back to OpenAI key or Anthropic key's
- *  associated OpenAI key. */
+/**
+ * Generate embeddings via OpenAI embedding API (routed through Rust HTTP layer).
+ * Uses OpenAI API regardless of LLM provider choice.
+ */
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
   const settings = await getSettings();
 
-  // Use OpenAI API for embeddings (even if LLM provider is Anthropic)
-  const apiKey = settings.openaiApiKey || settings.anthropicApiKey;
+  const apiKey = settings.openaiApiKey;
   if (!apiKey) {
-    throw new Error("No API key available for embeddings. Configure an OpenAI API key in Settings.");
-  }
-
-  // If using Anthropic as LLM but no OpenAI key, we can't do embeddings
-  if (settings.llmProvider === "anthropic" && !settings.openaiApiKey) {
     throw new Error(
-      "Embeddings require an OpenAI API key. Add one in Settings (used only for embeddings).",
+      "Embeddings require an OpenAI API key. Add one in Settings.",
     );
   }
 
-  const response = await fetch("https://api.openai.com/v1/embeddings", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${settings.openaiApiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  const baseUrl = (settings.openaiBaseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
+
+  const response = await httpPost(
+    `${baseUrl}/embeddings`,
+    { "Authorization": `Bearer ${apiKey}` },
+    JSON.stringify({
       model: EMBEDDING_MODEL,
       input: texts,
       dimensions: EMBEDDING_DIMENSIONS,
     }),
-  });
+  );
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Embedding API error: ${response.status} ${err}`);
+  if (response.status !== 200) {
+    throw new Error(`Embedding API error: ${response.status} ${response.body}`);
   }
 
-  const data = await response.json();
+  const data = JSON.parse(response.body);
   return data.data.map((item: { embedding: number[] }) => item.embedding);
 }
 

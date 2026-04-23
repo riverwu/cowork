@@ -1,5 +1,15 @@
 # Cowork — Implementation Plan
 
+## Architecture Principle
+
+**Webview 不与网络交互。** Webview 层（React）只负责界面渲染和用户交互。所有网络请求、文件系统操作、数据库访问等 I/O 行为都通过 Rust 应用层（Tauri Commands）完成。
+
+- 禁止在前端代码中使用 `fetch`、`XMLHttpRequest` 等浏览器网络 API
+- LLM API 调用 → Rust `http_stream_post` / `http_post` command
+- 文件读写 → Rust `scan_directory` / `parse_document` command
+- 数据库 → Tauri SQL plugin（经过 Rust 层）
+- 这确保了：无 CORS 问题、可审计的网络出口、一致的 I/O 路径
+
 ## Architecture Overview
 
 桌面应用，macOS + Windows 双平台。本地优先，无需服务器。
@@ -13,9 +23,9 @@
 │  │                    │  │                │ │
 │  │  · Components      │  │  · File system │ │
 │  │  · AI Agent Loop   │  │  · SQLite      │ │
-│  │  · LLM API calls   │  │  · File watch  │ │
+│  │  · State mgmt      │  │  · HTTP proxy  │ │
 │  │  · Streaming UI    │  │  · Native dialog│ │
-│  │                    │  │  · Doc parsing │ │
+│  │  · NO network I/O  │  │  · Doc parsing │ │
 │  └────────┬───────────┘  └───────┬────────┘ │
 │           │    Tauri Commands    │          │
 │           └──────────────────────┘          │

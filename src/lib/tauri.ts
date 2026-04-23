@@ -30,6 +30,20 @@ export async function getEnv(key: string): Promise<string | null> {
 }
 
 /**
+ * Make a non-streaming POST request via Rust (bypasses browser CORS).
+ * Returns { status, body }.
+ */
+export async function httpPost(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+): Promise<{ status: number; body: string }> {
+  return invoke<{ status: number; body: string }>("http_post", {
+    request: { url, headers, body },
+  });
+}
+
+/**
  * Make a streaming POST request via Rust (bypasses browser CORS).
  * Returns an async iterable of SSE data strings.
  */

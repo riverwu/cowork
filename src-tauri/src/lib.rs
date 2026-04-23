@@ -12,6 +12,7 @@ pub fn run() {
             commands::fs::read_file_text,
             commands::fs::parse_document,
             commands::env::get_env,
+            commands::http::http_post,
             commands::http::http_stream_post,
         ])
         .run(tauri::generate_context!())
