@@ -9,6 +9,18 @@ interface AttachedFile {
   path: string;
 }
 
+// Plan icon
+function IconPlan({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2H4C3.45 2 3 2.45 3 3V15C3 15.55 3.45 16 4 16H14C14.55 16 15 15.55 15 15V5L12 2Z" />
+      <path d="M6 9H12" />
+      <path d="M6 12H10" />
+      <path d="M12 2V5H15" />
+    </svg>
+  );
+}
+
 // Eraser icon for "clear context"
 function IconEraser({ size = 18 }: { size?: number }) {
   return (
@@ -34,7 +46,7 @@ export function CommandBar() {
   const [showMenu, setShowMenu] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { sendMessage, clearContext, isStreaming } = useSessionStore();
+  const { sendMessage, clearContext, planMode, togglePlanMode, isStreaming } = useSessionStore();
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -102,6 +114,11 @@ export function CommandBar() {
     setShowMenu(false);
   }
 
+  function handleTogglePlan() {
+    togglePlanMode();
+    setShowMenu(false);
+  }
+
   useEffect(() => {
     const el = inputRef.current;
     if (el) {
@@ -113,7 +130,14 @@ export function CommandBar() {
   const hasContent = input.trim() || files.length > 0;
 
   return (
-    <div className="bg-[var(--surface-lowest)] border border-[var(--border)] rounded-2xl shadow-[var(--shadow-md)] overflow-visible relative">
+    <div className={`bg-[var(--surface-lowest)] border rounded-2xl shadow-[var(--shadow-md)] overflow-visible relative ${planMode ? "border-blue-300" : "border-[var(--border)]"}`}>
+      {/* Plan mode indicator */}
+      {planMode && (
+        <div className="flex items-center gap-1.5 px-4 pt-2 pb-0.5">
+          <IconPlan size={12} />
+          <span className="text-[11px] text-blue-600 font-medium">{t("home.planMode")}</span>
+        </div>
+      )}
       {/* Attached files */}
       {files.length > 0 && (
         <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-1">
@@ -150,7 +174,15 @@ export function CommandBar() {
 
             {/* Popup menu */}
             {showMenu && (
-              <div className="absolute bottom-full left-0 mb-2 w-48 bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl shadow-[var(--shadow-lg)] py-1 z-50">
+              <div className="absolute bottom-full left-0 mb-2 w-52 bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl shadow-[var(--shadow-lg)] py-1 z-50">
+                <button
+                  onClick={handleTogglePlan}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors text-left"
+                >
+                  <IconPlan size={15} />
+                  <span className="flex-1">{t("home.planMode")}</span>
+                  {planMode && <span className="text-[var(--primary-accent)] text-[11px]">ON</span>}
+                </button>
                 <button
                   onClick={handleClearContext}
                   className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors text-left"

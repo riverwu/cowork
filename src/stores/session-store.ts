@@ -31,12 +31,13 @@ interface SessionState {
   knowledgeRefs: KnowledgeRef[];
   error: string | null;
   initialized: boolean;
+  /** Plan mode: agent plans but doesn't execute write operations. */
+  planMode: boolean;
 
   initialize: () => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
-  /** Clear LLM context — conversation history stays visible, but LLM starts fresh.
-   *  Inserts a divider; only messages after divider are sent to LLM. */
   clearContext: () => void;
+  togglePlanMode: () => void;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -49,6 +50,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   knowledgeRefs: [],
   error: null,
   initialized: false,
+  planMode: false,
 
   initialize: async () => {
     const recent = await listRecentSessions(1);
@@ -104,7 +106,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     let fullText = "";
 
     try {
-      for await (const event of runAgent({ messages: llmMessages, sessionId })) {
+      for await (const event of runAgent({ messages: llmMessages, sessionId, planMode: get().planMode })) {
         handleEvent(event, set);
         if (event.type === "text-delta") {
           fullText += event.text;
@@ -146,6 +148,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       knowledgeRefs: [],
       error: null,
     }));
+  },
+
+  togglePlanMode: () => {
+    set((s) => ({ planMode: !s.planMode }));
   },
 }));
 

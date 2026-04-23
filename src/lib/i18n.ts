@@ -22,6 +22,7 @@ const zh: Record<string, string> = {
   "home.knowledgeHint": "在知识库页面添加工作文件夹，让 AI 了解你的工作内容。",
   "home.backToHome": "返回首页",
   "home.clearConversation": "开始新话题",
+  "home.planMode": "规划模式",
   "home.clearContext": "清空上下文",
   "home.clearContextDone": "上下文已清空，之后的对话将从新的上下文开始",
 
@@ -129,6 +130,7 @@ const en: Record<string, string> = {
   "home.knowledgeHint": "Add a work folder in Knowledge to give AI context about your work.",
   "home.backToHome": "Back to Home",
   "home.clearConversation": "Start new topic",
+  "home.planMode": "Plan mode",
   "home.clearContext": "Clear context",
   "home.clearContextDone": "Context cleared — new messages start with a fresh context",
 

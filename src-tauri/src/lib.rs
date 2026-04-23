@@ -27,6 +27,7 @@ pub fn run() {
             commands::mcp::ensure_uv_installed,
             commands::web::web_fetch,
             commands::web::web_search,
+            commands::shell::shell_exec,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -12,8 +12,9 @@ const MAX_STEPS = 10;
 export interface AgentParams {
   messages: LLMMessage[];
   sessionId: string;
-  /** Skip knowledge retrieval (e.g., for simple follow-ups). */
   skipKnowledge?: boolean;
+  /** Plan mode: include plan instructions in system prompt. */
+  planMode?: boolean;
 }
 
 /**
@@ -74,11 +75,12 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     }
   }
 
-  // 3. Build system prompt (includes tool list so LLM knows its capabilities)
+  // 3. Build system prompt
   const system = buildSystemPrompt({
     tools: toolDefs,
     memoryContext: memoryContext || undefined,
     knowledgeContext: knowledgeContext || undefined,
+    planMode: params.planMode,
   });
 
   // 4. Agent loop

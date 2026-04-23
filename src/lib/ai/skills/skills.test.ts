@@ -12,6 +12,7 @@ vi.mock("@/lib/tauri", () => ({
   installPythonPackage: vi.fn(),
   webSearch: vi.fn(),
   webFetch: vi.fn(),
+  shellExec: vi.fn(),
 }));
 
 // Mock DB

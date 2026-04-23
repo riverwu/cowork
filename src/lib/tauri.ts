@@ -91,6 +91,25 @@ export async function webSearch(query: string, maxResults?: number): Promise<Web
   return invoke<WebSearchResult[]>("web_search", { query, maxResults });
 }
 
+// ---- Shell ----
+
+export interface ShellExecResult {
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  timed_out: boolean;
+}
+
+/** Execute a shell command with timeout and working directory support. */
+export async function shellExec(params: {
+  command: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  timeout_ms?: number;
+}): Promise<ShellExecResult> {
+  return invoke<ShellExecResult>("shell_exec", { params });
+}
+
 /** Ensure uv/uvx is installed. Auto-installs if missing. */
 export async function ensureUvInstalled(): Promise<string> {
   return invoke<string>("ensure_uv_installed");

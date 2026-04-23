@@ -9,33 +9,41 @@ import { saveMemory } from "./save-memory";
 import { createArtifactSkill } from "./create-artifact";
 import { webSearchSkill } from "./web-search";
 import { webFetchSkill } from "./web-fetch";
+import { shellExecSkill } from "./shell-exec";
+import { applyPatchSkill } from "./apply-patch";
 
 /**
- * Built-in tool registry.
+ * Built-in tool registry — 12 tools.
  *
- * 10 tools:
- * - search_knowledge: RAG search across knowledge base
- * - read_file: read file contents (text + documents)
- * - write_file: create/write files
- * - list_directory: explore file system
- * - grep: search file contents
- * - run_python: execute Python in isolated env
- * - save_memory: store to persistent memory
- * - create_artifact: produce structured output
- * - web_search: search the web (DuckDuckGo)
- * - web_fetch: fetch a web page as text
+ * Core file operations:
+ *   read_file, write_file, apply_patch, list_directory, grep
+ * Execution:
+ *   shell, run_python
+ * Web:
+ *   web_search, web_fetch
+ * Knowledge & Memory:
+ *   search_knowledge, save_memory
+ * Output:
+ *   create_artifact
  */
 const skills: Record<string, Skill> = {
-  search_knowledge: searchKnowledge,
+  // File operations
   read_file: readFile,
   write_file: writeFileSkill,
+  apply_patch: applyPatchSkill,
   list_directory: listDirectorySkill,
   grep: grepSkill,
+  // Execution
+  shell: shellExecSkill,
   run_python: runPython,
-  save_memory: saveMemory,
-  create_artifact: createArtifactSkill,
+  // Web
   web_search: webSearchSkill,
   web_fetch: webFetchSkill,
+  // Knowledge & Memory
+  search_knowledge: searchKnowledge,
+  save_memory: saveMemory,
+  // Output
+  create_artifact: createArtifactSkill,
 };
 
 export function getSkills(): Record<string, Skill> {
