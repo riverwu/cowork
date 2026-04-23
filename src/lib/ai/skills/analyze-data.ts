@@ -34,7 +34,9 @@ export const analyzeData: Skill = {
 
     try {
       const rows = parseData(data);
-      if (rows.length === 0) return "No data to analyze.";
+      if (rows.length === 0 || (rows.length === 1 && rows[0].every((c) => !c.trim()))) {
+        return "No data to analyze.";
+      }
 
       const headers = rows[0];
       const dataRows = rows.slice(1);
@@ -73,7 +75,7 @@ export const analyzeData: Skill = {
             const lowerThreshold = mean - 2 * stddev;
             const outliers = dataRows.filter((r) => {
               const v = parseFloat(r[i]);
-              return !isNaN(v) && (v > threshold || v < lowerThreshold);
+              return !isNaN(v) && (v >= threshold || v <= lowerThreshold);
             });
             if (outliers.length > 0) {
               result += `- Anomalies (>2 std dev): ${outliers.length} rows\n`;

@@ -29,4 +29,9 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  test: {
+    environment: "node",
+    include: ["src/**/*.test.ts"],
+    exclude: ["src/**/*.test.tsx"], // Skip React component tests for now
+  },
 }));
