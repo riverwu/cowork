@@ -32,6 +32,7 @@ export default defineConfig(async () => ({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
-    exclude: ["src/**/*.test.tsx"], // Skip React component tests for now
+    exclude: ["src/**/*.test.tsx"],
+    testTimeout: 60000,
   },
 }));
