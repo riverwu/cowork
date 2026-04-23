@@ -114,6 +114,7 @@ export function buildSystemPrompt(params?: {
   memoryContext?: string;
   tools?: ToolDefinition[];
   planMode?: boolean;
+  workingDirectory?: string;
 }): string {
   const sections = [
     IDENTITY,
@@ -123,6 +124,10 @@ export function buildSystemPrompt(params?: {
     SAFETY,
     BEHAVIOR,
   ];
+
+  if (params?.workingDirectory) {
+    sections.push(`## Working Directory\nYour current working directory is: \`${params.workingDirectory}\`\nAll file paths should be relative to or within this directory. Use this as the default cwd for shell commands.`);
+  }
 
   if (params?.planMode) {
     sections.push(PLAN_MODE_SECTION);

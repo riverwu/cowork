@@ -13,8 +13,9 @@ export interface AgentParams {
   messages: LLMMessage[];
   sessionId: string;
   skipKnowledge?: boolean;
-  /** Plan mode: include plan instructions in system prompt. */
   planMode?: boolean;
+  /** Working directory — tools use this as default cwd. */
+  workingDirectory?: string;
 }
 
 /**
@@ -81,6 +82,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     memoryContext: memoryContext || undefined,
     knowledgeContext: knowledgeContext || undefined,
     planMode: params.planMode,
+    workingDirectory: params.workingDirectory,
   });
 
   // 4. Agent loop

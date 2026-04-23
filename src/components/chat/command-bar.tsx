@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useSessionStore } from "@/stores/session-store";
-import { IconSend, IconDocument, IconClose, IconPlus } from "@/components/icons";
+import { IconSend, IconDocument, IconClose, IconPlus, IconFolder } from "@/components/icons";
 import { open } from "@tauri-apps/plugin-dialog";
+import { pickFolder } from "@/lib/tauri";
 import { t } from "@/lib/i18n";
 
 interface AttachedFile {
@@ -46,7 +47,7 @@ export function CommandBar() {
   const [showMenu, setShowMenu] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { sendMessage, clearContext, planMode, togglePlanMode, isStreaming } = useSessionStore();
+  const { sendMessage, clearContext, planMode, togglePlanMode, workingDirectory, setWorkingDirectory, isStreaming } = useSessionStore();
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -119,6 +120,11 @@ export function CommandBar() {
     setShowMenu(false);
   }
 
+  async function handleChangeWorkDir() {
+    const path = await pickFolder();
+    if (path) setWorkingDirectory(path);
+  }
+
   useEffect(() => {
     const el = inputRef.current;
     if (el) {
@@ -131,13 +137,26 @@ export function CommandBar() {
 
   return (
     <div className={`bg-[var(--surface-lowest)] border rounded-2xl shadow-[var(--shadow-md)] overflow-visible relative ${planMode ? "border-blue-300" : "border-[var(--border)]"}`}>
-      {/* Plan mode indicator */}
-      {planMode && (
-        <div className="flex items-center gap-1.5 px-4 pt-2 pb-0.5">
-          <IconPlan size={12} />
-          <span className="text-[11px] text-blue-600 font-medium">{t("home.planMode")}</span>
-        </div>
-      )}
+      {/* Top bar: working directory + plan mode */}
+      <div className="flex items-center gap-2 px-4 pt-2 pb-0.5">
+        <button
+          onClick={handleChangeWorkDir}
+          className="flex items-center gap-1 text-[11px] text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] cursor-pointer transition-colors truncate max-w-[300px]"
+          title={workingDirectory}
+        >
+          <IconFolder size={11} />
+          <span className="truncate">{shortenPath(workingDirectory)}</span>
+        </button>
+        {planMode && (
+          <>
+            <span className="text-[var(--border)]">|</span>
+            <span className="flex items-center gap-1 text-[11px] text-blue-600 font-medium">
+              <IconPlan size={11} />
+              {t("home.planMode")}
+            </span>
+          </>
+        )}
+      </div>
       {/* Attached files */}
       {files.length > 0 && (
         <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-1">
@@ -234,4 +253,14 @@ export function CommandBar() {
       </div>
     </div>
   );
+}
+
+/** Shorten a path for display: /Users/river/Documents/Work → ~/Documents/Work */
+function shortenPath(path: string): string {
+  if (!path) return "~";
+  const home = path.match(/^\/Users\/[^/]+/)?.[0] || path.match(/^\/home\/[^/]+/)?.[0];
+  if (home && path.startsWith(home)) {
+    return "~" + path.slice(home.length);
+  }
+  return path;
 }

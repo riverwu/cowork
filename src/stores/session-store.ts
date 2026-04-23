@@ -4,9 +4,10 @@ import type { LLMMessage } from "@/lib/ai/providers/types";
 import type { AgentEvent, Artifact, Message } from "@/types";
 import {
   createSession, createMessage, listMessages,
-  listRecentSessions,
+  listRecentSessions, getSetting, setSetting,
 } from "@/lib/db";
 import { now as dbNow, newId } from "@/lib/db";
+import { getEnv } from "@/lib/tauri";
 
 /** Max messages sent to LLM (context window management). */
 const LLM_CONTEXT_WINDOW = 40;
@@ -31,13 +32,15 @@ interface SessionState {
   knowledgeRefs: KnowledgeRef[];
   error: string | null;
   initialized: boolean;
-  /** Plan mode: agent plans but doesn't execute write operations. */
   planMode: boolean;
+  /** Working directory — all tools use this as base. */
+  workingDirectory: string;
 
   initialize: () => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   clearContext: () => void;
   togglePlanMode: () => void;
+  setWorkingDirectory: (path: string) => void;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -51,6 +54,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   error: null,
   initialized: false,
   planMode: false,
+  workingDirectory: "",
 
   initialize: async () => {
     const recent = await listRecentSessions(1);
@@ -65,10 +69,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       sessionId = session.id;
     }
 
+    // Load working directory: saved preference → HOME → fallback
+    let workingDirectory = await getSetting("working_directory");
+    if (!workingDirectory) {
+      workingDirectory = await getEnv("HOME") || "/";
+    }
+
     set({
       sessionId,
       messages,
       initialized: true,
+      workingDirectory,
       artifacts: [],
       knowledgeRefs: [],
       steps: [],
@@ -106,7 +117,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     let fullText = "";
 
     try {
-      for await (const event of runAgent({ messages: llmMessages, sessionId, planMode: get().planMode })) {
+      const { planMode, workingDirectory } = get();
+      for await (const event of runAgent({ messages: llmMessages, sessionId, planMode, workingDirectory })) {
         handleEvent(event, set);
         if (event.type === "text-delta") {
           fullText += event.text;
@@ -152,6 +164,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   togglePlanMode: () => {
     set((s) => ({ planMode: !s.planMode }));
+  },
+
+  setWorkingDirectory: (path: string) => {
+    set({ workingDirectory: path });
+    // Persist for next session
+    setSetting("working_directory", path);
   },
 }));
 
