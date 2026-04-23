@@ -19,8 +19,11 @@ const navItems: { id: Page; label: string; icon: React.ReactNode }[] = [
 export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   return (
     <aside className="w-[232px] flex flex-col bg-slate-50 border-r border-[var(--border)] shrink-0">
+      {/* Traffic light area — drag region, space for macOS window controls */}
+      <div className="h-[52px] shrink-0" data-tauri-drag-region />
+
       {/* Logo */}
-      <div className="px-5 pt-5 pb-4" data-tauri-drag-region>
+      <div className="px-5 pb-4" data-tauri-drag-region>
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center text-[11px] font-bold tracking-wide">
             CW

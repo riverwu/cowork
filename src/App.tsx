@@ -57,7 +57,9 @@ function App() {
   return (
     <div className="flex h-screen bg-[var(--surface)]">
       <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-hidden relative">
+        {/* Draggable area at top of main content — invisible, allows window dragging */}
+        <div className="absolute top-0 left-0 right-0 h-3 z-50" data-tauri-drag-region />
         {currentPage === "home" && <Home />}
         {currentPage === "apps" && <AppsPage />}
         {currentPage === "knowledge" && <KnowledgePage />}
