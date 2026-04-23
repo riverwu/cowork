@@ -1,19 +1,30 @@
 /**
- * Skill Runner — converts SkillRecords into agent-callable tools.
+ * Skill Runner — converts SkillRecords into agent-usable forms.
  *
- * - type="skill" → registers as a tool the agent can call
- * - type="app" → injects instructions into system prompt when run
+ * Follows Codex CLI's pattern:
+ * - type="skill": registers as a tool. When called, returns the skill's
+ *   instructions to the main agent (NOT a sub-agent). The main agent
+ *   then follows these instructions using its full toolkit.
+ * - type="app": injects instructions into system prompt when activated.
+ *
+ * Progressive disclosure (like Codex):
+ * - Only name + purpose (description) loaded into tool definitions
+ * - Full instructions loaded only when the skill is invoked
  */
 
 import { listSkills } from "@/lib/db";
 import type { Skill } from "./skills/types";
 import type { SkillRecord } from "@/types";
-import { getConfiguredProvider } from "./providers";
 
 /**
  * Load all active skill-type records and convert to agent tools.
- * Each skill becomes a tool that, when called, runs a sub-agent
- * with the skill's instructions.
+ *
+ * Each skill becomes a tool where:
+ * - definition.description = skill's purpose (LLM uses this to decide when to call)
+ * - execute() = returns the skill's full instructions + the task
+ *
+ * The main agent then follows these instructions with its full toolkit.
+ * This matches Codex's approach: skills augment the agent, not replace it.
  */
 export async function loadSkillTools(): Promise<Record<string, Skill>> {
   const skills = await listSkills("skill");
@@ -29,11 +40,9 @@ export async function loadSkillTools(): Promise<Record<string, Skill>> {
 
 /**
  * Build the system prompt addition for an App-type skill.
- * This gets appended to the main system prompt when the App is run.
  */
 export function buildAppPrompt(record: SkillRecord): string {
   const parts = [`## Active App: ${record.name}`];
-
   parts.push(`Purpose: ${record.definition.purpose}`);
 
   if (record.definition.instructions?.length) {
@@ -61,16 +70,23 @@ export function buildAppPrompt(record: SkillRecord): string {
   return parts.join("\n");
 }
 
-/** Convert a skill record into an agent-callable tool. */
+/**
+ * Convert a skill record into an agent tool.
+ *
+ * Key design (matching Codex):
+ * - The tool's description = skill purpose (for LLM to decide when to use)
+ * - When called, returns INSTRUCTIONS back to the main agent
+ * - The main agent then executes with its full set of tools
+ * - This is NOT a sub-agent — it's instruction injection
+ */
 function createSkillTool(record: SkillRecord): Skill {
-  const paramProps: Record<string, { type: string; description: string }> = {
+  const paramProps: Record<string, unknown> = {
     task: {
       type: "string",
-      description: "What to do with this skill — describe the specific task",
+      description: "Describe the specific task to accomplish with this skill",
     },
   };
 
-  // Add skill's own parameters
   if (record.definition.parameters) {
     for (const [key, param] of Object.entries(record.definition.parameters)) {
       paramProps[key] = { type: "string", description: param.description };
@@ -91,28 +107,31 @@ function createSkillTool(record: SkillRecord): Skill {
     execute: async (input) => {
       const task = input.task as string;
 
-      try {
-        const provider = await getConfiguredProvider();
+      // Build the instruction payload — returned to the main agent
+      // The main agent will follow these instructions using its full toolkit
+      const instructionLines = record.definition.instructions || [];
+      const instructions = instructionLines.length > 0
+        ? `\nInstructions:\n${instructionLines.map(i => `- ${i}`).join("\n")}`
+        : "";
 
-        // Build skill-specific prompt
-        const instructions = record.definition.instructions?.join("\n- ") || "";
-        const systemPrompt = `You are executing the "${record.name}" skill.\n\nPurpose: ${record.definition.purpose}\n\nInstructions:\n- ${instructions}\n\nComplete the following task:\n${task}`;
+      const qualityLines = record.definition.qualityStandards || [];
+      const quality = qualityLines.length > 0
+        ? `\nQuality standards:\n${qualityLines.map(q => `- ${q}`).join("\n")}`
+        : "";
 
-        // Run a simple completion (no tool calling — the skill itself IS the tool)
-        let result = "";
-        for await (const event of provider.stream({
-          system: systemPrompt,
-          messages: [{ role: "user", content: task }],
-        })) {
-          if (event.type === "text-delta") {
-            result += event.text;
-          }
-        }
+      const output = record.definition.outputRequirements
+        ? `\nOutput format: ${record.definition.outputRequirements}`
+        : "";
 
-        return result || "(no output)";
-      } catch (err) {
-        return `Skill execution error: ${err}`;
-      }
+      return [
+        `[Skill: ${record.name}]`,
+        `Purpose: ${record.definition.purpose}`,
+        instructions,
+        quality,
+        output,
+        `\nTask to complete: ${task}`,
+        `\nPlease execute this task now using your available tools. Follow the instructions above.`,
+      ].filter(Boolean).join("\n");
     },
   };
 }
