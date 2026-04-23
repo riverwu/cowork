@@ -51,15 +51,9 @@ export function ToolDetail({ tool, onBack, onRefresh }: ToolDetailProps) {
         });
       }
     }
-    // Load MCP config
-    if (!isSkill) {
-      import("@/lib/tauri").then(({ getEnv }) => {
-        getEnv("HOME").then((home) => {
-          if (home) {
-            readFileText(`${home}/.cowork/mcp.json`).then(setMcpConfigContent).catch(() => {});
-          }
-        });
-      });
+    // Load MCP config from per-directory MCP.json
+    if (!isSkill && tool.dirPath) {
+      readFileText(`${tool.dirPath}/MCP.json`).then(setMcpConfigContent).catch(() => {});
     }
   }, [tool, isSkill]);
 
@@ -179,7 +173,7 @@ export function ToolDetail({ tool, onBack, onRefresh }: ToolDetailProps) {
           {!showSource && (
             <div className="bg-[var(--surface-lowest)] rounded-xl border border-[var(--border)] px-4 py-3">
               <span className="text-[12px] font-mono text-[var(--on-surface-tertiary)]">
-                {isSkill ? `${tool.dirPath}/SKILL.md` : "~/.cowork/mcp.json"}
+                {isSkill ? `${tool.dirPath}/SKILL.md` : `${tool.dirPath}/MCP.json`}
               </span>
             </div>
           )}
