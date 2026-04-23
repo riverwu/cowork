@@ -4,8 +4,9 @@ import { skillRegistry } from "@/lib/ai/skill-registry";
 import { mcpManager, MCP_PRESETS } from "@/lib/mcp";
 import {
   IconPlus, IconPlay, IconClose,
-  IconServer, IconWarning, IconSpinner, IconPuzzle, IconFolder,
+  IconServer, IconWarning, IconSpinner, IconPuzzle,
 } from "@/components/icons";
+import { ToolDetail } from "@/components/apps/tool-detail";
 import { t } from "@/lib/i18n";
 import type { SkillRecord, SkillDefinition } from "@/types";
 
@@ -79,6 +80,11 @@ export function AppsPage() {
     setTools(toolItems);
   }
 
+  // Show detail page when a tool is selected
+  if (selectedTool) {
+    return <ToolDetail tool={selectedTool} onBack={() => setSelectedTool(null)} onRefresh={() => { loadData(); setSelectedTool(null); }} />;
+  }
+
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-4xl mx-auto px-8 py-8">
@@ -135,7 +141,6 @@ export function AppsPage() {
 
       {showCreateApp && <CreateAppDialog onClose={() => setShowCreateApp(false)} onCreated={loadData} />}
       {showAddTool && <AddToolDialog onClose={() => setShowAddTool(false)} onAdded={loadData} />}
-      {selectedTool && <ToolDetailDialog tool={selectedTool} onClose={() => setSelectedTool(null)} onRefresh={loadData} />}
     </div>
   );
 }
@@ -177,115 +182,6 @@ function ToolCard({ tool, onClick }: { tool: ToolItem; onClick: () => void }) {
       </div>
       {tool.status === "error" && <IconWarning size={14} className="text-[var(--error)] shrink-0" />}
     </button>
-  );
-}
-
-// ---- Tool Detail Dialog ----
-
-function ToolDetailDialog({ tool, onClose, onRefresh }: { tool: ToolItem; onClose: () => void; onRefresh: () => void }) {
-  const isSkill = tool.kind === "skill";
-
-  async function handleMcpToggle() {
-    const mcpId = tool.id.replace("mcp_", "");
-    if (tool.status === "disabled") await mcpManager.enableServer(mcpId);
-    else await mcpManager.removeServer(mcpId);
-    onRefresh();
-  }
-
-  async function handleMcpReconnect() {
-    await mcpManager.reconnectServer(tool.id.replace("mcp_", ""));
-    onRefresh();
-  }
-
-  return (
-    <DialogOverlay onClose={onClose}>
-      <div className="px-6 py-4 border-b border-[var(--border)] flex items-center gap-3">
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isSkill ? "bg-purple-50 text-purple-600" : "bg-blue-50 text-blue-600"}`}>
-          {isSkill ? <IconPuzzle size={16} /> : <IconServer size={16} />}
-        </div>
-        <div className="flex-1">
-          <h2 className="text-[15px] font-semibold text-[var(--on-surface)]">{tool.name}</h2>
-          <span className={`text-[10px] px-1.5 py-[1px] rounded-full font-medium ${isSkill ? "bg-purple-50 text-purple-600" : "bg-blue-50 text-blue-600"}`}>
-            {isSkill ? t("tools.type.skill") : t("tools.type.mcp")}
-          </span>
-        </div>
-        <button onClick={onClose} className="p-1 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] cursor-pointer"><IconClose size={16} /></button>
-      </div>
-
-      <div className="px-6 py-5 space-y-4">
-        {/* Description */}
-        {tool.skillRecord?.definition.purpose && (
-          <div>
-            <label className="text-[12px] font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">{t("skills.purpose")}</label>
-            <p className="text-[13px] text-[var(--on-surface)] mt-1">{tool.skillRecord.definition.purpose}</p>
-          </div>
-        )}
-
-        {/* Instructions */}
-        {tool.skillRecord?.definition.instructions && tool.skillRecord.definition.instructions.length > 0 && (
-          <div>
-            <label className="text-[12px] font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">{t("skills.instructions")}</label>
-            <ul className="mt-1 space-y-0.5">
-              {tool.skillRecord.definition.instructions.map((inst, i) => (
-                <li key={i} className="text-[12px] text-[var(--on-surface-secondary)] flex items-start gap-1.5">
-                  <span className="text-[var(--on-surface-tertiary)] mt-0.5">-</span>
-                  {inst}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {/* Directory (skill) */}
-        {tool.dirPath && (
-          <div>
-            <label className="text-[12px] font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">{t("tools.directory")}</label>
-            <div className="flex items-center gap-1.5 mt-1 text-[12px] text-[var(--on-surface-secondary)]">
-              <IconFolder size={12} />
-              <span className="font-mono">{tool.dirPath}</span>
-            </div>
-          </div>
-        )}
-
-        {/* Scripts */}
-        {tool.hasScripts && (
-          <div>
-            <label className="text-[12px] font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">{t("tools.scripts")}</label>
-            <p className="text-[12px] text-[var(--on-surface-secondary)] mt-1">{tool.dirPath}/scripts/</p>
-          </div>
-        )}
-
-        {/* MCP: tool count */}
-        {!isSkill && tool.toolCount !== undefined && tool.toolCount > 0 && (
-          <div>
-            <label className="text-[12px] font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">{t("tools.providedTools")}</label>
-            <p className="text-[13px] text-[var(--on-surface)] mt-1">{tool.toolCount} tools</p>
-          </div>
-        )}
-
-        {/* Status */}
-        <div>
-          <label className="text-[12px] font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">{t("tools.status")}</label>
-          <div className="flex items-center gap-2 mt-1">
-            <span className={`w-2 h-2 rounded-full ${tool.status === "active" || tool.status === "connected" ? "bg-emerald-500" : tool.status === "error" ? "bg-red-500" : tool.status === "connecting" ? "bg-amber-500" : "bg-gray-400"}`} />
-            <span className="text-[13px] text-[var(--on-surface)]">{tool.status}</span>
-          </div>
-          {tool.error && <p className="text-[12px] text-[var(--error)] mt-1">{tool.error}</p>}
-        </div>
-
-        {/* MCP actions */}
-        {!isSkill && (
-          <div className="flex gap-2 pt-2">
-            {tool.status === "error" && (
-              <button onClick={handleMcpReconnect} className="px-3 py-1.5 rounded-lg text-[12px] bg-[var(--primary-accent)] text-white hover:bg-[var(--primary)] cursor-pointer">{t("connections.reconnect")}</button>
-            )}
-            <button onClick={handleMcpToggle} className={`px-3 py-1.5 rounded-lg text-[12px] cursor-pointer ${tool.status === "disabled" ? "bg-[var(--surface-low)] text-[var(--primary-accent)]" : "bg-red-50 text-[var(--error)]"}`}>
-              {tool.status === "disabled" ? t("connections.enable") : t("connections.disable")}
-            </button>
-          </div>
-        )}
-      </div>
-    </DialogOverlay>
   );
 }
 
