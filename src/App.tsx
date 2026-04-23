@@ -1,11 +1,39 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Sidebar } from "./components/layout/sidebar";
 import { Home } from "./routes/home";
+import { initDb } from "./lib/db";
 
 type Page = "home" | "knowledge" | "channels" | "explore" | "activity" | "settings";
 
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>("home");
+  const [dbReady, setDbReady] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
+
+  useEffect(() => {
+    initDb()
+      .then(() => setDbReady(true))
+      .catch((err) => setDbError(String(err)));
+  }, []);
+
+  if (dbError) {
+    return (
+      <div className="flex items-center justify-center h-screen text-red-400 p-8 text-center">
+        <div>
+          <p className="text-lg font-semibold mb-2">Failed to initialize database</p>
+          <p className="text-sm text-[var(--color-text-tertiary)]">{dbError}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!dbReady) {
+    return (
+      <div className="flex items-center justify-center h-screen text-[var(--color-text-tertiary)]">
+        Starting...
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-[var(--color-bg)]">
