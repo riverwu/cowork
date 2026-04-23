@@ -73,8 +73,16 @@ export function CommandBar() {
     await sendMessage(message);
   }
 
+  const [composing, setComposing] = useState(false);
+
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
+    // Don't submit during IME composition (Chinese/Japanese input)
+    if (composing) return;
+    // Cmd+Enter (Mac) or Ctrl+Enter (Windows) to submit
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleSubmit();
+    }
   }
 
   async function handleAttachFiles() {
@@ -131,6 +139,8 @@ export function CommandBar() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
+          onCompositionStart={() => setComposing(true)}
+          onCompositionEnd={() => setComposing(false)}
           placeholder={isStreaming ? t("home.input.thinking") : t("home.input.placeholder")}
           disabled={isStreaming}
           rows={2}
@@ -204,18 +214,21 @@ export function CommandBar() {
           )}
         </div>
 
-        {/* Right: send */}
-        <button
-          onClick={handleSubmit}
-          disabled={!hasContent || isStreaming}
-          className={`p-2 rounded-xl cursor-pointer transition-all ${
-            hasContent && !isStreaming
-              ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] shadow-sm"
-              : "bg-[var(--surface-low)] text-[var(--on-surface-tertiary)]"
-          } disabled:opacity-30 disabled:cursor-not-allowed`}
-        >
-          <IconSend size={16} />
-        </button>
+        {/* Right: shortcut hint + send */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-[var(--on-surface-tertiary)]">⌘↵</span>
+          <button
+            onClick={handleSubmit}
+            disabled={!hasContent || isStreaming}
+            className={`p-2 rounded-xl cursor-pointer transition-all ${
+              hasContent && !isStreaming
+                ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] shadow-sm"
+                : "bg-[var(--surface-low)] text-[var(--on-surface-tertiary)]"
+            } disabled:opacity-30 disabled:cursor-not-allowed`}
+          >
+            <IconSend size={16} />
+          </button>
+        </div>
       </div>
     </div>
   );
