@@ -10,7 +10,6 @@ interface AttachedFile {
   path: string;
 }
 
-// Plan icon
 function IconPlan({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -22,7 +21,6 @@ function IconPlan({ size = 18 }: { size?: number }) {
   );
 }
 
-// Eraser icon for "clear context"
 function IconEraser({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -32,7 +30,6 @@ function IconEraser({ size = 18 }: { size?: number }) {
   );
 }
 
-// Paperclip icon
 function IconAttach({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -47,19 +44,17 @@ export function CommandBar() {
   const [showMenu, setShowMenu] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const { sendMessage, clearContext, planMode, togglePlanMode, workingDirectory, setWorkingDirectory, isStreaming } = useSessionStore();
+  const {
+    sendMessage, clearContext, planMode, togglePlanMode,
+    workingDirectory, setWorkingDirectory, isStreaming,
+  } = useSessionStore();
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+  useEffect(() => { inputRef.current?.focus(); }, []);
 
-  // Close menu on outside click
   useEffect(() => {
     if (!showMenu) return;
     function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setShowMenu(false);
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -68,25 +63,18 @@ export function CommandBar() {
   async function handleSubmit() {
     const text = input.trim();
     if ((!text && files.length === 0) || isStreaming) return;
-
     let message = text;
     if (files.length > 0) {
       const fileList = files.map((f) => `[File: ${f.name}](${f.path})`).join("\n");
-      message = text
-        ? `${text}\n\nAttached files:\n${fileList}`
-        : `Please analyze these files:\n${fileList}`;
+      message = text ? `${text}\n\nAttached files:\n${fileList}` : `Please analyze these files:\n${fileList}`;
     }
-
     setInput("");
     setFiles([]);
     await sendMessage(message);
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(); }
   }
 
   async function handleAttachFiles() {
@@ -99,27 +87,13 @@ export function CommandBar() {
     });
     if (!result) return;
     const paths = Array.isArray(result) ? result : [result];
-    const newFiles: AttachedFile[] = paths.map((p) => ({
-      name: p.split("/").pop() || p,
-      path: p,
-    }));
-    setFiles((prev) => [...prev, ...newFiles]);
+    setFiles((prev) => [...prev, ...paths.map((p) => ({ name: p.split("/").pop() || p, path: p }))]);
   }
 
-  function removeFile(index: number) {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-  }
+  function removeFile(index: number) { setFiles((prev) => prev.filter((_, i) => i !== index)); }
 
-  function handleClearContext() {
-    clearContext();
-    setShowMenu(false);
-  }
-
-  function handleTogglePlan() {
-    togglePlanMode();
-    setShowMenu(false);
-  }
-
+  function handleClearContext() { clearContext(); setShowMenu(false); }
+  function handleTogglePlan() { togglePlanMode(); setShowMenu(false); }
   async function handleChangeWorkDir() {
     const path = await pickFolder();
     if (path) setWorkingDirectory(path);
@@ -127,36 +101,14 @@ export function CommandBar() {
 
   useEffect(() => {
     const el = inputRef.current;
-    if (el) {
-      el.style.height = "auto";
-      el.style.height = Math.min(el.scrollHeight, 200) + "px";
-    }
+    if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 200) + "px"; }
   }, [input]);
 
   const hasContent = input.trim() || files.length > 0;
 
   return (
     <div className={`bg-[var(--surface-lowest)] border rounded-2xl shadow-[var(--shadow-md)] overflow-visible relative ${planMode ? "border-blue-300" : "border-[var(--border)]"}`}>
-      {/* Top bar: working directory + plan mode */}
-      <div className="flex items-center gap-2 px-4 pt-2 pb-0.5">
-        <button
-          onClick={handleChangeWorkDir}
-          className="flex items-center gap-1 text-[11px] text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] cursor-pointer transition-colors truncate max-w-[300px]"
-          title={workingDirectory}
-        >
-          <IconFolder size={11} />
-          <span className="truncate">{shortenPath(workingDirectory)}</span>
-        </button>
-        {planMode && (
-          <>
-            <span className="text-[var(--border)]">|</span>
-            <span className="flex items-center gap-1 text-[11px] text-blue-600 font-medium">
-              <IconPlan size={11} />
-              {t("home.planMode")}
-            </span>
-          </>
-        )}
-      </div>
+
       {/* Attached files */}
       {files.length > 0 && (
         <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-1">
@@ -172,59 +124,8 @@ export function CommandBar() {
         </div>
       )}
 
-      {/* Input area */}
-      <div className="flex items-end gap-2 px-4 py-3">
-        {/* Left buttons: + menu, attach */}
-        <div className="flex flex-col items-center gap-1 pb-0.5">
-          {/* + Menu button */}
-          <div className="relative" ref={menuRef}>
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              disabled={isStreaming}
-              className={`p-1.5 rounded-lg cursor-pointer transition-colors disabled:opacity-30 ${
-                showMenu
-                  ? "bg-[var(--surface-container)] text-[var(--on-surface)]"
-                  : "text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)]"
-              }`}
-              title="Menu"
-            >
-              <IconPlus size={16} />
-            </button>
-
-            {/* Popup menu */}
-            {showMenu && (
-              <div className="absolute bottom-full left-0 mb-2 w-52 bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl shadow-[var(--shadow-lg)] py-1 z-50">
-                <button
-                  onClick={handleTogglePlan}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors text-left"
-                >
-                  <IconPlan size={15} />
-                  <span className="flex-1">{t("home.planMode")}</span>
-                  {planMode && <span className="text-[var(--primary-accent)] text-[11px]">ON</span>}
-                </button>
-                <button
-                  onClick={handleClearContext}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors text-left"
-                >
-                  <IconEraser size={15} />
-                  {t("home.clearContext")}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Attach button */}
-          <button
-            onClick={handleAttachFiles}
-            disabled={isStreaming}
-            className="p-1.5 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors disabled:opacity-30"
-            title="Attach files"
-          >
-            <IconAttach size={16} />
-          </button>
-        </div>
-
-        {/* Text input */}
+      {/* Text input — full width, starts from top-left */}
+      <div className="px-4 pt-3 pb-1">
         <textarea
           ref={inputRef}
           value={input}
@@ -233,34 +134,96 @@ export function CommandBar() {
           placeholder={isStreaming ? t("home.input.thinking") : t("home.input.placeholder")}
           disabled={isStreaming}
           rows={2}
-          className="flex-1 py-1 bg-transparent text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none text-[14px] leading-relaxed resize-none disabled:opacity-50"
+          className="w-full bg-transparent text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none text-[14px] leading-relaxed resize-none disabled:opacity-50"
         />
+      </div>
 
-        {/* Send button */}
-        <div className="pb-0.5">
+      {/* Bottom bar: left actions + right send */}
+      <div className="flex items-center justify-between px-3 pb-2.5 pt-0.5">
+        {/* Left: +menu, attach, working dir, plan mode */}
+        <div className="flex items-center gap-0.5">
+          {/* + Menu */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              disabled={isStreaming}
+              className={`p-1.5 rounded-lg cursor-pointer transition-colors disabled:opacity-30 ${
+                showMenu ? "bg-[var(--surface-container)] text-[var(--on-surface)]" : "text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)]"
+              }`}
+              title="Menu"
+            >
+              <IconPlus size={16} />
+            </button>
+            {showMenu && (
+              <div className="absolute bottom-full left-0 mb-2 w-52 bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl shadow-[var(--shadow-lg)] py-1 z-50">
+                <button onClick={handleTogglePlan} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors text-left">
+                  <IconPlan size={15} />
+                  <span className="flex-1">{t("home.planMode")}</span>
+                  {planMode && <span className="text-[var(--primary-accent)] text-[11px]">ON</span>}
+                </button>
+                <button onClick={handleClearContext} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors text-left">
+                  <IconEraser size={15} />
+                  {t("home.clearContext")}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Attach */}
           <button
-            onClick={handleSubmit}
-            disabled={!hasContent || isStreaming}
-            className={`p-2 rounded-xl cursor-pointer transition-all ${
-              hasContent && !isStreaming
-                ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] shadow-sm"
-                : "bg-[var(--surface-low)] text-[var(--on-surface-tertiary)]"
-            } disabled:opacity-30 disabled:cursor-not-allowed`}
+            onClick={handleAttachFiles}
+            disabled={isStreaming}
+            className="p-1.5 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors disabled:opacity-30"
+            title="Attach files"
           >
-            <IconSend size={16} />
+            <IconAttach size={16} />
           </button>
+
+          {/* Separator */}
+          <div className="w-px h-4 bg-[var(--border)] mx-1" />
+
+          {/* Working directory */}
+          <button
+            onClick={handleChangeWorkDir}
+            className="flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors truncate max-w-[220px]"
+            title={workingDirectory}
+          >
+            <IconFolder size={12} />
+            <span className="truncate">{shortenPath(workingDirectory)}</span>
+          </button>
+
+          {/* Plan mode indicator */}
+          {planMode && (
+            <>
+              <div className="w-px h-4 bg-[var(--border)] mx-1" />
+              <span className="flex items-center gap-1 px-1.5 py-1 text-[11px] text-blue-600 font-medium">
+                <IconPlan size={11} />
+                {t("home.planMode")}
+              </span>
+            </>
+          )}
         </div>
+
+        {/* Right: send */}
+        <button
+          onClick={handleSubmit}
+          disabled={!hasContent || isStreaming}
+          className={`p-2 rounded-xl cursor-pointer transition-all ${
+            hasContent && !isStreaming
+              ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] shadow-sm"
+              : "bg-[var(--surface-low)] text-[var(--on-surface-tertiary)]"
+          } disabled:opacity-30 disabled:cursor-not-allowed`}
+        >
+          <IconSend size={16} />
+        </button>
       </div>
     </div>
   );
 }
 
-/** Shorten a path for display: /Users/river/Documents/Work → ~/Documents/Work */
 function shortenPath(path: string): string {
   if (!path) return "~";
   const home = path.match(/^\/Users\/[^/]+/)?.[0] || path.match(/^\/home\/[^/]+/)?.[0];
-  if (home && path.startsWith(home)) {
-    return "~" + path.slice(home.length);
-  }
+  if (home && path.startsWith(home)) return "~" + path.slice(home.length);
   return path;
 }
