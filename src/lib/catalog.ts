@@ -218,18 +218,4 @@ export const CATALOG_MCPS: CatalogMcp[] = [
       enabled: true,
     },
   },
-  {
-    id: "memory",
-    name: "Memory",
-    version: "1.0.0",
-    description: "Knowledge graph memory server",
-    definition: {
-      name: "Memory",
-      version: "1.0.0",
-      description: "Persistent knowledge graph memory — store and query entities and relationships",
-      command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-memory"],
-      enabled: true,
-    },
-  },
 ];
