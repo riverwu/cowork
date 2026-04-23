@@ -100,6 +100,45 @@ export async function updateSourceStatus(id: string, status: Source["status"]): 
   await db.execute("UPDATE sources SET status = $1 WHERE id = $2", [status, id]);
 }
 
+export async function deleteSource(id: string): Promise<void> {
+  const db = await getDb();
+  // Cascading deletes: documents → chunks
+  await db.execute("DELETE FROM chunks WHERE document_id IN (SELECT id FROM documents WHERE source_id = $1)", [id]);
+  await db.execute("DELETE FROM documents WHERE source_id = $1", [id]);
+  await db.execute("DELETE FROM sources WHERE id = $1", [id]);
+}
+
+export interface KnowledgeStats {
+  totalSources: number;
+  totalDocuments: number;
+  indexedDocuments: number;
+  pendingDocuments: number;
+  excludedDocuments: number;
+  totalChunks: number;
+  chunksWithEmbeddings: number;
+}
+
+export async function getKnowledgeStats(): Promise<KnowledgeStats> {
+  const db = await getDb();
+  const sources = await db.select<{ cnt: number }[]>("SELECT COUNT(*) as cnt FROM sources");
+  const docs = await db.select<{ cnt: number }[]>("SELECT COUNT(*) as cnt FROM documents");
+  const indexed = await db.select<{ cnt: number }[]>("SELECT COUNT(*) as cnt FROM documents WHERE status = 'indexed'");
+  const pending = await db.select<{ cnt: number }[]>("SELECT COUNT(*) as cnt FROM documents WHERE status = 'pending'");
+  const excluded = await db.select<{ cnt: number }[]>("SELECT COUNT(*) as cnt FROM documents WHERE status = 'excluded'");
+  const chunks = await db.select<{ cnt: number }[]>("SELECT COUNT(*) as cnt FROM chunks");
+  const embedded = await db.select<{ cnt: number }[]>("SELECT COUNT(*) as cnt FROM chunks WHERE embedding IS NOT NULL");
+
+  return {
+    totalSources: sources[0]?.cnt || 0,
+    totalDocuments: docs[0]?.cnt || 0,
+    indexedDocuments: indexed[0]?.cnt || 0,
+    pendingDocuments: pending[0]?.cnt || 0,
+    excludedDocuments: excluded[0]?.cnt || 0,
+    totalChunks: chunks[0]?.cnt || 0,
+    chunksWithEmbeddings: embedded[0]?.cnt || 0,
+  };
+}
+
 // ---- Documents ----
 
 export async function createDocument(params: {
