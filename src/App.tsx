@@ -3,6 +3,7 @@ import { Sidebar } from "./components/layout/sidebar";
 import { Home } from "./routes/home";
 import { SettingsPage } from "./routes/settings";
 import { initDb } from "./lib/db";
+import { useAppStore } from "./stores/app-store";
 
 type Page = "home" | "knowledge" | "channels" | "explore" | "activity" | "settings";
 
@@ -10,12 +11,16 @@ function App() {
   const [currentPage, setCurrentPage] = useState<Page>("home");
   const [dbReady, setDbReady] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
+  const loadAppState = useAppStore((s) => s.load);
 
   useEffect(() => {
     initDb()
-      .then(() => setDbReady(true))
+      .then(() => {
+        setDbReady(true);
+        return loadAppState();
+      })
       .catch((err) => setDbError(String(err)));
-  }, []);
+  }, [loadAppState]);
 
   if (dbError) {
     return (
