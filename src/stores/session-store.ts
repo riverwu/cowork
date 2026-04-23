@@ -28,7 +28,7 @@ interface SessionState {
   messages: Message[];
   isStreaming: boolean;
   streamingText: string;
-  steps: Array<{ skill: string; status: "running" | "done"; result?: unknown; durationMs?: number }>;
+  steps: Array<{ skill: string; status: "running" | "done"; input?: unknown; result?: unknown; durationMs?: number }>;
   artifacts: Artifact[];
   knowledgeRefs: KnowledgeRef[];
   error: string | null;
@@ -145,15 +145,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
 
       if (fullText) {
+        const completedSteps = get().steps;
         const assistantMsg = await createMessage({
           sessionId,
           role: "assistant",
           content: fullText,
+          metadata: completedSteps.length > 0 ? { steps: completedSteps } : undefined,
         });
         set((s) => ({
           messages: [...s.messages, assistantMsg],
           isStreaming: false,
           streamingText: "",
+          steps: [], // Clear steps after saving to message
         }));
       } else {
         set({ isStreaming: false });
@@ -212,7 +215,7 @@ function handleEvent(
       break;
     case "skill-start":
       set((s) => ({
-        steps: [...s.steps, { skill: event.skill, status: "running" }],
+        steps: [...s.steps, { skill: event.skill, status: "running", input: event.input }],
       }));
       break;
     case "skill-done":
