@@ -115,6 +115,7 @@ export function buildSystemPrompt(params?: {
   tools?: ToolDefinition[];
   planMode?: boolean;
   workingDirectory?: string;
+  skillsDirectory?: string;
 }): string {
   const sections = [
     IDENTITY,
@@ -127,6 +128,35 @@ export function buildSystemPrompt(params?: {
 
   if (params?.workingDirectory) {
     sections.push(`## Working Directory\nYour current working directory is: \`${params.workingDirectory}\`\nAll file paths should be relative to or within this directory. Use this as the default cwd for shell commands.`);
+  }
+
+  if (params?.skillsDirectory) {
+    sections.push(`## Skills Directory
+Skills are installed at: \`${params.skillsDirectory}\`
+
+To install a skill from GitHub:
+\`\`\`
+shell: git clone <repo_url> ${params.skillsDirectory}/<skill-name>
+\`\`\`
+
+To create a new skill, create a directory with a SKILL.md file:
+\`\`\`
+${params.skillsDirectory}/<skill-name>/SKILL.md
+\`\`\`
+
+SKILL.md format:
+\`\`\`
+---
+name: skill-name
+type: skill
+description: What this skill does
+---
+## Instructions
+- Step 1
+- Step 2
+\`\`\`
+
+Scripts can be placed in a \`scripts/\` subdirectory and executed via shell.`);
   }
 
   if (params?.planMode) {

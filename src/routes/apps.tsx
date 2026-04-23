@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listSkills, createSkill, deleteSkill } from "@/lib/db";
+import { loadSkillsFromFilesystem, type LoadedSkill } from "@/lib/ai/skill-loader";
 import { mcpManager, MCP_PRESETS } from "@/lib/mcp";
 import {
   IconPlus, IconPlay, IconClock, IconClose,
@@ -11,6 +12,7 @@ import type { SkillRecord, SkillDefinition, SkillType } from "@/types";
 export function AppsPage() {
   const [apps, setApps] = useState<SkillRecord[]>([]);
   const [skills, setSkills] = useState<SkillRecord[]>([]);
+  const [, setFsSkills] = useState<LoadedSkill[]>([]);
   const [mcpStatus, setMcpStatus] = useState<Array<{
     id: string; name: string; connected: boolean; toolCount: number;
     builtin: boolean; enabled: boolean;
@@ -23,12 +25,21 @@ export function AppsPage() {
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
-    const [allSkills, status] = await Promise.all([
+    const [dbSkills, fsLoaded, status] = await Promise.all([
       listSkills(),
+      loadSkillsFromFilesystem().catch(() => []),
       Promise.resolve(mcpManager.getServerStatus()),
     ]);
-    setApps(allSkills.filter((s) => s.type === "app"));
-    setSkills(allSkills.filter((s) => s.type === "skill"));
+    // Merge DB skills + filesystem skills (fs takes precedence on ID collision)
+    const allRecords = [...dbSkills];
+    for (const fs of fsLoaded) {
+      if (!allRecords.find((r) => r.id === fs.record.id)) {
+        allRecords.push(fs.record);
+      }
+    }
+    setApps(allRecords.filter((s) => s.type === "app"));
+    setSkills(allRecords.filter((s) => s.type === "skill"));
+    setFsSkills(fsLoaded);
     setMcpStatus(status);
   }
 
@@ -47,7 +58,7 @@ export function AppsPage() {
             <EmptyState text={t("apps.noApps")} />
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              {apps.map((app) => <SkillCard key={app.id} record={app} onRefresh={loadData} />)}
+              {apps.map((app) => <SkillCard key={app.id} record={app} onRefresh={loadData} isFilesystem={app.id.startsWith("fs_")} />)}
             </div>
           )}
         </section>
@@ -64,7 +75,7 @@ export function AppsPage() {
             <EmptyState text={t("skills.noSkills")} />
           ) : (
             <div className="grid grid-cols-2 gap-3">
-              {skills.map((skill) => <SkillCard key={skill.id} record={skill} onRefresh={loadData} />)}
+              {skills.map((skill) => <SkillCard key={skill.id} record={skill} onRefresh={loadData} isFilesystem={skill.id.startsWith("fs_")} />)}
             </div>
           )}
         </section>
@@ -102,7 +113,7 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-function SkillCard({ record, onRefresh }: { record: SkillRecord; onRefresh: () => void }) {
+function SkillCard({ record, onRefresh, isFilesystem }: { record: SkillRecord; onRefresh: () => void; isFilesystem?: boolean }) {
   const isApp = record.type === "app";
 
   async function handleDelete() {
@@ -118,6 +129,9 @@ function SkillCard({ record, onRefresh }: { record: SkillRecord; onRefresh: () =
           <span className={`text-[10px] px-1.5 py-[1px] rounded-full font-medium ${isApp ? "bg-blue-50 text-blue-600" : "bg-purple-50 text-purple-600"}`}>
             {isApp ? "App" : "Skill"}
           </span>
+          {isFilesystem && (
+            <span className="text-[10px] px-1.5 py-[1px] rounded-full bg-gray-100 text-gray-500 font-medium">FS</span>
+          )}
         </div>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {isApp && (

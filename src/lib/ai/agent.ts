@@ -1,7 +1,7 @@
 import { getConfiguredProvider } from "./providers";
 import type { LLMMessage, StreamEvent } from "./providers/types";
 import { getSkills } from "./skills/registry";
-import { loadSkillTools } from "./skill-runner";
+import { loadSkillTools, getSkillsDir } from "./skill-runner";
 import { buildSystemPrompt } from "./system-prompt";
 import { retrieveRelevant, buildKnowledgeContext } from "@/lib/knowledge";
 import { retrieveMemoryContext, buildMemoryPrompt, extractMemories } from "@/lib/memory";
@@ -80,12 +80,16 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   }
 
   // 3. Build system prompt
+  let skillsDir: string | undefined;
+  try { skillsDir = await getSkillsDir(); } catch { /* ignore */ }
+
   const system = buildSystemPrompt({
     tools: toolDefs,
     memoryContext: memoryContext || undefined,
     knowledgeContext: knowledgeContext || undefined,
     planMode: params.planMode,
     workingDirectory: params.workingDirectory,
+    skillsDirectory: skillsDir,
   });
 
   // 4. Agent loop

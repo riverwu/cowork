@@ -1,46 +1,48 @@
 /**
- * Skill Runner — converts SkillRecords into agent-usable forms.
+ * Skill Runner — loads skills from filesystem and converts to agent tools.
  *
- * Follows Codex CLI's pattern:
- * - type="skill": registers as a tool. When called, returns the skill's
- *   instructions to the main agent (NOT a sub-agent). The main agent
- *   then follows these instructions using its full toolkit.
- * - type="app": injects instructions into system prompt when activated.
+ * Skills live in ~/.cowork/skills/ as directories with SKILL.md.
+ * Filesystem is source of truth.
  *
- * Progressive disclosure (like Codex):
- * - Only name + purpose (description) loaded into tool definitions
- * - Full instructions loaded only when the skill is invoked
+ * - type="skill" → registered as a tool, agent decides when to call
+ * - type="app" → instructions injected into system prompt when activated
+ *
+ * When a skill is called:
+ * - Returns instructions + task back to the main agent
+ * - Main agent executes using its full toolkit (including skill's scripts)
+ * - NOT a sub-agent — instruction injection pattern (Codex style)
  */
 
-import { listSkills } from "@/lib/db";
+import { loadSkillsFromFilesystem, getSkillsDir, type LoadedSkill } from "./skill-loader";
 import type { Skill } from "./skills/types";
 import type { SkillRecord } from "@/types";
 
-/**
- * Load all active skill-type records and convert to agent tools.
- *
- * Each skill becomes a tool where:
- * - definition.description = skill's purpose (LLM uses this to decide when to call)
- * - execute() = returns the skill's full instructions + the task
- *
- * The main agent then follows these instructions with its full toolkit.
- * This matches Codex's approach: skills augment the agent, not replace it.
- */
+/** Cache of loaded skills (refreshed on demand). */
+let cachedSkills: LoadedSkill[] = [];
+
+/** Load all skills from filesystem and convert skill-type to agent tools. */
 export async function loadSkillTools(): Promise<Record<string, Skill>> {
-  const skills = await listSkills("skill");
+  cachedSkills = await loadSkillsFromFilesystem();
   const tools: Record<string, Skill> = {};
 
-  for (const record of skills) {
-    const toolName = `skill_${sanitizeName(record.name)}`;
-    tools[toolName] = createSkillTool(record);
+  for (const loaded of cachedSkills) {
+    if (loaded.record.type !== "skill") continue;
+    const toolName = `skill_${sanitizeName(loaded.record.name)}`;
+    tools[toolName] = createSkillTool(loaded);
   }
 
   return tools;
 }
 
-/**
- * Build the system prompt addition for an App-type skill.
- */
+/** Get all loaded skills (both apps and skills). */
+export function getLoadedSkills(): LoadedSkill[] {
+  return cachedSkills;
+}
+
+/** Get the skills directory path (for system prompt). */
+export { getSkillsDir };
+
+/** Build system prompt addition for an App-type skill. */
 export function buildAppPrompt(record: SkillRecord): string {
   const parts = [`## Active App: ${record.name}`];
   parts.push(`Purpose: ${record.definition.purpose}`);
@@ -63,23 +65,13 @@ export function buildAppPrompt(record: SkillRecord): string {
     parts.push(`Output: ${record.definition.outputRequirements}`);
   }
 
-  if (record.definition.dataScope) {
-    parts.push(`Data scope: ${record.definition.dataScope}`);
-  }
-
   return parts.join("\n");
 }
 
-/**
- * Convert a skill record into an agent tool.
- *
- * Key design (matching Codex):
- * - The tool's description = skill purpose (for LLM to decide when to use)
- * - When called, returns INSTRUCTIONS back to the main agent
- * - The main agent then executes with its full set of tools
- * - This is NOT a sub-agent — it's instruction injection
- */
-function createSkillTool(record: SkillRecord): Skill {
+/** Convert a filesystem skill into an agent-callable tool. */
+function createSkillTool(loaded: LoadedSkill): Skill {
+  const { record, dirPath, hasScripts } = loaded;
+
   const paramProps: Record<string, unknown> = {
     task: {
       type: "string",
@@ -107,30 +99,23 @@ function createSkillTool(record: SkillRecord): Skill {
     execute: async (input) => {
       const task = input.task as string;
 
-      // Build the instruction payload — returned to the main agent
-      // The main agent will follow these instructions using its full toolkit
       const instructionLines = record.definition.instructions || [];
       const instructions = instructionLines.length > 0
         ? `\nInstructions:\n${instructionLines.map(i => `- ${i}`).join("\n")}`
         : "";
 
-      const qualityLines = record.definition.qualityStandards || [];
-      const quality = qualityLines.length > 0
-        ? `\nQuality standards:\n${qualityLines.map(q => `- ${q}`).join("\n")}`
-        : "";
-
-      const output = record.definition.outputRequirements
-        ? `\nOutput format: ${record.definition.outputRequirements}`
+      const scriptInfo = hasScripts
+        ? `\nThis skill has executable scripts in: ${dirPath}/scripts/\nYou can run them using the shell tool.`
         : "";
 
       return [
         `[Skill: ${record.name}]`,
         `Purpose: ${record.definition.purpose}`,
+        `Skill directory: ${dirPath}`,
         instructions,
-        quality,
-        output,
-        `\nTask to complete: ${task}`,
-        `\nPlease execute this task now using your available tools. Follow the instructions above.`,
+        scriptInfo,
+        `\nTask: ${task}`,
+        `\nExecute this task using your available tools. Follow the instructions above.`,
       ].filter(Boolean).join("\n");
     },
   };
