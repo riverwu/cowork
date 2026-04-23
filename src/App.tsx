@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Sidebar } from "./components/layout/sidebar";
 import { Home } from "./routes/home";
 import { SettingsPage } from "./routes/settings";
+import { KnowledgePage } from "./routes/knowledge";
 import { initDb } from "./lib/db";
 import { useAppStore } from "./stores/app-store";
 
@@ -46,7 +47,7 @@ function App() {
       <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
       <main className="flex-1 overflow-hidden">
         {currentPage === "home" && <Home />}
-        {currentPage === "knowledge" && <PlaceholderPage title="Knowledge" />}
+        {currentPage === "knowledge" && <KnowledgePage />}
         {currentPage === "channels" && <PlaceholderPage title="Channels" />}
         {currentPage === "explore" && <PlaceholderPage title="Explore" />}
         {currentPage === "activity" && <PlaceholderPage title="Activity" />}
