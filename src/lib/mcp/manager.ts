@@ -94,10 +94,27 @@ export const MCP_PRESETS = [
   },
 ];
 
+interface ServerState {
+  status: "connecting" | "connected" | "error" | "disabled";
+  error?: string;
+}
+
 class McpManager {
   private clients = new Map<string, McpClient>();
   private config: McpConfig = { mcpServers: {} };
   private configPath: string | null = null;
+  private serverStates = new Map<string, ServerState>();
+  private onChangeCallbacks: Array<() => void> = [];
+
+  /** Register a callback for state changes (for UI reactivity). */
+  onChange(cb: () => void): () => void {
+    this.onChangeCallbacks.push(cb);
+    return () => { this.onChangeCallbacks = this.onChangeCallbacks.filter((c) => c !== cb); };
+  }
+
+  private notifyChange() {
+    for (const cb of this.onChangeCallbacks) cb();
+  }
 
   /** Load config (with defaults on first run) and connect to all enabled servers. */
   async initialize(): Promise<void> {
@@ -121,25 +138,24 @@ class McpManager {
   getServerStatus(): Array<{
     id: string; name: string; connected: boolean; toolCount: number;
     builtin: boolean; enabled: boolean;
+    status: "connecting" | "connected" | "error" | "disabled";
+    error?: string;
   }> {
-    const status: Array<{
-      id: string; name: string; connected: boolean; toolCount: number;
-      builtin: boolean; enabled: boolean;
-    }> = [];
-
-    for (const [id, entry] of Object.entries(this.config.mcpServers)) {
+    return Object.entries(this.config.mcpServers).map(([id, entry]) => {
       const client = this.clients.get(id);
-      status.push({
+      const state = this.serverStates.get(id);
+      const enabled = entry.enabled !== false;
+      return {
         id,
         name: id,
         connected: client?.isConnected() || false,
         toolCount: client?.getTools().length || 0,
         builtin: entry.builtin || false,
-        enabled: entry.enabled !== false,
-      });
-    }
-
-    return status;
+        enabled,
+        status: !enabled ? "disabled" : (state?.status || "connecting"),
+        error: state?.error,
+      };
+    });
   }
 
   /** Add a new MCP server to config and connect. */
@@ -160,12 +176,14 @@ class McpManager {
     }
 
     if (entry?.builtin) {
-      // Don't delete built-in servers, just disable
       this.config.mcpServers[id] = { ...entry, enabled: false };
+      this.serverStates.set(id, { status: "disabled" });
     } else {
       delete this.config.mcpServers[id];
+      this.serverStates.delete(id);
     }
     await this.saveConfig();
+    this.notifyChange();
   }
 
   /** Enable a disabled server. */
@@ -252,17 +270,29 @@ class McpManager {
   }
 
   private async connectServer(id: string, entry: McpServerEntry): Promise<void> {
-    const client = new McpClient({
-      id,
-      name: id,
-      command: entry.command,
-      args: entry.args,
-      env: entry.env,
-    });
+    this.serverStates.set(id, { status: "connecting" });
+    this.notifyChange();
 
-    await client.connect();
-    this.clients.set(id, client);
-    console.log(`MCP '${id}' connected: ${client.getTools().length} tools`);
+    try {
+      const client = new McpClient({
+        id,
+        name: id,
+        command: entry.command,
+        args: entry.args,
+        env: entry.env,
+      });
+
+      await client.connect();
+      this.clients.set(id, client);
+      this.serverStates.set(id, { status: "connected" });
+      console.log(`MCP '${id}' connected: ${client.getTools().length} tools`);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      this.serverStates.set(id, { status: "error", error: errorMsg });
+      console.warn(`MCP '${id}' failed:`, errorMsg);
+    }
+
+    this.notifyChange();
   }
 }
 

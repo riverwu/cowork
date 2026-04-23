@@ -274,3 +274,23 @@ export function IconWave(props: IconProps) {
     </svg>
   );
 }
+
+export function IconServer(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <rect x="3" y="2" width="12" height="5" rx="1" />
+      <rect x="3" y="11" width="12" height="5" rx="1" />
+      <path d="M9 7V11" />
+      <circle cx="6" cy="4.5" r="0.5" fill="currentColor" stroke="none" />
+      <circle cx="6" cy="13.5" r="0.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function IconSpinner(props: IconProps) {
+  return (
+    <svg {...defaults(props)} className={`animate-spin ${props.className || ""}`}>
+      <path d="M9 2.5A6.5 6.5 0 1 0 15.5 9" strokeLinecap="round" />
+    </svg>
+  );
+}

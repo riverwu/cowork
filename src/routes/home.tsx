@@ -7,7 +7,7 @@ import { ViewContainer } from "@/components/views/view-container";
 import { useSessionStore } from "@/stores/session-store";
 import {
   IconClock, IconChart, IconTaskList, IconMail, IconTrend,
-  IconFolder, IconPlus, IconPlay, IconCheck, IconDocument, IconClose, IconChannel,
+  IconFolder, IconPlus, IconPlay, IconCheck, IconDocument, IconClose, IconServer,
 } from "@/components/icons";
 import { t } from "@/lib/i18n";
 
@@ -194,7 +194,7 @@ function RightPanel({ sources, mcpServers, hasViews }: {
         {mcpServers.length > 0 && (
           <div className="mt-6">
             <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--on-surface)] mb-3">
-              <IconChannel size={13} /> {t("connections.title")}
+              <IconServer size={13} /> {t("connections.title")}
             </h2>
             <div className="space-y-1">
               {mcpServers.map((s) => (

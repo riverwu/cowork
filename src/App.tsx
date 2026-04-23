@@ -27,10 +27,10 @@ function App() {
         setDbReady(true);
         await loadAppState();
         await initSession();
-        // Connect MCP servers (non-blocking), refresh status when done
-        mcpManager.initialize()
-          .then(() => refreshMcp())
-          .catch((err) => { console.error("MCP init:", err); refreshMcp(); });
+        // Subscribe to MCP state changes for reactive UI updates
+        mcpManager.onChange(() => refreshMcp());
+        // Connect MCP servers (non-blocking)
+        mcpManager.initialize().catch((err) => console.error("MCP init:", err));
       })
       .catch((err) => setDbError(String(err)));
   }, [loadAppState, initSession]);

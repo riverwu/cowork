@@ -3,7 +3,7 @@ import { listApps, createApp } from "@/lib/db";
 import { mcpManager, MCP_PRESETS } from "@/lib/mcp";
 import {
   IconPlus, IconPlay, IconClock, IconClose,
-  IconChannel, IconWarning,
+  IconServer, IconWarning, IconSpinner,
 } from "@/components/icons";
 import { t } from "@/lib/i18n";
 import type { App, AppDefinition } from "@/types";
@@ -13,6 +13,8 @@ export function AppsPage() {
   const [mcpStatus, setMcpStatus] = useState<Array<{
     id: string; name: string; connected: boolean; toolCount: number;
     builtin: boolean; enabled: boolean;
+    status: "connecting" | "connected" | "error" | "disabled";
+    error?: string;
   }>>([]);
   const [showCreateApp, setShowCreateApp] = useState(false);
   const [showAddConnection, setShowAddConnection] = useState(false);
@@ -60,7 +62,7 @@ export function AppsPage() {
         <section>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-[16px] font-bold text-[var(--on-surface)] flex items-center gap-2">
-              <IconChannel size={16} /> {t("connections.title")}
+              <IconServer size={16} /> {t("connections.title")}
             </h2>
             <button
               onClick={() => setShowAddConnection(true)}
@@ -111,11 +113,16 @@ function AppCard({ app }: { app: App }) {
 }
 
 function ConnectionCard({ server, onRefresh }: {
-  server: { id: string; name: string; connected: boolean; toolCount: number; builtin: boolean; enabled: boolean };
+  server: {
+    id: string; name: string; connected: boolean; toolCount: number;
+    builtin: boolean; enabled: boolean;
+    status: "connecting" | "connected" | "error" | "disabled";
+    error?: string;
+  };
   onRefresh: () => void;
 }) {
   async function handleToggle() {
-    if (server.enabled && server.connected) {
+    if (server.enabled) {
       await mcpManager.removeServer(server.id);
     } else {
       await mcpManager.enableServer(server.id);
@@ -128,45 +135,56 @@ function ConnectionCard({ server, onRefresh }: {
     onRefresh();
   }
 
+  const statusConfig = {
+    connecting: { bg: "bg-amber-50 text-amber-600", label: t("connections.connecting"), icon: <IconSpinner size={14} /> },
+    connected: { bg: "bg-emerald-50 text-emerald-600", label: `${server.toolCount} ${t("connections.tools")}`, icon: <IconServer size={16} /> },
+    error: { bg: "bg-red-50 text-red-500", label: t("connections.error"), icon: <IconWarning size={16} /> },
+    disabled: { bg: "bg-[var(--surface-low)] text-[var(--on-surface-tertiary)]", label: t("connections.disabled"), icon: <IconServer size={16} /> },
+  };
+
+  const cfg = statusConfig[server.status];
+
   return (
-    <div className="bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl px-4 py-3 flex items-center gap-4">
-      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
-        server.connected ? "bg-emerald-50 text-emerald-600" : "bg-[var(--surface-low)] text-[var(--on-surface-tertiary)]"
-      }`}>
-        <IconChannel size={16} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-[13px] font-medium text-[var(--on-surface)]">{server.name}</span>
-          {server.builtin && (
-            <span className="text-[10px] px-1.5 py-[1px] rounded-full bg-blue-50 text-blue-600 font-medium">
-              {t("connections.builtin")}
-            </span>
+    <div className="bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl px-4 py-3">
+      <div className="flex items-center gap-4">
+        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${cfg.bg}`}>
+          {cfg.icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-medium text-[var(--on-surface)]">{server.name}</span>
+            {server.builtin && (
+              <span className="text-[10px] px-1.5 py-[1px] rounded-full bg-blue-50 text-blue-600 font-medium">
+                {t("connections.builtin")}
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-[var(--on-surface-tertiary)]">{cfg.label}</div>
+        </div>
+        <div className="flex items-center gap-1">
+          {server.status === "error" && (
+            <button onClick={handleReconnect} className="px-2.5 py-1 rounded-lg text-[11px] text-[var(--primary-accent)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors">
+              {t("connections.reconnect")}
+            </button>
           )}
-        </div>
-        <div className="text-[11px] text-[var(--on-surface-tertiary)]">
-          {server.connected
-            ? `${server.toolCount} ${t("connections.tools")} · ${t("connections.connected")}`
-            : server.enabled ? t("connections.connecting") : t("connections.disabled")}
-        </div>
-      </div>
-      <div className="flex items-center gap-1">
-        {server.enabled && !server.connected && (
-          <button onClick={handleReconnect} className="px-2.5 py-1 rounded-lg text-[11px] text-[var(--primary-accent)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors">
-            {t("connections.reconnect")}
+          <button
+            onClick={handleToggle}
+            className={`px-2.5 py-1 rounded-lg text-[11px] cursor-pointer transition-colors ${
+              server.enabled
+                ? "text-[var(--on-surface-tertiary)] hover:text-[var(--error)] hover:bg-red-50"
+                : "text-[var(--primary-accent)] hover:bg-[var(--surface-low)]"
+            }`}
+          >
+            {server.enabled ? t("connections.disable") : t("connections.enable")}
           </button>
-        )}
-        <button
-          onClick={handleToggle}
-          className={`px-2.5 py-1 rounded-lg text-[11px] cursor-pointer transition-colors ${
-            server.enabled
-              ? "text-[var(--on-surface-tertiary)] hover:text-[var(--error)] hover:bg-red-50"
-              : "text-[var(--primary-accent)] hover:bg-[var(--surface-low)]"
-          }`}
-        >
-          {server.enabled ? t("connections.disable") : t("connections.enable")}
-        </button>
+        </div>
       </div>
+      {/* Error message */}
+      {server.status === "error" && server.error && (
+        <div className="mt-2 px-3 py-2 rounded-lg bg-red-50 text-[11px] text-red-600 leading-relaxed">
+          {server.error}
+        </div>
+      )}
     </div>
   );
 }
@@ -274,7 +292,7 @@ function AddConnectionDialog({ onClose, onAdded }: { onClose: () => void; onAdde
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--border)] hover:bg-[var(--surface-low)] hover:border-[var(--primary-accent)] text-left cursor-pointer transition-all disabled:opacity-40"
               >
                 <div className="w-8 h-8 rounded-lg bg-[var(--surface-container)] flex items-center justify-center text-[var(--on-surface-secondary)]">
-                  <IconChannel size={15} />
+                  <IconServer size={15} />
                 </div>
                 <div className="flex-1">
                   <div className="text-[13px] font-medium text-[var(--on-surface)]">{preset.label}</div>
