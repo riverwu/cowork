@@ -92,7 +92,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     workingDirectory: params.workingDirectory,
     systemPaths: {
       skills: skillsDir,
-      mcp: `${home}/.cowork/mcp.json`,
+      mcp: `${home}/.cowork/mcps/`,
       skillsSummary: skillRegistry.getSummary(),
     },
   });

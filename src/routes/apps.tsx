@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { createSkill } from "@/lib/db";
 import { skillRegistry } from "@/lib/ai/skill-registry";
-import { mcpManager, MCP_PRESETS } from "@/lib/mcp";
+import { mcpManager } from "@/lib/mcp";
+import { CATALOG_SKILLS, CATALOG_MCPS } from "@/lib/catalog";
+import { installCatalogSkill, installCatalogMcp, getSkillInstallStatus, getMcpInstallStatus, type InstallStatus } from "@/lib/catalog-installer";
 import {
   IconPlus, IconPlay, IconClose,
   IconServer, IconWarning, IconSpinner, IconPuzzle,
@@ -224,34 +226,39 @@ function CreateAppDialog({ onClose, onCreated }: { onClose: () => void; onCreate
 }
 
 function AddToolDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
-  const [tab, setTab] = useState<"service" | "skill">("service");
-  const [id, setId] = useState("");
-  const [command, setCommand] = useState("");
-  const [skillName, setSkillName] = useState("");
-  const [skillPurpose, setSkillPurpose] = useState("");
-  const [connecting, setConnecting] = useState(false);
+  const [tab, setTab] = useState<"skills" | "mcps">("skills");
+  const [installing, setInstalling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [skillStatuses, setSkillStatuses] = useState<InstallStatus[]>([]);
+  const [mcpStatuses, setMcpStatuses] = useState<InstallStatus[]>([]);
 
-  async function handlePreset(p: typeof MCP_PRESETS[0]) {
-    setConnecting(true); setError(null);
-    try { await mcpManager.addServer(p.id, { command: p.command, args: p.args }); onAdded(); onClose(); }
-    catch (e) { setError(String(e)); setConnecting(false); }
-  }
+  useEffect(() => {
+    getSkillInstallStatus().then(setSkillStatuses);
+    getMcpInstallStatus().then(setMcpStatuses);
+  }, []);
 
-  async function handleCustomMcp() {
-    if (!id.trim() || !command.trim()) return;
-    setConnecting(true); setError(null);
-    try { const parts = command.trim().split(/\s+/); await mcpManager.addServer(id.trim(), { command: parts[0], args: parts.slice(1) }); onAdded(); onClose(); }
-    catch (e) { setError(String(e)); setConnecting(false); }
-  }
-
-  async function handleCreateSkill() {
-    if (!skillName.trim() || !skillPurpose.trim()) return;
-    setConnecting(true); setError(null);
+  async function handleInstallSkill(id: string) {
+    setInstalling(id); setError(null);
     try {
-      await createSkill({ name: skillName.trim(), type: "skill", definition: { purpose: skillPurpose.trim() } });
-      onAdded(); onClose();
-    } catch (e) { setError(String(e)); setConnecting(false); }
+      await installCatalogSkill(id);
+      await skillRegistry.reload();
+      const s = await getSkillInstallStatus();
+      setSkillStatuses(s);
+      onAdded();
+    } catch (e) { setError(String(e)); }
+    setInstalling(null);
+  }
+
+  async function handleInstallMcp(id: string) {
+    setInstalling(id); setError(null);
+    try {
+      await installCatalogMcp(id);
+      await mcpManager.reload();
+      const s = await getMcpInstallStatus();
+      setMcpStatuses(s);
+      onAdded();
+    } catch (e) { setError(String(e)); }
+    setInstalling(null);
   }
 
   return (
@@ -262,39 +269,89 @@ function AddToolDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () 
       </div>
       <div className="px-6 py-5">
         <div className="flex gap-1 mb-4 p-1 rounded-lg bg-[var(--surface-low)]">
-          {([["service", t("tools.addService")], ["skill", t("tools.installSkill")]] as const).map(([key, label]) => (
+          {([["skills", t("tools.installSkill")], ["mcps", t("tools.addService")]] as const).map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)} className={`flex-1 py-1.5 rounded-md text-[12px] font-medium cursor-pointer transition-colors ${tab === key ? "bg-[var(--surface-lowest)] text-[var(--on-surface)] shadow-sm" : "text-[var(--on-surface-tertiary)]"}`}>{label}</button>
           ))}
         </div>
 
-        {tab === "service" ? (
-          <div className="space-y-3">
-            {MCP_PRESETS.map((p) => (
-              <button key={p.id} onClick={() => handlePreset(p)} disabled={connecting} className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--border)] hover:bg-[var(--surface-low)] text-left cursor-pointer transition-all disabled:opacity-40">
-                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center"><IconServer size={15} /></div>
-                <div className="flex-1"><div className="text-[13px] font-medium text-[var(--on-surface)]">{p.label}</div><div className="text-[11px] text-[var(--on-surface-tertiary)]">{p.description}</div></div>
-              </button>
-            ))}
-            <div className="pt-2 space-y-3">
-              <Field label={t("connections.id")}><input value={id} onChange={(e) => setId(e.target.value)} placeholder={t("connections.idPlaceholder")} className={inputClass} /></Field>
-              <Field label={t("connections.command")}><input value={command} onChange={(e) => setCommand(e.target.value)} placeholder={t("connections.commandPlaceholder")} className={`${inputClass} font-mono`} /></Field>
-              <button onClick={handleCustomMcp} disabled={!id.trim() || !command.trim() || connecting} className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer disabled:opacity-40">{t("connections.add")}</button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-[12px] text-[var(--on-surface-tertiary)] mb-2">
-              在对话中告诉 AI "从 GitHub 安装 xxx skill"，或手动创建：
-            </p>
-            <Field label={t("apps.name")}><input value={skillName} onChange={(e) => setSkillName(e.target.value)} placeholder="deep-research" className={inputClass} /></Field>
-            <Field label={t("skills.purpose")}><input value={skillPurpose} onChange={(e) => setSkillPurpose(e.target.value)} placeholder={t("skills.purposePlaceholder")} className={inputClass} /></Field>
-            <button onClick={handleCreateSkill} disabled={!skillName.trim() || !skillPurpose.trim() || connecting} className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer disabled:opacity-40">{t("skills.add")}</button>
-          </div>
-        )}
+        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+          {tab === "skills" ? (
+            CATALOG_SKILLS.map((skill) => {
+              const status = skillStatuses.find((s) => s.id === skill.id);
+              return (
+                <CatalogItem
+                  key={skill.id}
+                  name={skill.name}
+                  description={skill.description}
+                  version={skill.version}
+                  icon={<IconPuzzle size={16} />}
+                  iconBg="bg-purple-50 text-purple-600"
+                  installed={status?.installed || false}
+                  needsUpdate={status?.needsUpdate || false}
+                  installedVersion={status?.installedVersion || null}
+                  installing={installing === skill.id}
+                  onInstall={() => handleInstallSkill(skill.id)}
+                />
+              );
+            })
+          ) : (
+            CATALOG_MCPS.map((mcp) => {
+              const status = mcpStatuses.find((s) => s.id === mcp.id);
+              return (
+                <CatalogItem
+                  key={mcp.id}
+                  name={mcp.name}
+                  description={mcp.description}
+                  version={mcp.version}
+                  icon={<IconServer size={16} />}
+                  iconBg="bg-blue-50 text-blue-600"
+                  installed={status?.installed || false}
+                  needsUpdate={status?.needsUpdate || false}
+                  installedVersion={status?.installedVersion || null}
+                  installing={installing === mcp.id}
+                  onInstall={() => handleInstallMcp(mcp.id)}
+                />
+              );
+            })
+          )}
+        </div>
 
         {error && <div className="mt-3 p-3 rounded-lg bg-[var(--error-light)] text-[var(--error)] text-[12px]">{error}</div>}
       </div>
     </DialogOverlay>
+  );
+}
+
+function CatalogItem({ name, description, version, icon, iconBg, installed, needsUpdate, installedVersion, installing, onInstall }: {
+  name: string; description: string; version: string;
+  icon: React.ReactNode; iconBg: string;
+  installed: boolean; needsUpdate: boolean; installedVersion: string | null;
+  installing: boolean; onInstall: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[var(--border)] bg-[var(--surface-lowest)]">
+      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>{icon}</div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-medium text-[var(--on-surface)]">{name}</span>
+          <span className="text-[10px] text-[var(--on-surface-tertiary)]">v{version}</span>
+        </div>
+        <div className="text-[11px] text-[var(--on-surface-tertiary)] truncate">{description}</div>
+      </div>
+      {installed && !needsUpdate ? (
+        <span className="text-[11px] text-emerald-600 px-2 py-1 rounded-lg bg-emerald-50">
+          v{installedVersion}
+        </span>
+      ) : (
+        <button
+          onClick={onInstall}
+          disabled={installing}
+          className="px-3 py-1.5 rounded-lg text-[12px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer disabled:opacity-40 transition-colors shrink-0"
+        >
+          {installing ? "..." : needsUpdate ? `Update → v${version}` : "Install"}
+        </button>
+      )}
+    </div>
   );
 }
 
