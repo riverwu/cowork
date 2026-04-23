@@ -1,14 +1,13 @@
 import { useEffect } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { useViewStore } from "@/stores/view-store";
-import { Welcome } from "@/components/onboarding/welcome";
 import { CommandBar } from "@/components/chat/command-bar";
 import { MessageList } from "@/components/chat/message-list";
 import { ViewContainer } from "@/components/views/view-container";
 import { useSessionStore } from "@/stores/session-store";
 
 export function Home() {
-  const { initialized, isFirstTime, hasApiKey, load } = useAppStore();
+  const { initialized, hasApiKey, isFirstTime, sources, load } = useAppStore();
   const { messages, isStreaming, streamingText, steps, artifacts, knowledgeRefs, error } =
     useSessionStore();
   const viewPanels = useViewStore((s) => s.panels);
@@ -29,25 +28,13 @@ export function Home() {
 
   if (!initialized) return null;
 
-  if (isFirstTime) {
-    return <Welcome />;
-  }
-
-  if (!hasApiKey) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full px-8 text-center">
-        <p className="text-[var(--color-text-secondary)] mb-2">
-          Configure your LLM API key in Settings to get started.
-        </p>
-        <p className="text-[var(--color-text-tertiary)] text-sm">
-          Go to Settings → add your Anthropic or OpenAI API key.
-        </p>
-      </div>
-    );
-  }
-
   const hasConversation = messages.length > 0 || isStreaming;
   const hasViews = viewPanels.length > 0;
+
+  // Build hint messages for empty state
+  const hints: string[] = [];
+  if (!hasApiKey) hints.push("Configure your LLM API key in Settings to start chatting.");
+  if (isFirstTime) hints.push("Add a work folder in Knowledge to give AI context about your work.");
 
   return (
     <div className="flex h-full">
@@ -61,9 +48,34 @@ export function Home() {
                 What can I help you with?
               </h2>
               <p className="text-[var(--color-text-tertiary)] mb-6 text-sm text-center">
-                Describe a task, and I'll use your knowledge base to help.
+                Describe a task, and I'll help you get it done.
               </p>
               <CommandBar />
+
+              {/* Hints for setup */}
+              {hints.length > 0 && (
+                <div className="mt-6 space-y-2">
+                  {hints.map((hint, i) => (
+                    <p key={i} className="text-xs text-[var(--color-text-tertiary)] text-center">
+                      {hint}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              {/* Show connected sources as context */}
+              {sources.length > 0 && (
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  {sources.map((s) => (
+                    <span
+                      key={s.id}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--color-bg-secondary)] text-xs text-[var(--color-text-tertiary)]"
+                    >
+                      📁 {s.name}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -87,10 +99,9 @@ export function Home() {
               </div>
             </div>
 
-            {/* Bottom bar: Command Bar + status */}
+            {/* Bottom bar */}
             <div className="border-t border-[var(--color-border)] px-4 py-3">
               <div className={hasViews ? "" : "max-w-3xl mx-auto"}>
-                {/* Knowledge refs status bar */}
                 {knowledgeRefs.length > 0 && (
                   <div className="flex flex-wrap gap-1 mb-2">
                     <span className="text-xs text-[var(--color-text-tertiary)]">Knowledge:</span>
@@ -111,7 +122,7 @@ export function Home() {
         )}
       </div>
 
-      {/* View panels (right side) — only when artifacts exist */}
+      {/* View panels */}
       {hasViews && <ViewContainer />}
     </div>
   );

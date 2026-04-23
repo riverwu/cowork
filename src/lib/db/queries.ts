@@ -37,12 +37,16 @@ export async function setSetting(key: string, value: string): Promise<void> {
 export async function getSettings(): Promise<Settings> {
   const provider = (await getSetting("llm_provider")) || "anthropic";
   const anthropicApiKey = (await getSetting("anthropic_api_key")) || undefined;
+  const anthropicBaseUrl = (await getSetting("anthropic_base_url")) || undefined;
   const openaiApiKey = (await getSetting("openai_api_key")) || undefined;
+  const openaiBaseUrl = (await getSetting("openai_base_url")) || undefined;
   const modelId = (await getSetting("model_id")) || undefined;
   return {
     llmProvider: provider as Settings["llmProvider"],
     anthropicApiKey,
+    anthropicBaseUrl,
     openaiApiKey,
+    openaiBaseUrl,
     modelId,
   };
 }
@@ -50,7 +54,9 @@ export async function getSettings(): Promise<Settings> {
 export async function saveSettings(settings: Partial<Settings>): Promise<void> {
   if (settings.llmProvider !== undefined) await setSetting("llm_provider", settings.llmProvider);
   if (settings.anthropicApiKey !== undefined) await setSetting("anthropic_api_key", settings.anthropicApiKey);
+  if (settings.anthropicBaseUrl !== undefined) await setSetting("anthropic_base_url", settings.anthropicBaseUrl);
   if (settings.openaiApiKey !== undefined) await setSetting("openai_api_key", settings.openaiApiKey);
+  if (settings.openaiBaseUrl !== undefined) await setSetting("openai_base_url", settings.openaiBaseUrl);
   if (settings.modelId !== undefined) await setSetting("model_id", settings.modelId);
 }
 

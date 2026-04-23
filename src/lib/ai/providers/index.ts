@@ -13,14 +13,22 @@ export async function getConfiguredProvider(): Promise<LLMProvider> {
     if (!settings.anthropicApiKey) {
       throw new Error("Anthropic API key not configured. Go to Settings to add it.");
     }
-    return new AnthropicProvider(settings.anthropicApiKey, settings.modelId);
+    return new AnthropicProvider(
+      settings.anthropicApiKey,
+      settings.modelId,
+      settings.anthropicBaseUrl,
+    );
   }
 
   if (settings.llmProvider === "openai") {
     if (!settings.openaiApiKey) {
       throw new Error("OpenAI API key not configured. Go to Settings to add it.");
     }
-    return new OpenAIProvider(settings.openaiApiKey, settings.modelId);
+    return new OpenAIProvider(
+      settings.openaiApiKey,
+      settings.modelId,
+      settings.openaiBaseUrl,
+    );
   }
 
   throw new Error(`Unknown provider: ${settings.llmProvider}`);

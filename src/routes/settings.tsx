@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getSettings, saveSettings } from "@/lib/db";
+import { useAppStore } from "@/stores/app-store";
 import type { Settings } from "@/types";
 
 const ANTHROPIC_MODELS = [
@@ -16,11 +17,20 @@ const OPENAI_MODELS = [
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [customModel, setCustomModel] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const loadAppState = useAppStore((s) => s.load);
 
   useEffect(() => {
-    getSettings().then(setSettings);
+    getSettings().then((s) => {
+      setSettings(s);
+      // Check if model ID is not in presets — enable custom input
+      const presets = s.llmProvider === "anthropic" ? ANTHROPIC_MODELS : OPENAI_MODELS;
+      if (s.modelId && !presets.find((m) => m.id === s.modelId)) {
+        setCustomModel(true);
+      }
+    });
   }, []);
 
   if (!settings) return null;
@@ -28,11 +38,14 @@ export function SettingsPage() {
   const models = settings.llmProvider === "anthropic" ? ANTHROPIC_MODELS : OPENAI_MODELS;
   const currentKey =
     settings.llmProvider === "anthropic" ? settings.anthropicApiKey : settings.openaiApiKey;
+  const currentBaseUrl =
+    settings.llmProvider === "anthropic" ? settings.anthropicBaseUrl : settings.openaiBaseUrl;
 
   async function handleSave() {
     if (!settings) return;
     setSaving(true);
     await saveSettings(settings);
+    await loadAppState(); // Refresh app state (hasApiKey etc.)
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -42,9 +55,10 @@ export function SettingsPage() {
     setSettings((prev) => {
       if (!prev) return prev;
       const next = { ...prev, [key]: value };
-      // Reset model when switching provider
       if (key === "llmProvider") {
-        next.modelId = value === "anthropic" ? ANTHROPIC_MODELS[0].id : OPENAI_MODELS[0].id;
+        const presets = value === "anthropic" ? ANTHROPIC_MODELS : OPENAI_MODELS;
+        next.modelId = presets[0].id;
+        setCustomModel(false);
       }
       return next;
     });
@@ -56,8 +70,8 @@ export function SettingsPage() {
       <div className="max-w-xl mx-auto py-10 px-6">
         <h1 className="text-xl font-semibold mb-6">Settings</h1>
 
-        {/* Provider selection */}
-        <section className="mb-8">
+        {/* Provider */}
+        <section className="mb-6">
           <label className="block text-sm font-medium mb-2">LLM Provider</label>
           <div className="flex gap-2">
             {(["anthropic", "openai"] as const).map((p) => (
@@ -77,7 +91,7 @@ export function SettingsPage() {
         </section>
 
         {/* API Key */}
-        <section className="mb-8">
+        <section className="mb-6">
           <label className="block text-sm font-medium mb-2">API Key</label>
           <input
             type="password"
@@ -91,23 +105,77 @@ export function SettingsPage() {
           />
         </section>
 
-        {/* Model selection */}
-        <section className="mb-8">
-          <label className="block text-sm font-medium mb-2">Model</label>
-          <select
-            value={settings.modelId || models[0].id}
-            onChange={(e) => updateField("modelId", e.target.value)}
-            className="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)]"
-          >
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+        {/* API Base URL */}
+        <section className="mb-6">
+          <label className="block text-sm font-medium mb-2">
+            API Base URL
+            <span className="text-[var(--color-text-tertiary)] font-normal ml-1">(optional)</span>
+          </label>
+          <input
+            type="text"
+            value={currentBaseUrl || ""}
+            onChange={(e) => {
+              const key = settings.llmProvider === "anthropic" ? "anthropicBaseUrl" : "openaiBaseUrl";
+              updateField(key, e.target.value || undefined);
+            }}
+            placeholder={
+              settings.llmProvider === "anthropic"
+                ? "https://api.anthropic.com (default)"
+                : "https://api.openai.com/v1 (default)"
+            }
+            className="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-accent)]"
+          />
+          <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
+            Custom endpoint for proxies or compatible services (e.g. Ollama, vLLM, Azure OpenAI).
+          </p>
         </section>
 
-        {/* Save button */}
+        {/* Model */}
+        <section className="mb-6">
+          <label className="block text-sm font-medium mb-2">Model</label>
+          {!customModel ? (
+            <>
+              <select
+                value={settings.modelId || models[0].id}
+                onChange={(e) => updateField("modelId", e.target.value)}
+                className="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)]"
+              >
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => setCustomModel(true)}
+                className="text-xs text-[var(--color-accent)] mt-1 cursor-pointer hover:underline"
+              >
+                Use custom model ID
+              </button>
+            </>
+          ) : (
+            <>
+              <input
+                type="text"
+                value={settings.modelId || ""}
+                onChange={(e) => updateField("modelId", e.target.value)}
+                placeholder="Enter model ID (e.g. claude-sonnet-4-20250514)"
+                className="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-accent)]"
+              />
+              <button
+                onClick={() => {
+                  setCustomModel(false);
+                  updateField("modelId", models[0].id);
+                }}
+                className="text-xs text-[var(--color-accent)] mt-1 cursor-pointer hover:underline"
+              >
+                Choose from presets
+              </button>
+            </>
+          )}
+        </section>
+
+        {/* Save */}
         <button
           onClick={handleSave}
           disabled={saving}

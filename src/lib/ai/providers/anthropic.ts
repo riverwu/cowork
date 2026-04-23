@@ -5,10 +5,11 @@ export class AnthropicProvider implements LLMProvider {
   private client: Anthropic;
   private model: string;
 
-  constructor(apiKey: string, model?: string) {
+  constructor(apiKey: string, model?: string, baseURL?: string) {
     this.client = new Anthropic({
       apiKey,
       dangerouslyAllowBrowser: true, // Desktop app — no server
+      ...(baseURL ? { baseURL } : {}),
     });
     this.model = model || "claude-sonnet-4-20250514";
   }

@@ -3,7 +3,9 @@
 export interface Settings {
   llmProvider: "anthropic" | "openai";
   anthropicApiKey?: string;
+  anthropicBaseUrl?: string;
   openaiApiKey?: string;
+  openaiBaseUrl?: string;
   modelId?: string;
 }
 
