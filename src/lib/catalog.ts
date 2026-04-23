@@ -190,20 +190,6 @@ export const CATALOG_MCPS: CatalogMcp[] = [
     },
   },
   {
-    id: "filesystem",
-    name: "Filesystem",
-    version: "1.0.0",
-    description: "Enhanced file system operations via MCP",
-    definition: {
-      name: "Filesystem",
-      version: "1.0.0",
-      description: "Enhanced filesystem access — read, write, search, watch files and directories",
-      command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "~"],
-      enabled: true,
-    },
-  },
-  {
     id: "github",
     name: "GitHub",
     version: "1.0.0",
