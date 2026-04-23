@@ -2,7 +2,7 @@ export function DataTableView({ content }: { content: string }) {
   const rows = parseTable(content);
 
   if (rows.length === 0) {
-    return <div className="p-4 text-sm text-[var(--outline)]">No data to display.</div>;
+    return <div className="p-4 text-sm text-[var(--on-surface-tertiary)]">No data to display.</div>;
   }
 
   const headers = rows[0];
@@ -12,9 +12,9 @@ export function DataTableView({ content }: { content: string }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-[var(--outline-variant)]">
+          <tr className="border-b border-[var(--border)]">
             {headers.map((h, i) => (
-              <th key={i} className="px-4 py-2.5 text-left text-xs font-medium text-[var(--outline)] uppercase tracking-wider">
+              <th key={i} className="px-4 py-2.5 text-left text-xs font-medium text-[var(--on-surface-tertiary)] uppercase tracking-wider">
                 {h}
               </th>
             ))}
@@ -22,9 +22,9 @@ export function DataTableView({ content }: { content: string }) {
         </thead>
         <tbody>
           {dataRows.map((row, i) => (
-            <tr key={i} className="border-b border-[var(--outline-variant)]/50 hover:bg-[var(--surface-container-low)] transition-colors">
+            <tr key={i} className="border-b border-[var(--border)]/50 hover:bg-[var(--surface-low)] transition-colors">
               {row.map((cell, j) => (
-                <td key={j} className="px-4 py-2.5 text-[var(--on-surface-variant)]">{cell}</td>
+                <td key={j} className="px-4 py-2.5 text-[var(--on-surface-secondary)]">{cell}</td>
               ))}
             </tr>
           ))}

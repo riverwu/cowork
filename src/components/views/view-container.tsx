@@ -22,7 +22,7 @@ export function ViewContainer() {
   }
 
   return (
-    <div className="w-[45%] min-w-[350px] border-l border-[var(--outline-variant)] bg-[var(--surface-container-low)] flex flex-col overflow-hidden">
+    <div className="w-[45%] min-w-[350px] border-l border-[var(--border)] bg-[var(--surface-low)] flex flex-col overflow-hidden">
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {panels.map((panel) => (
           <ViewPanel
@@ -50,29 +50,13 @@ function ViewPanel({
   onToggleFullscreen: () => void;
 }) {
   return (
-    <div className={`flex flex-col bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-xl overflow-hidden shadow-sm ${panel.fullscreen ? "h-full" : ""}`}>
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--outline-variant)]">
-        <span className="text-sm">📄</span>
-        <span className="text-sm font-medium flex-1 truncate text-[var(--on-surface)]">{panel.artifact.title}</span>
-        <button
-          onClick={onTogglePin}
-          className={`p-1 rounded text-xs cursor-pointer transition-colors ${panel.pinned ? "text-[var(--primary)]" : "text-[var(--outline)] hover:text-[var(--on-surface)]"}`}
-          title={panel.pinned ? "Unpin" : "Pin"}
-        >
-          📌
-        </button>
-        <button
-          onClick={onToggleFullscreen}
-          className="p-1 rounded text-xs text-[var(--outline)] hover:text-[var(--on-surface)] cursor-pointer transition-colors"
-        >
-          {panel.fullscreen ? "⊡" : "⊞"}
-        </button>
-        <button
-          onClick={onClose}
-          className="p-1 rounded text-xs text-[var(--outline)] hover:text-[var(--error)] cursor-pointer transition-colors"
-        >
-          ✕
-        </button>
+    <div className={`flex flex-col bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl overflow-hidden shadow-[var(--shadow-sm)] ${panel.fullscreen ? "h-full" : ""}`}>
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--border)] bg-[var(--surface-low)]">
+        <span className="text-[13px]">📄</span>
+        <span className="text-[13px] font-medium flex-1 truncate text-[var(--on-surface)]">{panel.artifact.title}</span>
+        <button onClick={onTogglePin} className={`p-1 rounded text-[11px] cursor-pointer ${panel.pinned ? "text-[var(--primary-accent)]" : "text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)]"}`}>📌</button>
+        <button onClick={onToggleFullscreen} className="p-1 rounded text-[11px] text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] cursor-pointer">{panel.fullscreen ? "⊡" : "⊞"}</button>
+        <button onClick={onClose} className="p-1 rounded text-[11px] text-[var(--on-surface-tertiary)] hover:text-[var(--error)] cursor-pointer">✕</button>
       </div>
       <div className={`overflow-y-auto ${panel.fullscreen ? "flex-1" : "max-h-[500px]"}`}>
         {panel.artifact.type === "report" ? (
@@ -80,9 +64,7 @@ function ViewPanel({
         ) : panel.artifact.type === "table" ? (
           <DataTableView content={panel.artifact.content} />
         ) : (
-          <div className="p-4 text-sm whitespace-pre-wrap text-[var(--on-surface-variant)]">
-            {panel.artifact.content}
-          </div>
+          <div className="p-4 text-[13px] whitespace-pre-wrap text-[var(--on-surface-secondary)]">{panel.artifact.content}</div>
         )}
       </div>
     </div>

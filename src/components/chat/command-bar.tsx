@@ -35,6 +35,12 @@ export function CommandBar() {
 
   return (
     <div className="relative">
+      <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--on-surface-tertiary)]">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+          <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M11 11L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      </div>
       <textarea
         ref={inputRef}
         value={input}
@@ -43,12 +49,12 @@ export function CommandBar() {
         placeholder={isStreaming ? t("home.input.thinking") : t("home.input.placeholder")}
         disabled={isStreaming}
         rows={1}
-        className="w-full px-4 py-2.5 pr-11 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-xl text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:outline-none focus:border-[var(--primary-container)] focus:ring-2 focus:ring-[var(--primary-fixed-dim)]/20 text-[13px] resize-none disabled:opacity-50 shadow-sm"
+        className="w-full pl-9 pr-11 py-2.5 bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none focus:border-[var(--primary-accent)] focus:shadow-[0_0_0_3px_rgba(37,99,235,0.08)] text-[13px] resize-none disabled:opacity-50 shadow-[var(--shadow-sm)] transition-all"
       />
       <button
         onClick={handleSubmit}
         disabled={!input.trim() || isStreaming}
-        className="absolute right-2.5 bottom-2 p-1.5 rounded-lg text-[var(--outline)] hover:text-[var(--primary)] hover:bg-[var(--surface-container)] disabled:opacity-30 cursor-pointer transition-colors"
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--primary-accent)] hover:bg-[var(--surface-container)] disabled:opacity-20 cursor-pointer transition-colors"
       >
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
           <path d="M2 14L14 8L2 2V6.5L10 8L2 9.5V14Z" fill="currentColor" />

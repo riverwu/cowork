@@ -55,24 +55,24 @@ export function Welcome() {
       <div className="flex-1 flex flex-col items-center justify-center px-8">
         <div className="max-w-lg w-full text-center">
           <p className="text-lg font-semibold mb-2 text-[var(--on-surface)]">Knowledge base ready</p>
-          <p className="text-[var(--on-surface-variant)] text-sm mb-6">
+          <p className="text-[var(--on-surface-secondary)] text-sm mb-6">
             {scannedFiles.length} files indexed. Here's what I found:
           </p>
           <div className="text-left mb-6 space-y-1">
             {recentFiles.map((f, i) => (
-              <div key={i} className="flex items-center gap-2 text-sm py-2 px-3 rounded-lg bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)]">
-                <span className="text-[var(--outline)]">📄</span>
+              <div key={i} className="flex items-center gap-2 text-sm py-2 px-3 rounded-lg bg-[var(--surface-lowest)] border border-[var(--border)]">
+                <span className="text-[var(--on-surface-tertiary)]">📄</span>
                 <span className="flex-1 truncate text-[var(--on-surface)]">{f.name}</span>
-                <span className="text-xs text-[var(--outline)]">{formatDate(f.modified_at)}</span>
+                <span className="text-xs text-[var(--on-surface-tertiary)]">{formatDate(f.modified_at)}</span>
               </div>
             ))}
             {scannedFiles.length > 5 && (
-              <p className="text-xs text-[var(--outline)] pl-3">
+              <p className="text-xs text-[var(--on-surface-tertiary)] pl-3">
                 and {scannedFiles.length - 5} more...
               </p>
             )}
           </div>
-          <p className="text-[var(--on-surface-variant)] text-sm">
+          <p className="text-[var(--on-surface-secondary)] text-sm">
             Now tell me what you want to do. I'll use these documents as context.
           </p>
         </div>
@@ -84,7 +84,7 @@ export function Welcome() {
     <div className="flex-1 flex flex-col items-center justify-center px-8">
       <div className="max-w-md w-full text-center">
         <h1 className="text-2xl font-semibold mb-2 text-[var(--on-surface)]">Welcome to Cowork</h1>
-        <p className="text-[var(--on-surface-variant)] text-sm mb-8 leading-relaxed">
+        <p className="text-[var(--on-surface-secondary)] text-sm mb-8 leading-relaxed">
           Point me to your work folder, and I'll understand what you're working on.
           Then I can help you get things done.
         </p>
@@ -92,20 +92,20 @@ export function Welcome() {
         <button
           onClick={handlePickFolder}
           disabled={status !== "idle"}
-          className="px-6 py-3 bg-[var(--primary-container)] hover:bg-[var(--primary)] text-white rounded-xl text-sm font-medium cursor-pointer transition-colors disabled:opacity-50 mb-4"
+          className="px-6 py-3 bg-[var(--primary-light)] hover:bg-[var(--primary)] text-white rounded-xl text-sm font-medium cursor-pointer transition-colors disabled:opacity-50 mb-4"
         >
           {status === "idle" ? "Choose Work Folder" : "Working..."}
         </button>
 
         {progress && (
-          <p className="text-sm text-[var(--outline)] mt-2">{progress}</p>
+          <p className="text-sm text-[var(--on-surface-tertiary)] mt-2">{progress}</p>
         )}
 
         {error && (
           <p className="text-sm text-[var(--error)] mt-2">{error}</p>
         )}
 
-        <p className="text-xs text-[var(--outline)] mt-6">
+        <p className="text-xs text-[var(--on-surface-tertiary)] mt-6">
           You can also skip this and start using Cowork directly.
           <br />
           Go to Settings to configure your AI provider first.

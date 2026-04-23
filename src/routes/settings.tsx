@@ -16,7 +16,7 @@ const OPENAI_MODELS = [
   { id: "o3-mini", label: "o3 Mini" },
 ];
 
-const inputClass = "w-full px-3 py-2 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-lg text-[13px] text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:outline-none focus:border-[var(--primary-container)] focus:ring-2 focus:ring-[var(--primary-fixed-dim)]/20";
+const inputClass = "w-full px-3 py-2 bg-[var(--surface-lowest)] border border-[var(--border)] rounded-lg text-[13px] text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none focus:border-[var(--primary-light)] focus:ring-2 focus:ring-[var(--primary-accent)]/20";
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -79,8 +79,8 @@ export function SettingsPage() {
                 onClick={() => updateField("llmProvider", p)}
                 className={`px-4 py-[7px] rounded-lg text-[13px] cursor-pointer transition-colors ${
                   settings.llmProvider === p
-                    ? "bg-[var(--primary-container)] text-white"
-                    : "bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-high)]"
+                    ? "bg-[var(--primary-light)] text-white"
+                    : "bg-[var(--surface-container)] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-high)]"
                 }`}
               >
                 {p === "anthropic" ? "Anthropic (Claude)" : "OpenAI"}
@@ -106,7 +106,7 @@ export function SettingsPage() {
         <section className="mb-6">
           <label className="block text-[13px] font-medium mb-2 text-[var(--on-surface)]">
             {t("settings.baseUrl")}
-            <span className="text-[var(--outline)] font-normal ml-1">{t("settings.baseUrl.optional")}</span>
+            <span className="text-[var(--on-surface-tertiary)] font-normal ml-1">{t("settings.baseUrl.optional")}</span>
           </label>
           <input
             type="text"
@@ -118,7 +118,7 @@ export function SettingsPage() {
             placeholder={settings.llmProvider === "anthropic" ? "https://api.anthropic.com" : "https://api.openai.com/v1"}
             className={inputClass}
           />
-          <p className="text-[11px] text-[var(--outline)] mt-1.5">{t("settings.baseUrl.hint")}</p>
+          <p className="text-[11px] text-[var(--on-surface-tertiary)] mt-1.5">{t("settings.baseUrl.hint")}</p>
         </section>
 
         <section className="mb-8">
@@ -134,7 +134,7 @@ export function SettingsPage() {
                   <option key={m.id} value={m.id}>{m.label}</option>
                 ))}
               </select>
-              <button onClick={() => setCustomModel(true)} className="text-[11px] text-[var(--primary-container)] mt-1.5 cursor-pointer hover:underline">
+              <button onClick={() => setCustomModel(true)} className="text-[11px] text-[var(--primary-light)] mt-1.5 cursor-pointer hover:underline">
                 {t("settings.customModel")}
               </button>
             </>
@@ -147,7 +147,7 @@ export function SettingsPage() {
                 placeholder="model-id"
                 className={inputClass}
               />
-              <button onClick={() => { setCustomModel(false); updateField("modelId", models[0].id); }} className="text-[11px] text-[var(--primary-container)] mt-1.5 cursor-pointer hover:underline">
+              <button onClick={() => { setCustomModel(false); updateField("modelId", models[0].id); }} className="text-[11px] text-[var(--primary-light)] mt-1.5 cursor-pointer hover:underline">
                 {t("settings.presetModel")}
               </button>
             </>
@@ -157,7 +157,7 @@ export function SettingsPage() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-5 py-2 bg-[var(--primary-container)] hover:bg-[var(--primary)] text-white rounded-lg text-[13px] cursor-pointer transition-colors disabled:opacity-50"
+          className="px-5 py-2 bg-[var(--primary-light)] hover:bg-[var(--primary)] text-white rounded-lg text-[13px] cursor-pointer transition-colors disabled:opacity-50"
         >
           {saving ? t("settings.saving") : saved ? t("settings.saved") : t("settings.save")}
         </button>

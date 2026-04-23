@@ -17,10 +17,7 @@ function App() {
 
   useEffect(() => {
     initDb()
-      .then(() => {
-        setDbReady(true);
-        return loadAppState();
-      })
+      .then(() => { setDbReady(true); return loadAppState(); })
       .catch((err) => setDbError(String(err)));
   }, [loadAppState]);
 
@@ -28,8 +25,8 @@ function App() {
     return (
       <div className="flex items-center justify-center h-screen p-8 text-center">
         <div>
-          <p className="text-[15px] font-semibold mb-2 text-[var(--error)]">{t("db.error")}</p>
-          <p className="text-[12px] text-[var(--outline)]">{dbError}</p>
+          <p className="text-[14px] font-semibold mb-2 text-[var(--error)]">{t("db.error")}</p>
+          <p className="text-[12px] text-[var(--on-surface-tertiary)]">{dbError}</p>
         </div>
       </div>
     );
@@ -37,7 +34,7 @@ function App() {
 
   if (!dbReady) {
     return (
-      <div className="flex items-center justify-center h-screen text-[13px] text-[var(--outline)]">
+      <div className="flex items-center justify-center h-screen text-[13px] text-[var(--on-surface-tertiary)]">
         {t("starting")}
       </div>
     );
@@ -49,18 +46,17 @@ function App() {
       <main className="flex-1 overflow-hidden">
         {currentPage === "home" && <Home />}
         {currentPage === "knowledge" && <KnowledgePage />}
-        {currentPage === "channels" && <PlaceholderPage title={t("nav.channels")} />}
-        {currentPage === "explore" && <PlaceholderPage title="Explore" />}
-        {currentPage === "activity" && <PlaceholderPage title={t("nav.activity")} />}
+        {currentPage === "channels" && <Placeholder title={t("nav.channels")} />}
+        {currentPage === "activity" && <Placeholder title={t("nav.activity")} />}
         {currentPage === "settings" && <SettingsPage />}
       </main>
     </div>
   );
 }
 
-function PlaceholderPage({ title }: { title: string }) {
+function Placeholder({ title }: { title: string }) {
   return (
-    <div className="flex items-center justify-center h-full text-[13px] text-[var(--outline)]">
+    <div className="flex items-center justify-center h-full text-[13px] text-[var(--on-surface-tertiary)]">
       {title} — {t("coming_soon")}
     </div>
   );

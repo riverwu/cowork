@@ -16,10 +16,10 @@ function simpleMarkdown(text: string): string {
     .replace(/^# (.+)$/gm, '<h2 class="text-lg font-bold mt-4 mb-2 text-[var(--on-surface)]">$1</h2>')
     .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold text-[var(--on-surface)]">$1</strong>')
     .replace(/\*(.+?)\*/g, '<em class="italic">$1</em>')
-    .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc text-[var(--on-surface-variant)]">$1</li>')
-    .replace(/^(\d+)\. (.+)$/gm, '<li class="ml-4 list-decimal text-[var(--on-surface-variant)]">$2</li>')
-    .replace(/\n\n/g, '</p><p class="mb-2 text-[var(--on-surface-variant)]">')
+    .replace(/^- (.+)$/gm, '<li class="ml-4 list-disc text-[var(--on-surface-secondary)]">$1</li>')
+    .replace(/^(\d+)\. (.+)$/gm, '<li class="ml-4 list-decimal text-[var(--on-surface-secondary)]">$2</li>')
+    .replace(/\n\n/g, '</p><p class="mb-2 text-[var(--on-surface-secondary)]">')
     .replace(/\n/g, "<br/>")
-    .replace(/^/, '<p class="mb-2 text-[var(--on-surface-variant)]">')
+    .replace(/^/, '<p class="mb-2 text-[var(--on-surface-secondary)]">')
     .replace(/$/, "</p>");
 }

@@ -3,44 +3,45 @@
 
 :root {
   /* Surface layers */
-  --surface: #f8f9ff;
-  --surface-dim: #cbdbf5;
-  --surface-bright: #f8f9ff;
-  --surface-container-lowest: #ffffff;
-  --surface-container-low: #eff4ff;
-  --surface-container: #e5eeff;
-  --surface-container-high: #dce9ff;
-  --surface-container-highest: #d3e4fe;
+  --surface: #f5f7fb;
+  --surface-dim: #e8ecf4;
+  --surface-bright: #f8f9fc;
+  --surface-lowest: #ffffff;
+  --surface-low: #f0f3f9;
+  --surface-container: #eaeff7;
+  --surface-high: #e2e8f3;
+  --surface-highest: #dbe3f0;
 
   /* Text */
-  --on-surface: #0b1c30;
-  --on-surface-variant: #434750;
-  --outline: #737781;
-  --outline-variant: #c3c6d2;
+  --on-surface: #111827;
+  --on-surface-secondary: #4b5563;
+  --on-surface-tertiary: #9ca3af;
 
-  /* Primary */
-  --primary: #00346d;
-  --on-primary: #ffffff;
-  --primary-container: #1a4b8c;
-  --on-primary-container: #99bdff;
-  --primary-fixed-dim: #aac7ff;
+  /* Borders */
+  --border: #e5e7eb;
+  --border-light: #f0f1f3;
 
-  /* Secondary (teal / AI accent) */
-  --secondary: #006a61;
-  --on-secondary: #ffffff;
-  --secondary-container: #86f2e4;
+  /* Primary (deep blue) */
+  --primary: #0f2b5b;
+  --primary-dark: #0a1f42;
+  --primary-light: #1a3f7a;
+  --primary-accent: #2563eb;
+  --primary-accent-light: #dbeafe;
 
-  /* Tertiary */
-  --tertiary: #313539;
-  --on-tertiary: #ffffff;
+  /* Status colors */
+  --success: #059669;
+  --success-light: #ecfdf5;
+  --warning: #d97706;
+  --warning-light: #fffbeb;
+  --error: #dc2626;
+  --error-light: #fef2f2;
+  --info: #2563eb;
+  --info-light: #eff6ff;
 
-  /* Error */
-  --error: #ba1a1a;
-  --error-container: #ffdad6;
-
-  /* Inverse */
-  --inverse-surface: #213145;
-  --inverse-on-surface: #eaf1ff;
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
 * {
@@ -53,8 +54,9 @@ body {
   color: var(--on-surface);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.01em;
 }
 
 [data-tauri-drag-region] {
@@ -62,17 +64,7 @@ body {
   user-select: none;
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--outline-variant);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--outline);
-}
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
