@@ -6,6 +6,7 @@ import { KnowledgePage } from "./routes/knowledge";
 import { initDb } from "./lib/db";
 import { useAppStore } from "./stores/app-store";
 import { useSessionStore } from "./stores/session-store";
+import { mcpManager } from "./lib/mcp";
 import { t } from "./lib/i18n";
 
 type Page = "home" | "apps" | "knowledge" | "channels" | "settings";
@@ -24,6 +25,8 @@ function App() {
         setDbReady(true);
         await loadAppState();
         await initSession();
+        // Connect MCP servers (non-blocking, errors logged)
+        mcpManager.initialize().catch((err) => console.error("MCP init:", err));
       })
       .catch((err) => setDbError(String(err)));
   }, [loadAppState, initSession]);

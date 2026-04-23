@@ -20,6 +20,10 @@ pub fn run() {
             commands::env::get_env,
             commands::http::http_post,
             commands::http::http_stream_post,
+            commands::mcp::mcp_spawn,
+            commands::mcp::mcp_send,
+            commands::mcp::mcp_stop,
+            commands::mcp::mcp_list,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

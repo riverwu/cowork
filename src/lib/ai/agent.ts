@@ -4,6 +4,7 @@ import { getSkills } from "./skills/registry";
 import { buildSystemPrompt } from "./system-prompt";
 import { retrieveRelevant, buildKnowledgeContext } from "@/lib/knowledge";
 import { retrieveMemoryContext, buildMemoryPrompt, extractMemories } from "@/lib/memory";
+import { mcpManager } from "@/lib/mcp";
 import type { AgentEvent } from "@/types";
 
 const MAX_STEPS = 10;
@@ -28,7 +29,11 @@ export interface AgentParams {
  */
 export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent> {
   const provider = await getConfiguredProvider();
-  const skills = getSkills();
+
+  // Merge built-in skills + MCP tools
+  const builtinSkills = getSkills();
+  const mcpSkills = mcpManager.getAllSkills();
+  const skills = { ...builtinSkills, ...mcpSkills };
   const toolDefs = Object.values(skills).map((s) => s.definition);
 
   const lastUserMsg = [...params.messages].reverse().find((m) => m.role === "user");
