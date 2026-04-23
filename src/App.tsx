@@ -3,6 +3,7 @@ import { Sidebar } from "./components/layout/sidebar";
 import { Home } from "./routes/home";
 import { SettingsPage } from "./routes/settings";
 import { KnowledgePage } from "./routes/knowledge";
+import { AppsPage } from "./routes/apps";
 import { initDb } from "./lib/db";
 import { useAppStore } from "./stores/app-store";
 import { useSessionStore } from "./stores/session-store";
@@ -55,7 +56,7 @@ function App() {
       <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
       <main className="flex-1 overflow-hidden">
         {currentPage === "home" && <Home />}
-        {currentPage === "apps" && <Placeholder title={t("nav.apps")} />}
+        {currentPage === "apps" && <AppsPage />}
         {currentPage === "knowledge" && <KnowledgePage />}
         {currentPage === "channels" && <Placeholder title={t("nav.channels")} />}
         {currentPage === "settings" && <SettingsPage />}
