@@ -23,6 +23,7 @@ class McpManager {
   private loadedMcps: LoadedMcp[] = [];
   private serverStates = new Map<string, ServerState>();
   private onChangeCallbacks: Array<() => void> = [];
+  private initPromise: Promise<void> | null = null;
 
   onChange(cb: () => void): () => void {
     this.onChangeCallbacks.push(cb);
@@ -35,7 +36,17 @@ class McpManager {
 
   /** Load MCP configs from filesystem and connect all enabled servers. */
   async initialize(): Promise<void> {
-    await this.reload();
+    this.initPromise = this.reload();
+    await this.initPromise;
+  }
+
+  /** Wait for initial MCP connection to complete (with timeout). */
+  async waitForReady(timeoutMs = 15000): Promise<void> {
+    if (!this.initPromise) return;
+    await Promise.race([
+      this.initPromise,
+      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
   }
 
   /** Reload configs from filesystem and reconnect. */
@@ -175,10 +186,13 @@ class McpManager {
       // Load user-configured env values from DB
       const userEnv = await getMcpEnvConfig(mcp.id);
 
-      // Check if all required env vars are configured
+      // Check if required env vars are configured.
+      // Only vars with empty default values are considered required (need user config).
+      // Vars with non-empty defaults (like BROWSER_USE_HEADLESS: "false") work as-is.
       const definedEnv = mcp.definition.env || {};
-      const requiredVars = Object.keys(definedEnv);
-      const missingVars = requiredVars.filter((v) => !userEnv[v]);
+      const missingVars = Object.entries(definedEnv)
+        .filter(([key, defaultVal]) => !defaultVal && !userEnv[key])
+        .map(([key]) => key);
 
       if (missingVars.length > 0) {
         this.serverStates.set(mcp.id, {

@@ -119,6 +119,9 @@ export class McpClient {
           },
         },
         execute: async (input: Record<string, unknown>) => {
+          if (!this.initialized) {
+            throw new Error(`MCP server '${this.serverName}' is not connected. Check server status in Tools page.`);
+          }
           return this.callTool(tool.name, input);
         },
       };

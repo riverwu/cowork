@@ -34,6 +34,9 @@ export interface AgentParams {
 export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent> {
   const provider = await getConfiguredProvider();
 
+  // Wait for MCP servers to finish connecting (with timeout)
+  await mcpManager.waitForReady();
+
   // Merge built-in skills + user skills (from registry) + MCP tools
   const builtinSkills = getSkills();
   const userSkills = skillRegistry.getTools();
