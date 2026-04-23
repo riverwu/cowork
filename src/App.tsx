@@ -7,7 +7,7 @@ import { initDb } from "./lib/db";
 import { useAppStore } from "./stores/app-store";
 import { t } from "./lib/i18n";
 
-type Page = "home" | "knowledge" | "channels" | "explore" | "activity" | "settings";
+type Page = "home" | "apps" | "knowledge" | "channels" | "settings";
 
 function App() {
   const [currentPage, setCurrentPage] = useState<Page>("home");
@@ -45,9 +45,9 @@ function App() {
       <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
       <main className="flex-1 overflow-hidden">
         {currentPage === "home" && <Home />}
+        {currentPage === "apps" && <Placeholder title={t("nav.apps")} />}
         {currentPage === "knowledge" && <KnowledgePage />}
         {currentPage === "channels" && <Placeholder title={t("nav.channels")} />}
-        {currentPage === "activity" && <Placeholder title={t("nav.activity")} />}
         {currentPage === "settings" && <SettingsPage />}
       </main>
     </div>

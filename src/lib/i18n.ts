@@ -1,9 +1,9 @@
 const zh: Record<string, string> = {
   // Sidebar
   "nav.home": "首页",
+  "nav.apps": "应用",
   "nav.knowledge": "知识库",
   "nav.channels": "通道",
-  "nav.activity": "运行监控",
   "nav.settings": "设置",
 
   // Home
@@ -65,9 +65,9 @@ const zh: Record<string, string> = {
 
 const en: Record<string, string> = {
   "nav.home": "Home",
+  "nav.apps": "Apps",
   "nav.knowledge": "Knowledge",
   "nav.channels": "Channels",
-  "nav.activity": "Activity",
   "nav.settings": "Settings",
 
   "home.greeting.morning": "Good morning, what do you need today?",

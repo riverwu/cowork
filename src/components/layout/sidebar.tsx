@@ -1,7 +1,7 @@
 import { t } from "@/lib/i18n";
-import { IconHome, IconBook, IconChannel, IconActivity, IconSettings } from "@/components/icons";
+import { IconHome, IconPackage, IconBook, IconChannel, IconSettings } from "@/components/icons";
 
-type Page = "home" | "knowledge" | "channels" | "explore" | "activity" | "settings";
+type Page = "home" | "apps" | "knowledge" | "channels" | "settings";
 
 interface SidebarProps {
   currentPage: Page;
@@ -10,9 +10,9 @@ interface SidebarProps {
 
 const navItems: { id: Page; label: string; icon: React.ReactNode }[] = [
   { id: "home", label: "nav.home", icon: <IconHome /> },
+  { id: "apps", label: "nav.apps", icon: <IconPackage /> },
   { id: "knowledge", label: "nav.knowledge", icon: <IconBook /> },
   { id: "channels", label: "nav.channels", icon: <IconChannel /> },
-  { id: "activity", label: "nav.activity", icon: <IconActivity /> },
   { id: "settings", label: "nav.settings", icon: <IconSettings /> },
 ];
 
