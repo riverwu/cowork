@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Sidebar } from "./components/layout/sidebar";
 import { Home } from "./routes/home";
+import { SettingsPage } from "./routes/settings";
 import { initDb } from "./lib/db";
 
 type Page = "home" | "knowledge" | "channels" | "explore" | "activity" | "settings";
@@ -44,7 +45,7 @@ function App() {
         {currentPage === "channels" && <PlaceholderPage title="Channels" />}
         {currentPage === "explore" && <PlaceholderPage title="Explore" />}
         {currentPage === "activity" && <PlaceholderPage title="Activity" />}
-        {currentPage === "settings" && <PlaceholderPage title="Settings" />}
+        {currentPage === "settings" && <SettingsPage />}
       </main>
     </div>
   );
