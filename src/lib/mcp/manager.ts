@@ -9,10 +9,13 @@ import { McpClient } from "./client";
 import type { Skill } from "@/lib/ai/skills/types";
 import { loadMcpsFromFilesystem, installMcpToFilesystem, getMcpsDir, type LoadedMcp, type McpDefinition } from "./loader";
 import { ensureUvInstalled } from "@/lib/tauri";
+import { getMcpEnvConfig } from "@/lib/db";
 
 interface ServerState {
-  status: "connecting" | "connected" | "error" | "disabled";
+  status: "connecting" | "connected" | "error" | "disabled" | "needs_config";
   error?: string;
+  /** Env vars that are missing values. */
+  missingEnv?: string[];
 }
 
 class McpManager {
@@ -78,9 +81,10 @@ class McpManager {
   getServerStatus(): Array<{
     id: string; name: string; connected: boolean; toolCount: number;
     builtin: boolean; enabled: boolean;
-    status: "connecting" | "connected" | "error" | "disabled";
-    error?: string;
+    status: "connecting" | "connected" | "error" | "disabled" | "needs_config";
+    error?: string; missingEnv?: string[];
     version: string; description: string; dirPath: string;
+    requiredEnv: Record<string, string>;
   }> {
     return this.loadedMcps.map((m) => {
       const client = this.clients.get(m.id);
@@ -95,9 +99,11 @@ class McpManager {
         enabled,
         status: !enabled ? "disabled" : (state?.status || "connecting"),
         error: state?.error,
+        missingEnv: state?.missingEnv,
         version: m.definition.version,
         description: m.definition.description || "",
         dirPath: m.dirPath,
+        requiredEnv: m.definition.env || {},
       };
     });
   }
@@ -166,12 +172,34 @@ class McpManager {
     this.notifyChange();
 
     try {
+      // Load user-configured env values from DB
+      const userEnv = await getMcpEnvConfig(mcp.id);
+
+      // Check if all required env vars are configured
+      const definedEnv = mcp.definition.env || {};
+      const requiredVars = Object.keys(definedEnv);
+      const missingVars = requiredVars.filter((v) => !userEnv[v]);
+
+      if (missingVars.length > 0) {
+        this.serverStates.set(mcp.id, {
+          status: "needs_config",
+          missingEnv: missingVars,
+          error: `Missing configuration: ${missingVars.join(", ")}`,
+        });
+        console.warn(`MCP '${mcp.id}' needs config: ${missingVars.join(", ")}`);
+        this.notifyChange();
+        return;
+      }
+
+      // Merge: definition env (defaults) + user env (overrides)
+      const mergedEnv = { ...definedEnv, ...userEnv };
+
       const client = new McpClient({
         id: mcp.id,
         name: mcp.definition.name,
         command: mcp.definition.command,
         args: mcp.definition.args,
-        env: mcp.definition.env,
+        env: mergedEnv,
       });
       await client.connect();
       this.clients.set(mcp.id, client);

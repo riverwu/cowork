@@ -10,6 +10,7 @@ import {
 } from "@/components/icons";
 import { mcpManager } from "@/lib/mcp";
 import { readFileText } from "@/lib/tauri";
+import { getMcpEnvConfig, setMcpEnvVar } from "@/lib/db";
 import { t } from "@/lib/i18n";
 import type { SkillRecord } from "@/types";
 
@@ -21,11 +22,13 @@ interface ToolDetailProps {
     description: string;
     status: string;
     error?: string;
+    missingEnv?: string[];
     skillRecord?: SkillRecord;
     dirPath?: string;
     hasScripts?: boolean;
     toolCount?: number;
     builtin?: boolean;
+    requiredEnv?: Record<string, string>;
   };
   onBack: () => void;
   onRefresh: () => void;
@@ -37,6 +40,8 @@ export function ToolDetail({ tool, onBack, onRefresh }: ToolDetailProps) {
   const [mcpConfigContent, setMcpConfigContent] = useState<string | null>(null);
   const [showSource, setShowSource] = useState(false);
   const [scriptFiles, setScriptFiles] = useState<string[]>([]);
+  const [envValues, setEnvValues] = useState<Record<string, string>>({});
+  const [envSaving, setEnvSaving] = useState(false);
 
   useEffect(() => {
     // Load SKILL.md content for skills
@@ -54,6 +59,9 @@ export function ToolDetail({ tool, onBack, onRefresh }: ToolDetailProps) {
     // Load MCP config from per-directory MCP.json
     if (!isSkill && tool.dirPath) {
       readFileText(`${tool.dirPath}/MCP.json`).then(setMcpConfigContent).catch(() => {});
+      // Load user's env config
+      const mcpId = tool.id.replace("mcp_", "");
+      getMcpEnvConfig(mcpId).then(setEnvValues).catch(() => {});
     }
   }, [tool, isSkill]);
 
@@ -114,6 +122,49 @@ export function ToolDetail({ tool, onBack, onRefresh }: ToolDetailProps) {
             <IconWarning size={16} className="text-[var(--error)] mt-0.5 shrink-0" />
             <p className="text-[13px] text-[var(--error)]">{tool.error}</p>
           </div>
+        )}
+
+        {/* Env configuration (for MCP with required env vars) */}
+        {!isSkill && tool.requiredEnv && Object.keys(tool.requiredEnv).length > 0 && (
+          <section className="mb-8">
+            <h2 className="text-[14px] font-semibold text-[var(--on-surface)] mb-3">{t("tools.config")}</h2>
+            <div className="bg-[var(--surface-lowest)] rounded-xl border border-[var(--border)] p-4 space-y-3">
+              {Object.entries(tool.requiredEnv).map(([varName]) => (
+                <div key={varName}>
+                  <label className="block text-[12px] font-medium text-[var(--on-surface-secondary)] mb-1">
+                    {varName}
+                    {tool.missingEnv?.includes(varName) && (
+                      <span className="ml-2 text-[10px] text-[var(--error)]">required</span>
+                    )}
+                  </label>
+                  <input
+                    type="password"
+                    value={envValues[varName] || ""}
+                    onChange={(e) => setEnvValues((prev) => ({ ...prev, [varName]: e.target.value }))}
+                    placeholder={`Enter ${varName}`}
+                    className="w-full px-3 py-2 bg-[var(--surface-low)] border border-[var(--border)] rounded-lg text-[13px] font-mono text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none focus:border-[var(--primary-accent)]"
+                  />
+                </div>
+              ))}
+              <button
+                onClick={async () => {
+                  setEnvSaving(true);
+                  const mcpId = tool.id.replace("mcp_", "");
+                  for (const [varName, value] of Object.entries(envValues)) {
+                    if (value) await setMcpEnvVar(mcpId, varName, value);
+                  }
+                  // Reconnect with new env
+                  await mcpManager.reconnectServer(mcpId);
+                  setEnvSaving(false);
+                  onRefresh();
+                }}
+                disabled={envSaving}
+                className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer transition-colors disabled:opacity-40"
+              >
+                {envSaving ? "..." : t("apps.save")}
+              </button>
+            </div>
+          </section>
         )}
 
         {/* Contains — sub-tools list (for MCP with connected tools) */}

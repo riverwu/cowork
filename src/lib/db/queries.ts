@@ -352,6 +352,26 @@ export async function listRecentArtifacts(limit = 20): Promise<Artifact[]> {
   }));
 }
 
+// ---- MCP Env Config ----
+
+export async function getMcpEnvConfig(mcpId: string): Promise<Record<string, string>> {
+  const db = await getDb();
+  const prefix = `mcp_env_${mcpId}_`;
+  const rows = await db.select<{ key: string; value: string }[]>(
+    "SELECT key, value FROM settings WHERE key LIKE $1",
+    [`${prefix}%`],
+  );
+  const env: Record<string, string> = {};
+  for (const row of rows) {
+    env[row.key.slice(prefix.length)] = row.value;
+  }
+  return env;
+}
+
+export async function setMcpEnvVar(mcpId: string, varName: string, value: string): Promise<void> {
+  await setSetting(`mcp_env_${mcpId}_${varName}`, value);
+}
+
 // ---- Skills (unified: apps + tool-skills) ----
 
 export async function createSkill(params: {

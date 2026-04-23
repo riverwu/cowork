@@ -18,8 +18,9 @@ interface ToolItem {
   name: string;
   kind: "skill" | "mcp";
   description: string;
-  status: "active" | "connecting" | "connected" | "error" | "disabled";
+  status: "active" | "connecting" | "connected" | "error" | "disabled" | "needs_config";
   error?: string;
+  missingEnv?: string[];
   // Skill-specific
   skillRecord?: SkillRecord;
   dirPath?: string;
@@ -27,6 +28,7 @@ interface ToolItem {
   // MCP-specific
   toolCount?: number;
   builtin?: boolean;
+  requiredEnv?: Record<string, string>;
 }
 
 export function AppsPage() {
@@ -74,9 +76,11 @@ export function AppsPage() {
         description: server.description || (server.connected ? `${server.toolCount} ${t("tools.providedTools")}` : ""),
         status: server.status as ToolItem["status"],
         error: server.error,
+        missingEnv: server.missingEnv,
         toolCount: server.toolCount,
         builtin: false,
         dirPath: server.dirPath,
+        requiredEnv: server.requiredEnv,
       });
     }
 
@@ -157,6 +161,7 @@ function ToolCard({ tool, onClick }: { tool: ToolItem; onClick: () => void }) {
     connected: "bg-emerald-50 text-emerald-600",
     connecting: "bg-amber-50 text-amber-600",
     error: "bg-red-50 text-red-500",
+    needs_config: "bg-amber-50 text-amber-600",
     disabled: "bg-[var(--surface-low)] text-[var(--on-surface-tertiary)]",
   };
   const iconBg = statusColors[tool.status] || statusColors.active;
@@ -166,6 +171,7 @@ function ToolCard({ tool, onClick }: { tool: ToolItem; onClick: () => void }) {
     : tool.status === "connected" ? `${tool.toolCount || 0} tools`
     : tool.status === "connecting" ? t("connections.connecting")
     : tool.status === "error" ? t("connections.error")
+    : tool.status === "needs_config" ? t("tools.needsConfig")
     : tool.status === "disabled" ? t("connections.disabled")
     : null;
 
