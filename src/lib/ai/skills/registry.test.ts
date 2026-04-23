@@ -11,11 +11,13 @@ describe("Skill Registry", () => {
     "run_python",
     "save_memory",
     "create_artifact",
+    "web_search",
+    "web_fetch",
   ];
 
-  it("has exactly 8 built-in skills", () => {
+  it("has exactly 10 built-in skills", () => {
     const skills = getSkills();
-    expect(Object.keys(skills)).toHaveLength(8);
+    expect(Object.keys(skills)).toHaveLength(10);
   });
 
   it("has all expected skills registered", () => {
@@ -37,7 +39,7 @@ describe("Skill Registry", () => {
 
   it("generates valid tool definitions for all skills", () => {
     const defs = getToolDefinitions();
-    expect(defs).toHaveLength(8);
+    expect(defs).toHaveLength(10);
 
     for (const def of defs) {
       expect(def.name).toBeTruthy();

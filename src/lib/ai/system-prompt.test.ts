@@ -5,8 +5,8 @@ describe("buildSystemPrompt", () => {
   it("returns base prompt without params", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("Cowork");
-    expect(prompt).toContain("CAN browse the web");
-    expect(prompt).toContain("CAN execute Python");
+    expect(prompt).toContain("web_search");
+    expect(prompt).toContain("web_fetch");
     expect(prompt).not.toContain("Your memory");
     expect(prompt).not.toContain("Knowledge context");
   });
@@ -14,13 +14,13 @@ describe("buildSystemPrompt", () => {
   it("includes tool list when provided", () => {
     const prompt = buildSystemPrompt({
       tools: [
-        { name: "search_knowledge", description: "Search the knowledge base", parameters: {} },
-        { name: "web_browse", description: "Browse a web page", parameters: {} },
+        { name: "web_search", description: "Search the web", parameters: {} },
+        { name: "web_fetch", description: "Fetch a URL", parameters: {} },
       ],
     });
-    expect(prompt).toContain("2 tools available");
-    expect(prompt).toContain("**search_knowledge**");
-    expect(prompt).toContain("**web_browse**");
+    expect(prompt).toContain("Your tools");
+    expect(prompt).toContain("**web_search**");
+    expect(prompt).toContain("**web_fetch**");
   });
 
   it("includes memory context", () => {
@@ -30,18 +30,18 @@ describe("buildSystemPrompt", () => {
   });
 
   it("includes knowledge context", () => {
-    const prompt = buildSystemPrompt({ knowledgeContext: "Relevant doc content" });
+    const prompt = buildSystemPrompt({ knowledgeContext: "Relevant doc" });
     expect(prompt).toContain("Knowledge context");
-    expect(prompt).toContain("Relevant doc content");
+    expect(prompt).toContain("Relevant doc");
   });
 
-  it("orders sections: base → tools → memory → knowledge", () => {
+  it("orders: base → tools → memory → knowledge", () => {
     const prompt = buildSystemPrompt({
-      tools: [{ name: "test", description: "A test tool", parameters: {} }],
-      memoryContext: "memory here",
-      knowledgeContext: "knowledge here",
+      tools: [{ name: "t", description: "d", parameters: {} }],
+      memoryContext: "m",
+      knowledgeContext: "k",
     });
-    const toolsPos = prompt.indexOf("available tools");
+    const toolsPos = prompt.indexOf("Your tools");
     const memoryPos = prompt.indexOf("Your memory");
     const knowledgePos = prompt.indexOf("Knowledge context");
     expect(toolsPos).toBeLessThan(memoryPos);

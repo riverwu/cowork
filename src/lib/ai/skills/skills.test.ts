@@ -10,6 +10,8 @@ vi.mock("@/lib/tauri", () => ({
   runPythonScript: vi.fn(),
   initPythonEnv: vi.fn(),
   installPythonPackage: vi.fn(),
+  webSearch: vi.fn(),
+  webFetch: vi.fn(),
 }));
 
 // Mock DB
@@ -27,7 +29,7 @@ vi.mock("@/lib/knowledge/embeddings", () => ({
   generateEmbedding: vi.fn().mockResolvedValue(new Array(1536).fill(0)),
 }));
 
-import { readFileText, parseDocument, writeFile, listDirectory, grep, runPythonScript, initPythonEnv } from "@/lib/tauri";
+import { readFileText, parseDocument, writeFile, listDirectory, grep, runPythonScript, initPythonEnv, webSearch, webFetch } from "@/lib/tauri";
 import { readFile } from "./read-document";
 import { writeFileSkill } from "./write-file";
 import { listDirectorySkill } from "./list-directory";
@@ -35,6 +37,8 @@ import { grepSkill } from "./grep";
 import { runPython } from "./run-python";
 import { saveMemory } from "./save-memory";
 import { createArtifactSkill } from "./create-artifact";
+import { webSearchSkill } from "./web-search";
+import { webFetchSkill } from "./web-fetch";
 
 const mockReadFileText = vi.mocked(readFileText);
 const mockParseDocument = vi.mocked(parseDocument);
@@ -42,6 +46,8 @@ const mockWriteFile = vi.mocked(writeFile);
 const mockListDirectory = vi.mocked(listDirectory);
 const mockGrep = vi.mocked(grep);
 const mockRunPythonScript = vi.mocked(runPythonScript);
+const mockWebSearch = vi.mocked(webSearch);
+const mockWebFetch = vi.mocked(webFetch);
 const mockInitPythonEnv = vi.mocked(initPythonEnv);
 
 describe("read_file skill", () => {
@@ -192,5 +198,66 @@ describe("create_artifact skill", () => {
     });
     expect(result).toContain("__ARTIFACT__:report:Weekly Report");
     expect(result).toContain("# Report");
+  });
+});
+
+describe("web_search skill", () => {
+  it("returns formatted search results", async () => {
+    mockWebSearch.mockResolvedValue([
+      { title: "Weather Today", url: "https://weather.com", snippet: "Sunny, 25°C" },
+      { title: "Forecast", url: "https://forecast.io", snippet: "Clear skies all week" },
+    ]);
+    const result = await webSearchSkill.execute({ query: "weather today" });
+    expect(result).toContain("Weather Today");
+    expect(result).toContain("https://weather.com");
+    expect(result).toContain("Sunny");
+  });
+
+  it("handles no results", async () => {
+    mockWebSearch.mockResolvedValue([]);
+    const result = await webSearchSkill.execute({ query: "asdfghjkl" });
+    expect(result).toContain("No results");
+  });
+
+  it("handles errors", async () => {
+    mockWebSearch.mockRejectedValue(new Error("network error"));
+    const result = await webSearchSkill.execute({ query: "test" });
+    expect(result).toContain("failed");
+  });
+});
+
+describe("web_fetch skill", () => {
+  it("returns page content", async () => {
+    mockWebFetch.mockResolvedValue({
+      url: "https://example.com",
+      status: 200,
+      content_type: "text/html",
+      text: "Hello World\nThis is a test page.",
+    });
+    const result = await webFetchSkill.execute({ url: "https://example.com" });
+    expect(result).toContain("Hello World");
+    expect(result).toContain("example.com");
+  });
+
+  it("handles non-200 status", async () => {
+    mockWebFetch.mockResolvedValue({
+      url: "https://bad.com",
+      status: 404,
+      content_type: "text/html",
+      text: "Not Found",
+    });
+    const result = await webFetchSkill.execute({ url: "https://bad.com" });
+    expect(result).toContain("404");
+  });
+
+  it("handles empty JS-rendered pages", async () => {
+    mockWebFetch.mockResolvedValue({
+      url: "https://spa.com",
+      status: 200,
+      content_type: "text/html",
+      text: "",
+    });
+    const result = await webFetchSkill.execute({ url: "https://spa.com" });
+    expect(result).toContain("JavaScript-rendered");
   });
 });

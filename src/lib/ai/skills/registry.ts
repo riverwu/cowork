@@ -7,19 +7,23 @@ import { grepSkill } from "./grep";
 import { runPython } from "./run-python";
 import { saveMemory } from "./save-memory";
 import { createArtifactSkill } from "./create-artifact";
+import { webSearchSkill } from "./web-search";
+import { webFetchSkill } from "./web-fetch";
 
 /**
  * Built-in tool registry.
  *
- * 8 tools, minimal and stable:
+ * 10 tools:
  * - search_knowledge: RAG search across knowledge base
  * - read_file: read file contents (text + documents)
- * - write_file: write/create files
+ * - write_file: create/write files
  * - list_directory: explore file system
  * - grep: search file contents
  * - run_python: execute Python in isolated env
  * - save_memory: store to persistent memory
  * - create_artifact: produce structured output
+ * - web_search: search the web (DuckDuckGo)
+ * - web_fetch: fetch a web page as text
  */
 const skills: Record<string, Skill> = {
   search_knowledge: searchKnowledge,
@@ -30,6 +34,8 @@ const skills: Record<string, Skill> = {
   run_python: runPython,
   save_memory: saveMemory,
   create_artifact: createArtifactSkill,
+  web_search: webSearchSkill,
+  web_fetch: webFetchSkill,
 };
 
 export function getSkills(): Record<string, Skill> {
