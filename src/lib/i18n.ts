@@ -5,7 +5,6 @@ const zh: Record<string, string> = {
   "nav.channels": "通道",
   "nav.activity": "运行监控",
   "nav.settings": "设置",
-  "nav.newConversation": "新对话",
 
   // Home
   "home.greeting.morning": "早上好，今天需要什么帮助？",
@@ -70,7 +69,6 @@ const en: Record<string, string> = {
   "nav.channels": "Channels",
   "nav.activity": "Activity",
   "nav.settings": "Settings",
-  "nav.newConversation": "New Conversation",
 
   "home.greeting.morning": "Good morning, what do you need today?",
   "home.greeting.afternoon": "Good afternoon, what can I help with?",
