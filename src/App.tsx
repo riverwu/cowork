@@ -5,6 +5,7 @@ import { SettingsPage } from "./routes/settings";
 import { KnowledgePage } from "./routes/knowledge";
 import { initDb } from "./lib/db";
 import { useAppStore } from "./stores/app-store";
+import { useSessionStore } from "./stores/session-store";
 import { t } from "./lib/i18n";
 
 type Page = "home" | "apps" | "knowledge" | "channels" | "settings";
@@ -14,12 +15,18 @@ function App() {
   const [dbReady, setDbReady] = useState(false);
   const [dbError, setDbError] = useState<string | null>(null);
   const loadAppState = useAppStore((s) => s.load);
+  const initSession = useSessionStore((s) => s.initialize);
+  const sessionReady = useSessionStore((s) => s.initialized);
 
   useEffect(() => {
     initDb()
-      .then(() => { setDbReady(true); return loadAppState(); })
+      .then(async () => {
+        setDbReady(true);
+        await loadAppState();
+        await initSession();
+      })
       .catch((err) => setDbError(String(err)));
-  }, [loadAppState]);
+  }, [loadAppState, initSession]);
 
   if (dbError) {
     return (
@@ -32,7 +39,7 @@ function App() {
     );
   }
 
-  if (!dbReady) {
+  if (!dbReady || !sessionReady) {
     return (
       <div className="flex items-center justify-center h-screen text-[13px] text-[var(--on-surface-tertiary)]">
         {t("starting")}

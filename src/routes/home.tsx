@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { useViewStore } from "@/stores/view-store";
 import { CommandBar } from "@/components/chat/command-bar";
@@ -7,21 +7,26 @@ import { ViewContainer } from "@/components/views/view-container";
 import { useSessionStore } from "@/stores/session-store";
 import {
   IconClock, IconChart, IconTaskList, IconMail, IconTrend,
-  IconFolder, IconPlus, IconPlay, IconCheck, IconDocument,
+  IconFolder, IconPlus, IconPlay, IconCheck, IconDocument, IconClose,
 } from "@/components/icons";
 import { t } from "@/lib/i18n";
 
 export function Home() {
   const { initialized, hasApiKey, sources, load } = useAppStore();
-  const { messages, isStreaming, streamingText, steps, artifacts, knowledgeRefs, error } =
-    useSessionStore();
+  const {
+    messages, isStreaming, streamingText, steps, artifacts,
+    knowledgeRefs, error, clearConversation,
+  } = useSessionStore();
   const viewPanels = useViewStore((s) => s.panels);
   const addPanel = useViewStore((s) => s.addPanel);
+  const clearViews = useViewStore((s) => s.clear);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!initialized) load();
   }, [initialized, load]);
 
+  // Auto-add new artifacts to view panels
   useEffect(() => {
     for (const artifact of artifacts) {
       if (!viewPanels.find((p) => p.id === artifact.id)) {
@@ -30,6 +35,11 @@ export function Home() {
     }
   }, [artifacts, viewPanels, addPanel]);
 
+  // Auto-scroll to bottom on new messages
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, streamingText]);
+
   if (!initialized) return null;
 
   const hasConversation = messages.length > 0 || isStreaming;
@@ -37,72 +47,77 @@ export function Home() {
 
   return (
     <div className="flex h-full">
-      {/* Main area: conversation/dashboard + Command Bar */}
+      {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
 
-        {/* Scrollable content area */}
-        <div className="flex-1 overflow-y-auto">
-          {hasConversation ? (
-            /* ---- Conversation mode ---- */
-            <div className="max-w-3xl mx-auto px-6 py-5">
-              <MessageList
-                messages={messages}
-                isStreaming={isStreaming}
-                streamingText={streamingText}
-                steps={steps}
-                artifacts={artifacts}
-                knowledgeRefs={knowledgeRefs}
-              />
-              {error && (
-                <div className="mt-3 p-3 rounded-lg bg-[var(--error-light)] text-[var(--error)] text-[13px]">
-                  {error}
-                </div>
-              )}
-            </div>
-          ) : (
-            /* ---- Dashboard mode ---- */
-            <div className="max-w-3xl mx-auto px-6 py-6">
-              {/* Greeting */}
-              <h1 className="text-[20px] font-bold text-[var(--on-surface)] mb-5">
+        {/* Scrollable content */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-6">
+
+            {/* Dashboard section — always visible at top */}
+            <div className="py-6">
+              <h1 className="text-[20px] font-bold text-[var(--on-surface)] mb-4">
                 {getGreeting()}
               </h1>
 
-              {/* Hints */}
               {!hasApiKey && (
-                <div className="mb-5 p-4 rounded-xl bg-[var(--info-light)] border border-blue-100">
+                <div className="mb-4 p-3 rounded-xl bg-[var(--info-light)] border border-blue-100">
                   <p className="text-[13px] text-[var(--info)]">{t("home.configHint")}</p>
                 </div>
               )}
 
-              {/* Pending items */}
-              <section className="mb-5">
-                <h2 className="flex items-center gap-2 text-[13px] font-semibold text-[var(--on-surface)] mb-3">
-                  <span className="w-2 h-2 rounded-full bg-[var(--error)]" />
-                  {t("home.pending")}
-                </h2>
-                <div className="bg-[var(--surface-lowest)] rounded-xl border border-[var(--border)] overflow-hidden shadow-[var(--shadow-sm)]">
-                  <div className="px-4 py-4 text-[13px] text-[var(--on-surface-tertiary)] text-center">
-                    {t("home.noPending")}
-                  </div>
+              {/* Pending + Recent (collapsed when conversation is active) */}
+              {!hasConversation && (
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <DashboardCard title={t("home.pending")} icon={<span className="w-2 h-2 rounded-full bg-[var(--error)]" />}>
+                    <p className="text-[13px] text-[var(--on-surface-tertiary)] py-3 text-center">
+                      {t("home.noPending")}
+                    </p>
+                  </DashboardCard>
+                  <DashboardCard title={t("home.recentOutputs")} icon={<IconClock size={13} />}>
+                    <p className="text-[13px] text-[var(--on-surface-tertiary)] py-3 text-center">
+                      {t("home.noOutputs")}
+                    </p>
+                  </DashboardCard>
                 </div>
-              </section>
-
-              {/* Recent outputs */}
-              <section>
-                <h2 className="flex items-center gap-2 text-[13px] font-semibold text-[var(--on-surface)] mb-3">
-                  <IconClock size={14} /> {t("home.recentOutputs")}
-                </h2>
-                <div className="bg-[var(--surface-lowest)] rounded-xl border border-[var(--border)] overflow-hidden shadow-[var(--shadow-sm)]">
-                  <div className="px-4 py-4 text-[13px] text-[var(--on-surface-tertiary)] text-center">
-                    {t("home.noOutputs")}
-                  </div>
-                </div>
-              </section>
+              )}
             </div>
-          )}
+
+            {/* Conversation history */}
+            {hasConversation && (
+              <div className="pb-4">
+                {/* Clear conversation button */}
+                {messages.length > 0 && !isStreaming && (
+                  <div className="flex justify-center mb-4">
+                    <button
+                      onClick={() => { clearConversation(); clearViews(); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] bg-[var(--surface-low)] hover:bg-[var(--surface-container)] transition-colors cursor-pointer"
+                    >
+                      <IconClose size={10} />
+                      {t("home.clearConversation")}
+                    </button>
+                  </div>
+                )}
+
+                <MessageList
+                  messages={messages}
+                  isStreaming={isStreaming}
+                  streamingText={streamingText}
+                  steps={steps}
+                  artifacts={artifacts}
+                  knowledgeRefs={knowledgeRefs}
+                />
+                {error && (
+                  <div className="mt-3 p-3 rounded-lg bg-[var(--error-light)] text-[var(--error)] text-[13px]">
+                    {error}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Knowledge refs bar */}
+        {/* Knowledge refs */}
         {knowledgeRefs.length > 0 && (
           <div className="px-6 pb-1">
             <div className="max-w-3xl mx-auto flex flex-wrap gap-1">
@@ -124,45 +139,43 @@ export function Home() {
         </div>
       </div>
 
-      {/* Right panel: App cards (always visible) + artifact views */}
-      <RightPanel
-        sources={sources}
-        hasViews={hasViews}
-      />
+      {/* Right panel: Apps + artifact views */}
+      <RightPanel sources={sources} hasViews={hasViews} />
     </div>
   );
 }
 
-/** Right side panel — always visible, shows Apps + artifact views */
+function DashboardCard({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="bg-[var(--surface-lowest)] rounded-xl border border-[var(--border)] overflow-hidden shadow-[var(--shadow-sm)]">
+      <div className="px-3 py-2 border-b border-[var(--border)] flex items-center gap-2">
+        {icon}
+        <span className="text-[12px] font-semibold text-[var(--on-surface)]">{title}</span>
+      </div>
+      <div className="px-3">{children}</div>
+    </div>
+  );
+}
+
 function RightPanel({ sources, hasViews }: { sources: { id: string; name: string; status: string }[]; hasViews: boolean }) {
   return (
     <div className="w-[300px] shrink-0 border-l border-[var(--border)] bg-[var(--surface-lowest)] flex flex-col overflow-hidden">
-      {/* Apps section */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-[13px] font-semibold text-[var(--on-surface)]">{t("home.myApps")}</h2>
-        </div>
-
+        <h2 className="text-[13px] font-semibold text-[var(--on-surface)] mb-3">{t("home.myApps")}</h2>
         <div className="space-y-2">
           <AppItem icon={<IconChart size={16} />} iconBg="bg-blue-50 text-blue-600" title="每周销售分析" schedule="每周一 08:00" />
           <AppItem icon={<IconTaskList size={16} />} iconBg="bg-indigo-50 text-indigo-600" title="项目进度追踪" schedule="每日运行" />
           <AppItem icon={<IconMail size={16} />} iconBg="bg-teal-50 text-teal-600" title="客户满意度监测" schedule="每日运行" />
           <AppItem icon={<IconTrend size={16} />} iconBg="bg-orange-50 text-orange-600" title="商机线索提醒" schedule="实时监控" />
-
           {sources.map((s) => (
             <AppItem key={s.id} icon={<IconFolder size={16} />} iconBg="bg-gray-50 text-gray-600" title={s.name} schedule={s.status} />
           ))}
-
-          {/* Create new */}
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-dashed border-[var(--border)] text-[var(--on-surface-tertiary)] hover:bg-[var(--surface-low)] hover:border-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] transition-all cursor-pointer">
-            <div className="w-8 h-8 rounded-lg bg-[var(--surface-container)] flex items-center justify-center">
-              <IconPlus size={14} />
-            </div>
+          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-dashed border-[var(--border)] text-[var(--on-surface-tertiary)] hover:bg-[var(--surface-low)] hover:text-[var(--on-surface-secondary)] transition-all cursor-pointer">
+            <div className="w-8 h-8 rounded-lg bg-[var(--surface-container)] flex items-center justify-center"><IconPlus size={14} /></div>
             <span className="text-[13px]">{t("home.createApp")}</span>
           </button>
         </div>
 
-        {/* Recent outputs */}
         <div className="mt-6">
           <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--on-surface)] mb-3">
             <IconClock size={13} /> {t("home.recentOutputs")}
@@ -173,8 +186,6 @@ function RightPanel({ sources, hasViews }: { sources: { id: string; name: string
           </div>
         </div>
       </div>
-
-      {/* Artifact views (when present) */}
       {hasViews && (
         <div className="border-t border-[var(--border)]">
           <ViewContainer />
@@ -190,9 +201,7 @@ function AppItem({ icon, iconBg, title, schedule }: { icon: React.ReactNode; ico
       <div className={`w-8 h-8 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>{icon}</div>
       <div className="flex-1 min-w-0">
         <div className="text-[13px] font-medium text-[var(--on-surface)] truncate">{title}</div>
-        <div className="flex items-center gap-1 text-[11px] text-[var(--on-surface-tertiary)]">
-          <IconClock size={10} /> {schedule}
-        </div>
+        <div className="flex items-center gap-1 text-[11px] text-[var(--on-surface-tertiary)]"><IconClock size={10} /> {schedule}</div>
       </div>
       <button className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-[var(--primary-accent)] hover:bg-[var(--primary-accent-light)] transition-all cursor-pointer">
         <IconPlay size={12} />

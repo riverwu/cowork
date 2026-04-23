@@ -2,7 +2,14 @@ import { create } from "zustand";
 import { runAgent } from "@/lib/ai/agent";
 import type { LLMMessage } from "@/lib/ai/providers/types";
 import type { AgentEvent, Artifact, Message } from "@/types";
-import { createSession, createMessage, listMessages, updateSessionTitle } from "@/lib/db";
+import {
+  createSession, createMessage, listMessages,
+  listRecentSessions,
+} from "@/lib/db";
+
+/** Max messages sent to LLM (context window management).
+ *  UI shows all messages, but only recent ones go to the model. */
+const LLM_CONTEXT_WINDOW = 40;
 
 interface KnowledgeRef {
   documentId: string;
@@ -11,7 +18,6 @@ interface KnowledgeRef {
 }
 
 interface SessionState {
-  // Current session
   sessionId: string | null;
   messages: Message[];
   isStreaming: boolean;
@@ -20,12 +26,15 @@ interface SessionState {
   artifacts: Artifact[];
   knowledgeRefs: KnowledgeRef[];
   error: string | null;
+  /** Whether the session has been loaded from DB on startup. */
+  initialized: boolean;
 
-  // Actions
-  startNewSession: () => Promise<void>;
-  loadSession: (sessionId: string) => Promise<void>;
+  /** Load the persistent session on app startup. Creates one if none exists. */
+  initialize: () => Promise<void>;
+  /** Send a user message and run the agent. */
   sendMessage: (content: string) => Promise<void>;
-  reset: () => void;
+  /** Clear conversation display (start fresh visually, but history remains in DB). */
+  clearConversation: () => Promise<void>;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -37,12 +46,28 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   artifacts: [],
   knowledgeRefs: [],
   error: null,
+  initialized: false,
 
-  startNewSession: async () => {
-    const session = await createSession();
+  initialize: async () => {
+    // Try to resume the most recent active session
+    const recent = await listRecentSessions(1);
+    let sessionId: string;
+    let messages: Message[] = [];
+
+    if (recent.length > 0 && recent[0].status === "active") {
+      // Resume existing session
+      sessionId = recent[0].id;
+      messages = await listMessages(sessionId);
+    } else {
+      // Create a new session
+      const session = await createSession("Cowork");
+      sessionId = session.id;
+    }
+
     set({
-      sessionId: session.id,
-      messages: [],
+      sessionId,
+      messages,
+      initialized: true,
       artifacts: [],
       knowledgeRefs: [],
       steps: [],
@@ -50,52 +75,44 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
   },
 
-  loadSession: async (sessionId: string) => {
-    const messages = await listMessages(sessionId);
-    set({ sessionId, messages, artifacts: [], knowledgeRefs: [], steps: [], error: null });
-  },
-
   sendMessage: async (content: string) => {
-    const state = get();
-    let sessionId = state.sessionId;
+    let { sessionId } = get();
 
-    // Auto-create session if needed
+    // Ensure session exists
     if (!sessionId) {
-      const session = await createSession();
+      const session = await createSession("Cowork");
       sessionId = session.id;
       set({ sessionId });
     }
 
-    // Save user message
+    // Persist user message immediately
     const userMsg = await createMessage({ sessionId, role: "user", content });
     set((s) => ({ messages: [...s.messages, userMsg] }));
 
-    // Auto-title session from first message
-    if (state.messages.length === 0) {
-      const title = content.length > 50 ? content.slice(0, 50) + "..." : content;
-      await updateSessionTitle(sessionId, title);
-    }
-
-    // Build LLM message history
-    const llmMessages: LLMMessage[] = get().messages.map((m) => ({
-      role: m.role === "user" ? "user" as const : "assistant" as const,
-      content: m.content,
-    }));
+    // Build LLM message history (windowed for context management)
+    const allMessages = get().messages;
+    const windowedMessages = allMessages.slice(-LLM_CONTEXT_WINDOW);
+    const llmMessages: LLMMessage[] = windowedMessages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => ({
+        role: m.role === "user" ? "user" as const : "assistant" as const,
+        content: m.content,
+      }));
 
     // Start streaming
-    set({ isStreaming: true, streamingText: "", steps: [], error: null });
+    set({ isStreaming: true, streamingText: "", steps: [], error: null, knowledgeRefs: [] });
 
     let fullText = "";
 
     try {
       for await (const event of runAgent({ messages: llmMessages, sessionId })) {
-        handleEvent(event, set, get);
+        handleEvent(event, set);
         if (event.type === "text-delta") {
           fullText += event.text;
         }
       }
 
-      // Save assistant message
+      // Persist assistant message
       if (fullText) {
         const assistantMsg = await createMessage({
           sessionId,
@@ -115,9 +132,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
-  reset: () => {
+  clearConversation: async () => {
+    // Create a new session for a fresh start
+    // Old messages remain in DB (accessible via memory system)
+    const session = await createSession("Cowork");
     set({
-      sessionId: null,
+      sessionId: session.id,
       messages: [],
       isStreaming: false,
       streamingText: "",
@@ -132,7 +152,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 function handleEvent(
   event: AgentEvent,
   set: (fn: (s: SessionState) => Partial<SessionState>) => void,
-  _get: () => SessionState,
 ) {
   switch (event.type) {
     case "text-delta":

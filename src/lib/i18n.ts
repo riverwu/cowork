@@ -21,6 +21,7 @@ const zh: Record<string, string> = {
   "home.configHint": "前往设置页面配置 LLM API 密钥即可开始使用。",
   "home.knowledgeHint": "在知识库页面添加工作文件夹，让 AI 了解你的工作内容。",
   "home.backToHome": "返回首页",
+  "home.clearConversation": "开始新话题",
 
   // Suggestions
   "suggestion.summarize": "总结最近文档",
@@ -84,6 +85,7 @@ const en: Record<string, string> = {
   "home.configHint": "Go to Settings to configure your LLM API key and start working.",
   "home.knowledgeHint": "Add a work folder in Knowledge to give AI context about your work.",
   "home.backToHome": "Back to Home",
+  "home.clearConversation": "Start new topic",
 
   "suggestion.summarize": "Summarize recent docs",
   "suggestion.summarize.text": "Summarize the most recent documents in my knowledge base",
