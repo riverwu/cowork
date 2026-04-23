@@ -17,16 +17,16 @@ const navItems: { id: Page; label: string; icon: string }[] = [
 
 export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   return (
-    <aside className="w-[232px] flex flex-col bg-[var(--primary)] text-white shrink-0">
+    <aside className="w-[232px] flex flex-col bg-[var(--surface-lowest)] border-r border-[var(--border)] shrink-0">
       {/* Logo area */}
       <div className="px-5 pt-5 pb-3" data-tauri-drag-region>
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center text-[12px] font-bold tracking-wide">
+          <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center text-[11px] font-bold tracking-wide">
             CW
           </div>
           <div>
-            <div className="text-[13px] font-semibold leading-tight tracking-tight">Cowork</div>
-            <div className="text-[10px] text-white/40 leading-tight">AI Workspace</div>
+            <div className="text-[13px] font-semibold leading-tight tracking-tight text-[var(--on-surface)]">Cowork</div>
+            <div className="text-[10px] text-[var(--on-surface-tertiary)] leading-tight">AI Workspace</div>
           </div>
         </div>
       </div>
@@ -35,7 +35,7 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
       <div className="px-4 mb-1">
         <button
           onClick={() => onNavigate("home")}
-          className="w-full flex items-center justify-center gap-1.5 px-3 py-[9px] rounded-lg bg-[var(--primary-accent)] hover:bg-[#3b82f6] text-[13px] font-medium cursor-pointer transition-colors"
+          className="w-full flex items-center justify-center gap-1.5 px-3 py-[9px] rounded-lg bg-[var(--primary)] hover:bg-[var(--primary-dark)] text-white text-[13px] font-medium cursor-pointer transition-colors"
         >
           ＋ {t("nav.newConversation")}
         </button>
@@ -49,25 +49,25 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
             onClick={() => onNavigate(item.id)}
             className={`w-full flex items-center gap-2.5 px-3 py-[8px] rounded-lg text-[13px] transition-colors cursor-pointer ${
               currentPage === item.id
-                ? "bg-white/15 text-white font-medium"
-                : "text-white/55 hover:bg-white/8 hover:text-white/80"
+                ? "bg-[var(--primary-accent-light)] text-[var(--primary)] font-medium"
+                : "text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] hover:text-[var(--on-surface)]"
             }`}
           >
-            <span className="text-[14px] w-5 text-center opacity-80">{item.icon}</span>
+            <span className="text-[14px] w-5 text-center">{item.icon}</span>
             {t(item.label)}
           </button>
         ))}
       </nav>
 
       {/* User area */}
-      <div className="px-4 pb-4">
-        <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-white/8 cursor-pointer transition-colors">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-[11px] font-semibold">
+      <div className="px-4 pb-4 border-t border-[var(--border)] pt-3">
+        <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-[var(--surface-low)] cursor-pointer transition-colors">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-[11px] font-semibold text-white">
             U
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[12px] font-medium truncate">User</div>
-            <div className="text-[10px] text-white/40 truncate">Workspace</div>
+            <div className="text-[12px] font-medium text-[var(--on-surface)] truncate">User</div>
+            <div className="text-[10px] text-[var(--on-surface-tertiary)] truncate">Workspace</div>
           </div>
         </div>
       </div>
