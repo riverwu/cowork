@@ -10,7 +10,9 @@
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "tsc --noEmit && vitest run"
+    "check": "tsc --noEmit && vitest run",
+    "gen:skill": "npx tsx scripts/gen-catalog-entry.ts skill",
+    "gen:mcp": "npx tsx scripts/gen-catalog-entry.ts mcp"
   },
   "dependencies": {
     "@tanstack/react-router": "^1.120.0",
