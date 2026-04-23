@@ -204,4 +204,19 @@ export const CATALOG_MCPS: CatalogMcp[] = [
       enabled: true,
     },
   },
+  {
+    id: "tavily",
+    name: "Tavily",
+    version: "1.0.0",
+    description: "Advanced web search using Tavily AI search API",
+    definition: {
+      name: "Tavily",
+      version: "1.0.0",
+      description: "MCP server for advanced web search using Tavily. Requires TAVILY_API_KEY.",
+      command: "npx",
+      args: ["-y", "tavily-mcp"],
+      env: { TAVILY_API_KEY: "" },
+      enabled: true,
+    },
+  },
 ];
