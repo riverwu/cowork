@@ -30,7 +30,7 @@ beforeEach(() => {
 
 describe("McpClient", () => {
   it("initializes and discovers tools", async () => {
-    mockTransport.request.mockResolvedValueOnce({ protocolVersion: "2024-11-05" });
+    mockTransport.request.mockResolvedValueOnce({ protocolVersion: "2025-03-26" });
     mockTransport.request.mockResolvedValueOnce({
       tools: [
         { name: "read", description: "Read a file", inputSchema: { type: "object", properties: { path: { type: "string" } } } },
@@ -43,7 +43,7 @@ describe("McpClient", () => {
 
     expect(client.isConnected()).toBe(true);
     expect(client.getTools()).toHaveLength(2);
-    expect(mockTransport.request).toHaveBeenCalledWith("initialize", expect.objectContaining({ protocolVersion: "2024-11-05" }));
+    expect(mockTransport.request).toHaveBeenCalledWith("initialize", expect.objectContaining({ protocolVersion: "2025-03-26" }));
     expect(mockTransport.notify).toHaveBeenCalledWith("notifications/initialized");
   });
 

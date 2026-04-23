@@ -29,25 +29,37 @@ export class McpClient {
   async connect(): Promise<void> {
     await this.transport.connect();
 
-    // MCP initialize handshake
-    await this.transport.request("initialize", {
-      protocolVersion: "2024-11-05",
-      capabilities: {},
+    // Step 1: MCP initialize handshake (must be first message)
+    const initResult = await this.transport.request("initialize", {
+      protocolVersion: "2025-03-26",
+      capabilities: {
+        roots: { listChanged: true },
+      },
       clientInfo: { name: "cowork", version: "0.1.0" },
-    });
+    }) as {
+      protocolVersion?: string;
+      capabilities?: { tools?: { listChanged?: boolean } };
+      serverInfo?: { name?: string; version?: string };
+    };
 
-    // Send initialized notification
+    console.log(`[MCP:${this.serverId}] Server: ${initResult.serverInfo?.name || "unknown"} v${initResult.serverInfo?.version || "?"}, protocol: ${initResult.protocolVersion || "?"}`);
+
+    // Step 2: Send initialized notification (signals handshake complete)
     await this.transport.notify("notifications/initialized");
 
-    // Discover tools
-    const result = await this.transport.request("tools/list") as { tools: McpToolInfo[] };
-    this.tools = (result.tools || []).map((t) => ({
-      ...t,
-      serverId: this.serverId,
-    }));
+    // Step 3: Discover tools (only if server has tools capability)
+    try {
+      const result = await this.transport.request("tools/list") as { tools: McpToolInfo[] };
+      this.tools = (result.tools || []).map((t) => ({
+        ...t,
+        serverId: this.serverId,
+      }));
+    } catch {
+      // Server may not support tools — that's OK
+      this.tools = [];
+    }
 
-    console.log(`[MCP:${this.serverId}] Discovered ${this.tools.length} tools:`, this.tools.map(t => t.name));
-
+    console.log(`[MCP:${this.serverId}] Discovered ${this.tools.length} tools`);
     this.initialized = true;
   }
 

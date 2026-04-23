@@ -71,11 +71,12 @@ export function AppsPage() {
         id: `mcp_${server.id}`,
         name: server.name,
         kind: "mcp",
-        description: server.connected ? `${server.toolCount} ${t("tools.providedTools")}` : "",
+        description: server.description || (server.connected ? `${server.toolCount} ${t("tools.providedTools")}` : ""),
         status: server.status as ToolItem["status"],
         error: server.error,
         toolCount: server.toolCount,
-        builtin: server.builtin,
+        builtin: false,
+        dirPath: server.dirPath,
       });
     }
 
@@ -160,6 +161,14 @@ function ToolCard({ tool, onClick }: { tool: ToolItem; onClick: () => void }) {
   };
   const iconBg = statusColors[tool.status] || statusColors.active;
 
+  // Status label for MCP
+  const statusLabel = isSkill ? null
+    : tool.status === "connected" ? `${tool.toolCount || 0} tools`
+    : tool.status === "connecting" ? t("connections.connecting")
+    : tool.status === "error" ? t("connections.error")
+    : tool.status === "disabled" ? t("connections.disabled")
+    : null;
+
   return (
     <button
       onClick={onClick}
@@ -176,13 +185,25 @@ function ToolCard({ tool, onClick }: { tool: ToolItem; onClick: () => void }) {
           <span className={`text-[10px] px-1.5 py-[1px] rounded-full font-medium ${isSkill ? "bg-purple-50 text-purple-600" : "bg-blue-50 text-blue-600"}`}>
             {isSkill ? t("tools.type.skill") : t("tools.type.mcp")}
           </span>
-          {tool.builtin && <span className="text-[10px] px-1.5 py-[1px] rounded-full bg-gray-100 text-gray-500">{t("connections.builtin")}</span>}
         </div>
         <div className="text-[11px] text-[var(--on-surface-tertiary)] truncate">
-          {tool.description || (tool.status === "error" ? t("connections.error") : tool.status === "connecting" ? t("connections.connecting") : t("connections.disabled"))}
+          {tool.description}
         </div>
       </div>
-      {tool.status === "error" && <IconWarning size={14} className="text-[var(--error)] shrink-0" />}
+      {/* Right side: status for MCP, error icon for errors */}
+      <div className="flex items-center gap-2 shrink-0">
+        {statusLabel && (
+          <span className={`text-[11px] px-2 py-0.5 rounded-full ${
+            tool.status === "connected" ? "bg-emerald-50 text-emerald-600"
+            : tool.status === "connecting" ? "bg-amber-50 text-amber-600"
+            : tool.status === "error" ? "bg-red-50 text-red-500"
+            : "bg-gray-100 text-gray-500"
+          }`}>
+            {statusLabel}
+          </span>
+        )}
+        {tool.status === "error" && <IconWarning size={14} className="text-[var(--error)]" />}
+      </div>
     </button>
   );
 }

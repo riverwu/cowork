@@ -115,12 +115,35 @@ pub async fn mcp_send(server_id: String, message: String) -> Result<(), String> 
     Ok(())
 }
 
-/// Stop an MCP server process.
+/// Stop an MCP server process following the MCP spec shutdown sequence:
+/// 1. Close stdin (signals server to shut down gracefully)
+/// 2. Wait briefly for process to exit
+/// 3. Send SIGTERM if still running
+/// 4. Send SIGKILL as last resort
 #[tauri::command]
 pub async fn mcp_stop(server_id: String) -> Result<(), String> {
     let mut processes = MCP_PROCESSES.lock().await;
     if let Some(mut process) = processes.remove(&server_id) {
-        let _ = process._child.kill().await;
+        // 1. Close stdin — MCP spec: "client closes stdin to child process"
+        drop(process.stdin);
+
+        // 2. Wait up to 2 seconds for graceful exit
+        let wait_result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            process._child.wait(),
+        )
+        .await;
+
+        if wait_result.is_err() {
+            // 3. Process didn't exit — try kill
+            let _ = process._child.kill().await;
+            // Wait briefly for kill to take effect
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                process._child.wait(),
+            )
+            .await;
+        }
     }
     Ok(())
 }
