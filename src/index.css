@@ -1,27 +1,78 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  --color-bg: #0f1117;
-  --color-bg-secondary: #1a1d27;
-  --color-bg-tertiary: #242731;
-  --color-border: #2e3140;
-  --color-text: #e4e4e7;
-  --color-text-secondary: #a1a1aa;
-  --color-text-tertiary: #71717a;
-  --color-accent: #6366f1;
-  --color-accent-hover: #818cf8;
+  /* Surface layers */
+  --surface: #f8f9ff;
+  --surface-dim: #cbdbf5;
+  --surface-bright: #f8f9ff;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #eff4ff;
+  --surface-container: #e5eeff;
+  --surface-container-high: #dce9ff;
+  --surface-container-highest: #d3e4fe;
+
+  /* Text */
+  --on-surface: #0b1c30;
+  --on-surface-variant: #434750;
+  --outline: #737781;
+  --outline-variant: #c3c6d2;
+
+  /* Primary */
+  --primary: #00346d;
+  --on-primary: #ffffff;
+  --primary-container: #1a4b8c;
+  --on-primary-container: #99bdff;
+  --primary-fixed-dim: #aac7ff;
+
+  /* Secondary (teal / AI accent) */
+  --secondary: #006a61;
+  --on-secondary: #ffffff;
+  --secondary-container: #86f2e4;
+
+  /* Tertiary */
+  --tertiary: #313539;
+  --on-tertiary: #ffffff;
+
+  /* Error */
+  --error: #ba1a1a;
+  --error-container: #ffdad6;
+
+  /* Inverse */
+  --inverse-surface: #213145;
+  --inverse-on-surface: #eaf1ff;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  background-color: var(--color-bg);
-  color: var(--color-text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  background-color: var(--surface);
+  color: var(--on-surface);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Prevent text selection on drag areas */
 [data-tauri-drag-region] {
   -webkit-user-select: none;
   user-select: none;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--outline-variant);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--outline);
 }

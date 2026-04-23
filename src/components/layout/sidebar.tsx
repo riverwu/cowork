@@ -7,34 +7,53 @@ interface SidebarProps {
 
 const navItems: { id: Page; label: string; icon: string }[] = [
   { id: "home", label: "Home", icon: "🏠" },
-  { id: "knowledge", label: "Knowledge", icon: "🧠" },
+  { id: "knowledge", label: "Knowledge", icon: "📚" },
   { id: "channels", label: "Channels", icon: "🔗" },
-  { id: "explore", label: "Explore", icon: "🔍" },
   { id: "activity", label: "Activity", icon: "📊" },
   { id: "settings", label: "Settings", icon: "⚙️" },
 ];
 
 export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   return (
-    <aside className="w-52 flex flex-col border-r border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
+    <aside className="w-[220px] flex flex-col bg-[var(--primary)] text-white shrink-0">
+      {/* Logo */}
       <div
-        className="h-12 flex items-center px-4 font-semibold text-lg tracking-tight border-b border-[var(--color-border)]"
+        className="h-14 flex items-center gap-2.5 px-5"
         data-tauri-drag-region
       >
-        Cowork
+        <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center text-sm font-bold">
+          C
+        </div>
+        <div>
+          <div className="text-sm font-semibold leading-tight">Cowork</div>
+          <div className="text-[10px] opacity-60 leading-tight">AI Workspace</div>
+        </div>
       </div>
-      <nav className="flex-1 py-2">
+
+      {/* New workspace button */}
+      <div className="px-3 mb-2">
+        <button
+          onClick={() => onNavigate("home")}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-sm cursor-pointer transition-colors"
+        >
+          <span className="text-xs">＋</span>
+          New Session
+        </button>
+      </div>
+
+      {/* Nav items */}
+      <nav className="flex-1 px-3 py-1 space-y-0.5">
         {navItems.map((item) => (
           <button
             key={item.id}
             onClick={() => onNavigate(item.id)}
-            className={`w-full flex items-center gap-3 px-4 py-2 text-sm transition-colors cursor-pointer ${
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
               currentPage === item.id
-                ? "bg-[var(--color-bg-tertiary)] text-[var(--color-text)]"
-                : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text)]"
+                ? "bg-white/20 text-white"
+                : "text-white/70 hover:bg-white/10 hover:text-white"
             }`}
           >
-            <span className="text-base">{item.icon}</span>
+            <span className="text-base w-5 text-center">{item.icon}</span>
             {item.label}
           </button>
         ))}

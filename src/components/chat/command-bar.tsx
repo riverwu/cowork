@@ -24,7 +24,6 @@ export function CommandBar() {
     }
   }
 
-  // Auto-resize textarea
   useEffect(() => {
     const el = inputRef.current;
     if (el) {
@@ -43,12 +42,12 @@ export function CommandBar() {
         placeholder={isStreaming ? "Thinking..." : "Tell me what you want to do..."}
         disabled={isStreaming}
         rows={1}
-        className="w-full px-4 py-3 pr-12 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-accent)] text-sm resize-none disabled:opacity-50"
+        className="w-full px-4 py-3 pr-12 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-xl text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:outline-none focus:border-[var(--primary-container)] focus:ring-2 focus:ring-[var(--primary-fixed-dim)]/20 text-sm resize-none disabled:opacity-50 shadow-sm"
       />
       <button
         onClick={handleSubmit}
         disabled={!input.trim() || isStreaming}
-        className="absolute right-2 bottom-2 p-1.5 rounded text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)] disabled:opacity-30 cursor-pointer transition-colors"
+        className="absolute right-2.5 bottom-2.5 p-1.5 rounded-lg text-[var(--outline)] hover:text-[var(--primary)] hover:bg-[var(--surface-container)] disabled:opacity-30 cursor-pointer transition-colors"
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M2 14L14 8L2 2V6.5L10 8L2 9.5V14Z" fill="currentColor" />

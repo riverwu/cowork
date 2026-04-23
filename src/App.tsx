@@ -25,10 +25,10 @@ function App() {
 
   if (dbError) {
     return (
-      <div className="flex items-center justify-center h-screen text-red-400 p-8 text-center">
+      <div className="flex items-center justify-center h-screen p-8 text-center">
         <div>
-          <p className="text-lg font-semibold mb-2">Failed to initialize database</p>
-          <p className="text-sm text-[var(--color-text-tertiary)]">{dbError}</p>
+          <p className="text-lg font-semibold mb-2 text-[var(--error)]">Failed to initialize database</p>
+          <p className="text-sm text-[var(--outline)]">{dbError}</p>
         </div>
       </div>
     );
@@ -36,14 +36,14 @@ function App() {
 
   if (!dbReady) {
     return (
-      <div className="flex items-center justify-center h-screen text-[var(--color-text-tertiary)]">
+      <div className="flex items-center justify-center h-screen text-[var(--outline)]">
         Starting...
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-[var(--color-bg)]">
+    <div className="flex h-screen bg-[var(--surface)]">
       <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
       <main className="flex-1 overflow-hidden">
         {currentPage === "home" && <Home />}
@@ -59,7 +59,7 @@ function App() {
 
 function PlaceholderPage({ title }: { title: string }) {
   return (
-    <div className="flex items-center justify-center h-full text-[var(--color-text-tertiary)]">
+    <div className="flex items-center justify-center h-full text-[var(--outline)]">
       {title} — coming soon
     </div>
   );

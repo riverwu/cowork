@@ -1,11 +1,8 @@
-/** Render tabular data (CSV, TSV, or Markdown table) as an HTML table. */
 export function DataTableView({ content }: { content: string }) {
   const rows = parseTable(content);
 
   if (rows.length === 0) {
-    return (
-      <div className="p-3 text-sm text-[var(--color-text-tertiary)]">No data to display.</div>
-    );
+    return <div className="p-4 text-sm text-[var(--outline)]">No data to display.</div>;
   }
 
   const headers = rows[0];
@@ -15,12 +12,9 @@ export function DataTableView({ content }: { content: string }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-[var(--color-border)]">
+          <tr className="border-b border-[var(--outline-variant)]">
             {headers.map((h, i) => (
-              <th
-                key={i}
-                className="px-3 py-2 text-left text-xs font-medium text-[var(--color-text-tertiary)] uppercase tracking-wider"
-              >
+              <th key={i} className="px-4 py-2.5 text-left text-xs font-medium text-[var(--outline)] uppercase tracking-wider">
                 {h}
               </th>
             ))}
@@ -28,14 +22,9 @@ export function DataTableView({ content }: { content: string }) {
         </thead>
         <tbody>
           {dataRows.map((row, i) => (
-            <tr
-              key={i}
-              className="border-b border-[var(--color-border)] hover:bg-[var(--color-bg-tertiary)] transition-colors"
-            >
+            <tr key={i} className="border-b border-[var(--outline-variant)]/50 hover:bg-[var(--surface-container-low)] transition-colors">
               {row.map((cell, j) => (
-                <td key={j} className="px-3 py-2 text-[var(--color-text-secondary)]">
-                  {cell}
-                </td>
+                <td key={j} className="px-4 py-2.5 text-[var(--on-surface-variant)]">{cell}</td>
               ))}
             </tr>
           ))}
@@ -48,27 +37,14 @@ export function DataTableView({ content }: { content: string }) {
 function parseTable(content: string): string[][] {
   const lines = content.trim().split("\n").filter((l) => l.trim());
   if (lines.length === 0) return [];
-
-  // Detect format
   const firstLine = lines[0];
-
-  // Markdown table (| col1 | col2 |)
   if (firstLine.includes("|")) {
     return lines
-      .filter((l) => !l.match(/^\s*\|?\s*[-:]+\s*\|/)) // Skip separator rows
-      .map((l) =>
-        l
-          .split("|")
-          .map((c) => c.trim())
-          .filter((c) => c.length > 0),
-      );
+      .filter((l) => !l.match(/^\s*\|?\s*[-:]+\s*\|/))
+      .map((l) => l.split("|").map((c) => c.trim()).filter((c) => c.length > 0));
   }
-
-  // TSV
   if (firstLine.includes("\t")) {
     return lines.map((l) => l.split("\t").map((c) => c.trim()));
   }
-
-  // CSV
   return lines.map((l) => l.split(",").map((c) => c.trim()));
 }

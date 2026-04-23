@@ -80,8 +80,8 @@ export function SettingsPage() {
                 onClick={() => updateField("llmProvider", p)}
                 className={`px-4 py-2 rounded text-sm cursor-pointer transition-colors ${
                   settings.llmProvider === p
-                    ? "bg-[var(--color-accent)] text-white"
-                    : "bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+                    ? "bg-[var(--primary-container)] text-white"
+                    : "bg-[var(--surface-container)] text-[var(--on-surface-variant)] hover:bg-[var(--surface-container-high)]"
                 }`}
               >
                 {p === "anthropic" ? "Anthropic (Claude)" : "OpenAI"}
@@ -101,7 +101,7 @@ export function SettingsPage() {
               updateField(key, e.target.value);
             }}
             placeholder={`Enter your ${settings.llmProvider === "anthropic" ? "Anthropic" : "OpenAI"} API key`}
-            className="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-accent)]"
+            className="w-full px-3 py-2 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-lg text-sm text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:outline-none focus:border-[var(--primary-container)] focus:ring-2 focus:ring-[var(--primary-fixed-dim)]/20"
           />
         </section>
 
@@ -109,7 +109,7 @@ export function SettingsPage() {
         <section className="mb-6">
           <label className="block text-sm font-medium mb-2">
             API Base URL
-            <span className="text-[var(--color-text-tertiary)] font-normal ml-1">(optional)</span>
+            <span className="text-[var(--outline)] font-normal ml-1">(optional)</span>
           </label>
           <input
             type="text"
@@ -123,9 +123,9 @@ export function SettingsPage() {
                 ? "https://api.anthropic.com (default)"
                 : "https://api.openai.com/v1 (default)"
             }
-            className="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-accent)]"
+            className="w-full px-3 py-2 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-lg text-sm text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:outline-none focus:border-[var(--primary-container)] focus:ring-2 focus:ring-[var(--primary-fixed-dim)]/20"
           />
-          <p className="text-xs text-[var(--color-text-tertiary)] mt-1">
+          <p className="text-xs text-[var(--outline)] mt-1">
             Custom endpoint for proxies or compatible services (e.g. Ollama, vLLM, Azure OpenAI).
           </p>
         </section>
@@ -138,7 +138,7 @@ export function SettingsPage() {
               <select
                 value={settings.modelId || models[0].id}
                 onChange={(e) => updateField("modelId", e.target.value)}
-                className="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded text-sm text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)]"
+                className="w-full px-3 py-2 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-lg text-sm text-[var(--on-surface)] focus:outline-none focus:border-[var(--primary-container)] focus:ring-2 focus:ring-[var(--primary-fixed-dim)]/20"
               >
                 {models.map((m) => (
                   <option key={m.id} value={m.id}>
@@ -148,7 +148,7 @@ export function SettingsPage() {
               </select>
               <button
                 onClick={() => setCustomModel(true)}
-                className="text-xs text-[var(--color-accent)] mt-1 cursor-pointer hover:underline"
+                className="text-xs text-[var(--primary-container)] mt-1 cursor-pointer hover:underline"
               >
                 Use custom model ID
               </button>
@@ -160,14 +160,14 @@ export function SettingsPage() {
                 value={settings.modelId || ""}
                 onChange={(e) => updateField("modelId", e.target.value)}
                 placeholder="Enter model ID (e.g. claude-sonnet-4-20250514)"
-                className="w-full px-3 py-2 bg-[var(--color-bg-secondary)] border border-[var(--color-border)] rounded text-sm text-[var(--color-text)] placeholder:text-[var(--color-text-tertiary)] focus:outline-none focus:border-[var(--color-accent)]"
+                className="w-full px-3 py-2 bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] rounded-lg text-sm text-[var(--on-surface)] placeholder:text-[var(--outline)] focus:outline-none focus:border-[var(--primary-container)] focus:ring-2 focus:ring-[var(--primary-fixed-dim)]/20"
               />
               <button
                 onClick={() => {
                   setCustomModel(false);
                   updateField("modelId", models[0].id);
                 }}
-                className="text-xs text-[var(--color-accent)] mt-1 cursor-pointer hover:underline"
+                className="text-xs text-[var(--primary-container)] mt-1 cursor-pointer hover:underline"
               >
                 Choose from presets
               </button>
@@ -179,7 +179,7 @@ export function SettingsPage() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-6 py-2 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded text-sm cursor-pointer transition-colors disabled:opacity-50"
+          className="px-6 py-2 bg-[var(--primary-container)] hover:bg-[var(--primary)] text-white rounded text-sm cursor-pointer transition-colors disabled:opacity-50"
         >
           {saving ? "Saving..." : saved ? "Saved" : "Save"}
         </button>

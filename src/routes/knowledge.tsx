@@ -18,7 +18,6 @@ export function KnowledgePage() {
   async function handleAddFolder() {
     const path = await pickFolder();
     if (!path) return;
-
     setAdding(true);
     try {
       const files = await scanDirectory(path);
@@ -40,21 +39,20 @@ export function KnowledgePage() {
           <button
             onClick={handleAddFolder}
             disabled={adding}
-            className="px-4 py-2 text-sm bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white rounded cursor-pointer transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm bg-[var(--primary-container)] hover:bg-[var(--primary)] text-white rounded-lg cursor-pointer transition-colors disabled:opacity-50"
           >
             {adding ? "Adding..." : "+ Add Folder"}
           </button>
         </div>
 
-        {/* Sources */}
         {sources.length === 0 ? (
-          <div className="text-center py-12 text-[var(--color-text-tertiary)]">
+          <div className="text-center py-12 text-[var(--outline)]">
             <p className="mb-2">No knowledge sources yet.</p>
-            <p className="text-sm">Add a work folder to get started.</p>
+            <p className="text-sm">Add a work folder to give AI context about your work.</p>
           </div>
         ) : (
           <section className="mb-8">
-            <h2 className="text-sm font-medium text-[var(--color-text-secondary)] mb-3">My Documents</h2>
+            <h2 className="text-sm font-medium text-[var(--on-surface-variant)] mb-3">My Documents</h2>
             <div className="space-y-2">
               {sources.map((source) => (
                 <SourceCard key={source.id} source={source} />
@@ -63,25 +61,20 @@ export function KnowledgePage() {
           </section>
         )}
 
-        {/* Cowork outputs */}
         {recentArtifacts.length > 0 && (
           <section>
-            <h2 className="text-sm font-medium text-[var(--color-text-secondary)] mb-3">
-              Cowork Outputs
-            </h2>
+            <h2 className="text-sm font-medium text-[var(--on-surface-variant)] mb-3">Cowork Outputs</h2>
             <div className="space-y-1">
               {recentArtifacts.map((artifact) => (
                 <div
                   key={artifact.id}
-                  className="flex items-center gap-3 px-3 py-2 rounded bg-[var(--color-bg-secondary)] text-sm"
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-[var(--surface-container-lowest)] border border-[var(--outline-variant)] text-sm"
                 >
-                  <span className="text-[var(--color-text-tertiary)]">
+                  <span className="text-[var(--outline)]">
                     {artifact.type === "report" ? "📊" : "📄"}
                   </span>
-                  <span className="flex-1 truncate">{artifact.title}</span>
-                  <span className="text-xs text-[var(--color-text-tertiary)]">
-                    {formatDate(artifact.createdAt)}
-                  </span>
+                  <span className="flex-1 truncate text-[var(--on-surface)]">{artifact.title}</span>
+                  <span className="text-xs text-[var(--outline)]">{formatDate(artifact.createdAt)}</span>
                 </div>
               ))}
             </div>
@@ -118,61 +111,59 @@ function SourceCard({ source }: { source: Source }) {
   }
 
   return (
-    <div className="border border-[var(--color-border)] rounded-lg overflow-hidden">
+    <div className="border border-[var(--outline-variant)] rounded-xl overflow-hidden bg-[var(--surface-container-lowest)]">
       <button
         onClick={handleExpand}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--color-bg-secondary)] cursor-pointer transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--surface-container-low)] cursor-pointer transition-colors"
       >
         <span>📁</span>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{source.name}</p>
-          <p className="text-xs text-[var(--color-text-tertiary)] truncate">{source.path}</p>
+          <p className="text-sm font-medium truncate text-[var(--on-surface)]">{source.name}</p>
+          <p className="text-xs text-[var(--outline)] truncate">{source.path}</p>
         </div>
-        <span className="text-xs text-[var(--color-text-tertiary)]">
+        <span className="text-xs text-[var(--outline)]">
           {docCount !== null ? `${docCount} files` : "..."}
         </span>
-        <span
-          className={`text-xs px-1.5 py-0.5 rounded ${
-            source.status === "active"
-              ? "bg-green-500/10 text-green-400"
-              : source.status === "indexing"
-                ? "bg-yellow-500/10 text-yellow-400"
-                : "bg-red-500/10 text-red-400"
-          }`}
-        >
+        <span className={`text-xs px-2 py-0.5 rounded-full ${
+          source.status === "active"
+            ? "bg-emerald-50 text-emerald-700"
+            : source.status === "indexing"
+              ? "bg-amber-50 text-amber-700"
+              : "bg-red-50 text-red-700"
+        }`}>
           {source.status}
         </span>
-        <span className="text-[var(--color-text-tertiary)] text-xs">{expanded ? "▲" : "▼"}</span>
+        <span className="text-[var(--outline)] text-xs">{expanded ? "▲" : "▼"}</span>
       </button>
 
       {expanded && (
-        <div className="border-t border-[var(--color-border)] max-h-80 overflow-y-auto">
+        <div className="border-t border-[var(--outline-variant)] max-h-80 overflow-y-auto">
           {documents.map((doc) => (
             <div
               key={doc.id}
-              className={`flex items-center gap-3 px-4 py-2 text-sm border-b border-[var(--color-border)] last:border-b-0 ${
+              className={`flex items-center gap-3 px-4 py-2 text-sm border-b border-[var(--outline-variant)]/50 last:border-b-0 ${
                 doc.status === "excluded" ? "opacity-40" : ""
               }`}
             >
-              <span className="text-[var(--color-text-tertiary)]">📄</span>
-              <span className="flex-1 truncate">{doc.filename}</span>
-              <span className="text-xs text-[var(--color-text-tertiary)]">
+              <span className="text-[var(--outline)]">📄</span>
+              <span className="flex-1 truncate text-[var(--on-surface-variant)]">{doc.filename}</span>
+              <span className="text-xs text-[var(--outline)]">
                 {doc.fileModifiedAt ? formatDate(doc.fileModifiedAt) : ""}
               </span>
               <button
                 onClick={() => handleToggleExclude(doc)}
-                className="text-xs px-2 py-0.5 rounded cursor-pointer transition-colors hover:bg-[var(--color-bg-tertiary)]"
+                className="text-xs px-2 py-0.5 rounded-lg cursor-pointer transition-colors hover:bg-[var(--surface-container)]"
               >
                 {doc.status === "excluded" ? (
-                  <span className="text-green-400">Include</span>
+                  <span className="text-emerald-600">Include</span>
                 ) : (
-                  <span className="text-[var(--color-text-tertiary)]">Exclude</span>
+                  <span className="text-[var(--outline)]">Exclude</span>
                 )}
               </button>
             </div>
           ))}
           {documents.length === 0 && (
-            <p className="px-4 py-3 text-sm text-[var(--color-text-tertiary)]">No documents.</p>
+            <p className="px-4 py-3 text-sm text-[var(--outline)]">No documents.</p>
           )}
         </div>
       )}
@@ -182,6 +173,5 @@ function SourceCard({ source }: { source: Source }) {
 
 function formatDate(timestamp: number): string {
   if (!timestamp) return "";
-  const date = new Date(timestamp * 1000);
-  return date.toLocaleDateString();
+  return new Date(timestamp * 1000).toLocaleDateString();
 }
