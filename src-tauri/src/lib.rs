@@ -8,6 +8,8 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            commands::fs::open_path,
+            commands::fs::reveal_in_folder,
             commands::fs::scan_directory,
             commands::fs::read_file_text,
             commands::fs::parse_document,

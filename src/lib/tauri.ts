@@ -3,6 +3,16 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { FileInfo } from "@/types";
 
+/** Open a file in system default application. */
+export async function openPath(path: string): Promise<void> {
+  return invoke<void>("open_path", { path });
+}
+
+/** Reveal a file in Finder/Explorer. */
+export async function revealInFolder(path: string): Promise<void> {
+  return invoke<void>("reveal_in_folder", { path });
+}
+
 /** Open a native folder picker dialog. Returns the selected path or null. */
 export async function pickFolder(): Promise<string | null> {
   const result = await open({ directory: true, multiple: false });

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { IconDocument, IconCheck } from "@/components/icons";
 import { isContextDivider } from "@/stores/session-store";
+import { MarkdownContent } from "./markdown-renderer";
 import { t } from "@/lib/i18n";
 import type { Message, Artifact } from "@/types";
 
@@ -124,8 +125,8 @@ function MessageBubble({ role, content, isStreaming }: {
 
   return (
     <div className="max-w-[90%]">
-      <div className="text-[13px] text-[var(--on-surface)] whitespace-pre-wrap leading-[1.7]">
-        {content}
+      <div className="text-[13px] text-[var(--on-surface)] leading-[1.7] markdown-body">
+        <MarkdownContent content={content} />
         {isStreaming && <span className="inline-block w-[3px] h-[14px] ml-0.5 bg-[var(--primary-accent)] animate-pulse rounded-sm" />}
       </div>
     </div>

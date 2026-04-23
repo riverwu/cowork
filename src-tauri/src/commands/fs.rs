@@ -181,6 +181,20 @@ fn parse_xlsx(path: &str) -> Result<String, String> {
     Ok(text)
 }
 
+/// Open a file or folder in the system's default application.
+#[tauri::command]
+pub fn open_path(path: &str) -> Result<(), String> {
+    opener::open(std::path::Path::new(path)).map_err(|e| format!("Failed to open: {}", e))
+}
+
+/// Reveal a file in Finder/Explorer (open its parent folder).
+#[tauri::command]
+pub fn reveal_in_folder(path: &str) -> Result<(), String> {
+    let p = std::path::Path::new(path);
+    let folder = p.parent().unwrap_or(p);
+    opener::open(folder).map_err(|e| format!("Failed to reveal: {}", e))
+}
+
 /// Write content to a file. Creates parent directories if needed.
 #[tauri::command]
 pub fn write_file(path: &str, content: &str) -> Result<(), String> {
