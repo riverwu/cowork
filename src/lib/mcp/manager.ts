@@ -17,7 +17,7 @@
 
 import { McpClient } from "./client";
 import type { Skill } from "@/lib/ai/skills/types";
-import { readFileText, writeFile } from "@/lib/tauri";
+import { readFileText, writeFile, ensureUvInstalled } from "@/lib/tauri";
 import { getEnv } from "@/lib/tauri";
 
 interface McpServerEntry {
@@ -120,6 +120,19 @@ class McpManager {
   async initialize(): Promise<void> {
     await this.loadConfig();
     await this.ensureDefaults();
+
+    // Auto-install uv/uvx if any server needs it
+    const needsUv = Object.values(this.config.mcpServers).some(
+      (s) => s.enabled !== false && s.command === "uvx",
+    );
+    if (needsUv) {
+      try {
+        await ensureUvInstalled();
+      } catch (err) {
+        console.warn("Failed to ensure uv installed:", err);
+      }
+    }
+
     await this.connectAll();
   }
 

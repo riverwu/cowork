@@ -39,6 +39,9 @@ pub async fn mcp_spawn(app: AppHandle, config: McpServerConfig) -> Result<McpSpa
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::null());
 
+    // Expand PATH for GUI apps (macOS doesn't inherit shell PATH)
+    cmd.env("PATH", expanded_path());
+
     if let Some(env) = &config.env {
         for (k, v) in env {
             cmd.env(k, v);
@@ -127,4 +130,54 @@ pub async fn mcp_stop(server_id: String) -> Result<(), String> {
 pub async fn mcp_list() -> Result<Vec<String>, String> {
     let processes = MCP_PROCESSES.lock().await;
     Ok(processes.keys().cloned().collect())
+}
+
+/// Ensure uv/uvx is installed. Auto-installs if missing.
+#[tauri::command]
+pub async fn ensure_uv_installed() -> Result<String, String> {
+    // Check if uvx is already available
+    let check = Command::new("sh")
+        .args(["-c", &format!("PATH='{}' command -v uvx", expanded_path())])
+        .output()
+        .await;
+
+    if let Ok(output) = check {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            return Ok(format!("uvx found at: {}", path));
+        }
+    }
+
+    // Install uv via official installer
+    let install = Command::new("sh")
+        .args(["-c", "curl -LsSf https://astral.sh/uv/install.sh | sh"])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run installer: {}", e))?;
+
+    if !install.status.success() {
+        let stderr = String::from_utf8_lossy(&install.stderr);
+        return Err(format!("uv installation failed: {}", stderr));
+    }
+
+    Ok("uv installed successfully.".to_string())
+}
+
+/// Build expanded PATH that includes common tool locations.
+/// macOS GUI apps don't inherit the shell's PATH.
+pub fn expanded_path_str() -> String {
+    expanded_path()
+}
+
+fn expanded_path() -> String {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let extra_paths = [
+        format!("{}/.cargo/bin", home),
+        format!("{}/.local/bin", home),
+        format!("{}/.local/share/uv/bin", home),  // uv's default install location
+        "/usr/local/bin".to_string(),
+        "/opt/homebrew/bin".to_string(),
+    ];
+    let current = std::env::var("PATH").unwrap_or_default();
+    format!("{}:{}", extra_paths.join(":"), current)
 }

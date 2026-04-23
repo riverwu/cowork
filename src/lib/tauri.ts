@@ -66,6 +66,11 @@ export async function installPythonPackage(pkg: string): Promise<string> {
   return invoke<string>("install_python_package", { package: pkg });
 }
 
+/** Ensure uv/uvx is installed. Auto-installs if missing. */
+export async function ensureUvInstalled(): Promise<string> {
+  return invoke<string>("ensure_uv_installed");
+}
+
 /** Read an environment variable from the system. */
 export async function getEnv(key: string): Promise<string | null> {
   return invoke<string | null>("get_env", { key });

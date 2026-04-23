@@ -335,15 +335,27 @@ pub async fn install_python_package(package: String) -> Result<String, String> {
 }
 
 async fn which_uv() -> Result<String, String> {
-    if let Ok(out) = tokio::process::Command::new("which").arg("uv").output().await {
+    let home = dirs_next::home_dir().ok_or("Cannot find home dir")?;
+    let candidates = [
+        home.join(".cargo/bin/uv"),
+        home.join(".local/bin/uv"),
+        home.join(".local/share/uv/bin/uv"),
+        std::path::PathBuf::from("/usr/local/bin/uv"),
+        std::path::PathBuf::from("/opt/homebrew/bin/uv"),
+    ];
+    for p in &candidates {
+        if p.exists() { return Ok(p.to_string_lossy().to_string()); }
+    }
+    // Try PATH lookup with expanded PATH
+    let expanded = super::mcp::expanded_path_str();
+    if let Ok(out) = tokio::process::Command::new("sh")
+        .args(["-c", &format!("PATH='{}' command -v uv", expanded)])
+        .output().await
+    {
         if out.status.success() {
             let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if !p.is_empty() { return Ok(p); }
         }
-    }
-    let home = dirs_next::home_dir().ok_or("Cannot find home dir")?;
-    for p in [home.join(".cargo/bin/uv"), home.join(".local/bin/uv"), std::path::PathBuf::from("/usr/local/bin/uv")] {
-        if p.exists() { return Ok(p.to_string_lossy().to_string()); }
     }
     Err("uv not found. Install: https://docs.astral.sh/uv/getting-started/installation/".to_string())
 }

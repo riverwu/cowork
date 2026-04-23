@@ -24,6 +24,7 @@ pub fn run() {
             commands::mcp::mcp_send,
             commands::mcp::mcp_stop,
             commands::mcp::mcp_list,
+            commands::mcp::ensure_uv_installed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
