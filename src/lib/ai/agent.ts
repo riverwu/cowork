@@ -1,6 +1,7 @@
 import { getConfiguredProvider } from "./providers";
 import type { LLMMessage, StreamEvent } from "./providers/types";
 import { getSkills } from "./skills/registry";
+import { loadSkillTools } from "./skill-runner";
 import { buildSystemPrompt } from "./system-prompt";
 import { retrieveRelevant, buildKnowledgeContext } from "@/lib/knowledge";
 import { retrieveMemoryContext, buildMemoryPrompt, extractMemories } from "@/lib/memory";
@@ -32,10 +33,12 @@ export interface AgentParams {
 export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent> {
   const provider = await getConfiguredProvider();
 
-  // Merge built-in skills + MCP tools
+  // Merge built-in skills + user skills + MCP tools
   const builtinSkills = getSkills();
+  let userSkills: Record<string, import("./skills/types").Skill> = {};
+  try { userSkills = await loadSkillTools(); } catch { /* ignore */ }
   const mcpSkills = mcpManager.getAllSkills();
-  const skills = { ...builtinSkills, ...mcpSkills };
+  const skills = { ...builtinSkills, ...userSkills, ...mcpSkills };
   const toolDefs = Object.values(skills).map((s) => s.definition);
 
   console.log(`[Agent] Tools: ${toolDefs.length} total (${Object.keys(builtinSkills).length} built-in + ${Object.keys(mcpSkills).length} MCP)`);

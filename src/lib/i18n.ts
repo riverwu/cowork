@@ -52,6 +52,15 @@ const zh: Record<string, string> = {
   "apps.save": "保存",
   "apps.cancel": "取消",
 
+  // Skills
+  "skills.title": "技能",
+  "skills.add": "添加技能",
+  "skills.noSkills": "还没有技能。技能是可复用的工具能力，如 AI 作图、深度研究等。",
+  "skills.purpose": "用途",
+  "skills.purposePlaceholder": "描述这个技能的用途...",
+  "skills.instructions": "指令",
+  "skills.instructionsPlaceholder": "每行一条指令，定义技能的行为规则...",
+
   // Connections (MCP)
   "connections.title": "已连接的服务",
   "connections.add": "添加连接",
@@ -157,6 +166,14 @@ const en: Record<string, string> = {
   "apps.schedule": "Schedule",
   "apps.save": "Save",
   "apps.cancel": "Cancel",
+
+  "skills.title": "Skills",
+  "skills.add": "Add Skill",
+  "skills.noSkills": "No skills yet. Skills are reusable tool capabilities like AI image generation, deep research, etc.",
+  "skills.purpose": "Purpose",
+  "skills.purposePlaceholder": "Describe what this skill does...",
+  "skills.instructions": "Instructions",
+  "skills.instructionsPlaceholder": "One instruction per line, defining the skill's behavior...",
 
   "connections.title": "Connected Services",
   "connections.add": "Add Connection",

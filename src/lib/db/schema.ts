@@ -77,8 +77,10 @@ export const MIGRATIONS = [
   `CREATE TABLE IF NOT EXISTS apps (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'app' CHECK(type IN ('app', 'skill')),
     version INTEGER NOT NULL DEFAULT 1,
     definition TEXT NOT NULL,
+    config TEXT NOT NULL DEFAULT '{}',
     status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'archived')),
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL

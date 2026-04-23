@@ -8,8 +8,9 @@ import type {
   MessageRole,
   Artifact,
   ArtifactType,
-  App,
-  AppDefinition,
+  SkillRecord,
+  SkillDefinition,
+  SkillType,
   Run,
   RunStatus,
   RunStep,
@@ -351,45 +352,64 @@ export async function listRecentArtifacts(limit = 20): Promise<Artifact[]> {
   }));
 }
 
-// ---- Apps ----
+// ---- Skills (unified: apps + tool-skills) ----
 
-export async function createApp(params: {
+export async function createSkill(params: {
   name: string;
-  definition: AppDefinition;
-}): Promise<App> {
+  type: SkillType;
+  definition: SkillDefinition;
+  config?: Record<string, string>;
+}): Promise<SkillRecord> {
   const db = await getDb();
   const id = newId();
   const createdAt = now();
   await db.execute(
-    "INSERT INTO apps (id, name, definition, created_at, updated_at) VALUES ($1, $2, $3, $4, $5)",
-    [id, params.name, JSON.stringify(params.definition), createdAt, createdAt],
+    "INSERT INTO apps (id, name, type, definition, config, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    [id, params.name, params.type, JSON.stringify(params.definition), JSON.stringify(params.config || {}), createdAt, createdAt],
   );
   return {
-    id,
-    name: params.name,
-    version: 1,
-    definition: params.definition,
-    status: "active",
-    createdAt,
-    updatedAt: createdAt,
+    id, name: params.name, type: params.type, version: 1,
+    definition: params.definition, config: params.config || {},
+    status: "active", createdAt, updatedAt: createdAt,
   };
 }
 
-export async function listApps(): Promise<App[]> {
+export async function listSkills(type?: SkillType): Promise<SkillRecord[]> {
   const db = await getDb();
+  const query = type
+    ? "SELECT * FROM apps WHERE status = 'active' AND type = $1 ORDER BY updated_at DESC"
+    : "SELECT * FROM apps WHERE status = 'active' ORDER BY updated_at DESC";
+  const params = type ? [type] : [];
   const rows = await db.select<Array<{
-    id: string; name: string; version: number; definition: string;
-    status: string; created_at: number; updated_at: number;
-  }>>("SELECT * FROM apps WHERE status = 'active' ORDER BY updated_at DESC");
+    id: string; name: string; type: string; version: number; definition: string;
+    config: string; status: string; created_at: number; updated_at: number;
+  }>>(query, params);
   return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    version: r.version,
-    definition: JSON.parse(r.definition),
-    status: r.status as App["status"],
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
+    id: r.id, name: r.name, type: r.type as SkillType, version: r.version,
+    definition: JSON.parse(r.definition), config: r.config ? JSON.parse(r.config) : {},
+    status: r.status as SkillRecord["status"],
+    createdAt: r.created_at, updatedAt: r.updated_at,
   }));
+}
+
+export async function updateSkillConfig(id: string, config: Record<string, string>): Promise<void> {
+  const db = await getDb();
+  await db.execute("UPDATE apps SET config = $1, updated_at = $2 WHERE id = $3", [JSON.stringify(config), now(), id]);
+}
+
+export async function deleteSkill(id: string): Promise<void> {
+  const db = await getDb();
+  await db.execute("UPDATE apps SET status = 'archived' WHERE id = $1", [id]);
+}
+
+/** @deprecated Use createSkill with type='app' */
+export async function createApp(params: { name: string; definition: SkillDefinition }): Promise<SkillRecord> {
+  return createSkill({ ...params, type: "app" });
+}
+
+/** @deprecated Use listSkills() */
+export async function listApps(): Promise<SkillRecord[]> {
+  return listSkills();
 }
 
 // ---- Runs ----

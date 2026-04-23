@@ -61,28 +61,42 @@ export interface Message {
   createdAt: number;
 }
 
-// ---- Apps ----
+// ---- Skills (unified: apps + tool-skills) ----
 
-export interface AppDefinition {
-  goal: string;
+export type SkillType = "app" | "skill";
+
+export interface SkillDefinition {
+  /** What this skill does. */
+  purpose: string;
+  /** Detailed instructions for the agent when executing this skill. */
+  instructions?: string[];
+  /** For apps: data sources, quality standards, output format, etc. */
   dataScope?: string;
   qualityStandards?: string[];
   outputRequirements?: string;
-  outputChannels?: string[];
-  triggers?: string[];
-  trustBoundaries?: string[];
+  /** Configurable parameters. */
   parameters?: Record<string, { description: string; default?: string }>;
+  /** Required config (e.g., API keys). Key → description. */
+  requiredConfig?: Record<string, string>;
 }
 
-export interface App {
+export interface SkillRecord {
   id: string;
   name: string;
+  type: SkillType;
   version: number;
-  definition: AppDefinition;
+  definition: SkillDefinition;
+  /** Stored config values (API keys, etc.). */
+  config: Record<string, string>;
   status: "active" | "archived";
   createdAt: number;
   updatedAt: number;
 }
+
+/** @deprecated Use SkillDefinition instead */
+export type AppDefinition = SkillDefinition;
+/** @deprecated Use SkillRecord instead */
+export type App = SkillRecord;
 
 // ---- Runs ----
 
