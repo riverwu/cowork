@@ -1,24 +1,26 @@
 /**
- * Catalog — bundled skills and MCPs available for installation.
+ * Catalog — index of bundled skills and MCPs available for installation.
  *
- * Each item has version management:
+ * Design:
+ * - This file only contains the INDEX: id, name, version, description.
+ * - Full skill content (SKILL.md, scripts, etc.) lives in src/catalog/skills/{id}/
+ * - Full MCP definitions live here (they're small JSON configs).
+ * - On install: skill files are copied from catalog dir to ~/.cowork/skills/{id}/
+ * - For detail display: read from the catalog directory at runtime.
+ *
+ * Version management:
  * - Catalog version (bundled with app)
  * - Installed version (in ~/.cowork/)
  * - If catalog > installed → show update prompt
  */
 
 import type { McpDefinition } from "./mcp/loader";
-import { ANTHROPIC_SKILLS } from "./catalog-skills";
 
 export interface CatalogSkill {
   id: string;
   name: string;
   version: string;
   description: string;
-  /** Full SKILL.md content */
-  skillMd: string;
-  /** Optional scripts: filename → content */
-  scripts?: Record<string, string>;
 }
 
 export interface CatalogMcp {
@@ -29,7 +31,7 @@ export interface CatalogMcp {
   definition: McpDefinition;
 }
 
-// ---- Bundled Skills ----
+// ---- Bundled Skills (index only) ----
 
 export const CATALOG_SKILLS: CatalogSkill[] = [
   {
@@ -37,126 +39,61 @@ export const CATALOG_SKILLS: CatalogSkill[] = [
     name: "Deep Research",
     version: "1.0.0",
     description: "Conduct deep research on a topic using web search and synthesis",
-    skillMd: `---
-name: deep-research
-type: skill
-version: 1.0.0
-description: Conduct deep research on a topic using web search and synthesis
----
-## Instructions
-- Break the research question into sub-questions
-- Use web_search to find relevant sources for each sub-question
-- Use web_fetch to read the most promising results
-- Synthesize findings into a comprehensive analysis
-- Cite sources with URLs
-- Identify conflicting information and note uncertainty
-- Present findings in a structured format with sections
-`,
   },
   {
     id: "code-review",
     name: "Code Review",
     version: "1.0.0",
     description: "Review code changes for quality, bugs, security, and best practices",
-    skillMd: `---
-name: code-review
-type: skill
-version: 1.0.0
-description: Review code changes for quality, bugs, security, and best practices
----
-## Instructions
-- Use shell to run git diff or read changed files
-- Check for common bugs: null references, off-by-one, resource leaks
-- Check security: injection, XSS, hardcoded secrets, insecure crypto
-- Check code quality: naming, complexity, duplication
-- Check test coverage: are changes tested?
-- Suggest specific improvements with code examples
-- Prioritize feedback: critical > important > nice-to-have
-`,
   },
   {
     id: "summarizer",
     name: "Document Summarizer",
     version: "1.0.0",
     description: "Summarize documents, articles, or web pages into concise briefs",
-    skillMd: `---
-name: summarizer
-type: skill
-version: 1.0.0
-description: Summarize documents, articles, or web pages into concise briefs
----
-## Instructions
-- Read the full document using read_file or web_fetch
-- Identify the key points, arguments, and conclusions
-- Produce a summary that is 10-20% of the original length
-- Preserve the original structure (sections, hierarchy)
-- Highlight actionable items or key decisions
-- Note any data, statistics, or metrics mentioned
-- Use create_artifact for the formatted summary
-`,
   },
   {
     id: "translator",
     name: "Translator",
     version: "1.0.0",
     description: "Translate documents between languages while preserving formatting and context",
-    skillMd: `---
-name: translator
-type: skill
-version: 1.0.0
-description: Translate documents between languages while preserving formatting and context
-parameters:
-  target_language: Target language for translation
----
-## Instructions
-- Read the source document
-- Translate while preserving the original formatting (headers, lists, tables)
-- Maintain technical terms and proper nouns
-- Adapt idioms and cultural references appropriately
-- Preserve code blocks and URLs without translation
-- Write the translated version using write_file or create_artifact
-`,
   },
   {
     id: "data-analyzer",
     name: "Data Analyzer",
     version: "1.0.0",
     description: "Analyze data files (CSV, Excel, JSON) with statistical analysis and visualization",
-    skillMd: `---
-name: data-analyzer
-type: skill
-version: 1.0.0
-description: Analyze data files (CSV, Excel, JSON) with statistical analysis and visualization
----
-## Instructions
-- Read the data file using read_file or run_python with pandas
-- Perform exploratory data analysis: shape, types, missing values, distributions
-- Calculate relevant statistics: mean, median, std, correlations
-- Identify patterns, trends, and anomalies
-- Generate visualizations using matplotlib via run_python
-- Save charts to the working directory
-- Present findings with create_artifact
-`,
-    scripts: {
-      "analyze.py": `#!/usr/bin/env python3
-"""Quick data analysis template."""
-import pandas as pd
-import sys
-
-if len(sys.argv) < 2:
-    print("Usage: analyze.py <file>")
-    sys.exit(1)
-
-df = pd.read_csv(sys.argv[1])
-print(f"Shape: {df.shape}")
-print(f"\\nColumns: {list(df.columns)}")
-print(f"\\nTypes:\\n{df.dtypes}")
-print(f"\\nSummary:\\n{df.describe()}")
-print(f"\\nMissing:\\n{df.isnull().sum()}")
-`,
-    },
   },
-  ...ANTHROPIC_SKILLS,
+  {
+    id: "docx",
+    name: "Word Document (DOCX)",
+    version: "1.0.0",
+    description: "Create, read, edit, and manipulate Word documents (.docx files) with professional formatting",
+  },
+  {
+    id: "pdf",
+    name: "PDF Processing",
+    version: "1.0.0",
+    description: "Read, create, merge, split, and manipulate PDF files with Python tools",
+  },
+  {
+    id: "frontend-design",
+    name: "Frontend Design",
+    version: "1.0.0",
+    description: "Create distinctive, production-grade frontend interfaces with high design quality",
+  },
+  {
+    id: "pptx",
+    name: "PowerPoint (PPTX)",
+    version: "1.0.0",
+    description: "Create, read, edit, and manipulate PowerPoint presentations with professional design",
+  },
+  {
+    id: "xlsx",
+    name: "Excel Spreadsheet (XLSX)",
+    version: "1.0.0",
+    description: "Create, edit, and analyze Excel spreadsheets with formulas, formatting, and charts",
+  },
 ];
 
 // ---- Bundled MCPs ----

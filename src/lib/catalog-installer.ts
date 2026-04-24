@@ -1,6 +1,10 @@
 /**
  * Catalog Installer — handles installing/updating skills and MCPs
  * from the bundled catalog to the user's working directory.
+ *
+ * Skills are stored as files in src/catalog/skills/{id}/ and loaded
+ * at build time via Vite's import.meta.glob. On install, they're
+ * copied to ~/.cowork/skills/{id}/.
  */
 
 import { writeFile, readFileText } from "./tauri";
@@ -14,6 +18,43 @@ export interface InstallStatus {
   installedVersion: string | null;
   needsUpdate: boolean;
   installed: boolean;
+}
+
+/**
+ * Load all catalog skill files at build time.
+ * Vite resolves these imports statically — no runtime filesystem access needed.
+ *
+ * Returns a map: { "deep-research/SKILL.md": "content...", "data-analyzer/scripts/analyze.py": "content...", ... }
+ */
+const catalogFiles = import.meta.glob<string>("../catalog/skills/**/*", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+
+/** Get all files for a specific catalog skill. Returns { relativePath: content } */
+function getCatalogSkillFiles(id: string): Record<string, string> {
+  const prefix = `../catalog/skills/${id}/`;
+  const files: Record<string, string> = {};
+  for (const [path, content] of Object.entries(catalogFiles)) {
+    if (path.startsWith(prefix)) {
+      // Convert "../catalog/skills/pptx/editing.md" → "editing.md"
+      const relativePath = path.slice(prefix.length);
+      files[relativePath] = content;
+    }
+  }
+  return files;
+}
+
+/** Get the SKILL.md content for a catalog skill (for detail display). */
+export function getCatalogSkillMd(id: string): string | null {
+  const files = getCatalogSkillFiles(id);
+  return files["SKILL.md"] || null;
+}
+
+/** Get all file names in a catalog skill (for detail display). */
+export function getCatalogSkillFileList(id: string): string[] {
+  return Object.keys(getCatalogSkillFiles(id));
 }
 
 /** Check install status of all catalog skills. */
@@ -70,22 +111,22 @@ export async function getMcpInstallStatus(): Promise<InstallStatus[]> {
   return statuses;
 }
 
-/** Install a skill from the catalog. */
+/** Install a skill from the catalog — copies all files to ~/.cowork/skills/{id}/ */
 export async function installCatalogSkill(id: string): Promise<void> {
   const skill = CATALOG_SKILLS.find((s) => s.id === id);
   if (!skill) throw new Error(`Skill '${id}' not found in catalog`);
 
   const skillsDir = await getSkillsDir();
   const skillDir = `${skillsDir}/${id}`;
+  const files = getCatalogSkillFiles(id);
 
-  // Write SKILL.md
-  await writeFile(`${skillDir}/SKILL.md`, skill.skillMd);
+  if (Object.keys(files).length === 0) {
+    throw new Error(`No catalog files found for skill '${id}'`);
+  }
 
-  // Write scripts if any
-  if (skill.scripts) {
-    for (const [filename, content] of Object.entries(skill.scripts)) {
-      await writeFile(`${skillDir}/scripts/${filename}`, content);
-    }
+  // Write all files (SKILL.md, scripts, reference docs, etc.)
+  for (const [relativePath, content] of Object.entries(files)) {
+    await writeFile(`${skillDir}/${relativePath}`, content);
   }
 }
 
