@@ -181,7 +181,28 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         set({ isStreaming: false });
       }
     } catch (err) {
-      set({ isStreaming: false, error: String(err) });
+      // Save partial progress even on error — don't lose intermediate steps
+      const errorSteps = get().steps;
+      if (fullText || errorSteps.length > 0) {
+        const errorContent = fullText
+          ? `${fullText}\n\n[Error: ${err}]`
+          : `[Error: ${err}]`;
+        const errorMsg = await createMessage({
+          sessionId,
+          role: "assistant",
+          content: errorContent,
+          metadata: errorSteps.length > 0 ? { steps: errorSteps } : undefined,
+        });
+        set((s) => ({
+          messages: [...s.messages, errorMsg],
+          isStreaming: false,
+          streamingText: "",
+          steps: [],
+          error: String(err),
+        }));
+      } else {
+        set({ isStreaming: false, error: String(err) });
+      }
     }
 
     // Drain pending message queue — send the next queued message

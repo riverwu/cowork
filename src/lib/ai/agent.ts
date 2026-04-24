@@ -129,11 +129,11 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     })) {
       if (event.type === "text-delta") {
         yield { type: "text-delta", text: event.text };
-      } else if (event.type === "tool-call") {
-        yield { type: "skill-start", skill: event.name, input: event.input };
       } else if (event.type === "message-done") {
         doneEvent = event;
       }
+      // Note: skill-start is yielded right before execution, not here,
+      // so UI shows tools starting one at a time (not all at once).
     }
 
     if (!doneEvent || doneEvent.type !== "message-done") {
@@ -161,6 +161,10 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0 };
         continue;
       }
+
+      // Yield skill-start right before execution (not during LLM streaming)
+      // so tools appear one at a time in UI, not all at once.
+      yield { type: "skill-start", skill: toolCall.name, input: toolCall.input };
 
       const startTime = Date.now();
       try {
