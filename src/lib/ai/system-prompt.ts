@@ -132,7 +132,12 @@ export function buildSystemPrompt(params?: {
   ];
 
   if (params?.workingDirectory) {
-    sections.push(`## Working Directory\nYour current working directory is: \`${params.workingDirectory}\`\nAll file paths should be relative to or within this directory. Use this as the default cwd for shell commands.`);
+    sections.push(`## Working Directory
+Your current working directory is: \`${params.workingDirectory}\`
+
+- All file operations (read, write, shell) default to this directory.
+- When creating output files (reports, documents, code, etc.), save them directly in this directory unless the user specifies another path. **Never ask the user where to save files** — just use the working directory.
+- Use relative paths within this directory. For shell commands, use this as the default cwd.`);
   }
 
   if (params?.systemPaths) {
