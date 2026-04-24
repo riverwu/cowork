@@ -20,7 +20,7 @@
  */
 
 import { McpClient } from "./client";
-import type { Skill } from "@/lib/ai/skills/types";
+import type { Tool } from "@/lib/ai/tools/types";
 import { loadMcpsFromFilesystem, installMcpToFilesystem, getMcpsDir, type LoadedMcp, type McpDefinition } from "./loader";
 import { ensureUvInstalled } from "@/lib/tauri";
 import { getMcpEnvConfig } from "@/lib/db";
@@ -43,7 +43,7 @@ class McpManager {
   private onChangeCallbacks: Array<() => void> = [];
   private initPromise: Promise<void> | null = null;
   /** Cached tool definitions per server — survive process crashes. */
-  private cachedToolDefs = new Map<string, Skill[]>();
+  private cachedToolDefs = new Map<string, Tool[]>();
   /** Resolved env per server (cached so reconnect doesn't re-query DB). */
   private resolvedEnv = new Map<string, Record<string, string>>();
 
@@ -119,8 +119,8 @@ class McpManager {
    * using cached definitions if the process isn't running.
    * The skill's execute() handles reconnection transparently.
    */
-  getAllSkills(): Record<string, Skill> {
-    const allSkills: Record<string, Skill> = {};
+  getAllTools(): Record<string, Tool> {
+    const allTools: Record<string, Tool> = {};
 
     for (const mcp of this.loadedMcps) {
       const info = this.serverInfo.get(mcp.id);
@@ -129,22 +129,22 @@ class McpManager {
       const client = this.clients.get(mcp.id);
       if (client?.isConnected()) {
         // Live client — use real skills
-        Object.assign(allSkills, client.toSkills());
+        Object.assign(allTools, client.toTools());
       } else {
         // Process not running — wrap cached tool defs with auto-reconnect execute
         const cached = this.cachedToolDefs.get(mcp.id);
         if (cached) {
-          for (const skill of cached) {
-            allSkills[skill.definition.name] = {
-              definition: skill.definition,
+          for (const entry of cached) {
+            allTools[entry.definition.name] = {
+              definition: entry.definition,
               execute: async (input: Record<string, unknown>) => {
                 // Reconnect transparently, then call
                 await this.ensureConnected(mcp.id);
                 const freshClient = this.clients.get(mcp.id)!;
-                const freshSkills = freshClient.toSkills();
-                const freshSkill = freshSkills[skill.definition.name];
-                if (!freshSkill) throw new Error(`Tool '${skill.definition.name}' no longer available after reconnect`);
-                return freshSkill.execute(input);
+                const freshTools = freshClient.toTools();
+                const freshTool = freshTools[entry.definition.name];
+                if (!freshTool) throw new Error(`Tool '${entry.definition.name}' no longer available after reconnect`);
+                return freshTool.execute(input);
               },
             };
           }
@@ -152,7 +152,7 @@ class McpManager {
       }
     }
 
-    return allSkills;
+    return allTools;
   }
 
   /** Get server status for UI display. */
@@ -346,8 +346,8 @@ class McpManager {
       this.clients.set(mcp.id, client);
 
       // Cache tool definitions (survive process crashes)
-      const skills = Object.values(client.toSkills());
-      this.cachedToolDefs.set(mcp.id, skills);
+      const toolEntries = Object.values(client.toTools());
+      this.cachedToolDefs.set(mcp.id, toolEntries);
 
       this.serverInfo.set(mcp.id, {
         status: "available",

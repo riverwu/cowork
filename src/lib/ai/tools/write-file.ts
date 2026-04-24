@@ -1,7 +1,7 @@
-import type { Skill } from "./types";
+import type { Tool } from "./types";
 import { writeFile } from "@/lib/tauri";
 
-export const writeFileSkill: Skill = {
+export const writeFileSkill: Tool = {
   definition: {
     name: "write_file",
     description:

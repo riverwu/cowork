@@ -61,7 +61,7 @@ describe("McpClient", () => {
     const client = new McpClient({ id: "db", name: "Database", command: "x", args: [] });
     await client.connect();
 
-    const skills = client.toSkills();
+    const skills = client.toTools();
     expect(Object.keys(skills)).toEqual(["mcp_db_query"]);
     expect(skills["mcp_db_query"].definition.description).toContain("[Database]");
   });

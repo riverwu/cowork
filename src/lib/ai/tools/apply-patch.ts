@@ -1,4 +1,4 @@
-import type { Skill } from "./types";
+import type { Tool } from "./types";
 import { readFileText, writeFile } from "@/lib/tauri";
 
 /**
@@ -18,7 +18,7 @@ import { readFileText, writeFile } from "@/lib/tauri";
  * *** Delete File: path/to/remove.ts
  * *** End Patch
  */
-export const applyPatchSkill: Skill = {
+export const applyPatchSkill: Tool = {
   definition: {
     name: "apply_patch",
     description:

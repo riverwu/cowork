@@ -1,7 +1,7 @@
-import type { Skill, ProgressCallback } from "./types";
+import type { Tool, ProgressCallback } from "./types";
 import { runNodeScript, initNodeEnv, installNodePackage } from "@/lib/tauri";
 
-export const runNode: Skill = {
+export const runNode: Tool = {
   definition: {
     name: "run_node",
     description:

@@ -53,21 +53,21 @@ vi.mock("@/lib/db", () => ({
   touchMemory: vi.fn(),
 }));
 
-import { getSkills, getToolDefinitions } from "./skills/registry";
+import { getTools, getToolDefinitions } from "./tools/registry";
 import { buildSystemPrompt } from "./system-prompt";
 import { mcpManager } from "@/lib/mcp";
 
 describe("Agent Tool Chain Diagnostics", () => {
 
   describe("Step 1: Built-in skills", () => {
-    it("has exactly 13 built-in skills", () => {
-      const skills = getSkills();
+    it("has exactly 13 built-in tools", () => {
+      const skills = getTools();
       const names = Object.keys(skills);
       console.log("[Diagnostic] Built-in skills:", names);
       expect(names).toHaveLength(13);
     });
 
-    it("all built-in skills have valid tool definitions", () => {
+    it("all built-in tools have valid tool definitions", () => {
       const defs = getToolDefinitions();
       for (const def of defs) {
         expect(def.name, `Skill ${def.name} missing name`).toBeTruthy();
@@ -79,23 +79,23 @@ describe("Agent Tool Chain Diagnostics", () => {
   });
 
   describe("Step 2: MCP skill merging", () => {
-    it("getAllSkills returns empty when no MCP connected", () => {
-      const mcpSkills = mcpManager.getAllSkills();
-      console.log("[Diagnostic] MCP skills (no connection):", Object.keys(mcpSkills));
+    it("getAllTools returns empty when no MCP connected", () => {
+      const mcpTools = mcpManager.getAllTools();
+      console.log("[Diagnostic] MCP skills (no connection):", Object.keys(mcpTools));
       // Without real MCP connection, should be empty
-      expect(Object.keys(mcpSkills).length).toBeGreaterThanOrEqual(0);
+      expect(Object.keys(mcpTools).length).toBeGreaterThanOrEqual(0);
     });
 
     it("merged tool count = built-in + MCP", () => {
-      const builtinSkills = getSkills();
-      const mcpSkills = mcpManager.getAllSkills();
-      const merged = { ...builtinSkills, ...mcpSkills };
+      const builtinTools = getTools();
+      const mcpTools = mcpManager.getAllTools();
+      const merged = { ...builtinTools, ...mcpTools };
       const toolDefs = Object.values(merged).map((s) => s.definition);
 
-      console.log(`[Diagnostic] Merged: ${toolDefs.length} tools (${Object.keys(builtinSkills).length} built-in + ${Object.keys(mcpSkills).length} MCP)`);
+      console.log(`[Diagnostic] Merged: ${toolDefs.length} tools (${Object.keys(builtinTools).length} built-in + ${Object.keys(mcpTools).length} MCP)`);
       console.log("[Diagnostic] All tool names:", toolDefs.map(t => t.name));
 
-      expect(toolDefs.length).toBe(Object.keys(builtinSkills).length + Object.keys(mcpSkills).length);
+      expect(toolDefs.length).toBe(Object.keys(builtinTools).length + Object.keys(mcpTools).length);
     });
   });
 
@@ -169,15 +169,15 @@ describe("Agent Tool Chain Diagnostics", () => {
 
   describe("Step 5: Identify the gap", () => {
     it("DIAGNOSIS: when MCP has 0 tools, LLM only sees built-in tools", () => {
-      const builtinSkills = getSkills();
-      const mcpSkills = mcpManager.getAllSkills();
+      const builtinTools = getTools();
+      const mcpTools = mcpManager.getAllTools();
 
-      const hasWebTool = Object.keys({ ...builtinSkills, ...mcpSkills }).some(
+      const hasWebTool = Object.keys({ ...builtinTools, ...mcpTools }).some(
         (name) => name.includes("web") || name.includes("browse") || name.includes("search") || name.includes("fetch"),
       );
 
       console.log(`[Diagnostic] *** Has any web-related tool: ${hasWebTool} ***`);
-      console.log(`[Diagnostic] *** MCP tools count: ${Object.keys(mcpSkills).length} ***`);
+      console.log(`[Diagnostic] *** MCP tools count: ${Object.keys(mcpTools).length} ***`);
 
       if (!hasWebTool) {
         console.log("[Diagnostic] *** ROOT CAUSE: No web tools available! ***");

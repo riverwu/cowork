@@ -1,7 +1,7 @@
-import type { Skill, ProgressCallback } from "./types";
+import type { Tool, ProgressCallback } from "./types";
 import { runPythonScript, initPythonEnv, installPythonPackage } from "@/lib/tauri";
 
-export const runPython: Skill = {
+export const runPython: Tool = {
   definition: {
     name: "run_python",
     description:

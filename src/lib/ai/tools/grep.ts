@@ -1,7 +1,7 @@
-import type { Skill } from "./types";
+import type { Tool } from "./types";
 import { grep } from "@/lib/tauri";
 
-export const grepSkill: Skill = {
+export const grepSkill: Tool = {
   definition: {
     name: "grep",
     description:

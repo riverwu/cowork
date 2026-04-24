@@ -1,7 +1,7 @@
-import type { Skill } from "./types";
+import type { Tool } from "./types";
 import { listDirectory } from "@/lib/tauri";
 
-export const listDirectorySkill: Skill = {
+export const listDirectorySkill: Tool = {
   definition: {
     name: "list_directory",
     description:

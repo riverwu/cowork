@@ -1,7 +1,7 @@
-import type { Skill } from "./types";
+import type { Tool } from "./types";
 import { createArtifact } from "@/lib/db";
 
-export const createArtifactSkill: Skill = {
+export const createArtifactSkill: Tool = {
   definition: {
     name: "create_artifact",
     description:

@@ -1,6 +1,6 @@
-import type { Skill } from "./types";
+import type { Tool } from "./types";
 
-export const analyzeData: Skill = {
+export const analyzeData: Tool = {
   definition: {
     name: "analyze_data",
     description:

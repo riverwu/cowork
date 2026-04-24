@@ -1,6 +1,6 @@
 import { getConfiguredProvider } from "./providers";
 import type { LLMMessage, StreamEvent } from "./providers/types";
-import { getSkills } from "./skills/registry";
+import { getTools } from "./tools/registry";
 import { skillRegistry } from "./skill-registry";
 import { getSkillsDir } from "./skill-loader";
 import { buildSystemPrompt } from "./system-prompt";
@@ -42,14 +42,14 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   // Merge built-in tools + MCP tools
   // Note: user-installed skills (SKILL.md) are NOT tools — they're injected
   // into the system prompt as a list. The LLM reads them on-demand via read_file.
-  const builtinSkills = getSkills();
-  const mcpSkills = mcpManager.getAllSkills();
-  const skills = { ...builtinSkills, ...mcpSkills };
-  const toolDefs = Object.values(skills).map((s) => s.definition);
+  const builtinTools = getTools();
+  const mcpTools = mcpManager.getAllTools();
+  const allTools = { ...builtinTools, ...mcpTools };
+  const toolDefs = Object.values(allTools).map((t) => t.definition);
 
-  console.log(`[Agent] Tools: ${toolDefs.length} total (${Object.keys(builtinSkills).length} built-in + ${Object.keys(mcpSkills).length} MCP)`);
-  if (Object.keys(mcpSkills).length > 0) {
-    console.log(`[Agent] MCP tools:`, Object.keys(mcpSkills));
+  console.log(`[Agent] Tools: ${toolDefs.length} total (${Object.keys(builtinTools).length} built-in + ${Object.keys(mcpTools).length} MCP)`);
+  if (Object.keys(mcpTools).length > 0) {
+    console.log(`[Agent] MCP tools:`, Object.keys(mcpTools));
   }
 
   const lastUserMsg = [...params.messages].reverse().find((m) => m.role === "user");
@@ -162,15 +162,15 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     });
 
     for (const toolCall of doneEvent.toolCalls) {
-      const skill = skills[toolCall.name];
-      if (!skill) {
-        const errResult = `Unknown skill: ${toolCall.name}`;
+      const tool = allTools[toolCall.name];
+      if (!tool) {
+        const errResult = `Unknown tool: ${toolCall.name}`;
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: errResult });
         yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0, success: false };
         continue;
       }
 
-      // Yield skill-start right before execution (not during LLM streaming)
+      // Yield start event right before execution (not during LLM streaming)
       // so tools appear one at a time in UI, not all at once.
       yield { type: "skill-start", skill: toolCall.name, input: toolCall.input };
 
@@ -181,7 +181,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
           ? (output: string) => params.onProgress!(toolCall.name, output)
           : undefined;
 
-        const result = await skill.execute(toolCall.input as Record<string, unknown>, onProgress);
+        const result = await tool.execute(toolCall.input as Record<string, unknown>, onProgress);
         const durationMs = Date.now() - startTime;
 
         if (result.startsWith("__ARTIFACT__:")) {
@@ -195,7 +195,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         yield { type: "skill-done", skill: toolCall.name, result: summarizeResult(result), durationMs, success: true };
       } catch (err) {
         const durationMs = Date.now() - startTime;
-        const errResult = `Skill execution error: ${err}`;
+        const errResult = `Tool execution error: ${err}`;
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: errResult });
         yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs, success: false };
       }

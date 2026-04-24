@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { getSkills, getSkill, getToolDefinitions } from "./registry";
+import { getTools, getTool, getToolDefinitions } from "./registry";
 
-describe("Skill Registry", () => {
+describe("Tool Registry", () => {
   const EXPECTED_SKILLS = [
     "search_knowledge",
     "read_file",
@@ -18,26 +18,26 @@ describe("Skill Registry", () => {
     "apply_patch",
   ];
 
-  it("has exactly 13 built-in skills", () => {
-    const skills = getSkills();
+  it("has exactly 13 built-in tools", () => {
+    const skills = getTools();
     expect(Object.keys(skills)).toHaveLength(13);
   });
 
   it("has all expected skills registered", () => {
-    const skills = getSkills();
+    const skills = getTools();
     for (const name of EXPECTED_SKILLS) {
       expect(skills[name]).toBeDefined();
     }
   });
 
   it("returns skill by name", () => {
-    const skill = getSkill("search_knowledge");
+    const skill = getTool("search_knowledge");
     expect(skill).toBeDefined();
     expect(skill?.definition.name).toBe("search_knowledge");
   });
 
   it("returns undefined for unknown skill", () => {
-    expect(getSkill("nonexistent")).toBeUndefined();
+    expect(getTool("nonexistent")).toBeUndefined();
   });
 
   it("generates valid tool definitions for all skills", () => {

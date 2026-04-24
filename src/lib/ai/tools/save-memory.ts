@@ -1,9 +1,9 @@
-import type { Skill } from "./types";
+import type { Tool } from "./types";
 import { upsertCoreFact, createMemory } from "@/lib/db";
 import { generateEmbedding } from "@/lib/knowledge/embeddings";
 import type { CoreFact, MemoryType } from "@/types";
 
-export const saveMemory: Skill = {
+export const saveMemory: Tool = {
   definition: {
     name: "save_memory",
     description:

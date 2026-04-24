@@ -63,15 +63,6 @@ class SkillRegistry {
     return this.skills.filter((s) => s.record.type === type);
   }
 
-  /**
-   * Skills are NOT tools. Return empty.
-   * Skills are injected into the system prompt as a list (name + description + path).
-   * The LLM reads SKILL.md on-demand via read_file.
-   */
-  getTools(): Record<string, never> {
-    return {};
-  }
-
   getByName(name: string): LoadedSkill | undefined {
     return this.skills.find((s) => s.record.name === name);
   }

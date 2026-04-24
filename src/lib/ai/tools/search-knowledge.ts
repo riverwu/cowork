@@ -1,8 +1,8 @@
-import type { Skill } from "./types";
+import type { Tool } from "./types";
 import { retrieveRelevant } from "@/lib/knowledge";
 import { getKnowledgeStats } from "@/lib/db";
 
-export const searchKnowledge: Skill = {
+export const searchKnowledge: Tool = {
   definition: {
     name: "search_knowledge",
     description:

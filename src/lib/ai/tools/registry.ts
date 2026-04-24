@@ -1,4 +1,4 @@
-import type { Skill } from "./types";
+import type { Tool } from "./types";
 import { searchKnowledge } from "./search-knowledge";
 import { readFile } from "./read-document";
 import { writeFileSkill } from "./write-file";
@@ -16,6 +16,9 @@ import { applyPatchSkill } from "./apply-patch";
 /**
  * Built-in tool registry — 13 tools.
  *
+ * These are the agent's built-in capabilities, registered as LLM function-calling tools.
+ * They are NOT user-installed skills (SKILL.md) — those are managed by SkillRegistry.
+ *
  * Core file operations:
  *   read_file, write_file, apply_patch, list_directory, grep
  * Execution:
@@ -27,7 +30,7 @@ import { applyPatchSkill } from "./apply-patch";
  * Output:
  *   create_artifact
  */
-const skills: Record<string, Skill> = {
+const tools: Record<string, Tool> = {
   // File operations
   read_file: readFile,
   write_file: writeFileSkill,
@@ -48,14 +51,14 @@ const skills: Record<string, Skill> = {
   create_artifact: createArtifactSkill,
 };
 
-export function getSkills(): Record<string, Skill> {
-  return skills;
+export function getTools(): Record<string, Tool> {
+  return tools;
 }
 
-export function getSkill(name: string): Skill | undefined {
-  return skills[name];
+export function getTool(name: string): Tool | undefined {
+  return tools[name];
 }
 
 export function getToolDefinitions() {
-  return Object.values(skills).map((s) => s.definition);
+  return Object.values(tools).map((t) => t.definition);
 }

@@ -1,7 +1,7 @@
-import type { Skill } from "./types";
+import type { Tool } from "./types";
 import { parseDocument, readFileText } from "@/lib/tauri";
 
-export const readFile: Skill = {
+export const readFile: Tool = {
   definition: {
     name: "read_file",
     description:

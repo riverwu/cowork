@@ -3,7 +3,7 @@
  */
 
 import { McpTransport, type McpServerConfig } from "./transport";
-import type { Skill } from "@/lib/ai/skills/types";
+import type { Tool } from "@/lib/ai/tools/types";
 import type { ToolDefinition } from "@/lib/ai/providers/types";
 
 export interface McpToolInfo {
@@ -116,19 +116,19 @@ export class McpClient {
     return this.transport.getLastStderr();
   }
 
-  /** Convert MCP tools to our Skill interface for the agent. */
-  toSkills(): Record<string, Skill> {
-    const skills: Record<string, Skill> = {};
+  /** Convert MCP tools to our Tool interface for the agent. */
+  toTools(): Record<string, Tool> {
+    const result: Record<string, Tool> = {};
 
-    for (const tool of this.tools) {
+    for (const mcpTool of this.tools) {
       // Prefix MCP tools with server id to avoid name collisions
-      const skillName = `mcp_${this.serverId}_${tool.name}`;
+      const toolName = `mcp_${this.serverId}_${mcpTool.name}`;
 
-      skills[skillName] = {
+      result[toolName] = {
         definition: {
-          name: skillName,
-          description: `[${this.serverName}] ${tool.description || tool.name}`,
-          parameters: (tool.inputSchema as ToolDefinition["parameters"]) || {
+          name: toolName,
+          description: `[${this.serverName}] ${mcpTool.description || mcpTool.name}`,
+          parameters: (mcpTool.inputSchema as ToolDefinition["parameters"]) || {
             type: "object",
             properties: {},
           },
@@ -137,11 +137,11 @@ export class McpClient {
           if (!this.initialized) {
             throw new Error(`MCP server '${this.serverName}' is not connected. Check server status in Tools page.`);
           }
-          return this.callTool(tool.name, input);
+          return this.callTool(mcpTool.name, input);
         },
       };
     }
 
-    return skills;
+    return result;
   }
 }

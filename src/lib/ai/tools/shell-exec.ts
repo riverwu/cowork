@@ -1,7 +1,7 @@
-import type { Skill, ProgressCallback } from "./types";
+import type { Tool, ProgressCallback } from "./types";
 import { shellExec, shellExecStream, getNodePath, installNodePackage, initNodeEnv } from "@/lib/tauri";
 
-export const shellExecSkill: Skill = {
+export const shellExecSkill: Tool = {
   definition: {
     name: "shell",
     description:

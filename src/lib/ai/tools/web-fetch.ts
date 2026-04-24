@@ -1,7 +1,7 @@
-import type { Skill } from "./types";
+import type { Tool } from "./types";
 import { webFetch } from "@/lib/tauri";
 
-export const webFetchSkill: Skill = {
+export const webFetchSkill: Tool = {
   definition: {
     name: "web_fetch",
     description:
