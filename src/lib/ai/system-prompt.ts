@@ -119,6 +119,7 @@ export function buildSystemPrompt(params?: {
     skills: string;
     mcp: string;
     skillsSummary?: string;
+    mcpSummary?: string;
   };
 }): string {
   const sections = [
@@ -135,7 +136,7 @@ export function buildSystemPrompt(params?: {
   }
 
   if (params?.systemPaths) {
-    sections.push(`## System Configuration
+    let configSection = `## System Configuration
 - Skills directory: \`${params.systemPaths.skills}\`
 - MCP config: \`${params.systemPaths.mcp}\`
 - Working directory: \`${params.workingDirectory || "~"}\`
@@ -158,7 +159,18 @@ description: What this skill does
 Scripts in \`scripts/\` subdirectory are executable via shell.
 After installing or modifying skills, they auto-reload.
 
-${params.systemPaths.skillsSummary ? `### Installed Skills\n${params.systemPaths.skillsSummary}` : "No skills installed."}`);
+${params.systemPaths.skillsSummary ? `### Installed Skills\n${params.systemPaths.skillsSummary}` : "No skills installed."}`;
+
+    if (params.systemPaths.mcpSummary) {
+      configSection += `
+
+### MCP Servers
+${params.systemPaths.mcpSummary}
+
+**Important**: MCP tool configurations (API keys, env vars) are managed by the Cowork app and stored securely in the database — NOT in MCP.json files. Do NOT read MCP.json to check API key status. If an MCP tool is listed as "connected" above, it is fully configured and ready to use — just call it directly.`;
+    }
+
+    sections.push(configSection);
   }
 
   if (params?.planMode) {

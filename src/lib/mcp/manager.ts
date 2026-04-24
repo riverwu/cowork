@@ -238,15 +238,17 @@ class McpManager {
         }
       };
 
+      console.log(`[MCP:${mcp.id}] Connecting: ${mcp.definition.command} ${mcp.definition.args.join(" ")}`);
+      console.log(`[MCP:${mcp.id}] Env:`, JSON.stringify(mergedEnv));
       await client.connect();
       this.clients.set(mcp.id, client);
       this.serverStates.set(mcp.id, { status: "connected" });
       this.reconnectAttempts.delete(mcp.id); // Reset on successful connect
-      console.log(`MCP '${mcp.id}' connected: ${client.getTools().length} tools`);
+      console.log(`[MCP:${mcp.id}] Connected OK: ${client.getTools().length} tools, isConnected=${client.isConnected()}`);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       this.serverStates.set(mcp.id, { status: "error", error: errorMsg });
-      console.warn(`MCP '${mcp.id}' failed:`, errorMsg);
+      console.error(`[MCP:${mcp.id}] Connect FAILED:`, errorMsg);
     }
 
     this.notifyChange();

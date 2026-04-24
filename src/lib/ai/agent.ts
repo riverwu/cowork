@@ -82,10 +82,22 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     }
   }
 
-  // 3. Build system prompt with system paths
+  // 3. Build system prompt with system paths + MCP status
   let skillsDir = "";
   try { skillsDir = await getSkillsDir(); } catch { /* ignore */ }
   const home = skillsDir.replace(/\/\.cowork\/skills$/, "");
+
+  // Gather MCP server status for system prompt
+  const mcpStatuses = mcpManager.getServerStatus();
+  const mcpSummary = mcpStatuses
+    .filter((s) => s.enabled)
+    .map((s) => {
+      if (s.status === "connected") return `- ✓ ${s.name}: connected (${s.toolCount} tools)`;
+      if (s.status === "needs_config") return `- ✗ ${s.name}: needs configuration`;
+      if (s.status === "error") return `- ✗ ${s.name}: error (${s.error || "unknown"})`;
+      return `- … ${s.name}: ${s.status}`;
+    })
+    .join("\n");
 
   const system = buildSystemPrompt({
     tools: toolDefs,
@@ -97,6 +109,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       skills: skillsDir,
       mcp: `${home}/.cowork/mcps/`,
       skillsSummary: skillRegistry.getSummary(),
+      mcpSummary: mcpSummary || undefined,
     },
   });
 
