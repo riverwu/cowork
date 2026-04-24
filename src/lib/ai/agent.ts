@@ -18,6 +18,8 @@ export interface AgentParams {
   planMode?: boolean;
   /** Working directory — tools use this as default cwd. */
   workingDirectory?: string;
+  /** Called when a skill produces streaming output (e.g., shell command output). */
+  onProgress?: (skill: string, output: string) => void;
 }
 
 /**
@@ -162,7 +164,12 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
 
       const startTime = Date.now();
       try {
-        const result = await skill.execute(toolCall.input as Record<string, unknown>);
+        // Progress callback — updates store directly for live output display
+        const onProgress = params.onProgress
+          ? (output: string) => params.onProgress!(toolCall.name, output)
+          : undefined;
+
+        const result = await skill.execute(toolCall.input as Record<string, unknown>, onProgress);
         const durationMs = Date.now() - startTime;
 
         if (result.startsWith("__ARTIFACT__:")) {

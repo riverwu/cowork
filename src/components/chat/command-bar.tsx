@@ -46,7 +46,7 @@ export function CommandBar() {
   const menuRef = useRef<HTMLDivElement>(null);
   const {
     sendMessage, clearContext, planMode, togglePlanMode,
-    workingDirectory, setWorkingDirectory, isStreaming,
+    workingDirectory, setWorkingDirectory, isStreaming, pendingMessages,
   } = useSessionStore();
 
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -62,7 +62,7 @@ export function CommandBar() {
 
   async function handleSubmit() {
     const text = input.trim();
-    if ((!text && files.length === 0) || isStreaming) return;
+    if (!text && files.length === 0) return;
     let message = text;
     if (files.length > 0) {
       const fileList = files.map((f) => `[File: ${f.name}](${f.path})`).join("\n");
@@ -141,10 +141,9 @@ export function CommandBar() {
           onKeyDown={handleKeyDown}
           onCompositionStart={() => setComposing(true)}
           onCompositionEnd={() => setComposing(false)}
-          placeholder={isStreaming ? t("home.input.thinking") : t("home.input.placeholder")}
-          disabled={isStreaming}
+          placeholder={isStreaming ? t("home.input.queueHint") : t("home.input.placeholder")}
           rows={2}
-          className="w-full bg-transparent text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none text-[14px] leading-relaxed resize-none disabled:opacity-50"
+          className="w-full bg-transparent text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none text-[14px] leading-relaxed resize-none"
         />
       </div>
 
@@ -156,8 +155,7 @@ export function CommandBar() {
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setShowMenu(!showMenu)}
-              disabled={isStreaming}
-              className={`p-1.5 rounded-lg cursor-pointer transition-colors disabled:opacity-30 ${
+              className={`p-1.5 rounded-lg cursor-pointer transition-colors ${
                 showMenu ? "bg-[var(--surface-container)] text-[var(--on-surface)]" : "text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)]"
               }`}
               title="Menu"
@@ -182,8 +180,7 @@ export function CommandBar() {
           {/* Attach */}
           <button
             onClick={handleAttachFiles}
-            disabled={isStreaming}
-            className="p-1.5 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors disabled:opacity-30"
+            className="p-1.5 rounded-lg text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors"
             title="Attach files"
           >
             <IconAttach size={16} />
@@ -216,13 +213,21 @@ export function CommandBar() {
 
         {/* Right: shortcut hint + send */}
         <div className="flex items-center gap-1.5">
+          {/* Queued message count */}
+          {pendingMessages.length > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600 font-medium">
+              {pendingMessages.length} queued
+            </span>
+          )}
           <span className="text-[10px] text-[var(--on-surface-tertiary)]">⌘↵</span>
           <button
             onClick={handleSubmit}
-            disabled={!hasContent || isStreaming}
+            disabled={!hasContent}
             className={`p-2 rounded-xl cursor-pointer transition-all ${
-              hasContent && !isStreaming
-                ? "bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] shadow-sm"
+              hasContent
+                ? isStreaming
+                  ? "bg-amber-500 text-white hover:bg-amber-600 shadow-sm"
+                  : "bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] shadow-sm"
                 : "bg-[var(--surface-low)] text-[var(--on-surface-tertiary)]"
             } disabled:opacity-30 disabled:cursor-not-allowed`}
           >

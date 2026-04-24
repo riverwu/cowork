@@ -1,5 +1,5 @@
-import type { Skill } from "./types";
-import { shellExec } from "@/lib/tauri";
+import type { Skill, ProgressCallback } from "./types";
+import { shellExec, shellExecStream } from "@/lib/tauri";
 
 export const shellExecSkill: Skill = {
   definition: {
@@ -39,7 +39,7 @@ IMPORTANT: Be careful with destructive commands. Prefer reading/checking before 
     },
   },
 
-  async execute(input) {
+  async execute(input: Record<string, unknown>, onProgress?: ProgressCallback) {
     const command = input.command as string[];
     const cwd = input.cwd as string | undefined;
     const timeoutMs = Math.min((input.timeout_ms as number) || 30000, 120000);
@@ -49,11 +49,10 @@ IMPORTANT: Be careful with destructive commands. Prefer reading/checking before 
     }
 
     try {
-      const result = await shellExec({
-        command,
-        cwd,
-        timeout_ms: timeoutMs,
-      });
+      // Use streaming exec if progress callback is provided
+      const result = onProgress
+        ? await shellExecStream({ command, cwd, timeout_ms: timeoutMs }, onProgress)
+        : await shellExec({ command, cwd, timeout_ms: timeoutMs });
 
       let output = "";
       if (result.stdout) output += result.stdout;

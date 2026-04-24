@@ -30,6 +30,7 @@ pub fn run() {
             commands::web::web_fetch,
             commands::web::web_search,
             commands::shell::shell_exec,
+            commands::shell::shell_exec_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

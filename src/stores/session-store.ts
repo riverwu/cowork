@@ -28,7 +28,7 @@ interface SessionState {
   messages: Message[];
   isStreaming: boolean;
   streamingText: string;
-  steps: Array<{ skill: string; status: "running" | "done"; input?: unknown; result?: unknown; durationMs?: number }>;
+  steps: Array<{ skill: string; status: "running" | "done"; input?: unknown; result?: unknown; durationMs?: number; liveOutput?: string }>;
   artifacts: Artifact[];
   knowledgeRefs: KnowledgeRef[];
   error: string | null;
@@ -36,6 +36,8 @@ interface SessionState {
   planMode: boolean;
   /** Working directory — all tools use this as base. */
   workingDirectory: string;
+  /** Queued messages waiting to be sent after current run completes. */
+  pendingMessages: string[];
 
   initialize: () => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
@@ -56,6 +58,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   initialized: false,
   planMode: false,
   workingDirectory: "",
+  pendingMessages: [],
 
   initialize: async () => {
     const recent = await listRecentSessions(1);
@@ -89,6 +92,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   sendMessage: async (content: string) => {
+    // If currently streaming, queue the message for later
+    if (get().isStreaming) {
+      set((s) => ({ pendingMessages: [...s.pendingMessages, content] }));
+      return;
+    }
+
     // Handle slash commands
     if (content.trim() === "/reload-skills") {
       try {
@@ -137,7 +146,17 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     try {
       const { planMode, workingDirectory } = get();
-      for await (const event of runAgent({ messages: llmMessages, sessionId, planMode, workingDirectory })) {
+      // Progress callback: update the running step's output in real-time
+      const onProgress = (skill: string, output: string) => {
+        set((s) => ({
+          steps: s.steps.map((step) =>
+            step.skill === skill && step.status === "running"
+              ? { ...step, liveOutput: (step.liveOutput || "") + output + "\n" }
+              : step,
+          ),
+        }));
+      };
+      for await (const event of runAgent({ messages: llmMessages, sessionId, planMode, workingDirectory, onProgress })) {
         handleEvent(event, set);
         if (event.type === "text-delta") {
           fullText += event.text;
@@ -163,6 +182,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     } catch (err) {
       set({ isStreaming: false, error: String(err) });
+    }
+
+    // Drain pending message queue — send the next queued message
+    const pending = get().pendingMessages;
+    if (pending.length > 0) {
+      const [next, ...rest] = pending;
+      set({ pendingMessages: rest });
+      // Use setTimeout to let the state settle before the next sendMessage
+      setTimeout(() => get().sendMessage(next), 50);
     }
   },
 

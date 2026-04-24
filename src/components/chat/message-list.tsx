@@ -11,6 +11,7 @@ interface Step {
   input?: unknown;
   result?: unknown;
   durationMs?: number;
+  liveOutput?: string;
 }
 
 interface KnowledgeRef {
@@ -240,6 +241,15 @@ function LiveStepItem({ step }: { step: Step }) {
         <div className="mt-1.5 pl-5">
           <pre className="text-[11px] text-[var(--on-surface-secondary)] bg-[var(--surface-low)] rounded px-2 py-1 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed max-h-[80px] overflow-y-auto">
             {formatValue(step.input)}
+          </pre>
+        </div>
+      )}
+
+      {/* Live output (while running) */}
+      {step.status === "running" && step.liveOutput && (
+        <div className="mt-1 pl-5">
+          <pre className="text-[11px] text-[var(--on-surface-tertiary)] bg-[var(--surface-low)] rounded px-2 py-1 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed max-h-[100px] overflow-y-auto">
+            {truncate(step.liveOutput, 500)}
           </pre>
         </div>
       )}

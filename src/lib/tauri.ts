@@ -120,6 +120,22 @@ export async function shellExec(params: {
   return invoke<ShellExecResult>("shell_exec", { params });
 }
 
+/** Execute a shell command with streaming output via Tauri events. */
+export async function shellExecStream(
+  params: { command: string[]; cwd?: string; env?: Record<string, string>; timeout_ms?: number },
+  onOutput: (line: string) => void,
+): Promise<ShellExecResult> {
+  const eventId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const unlisten = await listen<string>(`shell-output-${eventId}`, (event) => {
+    onOutput(event.payload);
+  });
+  try {
+    return await invoke<ShellExecResult>("shell_exec_stream", { params, eventId });
+  } finally {
+    unlisten();
+  }
+}
+
 /** Ensure uv/uvx is installed. Auto-installs if missing. */
 export async function ensureUvInstalled(): Promise<string> {
   return invoke<string>("ensure_uv_installed");

@@ -1,4 +1,4 @@
-import type { Skill } from "./types";
+import type { Skill, ProgressCallback } from "./types";
 import { runPythonScript, initPythonEnv, installPythonPackage } from "@/lib/tauri";
 
 export const runPython: Skill = {
@@ -37,7 +37,7 @@ If you need a package that's not installed, first call with install_package para
     },
   },
 
-  async execute(input) {
+  async execute(input: Record<string, unknown>, _onProgress?: ProgressCallback) {
     const code = input.code as string;
     const installPkg = input.install_package as string | undefined;
     const timeout = Math.min((input.timeout as number) || 30, 120);
