@@ -101,16 +101,20 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     })
     .join("\n");
 
+  // Skills are injected as a list (name + description + path) — not as tools.
+  // LLM reads SKILL.md on-demand via read_file (progressive disclosure).
+  const availableSkillsPrompt = skillRegistry.getAvailableSkillsPrompt();
+
   const system = buildSystemPrompt({
     tools: toolDefs,
     memoryContext: memoryContext || undefined,
     knowledgeContext: knowledgeContext || undefined,
     planMode: params.planMode,
     workingDirectory: params.workingDirectory,
+    availableSkillsPrompt: availableSkillsPrompt || undefined,
     systemPaths: {
       skills: skillsDir,
       mcp: `${home}/.cowork/mcps/`,
-      skillsSummary: skillRegistry.getSummary(),
       mcpSummary: mcpSummary || undefined,
     },
   });

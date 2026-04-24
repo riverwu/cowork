@@ -161,10 +161,10 @@ export function buildSystemPrompt(params?: {
   tools?: ToolDefinition[];
   planMode?: boolean;
   workingDirectory?: string;
+  availableSkillsPrompt?: string;
   systemPaths?: {
     skills: string;
     mcp: string;
-    skillsSummary?: string;
     mcpSummary?: string;
   };
 }): string {
@@ -190,10 +190,8 @@ Current working directory: \`${params.workingDirectory}\`
 
   if (params?.systemPaths) {
     let configSection = `## System configuration
-- Skills: \`${params.systemPaths.skills}\`
-- MCP: \`${params.systemPaths.mcp}\`
-
-${params.systemPaths.skillsSummary ? `**Installed skills**: ${params.systemPaths.skillsSummary}` : "No skills installed."}`;
+- Skills directory: \`${params.systemPaths.skills}\`
+- MCP directory: \`${params.systemPaths.mcp}\``;
 
     if (params.systemPaths.mcpSummary) {
       configSection += `
@@ -205,6 +203,11 @@ MCP API keys are managed by the app (stored in database, not in config files). I
     }
 
     sections.push(configSection);
+  }
+
+  // Skills list (progressive disclosure — name + description + path only)
+  if (params?.availableSkillsPrompt) {
+    sections.push(params.availableSkillsPrompt);
   }
 
   if (params?.planMode) {
