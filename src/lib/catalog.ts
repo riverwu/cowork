@@ -8,6 +8,7 @@
  */
 
 import type { McpDefinition } from "./mcp/loader";
+import { ANTHROPIC_SKILLS } from "./catalog-skills";
 
 export interface CatalogSkill {
   id: string;
@@ -155,6 +156,7 @@ print(f"\\nMissing:\\n{df.isnull().sum()}")
 `,
     },
   },
+  ...ANTHROPIC_SKILLS,
 ];
 
 // ---- Bundled MCPs ----
