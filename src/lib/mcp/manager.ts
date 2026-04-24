@@ -117,7 +117,7 @@ class McpManager {
    *
    * Key design: returns ALL tools from configured+available servers,
    * using cached definitions if the process isn't running.
-   * The skill's execute() handles reconnection transparently.
+   * The tool's execute() handles reconnection transparently.
    */
   getAllTools(): Record<string, Tool> {
     const allTools: Record<string, Tool> = {};

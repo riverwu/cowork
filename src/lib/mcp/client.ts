@@ -121,8 +121,10 @@ export class McpClient {
     const result: Record<string, Tool> = {};
 
     for (const mcpTool of this.tools) {
-      // Prefix MCP tools with server id to avoid name collisions
-      const toolName = `mcp_${this.serverId}_${mcpTool.name}`;
+      // Prefix MCP tools with server id to avoid name collisions.
+      // Uses double underscore as delimiter (like Codex CLI) so names
+      // with single underscores don't cause ambiguity.
+      const toolName = `mcp__${this.serverId}__${mcpTool.name}`;
 
       result[toolName] = {
         definition: {

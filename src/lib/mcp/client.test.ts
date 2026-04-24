@@ -62,8 +62,8 @@ describe("McpClient", () => {
     await client.connect();
 
     const skills = client.toTools();
-    expect(Object.keys(skills)).toEqual(["mcp_db_query"]);
-    expect(skills["mcp_db_query"].definition.description).toContain("[Database]");
+    expect(Object.keys(skills)).toEqual(["mcp__db__query"]);
+    expect(skills["mcp__db__query"].definition.description).toContain("[Database]");
   });
 
   it("calls tools via transport", async () => {
