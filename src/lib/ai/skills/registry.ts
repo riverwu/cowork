@@ -5,6 +5,7 @@ import { writeFileSkill } from "./write-file";
 import { listDirectorySkill } from "./list-directory";
 import { grepSkill } from "./grep";
 import { runPython } from "./run-python";
+import { runNode } from "./run-node";
 import { saveMemory } from "./save-memory";
 import { createArtifactSkill } from "./create-artifact";
 import { webSearchSkill } from "./web-search";
@@ -13,12 +14,12 @@ import { shellExecSkill } from "./shell-exec";
 import { applyPatchSkill } from "./apply-patch";
 
 /**
- * Built-in tool registry — 12 tools.
+ * Built-in tool registry — 13 tools.
  *
  * Core file operations:
  *   read_file, write_file, apply_patch, list_directory, grep
  * Execution:
- *   shell, run_python
+ *   shell, run_python, run_node
  * Web:
  *   web_search, web_fetch
  * Knowledge & Memory:
@@ -36,6 +37,7 @@ const skills: Record<string, Skill> = {
   // Execution
   shell: shellExecSkill,
   run_python: runPython,
+  run_node: runNode,
   // Web
   web_search: webSearchSkill,
   web_fetch: webFetchSkill,

@@ -93,6 +93,11 @@ export async function getNodePath(): Promise<string> {
   return invoke<string>("get_node_path");
 }
 
+/** Execute a Node.js script in the isolated environment. */
+export async function runNodeScript(script: string, cwd?: string, timeoutSecs?: number): Promise<PythonResult> {
+  return invoke<PythonResult>("run_node_script", { script, cwd, timeoutSecs });
+}
+
 // ---- Web ----
 
 export interface WebFetchResult {

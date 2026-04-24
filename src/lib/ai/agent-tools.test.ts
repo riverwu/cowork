@@ -60,11 +60,11 @@ import { mcpManager } from "@/lib/mcp";
 describe("Agent Tool Chain Diagnostics", () => {
 
   describe("Step 1: Built-in skills", () => {
-    it("has exactly 12 built-in skills", () => {
+    it("has exactly 13 built-in skills", () => {
       const skills = getSkills();
       const names = Object.keys(skills);
       console.log("[Diagnostic] Built-in skills:", names);
-      expect(names).toHaveLength(12);
+      expect(names).toHaveLength(13);
     });
 
     it("all built-in skills have valid tool definitions", () => {

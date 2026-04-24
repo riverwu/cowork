@@ -76,16 +76,14 @@ const TOOL_RULES = `## Tool usage
 - **grep**: Find code, patterns, usages across the codebase.
 
 ### Execution
-- **shell**: Run system commands (git, make, cargo, curl, etc.). Prefer checking before writing/deleting. Set appropriate timeout for long-running commands. Use \`install_package\` parameter to install npm packages (installs to isolated \`~/.cowork/node/\`).
-- **run_python**: Data analysis, computation, document generation, chart creation. Pre-installed: pandas, openpyxl, python-docx, matplotlib, PyPDF2. Use \`install_package\` parameter to install pip packages (installs to isolated \`~/.cowork/python/\`).
+- **shell**: Run system commands (git, make, cargo, curl, etc.). Prefer checking before writing/deleting. Set appropriate timeout for long-running commands.
+- **run_python**: Execute Python code in isolated environment (\`~/.cowork/python/\`). Pre-installed: pandas, openpyxl, python-docx, matplotlib, PyPDF2. Use \`install_package\` to add pip packages.
+- **run_node**: Execute JavaScript code in isolated environment (\`~/.cowork/node/\`). Use \`install_package\` to add npm packages. Use for: PowerPoint generation (pptxgenjs), Word documents (docx), JSON processing, etc.
 
 ### Package management (IMPORTANT)
 All packages are managed in isolated environments — never in the user's project directory.
-- **npm packages**: Installed to \`~/.cowork/node/\`. To use an npm package, set \`install_package\` on the shell tool. Node scripts automatically find packages via NODE_PATH.
-  - NEVER run \`npm install\`, \`npm list\`, or any npm command with cwd set to the user's working directory. This pollutes their project.
-  - To run a node script that needs a package: \`{"command": ["node", "script.js"], "install_package": "pptxgenjs"}\`
-- **Python packages**: Installed to \`~/.cowork/python/venv/\`. Use \`install_package\` on run_python.
-  - NEVER run \`pip install\` via shell. Use run_python's install_package parameter.
+- **Node packages**: Use \`run_node\` with \`install_package\` parameter. Do NOT use shell to run \`npm install\`, \`npm list\`, or \`node\` directly. Always use \`run_node\`.
+- **Python packages**: Use \`run_python\` with \`install_package\` parameter. Do NOT use shell to run \`pip install\` directly. Always use \`run_python\`.
 
 ### Web
 - **web_search**: Search the internet for current information.

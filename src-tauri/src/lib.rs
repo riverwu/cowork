@@ -22,6 +22,7 @@ pub fn run() {
             commands::fs::init_node_env,
             commands::fs::install_node_package,
             commands::fs::get_node_path,
+            commands::fs::run_node_script,
             commands::env::get_env,
             commands::http::http_post,
             commands::http::http_stream_post,

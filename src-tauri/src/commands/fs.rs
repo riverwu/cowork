@@ -446,3 +446,63 @@ pub async fn get_node_path() -> Result<String, String> {
     let dir = node_env_dir()?;
     Ok(dir.join("node_modules").to_string_lossy().to_string())
 }
+
+/// Execute a Node.js script in the isolated environment.
+/// Writes script to temp file, sets NODE_PATH so require() finds packages.
+#[tauri::command]
+pub async fn run_node_script(
+    script: String,
+    cwd: Option<String>,
+    timeout_secs: Option<u64>,
+) -> Result<PythonResult, String> {
+    // Reuse PythonResult — same shape: stdout, stderr, exit_code
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::time::{timeout, Duration};
+
+    let dir = node_env_dir()?;
+    let node_modules = dir.join("node_modules");
+
+    // Find node binary
+    let expanded_path = super::mcp::expanded_path_str();
+
+    // Write script to temp file (avoids encoding issues with -e flag)
+    let tmp_dir = dir.join("tmp");
+    fs::create_dir_all(&tmp_dir).map_err(|e| format!("Failed to create tmp dir: {}", e))?;
+    let script_path = tmp_dir.join(format!("script_{}.js", std::process::id()));
+    fs::write(&script_path, script.as_bytes())
+        .map_err(|e| format!("Failed to write script: {}", e))?;
+
+    let duration = Duration::from_secs(timeout_secs.unwrap_or(30));
+    let work_dir = cwd.unwrap_or_else(|| {
+        dirs_next::home_dir()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|| "/tmp".to_string())
+    });
+
+    let result = timeout(duration, async {
+        let output = Command::new("node")
+            .arg(script_path.to_str().unwrap())
+            .current_dir(&work_dir)
+            .env("PATH", &expanded_path)
+            .env("NODE_PATH", node_modules.to_str().unwrap())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run Node: {}", e))?;
+        Ok::<PythonResult, String>(PythonResult {
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            exit_code: output.status.code().unwrap_or(-1),
+        })
+    })
+    .await
+    .map_err(|_| format!("Node timed out after {}s", timeout_secs.unwrap_or(30)))?;
+
+    // Clean up temp file
+    let _ = fs::remove_file(&script_path);
+
+    result
+}
