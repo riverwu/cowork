@@ -92,7 +92,7 @@ export class OpenAIProvider implements LLMProvider {
           type: "message-done",
           content: fullText,
           toolCalls,
-          stopReason: finish === "tool_calls" ? "tool_use" : "end",
+          stopReason: finish === "tool_calls" ? "tool_use" : finish === "length" ? "max_tokens" : "end",
         };
       }
     }

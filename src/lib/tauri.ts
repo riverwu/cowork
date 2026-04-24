@@ -1,7 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { FileInfo } from "@/types";
+
+/** True when running inside the Tauri WebView rather than a plain browser tab. */
+export function isTauriRuntime(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/** Start dragging the current native window. */
+export async function startWindowDrag(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await getCurrentWindow().startDragging();
+}
 
 /** Open a file in system default application. */
 export async function openPath(path: string): Promise<void> {
@@ -39,6 +51,11 @@ export async function writeFile(path: string, content: string): Promise<void> {
   return invoke<void>("write_file", { path, content });
 }
 
+/** Delete a file if it exists. */
+export async function deleteFile(path: string): Promise<void> {
+  return invoke<void>("delete_file", { path });
+}
+
 /** List directory contents (non-recursive). */
 export async function listDirectory(path: string): Promise<FileInfo[]> {
   return invoke<FileInfo[]>("list_directory", { path });
@@ -53,6 +70,11 @@ export interface GrepMatch {
   path: string;
   line_number: number;
   line: string;
+}
+
+/** Search file contents recursively using ripgrep when available. */
+export async function ripgrepSearch(directory: string, pattern: string, maxResults?: number): Promise<GrepMatch[]> {
+  return invoke<GrepMatch[]>("ripgrep_search", { directory, pattern, maxResults });
 }
 
 export interface PythonResult {

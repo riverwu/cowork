@@ -10,6 +10,9 @@ vi.mock("@/lib/tauri", () => ({
   runPythonScript: vi.fn(),
   initPythonEnv: vi.fn(),
   installPythonPackage: vi.fn(),
+  runNodeScript: vi.fn(),
+  initNodeEnv: vi.fn(),
+  installNodePackage: vi.fn(),
   webSearch: vi.fn(),
   webFetch: vi.fn(),
   shellExec: vi.fn(),
@@ -30,12 +33,13 @@ vi.mock("@/lib/knowledge/embeddings", () => ({
   generateEmbedding: vi.fn().mockResolvedValue(new Array(1536).fill(0)),
 }));
 
-import { readFileText, parseDocument, writeFile, listDirectory, grep, runPythonScript, initPythonEnv, webSearch, webFetch, shellExec } from "@/lib/tauri";
+import { readFileText, parseDocument, writeFile, listDirectory, grep, runPythonScript, initPythonEnv, installPythonPackage, installNodePackage, initNodeEnv, runNodeScript, webSearch, webFetch, shellExec } from "@/lib/tauri";
 import { readFile } from "./read-document";
 import { writeFileSkill } from "./write-file";
 import { listDirectorySkill } from "./list-directory";
 import { grepSkill } from "./grep";
 import { runPython } from "./run-python";
+import { runNode } from "./run-node";
 import { saveMemory } from "./save-memory";
 import { createArtifactSkill } from "./create-artifact";
 import { webSearchSkill } from "./web-search";
@@ -48,6 +52,10 @@ const mockWriteFile = vi.mocked(writeFile);
 const mockListDirectory = vi.mocked(listDirectory);
 const mockGrep = vi.mocked(grep);
 const mockRunPythonScript = vi.mocked(runPythonScript);
+const mockInstallPythonPackage = vi.mocked(installPythonPackage);
+const mockRunNodeScript = vi.mocked(runNodeScript);
+const mockInstallNodePackage = vi.mocked(installNodePackage);
+const mockInitNodeEnv = vi.mocked(initNodeEnv);
 const mockWebSearch = vi.mocked(webSearch);
 const mockWebFetch = vi.mocked(webFetch);
 const mockShellExec = vi.mocked(shellExec);
@@ -57,22 +65,31 @@ describe("read_file skill", () => {
   it("reads text files via readFileText", async () => {
     mockReadFileText.mockResolvedValue("hello world");
     const result = await readFile.execute({ path: "/test/file.txt" });
-    expect(result).toBe("hello world");
+    expect(result).toContain("hello world");
+    expect(result).toContain("Returned range: 0-11");
     expect(mockReadFileText).toHaveBeenCalledWith("/test/file.txt");
   });
 
   it("reads documents via parseDocument", async () => {
     mockParseDocument.mockResolvedValue("PDF content here");
     const result = await readFile.execute({ path: "/test/doc.pdf" });
-    expect(result).toBe("PDF content here");
+    expect(result).toContain("PDF content here");
+    expect(result).toContain("Total characters: 16");
     expect(mockParseDocument).toHaveBeenCalledWith("/test/doc.pdf");
   });
 
-  it("truncates very long files", async () => {
+  it("reads a bounded preview of very long files", async () => {
     mockReadFileText.mockResolvedValue("x".repeat(25000));
     const result = await readFile.execute({ path: "/test/big.txt" });
-    expect(result).toContain("truncated");
+    expect(result).toContain("More content available");
+    expect(result).toContain("Returned range: 0-6000");
     expect(result.length).toBeLessThan(25000);
+  });
+
+  it("reads later file segments by offset", async () => {
+    mockReadFileText.mockResolvedValue("0123456789".repeat(1000));
+    const result = await readFile.execute({ path: "/test/big.txt", offset: 10, max_chars: 1000 });
+    expect(result).toContain("Returned range: 10-1010");
   });
 
   it("handles empty files", async () => {
@@ -94,6 +111,27 @@ describe("write_file skill", () => {
     const result = await writeFileSkill.execute({ path: "/test/out.txt", content: "hello" });
     expect(result).toContain("successfully");
     expect(mockWriteFile).toHaveBeenCalledWith("/test/out.txt", "hello");
+  });
+
+  it("appends file chunks successfully", async () => {
+    mockReadFileText.mockResolvedValue("hello");
+    mockWriteFile.mockResolvedValue();
+
+    const result = await writeFileSkill.execute({ path: "/test/out.txt", content: " world", mode: "append" });
+
+    expect(result).toContain("appended successfully");
+    expect(mockReadFileText).toHaveBeenCalledWith("/test/out.txt");
+    expect(mockWriteFile).toHaveBeenCalledWith("/test/out.txt", "hello world");
+  });
+
+  it("appends to a missing file as a new file", async () => {
+    mockReadFileText.mockRejectedValue(new Error("not found"));
+    mockWriteFile.mockResolvedValue();
+
+    const result = await writeFileSkill.execute({ path: "/test/new.txt", content: "first", mode: "append" });
+
+    expect(result).toContain("appended successfully");
+    expect(mockWriteFile).toHaveBeenCalledWith("/test/new.txt", "first");
   });
 
   it("handles write errors", async () => {
@@ -169,6 +207,52 @@ describe("run_python skill", () => {
     mockRunPythonScript.mockResolvedValue({ stdout: "", stderr: "", exit_code: 0 });
     const result = await runPython.execute({ code: "x = 1" });
     expect(result).toBe("(no output)");
+  });
+
+  it("continues after uv reports an installed package", async () => {
+    mockInitPythonEnv.mockResolvedValue("ready");
+    mockInstallPythonPackage.mockResolvedValue("Installed python-pptx");
+    mockRunPythonScript.mockResolvedValue({ stdout: "Total slides: 19\n", stderr: "", exit_code: 0 });
+
+    const result = await runPython.execute({
+      code: "print('Total slides: 19')",
+      install_package: "python-pptx",
+    });
+
+    expect(result).toContain("Total slides: 19");
+    expect(mockRunPythonScript).toHaveBeenCalledWith("print('Total slides: 19')", 30);
+  });
+
+  it("continues after pip reports an already satisfied package", async () => {
+    mockInitPythonEnv.mockResolvedValue("ready");
+    mockInstallPythonPackage.mockResolvedValue("Requirement already satisfied: python-pptx");
+    mockRunPythonScript.mockResolvedValue({ stdout: "ok\n", stderr: "", exit_code: 0 });
+
+    const result = await runPython.execute({
+      code: "print('ok')",
+      install_package: "python-pptx",
+    });
+
+    expect(result).toContain("ok");
+  });
+});
+
+describe("run_node skill", () => {
+  it("installs comma-separated packages one by one", async () => {
+    mockInitNodeEnv.mockResolvedValue("ready");
+    mockInstallNodePackage.mockResolvedValue("Successfully installed");
+    mockRunNodeScript.mockResolvedValue({ stdout: "ok\n", stderr: "", exit_code: 0 });
+
+    const result = await runNode.execute({
+      code: "console.log('ok')",
+      install_package: "pptxgenjs,react,react-dom",
+    });
+
+    expect(result).toContain("ok");
+    expect(mockInstallNodePackage).toHaveBeenCalledTimes(3);
+    expect(mockInstallNodePackage).toHaveBeenNthCalledWith(1, "pptxgenjs");
+    expect(mockInstallNodePackage).toHaveBeenNthCalledWith(2, "react");
+    expect(mockInstallNodePackage).toHaveBeenNthCalledWith(3, "react-dom");
   });
 });
 

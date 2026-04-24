@@ -14,9 +14,11 @@ Use this for:
 - Any task that benefits from Node.js libraries
 
 The script runs with a 60-second timeout by default. Use console.log() for output.
-If you need a package, use the install_package parameter — it installs to the isolated environment.
+If you need packages, use the install_package parameter — it installs to the isolated environment. You may pass one package or a comma/space-separated list, e.g. "pptxgenjs react react-dom".
 
-IMPORTANT: This is the correct way to run Node.js scripts. Do NOT use shell to run "node" directly.`,
+IMPORTANT: This is the correct way to run Node.js scripts. Do NOT use shell to run "node" directly.
+IMPORTANT FOR LARGE OUTPUTS: Keep code compact and data-driven. For decks/reports, define arrays of slide/page data and helper functions, then loop. Do not pass thousands of lines of repeated code as a tool argument.
+If a script is too large for one tool call, write it to a workspace file with write_file chunks, then call run_node with a short loader: require("/absolute/path/to/script.js").`,
     parameters: {
       type: "object",
       properties: {
@@ -26,7 +28,7 @@ IMPORTANT: This is the correct way to run Node.js scripts. Do NOT use shell to r
         },
         install_package: {
           type: "string",
-          description: "If set, install this npm package before running code. E.g. \"pptxgenjs\" or \"docx\". Leave empty if not needed.",
+          description: "If set, install npm package(s) before running code. Accepts one package or a comma/space-separated list, e.g. \"pptxgenjs\" or \"pptxgenjs react react-dom\". Leave empty if not needed.",
         },
         cwd: {
           type: "string",
@@ -52,10 +54,11 @@ IMPORTANT: This is the correct way to run Node.js scripts. Do NOT use shell to r
       await initNodeEnv();
 
       // Install package if requested
-      if (installPkg) {
-        const installResult = await installNodePackage(installPkg);
+      const packages = parsePackageList(installPkg);
+      for (const pkg of packages) {
+        const installResult = await installNodePackage(pkg);
         if (installResult.toLowerCase().includes("err")) {
-          return `Package installation failed: ${installResult}`;
+          return `Package installation failed for ${pkg}: ${installResult}`;
         }
       }
 
@@ -79,3 +82,11 @@ IMPORTANT: This is the correct way to run Node.js scripts. Do NOT use shell to r
     }
   },
 };
+
+function parsePackageList(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(/[,\s]+/)
+    .map((pkg) => pkg.trim())
+    .filter(Boolean);
+}

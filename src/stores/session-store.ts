@@ -12,6 +12,7 @@ import { getEnv } from "@/lib/tauri";
 
 /** Max messages sent to LLM (context window management). */
 const LLM_CONTEXT_WINDOW = 40;
+const TOOL_HISTORY_RESULT_LIMIT = 300;
 
 /** Special role for context divider markers. */
 const CONTEXT_DIVIDER_ROLE = "system" as const;
@@ -23,15 +24,41 @@ interface KnowledgeRef {
   snippet: string;
 }
 
+interface AgentStepRecord {
+  skill: string;
+  status: "running" | "done";
+  input?: unknown;
+  result?: unknown;
+  durationMs?: number;
+  liveOutput?: string;
+  success?: boolean;
+}
+
+interface LongTaskPhase {
+  phase: string;
+  status: "pending" | "running" | "done" | "failed";
+  summary: string;
+  outputs: { title: string; path?: string; kind?: "file" | "artifact" | "note" }[];
+  updatedAt: number;
+}
+
+interface LongTaskState {
+  runId: string;
+  workspaceDir: string;
+  reason: string;
+  phases: LongTaskPhase[];
+}
+
 interface SessionState {
   sessionId: string | null;
   messages: Message[];
   isStreaming: boolean;
   streamingText: string;
-  steps: Array<{ skill: string; status: "running" | "done"; input?: unknown; result?: unknown; durationMs?: number; liveOutput?: string; success?: boolean }>;
+  steps: AgentStepRecord[];
   artifacts: Artifact[];
   knowledgeRefs: KnowledgeRef[];
   error: string | null;
+  longTask: LongTaskState | null;
   initialized: boolean;
   planMode: boolean;
   /** Working directory — all tools use this as base. */
@@ -55,6 +82,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   artifacts: [],
   knowledgeRefs: [],
   error: null,
+  longTask: null,
   initialized: false,
   planMode: false,
   workingDirectory: "",
@@ -88,6 +116,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       knowledgeRefs: [],
       steps: [],
       error: null,
+      longTask: null,
     });
   },
 
@@ -137,12 +166,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({
         role: m.role === "user" ? "user" as const : "assistant" as const,
-        content: m.content,
+        content: m.role === "assistant" ? appendTrustedToolHistory(m) : m.content,
       }));
 
-    set({ isStreaming: true, streamingText: "", steps: [], error: null, knowledgeRefs: [] });
+    set({ isStreaming: true, streamingText: "", steps: [], error: null, knowledgeRefs: [], longTask: null });
 
     let fullText = "";
+    let agentError: string | null = null;
 
     try {
       const { planMode, workingDirectory } = get();
@@ -160,16 +190,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         handleEvent(event, set);
         if (event.type === "text-delta") {
           fullText += event.text;
+        } else if (event.type === "error") {
+          agentError = event.error;
         }
       }
 
       // Save message with steps — even if fullText is empty, steps may have useful info
       const completedSteps = get().steps.filter((s) => s.skill !== "__thinking__");
-      if (fullText || completedSteps.length > 0) {
+      if (fullText || completedSteps.length > 0 || agentError) {
+        const assistantContent = agentError
+          ? `${fullText ? `${fullText}\n\n` : ""}[Error: ${agentError}]`
+          : fullText || "(No text output)";
         const assistantMsg = await createMessage({
           sessionId,
           role: "assistant",
-          content: fullText || "(No text output)",
+          content: assistantContent,
           metadata: completedSteps.length > 0 ? { steps: completedSteps } : undefined,
         });
         set((s) => ({
@@ -177,6 +212,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           isStreaming: false,
           streamingText: "",
           steps: [],
+          error: agentError,
         }));
       } else {
         set({ isStreaming: false });
@@ -227,6 +263,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       steps: [],
       knowledgeRefs: [],
       error: null,
+      longTask: null,
     }));
   },
 
@@ -276,6 +313,38 @@ function handleEvent(
         }));
       }
       break;
+    case "long-task-start":
+      set(() => ({
+        longTask: {
+          runId: event.runId,
+          workspaceDir: event.workspaceDir,
+          reason: event.reason,
+          phases: [],
+        },
+      }));
+      break;
+    case "long-task-progress":
+      set((s) => {
+        const current = s.longTask || {
+          runId: event.runId,
+          workspaceDir: event.workspaceDir,
+          reason: "",
+          phases: [],
+        };
+        const phase: LongTaskPhase = {
+          phase: event.phase,
+          status: event.status,
+          summary: event.summary,
+          outputs: event.outputs,
+          updatedAt: event.updatedAt,
+        };
+        const existingIndex = current.phases.findIndex((p) => p.phase === event.phase);
+        const phases = existingIndex >= 0
+          ? current.phases.map((p, i) => i === existingIndex ? phase : p)
+          : [...current.phases, phase];
+        return { longTask: { ...current, phases } };
+      });
+      break;
     case "skill-start":
       set((s) => ({
         steps: [...s.steps, { skill: event.skill, status: "running", input: event.input }],
@@ -305,4 +374,27 @@ function handleEvent(
 /** Check if a message is a context divider (for UI rendering). */
 export function isContextDivider(message: Message): boolean {
   return message.role === CONTEXT_DIVIDER_ROLE && message.content === CONTEXT_DIVIDER_CONTENT;
+}
+
+function appendTrustedToolHistory(message: Message): string {
+  const steps = (message.metadata as { steps?: AgentStepRecord[] } | null)?.steps;
+  const completedSteps = steps?.filter((step) => step.skill !== "__thinking__" && step.status === "done");
+  if (!completedSteps?.length) return message.content;
+
+  const lines = completedSteps.map((step) => {
+    const status = step.success === false ? "failed" : "succeeded";
+    const result = summarizeForContext(step.result);
+    return `- ${step.skill}: ${status}${result ? `; result: ${result}` : ""}`;
+  });
+
+  return `${message.content}\n\n[Trusted tool execution record from this assistant turn]\n${lines.join("\n")}`;
+}
+
+function summarizeForContext(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  if (!text) return "";
+  return text.length > TOOL_HISTORY_RESULT_LIMIT
+    ? `${text.slice(0, TOOL_HISTORY_RESULT_LIMIT)}... (${text.length} chars total)`
+    : text;
 }

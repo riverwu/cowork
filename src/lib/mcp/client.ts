@@ -83,14 +83,18 @@ export class McpClient {
     const result = await this.transport.request("tools/call", {
       name,
       arguments: args,
-    }) as { content: Array<{ type: string; text?: string }> };
+    }) as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
 
     // Extract text content from response
     const textParts = (result.content || [])
       .filter((c) => c.type === "text" && c.text)
       .map((c) => c.text!);
 
-    return textParts.join("\n") || "(no output)";
+    const output = textParts.join("\n") || "(no output)";
+    if (result.isError) {
+      throw new Error(`MCP tool error: ${output}`);
+    }
+    return output;
   }
 
   async disconnect(): Promise<void> {
@@ -124,7 +128,10 @@ export class McpClient {
       // Prefix MCP tools with server id to avoid name collisions.
       // Uses double underscore as delimiter (like Codex CLI) so names
       // with single underscores don't cause ambiguity.
-      const toolName = `mcp__${this.serverId}__${mcpTool.name}`;
+      let toolName = toLlmToolName(this.serverId, mcpTool.name);
+      if (result[toolName]) {
+        toolName = withProviderSafeSuffix(toolName, stableHash(`${this.serverId}:${mcpTool.name}`));
+      }
 
       result[toolName] = {
         definition: {
@@ -146,4 +153,31 @@ export class McpClient {
 
     return result;
   }
+}
+
+/**
+ * LLM providers restrict tool/function names more tightly than MCP does.
+ * Keep the public tool name deterministic while preserving the original MCP
+ * tool name inside the execute closure.
+ */
+export function toLlmToolName(serverId: string, mcpToolName: string): string {
+  const raw = `mcp__${serverId}__${mcpToolName}`;
+  const sanitized = raw.replace(/[^A-Za-z0-9_-]/g, "_");
+  if (sanitized.length <= 64) return sanitized;
+
+  const suffix = stableHash(raw);
+  return `${sanitized.slice(0, 55)}_${suffix}`;
+}
+
+function stableHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+function withProviderSafeSuffix(name: string, suffix: string): string {
+  return `${name.slice(0, 55)}_${suffix}`;
 }

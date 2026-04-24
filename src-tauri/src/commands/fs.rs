@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
@@ -14,14 +15,9 @@ pub struct FileInfo {
     pub extension: String,
 }
 
-/// Supported document extensions for indexing.
-const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "txt", "md", "markdown", "csv", "json", "xml", "html", "htm",
-    "pdf", "docx", "xlsx", "xls",
-    "py", "js", "ts", "rs", "go", "java", "rb", "sh", "yaml", "yml", "toml",
-];
-
-/// Scan a directory recursively and return all supported files.
+/// Scan a directory recursively and return all regular files.
+/// The indexer decides which files support content extraction and which files
+/// should be cataloged as metadata-only entries.
 /// Skips hidden files/dirs (starting with '.') and common non-content dirs.
 #[tauri::command]
 pub fn scan_directory(path: &str) -> Result<Vec<FileInfo>, String> {
@@ -55,10 +51,6 @@ pub fn scan_directory(path: &str) -> Result<Vec<FileInfo>, String> {
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase())
             .unwrap_or_default();
-
-        if !SUPPORTED_EXTENSIONS.contains(&ext.as_str()) {
-            continue;
-        }
 
         let metadata = match entry.metadata() {
             Ok(m) => m,
@@ -95,7 +87,7 @@ pub fn read_file_text(path: &str) -> Result<String, String> {
 }
 
 /// Parse a document file and extract its text content.
-/// Supports: txt, md, csv, json, pdf, docx, xlsx, and other text files.
+/// Supports: txt, md/markdown, csv, json, pdf, doc/docx, xlsx, and other text files.
 #[tauri::command]
 pub fn parse_document(path: &str) -> Result<String, String> {
     let file_path = Path::new(path);
@@ -106,12 +98,34 @@ pub fn parse_document(path: &str) -> Result<String, String> {
 
     match ext.as_str() {
         "pdf" => parse_pdf(path),
+        "doc" => parse_doc(path),
         "docx" => parse_docx(path),
         "xlsx" | "xls" => parse_xlsx(path),
         // All other supported types are plain text
         _ => fs::read_to_string(path)
             .map_err(|e| format!("Failed to read {}: {}", path, e)),
     }
+}
+
+fn parse_doc(path: &str) -> Result<String, String> {
+    let output = Command::new("textutil")
+        .args(["-convert", "txt", "-stdout", path])
+        .output()
+        .map_err(|e| format!("DOC parse error: textutil not available or failed to start: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "DOC parse error: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout).to_string();
+    if text.trim().is_empty() {
+        return Err("DOC appears to contain no extractable text".into());
+    }
+
+    Ok(text)
 }
 
 fn parse_pdf(path: &str) -> Result<String, String> {
@@ -126,11 +140,234 @@ fn parse_pdf(path: &str) -> Result<String, String> {
         }
     }
 
+    let form_text = extract_pdf_form_text(&doc);
+    if !form_text.trim().is_empty() {
+        text.push_str(&form_text);
+        text.push('\n');
+    }
+
     if text.trim().is_empty() {
-        return Err("PDF appears to be scanned/image-based — no text extracted".into());
+        if let Ok(ocr_text) = ocr_pdf_with_macos_vision(path) {
+            text.push_str(&ocr_text);
+            text.push('\n');
+        }
+    }
+
+    if text.trim().is_empty() {
+        return Err("PDF appears to be scanned/image-based or form-only with no extractable text".into());
     }
 
     Ok(text)
+}
+
+fn ocr_pdf_with_macos_vision(path: &str) -> Result<String, String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        return Err("PDF OCR fallback is only available on macOS".into());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let swift = Path::new("/usr/bin/swift");
+        if !swift.exists() {
+            return Err("macOS Vision OCR fallback requires /usr/bin/swift".into());
+        }
+
+        let temp_dir = std::env::temp_dir().join("cowork-ocr");
+        fs::create_dir_all(&temp_dir)
+            .map_err(|e| format!("Failed to create OCR temp dir: {}", e))?;
+        let script_path = temp_dir.join("pdf_vision_ocr.swift");
+        fs::write(&script_path, MACOS_VISION_OCR_SWIFT)
+            .map_err(|e| format!("Failed to write OCR script: {}", e))?;
+
+        let output = Command::new(swift)
+            .env("CLANG_MODULE_CACHE_PATH", temp_dir.join("clang-cache"))
+            .arg(&script_path)
+            .arg(path)
+            .output()
+            .map_err(|e| format!("Failed to start macOS Vision OCR: {}", e))?;
+
+        if !output.status.success() {
+            return Err(format!(
+                "macOS Vision OCR failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        if text.trim().is_empty() {
+            return Err("macOS Vision OCR produced no text".into());
+        }
+        Ok(text)
+    }
+}
+
+#[cfg(target_os = "macos")]
+const MACOS_VISION_OCR_SWIFT: &str = r#"
+import Foundation
+import PDFKit
+import Vision
+import AppKit
+
+let path = CommandLine.arguments[1]
+guard let document = PDFDocument(url: URL(fileURLWithPath: path)) else {
+    fputs("Unable to open PDF\n", stderr)
+    exit(2)
+}
+
+for pageIndex in 0..<document.pageCount {
+    guard let page = document.page(at: pageIndex) else { continue }
+    let bounds = page.bounds(for: .mediaBox)
+    let width: CGFloat = 1400
+    let height = max(1, width * bounds.height / max(1, bounds.width))
+    let image = page.thumbnail(of: NSSize(width: width, height: height), for: .mediaBox)
+    guard let tiff = image.tiffRepresentation,
+          let bitmap = NSBitmapImageRep(data: tiff),
+          let png = bitmap.representation(using: .png, properties: [:]) else {
+        continue
+    }
+
+    let imageURL = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("cowork-ocr-\(UUID().uuidString).png")
+    try? png.write(to: imageURL)
+    defer { try? FileManager.default.removeItem(at: imageURL) }
+
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    request.usesLanguageCorrection = true
+    request.recognitionLanguages = ["en-US", "zh-Hans"]
+
+    let handler = VNImageRequestHandler(url: imageURL, options: [:])
+    do {
+        try handler.perform([request])
+    } catch {
+        fputs("Vision OCR page \(pageIndex + 1) failed: \(error)\n", stderr)
+        continue
+    }
+
+    for observation in request.results ?? [] {
+        if let candidate = observation.topCandidates(1).first {
+            print(candidate.string)
+        }
+    }
+}
+"#;
+
+fn extract_pdf_form_text(doc: &lopdf::Document) -> String {
+    let mut lines = Vec::new();
+
+    if let Ok(catalog) = doc.catalog() {
+        if let Ok(acro_form) = catalog.get_deref(b"AcroForm", doc).and_then(lopdf::Object::as_dict) {
+            if let Ok(fields) = acro_form.get(b"Fields").and_then(lopdf::Object::as_array) {
+                for field in fields {
+                    collect_pdf_field(doc, field, None, &mut lines);
+                }
+            }
+        }
+    }
+
+    for page_id in doc.get_pages().values().copied() {
+        if let Ok(annotations) = doc.get_page_annotations(page_id) {
+            for annotation in annotations {
+                collect_pdf_field_dict(doc, annotation, None, &mut lines);
+            }
+        }
+    }
+
+    dedupe_lines(lines).join("\n")
+}
+
+fn collect_pdf_field(
+    doc: &lopdf::Document,
+    object: &lopdf::Object,
+    inherited_name: Option<String>,
+    lines: &mut Vec<String>,
+) {
+    let resolved = match object {
+        lopdf::Object::Reference(id) => doc.get_object(*id).ok(),
+        _ => Some(object),
+    };
+    if let Some(lopdf::Object::Dictionary(dict)) = resolved {
+        collect_pdf_field_dict(doc, dict, inherited_name, lines);
+    }
+}
+
+fn collect_pdf_field_dict(
+    doc: &lopdf::Document,
+    dict: &lopdf::Dictionary,
+    inherited_name: Option<String>,
+    lines: &mut Vec<String>,
+) {
+    let name = dict
+        .get(b"T")
+        .ok()
+        .and_then(pdf_object_to_text)
+        .or_else(|| dict.get(b"TU").ok().and_then(pdf_object_to_text))
+        .or(inherited_name);
+
+    let value = dict
+        .get(b"V")
+        .ok()
+        .and_then(pdf_object_to_text)
+        .or_else(|| dict.get(b"DV").ok().and_then(pdf_object_to_text));
+
+    if let Some(value) = value.filter(|v| !v.trim().is_empty() && v.trim() != "Off") {
+        if let Some(name) = name.as_ref().filter(|n| !n.trim().is_empty()) {
+            lines.push(format!("{}: {}", name.trim(), value.trim()));
+        } else {
+            lines.push(value.trim().to_string());
+        }
+    }
+
+    if let Ok(kids) = dict.get(b"Kids").and_then(lopdf::Object::as_array) {
+        for kid in kids {
+            collect_pdf_field(doc, kid, name.clone(), lines);
+        }
+    }
+}
+
+fn pdf_object_to_text(object: &lopdf::Object) -> Option<String> {
+    match object {
+        lopdf::Object::String(bytes, _) => Some(decode_pdf_string(bytes)),
+        lopdf::Object::Name(bytes) => Some(String::from_utf8_lossy(bytes).to_string()),
+        lopdf::Object::Integer(value) => Some(value.to_string()),
+        lopdf::Object::Real(value) => Some(value.to_string()),
+        lopdf::Object::Boolean(value) => Some(value.to_string()),
+        lopdf::Object::Array(items) => {
+            let values: Vec<String> = items.iter().filter_map(pdf_object_to_text).collect();
+            if values.is_empty() { None } else { Some(values.join(", ")) }
+        }
+        _ => None,
+    }
+}
+
+fn decode_pdf_string(bytes: &[u8]) -> String {
+    if bytes.starts_with(&[0xFE, 0xFF]) && bytes.len() >= 4 {
+        let units: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_be_bytes([chunk[0], chunk[1]]))
+            .collect();
+        return String::from_utf16_lossy(&units);
+    }
+    if bytes.starts_with(&[0xFF, 0xFE]) && bytes.len() >= 4 {
+        let units: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect();
+        return String::from_utf16_lossy(&units);
+    }
+    String::from_utf8_lossy(bytes).to_string()
+}
+
+fn dedupe_lines(lines: Vec<String>) -> Vec<String> {
+    let mut deduped = Vec::new();
+    for line in lines {
+        if !deduped.iter().any(|existing| existing == &line) {
+            deduped.push(line);
+        }
+    }
+    deduped
 }
 
 fn parse_docx(path: &str) -> Result<String, String> {
@@ -205,6 +442,19 @@ pub fn write_file(path: &str, content: &str) -> Result<(), String> {
     fs::write(path, content).map_err(|e| format!("Failed to write {}: {}", path, e))
 }
 
+/// Delete a file if it exists.
+#[tauri::command]
+pub fn delete_file(path: &str) -> Result<(), String> {
+    let file_path = Path::new(path);
+    if !file_path.exists() {
+        return Ok(());
+    }
+    if !file_path.is_file() {
+        return Err(format!("Not a file: {}", path));
+    }
+    fs::remove_file(path).map_err(|e| format!("Failed to delete {}: {}", path, e))
+}
+
 /// List directory contents (non-recursive).
 #[tauri::command]
 pub fn list_directory(path: &str) -> Result<Vec<FileInfo>, String> {
@@ -240,6 +490,13 @@ pub struct GrepMatch {
     pub line: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct RipgrepMatch {
+    pub path: String,
+    pub line_number: u32,
+    pub line: String,
+}
+
 /// Search file contents recursively for a pattern.
 #[tauri::command]
 pub fn grep(directory: &str, pattern: &str, max_results: Option<u32>) -> Result<Vec<GrepMatch>, String> {
@@ -250,7 +507,10 @@ pub fn grep(directory: &str, pattern: &str, max_results: Option<u32>) -> Result<
     let mut results = Vec::new();
 
     for entry in WalkDir::new(dir).follow_links(false).into_iter()
-        .filter_entry(|e| { let n = e.file_name().to_string_lossy(); !n.starts_with('.') && !skip_dirs.contains(&n.as_ref()) })
+        .filter_entry(|e| {
+            let n = e.file_name().to_string_lossy();
+            e.depth() == 0 || (!n.starts_with('.') && !skip_dirs.contains(&n.as_ref()))
+        })
     {
         if results.len() >= max { break; }
         let entry = match entry { Ok(e) => e, Err(_) => continue };
@@ -269,6 +529,158 @@ pub fn grep(directory: &str, pattern: &str, max_results: Option<u32>) -> Result<
         }
     }
     Ok(results)
+}
+
+/// Search file contents using ripgrep when available. The pattern is passed as
+/// a single regex argument, not through a shell.
+#[tauri::command]
+pub fn ripgrep_search(
+    directory: &str,
+    pattern: &str,
+    max_results: Option<u32>,
+) -> Result<Vec<RipgrepMatch>, String> {
+    let dir = Path::new(directory);
+    if !dir.is_dir() { return Err(format!("Not a directory: {}", directory)); }
+    if pattern.trim().is_empty() { return Ok(Vec::new()); }
+
+    let max_u32 = max_results.unwrap_or(100).clamp(1, 1000);
+    let output = Command::new("rg")
+        .args([
+            "--line-number",
+            "--with-filename",
+            "--ignore-case",
+            "--color",
+            "never",
+            "--max-count",
+            &max_u32.to_string(),
+            pattern,
+            directory,
+        ])
+        .output()
+        .map_err(|e| format!("ripgrep is not available: {}", e))?;
+
+    if !output.status.success() && output.status.code() != Some(1) {
+        return Err(format!(
+            "ripgrep failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+
+    let mut results = Vec::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        if results.len() >= max_u32 as usize { break; }
+        if let Some((path, rest)) = line.split_once(':') {
+            if let Some((line_number, text)) = rest.split_once(':') {
+                if let Ok(line_number) = line_number.parse::<u32>() {
+                    results.push(RipgrepMatch {
+                        path: path.to_string(),
+                        line_number,
+                        line: text.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{grep, parse_document, ripgrep_search, scan_directory};
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn test_docs_dir() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../test_docs")
+    }
+
+    fn test_doc(name: &str) -> String {
+        test_docs_dir().join(name).to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn scan_directory_includes_real_test_docs_inventory() {
+        let files = scan_directory(&test_docs_dir().to_string_lossy()).expect("scan test_docs");
+        let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
+
+        assert!(names.contains(&"25年上半年人力数据分析-V1.xlsx"));
+        assert!(names.contains(&"硬件3月经营分析会.pdf"));
+        assert!(names.contains(&"massistant-config.json"));
+    }
+
+    #[test]
+    fn parse_document_extracts_real_xlsx_sheet_text() {
+        let text = parse_document(&test_doc("25年上半年人力数据分析-V1.xlsx"))
+            .expect("parse real xlsx sample");
+
+        assert!(text.contains("## Sheet:"));
+        assert!(text.trim().len() > 100);
+    }
+
+    #[test]
+    fn parse_document_extracts_text_from_at_least_one_real_pdf_sample() {
+        let pdfs = [
+            "硬件3月经营分析会.pdf",
+            "晚点访谈稿.pdf",
+            "有道词典APP同传翻译重度用户定性报告 260305 V1.pdf",
+            "KPMG_Studie_Artif_Intelligence_2018_BF_SEC_English.pdf",
+        ];
+
+        let parsed = pdfs
+            .iter()
+            .filter_map(|name| parse_document(&test_doc(name)).ok())
+            .filter(|text| text.trim().len() > 100)
+            .count();
+
+        assert!(parsed > 0, "expected at least one real PDF sample to contain extractable text");
+    }
+
+    #[test]
+    fn parse_document_extracts_real_pdf_form_fields() {
+        if std::env::var("COWORK_RUN_OCR_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("Skipping OCR sample test; set COWORK_RUN_OCR_TESTS=1 to run it.");
+            return;
+        }
+
+        let text = parse_document(&test_doc("ubs form 1.pdf"))
+            .expect("parse real PDF form sample");
+
+        assert!(text.trim().len() > 100);
+    }
+
+    #[test]
+    fn grep_can_search_hidden_cache_when_it_is_the_root_directory() {
+        let dir = std::env::temp_dir().join(format!(".cowork-text-cache-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("create cache dir");
+        let file = dir.join("doc1.txt");
+        fs::write(&file, "alpha searchable keyword").expect("write cache file");
+
+        let matches = grep(&dir.to_string_lossy(), "searchable", Some(10)).expect("grep cache dir");
+        let _ = fs::remove_file(file);
+        let _ = fs::remove_dir(dir);
+
+        assert_eq!(matches.len(), 1);
+        assert!(matches[0].line.contains("searchable"));
+    }
+
+    #[test]
+    fn ripgrep_search_finds_or_regex_matches_when_available() {
+        let dir = std::env::temp_dir().join(format!("cowork-rg-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let file = dir.join("doc1.txt");
+        fs::write(&file, "人力资源\n招聘计划\n").expect("write temp file");
+
+        match ripgrep_search(&dir.to_string_lossy(), "人力资源|薪酬", Some(10)) {
+            Ok(matches) => assert!(matches.iter().any(|m| m.line.contains("人力资源"))),
+            Err(err) if err.contains("ripgrep is not available") => {}
+            Err(err) => panic!("unexpected ripgrep error: {}", err),
+        }
+
+        let _ = fs::remove_file(file);
+        let _ = fs::remove_dir(dir);
+    }
 }
 
 #[derive(Debug, Serialize)]

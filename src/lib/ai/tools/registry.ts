@@ -1,5 +1,7 @@
 import type { Tool } from "./types";
 import { searchKnowledge } from "./search-knowledge";
+import { listKnowledgeSources } from "./list-knowledge-sources";
+import { getSourceCatalog } from "./get-source-catalog";
 import { readFile } from "./read-document";
 import { writeFileSkill } from "./write-file";
 import { listDirectorySkill } from "./list-directory";
@@ -12,9 +14,10 @@ import { webSearchSkill } from "./web-search";
 import { webFetchSkill } from "./web-fetch";
 import { shellExecSkill } from "./shell-exec";
 import { applyPatchSkill } from "./apply-patch";
+import { updateTaskProgress } from "./update-task-progress";
 
 /**
- * Built-in tool registry — 13 tools.
+ * Built-in tool registry — 16 tools.
  *
  * These are the agent's built-in capabilities, registered as LLM function-calling tools.
  * They are NOT user-installed skills (SKILL.md) — those are managed by SkillRegistry.
@@ -26,9 +29,9 @@ import { applyPatchSkill } from "./apply-patch";
  * Web:
  *   web_search, web_fetch
  * Knowledge & Memory:
- *   search_knowledge, save_memory
+ *   list_knowledge_sources, get_source_catalog, search_knowledge, save_memory
  * Output:
- *   create_artifact
+ *   create_artifact, update_task_progress
  */
 const tools: Record<string, Tool> = {
   // File operations
@@ -45,10 +48,13 @@ const tools: Record<string, Tool> = {
   web_search: webSearchSkill,
   web_fetch: webFetchSkill,
   // Knowledge & Memory
+  list_knowledge_sources: listKnowledgeSources,
+  get_source_catalog: getSourceCatalog,
   search_knowledge: searchKnowledge,
   save_memory: saveMemory,
   // Output
   create_artifact: createArtifactSkill,
+  update_task_progress: updateTaskProgress,
 };
 
 export function getTools(): Record<string, Tool> {

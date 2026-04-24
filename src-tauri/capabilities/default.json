@@ -13,6 +13,7 @@
     "fs:allow-read-text-file",
     "fs:allow-exists",
     "dialog:default",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "core:window:allow-start-dragging"
   ]
 }

@@ -50,7 +50,7 @@ If you need a package that's not installed, first call with install_package para
       if (installPkg) {
         const installResult = await installPythonPackage(installPkg);
         // Continue to execute code after install
-        if (!installResult.includes("Successfully") && !installResult.includes("already")) {
+        if (isPythonInstallFailure(installResult)) {
           return `Package installation failed: ${installResult}`;
         }
       }
@@ -75,3 +75,25 @@ If you need a package that's not installed, first call with install_package para
     }
   },
 };
+
+function isPythonInstallFailure(output: string): boolean {
+  const normalized = output.toLowerCase();
+  const successSignals = [
+    "installed ",
+    "successfully installed",
+    "requirement already satisfied",
+    "already installed",
+    "already initialized",
+  ];
+  if (successSignals.some((signal) => normalized.includes(signal))) {
+    return false;
+  }
+
+  return [
+    "failed",
+    "error:",
+    "traceback",
+    "no matching distribution found",
+    "could not find a version",
+  ].some((signal) => normalized.includes(signal));
+}

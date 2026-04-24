@@ -81,13 +81,13 @@ const markdownComponents: Components = {
     const isInline = !className;
     if (isInline) {
       return (
-        <code className="px-1 py-0.5 rounded bg-[var(--surface-container)] text-[var(--on-surface)] text-[12px] font-mono" {...props}>
+        <code className="px-1.5 py-0.5 rounded-md bg-[var(--surface-container)] text-[var(--chat-heading)] text-[12.5px] font-mono font-medium" {...props}>
           {children}
         </code>
       );
     }
     return (
-      <code className={`block overflow-x-auto p-3 rounded-lg bg-[var(--surface-container)] text-[12px] font-mono leading-relaxed ${className || ""}`} {...props}>
+      <code className={`block overflow-x-auto p-3 rounded-lg bg-[var(--surface-lowest)] text-[12.5px] text-[var(--chat-text)] font-mono leading-[1.7] ring-1 ring-black/[0.04] ${className || ""}`} {...props}>
         {children}
       </code>
     );
@@ -96,7 +96,7 @@ const markdownComponents: Components = {
   // Pre blocks
   pre({ children }) {
     return (
-      <pre className="my-2 rounded-lg overflow-hidden bg-[var(--surface-container)]">
+      <pre className="my-3 rounded-lg overflow-hidden bg-[var(--surface-lowest)]">
         {children}
       </pre>
     );
@@ -105,13 +105,13 @@ const markdownComponents: Components = {
   // Paragraphs — process file references
   p({ children }) {
     const processed = processChildren(children);
-    return <p className="mb-2 last:mb-0">{processed}</p>;
+    return <p className="mb-2.5 last:mb-0 text-[var(--chat-text)]">{processed}</p>;
   },
 
   // Links
   a({ href, children }) {
     return (
-      <a href={href} target="_blank" rel="noopener" className="text-[var(--primary-accent)] hover:underline cursor-pointer">
+      <a href={href} target="_blank" rel="noopener" className="text-[var(--primary-accent)] font-medium hover:underline cursor-pointer">
         {children}
       </a>
     );
@@ -135,35 +135,35 @@ const markdownComponents: Components = {
   // Tables
   table({ children }) {
     return (
-      <div className="my-2 overflow-x-auto rounded-lg border border-[var(--border)]">
-        <table className="w-full text-[12px]">{children}</table>
+      <div className="my-3 overflow-x-auto rounded-lg bg-[var(--surface-lowest)] ring-1 ring-black/[0.04]">
+        <table className="w-full text-[12.5px] border-separate border-spacing-0">{children}</table>
       </div>
     );
   },
   thead({ children }) {
-    return <thead className="bg-[var(--surface-low)]">{children}</thead>;
+    return <thead className="bg-[var(--surface-bright)]">{children}</thead>;
   },
   th({ children }) {
-    return <th className="px-3 py-1.5 text-left font-medium text-[var(--on-surface-secondary)] border-b border-[var(--border)]">{children}</th>;
+    return <th className="px-3 py-2 text-left font-semibold text-[var(--chat-heading)] border-b border-black/[0.06]">{children}</th>;
   },
   td({ children }) {
-    return <td className="px-3 py-1.5 border-b border-[var(--border)]/50 text-[var(--on-surface-secondary)]">{children}</td>;
+    return <td className="px-3 py-2 border-b border-black/[0.035] text-[var(--chat-text)] align-top">{children}</td>;
   },
 
   // Headings
-  h1({ children }) { return <h1 className="text-[16px] font-bold mt-4 mb-2">{children}</h1>; },
-  h2({ children }) { return <h2 className="text-[15px] font-bold mt-3 mb-1.5">{children}</h2>; },
-  h3({ children }) { return <h3 className="text-[14px] font-semibold mt-3 mb-1">{children}</h3>; },
-  h4({ children }) { return <h4 className="text-[13px] font-semibold mt-2 mb-1">{children}</h4>; },
+  h1({ children }) { return <h1 className="text-[17px] font-semibold text-[var(--chat-heading)] mt-5 mb-2.5">{children}</h1>; },
+  h2({ children }) { return <h2 className="text-[16px] font-semibold text-[var(--chat-heading)] mt-4 mb-2">{children}</h2>; },
+  h3({ children }) { return <h3 className="text-[15px] font-semibold text-[var(--chat-heading)] mt-3.5 mb-1.5">{children}</h3>; },
+  h4({ children }) { return <h4 className="text-[14px] font-semibold text-[var(--chat-heading)] mt-3 mb-1">{children}</h4>; },
 
   // Lists
-  ul({ children }) { return <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul>; },
-  ol({ children }) { return <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol>; },
-  li({ children }) { return <li className="text-[var(--on-surface-secondary)]">{children}</li>; },
+  ul({ children }) { return <ul className="list-disc pl-5 mb-2.5 space-y-1 marker:text-[var(--chat-muted)]">{children}</ul>; },
+  ol({ children }) { return <ol className="list-decimal pl-5 mb-2.5 space-y-1 marker:text-[var(--chat-muted)]">{children}</ol>; },
+  li({ children }) { return <li className="text-[var(--chat-text)] pl-0.5">{children}</li>; },
 
   // Blockquote
   blockquote({ children }) {
-    return <blockquote className="border-l-3 border-[var(--border)] pl-3 my-2 text-[var(--on-surface-tertiary)] italic">{children}</blockquote>;
+    return <blockquote className="border-l-3 border-[var(--border)] pl-3 my-3 text-[var(--chat-muted)]">{children}</blockquote>;
   },
 
   // Horizontal rule

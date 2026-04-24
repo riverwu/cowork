@@ -8,8 +8,13 @@ import { retrieveRelevant, buildKnowledgeContext } from "@/lib/knowledge";
 import { retrieveMemoryContext, buildMemoryPrompt, extractMemories } from "@/lib/memory";
 import { mcpManager } from "@/lib/mcp";
 import type { AgentEvent } from "@/types";
+import { buildLongTaskPrompt, detectLongTask } from "./long-task";
+import { setCurrentLongTask } from "./task-context";
+import { isToolResultFailure } from "./tool-result";
 
 const MAX_STEPS = 25;
+const MAX_TRUNCATION_RECOVERIES = 3;
+const MAX_TOOL_RESULT_CHARS_FOR_LLM = 12000;
 
 export interface AgentParams {
   messages: LLMMessage[];
@@ -38,6 +43,11 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
 
   // Wait for MCP servers to finish connecting (with timeout)
   await mcpManager.waitForReady();
+  if (!skillRegistry.isLoaded()) {
+    await skillRegistry.initialize().catch((err) => {
+      console.warn("[Agent] Skill registry failed to initialize:", err);
+    });
+  }
 
   // Merge built-in tools + MCP tools
   // Note: user-installed skills (SKILL.md) are NOT tools — they're injected
@@ -66,7 +76,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
 
   // 2. Retrieve knowledge context
   let knowledgeContext = "";
-  if (!params.skipKnowledge && query) {
+  if (!params.skipKnowledge && query && !isKnowledgeDiscoveryRequest(query)) {
     try {
       const results = await retrieveRelevant(query, 5);
       if (results.length > 0) {
@@ -106,10 +116,22 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   // LLM reads SKILL.md on-demand via read_file (progressive disclosure).
   const availableSkillsPrompt = skillRegistry.getAvailableSkillsPrompt();
 
+  const longTask = detectLongTask(params.messages, params.workingDirectory);
+  setCurrentLongTask(longTask);
+  if (longTask) {
+    yield {
+      type: "long-task-start",
+      runId: longTask.runId,
+      workspaceDir: longTask.workspaceDir,
+      reason: longTask.reason,
+    };
+  }
+
   const system = buildSystemPrompt({
     tools: toolDefs,
     memoryContext: memoryContext || undefined,
     knowledgeContext: knowledgeContext || undefined,
+    longTaskContext: longTask ? buildLongTaskPrompt(longTask) : undefined,
     planMode: params.planMode,
     workingDirectory: params.workingDirectory,
     availableSkillsPrompt: availableSkillsPrompt || undefined,
@@ -123,23 +145,33 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   // 4. Agent loop
   const currentMessages: LLMMessage[] = [...params.messages];
   let fullAssistantText = "";
+  let hitStepLimit = true;
+  let truncationRecoveries = 0;
 
+  try {
   for (let step = 0; step < MAX_STEPS; step++) {
     let doneEvent: StreamEvent | null = null;
 
     // Signal LLM is thinking (waiting for response)
     yield { type: "thinking", active: true };
 
-    for await (const event of provider.stream({
-      system,
-      messages: currentMessages,
-      tools: toolDefs,
-    })) {
-      if (event.type === "text-delta") {
-        yield { type: "text-delta", text: event.text };
-      } else if (event.type === "message-done") {
-        doneEvent = event;
+    try {
+      for await (const event of provider.stream({
+        system,
+        messages: currentMessages,
+        tools: toolDefs,
+      })) {
+        if (event.type === "text-delta") {
+          yield { type: "text-delta", text: event.text };
+        } else if (event.type === "message-done") {
+          doneEvent = event;
+        }
       }
+    } catch (err) {
+      yield { type: "thinking", active: false };
+      yield { type: "error", error: `LLM request failed: ${err instanceof Error ? err.message : String(err)}` };
+      hitStepLimit = false;
+      break;
     }
 
     yield { type: "thinking", active: false };
@@ -151,7 +183,36 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
 
     fullAssistantText += doneEvent.content;
 
-    if (doneEvent.stopReason !== "tool_use" || doneEvent.toolCalls.length === 0) {
+    if (doneEvent.stopReason === "max_tokens" && doneEvent.toolCalls.length === 0) {
+      if (longTask && truncationRecoveries < MAX_TRUNCATION_RECOVERIES) {
+        truncationRecoveries++;
+        currentMessages.push({
+          role: "user",
+          content: buildTruncationRecoveryMessage(longTask.workspaceDir, truncationRecoveries),
+        });
+        yield {
+          type: "long-task-progress",
+          runId: longTask.runId,
+          workspaceDir: longTask.workspaceDir,
+          phase: "recover",
+          status: "running",
+          summary: "LLM output hit the token limit; continuing with tool-based chunked file generation.",
+          outputs: [],
+          updatedAt: Date.now(),
+        };
+        continue;
+      }
+
+      yield {
+        type: "error",
+        error: "LLM output was truncated because it hit the model output token limit. For large deliverables, the agent should create files with tools in smaller chunks instead of writing the entire implementation in chat.",
+      };
+      hitStepLimit = false;
+      break;
+    }
+
+    if (doneEvent.stopReason !== "tool_use" && doneEvent.toolCalls.length === 0) {
+      hitStepLimit = false;
       break;
     }
 
@@ -183,16 +244,24 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
 
         const result = await tool.execute(toolCall.input as Record<string, unknown>, onProgress);
         const durationMs = Date.now() - startTime;
+        const success = !isToolResultFailure(result);
 
-        if (result.startsWith("__ARTIFACT__:")) {
+        let uiResult: unknown = summarizeResult(result);
+        if (success && result.startsWith("__ARTIFACT__:")) {
           const artifact = parseArtifactMarker(result);
           if (artifact) {
             yield { type: "artifact", artifact };
           }
+        } else if (success && result.startsWith("__TASK_PROGRESS__:")) {
+          const progress = parseTaskProgressMarker(result);
+          if (progress) {
+            yield { type: "long-task-progress", ...progress };
+            uiResult = `${progress.phase}: ${progress.status} — ${progress.summary}`;
+          }
         }
 
-        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: result });
-        yield { type: "skill-done", skill: toolCall.name, result: summarizeResult(result), durationMs, success: true };
+        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(result) });
+        yield { type: "skill-done", skill: toolCall.name, result: uiResult, durationMs, success };
       } catch (err) {
         const durationMs = Date.now() - startTime;
         const errResult = `Tool execution error: ${err}`;
@@ -200,6 +269,13 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs, success: false };
       }
     }
+  }
+
+  if (hitStepLimit) {
+    yield { type: "error", error: `Agent stopped after reaching the maximum of ${MAX_STEPS} tool/LLM steps.` };
+  }
+  } finally {
+    setCurrentLongTask(null);
   }
 
   yield { type: "done" };
@@ -217,6 +293,22 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   }
 }
 
+function buildTruncationRecoveryMessage(workspaceDir: string, attempt: number): string {
+  return `Your previous response was truncated by the model output token limit. Do not repeat or continue the truncated prose/code in assistant text.
+
+Continue from the last successful tool result using tool calls only.
+
+Required recovery behavior:
+1. If you need to create a large script, write it under ${workspaceDir}/scripts/ with write_file.
+2. Keep each write_file content payload under 12,000 characters.
+3. Use write_file mode "overwrite" for the first chunk and mode "append" for later chunks.
+4. Keep the next tool call small enough to fit comfortably; write only the next coherent chunk.
+5. For PPTX generation, do not use shell for node. After the script is complete, run it with run_node using a short loader: require("/absolute/path/to/script.js").
+6. Do not claim completion until a tool confirms the final output file exists or was created.
+
+Recovery attempt: ${attempt}/${MAX_TRUNCATION_RECOVERIES}.`;
+}
+
 /** Parse artifact marker from create_artifact skill output.
  *  The skill already saved to DB — we just need the data for the UI event. */
 function parseArtifactMarker(result: string) {
@@ -227,7 +319,7 @@ function parseArtifactMarker(result: string) {
   const parts = header.split(":");
   if (parts.length < 3) return null;
   return {
-    id: "",  // Already saved in DB by the skill
+    id: `artifact_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     sessionId: null,
     appId: null,
     runId: null,
@@ -242,4 +334,47 @@ function parseArtifactMarker(result: string) {
 function summarizeResult(result: string): unknown {
   if (result.length <= 200) return result;
   return result.slice(0, 200) + `... (${result.length} chars total)`;
+}
+
+function truncateToolResultForLlm(result: string): string {
+  if (result.length <= MAX_TOOL_RESULT_CHARS_FOR_LLM) return result;
+  const headSize = Math.floor(MAX_TOOL_RESULT_CHARS_FOR_LLM * 0.65);
+  const tailSize = MAX_TOOL_RESULT_CHARS_FOR_LLM - headSize;
+  const omitted = result.length - headSize - tailSize;
+  return [
+    result.slice(0, headSize),
+    `\n\n[Tool result truncated before sending back to the LLM: ${omitted} middle characters omitted. Head and tail are preserved. Use a narrower query, smaller max_chars, or offset-based reads instead of loading everything.]\n\n`,
+    result.slice(result.length - tailSize),
+  ].join("");
+}
+
+function isKnowledgeDiscoveryRequest(query: string): boolean {
+  return /(找|找到|查找|搜索|列出|有哪些|相关).*(文档|文件|资料|报告)|find.*(document|file|report)/i.test(query);
+}
+
+function parseTaskProgressMarker(result: string) {
+  const marker = "__TASK_PROGRESS__:";
+  if (!result.startsWith(marker)) return null;
+  try {
+    const parsed = JSON.parse(result.slice(marker.length)) as {
+      runId: string;
+      workspaceDir: string;
+      phase: string;
+      status: "pending" | "running" | "done" | "failed";
+      summary: string;
+      outputs?: { title: string; path?: string; kind?: "file" | "artifact" | "note" }[];
+      updatedAt: number;
+    };
+    return {
+      runId: parsed.runId,
+      workspaceDir: parsed.workspaceDir,
+      phase: parsed.phase,
+      status: parsed.status,
+      summary: parsed.summary,
+      outputs: parsed.outputs || [],
+      updatedAt: parsed.updatedAt,
+    };
+  } catch {
+    return null;
+  }
 }

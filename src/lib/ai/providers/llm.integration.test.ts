@@ -3,18 +3,19 @@ import type { StreamEvent, ToolCall, LLMMessage } from "./types";
 
 /**
  * Integration tests for LLM API using raw fetch (Node environment).
- * Uses MINIMAX_API and MINIMAX_API_KEY from environment.
+ * Uses LLM_API/LLM_API_KEY/LLM_MODEL or MINIMAX_API/MINIMAX_API_KEY from environment.
  * Skipped if env vars are not set.
  */
 
 let apiKey: string;
 let baseURL: string;
-const model = "MiniMax-M2.7-highspeed";
+let model: string;
 let shouldRun = false;
 
 beforeAll(() => {
-  apiKey = process.env.MINIMAX_API_KEY || "";
-  baseURL = (process.env.MINIMAX_API || "").replace(/\/$/, "");
+  apiKey = process.env.LLM_API_KEY || process.env.MINIMAX_API_KEY || "";
+  baseURL = normalizeAnthropicBaseURL(process.env.LLM_API || process.env.MINIMAX_API || "");
+  model = process.env.LLM_MODEL || "MiniMax-M2.7-highspeed";
   shouldRun = !!(apiKey && baseURL);
 });
 
@@ -179,3 +180,7 @@ describe("LLM Integration", () => {
     if (lastEvent.type === "message-done") expect(deltaText).toBe(lastEvent.content);
   }, 30000);
 });
+
+function normalizeAnthropicBaseURL(raw: string): string {
+  return raw.replace(/\/+$/, "").replace(/\/v1$/, "");
+}

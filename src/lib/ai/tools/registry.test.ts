@@ -3,6 +3,8 @@ import { getTools, getTool, getToolDefinitions } from "./registry";
 
 describe("Tool Registry", () => {
   const EXPECTED_SKILLS = [
+    "list_knowledge_sources",
+    "get_source_catalog",
     "search_knowledge",
     "read_file",
     "write_file",
@@ -16,11 +18,12 @@ describe("Tool Registry", () => {
     "web_fetch",
     "shell",
     "apply_patch",
+    "update_task_progress",
   ];
 
-  it("has exactly 13 built-in tools", () => {
+  it("has exactly 16 built-in tools", () => {
     const skills = getTools();
-    expect(Object.keys(skills)).toHaveLength(13);
+    expect(Object.keys(skills)).toHaveLength(16);
   });
 
   it("has all expected skills registered", () => {
@@ -42,7 +45,7 @@ describe("Tool Registry", () => {
 
   it("generates valid tool definitions for all skills", () => {
     const defs = getToolDefinitions();
-    expect(defs).toHaveLength(13);
+    expect(defs).toHaveLength(16);
 
     for (const def of defs) {
       expect(def.name).toBeTruthy();

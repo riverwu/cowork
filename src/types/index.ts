@@ -13,11 +13,16 @@ export interface Settings {
 
 export interface Source {
   id: string;
-  type: "local_folder" | "upload";
+  type: "local_folder" | "upload" | "confluence" | "erp" | "crm" | "im" | "mcp" | "database" | "api";
   path: string | null;
   name: string;
   status: "active" | "indexing" | "error";
   privacy: "public" | "personal";
+  connectorId?: string | null;
+  externalId?: string | null;
+  syncPolicy?: "manual" | "periodic" | "realtime";
+  lastSyncedAt?: number | null;
+  metadata?: Record<string, unknown> | null;
   createdAt: number;
 }
 
@@ -27,7 +32,12 @@ export interface Document {
   filename: string;
   filePath: string | null;
   contentText: string | null;
-  status: "pending" | "indexed" | "excluded";
+  status: "pending" | "indexed" | "excluded" | "error" | "deleted";
+  embeddingStatus?: "pending" | "embedded" | "partial" | "failed" | "none";
+  contentHash?: string | null;
+  size?: number | null;
+  errorMessage?: string | null;
+  lastIndexedAt?: number | null;
   fileModifiedAt: number | null;
   createdAt: number;
 }
@@ -38,6 +48,31 @@ export interface Chunk {
   content: string;
   embedding: number[] | null;
   metadata: Record<string, unknown> | null;
+  createdAt: number;
+}
+
+export interface SourceCapability {
+  id: string;
+  sourceId: string;
+  capabilityType: "search" | "read" | "query" | "analyze" | "sync" | "write";
+  toolName: string | null;
+  description: string | null;
+  inputSchema: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: number;
+}
+
+export interface SourceEntity {
+  id: string;
+  sourceId: string;
+  entityType: string;
+  name: string;
+  externalId: string | null;
+  summary: string | null;
+  schema: Record<string, unknown> | null;
+  sample: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+  updatedAt: number | null;
   createdAt: number;
 }
 
@@ -145,6 +180,8 @@ export interface Artifact {
 export type AgentEvent =
   | { type: "text-delta"; text: string }
   | { type: "thinking"; active: boolean }
+  | { type: "long-task-start"; runId: string; workspaceDir: string; reason: string }
+  | { type: "long-task-progress"; runId: string; workspaceDir: string; phase: string; status: "pending" | "running" | "done" | "failed"; summary: string; outputs: { title: string; path?: string; kind?: "file" | "artifact" | "note" }[]; updatedAt: number }
   | { type: "skill-start"; skill: string; input: unknown }
   | { type: "skill-progress"; skill: string; output: string }
   | { type: "skill-done"; skill: string; result: unknown; durationMs: number; success: boolean }

@@ -1,5 +1,6 @@
 import { t } from "@/lib/i18n";
 import { IconHome, IconPackage, IconBook, IconChannel, IconSettings } from "@/components/icons";
+import { WindowDragRegion } from "./window-drag-region";
 
 type Page = "home" | "apps" | "knowledge" | "channels" | "settings";
 
@@ -13,17 +14,16 @@ const navItems: { id: Page; label: string; icon: React.ReactNode }[] = [
   { id: "apps", label: "nav.apps", icon: <IconPackage /> },
   { id: "knowledge", label: "nav.knowledge", icon: <IconBook /> },
   { id: "channels", label: "nav.channels", icon: <IconChannel /> },
-  { id: "settings", label: "nav.settings", icon: <IconSettings /> },
 ];
 
 export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   return (
     <aside className="w-[232px] flex flex-col bg-slate-50 border-r border-[var(--border)] shrink-0">
       {/* Traffic light area — drag region, space for macOS window controls */}
-      <div className="h-[52px] shrink-0" data-tauri-drag-region />
+      <WindowDragRegion className="h-[52px] shrink-0" />
 
       {/* Logo */}
-      <div className="px-5 pb-4" data-tauri-drag-region>
+      <WindowDragRegion className="px-5 pb-4">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-[var(--primary)] text-white flex items-center justify-center text-[11px] font-bold tracking-wide">
             CW
@@ -33,7 +33,7 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
             <div className="text-[10px] text-slate-400 leading-tight">AI Workspace</div>
           </div>
         </div>
-      </div>
+      </WindowDragRegion>
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-1 space-y-[2px]">
@@ -55,7 +55,7 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
 
       {/* User area */}
       <div className="px-4 pb-4 border-t border-[var(--border)] pt-3">
-        <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-100 cursor-pointer transition-colors">
+        <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-[11px] font-semibold text-white">
             U
           </div>
@@ -63,6 +63,18 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
             <div className="text-[13px] font-medium text-slate-800 truncate">User</div>
             <div className="text-[10px] text-slate-400 truncate">Workspace</div>
           </div>
+          <button
+            onClick={() => onNavigate("settings")}
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+              currentPage === "settings"
+                ? "bg-blue-50 text-blue-700"
+                : "text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+            }`}
+            title={t("nav.settings")}
+            aria-label={t("nav.settings")}
+          >
+            <IconSettings size={15} />
+          </button>
         </div>
       </div>
     </aside>

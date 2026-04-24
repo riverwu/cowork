@@ -10,7 +10,6 @@ export const shellExecSkill: Tool = {
 - Git operations (git status, git diff, git commit, etc.)
 - Running tests (pytest, jest, cargo test, etc.)
 - System commands (ls, cat, find, curl, etc.)
-- Running node scripts (node packages are available from the isolated env)
 
 The command runs with expanded PATH and NODE_PATH set to the isolated package environment.
 Output (stdout + stderr) is captured and returned.
@@ -18,6 +17,7 @@ Default timeout: 30 seconds (configurable up to 120s).
 
 IMPORTANT:
 - Do NOT run "npm install" in the user's working directory. Use the install_package parameter instead, which installs to an isolated environment (~/.cowork/node/).
+- Do NOT use shell to run generated Node.js deliverable scripts such as pptxgenjs deck builders. Use run_node instead.
 - Be careful with destructive commands. Prefer reading/checking before writing/deleting.`,
     parameters: {
       type: "object",

@@ -103,13 +103,14 @@ class SkillRegistry {
     lines.push("");
     lines.push("### How to use skills");
     lines.push(`- **Trigger**: If the user's task clearly matches a skill's description, use that skill.
+- **Activation requirement**: A skill is not active just because it is listed here. To use a skill, you MUST first read its SKILL.md with \`read_file\` in the current turn.
 - **Progressive disclosure**: Do NOT load all skills upfront. When you decide to use a skill:
   1. Use \`read_file\` to open its SKILL.md
   2. Read only enough to follow the workflow for the current task
   3. If SKILL.md references other files (scripts/, references/), load only what you need
   4. If scripts/ exist, prefer running them instead of rewriting large code blocks
 - **Execution**: Use your existing tools (run_python, run_node, shell, write_file, etc.) to follow the skill's instructions. Skills do not have their own execute method.
-- **Multiple skills**: If multiple skills apply, use the minimal set needed. State which skill(s) you're using.
+- **Multiple skills**: If multiple skills apply, use the minimal set needed and read each selected SKILL.md before relying on it.
 - **Missing skill**: If a skill can't be loaded or doesn't apply, say so briefly and continue with the best approach.`);
 
     return lines.join("\n");

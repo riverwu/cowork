@@ -46,7 +46,8 @@ Rules:
 - Lines starting with '+' are added
 - The @@ line finds the anchor position in the file
 - Multiple @@ sections can appear in one file update
-- Use "Add File" for new files, "Delete File" to remove files`,
+- Use "Add File" for new files, "Delete File" to remove files
+- Prefer small, targeted patches for existing code. For new very large generated files, use write_file with append chunks instead of a giant Add File patch.`,
     parameters: {
       type: "object",
       properties: {

@@ -15,6 +15,9 @@
   --on-surface: #111827;
   --on-surface-secondary: #4b5563;
   --on-surface-tertiary: #9ca3af;
+  --chat-text: #1f2937;
+  --chat-heading: #111827;
+  --chat-muted: #667085;
 
   /* Borders */
   --border: #e5e7eb;
@@ -59,18 +62,54 @@ body {
 }
 
 [data-tauri-drag-region] {
+  -webkit-app-region: drag;
   -webkit-user-select: none;
   user-select: none;
 }
 
+button,
+input,
+textarea,
+select,
+a,
+[role="button"] {
+  -webkit-app-region: no-drag;
+}
+
 /* Markdown body styles */
+.markdown-body {
+  color: var(--chat-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", "Inter", sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.75;
+  letter-spacing: 0;
+}
+.markdown-body p,
+.markdown-body li,
+.markdown-body td {
+  color: var(--chat-text);
+}
 .markdown-body p:first-child { margin-top: 0; }
 .markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body strong {
+  color: var(--chat-heading);
+  font-weight: 600;
+}
+.markdown-body em {
+  color: var(--chat-muted);
+}
 .markdown-body pre { margin: 0.5rem 0; }
 .markdown-body img { display: block; }
 .markdown-body .katex-display { margin: 0.75rem 0; overflow-x: auto; }
 .markdown-body .katex { font-size: 1em; }
-.markdown-body table { border-collapse: collapse; }
+.markdown-body table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.markdown-body tbody tr:last-child td {
+  border-bottom-color: transparent;
+}
 .markdown-body hr { margin: 0.75rem 0; border-color: var(--border); }
 
 ::-webkit-scrollbar { width: 5px; }

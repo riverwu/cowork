@@ -83,6 +83,28 @@ describe("AnthropicProvider", () => {
     }
   });
 
+  it("marks max_tokens as truncated instead of normal completion", async () => {
+    mockStream([
+      { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "partial output" } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "max_tokens" } },
+    ]);
+
+    const provider = new AnthropicProvider("test-key");
+    const events: StreamEvent[] = [];
+    for await (const event of provider.stream({ system: "test", messages: [{ role: "user", content: "write a lot" }] })) {
+      events.push(event);
+    }
+
+    const done = events.find((e) => e.type === "message-done");
+    expect(done?.type).toBe("message-done");
+    if (done?.type === "message-done") {
+      expect(done.content).toBe("partial output");
+      expect(done.stopReason).toBe("max_tokens");
+    }
+  });
+
   it("skips thinking blocks (MiniMax compatibility)", async () => {
     mockStream([
       { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } },
@@ -131,5 +153,53 @@ describe("AnthropicProvider", () => {
     const body = JSON.parse(mockHttpStreamPost.mock.calls[0][2]);
     expect(body.model).toBe("my-model");
     expect(body.stream).toBe(true);
+  });
+
+  it("groups consecutive tool results into one Anthropic user message", async () => {
+    mockStream([
+      { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "done" } },
+      { type: "content_block_stop", index: 0 },
+      { type: "message_delta", delta: { stop_reason: "end_turn" } },
+    ]);
+
+    const provider = new AnthropicProvider("test-key");
+    for await (const _ of provider.stream({
+      system: "test",
+      messages: [
+        { role: "user", content: "Use both tools" },
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            { id: "tool_1", name: "first_tool", input: { value: 1 } },
+            { id: "tool_2", name: "second_tool", input: { value: 2 } },
+          ],
+        },
+        { role: "tool", toolCallId: "tool_1", content: "first result" },
+        { role: "tool", toolCallId: "tool_2", content: "second result" },
+      ],
+    })) {
+      // consume
+    }
+
+    const body = JSON.parse(mockHttpStreamPost.mock.calls[0][2]);
+    expect(body.messages).toEqual([
+      { role: "user", content: "Use both tools" },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "tool_1", name: "first_tool", input: { value: 1 } },
+          { type: "tool_use", id: "tool_2", name: "second_tool", input: { value: 2 } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: "tool_1", content: "first result" },
+          { type: "tool_result", tool_use_id: "tool_2", content: "second result" },
+        ],
+      },
+    ]);
   });
 });

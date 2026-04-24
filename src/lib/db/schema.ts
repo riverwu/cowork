@@ -9,11 +9,16 @@ export const MIGRATIONS = [
 
   `CREATE TABLE IF NOT EXISTS sources (
     id TEXT PRIMARY KEY,
-    type TEXT NOT NULL CHECK(type IN ('local_folder', 'upload')),
+    type TEXT NOT NULL CHECK(type IN ('local_folder', 'upload', 'confluence', 'erp', 'crm', 'im', 'mcp', 'database', 'api')),
     path TEXT,
     name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'indexing', 'error')),
     privacy TEXT NOT NULL DEFAULT 'public' CHECK(privacy IN ('public', 'personal')),
+    connector_id TEXT,
+    external_id TEXT,
+    sync_policy TEXT NOT NULL DEFAULT 'manual' CHECK(sync_policy IN ('manual', 'periodic', 'realtime')),
+    last_synced_at INTEGER,
+    metadata TEXT,
     created_at INTEGER NOT NULL
   )`,
 
@@ -23,13 +28,19 @@ export const MIGRATIONS = [
     filename TEXT NOT NULL,
     file_path TEXT,
     content_text TEXT,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'indexed', 'excluded')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'indexed', 'excluded', 'error', 'deleted')),
+    embedding_status TEXT NOT NULL DEFAULT 'pending' CHECK(embedding_status IN ('pending', 'embedded', 'partial', 'failed', 'none')),
+    content_hash TEXT,
+    size INTEGER,
+    error_message TEXT,
+    last_indexed_at INTEGER,
     file_modified_at INTEGER,
     created_at INTEGER NOT NULL
   )`,
 
   `CREATE INDEX IF NOT EXISTS idx_documents_source ON documents(source_id)`,
   `CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)`,
+  `CREATE INDEX IF NOT EXISTS idx_documents_source_path ON documents(source_id, file_path) WHERE file_path IS NOT NULL`,
 
   `CREATE TABLE IF NOT EXISTS chunks (
     id TEXT PRIMARY KEY,
@@ -41,6 +52,48 @@ export const MIGRATIONS = [
   )`,
 
   `CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id)`,
+
+  `CREATE TABLE IF NOT EXISTS source_capabilities (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    capability_type TEXT NOT NULL CHECK(capability_type IN ('search', 'read', 'query', 'analyze', 'sync', 'write')),
+    tool_name TEXT,
+    description TEXT,
+    input_schema TEXT,
+    metadata TEXT,
+    created_at INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_source_capabilities_source ON source_capabilities(source_id)`,
+
+  `CREATE TABLE IF NOT EXISTS source_entities (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    entity_type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    external_id TEXT,
+    summary TEXT,
+    schema_json TEXT,
+    sample_json TEXT,
+    metadata TEXT,
+    updated_at INTEGER,
+    created_at INTEGER NOT NULL
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_source_entities_source ON source_entities(source_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_source_entities_type ON source_entities(entity_type)`,
+
+  `CREATE TABLE IF NOT EXISTS sync_jobs (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'completed', 'failed')),
+    started_at INTEGER,
+    completed_at INTEGER,
+    error TEXT,
+    stats TEXT
+  )`,
+
+  `CREATE INDEX IF NOT EXISTS idx_sync_jobs_source ON sync_jobs(source_id, started_at DESC)`,
 
   `CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,

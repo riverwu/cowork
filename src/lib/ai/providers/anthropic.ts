@@ -10,12 +10,12 @@ export class AnthropicProvider implements LLMProvider {
 
   constructor(apiKey: string, model?: string, baseURL?: string) {
     this.apiKey = apiKey;
-    this.baseURL = (baseURL || DEFAULT_BASE_URL).replace(/\/$/, "");
+    this.baseURL = normalizeAnthropicBaseURL(baseURL || DEFAULT_BASE_URL);
     this.model = model || "claude-sonnet-4-20250514";
   }
 
   async *stream(params: StreamParams): AsyncIterable<StreamEvent> {
-    const messages = params.messages.map((m) => toAnthropicMessage(m));
+    const messages = toAnthropicMessages(params.messages);
     const tools = params.tools?.map((t) => toAnthropicTool(t));
 
     const body: Record<string, unknown> = {
@@ -41,7 +41,7 @@ export class AnthropicProvider implements LLMProvider {
     let currentToolId = "";
     let currentToolName = "";
     let currentToolInput = "";
-    let stopReason: "end" | "tool_use" = "end";
+    let stopReason: "end" | "tool_use" | "max_tokens" = "end";
 
     for await (const data of httpStreamPost(url, headers, JSON.stringify(body))) {
       if (data === "[DONE]") continue;
@@ -87,7 +87,7 @@ export class AnthropicProvider implements LLMProvider {
         if (event.delta?.stop_reason === "tool_use") {
           stopReason = "tool_use";
         } else if (event.delta?.stop_reason === "max_tokens") {
-          stopReason = "end"; // Truncated — treat as done, don't try to parse incomplete tool calls
+          stopReason = "max_tokens";
         }
       } else if (event.type === "error") {
         throw new Error(`API error: ${JSON.stringify(event.error)}`);
@@ -112,6 +112,35 @@ type AnthropicContent =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: unknown }
   | { type: "tool_result"; tool_use_id: string; content: string };
+
+function toAnthropicMessages(messages: LLMMessage[]): AnthropicMessage[] {
+  const result: AnthropicMessage[] = [];
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+
+    if (msg.role !== "tool") {
+      result.push(toAnthropicMessage(msg));
+      continue;
+    }
+
+    const content: AnthropicContent[] = [];
+    while (i < messages.length && messages[i].role === "tool") {
+      const toolMsg = messages[i] as Extract<LLMMessage, { role: "tool" }>;
+      content.push({
+        type: "tool_result",
+        tool_use_id: toolMsg.toolCallId,
+        content: toolMsg.content,
+      });
+      i++;
+    }
+    i--;
+
+    result.push({ role: "user", content });
+  }
+
+  return result;
+}
 
 function toAnthropicMessage(msg: LLMMessage): AnthropicMessage {
   if (msg.role === "user") {
@@ -141,4 +170,8 @@ function toAnthropicTool(tool: ToolDefinition) {
     description: tool.description,
     input_schema: tool.parameters,
   };
+}
+
+function normalizeAnthropicBaseURL(baseURL: string): string {
+  return baseURL.replace(/\/+$/, "").replace(/\/v1$/, "");
 }

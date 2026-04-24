@@ -5,17 +5,19 @@ import { CommandBar } from "@/components/chat/command-bar";
 import { MessageList } from "@/components/chat/message-list";
 import { ViewContainer } from "@/components/views/view-container";
 import { useSessionStore } from "@/stores/session-store";
+import { openPath } from "@/lib/tauri";
+import { outputsFromArtifacts, outputsFromSteps, outputsFromText, type ProducedOutput, type StepLike } from "@/lib/outputs";
 import {
   IconClock, IconChart, IconTaskList, IconMail, IconTrend,
-  IconFolder, IconPlus, IconPlay, IconCheck, IconDocument, IconServer,
+  IconFolder, IconPlus, IconPlay, IconDocument,
 } from "@/components/icons";
 import { t } from "@/lib/i18n";
 
 export function Home() {
-  const { initialized, hasApiKey, sources, mcpServers, load } = useAppStore();
+  const { initialized, hasApiKey, sources, load } = useAppStore();
   const {
     messages, isStreaming, streamingText, steps, artifacts,
-    knowledgeRefs, error,
+    knowledgeRefs, error, longTask,
   } = useSessionStore();
   const viewPanels = useViewStore((s) => s.panels);
   const addPanel = useViewStore((s) => s.addPanel);
@@ -43,15 +45,16 @@ export function Home() {
 
   const hasConversation = messages.length > 0 || isStreaming;
   const hasViews = viewPanels.length > 0;
+  const recentOutputs = getRecentOutputs(messages, artifacts, steps, longTask);
 
   return (
     <div className="flex h-full">
       {/* Main area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 pt-7">
 
         {/* Scrollable content */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-6">
+          <div className="max-w-3xl mx-auto px-8 lg:px-10">
 
             {/* Dashboard section — always visible at top */}
             <div className="py-6">
@@ -74,9 +77,17 @@ export function Home() {
                     </p>
                   </DashboardCard>
                   <DashboardCard title={t("home.recentOutputs")} icon={<IconClock size={13} />}>
-                    <p className="text-[13px] text-[var(--on-surface-tertiary)] py-3 text-center">
-                      {t("home.noOutputs")}
-                    </p>
+                    {recentOutputs.length > 0 ? (
+                      <div className="py-2 space-y-1">
+                        {recentOutputs.slice(0, 3).map((output) => (
+                          <RecentOutputRow key={output.id} output={output} compact />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[13px] text-[var(--on-surface-tertiary)] py-3 text-center">
+                        {t("home.noOutputs")}
+                      </p>
+                    )}
                   </DashboardCard>
                 </div>
               )}
@@ -84,7 +95,8 @@ export function Home() {
 
             {/* Conversation history */}
             {hasConversation && (
-              <div className="pb-4">
+              <div className="pb-4 space-y-4">
+                {longTask && <LongTaskPanel task={longTask} />}
                 <MessageList
                   messages={messages}
                   isStreaming={isStreaming}
@@ -105,7 +117,7 @@ export function Home() {
 
         {/* Knowledge refs */}
         {knowledgeRefs.length > 0 && (
-          <div className="px-6 pb-1">
+          <div className="px-8 lg:px-10 pb-1">
             <div className="max-w-3xl mx-auto flex flex-wrap gap-1">
               <span className="text-[11px] text-[var(--on-surface-tertiary)]">{t("nav.knowledge")}:</span>
               {knowledgeRefs.map((ref, i) => (
@@ -118,7 +130,7 @@ export function Home() {
         )}
 
         {/* Command Bar — always at bottom */}
-        <div className="px-6 pb-4 pt-2">
+        <div className="px-8 lg:px-10 pb-5 pt-2">
           <div className="max-w-3xl mx-auto">
             <CommandBar />
           </div>
@@ -126,9 +138,91 @@ export function Home() {
       </div>
 
       {/* Right panel: Apps + artifact views */}
-      <RightPanel sources={sources} mcpServers={mcpServers} hasViews={hasViews} />
+      <RightPanel sources={sources} hasViews={hasViews} recentOutputs={recentOutputs} />
     </div>
   );
+}
+
+type LongTaskView = NonNullable<ReturnType<typeof useSessionStore.getState>["longTask"]>;
+
+function LongTaskPanel({ task }: { task: LongTaskView }) {
+  const current = [...task.phases].reverse().find((p) => p.status === "running")
+    || [...task.phases].reverse()[0];
+
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-lowest)] shadow-[var(--shadow-sm)] overflow-hidden">
+      <div className="px-3 py-2 border-b border-[var(--border)] bg-[var(--surface-low)]">
+        <div className="flex items-center gap-2">
+          <IconClock size={13} className="text-[var(--primary-accent)]" />
+          <span className="text-[12px] font-semibold text-[var(--on-surface)]">长任务执行</span>
+          <span className="ml-auto text-[10px] text-[var(--on-surface-tertiary)]">{task.runId}</span>
+        </div>
+        <div className="mt-1 text-[11px] text-[var(--on-surface-tertiary)] truncate" title={task.workspaceDir}>
+          工作目录：{task.workspaceDir}
+        </div>
+      </div>
+      <div className="p-3 space-y-2">
+        {current && (
+          <div className="rounded-lg bg-[var(--surface-low)] px-3 py-2">
+            <div className="flex items-center gap-2">
+              <StatusDot status={current.status} />
+              <span className="text-[12px] font-medium text-[var(--on-surface)]">{formatPhase(current.phase)}</span>
+              <span className="text-[11px] text-[var(--on-surface-tertiary)]">{formatStatus(current.status)}</span>
+            </div>
+            <p className="mt-1 text-[12px] text-[var(--on-surface-secondary)] leading-relaxed">{current.summary}</p>
+          </div>
+        )}
+        {task.phases.length > 0 && (
+          <div className="space-y-1">
+            {task.phases.map((phase) => (
+              <div key={phase.phase} className="flex items-center gap-2 text-[12px] px-1 py-0.5">
+                <StatusDot status={phase.status} />
+                <span className="w-24 truncate text-[var(--on-surface-secondary)]">{formatPhase(phase.phase)}</span>
+                <span className="flex-1 truncate text-[var(--on-surface-tertiary)]">{phase.summary}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {task.phases.flatMap((p) => p.outputs).length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {task.phases.flatMap((p) => p.outputs).map((output, index) => (
+              output.path ? (
+                <button key={`${output.path}-${index}`} onClick={() => openPath(output.path!)} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-container)] text-[11px] text-[var(--on-surface-secondary)] hover:text-[var(--primary-accent)] cursor-pointer">
+                  <IconDocument size={11} /> {output.title}
+                </button>
+              ) : (
+                <span key={`${output.title}-${index}`} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-container)] text-[11px] text-[var(--on-surface-secondary)]">
+                  <IconDocument size={11} /> {output.title}
+                </span>
+              )
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatusDot({ status }: { status: "pending" | "running" | "done" | "failed" }) {
+  const cls = status === "done"
+    ? "bg-[var(--success)]"
+    : status === "failed"
+      ? "bg-[var(--error)]"
+      : status === "running"
+        ? "bg-[var(--primary-accent)] animate-pulse"
+        : "bg-[var(--on-surface-tertiary)]";
+  return <span className={`w-2 h-2 rounded-full shrink-0 ${cls}`} />;
+}
+
+function formatPhase(phase: string): string {
+  return phase.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatStatus(status: string): string {
+  if (status === "running") return "进行中";
+  if (status === "done") return "完成";
+  if (status === "failed") return "失败";
+  return "等待";
 }
 
 function DashboardCard({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
@@ -143,13 +237,13 @@ function DashboardCard({ title, icon, children }: { title: string; icon: React.R
   );
 }
 
-function RightPanel({ sources, mcpServers, hasViews }: {
+function RightPanel({ sources, hasViews, recentOutputs }: {
   sources: { id: string; name: string; status: string }[];
-  mcpServers: { id: string; name: string; status: string; toolCount: number }[];
   hasViews: boolean;
+  recentOutputs: ProducedOutput[];
 }) {
   return (
-    <div className="w-[300px] shrink-0 border-l border-[var(--border)] bg-[var(--surface-lowest)] flex flex-col overflow-hidden">
+    <div className="w-[300px] shrink-0 border-l border-[var(--border)] bg-[var(--surface-lowest)] flex flex-col overflow-hidden pt-7">
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <h2 className="text-[13px] font-semibold text-[var(--on-surface)] mb-3">{t("home.myApps")}</h2>
         <div className="space-y-2">
@@ -171,30 +265,15 @@ function RightPanel({ sources, mcpServers, hasViews }: {
             <IconClock size={13} /> {t("home.recentOutputs")}
           </h2>
           <div className="space-y-1">
-            <OutputRow icon={<IconCheck size={12} />} title="周度销售报告" time="09:00" color="text-[var(--success)]" />
-            <OutputRow icon={<IconCheck size={12} />} title="CRM数据同步" time="昨天" color="text-[var(--success)]" />
+            {recentOutputs.length > 0 ? (
+              recentOutputs.slice(0, 8).map((output) => (
+                <RecentOutputRow key={output.id} output={output} />
+              ))
+            ) : (
+              <p className="px-2 py-2 text-[12px] text-[var(--on-surface-tertiary)]">{t("home.noOutputs")}</p>
+            )}
           </div>
         </div>
-
-        {/* MCP Connections status */}
-        {mcpServers.length > 0 && (
-          <div className="mt-6">
-            <h2 className="flex items-center gap-1.5 text-[13px] font-semibold text-[var(--on-surface)] mb-3">
-              <IconServer size={13} /> {t("connections.title")}
-            </h2>
-            <div className="space-y-1">
-              {mcpServers.map((s) => (
-                <div key={s.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12px]">
-                  <span className={`w-1.5 h-1.5 rounded-full ${s.status === "available" ? "bg-[var(--success)]" : s.status === "error" ? "bg-red-500" : "bg-[var(--on-surface-tertiary)]"}`} />
-                  <span className="flex-1 truncate text-[var(--on-surface-secondary)]">{s.name}</span>
-                  <span className="text-[var(--on-surface-tertiary)]">
-                    {s.toolCount > 0 ? `${s.toolCount} tools` : "—"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
       {hasViews && (
         <div className="border-t border-[var(--border)]">
@@ -220,14 +299,66 @@ function AppItem({ icon, iconBg, title, schedule }: { icon: React.ReactNode; ico
   );
 }
 
-function OutputRow({ icon, title, time, color }: { icon: React.ReactNode; title: string; time: string; color: string }) {
+function RecentOutputRow({ output, compact = false }: { output: ProducedOutput; compact?: boolean }) {
+  const icon = output.kind === "artifact" ? <IconDocument size={12} /> : <IconFolder size={12} />;
+  const label = output.kind === "artifact" ? "面板" : "文件";
+  const content = (
+    <>
+      <span className="text-[var(--primary-accent)]">{icon}</span>
+      <span className="flex-1 truncate text-[var(--on-surface-secondary)]">{output.title}</span>
+      <span className="text-[var(--on-surface-tertiary)]">{label}</span>
+    </>
+  );
+
+  if (output.kind === "file" && output.path) {
+    return (
+      <button onClick={() => openPath(output.path!)} className={`w-full flex items-center gap-2 px-2 ${compact ? "py-1" : "py-1.5"} rounded-lg text-[12px] hover:bg-[var(--surface-low)] cursor-pointer text-left`}>
+        {content}
+      </button>
+    );
+  }
+
   return (
-    <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12px]">
-      <span className={color}>{icon}</span>
-      <span className="flex-1 truncate text-[var(--on-surface-secondary)]">{title}</span>
-      <span className="text-[var(--on-surface-tertiary)]">{time}</span>
+    <div className={`flex items-center gap-2 px-2 ${compact ? "py-1" : "py-1.5"} rounded-lg text-[12px]`}>
+      {content}
     </div>
   );
+}
+
+function getRecentOutputs(
+  messages: ReturnType<typeof useSessionStore.getState>["messages"],
+  artifacts: ReturnType<typeof useSessionStore.getState>["artifacts"],
+  currentSteps: StepLike[],
+  longTask: ReturnType<typeof useSessionStore.getState>["longTask"],
+): ProducedOutput[] {
+  const outputs: ProducedOutput[] = [
+    ...outputsFromArtifacts(artifacts),
+    ...outputsFromSteps(currentSteps),
+    ...(longTask?.phases.flatMap((phase) =>
+      phase.outputs
+        .filter((output) => output.path)
+        .map((output) => ({
+          id: `file:${output.path}`,
+          title: output.title,
+          kind: "file" as const,
+          path: output.path,
+        })),
+    ) || []),
+  ];
+
+  for (const message of [...messages].reverse()) {
+    if (message.role === "assistant") outputs.push(...outputsFromText(message.content));
+    const steps = (message.metadata as { steps?: StepLike[] } | null)?.steps;
+    if (steps?.length) outputs.push(...outputsFromSteps(steps));
+  }
+
+  const seen = new Set<string>();
+  return outputs.filter((output) => {
+    const key = output.path || output.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function getGreeting(): string {

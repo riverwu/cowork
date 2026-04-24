@@ -26,7 +26,7 @@ export interface ToolCall {
 export type StreamEvent =
   | { type: "text-delta"; text: string }
   | { type: "tool-call"; id: string; name: string; input: unknown }
-  | { type: "message-done"; content: string; toolCalls: ToolCall[]; stopReason: "end" | "tool_use" };
+  | { type: "message-done"; content: string; toolCalls: ToolCall[]; stopReason: "end" | "tool_use" | "max_tokens" };
 
 export interface LLMProvider {
   stream(params: StreamParams): AsyncIterable<StreamEvent>;

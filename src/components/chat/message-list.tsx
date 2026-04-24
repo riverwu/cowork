@@ -3,6 +3,7 @@ import { IconDocument, IconCheck, IconSettings, IconWarning, IconFolder } from "
 import { isContextDivider } from "@/stores/session-store";
 import { MarkdownContent } from "./markdown-renderer";
 import { openPath, revealInFolder } from "@/lib/tauri";
+import { extractFilePaths, outputsFromSteps, outputsFromText, type ProducedOutput } from "@/lib/outputs";
 import { t } from "@/lib/i18n";
 import type { Message, Artifact } from "@/types";
 
@@ -79,10 +80,14 @@ export function MessageList({
             </div>
           )}
 
+          {outputsFromSteps(steps).length > 0 && (
+            <ProducedOutputs outputs={outputsFromSteps(steps)} />
+          )}
+
           {/* Streaming text */}
           {streamingText && (
             <div className="max-w-[90%]">
-              <div className="text-[13px] text-[var(--on-surface)] leading-[1.7] markdown-body">
+              <div className="text-[14px] text-[var(--chat-text)] leading-[1.75] font-normal markdown-body">
                 <MarkdownContent content={streamingText} />
                 <span className="inline-block w-[3px] h-[14px] ml-0.5 bg-[var(--primary-accent)] animate-pulse rounded-sm" />
               </div>
@@ -109,7 +114,7 @@ export function MessageList({
 function UserBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[75%] px-4 py-2.5 rounded-2xl bg-[var(--primary)] text-white text-[13px] leading-relaxed whitespace-pre-wrap">
+      <div className="max-w-[75%] px-4 py-2.5 rounded-2xl bg-[var(--surface-lowest)] text-[var(--chat-text)] text-[13px] leading-[1.65] font-normal whitespace-pre-wrap ring-1 ring-black/[0.04] shadow-[var(--shadow-sm)]">
         {content}
       </div>
     </div>
@@ -120,19 +125,36 @@ function UserBubble({ content }: { content: string }) {
 
 function AssistantMessage({ message }: { message: Message }) {
   const savedSteps = (message.metadata as { steps?: Step[] })?.steps;
+  const outputs = mergeOutputs([
+    ...(savedSteps ? outputsFromSteps(savedSteps) : []),
+    ...outputsFromText(message.content),
+  ]);
 
   return (
     <div className="space-y-2">
       {savedSteps && savedSteps.length > 0 && (
         <CollapsedSteps steps={savedSteps} />
       )}
+      {outputs.length > 0 && (
+        <ProducedOutputs outputs={outputs} />
+      )}
       <div className="max-w-[90%]">
-        <div className="text-[13px] text-[var(--on-surface)] leading-[1.7] markdown-body">
+        <div className="text-[14px] text-[var(--chat-text)] leading-[1.75] font-normal markdown-body">
           <MarkdownContent content={message.content} />
         </div>
       </div>
     </div>
   );
+}
+
+function mergeOutputs(outputs: ProducedOutput[]): ProducedOutput[] {
+  const seen = new Set<string>();
+  return outputs.filter((output) => {
+    const key = output.path || output.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // ---- Collapsed steps (post-completion) ----
@@ -315,9 +337,6 @@ function LiveTimer() {
 
 // ---- Step result with file path detection ----
 
-const FILE_PATH_RE = /((?:\/[\w.\-]+)+\.\w+|~(?:\/[\w.\-]+)+\.\w+)/g;
-const FILE_EXTENSIONS = /\.(txt|md|py|ts|tsx|js|jsx|rs|go|java|json|yaml|yml|toml|csv|xml|html|css|sql|sh|pdf|docx|xlsx|pptx|png|jpg|jpeg|gif|svg|mp4|mp3|zip|tar|gz)$/i;
-
 function StepResultContent({ result, failed }: { result: string; failed: boolean }) {
   // Extract file paths from the result text
   const filePaths = extractFilePaths(result);
@@ -363,17 +382,44 @@ function FilePathCard({ path }: { path: string }) {
   );
 }
 
-function extractFilePaths(text: string): string[] {
-  const paths: string[] = [];
-  let match;
-  FILE_PATH_RE.lastIndex = 0;
-  while ((match = FILE_PATH_RE.exec(text)) !== null) {
-    const p = match[1];
-    if (FILE_EXTENSIONS.test(p) && !paths.includes(p)) {
-      paths.push(p);
-    }
+function ProducedOutputs({ outputs }: { outputs: ProducedOutput[] }) {
+  if (outputs.length === 0) return null;
+  return (
+    <div className="max-w-[90%] rounded-xl border border-[var(--border)] bg-[var(--surface-lowest)] shadow-[var(--shadow-sm)] overflow-hidden">
+      <div className="px-3 py-2 border-b border-[var(--border)] bg-[var(--surface-low)] flex items-center gap-2">
+        <IconDocument size={13} className="text-[var(--primary-accent)]" />
+        <span className="text-[12px] font-semibold text-[var(--on-surface)]">任务产出</span>
+      </div>
+      <div className="p-2 space-y-1">
+        {outputs.map((output) => (
+          <ProducedOutputRow key={output.id} output={output} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProducedOutputRow({ output }: { output: ProducedOutput }) {
+  if (output.kind === "file" && output.path) {
+    return (
+      <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-[var(--surface-low)]">
+        <IconDocument size={13} className="text-[var(--on-surface-tertiary)] shrink-0" />
+        <button onClick={() => openPath(output.path!)} className="flex-1 min-w-0 text-left text-[12px] font-medium text-[var(--on-surface)] hover:text-[var(--primary-accent)] truncate cursor-pointer">
+          {output.title}
+        </button>
+        <button onClick={() => revealInFolder(output.path!)} className="px-2 py-1 rounded-md text-[11px] text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] hover:bg-[var(--surface-container)] cursor-pointer">
+          定位
+        </button>
+      </div>
+    );
   }
-  return paths;
+  return (
+    <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg">
+      <IconDocument size={13} className="text-[var(--primary-accent)] shrink-0" />
+      <span className="flex-1 min-w-0 text-[12px] font-medium text-[var(--on-surface)] truncate">{output.title}</span>
+      <span className="text-[11px] text-[var(--on-surface-tertiary)]">Artifact</span>
+    </div>
+  );
 }
 
 // ---- Context divider ----
