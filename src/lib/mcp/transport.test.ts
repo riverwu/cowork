@@ -29,9 +29,10 @@ describe("McpTransport", () => {
     const transport = new McpTransport({ id: "test-server", command: "echo", args: ["hello"] });
     await transport.connect();
 
-    expect(mockListen).toHaveBeenCalledWith("mcp-stdout-test-server", expect.any(Function));
+    // Event channel includes a generation suffix for unique identification
+    expect(mockListen).toHaveBeenCalledWith(expect.stringContaining("mcp-stdout-test-server_"), expect.any(Function));
     expect(mockInvoke).toHaveBeenCalledWith("mcp_spawn", {
-      config: { id: "test-server", command: "echo", args: ["hello"] },
+      config: expect.objectContaining({ command: "echo", args: ["hello"] }),
     });
   });
 

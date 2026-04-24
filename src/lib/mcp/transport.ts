@@ -14,8 +14,12 @@ export interface McpServerConfig {
   env?: Record<string, string>;
 }
 
+/** Global counter to make event channels unique across reconnects. */
+let transportGeneration = 0;
+
 export class McpTransport {
-  private serverId: string;
+  /** Unique ID for this transport instance (serverId_generation). Used for Rust IPC. */
+  private processId: string;
   private pendingRequests = new Map<number, {
     resolve: (value: unknown) => void;
     reject: (reason: Error) => void;
@@ -30,7 +34,7 @@ export class McpTransport {
   onProcessExit: (() => void) | null = null;
 
   constructor(private config: McpServerConfig) {
-    this.serverId = config.id;
+    this.processId = `${config.id}_${++transportGeneration}`;
   }
 
   isConnected(): boolean {
@@ -43,20 +47,22 @@ export class McpTransport {
   }
 
   async connect(): Promise<void> {
-    // Listen for stdout lines from Rust
-    this.unlisten = await listen<string>(`mcp-stdout-${this.serverId}`, (event) => {
+    // Listen for stdout lines from Rust.
+    // Uses processId (unique per transport instance) to prevent
+    // old process's __MCP_EXIT__ from killing a new connection.
+    this.unlisten = await listen<string>(`mcp-stdout-${this.processId}`, (event) => {
       this.handleLine(event.payload);
     });
 
     // Listen for stderr lines (diagnostics)
-    this.unlistenStderr = await listen<string>(`mcp-stderr-${this.serverId}`, (event) => {
+    this.unlistenStderr = await listen<string>(`mcp-stderr-${this.processId}`, (event) => {
       this.stderrLines.push(event.payload);
       if (this.stderrLines.length > 20) this.stderrLines.shift();
     });
 
-    // Spawn the subprocess via Rust
+    // Spawn the subprocess via Rust — use processId for unique event channels
     const result = await invoke<{ id: string; success: boolean; error?: string }>("mcp_spawn", {
-      config: this.config,
+      config: { ...this.config, id: this.processId },
     });
 
     if (!result.success) {
@@ -97,7 +103,7 @@ export class McpTransport {
       });
 
       // Send via Rust
-      invoke("mcp_send", { serverId: this.serverId, message }).catch((err) => {
+      invoke("mcp_send", { serverId: this.processId, message }).catch((err) => {
         this.pendingRequests.delete(id);
         clearTimeout(timer);
         reject(new Error(`Failed to send: ${err}`));
@@ -115,7 +121,7 @@ export class McpTransport {
       params: params || {},
     });
 
-    await invoke("mcp_send", { serverId: this.serverId, message });
+    await invoke("mcp_send", { serverId: this.processId, message });
   }
 
   async disconnect(): Promise<void> {
@@ -131,7 +137,7 @@ export class McpTransport {
     }
     this.pendingRequests.clear();
 
-    await invoke("mcp_stop", { serverId: this.serverId });
+    await invoke("mcp_stop", { serverId: this.processId });
   }
 
   private handleLine(line: string) {

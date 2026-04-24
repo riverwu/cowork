@@ -140,13 +140,10 @@ class McpManager {
               execute: async (input: Record<string, unknown>) => {
                 // Reconnect transparently, then call
                 await this.ensureConnected(mcp.id);
-                const freshClient = this.clients.get(mcp.id);
-                if (!freshClient?.isConnected()) {
-                  throw new Error(`MCP server '${mcp.definition.name}' failed to start. Check Tools page for details.`);
-                }
+                const freshClient = this.clients.get(mcp.id)!;
                 const freshSkills = freshClient.toSkills();
                 const freshSkill = freshSkills[skill.definition.name];
-                if (!freshSkill) throw new Error(`Tool '${skill.definition.name}' no longer available`);
+                if (!freshSkill) throw new Error(`Tool '${skill.definition.name}' no longer available after reconnect`);
                 return freshSkill.execute(input);
               },
             };
@@ -285,7 +282,7 @@ class McpManager {
     }
   }
 
-  /** Ensure a server is connected. Auto-reconnects if process died. */
+  /** Ensure a server is connected. Auto-reconnects if process died. Throws on failure. */
   private async ensureConnected(id: string): Promise<void> {
     const client = this.clients.get(id);
     if (client?.isConnected()) return;
@@ -297,8 +294,16 @@ class McpManager {
     }
 
     const mcp = this.loadedMcps.find((m) => m.id === id);
-    if (mcp) {
-      await this.connectServer(mcp);
+    if (!mcp) throw new Error(`MCP server '${id}' not found`);
+
+    // connectServer catches errors internally; check result via serverInfo
+    await this.connectServer(mcp);
+
+    // If still not connected, throw with the actual error
+    const freshClient = this.clients.get(id);
+    if (!freshClient?.isConnected()) {
+      const info = this.serverInfo.get(id);
+      throw new Error(info?.error || `Failed to start MCP server '${mcp.definition.name}'`);
     }
   }
 
