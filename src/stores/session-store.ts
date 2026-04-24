@@ -262,6 +262,23 @@ function handleEvent(
     case "text-delta":
       set((s) => ({ streamingText: s.streamingText + event.text }));
       break;
+    case "thinking":
+      if (event.active) {
+        // Add a thinking step
+        set((s) => ({
+          steps: [...s.steps, { skill: "__thinking__", status: "running" }],
+        }));
+      } else {
+        // Mark thinking step as done
+        set((s) => ({
+          steps: s.steps.map((step) =>
+            step.skill === "__thinking__" && step.status === "running"
+              ? { ...step, status: "done", success: true }
+              : step,
+          ),
+        }));
+      }
+      break;
     case "skill-start":
       set((s) => ({
         steps: [...s.steps, { skill: event.skill, status: "running", input: event.input }],

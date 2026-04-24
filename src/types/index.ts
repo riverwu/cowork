@@ -144,6 +144,7 @@ export interface Artifact {
 
 export type AgentEvent =
   | { type: "text-delta"; text: string }
+  | { type: "thinking"; active: boolean }
   | { type: "skill-start"; skill: string; input: unknown }
   | { type: "skill-progress"; skill: string; output: string }
   | { type: "skill-done"; skill: string; result: unknown; durationMs: number; success: boolean }

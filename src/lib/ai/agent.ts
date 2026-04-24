@@ -122,6 +122,9 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   for (let step = 0; step < MAX_STEPS; step++) {
     let doneEvent: StreamEvent | null = null;
 
+    // Signal LLM is thinking (waiting for response)
+    yield { type: "thinking", active: true };
+
     for await (const event of provider.stream({
       system,
       messages: currentMessages,
@@ -132,9 +135,9 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       } else if (event.type === "message-done") {
         doneEvent = event;
       }
-      // Note: skill-start is yielded right before execution, not here,
-      // so UI shows tools starting one at a time (not all at once).
     }
+
+    yield { type: "thinking", active: false };
 
     if (!doneEvent || doneEvent.type !== "message-done") {
       yield { type: "error", error: "Unexpected end of stream" };

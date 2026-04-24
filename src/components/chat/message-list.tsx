@@ -89,11 +89,11 @@ export function MessageList({
             </div>
           )}
 
-          {/* Initial thinking */}
+          {/* Initial loading — before any steps arrive */}
           {!streamingText && steps.length === 0 && (
             <div className="flex items-center gap-2 text-[13px] text-[var(--on-surface-tertiary)]">
               <span className="inline-block w-3 h-3 border-[1.5px] border-[var(--primary-accent)] border-t-transparent rounded-full animate-spin" />
-              Thinking...
+              Starting...
             </div>
           )}
         </div>
@@ -137,8 +137,11 @@ function AssistantMessage({ message }: { message: Message }) {
 
 // ---- Collapsed steps (post-completion) ----
 
-function CollapsedSteps({ steps }: { steps: Step[] }) {
+function CollapsedSteps({ steps: allSteps }: { steps: Step[] }) {
   const [expanded, setExpanded] = useState(false);
+  // Filter out thinking steps for display
+  const steps = allSteps.filter((s) => s.skill !== "__thinking__");
+  if (steps.length === 0) return null;
   const totalTime = steps.reduce((sum, s) => sum + (s.durationMs || 0), 0);
   const toolNames = [...new Set(steps.map((s) => formatSkillName(s.skill)))];
   const failCount = steps.filter((s) => s.success === false).length;
@@ -223,6 +226,18 @@ function CompletedStepDetail({ step }: { step: Step }) {
 // ---- Live step (during streaming) ----
 
 function LiveStepItem({ step }: { step: Step }) {
+  // Thinking step — compact display
+  if (step.skill === "__thinking__") {
+    if (step.status === "done") return null; // Hide completed thinking steps
+    return (
+      <div className="flex items-center gap-2 py-1 text-[var(--on-surface-tertiary)]">
+        <span className="inline-block w-3 h-3 border-[1.5px] border-[var(--primary-accent)] border-t-transparent rounded-full animate-spin shrink-0" />
+        <span className="text-[12px]">Thinking...</span>
+        <LiveTimer />
+      </div>
+    );
+  }
+
   const failed = step.status === "done" && step.success === false;
 
   return (
