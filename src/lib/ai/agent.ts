@@ -39,11 +39,12 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   // Wait for MCP servers to finish connecting (with timeout)
   await mcpManager.waitForReady();
 
-  // Merge built-in skills + user skills (from registry) + MCP tools
+  // Merge built-in tools + MCP tools
+  // Note: user-installed skills (SKILL.md) are NOT tools — they're injected
+  // into the system prompt as a list. The LLM reads them on-demand via read_file.
   const builtinSkills = getSkills();
-  const userSkills = skillRegistry.getTools();
   const mcpSkills = mcpManager.getAllSkills();
-  const skills = { ...builtinSkills, ...userSkills, ...mcpSkills };
+  const skills = { ...builtinSkills, ...mcpSkills };
   const toolDefs = Object.values(skills).map((s) => s.definition);
 
   console.log(`[Agent] Tools: ${toolDefs.length} total (${Object.keys(builtinSkills).length} built-in + ${Object.keys(mcpSkills).length} MCP)`);
