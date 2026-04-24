@@ -73,7 +73,7 @@ export class McpTransport {
   }
 
   /** Send a JSON-RPC request and wait for the response. */
-  async request(method: string, params?: unknown): Promise<unknown> {
+  async request(method: string, params?: unknown, timeoutMs?: number): Promise<unknown> {
     if (!this.connected) throw new Error("Transport not connected");
 
     const id = this.nextRequestId++;
@@ -84,12 +84,15 @@ export class McpTransport {
       params: params || {},
     });
 
+    // tools/call can be very slow (web search, browser navigation, deep research)
+    const timeout = timeoutMs ?? (method === "tools/call" ? 300000 : 30000);
+
     return new Promise((resolve, reject) => {
       // Set timeout
       const timer = setTimeout(() => {
         this.pendingRequests.delete(id);
-        reject(new Error(`MCP request timeout: ${method}`));
-      }, 30000);
+        reject(new Error(`MCP request timeout: ${method} (${timeout / 1000}s)`));
+      }, timeout);
 
       this.pendingRequests.set(id, {
         resolve: (value) => {
