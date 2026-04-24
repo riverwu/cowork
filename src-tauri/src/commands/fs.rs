@@ -279,6 +279,8 @@ pub struct PythonResult {
 }
 
 /// Execute Python script in the isolated environment.
+/// Writes script to a temp file to avoid encoding issues with `-c` flag
+/// (Chinese quotes, full-width chars, etc. break when passed as CLI args).
 #[tauri::command]
 pub async fn run_python_script(script: String, timeout_secs: Option<u64>) -> Result<PythonResult, String> {
     use std::process::Stdio;
@@ -291,10 +293,18 @@ pub async fn run_python_script(script: String, timeout_secs: Option<u64>) -> Res
         return Err("Python environment not initialized. Run init_python_env first.".to_string());
     }
 
+    // Write script to temp file to avoid encoding issues with -c flag
+    let tmp_dir = home.join(".cowork/python/tmp");
+    fs::create_dir_all(&tmp_dir).map_err(|e| format!("Failed to create tmp dir: {}", e))?;
+    let script_path = tmp_dir.join(format!("script_{}.py", std::process::id()));
+    fs::write(&script_path, script.as_bytes())
+        .map_err(|e| format!("Failed to write script: {}", e))?;
+
     let duration = Duration::from_secs(timeout_secs.unwrap_or(30));
     let result = timeout(duration, async {
         let output = Command::new(venv_python.to_str().unwrap())
-            .arg("-c").arg(&script)
+            .arg(script_path.to_str().unwrap())
+            .env("PYTHONIOENCODING", "utf-8")
             .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
             .output().await.map_err(|e| format!("Failed to run Python: {}", e))?;
         Ok::<PythonResult, String>(PythonResult {
@@ -303,6 +313,10 @@ pub async fn run_python_script(script: String, timeout_secs: Option<u64>) -> Res
             exit_code: output.status.code().unwrap_or(-1),
         })
     }).await.map_err(|_| format!("Python timed out after {}s", timeout_secs.unwrap_or(30)))?;
+
+    // Clean up temp file
+    let _ = fs::remove_file(&script_path);
+
     result
 }
 
