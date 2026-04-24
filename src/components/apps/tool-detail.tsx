@@ -88,7 +88,7 @@ export function ToolDetail({ tool, onBack, onRefresh }: ToolDetailProps) {
           </div>
           {/* Status badge */}
           <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${tool.status === "active" || tool.status === "connected" ? "bg-emerald-500" : tool.status === "error" ? "bg-red-500" : tool.status === "connecting" ? "bg-amber-500" : "bg-gray-400"}`} />
+            <span className={`w-2 h-2 rounded-full ${tool.status === "active" || tool.status === "available" ? "bg-emerald-500" : tool.status === "error" ? "bg-red-500" : "bg-gray-400"}`} />
             <span className="text-[12px] text-[var(--on-surface-tertiary)]">{tool.status}</span>
           </div>
         </div>

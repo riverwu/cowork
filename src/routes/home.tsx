@@ -145,7 +145,7 @@ function DashboardCard({ title, icon, children }: { title: string; icon: React.R
 
 function RightPanel({ sources, mcpServers, hasViews }: {
   sources: { id: string; name: string; status: string }[];
-  mcpServers: { id: string; name: string; connected: boolean; toolCount: number }[];
+  mcpServers: { id: string; name: string; status: string; toolCount: number }[];
   hasViews: boolean;
 }) {
   return (
@@ -185,10 +185,10 @@ function RightPanel({ sources, mcpServers, hasViews }: {
             <div className="space-y-1">
               {mcpServers.map((s) => (
                 <div key={s.id} className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12px]">
-                  <span className={`w-1.5 h-1.5 rounded-full ${s.connected ? "bg-[var(--success)]" : "bg-[var(--on-surface-tertiary)]"}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full ${s.status === "available" ? "bg-[var(--success)]" : s.status === "error" ? "bg-red-500" : "bg-[var(--on-surface-tertiary)]"}`} />
                   <span className="flex-1 truncate text-[var(--on-surface-secondary)]">{s.name}</span>
                   <span className="text-[var(--on-surface-tertiary)]">
-                    {s.connected ? `${s.toolCount} tools` : "—"}
+                    {s.toolCount > 0 ? `${s.toolCount} tools` : "—"}
                   </span>
                 </div>
               ))}

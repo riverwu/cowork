@@ -167,7 +167,7 @@ ${params.systemPaths.skillsSummary ? `### Installed Skills\n${params.systemPaths
 ### MCP Servers
 ${params.systemPaths.mcpSummary}
 
-**Important**: MCP tool configurations (API keys, env vars) are managed by the Cowork app and stored securely in the database — NOT in MCP.json files. Do NOT read MCP.json to check API key status. If an MCP tool is listed as "connected" above, it is fully configured and ready to use — just call it directly.`;
+**Important**: MCP tool configurations (API keys, env vars) are managed by the Cowork app and stored securely in the database — NOT in MCP.json files. Do NOT read MCP.json to check API key status. If an MCP tool is listed as "available" above, it is fully configured and ready to use — just call it directly.`;
     }
 
     sections.push(configSection);

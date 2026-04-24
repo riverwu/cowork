@@ -6,7 +6,7 @@ import { CATALOG_SKILLS, CATALOG_MCPS } from "@/lib/catalog";
 import { installCatalogSkill, installCatalogMcp, getSkillInstallStatus, getMcpInstallStatus, type InstallStatus } from "@/lib/catalog-installer";
 import {
   IconPlus, IconPlay, IconClose,
-  IconServer, IconWarning, IconSpinner, IconPuzzle,
+  IconServer, IconWarning, IconPuzzle,
 } from "@/components/icons";
 import { ToolDetail } from "@/components/apps/tool-detail";
 import { t } from "@/lib/i18n";
@@ -18,7 +18,7 @@ interface ToolItem {
   name: string;
   kind: "skill" | "mcp";
   description: string;
-  status: "active" | "connecting" | "connected" | "error" | "disabled" | "needs_config";
+  status: "active" | "available" | "error" | "disabled" | "needs_config";
   error?: string;
   missingEnv?: string[];
   // Skill-specific
@@ -73,7 +73,7 @@ export function AppsPage() {
         id: `mcp_${server.id}`,
         name: server.name,
         kind: "mcp",
-        description: server.description || (server.connected ? `${server.toolCount} ${t("tools.providedTools")}` : ""),
+        description: server.description || (server.toolCount > 0 ? `${server.toolCount} ${t("tools.providedTools")}` : ""),
         status: server.status as ToolItem["status"],
         error: server.error,
         missingEnv: server.missingEnv,
@@ -158,8 +158,7 @@ function ToolCard({ tool, onClick }: { tool: ToolItem; onClick: () => void }) {
   const isSkill = tool.kind === "skill";
   const statusColors: Record<string, string> = {
     active: "bg-emerald-50 text-emerald-600",
-    connected: "bg-emerald-50 text-emerald-600",
-    connecting: "bg-amber-50 text-amber-600",
+    available: "bg-emerald-50 text-emerald-600",
     error: "bg-red-50 text-red-500",
     needs_config: "bg-amber-50 text-amber-600",
     disabled: "bg-[var(--surface-low)] text-[var(--on-surface-tertiary)]",
@@ -168,8 +167,7 @@ function ToolCard({ tool, onClick }: { tool: ToolItem; onClick: () => void }) {
 
   // Status label for MCP
   const statusLabel = isSkill ? null
-    : tool.status === "connected" ? `${tool.toolCount || 0} tools`
-    : tool.status === "connecting" ? t("connections.connecting")
+    : tool.status === "available" ? `${tool.toolCount || 0} tools`
     : tool.status === "error" ? t("connections.error")
     : tool.status === "needs_config" ? t("tools.needsConfig")
     : tool.status === "disabled" ? t("connections.disabled")
@@ -181,9 +179,7 @@ function ToolCard({ tool, onClick }: { tool: ToolItem; onClick: () => void }) {
       className="w-full bg-[var(--surface-lowest)] border border-[var(--border)] rounded-xl px-4 py-3 flex items-center gap-4 hover:shadow-[var(--shadow-sm)] hover:border-[var(--on-surface-tertiary)] transition-all cursor-pointer text-left"
     >
       <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>
-        {tool.status === "connecting" ? <IconSpinner size={16} />
-          : isSkill ? <IconPuzzle size={16} />
-          : <IconServer size={16} />}
+        {isSkill ? <IconPuzzle size={16} /> : <IconServer size={16} />}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
@@ -200,8 +196,7 @@ function ToolCard({ tool, onClick }: { tool: ToolItem; onClick: () => void }) {
       <div className="flex items-center gap-2 shrink-0">
         {statusLabel && (
           <span className={`text-[11px] px-2 py-0.5 rounded-full ${
-            tool.status === "connected" ? "bg-emerald-50 text-emerald-600"
-            : tool.status === "connecting" ? "bg-amber-50 text-amber-600"
+            tool.status === "available" ? "bg-emerald-50 text-emerald-600"
             : tool.status === "error" ? "bg-red-50 text-red-500"
             : "bg-gray-100 text-gray-500"
           }`}>

@@ -1,5 +1,19 @@
 /**
- * MCP Manager — manages MCP server connections.
+ * MCP Manager — manages MCP server lifecycle.
+ *
+ * Design principles (informed by Codex CLI patterns):
+ *
+ * 1. **Eager init, resilient startup**: Connect all servers at startup,
+ *    but failures don't block the app. Tool definitions are cached so
+ *    they survive process crashes.
+ *
+ * 2. **Transparent reconnection**: If a process dies, auto-reconnect on
+ *    next tool call. The user never sees "disconnected" — only
+ *    "available", "needs_config", or "disabled".
+ *
+ * 3. **Connection is an implementation detail**: MCP tools are local
+ *    processes (stdio). Whether the process is running right now is
+ *    irrelevant to the user. What matters is: "can I use this tool?"
  *
  * Each MCP server is a directory: ~/.cowork/mcps/<name>/MCP.json
  * Filesystem is source of truth (like skills).
@@ -11,21 +25,27 @@ import { loadMcpsFromFilesystem, installMcpToFilesystem, getMcpsDir, type Loaded
 import { ensureUvInstalled } from "@/lib/tauri";
 import { getMcpEnvConfig } from "@/lib/db";
 
-interface ServerState {
-  status: "connecting" | "connected" | "error" | "disabled" | "needs_config";
+/** User-facing status — no "connecting"/"connected" distinction. */
+type McpStatus = "available" | "needs_config" | "disabled" | "error";
+
+interface ServerInfo {
+  status: McpStatus;
   error?: string;
-  /** Env vars that are missing values. */
   missingEnv?: string[];
+  /** Cached tool count (survives process crash). */
+  toolCount: number;
 }
 
 class McpManager {
   private clients = new Map<string, McpClient>();
   private loadedMcps: LoadedMcp[] = [];
-  private serverStates = new Map<string, ServerState>();
+  private serverInfo = new Map<string, ServerInfo>();
   private onChangeCallbacks: Array<() => void> = [];
   private initPromise: Promise<void> | null = null;
-  /** Track reconnect attempts per server to prevent infinite loops. */
-  private reconnectAttempts = new Map<string, number>();
+  /** Cached tool definitions per server — survive process crashes. */
+  private cachedToolDefs = new Map<string, Skill[]>();
+  /** Resolved env per server (cached so reconnect doesn't re-query DB). */
+  private resolvedEnv = new Map<string, Record<string, string>>();
 
   onChange(cb: () => void): () => void {
     this.onChangeCallbacks.push(cb);
@@ -36,13 +56,13 @@ class McpManager {
     for (const cb of this.onChangeCallbacks) cb();
   }
 
-  /** Load MCP configs from filesystem and connect all enabled servers. */
+  /** Load MCP configs and connect all enabled servers. */
   async initialize(): Promise<void> {
     this.initPromise = this.reload();
     await this.initPromise;
   }
 
-  /** Wait for initial MCP connection to complete (with timeout). */
+  /** Wait for initial load to complete (with timeout). */
   async waitForReady(timeoutMs = 15000): Promise<void> {
     if (!this.initPromise) return;
     await Promise.race([
@@ -51,14 +71,16 @@ class McpManager {
     ]);
   }
 
-  /** Reload configs from filesystem and reconnect. */
+  /** Reload configs from filesystem and reconnect all. */
   async reload(): Promise<void> {
     // Disconnect existing
     for (const client of this.clients.values()) {
       await client.disconnect().catch(() => {});
     }
     this.clients.clear();
-    this.serverStates.clear();
+    this.serverInfo.clear();
+    this.cachedToolDefs.clear();
+    this.resolvedEnv.clear();
 
     // Load from filesystem
     this.loadedMcps = await loadMcpsFromFilesystem();
@@ -71,48 +93,92 @@ class McpManager {
       try { await ensureUvInstalled(); } catch (err) { console.warn("uv install:", err); }
     }
 
-    // Connect all enabled
+    // Resolve env + validate config for each server
+    for (const mcp of this.loadedMcps) {
+      if (mcp.definition.enabled === false) {
+        this.serverInfo.set(mcp.id, { status: "disabled", toolCount: 0 });
+        continue;
+      }
+      await this.resolveEnv(mcp);
+    }
+
+    // Connect all that are ready (non-blocking, errors don't propagate)
     await Promise.allSettled(
       this.loadedMcps
-        .filter((m) => m.definition.enabled !== false)
+        .filter((m) => this.serverInfo.get(m.id)?.status !== "disabled" && this.serverInfo.get(m.id)?.status !== "needs_config")
         .map((m) => this.connectServer(m)),
     );
+
+    this.notifyChange();
   }
 
-  /** Get all tools from connected MCP servers as Skills. */
+  /**
+   * Get all MCP tools as Skills for the agent.
+   *
+   * Key design: returns ALL tools from configured+available servers,
+   * using cached definitions if the process isn't running.
+   * The skill's execute() handles reconnection transparently.
+   */
   getAllSkills(): Record<string, Skill> {
     const allSkills: Record<string, Skill> = {};
-    for (const client of this.clients.values()) {
-      if (client.isConnected()) {
+
+    for (const mcp of this.loadedMcps) {
+      const info = this.serverInfo.get(mcp.id);
+      if (!info || info.status === "disabled" || info.status === "needs_config") continue;
+
+      const client = this.clients.get(mcp.id);
+      if (client?.isConnected()) {
+        // Live client — use real skills
         Object.assign(allSkills, client.toSkills());
+      } else {
+        // Process not running — wrap cached tool defs with auto-reconnect execute
+        const cached = this.cachedToolDefs.get(mcp.id);
+        if (cached) {
+          for (const skill of cached) {
+            allSkills[skill.definition.name] = {
+              definition: skill.definition,
+              execute: async (input: Record<string, unknown>) => {
+                // Reconnect transparently, then call
+                await this.ensureConnected(mcp.id);
+                const freshClient = this.clients.get(mcp.id);
+                if (!freshClient?.isConnected()) {
+                  throw new Error(`MCP server '${mcp.definition.name}' failed to start. Check Tools page for details.`);
+                }
+                const freshSkills = freshClient.toSkills();
+                const freshSkill = freshSkills[skill.definition.name];
+                if (!freshSkill) throw new Error(`Tool '${skill.definition.name}' no longer available`);
+                return freshSkill.execute(input);
+              },
+            };
+          }
+        }
       }
     }
+
     return allSkills;
   }
 
   /** Get server status for UI display. */
   getServerStatus(): Array<{
-    id: string; name: string; connected: boolean; toolCount: number;
+    id: string; name: string; toolCount: number;
     builtin: boolean; enabled: boolean;
-    status: "connecting" | "connected" | "error" | "disabled" | "needs_config";
+    status: McpStatus;
     error?: string; missingEnv?: string[];
     version: string; description: string; dirPath: string;
     requiredEnv: Record<string, string>;
   }> {
     return this.loadedMcps.map((m) => {
-      const client = this.clients.get(m.id);
-      const state = this.serverStates.get(m.id);
+      const info = this.serverInfo.get(m.id) || { status: "error" as McpStatus, toolCount: 0 };
       const enabled = m.definition.enabled !== false;
       return {
         id: m.id,
         name: m.definition.name,
-        connected: client?.isConnected() || false,
-        toolCount: client?.getTools().length || 0,
+        toolCount: info.toolCount,
         builtin: false,
         enabled,
-        status: !enabled ? "disabled" : (state?.status || "connecting"),
-        error: state?.error,
-        missingEnv: state?.missingEnv,
+        status: info.status,
+        error: info.error,
+        missingEnv: info.missingEnv,
         version: m.definition.version,
         description: m.definition.description || "",
         dirPath: m.dirPath,
@@ -129,28 +195,26 @@ class McpManager {
   /** Install a new MCP server from definition. */
   async addServer(id: string, definition: McpDefinition): Promise<void> {
     await installMcpToFilesystem(id, definition);
-    // Reload to pick up the new server
     const newMcps = await loadMcpsFromFilesystem();
     const newMcp = newMcps.find((m) => m.id === id);
     if (newMcp) {
       this.loadedMcps = newMcps;
-      await this.connectServer(newMcp);
+      await this.resolveEnv(newMcp);
+      if (this.serverInfo.get(newMcp.id)?.status !== "needs_config") {
+        await this.connectServer(newMcp);
+      }
     }
+    this.notifyChange();
   }
 
-  /** Remove (disable) an MCP server. */
+  /** Disable an MCP server. */
   async removeServer(id: string): Promise<void> {
-    const client = this.clients.get(id);
-    if (client) {
-      await client.disconnect();
-      this.clients.delete(id);
-    }
-    // Update MCP.json to set enabled=false
+    await this.disconnectClient(id);
     const mcp = this.loadedMcps.find((m) => m.id === id);
     if (mcp) {
       mcp.definition.enabled = false;
       await installMcpToFilesystem(id, mcp.definition);
-      this.serverStates.set(id, { status: "disabled" });
+      this.serverInfo.set(id, { status: "disabled", toolCount: 0 });
     }
     this.notifyChange();
   }
@@ -161,19 +225,27 @@ class McpManager {
     if (!mcp) return;
     mcp.definition.enabled = true;
     await installMcpToFilesystem(id, mcp.definition);
-    await this.connectServer(mcp);
+    await this.resolveEnv(mcp);
+    if (this.serverInfo.get(id)?.status !== "needs_config") {
+      await this.connectServer(mcp);
+    }
+    this.notifyChange();
   }
 
-  /** Reconnect a specific server. */
+  /** Force reconnect a specific server (user-triggered from UI). */
   async reconnectServer(id: string): Promise<void> {
-    const existing = this.clients.get(id);
-    if (existing) { await existing.disconnect(); this.clients.delete(id); }
-    this.reconnectAttempts.delete(id); // Reset counter on manual reconnect
+    await this.disconnectClient(id);
     const mcp = this.loadedMcps.find((m) => m.id === id);
-    if (mcp) await this.connectServer(mcp);
+    if (mcp) {
+      await this.resolveEnv(mcp);
+      if (this.serverInfo.get(id)?.status !== "needs_config") {
+        await this.connectServer(mcp);
+      }
+    }
+    this.notifyChange();
   }
 
-  /** Disconnect all servers. */
+  /** Disconnect all servers (app shutdown). */
   async shutdown(): Promise<void> {
     for (const client of this.clients.values()) {
       await client.disconnect().catch(() => {});
@@ -181,35 +253,66 @@ class McpManager {
     this.clients.clear();
   }
 
+  // ---- Internal ----
+
+  /** Resolve env vars: check which are missing, merge defaults + user config. */
+  private async resolveEnv(mcp: LoadedMcp): Promise<void> {
+    const userEnv = await getMcpEnvConfig(mcp.id);
+    const definedEnv = mcp.definition.env || {};
+
+    // Only vars with empty defaults require user config
+    const missingVars = Object.entries(definedEnv)
+      .filter(([, defaultVal]) => !defaultVal)
+      .filter(([key]) => !userEnv[key])
+      .map(([key]) => key);
+
+    if (missingVars.length > 0) {
+      this.serverInfo.set(mcp.id, {
+        status: "needs_config",
+        missingEnv: missingVars,
+        error: `Missing: ${missingVars.join(", ")}`,
+        toolCount: 0,
+      });
+      return;
+    }
+
+    const mergedEnv = { ...definedEnv, ...userEnv };
+    this.resolvedEnv.set(mcp.id, mergedEnv);
+
+    // If not yet tracked, mark as available (will connect next)
+    if (!this.serverInfo.has(mcp.id)) {
+      this.serverInfo.set(mcp.id, { status: "available", toolCount: 0 });
+    }
+  }
+
+  /** Ensure a server is connected. Auto-reconnects if process died. */
+  private async ensureConnected(id: string): Promise<void> {
+    const client = this.clients.get(id);
+    if (client?.isConnected()) return;
+
+    // Clean up dead client
+    if (client) {
+      await client.disconnect().catch(() => {});
+      this.clients.delete(id);
+    }
+
+    const mcp = this.loadedMcps.find((m) => m.id === id);
+    if (mcp) {
+      await this.connectServer(mcp);
+    }
+  }
+
+  /** Connect to an MCP server. Updates serverInfo + caches tools. */
   private async connectServer(mcp: LoadedMcp): Promise<void> {
-    this.serverStates.set(mcp.id, { status: "connecting" });
-    this.notifyChange();
+    const env = this.resolvedEnv.get(mcp.id);
+    if (!env) {
+      // Env not resolved — try resolving now
+      await this.resolveEnv(mcp);
+      if (this.serverInfo.get(mcp.id)?.status === "needs_config") return;
+    }
 
     try {
-      // Load user-configured env values from DB
-      const userEnv = await getMcpEnvConfig(mcp.id);
-
-      // Check if required env vars are configured.
-      // Only vars with empty default values are considered required (need user config).
-      // Vars with non-empty defaults (like BROWSER_USE_HEADLESS: "false") work as-is.
-      const definedEnv = mcp.definition.env || {};
-      const missingVars = Object.entries(definedEnv)
-        .filter(([key, defaultVal]) => !defaultVal && !userEnv[key])
-        .map(([key]) => key);
-
-      if (missingVars.length > 0) {
-        this.serverStates.set(mcp.id, {
-          status: "needs_config",
-          missingEnv: missingVars,
-          error: `Missing configuration: ${missingVars.join(", ")}`,
-        });
-        console.warn(`MCP '${mcp.id}' needs config: ${missingVars.join(", ")}`);
-        this.notifyChange();
-        return;
-      }
-
-      // Merge: definition env (defaults) + user env (overrides)
-      const mergedEnv = { ...definedEnv, ...userEnv };
+      const mergedEnv = this.resolvedEnv.get(mcp.id) || {};
 
       const client = new McpClient({
         id: mcp.id,
@@ -219,39 +322,62 @@ class McpManager {
         env: mergedEnv,
       });
 
-      // Handle unexpected process exit: update state + auto-reconnect (max 2 attempts)
+      // On unexpected exit: clean up, mark as available (not error).
+      // The tool is still "available" — it just needs a new process,
+      // which will happen transparently on next call.
       client.onProcessExit = (serverId) => {
-        this.serverStates.set(serverId, { status: "error", error: "Process exited unexpectedly" });
+        console.warn(`[MCP:${serverId}] Process exited — will reconnect on next use`);
         this.clients.delete(serverId);
-        this.notifyChange();
-
-        const attempts = this.reconnectAttempts.get(serverId) || 0;
-        if (attempts < 2) {
-          this.reconnectAttempts.set(serverId, attempts + 1);
-          const mcpDef = this.loadedMcps.find((m) => m.id === serverId);
-          if (mcpDef) {
-            console.log(`[MCP:${serverId}] Auto-reconnecting in 3s (attempt ${attempts + 1}/2)...`);
-            setTimeout(() => this.connectServer(mcpDef), 3000);
-          }
-        } else {
-          console.warn(`[MCP:${serverId}] Max reconnect attempts reached`);
+        // Keep status as "available" — process restart is transparent
+        const info = this.serverInfo.get(serverId);
+        if (info && info.status !== "disabled" && info.status !== "needs_config") {
+          this.serverInfo.set(serverId, { ...info, status: "available" });
         }
+        // Don't notifyChange for process exit — user doesn't need to know
       };
 
-      console.log(`[MCP:${mcp.id}] Connecting: ${mcp.definition.command} ${mcp.definition.args.join(" ")}`);
-      console.log(`[MCP:${mcp.id}] Env:`, JSON.stringify(mergedEnv));
+      console.log(`[MCP:${mcp.id}] Starting: ${mcp.definition.command} ${mcp.definition.args.join(" ")}`);
       await client.connect();
       this.clients.set(mcp.id, client);
-      this.serverStates.set(mcp.id, { status: "connected" });
-      this.reconnectAttempts.delete(mcp.id); // Reset on successful connect
-      console.log(`[MCP:${mcp.id}] Connected OK: ${client.getTools().length} tools, isConnected=${client.isConnected()}`);
+
+      // Cache tool definitions (survive process crashes)
+      const skills = Object.values(client.toSkills());
+      this.cachedToolDefs.set(mcp.id, skills);
+
+      this.serverInfo.set(mcp.id, {
+        status: "available",
+        toolCount: client.getTools().length,
+      });
+
+      console.log(`[MCP:${mcp.id}] Ready: ${client.getTools().length} tools`);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      this.serverStates.set(mcp.id, { status: "error", error: errorMsg });
-      console.error(`[MCP:${mcp.id}] Connect FAILED:`, errorMsg);
-    }
+      console.error(`[MCP:${mcp.id}] Failed to start:`, errorMsg);
 
-    this.notifyChange();
+      // If we have cached tools, stay "available" — reconnect will be tried on use
+      const cached = this.cachedToolDefs.get(mcp.id);
+      if (cached && cached.length > 0) {
+        this.serverInfo.set(mcp.id, {
+          status: "available",
+          toolCount: cached.length,
+          error: errorMsg,
+        });
+      } else {
+        this.serverInfo.set(mcp.id, {
+          status: "error",
+          error: errorMsg,
+          toolCount: 0,
+        });
+      }
+    }
+  }
+
+  private async disconnectClient(id: string): Promise<void> {
+    const client = this.clients.get(id);
+    if (client) {
+      await client.disconnect().catch(() => {});
+      this.clients.delete(id);
+    }
   }
 }
 

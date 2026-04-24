@@ -92,10 +92,10 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   const mcpSummary = mcpStatuses
     .filter((s) => s.enabled)
     .map((s) => {
-      if (s.status === "connected") return `- ✓ ${s.name}: connected (${s.toolCount} tools)`;
+      if (s.status === "available") return `- ✓ ${s.name}: available (${s.toolCount} tools)`;
       if (s.status === "needs_config") return `- ✗ ${s.name}: needs configuration`;
       if (s.status === "error") return `- ✗ ${s.name}: error (${s.error || "unknown"})`;
-      return `- … ${s.name}: ${s.status}`;
+      return `- ${s.name}: ${s.status}`;
     })
     .join("\n");
 

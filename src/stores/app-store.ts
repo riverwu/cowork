@@ -3,10 +3,10 @@ import { listSources, getSettings } from "@/lib/db";
 import { mcpManager } from "@/lib/mcp";
 import type { Source, Settings } from "@/types";
 
-interface McpStatus {
+interface McpServerInfo {
   id: string;
   name: string;
-  connected: boolean;
+  status: string;
   toolCount: number;
 }
 
@@ -16,7 +16,7 @@ interface AppState {
   settings: Settings | null;
   hasApiKey: boolean;
   isFirstTime: boolean;
-  mcpServers: McpStatus[];
+  mcpServers: McpServerInfo[];
 
   load: () => Promise<void>;
   refreshSources: () => Promise<void>;
@@ -35,7 +35,7 @@ export const useAppStore = create<AppState>((set) => ({
     const [sources, settings] = await Promise.all([listSources(), getSettings()]);
     const hasApiKey = !!(settings.anthropicApiKey || settings.openaiApiKey);
     const mcpServers = mcpManager.getServerStatus().map((s) => ({
-      id: s.id, name: s.name, connected: s.connected, toolCount: s.toolCount,
+      id: s.id, name: s.name, status: s.status, toolCount: s.toolCount,
     }));
     set({
       initialized: true,
@@ -54,7 +54,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   refreshMcp: () => {
     const mcpServers = mcpManager.getServerStatus().map((s) => ({
-      id: s.id, name: s.name, connected: s.connected, toolCount: s.toolCount,
+      id: s.id, name: s.name, status: s.status, toolCount: s.toolCount,
     }));
     set({ mcpServers });
   },
