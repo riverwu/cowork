@@ -163,46 +163,43 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         }
       }
 
-      if (fullText) {
-        const completedSteps = get().steps;
+      // Save message with steps — even if fullText is empty, steps may have useful info
+      const completedSteps = get().steps.filter((s) => s.skill !== "__thinking__");
+      if (fullText || completedSteps.length > 0) {
         const assistantMsg = await createMessage({
           sessionId,
           role: "assistant",
-          content: fullText,
+          content: fullText || "(No text output)",
           metadata: completedSteps.length > 0 ? { steps: completedSteps } : undefined,
         });
         set((s) => ({
           messages: [...s.messages, assistantMsg],
           isStreaming: false,
           streamingText: "",
-          steps: [], // Clear steps after saving to message
+          steps: [],
         }));
       } else {
         set({ isStreaming: false });
       }
     } catch (err) {
       // Save partial progress even on error — don't lose intermediate steps
-      const errorSteps = get().steps;
-      if (fullText || errorSteps.length > 0) {
-        const errorContent = fullText
-          ? `${fullText}\n\n[Error: ${err}]`
-          : `[Error: ${err}]`;
-        const errorMsg = await createMessage({
-          sessionId,
-          role: "assistant",
-          content: errorContent,
-          metadata: errorSteps.length > 0 ? { steps: errorSteps } : undefined,
-        });
-        set((s) => ({
-          messages: [...s.messages, errorMsg],
-          isStreaming: false,
-          streamingText: "",
-          steps: [],
-          error: String(err),
-        }));
-      } else {
-        set({ isStreaming: false, error: String(err) });
-      }
+      const errorSteps = get().steps.filter((s) => s.skill !== "__thinking__");
+      const errorContent = fullText
+        ? `${fullText}\n\n[Error: ${err}]`
+        : `[Error: ${err}]`;
+      const errorMsg = await createMessage({
+        sessionId,
+        role: "assistant",
+        content: errorContent,
+        metadata: errorSteps.length > 0 ? { steps: errorSteps } : undefined,
+      });
+      set((s) => ({
+        messages: [...s.messages, errorMsg],
+        isStreaming: false,
+        streamingText: "",
+        steps: [],
+        error: String(err),
+      }));
     }
 
     // Drain pending message queue — send the next queued message
