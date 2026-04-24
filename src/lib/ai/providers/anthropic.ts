@@ -20,7 +20,7 @@ export class AnthropicProvider implements LLMProvider {
 
     const body: Record<string, unknown> = {
       model: this.model,
-      max_tokens: 4096,
+      max_tokens: 16384,
       system: params.system,
       messages,
       stream: true,
@@ -69,7 +69,13 @@ export class AnthropicProvider implements LLMProvider {
         }
       } else if (event.type === "content_block_stop") {
         if (currentBlockType === "tool_use" && currentToolName) {
-          const input = currentToolInput ? JSON.parse(currentToolInput) : {};
+          let input: Record<string, unknown> = {};
+          try {
+            input = currentToolInput ? JSON.parse(currentToolInput) : {};
+          } catch {
+            // Truncated JSON (likely hit max_tokens). Pass raw string so agent can report it.
+            input = { _raw: currentToolInput, _error: "Truncated tool call input" };
+          }
           const tc: ToolCall = { id: currentToolId, name: currentToolName, input };
           toolCalls.push(tc);
           yield { type: "tool-call", ...tc };
@@ -80,6 +86,8 @@ export class AnthropicProvider implements LLMProvider {
       } else if (event.type === "message_delta") {
         if (event.delta?.stop_reason === "tool_use") {
           stopReason = "tool_use";
+        } else if (event.delta?.stop_reason === "max_tokens") {
+          stopReason = "end"; // Truncated — treat as done, don't try to parse incomplete tool calls
         }
       } else if (event.type === "error") {
         throw new Error(`API error: ${JSON.stringify(event.error)}`);

@@ -73,11 +73,19 @@ export class OpenAIProvider implements LLMProvider {
       const finish = chunk.choices?.[0]?.finish_reason;
       if (finish) {
         const toolCalls: ToolCall[] = [];
-        for (const [, entry] of toolCallsMap) {
-          const input = entry.arguments ? JSON.parse(entry.arguments) : {};
-          const tc: ToolCall = { id: entry.id, name: entry.name, input };
-          toolCalls.push(tc);
-          yield { type: "tool-call", ...tc };
+        // Don't parse tool calls if output was truncated
+        if (finish !== "length") {
+          for (const [, entry] of toolCallsMap) {
+            let input: Record<string, unknown> = {};
+            try {
+              input = entry.arguments ? JSON.parse(entry.arguments) : {};
+            } catch {
+              input = { _raw: entry.arguments, _error: "Truncated tool call input" };
+            }
+            const tc: ToolCall = { id: entry.id, name: entry.name, input };
+            toolCalls.push(tc);
+            yield { type: "tool-call", ...tc };
+          }
         }
 
         yield {

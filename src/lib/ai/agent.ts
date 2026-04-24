@@ -9,7 +9,7 @@ import { retrieveMemoryContext, buildMemoryPrompt, extractMemories } from "@/lib
 import { mcpManager } from "@/lib/mcp";
 import type { AgentEvent } from "@/types";
 
-const MAX_STEPS = 10;
+const MAX_STEPS = 25;
 
 export interface AgentParams {
   messages: LLMMessage[];
