@@ -76,6 +76,23 @@ export async function installPythonPackage(pkg: string): Promise<string> {
   return invoke<string>("install_python_package", { package: pkg });
 }
 
+// ---- Node.js isolated environment ----
+
+/** Initialize the isolated Node.js environment (~/.cowork/node/). */
+export async function initNodeEnv(): Promise<string> {
+  return invoke<string>("init_node_env");
+}
+
+/** Install an npm package into the isolated environment. */
+export async function installNodePackage(pkg: string): Promise<string> {
+  return invoke<string>("install_node_package", { package: pkg });
+}
+
+/** Get NODE_PATH for the isolated environment. */
+export async function getNodePath(): Promise<string> {
+  return invoke<string>("get_node_path");
+}
+
 // ---- Web ----
 
 export interface WebFetchResult {

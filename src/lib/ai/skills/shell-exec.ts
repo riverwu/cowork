@@ -1,5 +1,5 @@
 import type { Skill, ProgressCallback } from "./types";
-import { shellExec, shellExecStream } from "@/lib/tauri";
+import { shellExec, shellExecStream, getNodePath, installNodePackage, initNodeEnv } from "@/lib/tauri";
 
 export const shellExecSkill: Skill = {
   definition: {
@@ -8,23 +8,28 @@ export const shellExecSkill: Skill = {
       `Execute a shell command on the user's machine. Use this for:
 - Running build tools (npm, cargo, make, etc.)
 - Git operations (git status, git diff, git commit, etc.)
-- Installing dependencies (pip install, npm install, etc.)
 - Running tests (pytest, jest, cargo test, etc.)
 - System commands (ls, cat, find, curl, etc.)
-- Any command-line tool available on the system
+- Running node scripts (node packages are available from the isolated env)
 
-The command runs with the system's PATH plus common tool locations.
+The command runs with expanded PATH and NODE_PATH set to the isolated package environment.
 Output (stdout + stderr) is captured and returned.
 Default timeout: 30 seconds (configurable up to 120s).
 
-IMPORTANT: Be careful with destructive commands. Prefer reading/checking before writing/deleting.`,
+IMPORTANT:
+- Do NOT run "npm install" in the user's working directory. Use the install_package parameter instead, which installs to an isolated environment (~/.cowork/node/).
+- Be careful with destructive commands. Prefer reading/checking before writing/deleting.`,
     parameters: {
       type: "object",
       properties: {
         command: {
           type: "array",
           items: { type: "string" },
-          description: "Command as argv array, e.g. [\"git\", \"status\"] or [\"npm\", \"test\"]",
+          description: "Command as argv array, e.g. [\"git\", \"status\"] or [\"node\", \"script.js\"]",
+        },
+        install_package: {
+          type: "string",
+          description: "If set, install this npm package to the isolated environment before running the command. E.g. \"pptxgenjs\" or \"chart.js\". Do NOT use npm install directly.",
         },
         cwd: {
           type: "string",
@@ -42,6 +47,7 @@ IMPORTANT: Be careful with destructive commands. Prefer reading/checking before 
   async execute(input: Record<string, unknown>, onProgress?: ProgressCallback) {
     const command = input.command as string[];
     const cwd = input.cwd as string | undefined;
+    const installPkg = input.install_package as string | undefined;
     const timeoutMs = Math.min((input.timeout_ms as number) || 30000, 120000);
 
     if (!command || command.length === 0) {
@@ -49,10 +55,26 @@ IMPORTANT: Be careful with destructive commands. Prefer reading/checking before 
     }
 
     try {
+      // Install npm package to isolated environment if requested
+      if (installPkg) {
+        onProgress?.(`Installing ${installPkg}...`);
+        await initNodeEnv();
+        const installResult = await installNodePackage(installPkg);
+        onProgress?.(installResult);
+      }
+
+      // Inject NODE_PATH so node/npm commands can find packages from ~/.cowork/node/
+      let env: Record<string, string> | undefined;
+      try {
+        const nodePath = await getNodePath();
+        env = { NODE_PATH: nodePath };
+      } catch { /* node env not initialized yet, fine */ }
+
       // Use streaming exec if progress callback is provided
+      const params = { command, cwd, timeout_ms: timeoutMs, env };
       const result = onProgress
-        ? await shellExecStream({ command, cwd, timeout_ms: timeoutMs }, onProgress)
-        : await shellExec({ command, cwd, timeout_ms: timeoutMs });
+        ? await shellExecStream(params, onProgress)
+        : await shellExec(params);
 
       let output = "";
       if (result.stdout) output += result.stdout;

@@ -373,3 +373,62 @@ async fn which_uv() -> Result<String, String> {
     }
     Err("uv not found. Install: https://docs.astral.sh/uv/getting-started/installation/".to_string())
 }
+
+// ---- Node.js isolated environment ----
+
+/// Get the cowork node environment directory (~/.cowork/node).
+fn node_env_dir() -> Result<std::path::PathBuf, String> {
+    let home = dirs_next::home_dir().ok_or("Cannot find home directory")?;
+    Ok(home.join(".cowork/node"))
+}
+
+/// Initialize the isolated Node.js environment for package installs.
+/// Creates ~/.cowork/node/ with a minimal package.json.
+#[tauri::command]
+pub async fn init_node_env() -> Result<String, String> {
+    let dir = node_env_dir()?;
+    let pkg_json = dir.join("package.json");
+
+    if pkg_json.exists() {
+        return Ok("Node environment already initialized.".to_string());
+    }
+
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create dir: {}", e))?;
+    fs::write(&pkg_json, r#"{"name":"cowork-node-env","version":"1.0.0","private":true}"#)
+        .map_err(|e| format!("Failed to write package.json: {}", e))?;
+
+    Ok("Node environment initialized.".to_string())
+}
+
+/// Install an npm package into the isolated environment.
+#[tauri::command]
+pub async fn install_node_package(package: String) -> Result<String, String> {
+    use tokio::process::Command;
+
+    let dir = node_env_dir()?;
+    if !dir.join("package.json").exists() {
+        init_node_env().await?;
+    }
+
+    let expanded_path = super::mcp::expanded_path_str();
+    let out = Command::new("npm")
+        .args(["install", "--save", &package])
+        .current_dir(&dir)
+        .env("PATH", &expanded_path)
+        .output()
+        .await
+        .map_err(|e| format!("npm install failed: {}", e))?;
+
+    if out.status.success() {
+        Ok(format!("Installed {}", package))
+    } else {
+        Err(format!("npm install failed: {}", String::from_utf8_lossy(&out.stderr)))
+    }
+}
+
+/// Get the NODE_PATH for the isolated environment.
+#[tauri::command]
+pub async fn get_node_path() -> Result<String, String> {
+    let dir = node_env_dir()?;
+    Ok(dir.join("node_modules").to_string_lossy().to_string())
+}
