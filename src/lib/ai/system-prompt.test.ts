@@ -5,29 +5,28 @@ describe("buildSystemPrompt", () => {
   it("includes core sections", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("Cowork");
-    expect(prompt).toContain("Problem-Solving Methodology");
-    expect(prompt).toContain("Tool Usage Rules");
-    expect(prompt).toContain("Working with Code");
-    expect(prompt).toContain("Safety & Quality");
-    expect(prompt).toContain("Behavior");
+    expect(prompt).toContain("Personality");
+    expect(prompt).toContain("How you work");
+    expect(prompt).toContain("Tool usage");
+    expect(prompt).toContain("Working with code");
+    expect(prompt).toContain("Safety");
+    expect(prompt).toContain("Output style");
   });
 
-  it("includes specific tool guidance", () => {
+  it("includes tool guidance", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("ALWAYS read a file before modifying");
+    expect(prompt).toContain("read before modifying");
     expect(prompt).toContain("apply_patch");
     expect(prompt).toContain("shell");
     expect(prompt).toContain("web_search");
     expect(prompt).toContain("grep");
   });
 
-  it("includes methodology steps", () => {
+  it("includes autonomy instructions", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("Gather context");
-    expect(prompt).toContain("Plan");
-    expect(prompt).toContain("Execute");
-    expect(prompt).toContain("Verify");
-    expect(prompt).toContain("Iterate");
+    expect(prompt).toContain("Autonomy and persistence");
+    expect(prompt).toContain("end-to-end");
+    expect(prompt).toContain("Understanding user intent");
   });
 
   it("includes tool list when provided", () => {
@@ -37,9 +36,9 @@ describe("buildSystemPrompt", () => {
         { name: "read_file", description: "Read a file", parameters: {} },
       ],
     });
-    expect(prompt).toContain("Available Tools (2)");
-    expect(prompt).toContain("**shell**");
-    expect(prompt).toContain("**read_file**");
+    expect(prompt).toContain("Available tools (2)");
+    expect(prompt).toContain("`shell`");
+    expect(prompt).toContain("`read_file`");
   });
 
   it("adds plan mode section when enabled", () => {
@@ -53,15 +52,17 @@ describe("buildSystemPrompt", () => {
     expect(prompt).not.toContain("PLANNING");
   });
 
-  it("includes memory context", () => {
+  it("includes memory context with precedence note", () => {
     const prompt = buildSystemPrompt({ memoryContext: "User prefers TypeScript" });
-    expect(prompt).toContain("Your Memory");
+    expect(prompt).toContain("Your memory");
+    expect(prompt).toContain("current message take precedence");
     expect(prompt).toContain("User prefers TypeScript");
   });
 
-  it("includes knowledge context", () => {
+  it("includes knowledge context with reference note", () => {
     const prompt = buildSystemPrompt({ knowledgeContext: "Q1 sales report data" });
-    expect(prompt).toContain("Knowledge Context");
+    expect(prompt).toContain("Relevant knowledge");
+    expect(prompt).toContain("reference material");
     expect(prompt).toContain("Q1 sales report data");
   });
 
@@ -72,20 +73,20 @@ describe("buildSystemPrompt", () => {
       knowledgeContext: "know",
       planMode: true,
     });
-    const planPos = prompt.indexOf("PLANNING");
-    const toolsPos = prompt.indexOf("Available Tools");
-    const memPos = prompt.indexOf("Your Memory");
-    const knowPos = prompt.indexOf("Knowledge Context");
+    const planPos = prompt.indexOf("MODE: PLANNING");
+    const toolsPos = prompt.indexOf("## Available tools (");
+    const memPos = prompt.indexOf("## Your memory");
+    const knowPos = prompt.indexOf("## Relevant knowledge");
 
     expect(planPos).toBeLessThan(toolsPos);
     expect(toolsPos).toBeLessThan(memPos);
     expect(memPos).toBeLessThan(knowPos);
   });
 
-  it("includes safety guidelines", () => {
+  it("includes safety and output style guidelines", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("destructive operations");
-    expect(prompt).toContain("Never say");
-    expect(prompt).toContain("persistent memory");
+    expect(prompt).toContain("No emoji");
+    expect(prompt).toContain("concise");
   });
 });

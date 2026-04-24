@@ -107,7 +107,7 @@ describe("Agent Tool Chain Diagnostics", () => {
       console.log(`[Diagnostic] System prompt length: ${prompt.length} chars`);
       console.log(`[Diagnostic] System prompt mentions 'tools available': ${prompt.includes("tools available")}`);
 
-      expect(prompt).toContain("Available Tools");
+      expect(prompt).toContain("Available tools");
       expect(prompt).toContain("web_search");
 
       // Verify each tool is mentioned
