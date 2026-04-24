@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { IconDocument, IconCheck, IconSettings } from "@/components/icons";
+import { IconDocument, IconCheck, IconSettings, IconWarning, IconFolder } from "@/components/icons";
 import { isContextDivider } from "@/stores/session-store";
 import { MarkdownContent } from "./markdown-renderer";
+import { openPath, revealInFolder } from "@/lib/tauri";
 import { t } from "@/lib/i18n";
 import type { Message, Artifact } from "@/types";
 
@@ -12,6 +13,7 @@ interface Step {
   result?: unknown;
   durationMs?: number;
   liveOutput?: string;
+  success?: boolean;
 }
 
 interface KnowledgeRef {
@@ -68,7 +70,7 @@ export function MessageList({
             </div>
           )}
 
-          {/* Live tool steps — full detail */}
+          {/* Live tool steps */}
           {steps.length > 0 && (
             <div className="space-y-1.5">
               {steps.map((step, i) => (
@@ -121,12 +123,9 @@ function AssistantMessage({ message }: { message: Message }) {
 
   return (
     <div className="space-y-2">
-      {/* Collapsed steps summary */}
       {savedSteps && savedSteps.length > 0 && (
         <CollapsedSteps steps={savedSteps} />
       )}
-
-      {/* Message content */}
       <div className="max-w-[90%]">
         <div className="text-[13px] text-[var(--on-surface)] leading-[1.7] markdown-body">
           <MarkdownContent content={message.content} />
@@ -142,10 +141,10 @@ function CollapsedSteps({ steps }: { steps: Step[] }) {
   const [expanded, setExpanded] = useState(false);
   const totalTime = steps.reduce((sum, s) => sum + (s.durationMs || 0), 0);
   const toolNames = [...new Set(steps.map((s) => formatSkillName(s.skill)))];
+  const failCount = steps.filter((s) => s.success === false).length;
 
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-low)] overflow-hidden">
-      {/* Summary bar — always visible */}
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-2 px-3 py-2 text-left cursor-pointer hover:bg-[var(--surface-container)] transition-colors"
@@ -153,6 +152,7 @@ function CollapsedSteps({ steps }: { steps: Step[] }) {
         <IconSettings size={12} className="text-[var(--on-surface-tertiary)]" />
         <span className="text-[11px] text-[var(--on-surface-secondary)] flex-1">
           {steps.length} tool{steps.length > 1 ? "s" : ""}: {toolNames.join(", ")}
+          {failCount > 0 && <span className="text-[var(--error)] ml-1">({failCount} failed)</span>}
         </span>
         <span className="text-[10px] text-[var(--on-surface-tertiary)]">
           {totalTime > 0 ? `${(totalTime / 1000).toFixed(1)}s` : ""}
@@ -162,7 +162,6 @@ function CollapsedSteps({ steps }: { steps: Step[] }) {
         </span>
       </button>
 
-      {/* Expanded detail */}
       {expanded && (
         <div className="border-t border-[var(--border)] divide-y divide-[var(--border)]/50">
           {steps.map((step, i) => (
@@ -174,10 +173,11 @@ function CollapsedSteps({ steps }: { steps: Step[] }) {
   );
 }
 
-// ---- Completed step detail (in collapsed panel) ----
+// ---- Completed step detail ----
 
 function CompletedStepDetail({ step }: { step: Step }) {
   const [showDetail, setShowDetail] = useState(false);
+  const failed = step.success === false;
 
   return (
     <div className="px-3 py-2">
@@ -185,8 +185,13 @@ function CompletedStepDetail({ step }: { step: Step }) {
         onClick={() => setShowDetail(!showDetail)}
         className="w-full flex items-center gap-2 text-left cursor-pointer"
       >
-        <span className="text-[var(--success)]"><IconCheck size={12} /></span>
-        <span className="text-[12px] font-medium text-[var(--on-surface)]">{formatSkillName(step.skill)}</span>
+        {failed
+          ? <span className="text-[var(--error)]"><IconWarning size={12} /></span>
+          : <span className="text-[var(--success)]"><IconCheck size={12} /></span>
+        }
+        <span className={`text-[12px] font-medium ${failed ? "text-[var(--error)]" : "text-[var(--on-surface)]"}`}>
+          {formatSkillName(step.skill)}
+        </span>
         {step.durationMs !== undefined && (
           <span className="text-[10px] text-[var(--on-surface-tertiary)]">{(step.durationMs / 1000).toFixed(1)}s</span>
         )}
@@ -195,7 +200,6 @@ function CompletedStepDetail({ step }: { step: Step }) {
 
       {showDetail && (
         <div className="mt-1.5 space-y-1.5 pl-5">
-          {/* Input */}
           {step.input != null && (
             <div>
               <span className="text-[10px] font-medium text-[var(--on-surface-tertiary)] uppercase">Input</span>
@@ -204,13 +208,10 @@ function CompletedStepDetail({ step }: { step: Step }) {
               </pre>
             </div>
           )}
-          {/* Output */}
           {step.result != null && (
             <div>
               <span className="text-[10px] font-medium text-[var(--on-surface-tertiary)] uppercase">Output</span>
-              <pre className="text-[11px] text-[var(--on-surface-secondary)] bg-[var(--surface-container)] rounded-lg px-2.5 py-1.5 mt-0.5 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed max-h-[120px] overflow-y-auto">
-                {formatValue(step.result)}
-              </pre>
+              <StepResultContent result={formatValue(step.result)} failed={failed} />
             </div>
           )}
         </div>
@@ -219,19 +220,20 @@ function CompletedStepDetail({ step }: { step: Step }) {
   );
 }
 
-// ---- Live step (during streaming) — show full detail ----
+// ---- Live step (during streaming) ----
 
 function LiveStepItem({ step }: { step: Step }) {
+  const failed = step.status === "done" && step.success === false;
+
   return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-lowest)] px-3 py-2">
+    <div className={`rounded-lg border px-3 py-2 ${failed ? "border-[var(--error)]/30 bg-red-50/30" : "border-[var(--border)] bg-[var(--surface-lowest)]"}`}>
       <div className="flex items-center gap-2">
-        {step.status === "running" ? (
-          <span className="inline-block w-3 h-3 border-[1.5px] border-[var(--primary-accent)] border-t-transparent rounded-full animate-spin shrink-0" />
-        ) : (
-          <span className="text-[var(--success)] shrink-0"><IconCheck size={13} /></span>
-        )}
-        <span className="text-[12px] font-medium text-[var(--on-surface)]">{formatSkillName(step.skill)}</span>
-        {step.durationMs !== undefined && (
+        <StepStatusIcon status={step.status} success={step.success} />
+        <span className={`text-[12px] font-medium ${failed ? "text-[var(--error)]" : "text-[var(--on-surface)]"}`}>
+          {formatSkillName(step.skill)}
+        </span>
+        {step.status === "running" && <LiveTimer />}
+        {step.status === "done" && step.durationMs !== undefined && (
           <span className="text-[10px] text-[var(--on-surface-tertiary)]">{(step.durationMs / 1000).toFixed(1)}s</span>
         )}
       </div>
@@ -257,13 +259,106 @@ function LiveStepItem({ step }: { step: Step }) {
       {/* Output (when done) */}
       {step.status === "done" && step.result != null && (
         <div className="mt-1 pl-5">
-          <pre className="text-[11px] text-[var(--on-surface-tertiary)] bg-[var(--surface-low)] rounded px-2 py-1 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed max-h-[60px] overflow-y-auto">
-            {truncate(formatValue(step.result), 200)}
-          </pre>
+          <StepResultContent result={truncate(formatValue(step.result), 300)} failed={failed} />
         </div>
       )}
     </div>
   );
+}
+
+// ---- Step status icon: spinner / check / error ----
+
+function StepStatusIcon({ status, success }: { status: "running" | "done"; success?: boolean }) {
+  if (status === "running") {
+    return <span className="inline-block w-3 h-3 border-[1.5px] border-[var(--primary-accent)] border-t-transparent rounded-full animate-spin shrink-0" />;
+  }
+  if (success === false) {
+    return <span className="text-[var(--error)] shrink-0"><IconWarning size={13} /></span>;
+  }
+  return <span className="text-[var(--success)] shrink-0"><IconCheck size={13} /></span>;
+}
+
+// ---- Live timer (counts up while running) ----
+
+function LiveTimer() {
+  const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef(Date.now());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <span className="text-[10px] text-[var(--on-surface-tertiary)] tabular-nums">
+      {elapsed}s
+    </span>
+  );
+}
+
+// ---- Step result with file path detection ----
+
+const FILE_PATH_RE = /((?:\/[\w.\-]+)+\.\w+|~(?:\/[\w.\-]+)+\.\w+)/g;
+const FILE_EXTENSIONS = /\.(txt|md|py|ts|tsx|js|jsx|rs|go|java|json|yaml|yml|toml|csv|xml|html|css|sql|sh|pdf|docx|xlsx|pptx|png|jpg|jpeg|gif|svg|mp4|mp3|zip|tar|gz)$/i;
+
+function StepResultContent({ result, failed }: { result: string; failed: boolean }) {
+  // Extract file paths from the result text
+  const filePaths = extractFilePaths(result);
+
+  return (
+    <div className="space-y-1.5 mt-0.5">
+      <pre className={`text-[11px] ${failed ? "text-[var(--error)]" : "text-[var(--on-surface-tertiary)]"} bg-[var(--surface-low)] rounded px-2 py-1 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed max-h-[120px] overflow-y-auto`}>
+        {result}
+      </pre>
+      {filePaths.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {filePaths.map((fp, i) => (
+            <FilePathCard key={i} path={fp} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilePathCard({ path }: { path: string }) {
+  const fileName = path.split("/").pop() || path;
+  const dir = path.slice(0, path.length - fileName.length);
+
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-container)] border border-[var(--border)] hover:border-[var(--on-surface-tertiary)] transition-colors group">
+      <IconDocument size={12} className="text-[var(--on-surface-tertiary)] shrink-0" />
+      <button
+        onClick={() => openPath(path)}
+        className="text-[11px] text-[var(--on-surface-secondary)] hover:text-[var(--primary-accent)] cursor-pointer truncate max-w-[200px]"
+        title={`Open ${path}`}
+      >
+        {fileName}
+      </button>
+      <button
+        onClick={() => revealInFolder(path)}
+        className="p-0.5 rounded opacity-0 group-hover:opacity-100 text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] cursor-pointer transition-all"
+        title={`Reveal in ${dir}`}
+      >
+        <IconFolder size={10} />
+      </button>
+    </span>
+  );
+}
+
+function extractFilePaths(text: string): string[] {
+  const paths: string[] = [];
+  let match;
+  FILE_PATH_RE.lastIndex = 0;
+  while ((match = FILE_PATH_RE.exec(text)) !== null) {
+    const p = match[1];
+    if (FILE_EXTENSIONS.test(p) && !paths.includes(p)) {
+      paths.push(p);
+    }
+  }
+  return paths;
 }
 
 // ---- Context divider ----

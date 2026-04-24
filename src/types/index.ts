@@ -146,7 +146,7 @@ export type AgentEvent =
   | { type: "text-delta"; text: string }
   | { type: "skill-start"; skill: string; input: unknown }
   | { type: "skill-progress"; skill: string; output: string }
-  | { type: "skill-done"; skill: string; result: unknown; durationMs: number }
+  | { type: "skill-done"; skill: string; result: unknown; durationMs: number; success: boolean }
   | { type: "artifact"; artifact: Artifact }
   | { type: "knowledge-ref"; refs: { documentId: string; filename: string; snippet: string }[] }
   | { type: "error"; error: string }

@@ -158,7 +158,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       if (!skill) {
         const errResult = `Unknown skill: ${toolCall.name}`;
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: errResult });
-        yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0 };
+        yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0, success: false };
         continue;
       }
 
@@ -184,12 +184,12 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         }
 
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: result });
-        yield { type: "skill-done", skill: toolCall.name, result: summarizeResult(result), durationMs };
+        yield { type: "skill-done", skill: toolCall.name, result: summarizeResult(result), durationMs, success: true };
       } catch (err) {
         const durationMs = Date.now() - startTime;
         const errResult = `Skill execution error: ${err}`;
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: errResult });
-        yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs };
+        yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs, success: false };
       }
     }
   }

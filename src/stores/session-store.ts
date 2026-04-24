@@ -28,7 +28,7 @@ interface SessionState {
   messages: Message[];
   isStreaming: boolean;
   streamingText: string;
-  steps: Array<{ skill: string; status: "running" | "done"; input?: unknown; result?: unknown; durationMs?: number; liveOutput?: string }>;
+  steps: Array<{ skill: string; status: "running" | "done"; input?: unknown; result?: unknown; durationMs?: number; liveOutput?: string; success?: boolean }>;
   artifacts: Artifact[];
   knowledgeRefs: KnowledgeRef[];
   error: string | null;
@@ -271,7 +271,7 @@ function handleEvent(
       set((s) => ({
         steps: s.steps.map((step) =>
           step.skill === event.skill && step.status === "running"
-            ? { ...step, status: "done", result: event.result, durationMs: event.durationMs }
+            ? { ...step, status: "done", result: event.result, durationMs: event.durationMs, success: event.success }
             : step,
         ),
       }));
