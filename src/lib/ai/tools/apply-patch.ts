@@ -1,5 +1,5 @@
 import type { Tool } from "./types";
-import { readFileText, writeFile } from "@/lib/tauri";
+import { deleteFile, readFileText, writeFile } from "@/lib/tauri";
 
 /**
  * Apply patch tool — modeled after Codex CLI's patch format.
@@ -158,14 +158,8 @@ async function applyPatch(patch: string): Promise<string[]> {
       }
 
       case "delete": {
-        // Use writeFile to create empty (effectively delete)
-        // In practice we'd want a delete command, but this works
         try {
-          const { invoke } = await import("@tauri-apps/api/core");
-          // Try to delete via shell
-          await invoke("shell_exec", {
-            params: { command: ["rm", "-f", action.path] },
-          });
+          await deleteFile(action.path);
           results.push(`Deleted: ${action.path}`);
         } catch {
           results.push(`Failed to delete: ${action.path}`);

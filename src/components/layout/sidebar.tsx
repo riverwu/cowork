@@ -65,15 +65,15 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
           </div>
           <button
             onClick={() => onNavigate("settings")}
-            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+            className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors cursor-pointer shrink-0 ${
               currentPage === "settings"
-                ? "bg-blue-50 text-blue-700"
-                : "text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                ? "bg-blue-50 text-blue-700 ring-1 ring-blue-100"
+                : "text-slate-500 hover:bg-slate-200 hover:text-slate-800"
             }`}
             title={t("nav.settings")}
             aria-label={t("nav.settings")}
           >
-            <IconSettings size={15} />
+            <IconSettings size={19} />
           </button>
         </div>
       </div>

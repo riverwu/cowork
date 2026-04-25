@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import type { Artifact } from "@/types";
 
+export interface WorkspaceDocument {
+  id: string;
+  path: string;
+  title: string;
+  source: "conversation" | "recent_output" | "artifact" | "knowledge";
+}
+
 interface ViewPanel {
   id: string;
   artifact: Artifact;
@@ -10,15 +17,19 @@ interface ViewPanel {
 
 interface ViewState {
   panels: ViewPanel[];
+  documentWorkspace: WorkspaceDocument | null;
   addPanel: (artifact: Artifact) => void;
   removePanel: (id: string) => void;
   togglePin: (id: string) => void;
   toggleFullscreen: (id: string) => void;
+  openDocument: (document: Omit<WorkspaceDocument, "id">) => void;
+  closeDocument: () => void;
   clear: () => void;
 }
 
 export const useViewStore = create<ViewState>((set) => ({
   panels: [],
+  documentWorkspace: null,
 
   addPanel: (artifact) => {
     set((s) => ({
@@ -49,5 +60,16 @@ export const useViewStore = create<ViewState>((set) => ({
     }));
   },
 
-  clear: () => set({ panels: [] }),
+  openDocument: (document) => {
+    set({
+      documentWorkspace: {
+        ...document,
+        id: `doc:${document.path}`,
+      },
+    });
+  },
+
+  closeDocument: () => set({ documentWorkspace: null }),
+
+  clear: () => set({ panels: [], documentWorkspace: null }),
 }));

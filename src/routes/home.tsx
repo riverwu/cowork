@@ -5,11 +5,10 @@ import { CommandBar } from "@/components/chat/command-bar";
 import { MessageList } from "@/components/chat/message-list";
 import { ViewContainer } from "@/components/views/view-container";
 import { useSessionStore } from "@/stores/session-store";
-import { openPath } from "@/lib/tauri";
-import { outputsFromArtifacts, outputsFromSteps, outputsFromText, type ProducedOutput, type StepLike } from "@/lib/outputs";
+import { isMeaningfulProducedFilePath, outputsFromArtifacts, outputsFromSteps, outputsFromText, type ProducedOutput, type StepLike } from "@/lib/outputs";
 import {
   IconClock, IconChart, IconTaskList, IconMail, IconTrend,
-  IconFolder, IconPlus, IconPlay, IconDocument,
+  IconFolder, IconPlus, IconPlay, IconDocument, FileTypeIcon,
 } from "@/components/icons";
 import { t } from "@/lib/i18n";
 
@@ -146,6 +145,7 @@ export function Home() {
 type LongTaskView = NonNullable<ReturnType<typeof useSessionStore.getState>["longTask"]>;
 
 function LongTaskPanel({ task }: { task: LongTaskView }) {
+  const openDocument = useViewStore((s) => s.openDocument);
   const current = [...task.phases].reverse().find((p) => p.status === "running")
     || [...task.phases].reverse()[0];
 
@@ -187,8 +187,16 @@ function LongTaskPanel({ task }: { task: LongTaskView }) {
           <div className="flex flex-wrap gap-1.5 pt-1">
             {task.phases.flatMap((p) => p.outputs).map((output, index) => (
               output.path ? (
-                <button key={`${output.path}-${index}`} onClick={() => openPath(output.path!)} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-container)] text-[11px] text-[var(--on-surface-secondary)] hover:text-[var(--primary-accent)] cursor-pointer">
-                  <IconDocument size={11} /> {output.title}
+                <button
+                  key={`${output.path}-${index}`}
+                  onClick={() => openDocument({
+                    path: output.path!,
+                    title: output.title,
+                    source: "recent_output",
+                  })}
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-container)] text-[11px] text-[var(--on-surface-secondary)] hover:text-[var(--primary-accent)] cursor-pointer"
+                >
+                  <FileTypeIcon filename={output.title} path={output.path} size={20} /> {output.title}
                 </button>
               ) : (
                 <span key={`${output.title}-${index}`} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-container)] text-[11px] text-[var(--on-surface-secondary)]">
@@ -300,19 +308,29 @@ function AppItem({ icon, iconBg, title, schedule }: { icon: React.ReactNode; ico
 }
 
 function RecentOutputRow({ output, compact = false }: { output: ProducedOutput; compact?: boolean }) {
-  const icon = output.kind === "artifact" ? <IconDocument size={12} /> : <IconFolder size={12} />;
+  const openDocument = useViewStore((s) => s.openDocument);
+  const icon = output.kind === "artifact"
+    ? <IconDocument size={13} />
+    : <FileTypeIcon filename={output.title} path={output.path} size={compact ? 22 : 26} />;
   const label = output.kind === "artifact" ? "面板" : "文件";
   const content = (
     <>
-      <span className="text-[var(--primary-accent)]">{icon}</span>
-      <span className="flex-1 truncate text-[var(--on-surface-secondary)]">{output.title}</span>
-      <span className="text-[var(--on-surface-tertiary)]">{label}</span>
+      <span className="text-[var(--primary-accent)] shrink-0">{icon}</span>
+      <span className="flex-1 truncate text-[var(--on-surface)] font-medium">{output.title}</span>
+      <span className="text-[var(--on-surface-tertiary)] font-medium">{label}</span>
     </>
   );
 
   if (output.kind === "file" && output.path) {
     return (
-      <button onClick={() => openPath(output.path!)} className={`w-full flex items-center gap-2 px-2 ${compact ? "py-1" : "py-1.5"} rounded-lg text-[12px] hover:bg-[var(--surface-low)] cursor-pointer text-left`}>
+      <button
+        onClick={() => openDocument({
+          path: output.path!,
+          title: output.title,
+          source: "recent_output",
+        })}
+        className={`w-full flex items-center gap-2 px-2 ${compact ? "py-1" : "py-1.5"} rounded-lg text-[12px] hover:bg-[var(--surface-low)] cursor-pointer text-left`}
+      >
         {content}
       </button>
     );
@@ -336,7 +354,7 @@ function getRecentOutputs(
     ...outputsFromSteps(currentSteps),
     ...(longTask?.phases.flatMap((phase) =>
       phase.outputs
-        .filter((output) => output.path)
+        .filter((output) => output.path && isMeaningfulProducedFilePath(output.path))
         .map((output) => ({
           id: `file:${output.path}`,
           title: output.title,

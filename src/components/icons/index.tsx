@@ -14,6 +14,13 @@ interface IconProps {
   className?: string;
 }
 
+interface FileTypeIconProps {
+  filename?: string;
+  path?: string;
+  size?: number;
+  className?: string;
+}
+
 const defaults = (props: IconProps) => ({
   width: props.size || 18,
   height: props.size || 18,
@@ -69,8 +76,12 @@ export function IconActivity(props: IconProps) {
 export function IconSettings(props: IconProps) {
   return (
     <svg {...defaults(props)}>
-      <circle cx="9" cy="9" r="2.5" />
-      <path d="M14.7 11.1C14.6 11.35 14.65 11.65 14.85 11.85L14.9 11.9C15.06 12.06 15.15 12.28 15.15 12.5C15.15 12.72 15.06 12.94 14.9 13.1C14.74 13.26 14.52 13.35 14.3 13.35C14.08 13.35 13.86 13.26 13.7 13.1L13.65 13.05C13.45 12.85 13.15 12.8 12.9 12.9C12.66 13 12.5 13.23 12.5 13.5V13.65C12.5 14.1 12.15 14.45 11.7 14.45H11.3C10.85 14.45 10.5 14.1 10.5 13.65V13.5C10.5 13.23 10.34 13 10.1 12.9C9.85 12.8 9.55 12.85 9.35 13.05L9.3 13.1C9.14 13.26 8.92 13.35 8.7 13.35C8.48 13.35 8.26 13.26 8.1 13.1C7.94 12.94 7.85 12.72 7.85 12.5C7.85 12.28 7.94 12.06 8.1 11.9L8.15 11.85C8.35 11.65 8.4 11.35 8.3 11.1C8.2 10.86 7.97 10.7 7.7 10.7H7.55C7.1 10.7 6.75 10.35 6.75 9.9V9.5C6.75 9.05 7.1 8.7 7.55 8.7H7.7C7.97 8.7 8.2 8.54 8.3 8.3C8.4 8.05 8.35 7.75 8.15 7.55L8.1 7.5C7.94 7.34 7.85 7.12 7.85 6.9C7.85 6.68 7.94 6.46 8.1 6.3C8.26 6.14 8.48 6.05 8.7 6.05C8.92 6.05 9.14 6.14 9.3 6.3L9.35 6.35C9.55 6.55 9.85 6.6 10.1 6.5H10.15C10.38 6.4 10.5 6.17 10.5 5.9V5.75C10.5 5.3 10.85 4.95 11.3 4.95H11.7C12.15 4.95 12.5 5.3 12.5 5.75V5.9C12.5 6.17 12.66 6.4 12.9 6.5C13.15 6.6 13.45 6.55 13.65 6.35L13.7 6.3C13.86 6.14 14.08 6.05 14.3 6.05C14.52 6.05 14.74 6.14 14.9 6.3C15.06 6.46 15.15 6.68 15.15 6.9C15.15 7.12 15.06 7.34 14.9 7.5L14.85 7.55C14.65 7.75 14.6 8.05 14.7 8.3V8.35C14.8 8.58 15.03 8.7 15.3 8.7H15.45C15.9 8.7 16.25 9.05 16.25 9.5V9.9C16.25 10.35 15.9 10.7 15.45 10.7H15.3C15.03 10.7 14.8 10.86 14.7 11.1Z" />
+      <path d="M3 5H15" />
+      <path d="M3 9H15" />
+      <path d="M3 13H15" />
+      <circle cx="6.2" cy="5" r="1.35" fill="var(--surface-lowest)" />
+      <circle cx="11.8" cy="9" r="1.35" fill="var(--surface-lowest)" />
+      <circle cx="8.1" cy="13" r="1.35" fill="var(--surface-lowest)" />
     </svg>
   );
 }
@@ -84,6 +95,60 @@ export function IconDocument(props: IconProps) {
       <path d="M10.5 2.5V6.5H14.5" />
     </svg>
   );
+}
+
+export function FileTypeIcon({ filename, path, size = 28, className }: FileTypeIconProps) {
+  const name = filename || path?.split("/").pop() || "";
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  const meta = fileTypeMeta(ext);
+  const iconSize = Math.max(12, Math.round(size * 0.5));
+
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center justify-center rounded-lg ring-1 ring-black/[0.05] ${meta.bg} ${meta.fg} ${className || ""}`}
+      style={{ width: size, height: size }}
+      title={meta.label}
+    >
+      {meta.kind === "sheet" ? (
+        <IconChart size={iconSize} />
+      ) : meta.kind === "slides" ? (
+        <IconReport size={iconSize} />
+      ) : meta.kind === "folder" ? (
+        <IconFolder size={iconSize} />
+      ) : (
+        <svg
+          width={iconSize}
+          height={iconSize}
+          viewBox="0 0 18 18"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M10.5 2.5H5C4.17 2.5 3.5 3.17 3.5 4V14C3.5 14.83 4.17 15.5 5 15.5H13C13.83 15.5 14.5 14.83 14.5 14V6.5L10.5 2.5Z" />
+          <path d="M10.5 2.5V6.5H14.5" />
+          {meta.kind === "pdf" ? <path d="M6 11.5H12" /> : null}
+          {meta.kind === "text" ? <><path d="M6 8.5H12" /><path d="M6 11.5H10.5" /></> : null}
+          {meta.kind === "code" ? <><path d="M7 8L5.5 9.5L7 11" /><path d="M11 8L12.5 9.5L11 11" /></> : null}
+          {meta.kind === "image" ? <><path d="M6 12L8 9.8L9.4 11.2L10.5 10L12.5 12" /><circle cx="7" cy="7.8" r="0.6" fill="currentColor" stroke="none" /></> : null}
+          {meta.kind === "archive" ? <><path d="M8 5.5H10" /><path d="M8 7.5H10" /><path d="M8 9.5H10" /></> : null}
+        </svg>
+      )}
+    </span>
+  );
+}
+
+function fileTypeMeta(ext: string): { kind: string; label: string; bg: string; fg: string } {
+  if (ext === "pdf") return { kind: "pdf", label: "PDF", bg: "bg-red-50", fg: "text-red-600" };
+  if (ext === "doc" || ext === "docx") return { kind: "text", label: "Word document", bg: "bg-blue-50", fg: "text-blue-700" };
+  if (ext === "xls" || ext === "xlsx" || ext === "csv") return { kind: "sheet", label: "Spreadsheet", bg: "bg-emerald-50", fg: "text-emerald-700" };
+  if (ext === "ppt" || ext === "pptx") return { kind: "slides", label: "Presentation", bg: "bg-orange-50", fg: "text-orange-700" };
+  if (["png", "jpg", "jpeg", "gif", "svg"].includes(ext)) return { kind: "image", label: "Image", bg: "bg-fuchsia-50", fg: "text-fuchsia-700" };
+  if (["js", "jsx", "ts", "tsx", "py", "rs", "go", "java", "html", "css", "sql", "sh"].includes(ext)) return { kind: "code", label: "Code file", bg: "bg-slate-100", fg: "text-slate-700" };
+  if (["zip", "tar", "gz"].includes(ext)) return { kind: "archive", label: "Archive", bg: "bg-violet-50", fg: "text-violet-700" };
+  if (["md", "txt", "json", "yaml", "yml", "toml", "xml"].includes(ext)) return { kind: "text", label: "Text file", bg: "bg-sky-50", fg: "text-sky-700" };
+  return { kind: "text", label: "File", bg: "bg-gray-100", fg: "text-gray-700" };
 }
 
 export function IconReport(props: IconProps) {
@@ -197,6 +262,24 @@ export function IconArrowLeft(props: IconProps) {
   return (
     <svg {...defaults(props)}>
       <path d="M11 4L5 9L11 14" />
+    </svg>
+  );
+}
+
+export function IconUndo(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M7 5H3V1" />
+      <path d="M3.5 5.5C4.8 3.9 6.8 3 9 3C12.3 3 15 5.7 15 9C15 12.3 12.3 15 9 15C6.8 15 4.9 13.9 3.8 12.2" />
+    </svg>
+  );
+}
+
+export function IconRedo(props: IconProps) {
+  return (
+    <svg {...defaults(props)}>
+      <path d="M11 5H15V1" />
+      <path d="M14.5 5.5C13.2 3.9 11.2 3 9 3C5.7 3 3 5.7 3 9C3 12.3 5.7 15 9 15C11.2 15 13.1 13.9 14.2 12.2" />
     </svg>
   );
 }

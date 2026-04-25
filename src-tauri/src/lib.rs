@@ -13,6 +13,8 @@ pub fn run() {
             commands::fs::scan_directory,
             commands::fs::read_file_text,
             commands::fs::parse_document,
+            commands::fs::extract_document_text_to_cache,
+            commands::fs::start_knowledge_index,
             commands::fs::write_file,
             commands::fs::delete_file,
             commands::fs::list_directory,

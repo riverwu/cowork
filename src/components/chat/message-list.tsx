@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { IconDocument, IconCheck, IconSettings, IconWarning, IconFolder } from "@/components/icons";
+import { FileTypeIcon, IconDocument, IconCheck, IconSettings, IconWarning, IconFolder } from "@/components/icons";
 import { isContextDivider } from "@/stores/session-store";
 import { MarkdownContent } from "./markdown-renderer";
-import { openPath, revealInFolder } from "@/lib/tauri";
+import { revealInFolder } from "@/lib/tauri";
+import { useViewStore } from "@/stores/view-store";
 import { extractFilePaths, outputsFromSteps, outputsFromText, type ProducedOutput } from "@/lib/outputs";
 import { t } from "@/lib/i18n";
 import type { Message, Artifact } from "@/types";
@@ -87,7 +88,7 @@ export function MessageList({
           {/* Streaming text */}
           {streamingText && (
             <div className="max-w-[90%]">
-              <div className="text-[14px] text-[var(--chat-text)] leading-[1.75] font-normal markdown-body">
+            <div className="text-[14.5px] text-[var(--chat-text)] leading-[1.78] font-normal markdown-body">
                 <MarkdownContent content={streamingText} />
                 <span className="inline-block w-[3px] h-[14px] ml-0.5 bg-[var(--primary-accent)] animate-pulse rounded-sm" />
               </div>
@@ -114,8 +115,8 @@ export function MessageList({
 function UserBubble({ content }: { content: string }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[75%] px-4 py-2.5 rounded-2xl bg-[var(--surface-lowest)] text-[var(--chat-text)] text-[13px] leading-[1.65] font-normal whitespace-pre-wrap ring-1 ring-black/[0.04] shadow-[var(--shadow-sm)]">
-        {content}
+      <div className="max-w-[75%] px-4 py-2.5 rounded-2xl bg-[var(--surface-lowest)] text-[var(--chat-text)] text-[13.5px] leading-[1.65] font-normal ring-1 ring-black/[0.04] shadow-[var(--shadow-sm)] markdown-body">
+        <MarkdownContent content={content} />
       </div>
     </div>
   );
@@ -139,7 +140,7 @@ function AssistantMessage({ message }: { message: Message }) {
         <ProducedOutputs outputs={outputs} />
       )}
       <div className="max-w-[90%]">
-        <div className="text-[14px] text-[var(--chat-text)] leading-[1.75] font-normal markdown-body">
+        <div className="text-[14.5px] text-[var(--chat-text)] leading-[1.78] font-normal markdown-body">
           <MarkdownContent content={message.content} />
         </div>
       </div>
@@ -358,14 +359,15 @@ function StepResultContent({ result, failed }: { result: string; failed: boolean
 }
 
 function FilePathCard({ path }: { path: string }) {
+  const openDocument = useViewStore((s) => s.openDocument);
   const fileName = path.split("/").pop() || path;
   const dir = path.slice(0, path.length - fileName.length);
 
   return (
     <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-container)] border border-[var(--border)] hover:border-[var(--on-surface-tertiary)] transition-colors group">
-      <IconDocument size={12} className="text-[var(--on-surface-tertiary)] shrink-0" />
+      <FileTypeIcon filename={fileName} size={24} />
       <button
-        onClick={() => openPath(path)}
+        onClick={() => openDocument({ path, title: fileName, source: "conversation" })}
         className="text-[11px] text-[var(--on-surface-secondary)] hover:text-[var(--primary-accent)] cursor-pointer truncate max-w-[200px]"
         title={`Open ${path}`}
       >
@@ -400,11 +402,19 @@ function ProducedOutputs({ outputs }: { outputs: ProducedOutput[] }) {
 }
 
 function ProducedOutputRow({ output }: { output: ProducedOutput }) {
+  const openDocument = useViewStore((s) => s.openDocument);
   if (output.kind === "file" && output.path) {
     return (
       <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-[var(--surface-low)]">
-        <IconDocument size={13} className="text-[var(--on-surface-tertiary)] shrink-0" />
-        <button onClick={() => openPath(output.path!)} className="flex-1 min-w-0 text-left text-[12px] font-medium text-[var(--on-surface)] hover:text-[var(--primary-accent)] truncate cursor-pointer">
+        <FileTypeIcon filename={output.title} path={output.path} size={24} />
+        <button
+          onClick={() => openDocument({
+            path: output.path!,
+            title: output.title,
+            source: "conversation",
+          })}
+          className="flex-1 min-w-0 text-left text-[12px] font-medium text-[var(--on-surface)] hover:text-[var(--primary-accent)] truncate cursor-pointer"
+        >
           {output.title}
         </button>
         <button onClick={() => revealInFolder(output.path!)} className="px-2 py-1 rounded-md text-[11px] text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] hover:bg-[var(--surface-container)] cursor-pointer">

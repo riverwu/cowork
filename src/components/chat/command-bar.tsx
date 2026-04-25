@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useSessionStore } from "@/stores/session-store";
-import { IconSend, IconDocument, IconClose, IconPlus, IconFolder } from "@/components/icons";
-import { open } from "@tauri-apps/plugin-dialog";
-import { pickFolder } from "@/lib/tauri";
+import { FileTypeIcon, IconSend, IconClose, IconPlus, IconFolder } from "@/components/icons";
+import { pickFiles, pickFolder } from "@/lib/tauri";
 import { t } from "@/lib/i18n";
 
 interface AttachedFile {
@@ -86,7 +85,7 @@ export function CommandBar() {
   }
 
   async function handleAttachFiles() {
-    const result = await open({
+    const result = await pickFiles({
       multiple: true,
       filters: [
         { name: "Documents", extensions: ["txt", "md", "pdf", "docx", "xlsx", "csv", "json"] },
@@ -122,7 +121,7 @@ export function CommandBar() {
         <div className="flex flex-wrap gap-1.5 px-4 pt-3 pb-1">
           {files.map((file, i) => (
             <span key={i} className="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] text-[12px] text-[var(--on-surface-secondary)]">
-              <IconDocument size={12} />
+              <FileTypeIcon filename={file.name} path={file.path} size={22} />
               <span className="max-w-[160px] truncate">{file.name}</span>
               <button onClick={() => removeFile(i)} className="p-0.5 rounded hover:bg-[var(--surface-container)] text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] cursor-pointer transition-colors">
                 <IconClose size={10} />

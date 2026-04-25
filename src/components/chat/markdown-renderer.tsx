@@ -3,8 +3,9 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { openPath, revealInFolder } from "@/lib/tauri";
-import { IconDocument, IconFolder } from "@/components/icons";
+import { revealInFolder } from "@/lib/tauri";
+import { useViewStore } from "@/stores/view-store";
+import { FileTypeIcon, IconFolder } from "@/components/icons";
 import type { Components } from "react-markdown";
 
 /** File extensions we recognize for file card rendering. */
@@ -40,12 +41,13 @@ function processFileReferences(text: string): React.ReactNode[] {
 
 /** File card — clickable card with open file / reveal in folder actions. */
 function FileCard({ path }: { path: string }) {
+  const openDocument = useViewStore((s) => s.openDocument);
   const fileName = path.split("/").pop() || path;
   const ext = fileName.split(".").pop()?.toLowerCase() || "";
 
   function handleOpen(e: React.MouseEvent) {
     e.preventDefault();
-    openPath(path);
+    openDocument({ path, title: fileName, source: "conversation" });
   }
 
   function handleReveal(e: React.MouseEvent) {
@@ -57,12 +59,12 @@ function FileCard({ path }: { path: string }) {
   return (
     <span
       onClick={handleOpen}
-      className="inline-flex items-center gap-1.5 mx-0.5 px-2 py-0.5 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] hover:bg-[var(--surface-container)] hover:border-[var(--on-surface-tertiary)] cursor-pointer transition-colors group align-middle"
+      className="inline-flex items-center gap-1.5 mx-0.5 px-1.5 py-1 rounded-lg bg-[var(--surface-lowest)] border border-[var(--border)] hover:bg-[var(--surface-low)] hover:border-[var(--on-surface-tertiary)] cursor-pointer transition-colors group align-middle shadow-[var(--shadow-sm)]"
       title={path}
     >
-      <IconDocument size={12} />
-      <span className="text-[12px] text-[var(--on-surface-secondary)] max-w-[200px] truncate">{fileName}</span>
-      <span className="text-[10px] text-[var(--on-surface-tertiary)]">.{ext}</span>
+      <FileTypeIcon filename={fileName} size={22} />
+      <span className="text-[12px] font-medium text-[var(--on-surface-secondary)] max-w-[200px] truncate">{fileName}</span>
+      <span className="text-[10px] font-medium text-[var(--on-surface-tertiary)] uppercase">{ext}</span>
       <button
         onClick={handleReveal}
         className="p-0.5 rounded opacity-0 group-hover:opacity-100 text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] transition-all"
@@ -110,6 +112,10 @@ const markdownComponents: Components = {
 
   // Links
   a({ href, children }) {
+    if (href && isLocalFileHref(href)) {
+      const path = decodeURI(href);
+      return <FileCard path={path} />;
+    }
     return (
       <a href={href} target="_blank" rel="noopener" className="text-[var(--primary-accent)] font-medium hover:underline cursor-pointer">
         {children}
@@ -186,6 +192,11 @@ function processChildren(children: React.ReactNode): React.ReactNode {
   }
   return children;
 }
+
+function isLocalFileHref(href: string): boolean {
+  return href.startsWith("/") || href.startsWith("~");
+}
+
 
 /** Render markdown content with full support. */
 export function MarkdownContent({ content }: { content: string }) {

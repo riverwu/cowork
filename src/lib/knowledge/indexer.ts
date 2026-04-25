@@ -1,4 +1,4 @@
-import { deleteFile, parseDocument, writeFile } from "@/lib/tauri";
+import { deleteFile, extractDocumentTextToCache, parseDocument, type NativeIndexedFile } from "@/lib/tauri";
 import {
   createDocument,
   getDocumentBySourcePath,
@@ -22,6 +22,7 @@ const CONTENT_INDEXABLE_EXTENSIONS = new Set([
 ]);
 const SPREADSHEET_EXTENSIONS = new Set(["csv", "xlsx", "xls"]);
 const PRESENTATION_EXTENSIONS = new Set(["pptx", "ppt"]);
+const CATALOG_PREVIEW_CHARS = 24_000;
 
 /** Split text into overlapping chunks. */
 export function chunkText(text: string): string[] {
@@ -107,7 +108,7 @@ export async function indexDocument(
     // as metadata-only instead of making the whole import fail.
     let text: string;
     try {
-      text = await parseDocument(file.path);
+      text = await extractTextPreviewToCache(doc, file.path);
     } catch (err) {
       await updateDocumentContent(doc.id, "", "none");
       await updateDocumentIndexWarning(
@@ -124,7 +125,6 @@ export async function indexDocument(
       return;
     }
 
-    await writeExtractedTextCache(doc, text);
     await updateDocumentContent(doc.id, "", "none");
 
     await updateDocumentCatalog(sourceId, doc, file, text);
@@ -143,28 +143,7 @@ export async function indexSource(
   await updateSourceStatus(sourceId, "indexing");
 
   try {
-    await replaceSourceCapabilities(sourceId, [
-      {
-        capabilityType: "search",
-        toolName: "search_knowledge",
-        description: "Find relevant text excerpts from local extracted text cache and file catalog metadata.",
-      },
-      {
-        capabilityType: "read",
-        toolName: "read_file",
-        description: "Read a specific file by absolute path when exact source content is needed.",
-      },
-      {
-        capabilityType: "analyze",
-        toolName: "run_python",
-        description: "Analyze CSV/XLSX files with pandas/openpyxl and PPT/PPTX files with markitdown/python-pptx by opening the original file instead of relying on cached text.",
-      },
-      {
-        capabilityType: "sync",
-        toolName: "list_directory",
-        description: "Scan the local folder to refresh file inventory and detect additions/deletions.",
-      },
-    ]);
+    await replaceSourceCapabilities(sourceId, sourceCapabilities());
     const deletedDocs = await deleteDocumentsMissingFromPaths(sourceId, files.map((f) => f.path));
     await Promise.all(deletedDocs.map((doc) => deleteExtractedTextCache(doc)));
     for (let i = 0; i < files.length; i++) {
@@ -179,8 +158,84 @@ export async function indexSource(
   }
 }
 
+export async function prepareNativeIndexSource(sourceId: string): Promise<void> {
+  await updateSourceStatus(sourceId, "indexing");
+  await replaceSourceCapabilities(sourceId, sourceCapabilities());
+}
+
+export async function indexNativeFile(sourceId: string, file: NativeIndexedFile): Promise<void> {
+  const contentHash = fileFingerprint(file);
+  const existing = await getDocumentBySourcePath(sourceId, file.path);
+  if (existing?.status === "excluded") return;
+  if (
+    file.unchanged
+    && existing
+    && existing.contentHash === contentHash
+    && existing.status === "indexed"
+    && existing.embeddingStatus === "none"
+  ) {
+    return;
+  }
+
+  const doc = await createDocument({
+    sourceId,
+    filename: file.name,
+    filePath: file.path,
+    fileModifiedAt: file.modified_at,
+    size: file.size,
+    contentHash,
+  });
+
+  try {
+    await deleteChunksByDocument(doc.id);
+    await updateDocumentContent(doc.id, "", "none");
+    if (file.error) {
+      await updateDocumentIndexWarning(doc.id, file.error);
+    }
+    await updateDocumentCatalog(sourceId, doc, file, file.preview || "", file.cachePath || null);
+  } catch (err) {
+    await updateDocumentIndexFailure(doc.id, err instanceof Error ? err.message : String(err));
+    console.error(`Failed to catalog ${file.name}:`, err);
+  }
+}
+
+export async function completeNativeIndexSource(sourceId: string, files: Pick<FileInfo, "path">[]): Promise<void> {
+  const deletedDocs = await deleteDocumentsMissingFromPaths(sourceId, files.map((f) => f.path));
+  await Promise.all(deletedDocs.map((doc) => deleteExtractedTextCache(doc)));
+  await updateSourceStatus(sourceId, "active");
+}
+
+export async function failNativeIndexSource(sourceId: string): Promise<void> {
+  await updateSourceStatus(sourceId, "error");
+}
+
 function yieldToUi(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function sourceCapabilities() {
+  return [
+    {
+      capabilityType: "search" as const,
+      toolName: "search_knowledge",
+      description: "Find relevant text excerpts from local extracted text cache and file catalog metadata.",
+    },
+    {
+      capabilityType: "read" as const,
+      toolName: "read_file",
+      description: "Read a specific file by absolute path when exact source content is needed.",
+    },
+    {
+      capabilityType: "analyze" as const,
+      toolName: "run_python",
+      description: "Analyze CSV/XLSX files with pandas/openpyxl and PPT/PPTX files with markitdown/python-pptx by opening the original file instead of relying on cached text.",
+    },
+    {
+      capabilityType: "sync" as const,
+      toolName: "list_directory",
+      description: "Scan the local folder to refresh file inventory and detect additions/deletions.",
+    },
+  ];
 }
 
 function fileFingerprint(file: FileInfo): string {
@@ -199,10 +254,13 @@ function getExtractedTextPath(doc: Pick<Document, "id" | "filePath">): string | 
   return cacheRoot ? `${cacheRoot}/${doc.id}.txt` : null;
 }
 
-async function writeExtractedTextCache(doc: Document, text: string): Promise<void> {
+async function extractTextPreviewToCache(doc: Document, filePath: string): Promise<string> {
   const cachePath = getExtractedTextPath(doc);
-  if (!cachePath) return;
-  await writeFile(cachePath, text);
+  if (!cachePath) {
+    return parseDocument(filePath);
+  }
+  const result = await extractDocumentTextToCache(filePath, cachePath, CATALOG_PREVIEW_CHARS);
+  return result.preview;
 }
 
 async function deleteExtractedTextCache(doc: Document): Promise<void> {
@@ -216,9 +274,10 @@ async function updateDocumentCatalog(
   doc: Document,
   file: FileInfo,
   text: string,
+  extractedTextPath?: string | null,
 ): Promise<void> {
   const prefix = `${doc.id}:`;
-  const entities = buildCatalogEntities(doc, file, text);
+  const entities = buildCatalogEntities(doc, file, text, extractedTextPath);
   await replaceSourceEntitiesByExternalPrefix(sourceId, prefix, entities);
 }
 
@@ -226,9 +285,10 @@ export function buildCatalogEntities(
   doc: Document,
   file: FileInfo,
   text: string,
+  extractedTextPath?: string | null,
 ): Parameters<typeof replaceSourceEntitiesByExternalPrefix>[2] {
   const entities: Parameters<typeof replaceSourceEntitiesByExternalPrefix>[2] = [
-    buildDocumentEntity(doc, file, text),
+    buildDocumentEntity(doc, file, text, extractedTextPath),
   ];
 
   if (file.extension === "csv") {
@@ -247,6 +307,7 @@ function buildDocumentEntity(
   doc: Document,
   file: FileInfo,
   text: string,
+  extractedTextPath?: string | null,
 ): Omit<SourceEntity, "id" | "sourceId" | "createdAt"> {
   return {
     entityType: isContentIndexable(file) ? "document" : "file",
@@ -265,7 +326,7 @@ function buildDocumentEntity(
       filePath: file.path,
       filename: file.name,
       extension: file.extension,
-      extractedTextPath: getExtractedTextPath(doc),
+      extractedTextPath: extractedTextPath ?? getExtractedTextPath(doc),
       accessStrategy: accessStrategyForFile(file),
       recommendedTool: recommendedToolForFile(file),
       note: accessNoteForFile(file),
@@ -455,7 +516,7 @@ export async function reindexDocument(
 
     let text: string;
     try {
-      text = await parseDocument(file.path);
+      text = await extractTextPreviewToCache(doc, file.path);
     } catch (err) {
       await updateDocumentContent(documentId, "", "none");
       await updateDocumentIndexWarning(
@@ -472,7 +533,6 @@ export async function reindexDocument(
       return;
     }
 
-    await writeExtractedTextCache(doc, text);
     await updateDocumentContent(documentId, "", "none");
     await updateDocumentCatalog(sourceId, doc, file, text);
   } catch (err) {

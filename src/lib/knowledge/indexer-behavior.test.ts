@@ -5,6 +5,7 @@ import type { FileInfo } from "@/types";
 
 const mocks = vi.hoisted(() => ({
   parseDocument: vi.fn(),
+  extractDocumentTextToCache: vi.fn(),
   writeFile: vi.fn(),
   deleteFile: vi.fn(),
   createDocument: vi.fn(),
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/tauri", () => ({
   parseDocument: mocks.parseDocument,
+  extractDocumentTextToCache: mocks.extractDocumentTextToCache,
   writeFile: mocks.writeFile,
   deleteFile: mocks.deleteFile,
 }));
@@ -45,6 +47,12 @@ describe("indexDocument filesystem behavior", () => {
     vi.clearAllMocks();
     mocks.getDocumentBySourcePath.mockResolvedValue(null);
     mocks.parseDocument.mockResolvedValue("Extracted document text");
+    mocks.extractDocumentTextToCache.mockResolvedValue({
+      cachePath: "/tmp/.cowork-text-cache/doc1.txt",
+      preview: "Extracted document text",
+      charCount: 23,
+      byteCount: 23,
+    });
     mocks.writeFile.mockResolvedValue(undefined);
     mocks.deleteFile.mockResolvedValue(undefined);
     mocks.deleteDocumentsMissingFromPaths.mockResolvedValue([]);
@@ -101,22 +109,33 @@ describe("indexDocument filesystem behavior", () => {
 
     expect(mocks.createDocument).not.toHaveBeenCalled();
     expect(mocks.parseDocument).not.toHaveBeenCalled();
+    expect(mocks.extractDocumentTextToCache).not.toHaveBeenCalled();
     expect(mocks.updateDocumentContent).not.toHaveBeenCalled();
   });
 
-  it("keeps parsed documents indexed without embeddings and writes extracted text cache", async () => {
-    mocks.parseDocument.mockResolvedValue("Important report content");
+  it("keeps parsed documents indexed without embeddings and writes extracted text cache in native code", async () => {
+    mocks.extractDocumentTextToCache.mockResolvedValue({
+      cachePath: "/tmp/.cowork-text-cache/doc1.txt",
+      preview: "Important report content",
+      charCount: 24,
+      byteCount: 24,
+    });
 
     await indexDocument("source1", file("report.pdf", "pdf"));
 
     expect(mocks.updateDocumentContent).toHaveBeenCalledWith("doc1", "", "none");
     expect(mocks.updateDocumentIndexFailure).not.toHaveBeenCalled();
     expect(mocks.updateDocumentIndexWarning).not.toHaveBeenCalled();
-    expect(mocks.writeFile).toHaveBeenCalledWith("/tmp/.cowork-text-cache/doc1.txt", "Important report content");
+    expect(mocks.extractDocumentTextToCache).toHaveBeenCalledWith(
+      "/tmp/report.pdf",
+      "/tmp/.cowork-text-cache/doc1.txt",
+      24000,
+    );
+    expect(mocks.writeFile).not.toHaveBeenCalled();
   });
 
   it("keeps files cataloged when text extraction fails", async () => {
-    mocks.parseDocument.mockRejectedValue(new Error("scanned PDF"));
+    mocks.extractDocumentTextToCache.mockRejectedValue(new Error("scanned PDF"));
 
     await indexDocument("source1", file("scan.pdf", "pdf"));
 
@@ -185,6 +204,12 @@ describe("indexDocument filesystem behavior", () => {
         createdAt: sample.modified_at,
       });
       mocks.parseDocument.mockResolvedValueOnce(`Extracted text for ${sample.name}`);
+      mocks.extractDocumentTextToCache.mockResolvedValueOnce({
+        cachePath: `/tmp/.cowork-text-cache/doc-${sample.name}.txt`,
+        preview: `Extracted text for ${sample.name}`,
+        charCount: 100,
+        byteCount: 100,
+      });
 
       await indexDocument("source1", sample);
     }
@@ -194,7 +219,8 @@ describe("indexDocument filesystem behavior", () => {
     expect(mocks.updateDocumentContent).toHaveBeenCalledWith(`doc-${sampleFiles[0].name}`, "", "none");
     expect(mocks.updateDocumentContent).toHaveBeenCalledWith(`doc-${sampleFiles[1].name}`, "", "none");
     expect(mocks.updateDocumentContent).toHaveBeenCalledWith(`doc-${sampleFiles[2].name}`, "", "none");
-    expect(mocks.writeFile).toHaveBeenCalledTimes(sampleFiles.length);
+    expect(mocks.extractDocumentTextToCache).toHaveBeenCalledTimes(sampleFiles.length);
+    expect(mocks.writeFile).not.toHaveBeenCalled();
   });
 });
 

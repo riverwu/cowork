@@ -13,11 +13,11 @@
 
   /* Text */
   --on-surface: #111827;
-  --on-surface-secondary: #4b5563;
-  --on-surface-tertiary: #9ca3af;
-  --chat-text: #1f2937;
+  --on-surface-secondary: #374151;
+  --on-surface-tertiary: #6b7280;
+  --chat-text: #172033;
   --chat-heading: #111827;
-  --chat-muted: #667085;
+  --chat-muted: #4b5563;
 
   /* Borders */
   --border: #e5e7eb;
@@ -54,11 +54,11 @@ body {
   margin: 0;
   background-color: var(--surface);
   color: var(--on-surface);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Noto Sans SC", "PingFang SC", "Segoe UI", Helvetica, Arial, sans-serif;
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 [data-tauri-drag-region] {
@@ -79,10 +79,10 @@ a,
 /* Markdown body styles */
 .markdown-body {
   color: var(--chat-text);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", "Inter", sans-serif;
-  font-size: 14px;
-  font-weight: 400;
-  line-height: 1.75;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14.5px;
+  font-weight: 430;
+  line-height: 1.78;
   letter-spacing: 0;
 }
 .markdown-body p,
@@ -94,7 +94,7 @@ a,
 .markdown-body p:last-child { margin-bottom: 0; }
 .markdown-body strong {
   color: var(--chat-heading);
-  font-weight: 600;
+  font-weight: 650;
 }
 .markdown-body em {
   color: var(--chat-muted);

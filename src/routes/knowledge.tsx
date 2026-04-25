@@ -1,22 +1,40 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   IconFolder, IconDocument, IconReport, IconPlus,
   IconClose, IconSearch, IconSpinner, IconServer,
   IconChart, IconMail, IconPackage, IconPuzzle, IconWarning,
+  FileTypeIcon,
 } from "@/components/icons";
 import { useAppStore } from "@/stores/app-store";
 import {
   listDocuments, countDocuments, updateDocumentStatus,
   listRecentArtifacts, deleteSource,
 } from "@/lib/db";
-import { indexSource } from "@/lib/knowledge";
+import {
+  completeNativeIndexSource,
+  failNativeIndexSource,
+  indexNativeFile,
+  prepareNativeIndexSource,
+} from "@/lib/knowledge";
 import { retrieveRelevant } from "@/lib/knowledge";
-import { pickFolder, scanDirectory } from "@/lib/tauri";
+import {
+  onKnowledgeIndexDone,
+  onKnowledgeIndexFiles,
+  onKnowledgeIndexProgress,
+  pickFolder,
+  startKnowledgeIndex,
+  type NativeIndexedFile,
+  type NativeIndexProgress,
+  type NativeKnownFile,
+} from "@/lib/tauri";
 import { createSource } from "@/lib/db";
 import { t } from "@/lib/i18n";
 import type { Source, Document, Artifact } from "@/types";
 
 type AddStep = "closed" | "choose" | Source["type"];
+
+const NATIVE_INDEX_DB_BATCH_SIZE = 12;
+const NATIVE_INDEX_PROGRESS_INTERVAL_MS = 500;
 
 const SOURCE_TYPES: Array<{
   type: Source["type"];
@@ -40,6 +58,12 @@ export function KnowledgePage() {
   const [addStep, setAddStep] = useState<AddStep>("closed");
   const [adding, setAdding] = useState(false);
   const [indexJobs, setIndexJobs] = useState<Record<string, string>>({});
+  const nativeIndexBuffers = useRef<Record<string, NativeIndexedFile[]>>({});
+  const nativeIndexFiles = useRef<Record<string, NativeIndexedFile[]>>({});
+  const nativeIndexFlushTimers = useRef<Record<string, number>>({});
+  const nativeIndexFlushing = useRef<Record<string, boolean>>({});
+  const nativeIndexProgress = useRef<Record<string, NativeIndexProgress>>({});
+  const nativeIndexProgressTimers = useRef<Record<string, number>>({});
   const [sourceToRemove, setSourceToRemove] = useState<Source | null>(null);
   const [removingSource, setRemovingSource] = useState(false);
 
@@ -63,32 +87,193 @@ export function KnowledgePage() {
     return () => window.clearInterval(timer);
   }, [indexJobs, loadPageData, refreshSources, sources]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const unlisteners: Array<() => void> = [];
+
+    void (async () => {
+      unlisteners.push(await onKnowledgeIndexProgress((progress) => {
+        if (cancelled) return;
+        scheduleNativeProgressUpdate(progress);
+      }));
+
+      unlisteners.push(await onKnowledgeIndexFiles((files) => {
+        if (cancelled) return;
+        enqueueNativeIndexedFiles(files);
+      }));
+
+      unlisteners.push(await onKnowledgeIndexDone((progress) => {
+        if (cancelled) return;
+        if (nativeIndexProgressTimers.current[progress.sourceId]) {
+          window.clearTimeout(nativeIndexProgressTimers.current[progress.sourceId]);
+          delete nativeIndexProgressTimers.current[progress.sourceId];
+        }
+        applyNativeProgressUpdate(progress);
+        void finishNativeIndex(progress.sourceId, progress.phase === "error");
+      }));
+    })();
+
+    return () => {
+      cancelled = true;
+      unlisteners.forEach((unlisten) => unlisten());
+      Object.values(nativeIndexFlushTimers.current).forEach((timer) => window.clearTimeout(timer));
+      Object.values(nativeIndexProgressTimers.current).forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [loadPageData, refreshSources]);
+
   function startBackgroundIndex(source: Source, path: string) {
     setIndexJobs((prev) => ({ ...prev, [source.id]: t("knowledge.scanning") }));
     void (async () => {
       try {
-        const files = await scanDirectory(path);
-        if (files.length === 0) {
-          setIndexJobs((prev) => ({ ...prev, [source.id]: t("knowledge.noFiles") }));
-          window.setTimeout(() => {
-            setIndexJobs((prev) => removeJob(prev, source.id));
-          }, 2000);
-          return;
-        }
-        await indexSource(source.id, files, (current, total, filename) => {
-          setIndexJobs((prev) => ({ ...prev, [source.id]: `${current}/${total}: ${filename}` }));
-        });
+        nativeIndexBuffers.current[source.id] = [];
+        nativeIndexFiles.current[source.id] = [];
+        await prepareNativeIndexSource(source.id);
+        await refreshSources();
+        await startKnowledgeIndex(source.id, path, await getKnownNativeFiles(source.id));
       } catch (err) {
         console.error("Knowledge indexing failed:", err);
+        await failNativeIndexSource(source.id);
         setIndexJobs((prev) => ({ ...prev, [source.id]: t("knowledge.indexError") }));
-      } finally {
         await refreshSources();
-        await loadPageData();
         window.setTimeout(() => {
           setIndexJobs((prev) => removeJob(prev, source.id));
         }, 1000);
       }
     })();
+  }
+
+  function scheduleNativeIndexFlush(sourceId: string) {
+    if (nativeIndexFlushTimers.current[sourceId]) return;
+    nativeIndexFlushTimers.current[sourceId] = window.setTimeout(() => {
+      delete nativeIndexFlushTimers.current[sourceId];
+      void flushNativeIndexBuffer(sourceId);
+    }, 250);
+  }
+
+  function enqueueNativeIndexedFiles(files: NativeIndexedFile[]) {
+    const sourceIds = new Set<string>();
+    for (const file of files) {
+      const buffer = nativeIndexBuffers.current[file.sourceId] || [];
+      buffer.push(file);
+      nativeIndexBuffers.current[file.sourceId] = buffer;
+      const sourceFiles = nativeIndexFiles.current[file.sourceId] || [];
+      sourceFiles.push(file);
+      nativeIndexFiles.current[file.sourceId] = sourceFiles;
+      sourceIds.add(file.sourceId);
+    }
+    sourceIds.forEach(scheduleNativeIndexFlush);
+  }
+
+  async function flushNativeIndexBuffer(sourceId: string) {
+    if (nativeIndexFlushing.current[sourceId]) {
+      await waitForNativeFlush(sourceId);
+      if ((nativeIndexBuffers.current[sourceId] || []).length > 0) {
+        await flushNativeIndexBuffer(sourceId);
+      }
+      return;
+    }
+    nativeIndexFlushing.current[sourceId] = true;
+    try {
+      while ((nativeIndexBuffers.current[sourceId] || []).length > 0) {
+        const queue = nativeIndexBuffers.current[sourceId] || [];
+        const batch = queue.splice(0, NATIVE_INDEX_DB_BATCH_SIZE);
+        for (const file of batch) {
+          await indexNativeFile(sourceId, file);
+        }
+        await yieldToBrowser();
+      }
+    } finally {
+      delete nativeIndexFlushing.current[sourceId];
+      if ((nativeIndexBuffers.current[sourceId] || []).length > 0) {
+        scheduleNativeIndexFlush(sourceId);
+      }
+    }
+  }
+
+  function waitForNativeFlush(sourceId: string): Promise<void> {
+    return new Promise((resolve) => {
+      const check = () => {
+        if (!nativeIndexFlushing.current[sourceId]) {
+          resolve();
+          return;
+        }
+        window.setTimeout(check, 20);
+      };
+      check();
+    });
+  }
+
+  function yieldToBrowser(): Promise<void> {
+    return new Promise((resolve) => window.setTimeout(resolve, 0));
+  }
+
+  function scheduleNativeProgressUpdate(progress: NativeIndexProgress) {
+    nativeIndexProgress.current[progress.sourceId] = progress;
+    if (nativeIndexProgressTimers.current[progress.sourceId]) return;
+    nativeIndexProgressTimers.current[progress.sourceId] = window.setTimeout(() => {
+      delete nativeIndexProgressTimers.current[progress.sourceId];
+      const latest = nativeIndexProgress.current[progress.sourceId];
+      if (latest) applyNativeProgressUpdate(latest);
+    }, NATIVE_INDEX_PROGRESS_INTERVAL_MS);
+  }
+
+  function applyNativeProgressUpdate(progress: NativeIndexProgress) {
+    nativeIndexProgress.current[progress.sourceId] = progress;
+    const filename = progress.filename ? `: ${progress.filename}` : "";
+    setIndexJobs((prev) => ({
+      ...prev,
+      [progress.sourceId]: progress.total > 0
+        ? `${progress.current}/${progress.total}${filename}`
+        : progress.message,
+    }));
+  }
+
+  async function getKnownNativeFiles(sourceId: string): Promise<NativeKnownFile[]> {
+    const docs = await listDocuments(sourceId);
+    return docs
+      .filter((doc) => (
+        doc.status === "indexed"
+        && doc.embeddingStatus === "none"
+        && Boolean(doc.filePath)
+        && Boolean(doc.contentHash)
+      ))
+      .map((doc) => ({
+        path: doc.filePath || "",
+        contentHash: doc.contentHash || "",
+      }));
+  }
+
+  async function finishNativeIndex(sourceId: string, failed: boolean) {
+    try {
+      if (nativeIndexFlushTimers.current[sourceId]) {
+        window.clearTimeout(nativeIndexFlushTimers.current[sourceId]);
+        delete nativeIndexFlushTimers.current[sourceId];
+      }
+      await flushNativeIndexBuffer(sourceId);
+      if (failed) {
+        await failNativeIndexSource(sourceId);
+        setIndexJobs((prev) => ({ ...prev, [sourceId]: t("knowledge.indexError") }));
+      } else {
+        const files = nativeIndexFiles.current[sourceId] || [];
+        if (files.length === 0) {
+          setIndexJobs((prev) => ({ ...prev, [sourceId]: t("knowledge.noFiles") }));
+        }
+        await completeNativeIndexSource(sourceId, files);
+      }
+    } finally {
+      delete nativeIndexBuffers.current[sourceId];
+      delete nativeIndexFiles.current[sourceId];
+      delete nativeIndexProgress.current[sourceId];
+      if (nativeIndexProgressTimers.current[sourceId]) {
+        window.clearTimeout(nativeIndexProgressTimers.current[sourceId]);
+        delete nativeIndexProgressTimers.current[sourceId];
+      }
+      await refreshSources();
+      await loadPageData();
+      window.setTimeout(() => {
+        setIndexJobs((prev) => removeJob(prev, sourceId));
+      }, 1000);
+    }
   }
 
   async function handleCreateFolderLibrary() {
@@ -191,7 +376,7 @@ export function KnowledgePage() {
                   {searchResults.map((r, i) => (
                     <div key={i} className={`px-4 py-3 ${i < searchResults.length - 1 ? "border-b border-[var(--border)]/70" : ""}`}>
                       <div className="flex items-center gap-2 mb-1">
-                        <IconDocument size={12} />
+                        <FileTypeIcon filename={r.filename} size={22} />
                         <span className="text-[12px] font-medium text-[var(--on-surface)] truncate">{r.filename}</span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600">{(r.score * 100).toFixed(0)}%</span>
                       </div>
@@ -580,10 +765,7 @@ function SourceIcon({ type, size }: { type: Source["type"]; size: number }) {
 }
 
 function FileIcon({ doc }: { doc: Document }) {
-  const ext = fileExtension(doc.filename);
-  if (ext === "xlsx" || ext === "xls" || ext === "csv") return <IconChart size={12} />;
-  if (ext === "pptx" || ext === "ppt") return <IconReport size={12} />;
-  return <IconDocument size={12} />;
+  return <FileTypeIcon filename={doc.filename} path={doc.filePath || undefined} size={24} />;
 }
 
 function sourceTypeLabel(type: Source["type"]): string {

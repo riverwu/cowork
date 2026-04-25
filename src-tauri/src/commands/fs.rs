@@ -1,8 +1,12 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::{hash_map::DefaultHasher, HashSet};
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::process::Command;
 use std::time::UNIX_EPOCH;
+use tauri::{AppHandle, Emitter};
+use uuid::Uuid;
 use walkdir::WalkDir;
 
 #[derive(Debug, Serialize)]
@@ -15,12 +19,70 @@ pub struct FileInfo {
     pub extension: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct ExtractedTextCacheResult {
+    pub cache_path: String,
+    pub preview: String,
+    pub char_count: usize,
+    pub byte_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NativeIndexProgress {
+    pub job_id: String,
+    pub source_id: String,
+    pub phase: String,
+    pub current: usize,
+    pub total: usize,
+    pub filename: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NativeIndexedFile {
+    pub job_id: String,
+    pub source_id: String,
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub modified_at: u64,
+    pub extension: String,
+    pub cache_path: Option<String>,
+    pub preview: Option<String>,
+    pub char_count: Option<usize>,
+    pub byte_count: Option<usize>,
+    pub error: Option<String>,
+    pub unchanged: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct NativeIndexedFilesBatch {
+    pub job_id: String,
+    pub source_id: String,
+    pub files: Vec<NativeIndexedFile>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct NativeKnownFile {
+    pub content_hash: String,
+}
+
+const NATIVE_INDEX_EVENT_BATCH_SIZE: usize = 24;
+const NATIVE_INDEX_PROGRESS_EVERY: usize = 25;
+
 /// Scan a directory recursively and return all regular files.
 /// The indexer decides which files support content extraction and which files
 /// should be cataloged as metadata-only entries.
 /// Skips hidden files/dirs (starting with '.') and common non-content dirs.
 #[tauri::command]
-pub fn scan_directory(path: &str) -> Result<Vec<FileInfo>, String> {
+pub async fn scan_directory(path: String) -> Result<Vec<FileInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || scan_directory_impl(&path))
+        .await
+        .map_err(|e| format!("Directory scan task failed: {}", e))?
+}
+
+fn scan_directory_impl(path: &str) -> Result<Vec<FileInfo>, String> {
     let dir = Path::new(path);
     if !dir.is_dir() {
         return Err(format!("Not a directory: {}", path));
@@ -105,6 +167,252 @@ pub fn parse_document(path: &str) -> Result<String, String> {
         _ => fs::read_to_string(path)
             .map_err(|e| format!("Failed to read {}: {}", path, e)),
     }
+}
+
+/// Parse a document and write the full extracted text directly to a cache file.
+/// Returns only a bounded preview to JS so indexing does not move large
+/// document text through the WebView process.
+#[tauri::command]
+pub async fn extract_document_text_to_cache(
+    path: String,
+    cache_path: String,
+    preview_chars: Option<usize>,
+) -> Result<ExtractedTextCacheResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        extract_document_text_to_cache_impl(&path, &cache_path, preview_chars)
+    })
+        .await
+        .map_err(|e| format!("Document extraction task failed: {}", e))?
+}
+
+fn extract_document_text_to_cache_impl(
+    path: &str,
+    cache_path: &str,
+    preview_chars: Option<usize>,
+) -> Result<ExtractedTextCacheResult, String> {
+    let text = parse_document(path)?;
+    if text.trim().is_empty() {
+        return Err("Document appears to contain no extractable text".into());
+    }
+
+    let cache = Path::new(cache_path);
+    if let Some(parent) = cache.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create text cache directory: {}", e))?;
+    }
+    fs::write(cache, text.as_bytes())
+        .map_err(|e| format!("Failed to write extracted text cache: {}", e))?;
+
+    let limit = preview_chars.unwrap_or(24_000).clamp(1_000, 80_000);
+    let preview: String = text.chars().take(limit).collect();
+    Ok(ExtractedTextCacheResult {
+        cache_path: cache_path.to_string(),
+        preview,
+        char_count: text.chars().count(),
+        byte_count: text.len(),
+    })
+}
+
+/// Start a native background index scan/extract job. The job emits:
+/// - knowledge-index-progress
+/// - knowledge-index-file
+/// - knowledge-index-done
+///
+/// JS receives only file metadata and bounded previews. Full extracted text is
+/// written directly to .cowork-text-cache from Rust.
+#[tauri::command]
+pub fn start_knowledge_index(
+    app: AppHandle,
+    source_id: String,
+    path: String,
+    known_files: Option<Vec<NativeKnownFile>>,
+) -> Result<String, String> {
+    let job_id = Uuid::new_v4().to_string();
+    let job_id_for_task = job_id.clone();
+    let known_hashes: HashSet<String> = known_files
+        .unwrap_or_default()
+        .into_iter()
+        .map(|file| file.content_hash)
+        .collect();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        run_knowledge_index_job(app, job_id_for_task, source_id, path, known_hashes);
+    });
+
+    Ok(job_id)
+}
+
+fn run_knowledge_index_job(
+    app: AppHandle,
+    job_id: String,
+    source_id: String,
+    path: String,
+    known_hashes: HashSet<String>,
+) {
+    emit_index_progress(&app, &job_id, &source_id, "scan", 0, 0, None, "Scanning directory");
+
+    let files = match scan_directory_impl(&path) {
+        Ok(files) => files,
+        Err(err) => {
+            let _ = app.emit("knowledge-index-done", NativeIndexProgress {
+                job_id,
+                source_id,
+                phase: "error".into(),
+                current: 0,
+                total: 0,
+                filename: None,
+                message: err,
+            });
+            return;
+        }
+    };
+
+    let total = files.len();
+    emit_index_progress(&app, &job_id, &source_id, "extract", 0, total, None, "Extracting text");
+    let mut batch: Vec<NativeIndexedFile> = Vec::with_capacity(NATIVE_INDEX_EVENT_BATCH_SIZE);
+
+    for (idx, file) in files.into_iter().enumerate() {
+        let current = idx + 1;
+        if current == 1 || current == total || current % NATIVE_INDEX_PROGRESS_EVERY == 0 {
+            emit_index_progress(
+                &app,
+                &job_id,
+                &source_id,
+                "extract",
+                current,
+                total,
+                Some(file.name.clone()),
+                "Extracting text",
+            );
+        }
+
+        let mut indexed = NativeIndexedFile {
+            job_id: job_id.clone(),
+            source_id: source_id.clone(),
+            name: file.name.clone(),
+            path: file.path.clone(),
+            is_dir: file.is_dir,
+            size: file.size,
+            modified_at: file.modified_at,
+            extension: file.extension.clone(),
+            cache_path: None,
+            preview: None,
+            char_count: None,
+            byte_count: None,
+            error: None,
+            unchanged: known_hashes.contains(&file_fingerprint(&file)),
+        };
+
+        if indexed.unchanged {
+            push_indexed_file_batch(&app, &job_id, &source_id, &mut batch, indexed);
+            continue;
+        }
+
+        if is_content_indexable_extension(&file.extension) {
+            let cache_path = native_cache_path_for_file(&file.path);
+            match extract_document_text_to_cache_impl(&file.path, &cache_path, Some(24_000)) {
+                Ok(result) => {
+                    indexed.cache_path = Some(result.cache_path);
+                    indexed.preview = Some(result.preview);
+                    indexed.char_count = Some(result.char_count);
+                    indexed.byte_count = Some(result.byte_count);
+                }
+                Err(err) => {
+                    indexed.error = Some(format!("Text extraction failed: {}", err));
+                }
+            }
+        }
+
+        push_indexed_file_batch(&app, &job_id, &source_id, &mut batch, indexed);
+    }
+    flush_indexed_file_batch(&app, &job_id, &source_id, &mut batch);
+
+    let _ = app.emit("knowledge-index-done", NativeIndexProgress {
+        job_id,
+        source_id,
+        phase: "done".into(),
+        current: total,
+        total,
+        filename: None,
+        message: "Index extraction complete".into(),
+    });
+}
+
+fn push_indexed_file_batch(
+    app: &AppHandle,
+    job_id: &str,
+    source_id: &str,
+    batch: &mut Vec<NativeIndexedFile>,
+    file: NativeIndexedFile,
+) {
+    batch.push(file);
+    if batch.len() >= NATIVE_INDEX_EVENT_BATCH_SIZE {
+        flush_indexed_file_batch(app, job_id, source_id, batch);
+    }
+}
+
+fn flush_indexed_file_batch(
+    app: &AppHandle,
+    job_id: &str,
+    source_id: &str,
+    batch: &mut Vec<NativeIndexedFile>,
+) {
+    if batch.is_empty() {
+        return;
+    }
+    let files = std::mem::take(batch);
+    let _ = app.emit("knowledge-index-files", NativeIndexedFilesBatch {
+        job_id: job_id.to_string(),
+        source_id: source_id.to_string(),
+        files,
+    });
+}
+
+fn emit_index_progress(
+    app: &AppHandle,
+    job_id: &str,
+    source_id: &str,
+    phase: &str,
+    current: usize,
+    total: usize,
+    filename: Option<String>,
+    message: &str,
+) {
+    let _ = app.emit("knowledge-index-progress", NativeIndexProgress {
+        job_id: job_id.to_string(),
+        source_id: source_id.to_string(),
+        phase: phase.to_string(),
+        current,
+        total,
+        filename,
+        message: message.to_string(),
+    });
+}
+
+fn is_content_indexable_extension(ext: &str) -> bool {
+    matches!(
+        ext.to_lowercase().as_str(),
+        "txt" | "md" | "markdown" | "csv" | "json" | "xml" | "html" | "htm"
+            | "pdf" | "doc" | "docx" | "xlsx" | "xls"
+            | "py" | "js" | "ts" | "rs" | "go" | "java" | "rb" | "sh"
+            | "yaml" | "yml" | "toml"
+    )
+}
+
+fn native_cache_path_for_file(file_path: &str) -> String {
+    let path = Path::new(file_path);
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut hasher = DefaultHasher::new();
+    file_path.hash(&mut hasher);
+    let hash = hasher.finish();
+    dir.join(".cowork-text-cache")
+        .join(format!("{:016x}.txt", hash))
+        .to_string_lossy()
+        .to_string()
+}
+
+fn file_fingerprint(file: &FileInfo) -> String {
+    format!("{}:{}:{}", file.path, file.size, file.modified_at)
 }
 
 fn parse_doc(path: &str) -> Result<String, String> {
@@ -587,7 +895,7 @@ pub fn ripgrep_search(
 
 #[cfg(test)]
 mod tests {
-    use super::{grep, parse_document, ripgrep_search, scan_directory};
+    use super::{extract_document_text_to_cache_impl, grep, parse_document, ripgrep_search, scan_directory_impl};
     use std::fs;
     use std::path::PathBuf;
 
@@ -601,7 +909,7 @@ mod tests {
 
     #[test]
     fn scan_directory_includes_real_test_docs_inventory() {
-        let files = scan_directory(&test_docs_dir().to_string_lossy()).expect("scan test_docs");
+        let files = scan_directory_impl(&test_docs_dir().to_string_lossy()).expect("scan test_docs");
         let names: Vec<&str> = files.iter().map(|file| file.name.as_str()).collect();
 
         assert!(names.contains(&"25年上半年人力数据分析-V1.xlsx"));
@@ -616,6 +924,29 @@ mod tests {
 
         assert!(text.contains("## Sheet:"));
         assert!(text.trim().len() > 100);
+    }
+
+    #[test]
+    fn extract_document_text_to_cache_writes_full_text_and_returns_preview() {
+        let dir = std::env::temp_dir().join(format!("cowork-extract-cache-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create temp dir");
+        let source = dir.join("source.md");
+        let cache = dir.join(".cowork-text-cache/doc1.txt");
+        let content = format!("{} searchable content", "a".repeat(1_500));
+        fs::write(&source, &content).expect("write source");
+
+        let result = extract_document_text_to_cache_impl(
+            &source.to_string_lossy(),
+            &cache.to_string_lossy(),
+            Some(1_000),
+        ).expect("extract to cache");
+
+        assert_eq!(result.preview.len(), 1_000);
+        assert_eq!(fs::read_to_string(&cache).expect("read cache"), content);
+        assert!(result.char_count > result.preview.len());
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

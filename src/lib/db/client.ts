@@ -1,20 +1,33 @@
 import Database from "@tauri-apps/plugin-sql";
 import { MIGRATIONS } from "./schema";
-import { isTauriRuntime } from "@/lib/tauri";
+import { invokeDesktop, isDesktopRuntime, isElectronRuntime } from "@/lib/tauri";
 
-let db: Database | null = null;
-let initPromise: Promise<Database> | null = null;
+type DbConnection = {
+  execute(query: string, bindValues?: unknown[]): Promise<unknown>;
+  select<T>(query: string, bindValues?: unknown[]): Promise<T>;
+};
+
+let db: DbConnection | null = null;
+let initPromise: Promise<DbConnection> | null = null;
 
 /** Get the singleton database connection. */
-export async function getDb(): Promise<Database> {
+export async function getDb(): Promise<DbConnection> {
   if (db) return db;
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
-    if (!isTauriRuntime()) {
+    if (!isDesktopRuntime()) {
       throw new Error(
-        "Cowork must run inside the Tauri desktop app. Start it with `pnpm tauri dev`; opening the Vite URL in a browser cannot access the local database.",
+        "Cowork must run inside the desktop app. Start it with `pnpm electron:dev` or `pnpm tauri dev`; opening the Vite URL in a browser cannot access the local database.",
       );
+    }
+    if (isElectronRuntime()) {
+      const conn: DbConnection = {
+        execute: (sql: string, params?: unknown[]) => invokeDesktop<void>("db_execute", { sql, params: params || [] }),
+        select: <T>(sql: string, params?: unknown[]) => invokeDesktop<T>("db_select", { sql, params: params || [] }),
+      };
+      db = conn;
+      return conn;
     }
     const conn = await Database.load("sqlite:cowork.db");
     db = conn;
@@ -42,7 +55,7 @@ export async function initDb(): Promise<void> {
   await populateDefaultsFromEnv(conn);
 }
 
-async function ensureKnowledgeSchema(conn: Database): Promise<void> {
+async function ensureKnowledgeSchema(conn: DbConnection): Promise<void> {
   const rebuiltSources = await ensureSourcesSchema(conn);
   if (rebuiltSources) {
     await rebuildCatalogTables(conn);
@@ -62,7 +75,7 @@ async function ensureKnowledgeSchema(conn: Database): Promise<void> {
   await purgeKnowledgePayloadsFromDb(conn);
 }
 
-async function rebuildCatalogTables(conn: Database): Promise<void> {
+async function rebuildCatalogTables(conn: DbConnection): Promise<void> {
   await conn.execute("DROP TABLE IF EXISTS source_capabilities", []);
   await conn.execute("DROP TABLE IF EXISTS source_entities", []);
   await conn.execute("DROP TABLE IF EXISTS sync_jobs", []);
@@ -113,7 +126,7 @@ async function rebuildCatalogTables(conn: Database): Promise<void> {
   await conn.execute("CREATE INDEX IF NOT EXISTS idx_sync_jobs_source ON sync_jobs(source_id, started_at DESC)", []);
 }
 
-async function ensureSourcesSchema(conn: Database): Promise<boolean> {
+async function ensureSourcesSchema(conn: DbConnection): Promise<boolean> {
   const rows = await conn.select<Array<{ sql: string | null }>>(
     "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sources'",
     [],
@@ -153,7 +166,7 @@ async function ensureSourcesSchema(conn: Database): Promise<boolean> {
   return true;
 }
 
-async function ensureDocumentsSchema(conn: Database, forceRebuild = false): Promise<void> {
+async function ensureDocumentsSchema(conn: DbConnection, forceRebuild = false): Promise<void> {
   const rows = await conn.select<Array<{ sql: string | null }>>(
     "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'documents'",
     [],
@@ -202,7 +215,7 @@ async function ensureDocumentsSchema(conn: Database, forceRebuild = false): Prom
   }
 }
 
-async function rebuildChunksTable(conn: Database): Promise<void> {
+async function rebuildChunksTable(conn: DbConnection): Promise<void> {
   const rows = await conn.select<Array<{ name: string }>>(
     "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'chunks'",
     [],
@@ -229,19 +242,19 @@ async function rebuildChunksTable(conn: Database): Promise<void> {
   await conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id)", []);
 }
 
-async function ensureColumn(conn: Database, table: string, column: string, definition: string): Promise<void> {
+async function ensureColumn(conn: DbConnection, table: string, column: string, definition: string): Promise<void> {
   const cols = await conn.select<Array<{ name: string }>>(`PRAGMA table_info(${table})`, []);
   if (cols.some((c) => c.name === column)) return;
   await conn.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`, []);
 }
 
-async function purgeKnowledgePayloadsFromDb(conn: Database): Promise<void> {
+async function purgeKnowledgePayloadsFromDb(conn: DbConnection): Promise<void> {
   await conn.execute("UPDATE documents SET content_text = NULL WHERE content_text IS NOT NULL", []);
   await conn.execute("DELETE FROM chunks", []);
 }
 
 /** Read env vars via Tauri command and set defaults if settings are empty. */
-async function populateDefaultsFromEnv(conn: Database): Promise<void> {
+async function populateDefaultsFromEnv(conn: DbConnection): Promise<void> {
   try {
     const { getEnv } = await import("@/lib/tauri");
 
@@ -298,7 +311,7 @@ async function populateDefaultsFromEnv(conn: Database): Promise<void> {
   }
 }
 
-async function setDefault(conn: Database, key: string, value: string): Promise<void> {
+async function setDefault(conn: DbConnection, key: string, value: string): Promise<void> {
   await conn.execute(
     "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO NOTHING",
     [key, value],

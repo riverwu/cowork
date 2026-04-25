@@ -10,8 +10,9 @@ import { useSessionStore } from "./stores/session-store";
 import { mcpManager } from "./lib/mcp";
 import { skillRegistry } from "./lib/ai/skill-registry";
 import { t } from "./lib/i18n";
-import { isTauriRuntime } from "./lib/tauri";
+import { isDesktopRuntime } from "./lib/tauri";
 import { WindowDragRegion } from "./components/layout/window-drag-region";
+import { DocumentWorkspace } from "./components/document/document-workspace";
 
 type Page = "home" | "apps" | "knowledge" | "channels" | "settings";
 
@@ -25,8 +26,8 @@ function App() {
   const sessionReady = useSessionStore((s) => s.initialized);
 
   useEffect(() => {
-    if (!isTauriRuntime()) {
-      setDbError("Cowork 需要在 Tauri 桌面应用中运行。请使用 `pnpm tauri dev` 启动；直接在浏览器打开 Vite 地址无法访问本地数据库、文件系统和系统工具。");
+    if (!isDesktopRuntime()) {
+      setDbError("Cowork 需要在桌面应用中运行。请使用 `pnpm electron:dev` 或 `pnpm tauri dev` 启动；直接在浏览器打开 Vite 地址无法访问本地数据库、文件系统和系统工具。");
       return;
     }
 
@@ -67,6 +68,7 @@ function App() {
   return (
     <div className="flex h-screen bg-[var(--surface)]">
       <WindowDragRegion className="fixed top-0 left-0 right-0 h-7 z-50" />
+      <DocumentWorkspace />
       <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
       <main className="flex-1 overflow-hidden relative">
         {currentPage === "home" && <Home />}

@@ -4,8 +4,7 @@
  * TypeScript handles JSON-RPC protocol.
  */
 
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { invokeDesktop, listenDesktop } from "@/lib/tauri";
 
 export interface McpServerConfig {
   id: string;
@@ -50,18 +49,18 @@ export class McpTransport {
     // Listen for stdout lines from Rust.
     // Uses processId (unique per transport instance) to prevent
     // old process's __MCP_EXIT__ from killing a new connection.
-    this.unlisten = await listen<string>(`mcp-stdout-${this.processId}`, (event) => {
+    this.unlisten = await listenDesktop<string>(`mcp-stdout-${this.processId}`, (event) => {
       this.handleLine(event.payload);
     });
 
     // Listen for stderr lines (diagnostics)
-    this.unlistenStderr = await listen<string>(`mcp-stderr-${this.processId}`, (event) => {
+    this.unlistenStderr = await listenDesktop<string>(`mcp-stderr-${this.processId}`, (event) => {
       this.stderrLines.push(event.payload);
       if (this.stderrLines.length > 20) this.stderrLines.shift();
     });
 
     // Spawn the subprocess via Rust — use processId for unique event channels
-    const result = await invoke<{ id: string; success: boolean; error?: string }>("mcp_spawn", {
+    const result = await invokeDesktop<{ id: string; success: boolean; error?: string }>("mcp_spawn", {
       config: { ...this.config, id: this.processId },
     });
 
@@ -106,7 +105,7 @@ export class McpTransport {
       });
 
       // Send via Rust
-      invoke("mcp_send", { serverId: this.processId, message }).catch((err) => {
+      invokeDesktop("mcp_send", { serverId: this.processId, message }).catch((err) => {
         this.pendingRequests.delete(id);
         clearTimeout(timer);
         reject(new Error(`Failed to send: ${err}`));
@@ -124,7 +123,7 @@ export class McpTransport {
       params: params || {},
     });
 
-    await invoke("mcp_send", { serverId: this.processId, message });
+    await invokeDesktop("mcp_send", { serverId: this.processId, message });
   }
 
   async disconnect(): Promise<void> {
@@ -140,7 +139,7 @@ export class McpTransport {
     }
     this.pendingRequests.clear();
 
-    await invoke("mcp_stop", { serverId: this.processId });
+    await invokeDesktop("mcp_stop", { serverId: this.processId });
   }
 
   private handleLine(line: string) {
