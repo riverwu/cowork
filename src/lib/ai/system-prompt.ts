@@ -71,12 +71,6 @@ For large generation scripts:
 - After writing chunks, execute the saved script with \`run_node\` using a short loader such as \`require("/absolute/path/to/script.js")\`.
 - Do not use \`shell\` to run \`node script.js\` for generated deliverables.
 
-For presentation generation:
-- Read or summarize source material first.
-- Create a slide specification (titles, narrative, bullets, charts/images, speaker intent) before rendering.
-- Generate the .pptx with \`run_node\` and a compact pptxgenjs script; do not print the full script to chat.
-- Return the final .pptx path only after a successful tool result.
-
 For coding tasks with long code:
 - Follow the coding-agent pattern: inspect files, make targeted \`apply_patch\` edits, run focused validation, then iterate from tool results.
 - Do not paste long replacement files into chat.

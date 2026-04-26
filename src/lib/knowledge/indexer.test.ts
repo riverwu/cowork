@@ -108,12 +108,11 @@ describe("filesystem catalog planning", () => {
       schema: expect.objectContaining({ contentIndexable: false, extension: "png" }),
       metadata: expect.objectContaining({
         accessStrategy: "metadata_only",
-        note: "Content extraction is not supported; use metadata for discovery and open the file if needed.",
       }),
     });
   });
 
-  it("adds table schema hints for CSV files and recommends Python analysis", () => {
+  it("adds table schema hints for CSV files", () => {
     const entities = buildCatalogEntities(
       baseDoc,
       file("sales.csv", "csv"),
@@ -131,7 +130,6 @@ describe("filesystem catalog planning", () => {
       },
       sample: { rows: [["Jan", "100", "40"], ["Feb", "120", "50"]] },
       metadata: expect.objectContaining({
-        recommendedTool: "run_python",
         accessStrategy: "load_original_file",
       }),
     });
@@ -156,7 +154,7 @@ describe("filesystem catalog planning", () => {
           { name: "cost", index: 2 },
         ],
       }),
-      metadata: expect.objectContaining({ recommendedTool: "run_python" }),
+      metadata: expect.objectContaining({ accessStrategy: "load_original_file" }),
     });
   });
 
@@ -166,8 +164,6 @@ describe("filesystem catalog planning", () => {
     expect(entities[1]).toMatchObject({
       schema: expect.objectContaining({ format: "pptx", contentIndexable: false }),
       metadata: expect.objectContaining({
-        recommendedTool: "run_python",
-        recommendedPackage: "markitdown[pptx] or python-pptx",
         accessStrategy: "presentation_parser",
       }),
     });

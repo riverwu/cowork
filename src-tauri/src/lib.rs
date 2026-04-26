@@ -40,6 +40,18 @@ pub fn run() {
             commands::shell::shell_exec,
             commands::shell::shell_exec_stream,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // On macOS, Tauri keeps the app alive after the last window closes.
+            // Cowork is single-window: when its window goes away, exit the app
+            // through the standard lifecycle so plugins and resources clean up.
+            if let tauri::RunEvent::WindowEvent {
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } = event
+            {
+                app_handle.exit(0);
+            }
+        });
 }

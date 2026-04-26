@@ -88,7 +88,5 @@ function formatEntity(entity: Awaited<ReturnType<typeof listSourceEntities>>[num
   }
   const filePath = entity.metadata && typeof entity.metadata.filePath === "string" ? entity.metadata.filePath : null;
   if (filePath) parts.push(`  path: ${filePath}`);
-  const recommendedTool = entity.metadata && typeof entity.metadata.recommendedTool === "string" ? entity.metadata.recommendedTool : null;
-  if (recommendedTool) parts.push(`  recommended tool: ${recommendedTool}`);
   return parts.join("\n");
 }

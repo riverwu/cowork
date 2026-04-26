@@ -163,6 +163,9 @@ pub fn parse_document(path: &str) -> Result<String, String> {
         "doc" => parse_doc(path),
         "docx" => parse_docx(path),
         "xlsx" | "xls" => parse_xlsx(path),
+        "pptx" | "ppt" => Err(
+            "PPTX text extraction is not supported by parse_document. Use the pptx skill.".into(),
+        ),
         // All other supported types are plain text
         _ => fs::read_to_string(path)
             .map_err(|e| format!("Failed to read {}: {}", path, e)),

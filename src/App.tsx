@@ -12,7 +12,6 @@ import { skillRegistry } from "./lib/ai/skill-registry";
 import { t } from "./lib/i18n";
 import { isDesktopRuntime } from "./lib/tauri";
 import { WindowDragRegion } from "./components/layout/window-drag-region";
-import { DocumentWorkspace } from "./components/document/document-workspace";
 
 type Page = "home" | "apps" | "knowledge" | "channels" | "settings";
 
@@ -68,7 +67,6 @@ function App() {
   return (
     <div className="flex h-screen bg-[var(--surface)]">
       <WindowDragRegion className="fixed top-0 left-0 right-0 h-7 z-50" />
-      <DocumentWorkspace />
       <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
       <main className="flex-1 overflow-hidden relative">
         {currentPage === "home" && <Home />}

@@ -52,13 +52,19 @@ app.whenReady().then(() => {
   registerIpc();
   createWindow();
   app.on("activate", () => {
+    if (app.isQuitting) return;
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
-app.on("window-all-closed", () => {
+app.on("before-quit", () => {
+  app.isQuitting = true;
   for (const [, child] of mcpProcesses) child.kill();
-  if (process.platform !== "darwin") app.quit();
+  mcpProcesses.clear();
+});
+
+app.on("window-all-closed", () => {
+  app.quit();
 });
 
 function registerIpc() {
@@ -78,7 +84,6 @@ async function dispatch(command, args, sender) {
     case "scan_directory": return scanDirectory(args.path);
     case "read_file_text": return fsp.readFile(args.path, "utf8");
     case "parse_document": return parseDocument(args.path);
-    case "read_pptx_package": return readPptxPackage(args.path);
     case "extract_document_text_to_cache": return extractDocumentTextToCache(args.path, args.cachePath, args.previewChars);
     case "start_knowledge_index": return startKnowledgeIndex(sender, args.sourceId, args.path, args.knownFiles || []);
     case "write_file": return writeFile(args.path, args.content);
@@ -227,53 +232,8 @@ async function parseDocument(filePath) {
   if (ext === "pdf") return parsePdf(filePath);
   if (ext === "doc" || ext === "docx") return runCommandText("/usr/bin/textutil", ["-convert", "txt", "-stdout", filePath]);
   if (ext === "xlsx" || ext === "xls") return parseWorkbook(filePath);
+  if (ext === "pptx" || ext === "ppt") throw new Error("PPTX text extraction is not supported by parse_document. Use the pptx skill.");
   return fsp.readFile(filePath, "utf8");
-}
-
-async function readPptxPackage(filePath) {
-  const list = await runCommandText("/usr/bin/unzip", ["-Z1", filePath]);
-  const files = {};
-  const media = {};
-  for (const entry of list.split(/\r?\n/).filter(Boolean)) {
-    try {
-      if (isPptxPackageTextPart(entry)) {
-        files[entry] = await runCommandText("/usr/bin/unzip", ["-p", filePath, entry]);
-      } else if (isPptxPackageMediaPart(entry)) {
-        const buffer = await runCommandBuffer("/usr/bin/unzip", ["-p", filePath, entry]);
-        media[entry] = {
-          mime_type: mimeTypeForPath(entry),
-          data: buffer.toString("base64"),
-        };
-      }
-    } catch {
-      // Skip unreadable optional parts. A partial package can still render useful content.
-    }
-  }
-  return { files, media };
-}
-
-function isPptxPackageTextPart(entry) {
-  return (
-    entry === "ppt/presentation.xml"
-    || entry.endsWith(".rels")
-    || /^ppt\/slides\/slide\d+\.xml$/.test(entry)
-    || entry.startsWith("ppt/theme/")
-    || entry.startsWith("ppt/slideLayouts/")
-    || entry.startsWith("ppt/slideMasters/")
-  );
-}
-
-function isPptxPackageMediaPart(entry) {
-  return /^ppt\/media\/[^/]+\.(png|jpe?g|gif|webp|svg)$/i.test(entry);
-}
-
-function mimeTypeForPath(filePath) {
-  const ext = path.extname(filePath).replace(/^\./, "").toLowerCase();
-  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
-  if (ext === "gif") return "image/gif";
-  if (ext === "webp") return "image/webp";
-  if (ext === "svg") return "image/svg+xml";
-  return "image/png";
 }
 
 async function parsePdf(filePath) {
@@ -587,18 +547,6 @@ function runCommandText(program, args) {
     child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
     child.on("error", reject);
     child.on("close", (code) => code === 0 ? resolve(stdout) : reject(new Error(stderr || `${program} exited ${code}`)));
-  });
-}
-
-function runCommandBuffer(program, args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(program, args, { env: { ...process.env, PATH: expandedPath() } });
-    const stdout = [];
-    let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout.push(Buffer.from(chunk)); });
-    child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
-    child.on("error", reject);
-    child.on("close", (code) => code === 0 ? resolve(Buffer.concat(stdout)) : reject(new Error(stderr || `${program} exited ${code}`)));
   });
 }
 

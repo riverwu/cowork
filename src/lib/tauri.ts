@@ -149,15 +149,6 @@ export interface NativeKnownFile {
   contentHash: string;
 }
 
-export interface PptxPackageFiles {
-  files: Record<string, string>;
-  media?: Record<string, { mime_type: string; data: string }>;
-}
-
-export async function readPptxPackage(path: string): Promise<PptxPackageFiles> {
-  return invokeDesktop<PptxPackageFiles>("read_pptx_package", { path });
-}
-
 export async function startKnowledgeIndex(
   sourceId: string,
   path: string,

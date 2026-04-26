@@ -3,13 +3,12 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
-import { revealInFolder } from "@/lib/tauri";
-import { useViewStore } from "@/stores/view-store";
+import { openPath, revealInFolder } from "@/lib/tauri";
 import { FileTypeIcon, IconFolder } from "@/components/icons";
 import type { Components } from "react-markdown";
 
 /** File extensions we recognize for file card rendering. */
-const FILE_EXTENSIONS = /\.(txt|md|py|ts|tsx|js|jsx|rs|go|java|c|cpp|h|json|yaml|yml|toml|csv|xml|html|css|sql|sh|bash|pdf|docx|xlsx|png|jpg|jpeg|gif|svg|mp4|mp3|zip|tar|gz)$/i;
+const FILE_EXTENSIONS = /\.(txt|md|py|ts|tsx|js|jsx|rs|go|java|c|cpp|h|json|yaml|yml|toml|csv|xml|html|css|sql|sh|bash|pdf|docx|xlsx|pptx|png|jpg|jpeg|gif|svg|mp4|mp3|zip|tar|gz)$/i;
 
 /** Detect absolute file paths in text and convert to file cards. */
 function processFileReferences(text: string): React.ReactNode[] {
@@ -41,13 +40,12 @@ function processFileReferences(text: string): React.ReactNode[] {
 
 /** File card — clickable card with open file / reveal in folder actions. */
 function FileCard({ path }: { path: string }) {
-  const openDocument = useViewStore((s) => s.openDocument);
   const fileName = path.split("/").pop() || path;
   const ext = fileName.split(".").pop()?.toLowerCase() || "";
 
   function handleOpen(e: React.MouseEvent) {
     e.preventDefault();
-    openDocument({ path, title: fileName, source: "conversation" });
+    openPath(path);
   }
 
   function handleReveal(e: React.MouseEvent) {

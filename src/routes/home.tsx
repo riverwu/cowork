@@ -6,6 +6,7 @@ import { MessageList } from "@/components/chat/message-list";
 import { ViewContainer } from "@/components/views/view-container";
 import { useSessionStore } from "@/stores/session-store";
 import { isMeaningfulProducedFilePath, outputsFromArtifacts, outputsFromSteps, outputsFromText, type ProducedOutput, type StepLike } from "@/lib/outputs";
+import { openPath } from "@/lib/tauri";
 import {
   IconClock, IconChart, IconTaskList, IconMail, IconTrend,
   IconFolder, IconPlus, IconPlay, IconDocument, FileTypeIcon,
@@ -101,7 +102,6 @@ export function Home() {
                   isStreaming={isStreaming}
                   streamingText={streamingText}
                   steps={steps}
-                  artifacts={artifacts}
                   knowledgeRefs={knowledgeRefs}
                 />
                 {error && (
@@ -145,7 +145,6 @@ export function Home() {
 type LongTaskView = NonNullable<ReturnType<typeof useSessionStore.getState>["longTask"]>;
 
 function LongTaskPanel({ task }: { task: LongTaskView }) {
-  const openDocument = useViewStore((s) => s.openDocument);
   const current = [...task.phases].reverse().find((p) => p.status === "running")
     || [...task.phases].reverse()[0];
 
@@ -189,11 +188,7 @@ function LongTaskPanel({ task }: { task: LongTaskView }) {
               output.path ? (
                 <button
                   key={`${output.path}-${index}`}
-                  onClick={() => openDocument({
-                    path: output.path!,
-                    title: output.title,
-                    source: "recent_output",
-                  })}
+                  onClick={() => openPath(output.path!)}
                   className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-container)] text-[11px] text-[var(--on-surface-secondary)] hover:text-[var(--primary-accent)] cursor-pointer"
                 >
                   <FileTypeIcon filename={output.title} path={output.path} size={20} /> {output.title}
@@ -308,7 +303,6 @@ function AppItem({ icon, iconBg, title, schedule }: { icon: React.ReactNode; ico
 }
 
 function RecentOutputRow({ output, compact = false }: { output: ProducedOutput; compact?: boolean }) {
-  const openDocument = useViewStore((s) => s.openDocument);
   const icon = output.kind === "artifact"
     ? <IconDocument size={13} />
     : <FileTypeIcon filename={output.title} path={output.path} size={compact ? 22 : 26} />;
@@ -324,11 +318,7 @@ function RecentOutputRow({ output, compact = false }: { output: ProducedOutput; 
   if (output.kind === "file" && output.path) {
     return (
       <button
-        onClick={() => openDocument({
-          path: output.path!,
-          title: output.title,
-          source: "recent_output",
-        })}
+        onClick={() => openPath(output.path!)}
         className={`w-full flex items-center gap-2 px-2 ${compact ? "py-1" : "py-1.5"} rounded-lg text-[12px] hover:bg-[var(--surface-low)] cursor-pointer text-left`}
       >
         {content}

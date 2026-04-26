@@ -2,11 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { FileTypeIcon, IconDocument, IconCheck, IconSettings, IconWarning, IconFolder } from "@/components/icons";
 import { isContextDivider } from "@/stores/session-store";
 import { MarkdownContent } from "./markdown-renderer";
-import { revealInFolder } from "@/lib/tauri";
-import { useViewStore } from "@/stores/view-store";
+import { openPath, revealInFolder } from "@/lib/tauri";
 import { extractFilePaths, outputsFromSteps, outputsFromText, type ProducedOutput } from "@/lib/outputs";
 import { t } from "@/lib/i18n";
-import type { Message, Artifact } from "@/types";
+import type { Message } from "@/types";
 
 interface Step {
   skill: string;
@@ -29,7 +28,6 @@ interface MessageListProps {
   isStreaming: boolean;
   streamingText: string;
   steps: Step[];
-  artifacts: Artifact[];
   knowledgeRefs: KnowledgeRef[];
 }
 
@@ -359,7 +357,6 @@ function StepResultContent({ result, failed }: { result: string; failed: boolean
 }
 
 function FilePathCard({ path }: { path: string }) {
-  const openDocument = useViewStore((s) => s.openDocument);
   const fileName = path.split("/").pop() || path;
   const dir = path.slice(0, path.length - fileName.length);
 
@@ -367,7 +364,7 @@ function FilePathCard({ path }: { path: string }) {
     <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-container)] border border-[var(--border)] hover:border-[var(--on-surface-tertiary)] transition-colors group">
       <FileTypeIcon filename={fileName} size={24} />
       <button
-        onClick={() => openDocument({ path, title: fileName, source: "conversation" })}
+        onClick={() => openPath(path)}
         className="text-[11px] text-[var(--on-surface-secondary)] hover:text-[var(--primary-accent)] cursor-pointer truncate max-w-[200px]"
         title={`Open ${path}`}
       >
@@ -402,17 +399,12 @@ function ProducedOutputs({ outputs }: { outputs: ProducedOutput[] }) {
 }
 
 function ProducedOutputRow({ output }: { output: ProducedOutput }) {
-  const openDocument = useViewStore((s) => s.openDocument);
   if (output.kind === "file" && output.path) {
     return (
       <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-[var(--surface-low)]">
         <FileTypeIcon filename={output.title} path={output.path} size={24} />
         <button
-          onClick={() => openDocument({
-            path: output.path!,
-            title: output.title,
-            source: "conversation",
-          })}
+          onClick={() => openPath(output.path!)}
           className="flex-1 min-w-0 text-left text-[12px] font-medium text-[var(--on-surface)] hover:text-[var(--primary-accent)] truncate cursor-pointer"
         >
           {output.title}

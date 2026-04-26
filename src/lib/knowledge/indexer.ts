@@ -328,8 +328,6 @@ function buildDocumentEntity(
       extension: file.extension,
       extractedTextPath: extractedTextPath ?? getExtractedTextPath(doc),
       accessStrategy: accessStrategyForFile(file),
-      recommendedTool: recommendedToolForFile(file),
-      note: accessNoteForFile(file),
     },
     updatedAt: file.modified_at,
   };
@@ -367,9 +365,7 @@ function buildCsvEntity(
       documentId: doc.id,
       filePath: file.path,
       filename: file.name,
-      recommendedTool: "run_python",
       accessStrategy: "load_original_file",
-      note: "For quantitative analysis, open the original file with pandas instead of relying on retrieved text snippets.",
     },
     updatedAt: file.modified_at,
   };
@@ -404,9 +400,7 @@ function buildWorkbookEntities(
         filePath: file.path,
         filename: file.name,
         sheetName,
-        recommendedTool: "run_python",
         accessStrategy: "load_original_file",
-        note: "For analysis, load the original workbook with pandas/openpyxl and the listed sheet name.",
       },
       updatedAt: file.modified_at,
     };
@@ -421,7 +415,7 @@ function buildPresentationEntity(
     entityType: "presentation",
     name: file.name,
     externalId: `${doc.id}:presentation`,
-    summary: `Presentation file indexed as metadata. Use the PPTX workflow to extract slides, thumbnails, notes, or edit the deck.`,
+    summary: `Presentation file indexed as metadata.`,
     schema: {
       format: file.extension,
       contentIndexable: false,
@@ -432,10 +426,7 @@ function buildPresentationEntity(
       filePath: file.path,
       filename: file.name,
       extension: file.extension,
-      recommendedTool: "run_python",
-      recommendedPackage: "markitdown[pptx] or python-pptx",
       accessStrategy: "presentation_parser",
-      note: "Use the pptx skill or run_python with markitdown/python-pptx for slide extraction and analysis.",
     },
     updatedAt: file.modified_at,
   };
@@ -445,28 +436,12 @@ function metadataSummary(file: FileInfo): string {
   return `${file.extension || "unknown"} file, ${file.size} bytes, modified ${new Date(file.modified_at * 1000).toISOString()}`;
 }
 
-function recommendedToolForFile(file: Pick<FileInfo, "extension">): string {
-  const ext = file.extension.toLowerCase();
-  if (SPREADSHEET_EXTENSIONS.has(ext)) return "run_python";
-  if (PRESENTATION_EXTENSIONS.has(ext)) return "run_python";
-  if (isContentIndexable({ extension: ext })) return "read_file";
-  return "open_path";
-}
-
 function accessStrategyForFile(file: Pick<FileInfo, "extension">): string {
   const ext = file.extension.toLowerCase();
   if (SPREADSHEET_EXTENSIONS.has(ext)) return "load_original_file";
   if (PRESENTATION_EXTENSIONS.has(ext)) return "presentation_parser";
   if (isContentIndexable({ extension: ext })) return "text_extraction";
   return "metadata_only";
-}
-
-function accessNoteForFile(file: Pick<FileInfo, "extension">): string {
-  const ext = file.extension.toLowerCase();
-  if (SPREADSHEET_EXTENSIONS.has(ext)) return "Use run_python with pandas/openpyxl for analysis.";
-  if (PRESENTATION_EXTENSIONS.has(ext)) return "Use the pptx skill or run_python with markitdown/python-pptx.";
-  if (isContentIndexable({ extension: ext })) return "Use search_knowledge for discovery and read_file for exact content.";
-  return "Content extraction is not supported; use metadata for discovery and open the file if needed.";
 }
 
 function parseDelimitedRows(text: string, maxRows: number): string[][] {
