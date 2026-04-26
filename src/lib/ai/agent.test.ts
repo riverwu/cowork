@@ -70,6 +70,13 @@ vi.mock("@/lib/memory", () => ({
   extractMemories: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/db", () => ({
+  getSettings: vi.fn().mockResolvedValue({
+    llmProvider: "anthropic",
+    modelId: "claude-sonnet-4-20250514",
+  }),
+}));
+
 import { runAgent } from "./agent";
 
 describe("runAgent truncation recovery", () => {

@@ -15,9 +15,10 @@ import { webFetchSkill } from "./web-fetch";
 import { shellExecSkill } from "./shell-exec";
 import { applyPatchSkill } from "./apply-patch";
 import { updateTaskProgress } from "./update-task-progress";
+import { imageGen } from "./image-gen";
 
 /**
- * Built-in tool registry — 16 tools.
+ * Built-in tool registry — 17 tools.
  *
  * These are the agent's built-in capabilities, registered as LLM function-calling tools.
  * They are NOT user-installed skills (SKILL.md) — those are managed by SkillRegistry.
@@ -32,6 +33,8 @@ import { updateTaskProgress } from "./update-task-progress";
  *   list_knowledge_sources, get_source_catalog, search_knowledge, save_memory
  * Output:
  *   create_artifact, update_task_progress
+ * Media:
+ *   image_gen
  */
 const tools: Record<string, Tool> = {
   // File operations
@@ -55,6 +58,8 @@ const tools: Record<string, Tool> = {
   // Output
   create_artifact: createArtifactSkill,
   update_task_progress: updateTaskProgress,
+  // Media
+  image_gen: imageGen,
 };
 
 export function getTools(): Record<string, Tool> {

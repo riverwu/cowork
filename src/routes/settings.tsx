@@ -154,6 +154,100 @@ export function SettingsPage() {
           )}
         </section>
 
+        <section className="mb-8 pt-6 border-t border-[var(--border)]">
+          <h2 className="text-[15px] font-semibold mb-1 text-[var(--on-surface)]">{t("settings.context.title")}</h2>
+          <p className="text-[12px] text-[var(--on-surface-tertiary)] mb-4">{t("settings.context.hint")}</p>
+
+          <label className="block text-[13px] font-medium mb-2 text-[var(--on-surface)]">{t("settings.context.window")}</label>
+          <input
+            type="number"
+            min={4000}
+            max={2000000}
+            step={1000}
+            value={settings.modelContextTokens ?? ""}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (!raw) {
+                updateField("modelContextTokens", undefined);
+              } else {
+                const n = Number(raw);
+                updateField("modelContextTokens", Number.isFinite(n) && n > 0 ? n : undefined);
+              }
+            }}
+            placeholder="200000"
+            className={`${inputClass} mb-1`}
+          />
+          <p className="text-[11px] text-[var(--on-surface-tertiary)] mb-4">{t("settings.context.windowHint")}</p>
+
+          <label className="block text-[13px] font-medium mb-2 text-[var(--on-surface)]">{t("settings.context.maxOutput")}</label>
+          <input
+            type="number"
+            min={512}
+            max={32000}
+            step={256}
+            value={settings.modelMaxOutputTokens ?? ""}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (!raw) {
+                updateField("modelMaxOutputTokens", undefined);
+              } else {
+                const n = Number(raw);
+                updateField("modelMaxOutputTokens", Number.isFinite(n) && n > 0 ? n : undefined);
+              }
+            }}
+            placeholder="8192"
+            className={inputClass}
+          />
+          <p className="text-[11px] text-[var(--on-surface-tertiary)] mt-1.5">{t("settings.context.maxOutputHint")}</p>
+        </section>
+
+        <section className="mb-8 pt-6 border-t border-[var(--border)]">
+          <h2 className="text-[15px] font-semibold mb-1 text-[var(--on-surface)]">{t("settings.imageGen.title")}</h2>
+          <p className="text-[12px] text-[var(--on-surface-tertiary)] mb-4">{t("settings.imageGen.hint")}</p>
+
+          <label className="block text-[13px] font-medium mb-2 text-[var(--on-surface)]">{t("settings.imageGen.provider")}</label>
+          <div className="flex gap-2 mb-4">
+            <button
+              type="button"
+              onClick={() => updateField("imageProvider", "doubao")}
+              className="px-4 py-[7px] rounded-lg text-[13px] cursor-pointer transition-colors bg-[var(--primary-light)] text-white"
+            >
+              Doubao Seedream
+            </button>
+          </div>
+
+          <label className="block text-[13px] font-medium mb-2 text-[var(--on-surface)]">{t("settings.imageGen.apiKey")}</label>
+          <input
+            type="password"
+            value={settings.imageApiKey || ""}
+            onChange={(e) => updateField("imageApiKey", e.target.value)}
+            placeholder="ark-..."
+            className={`${inputClass} mb-4`}
+          />
+
+          <label className="block text-[13px] font-medium mb-2 text-[var(--on-surface)]">
+            {t("settings.imageGen.baseUrl")}
+            <span className="text-[var(--on-surface-tertiary)] font-normal ml-1">{t("settings.baseUrl.optional")}</span>
+          </label>
+          <input
+            type="text"
+            value={settings.imageBaseUrl || ""}
+            onChange={(e) => updateField("imageBaseUrl", e.target.value || undefined)}
+            placeholder="https://ark.cn-beijing.volces.com/api/v3"
+            className={`${inputClass} mb-4`}
+          />
+
+          <label className="block text-[13px] font-medium mb-2 text-[var(--on-surface)]">{t("settings.imageGen.model")}</label>
+          <input
+            type="text"
+            value={settings.imageModel || ""}
+            onChange={(e) => updateField("imageModel", e.target.value)}
+            placeholder="doubao-seedream-4-0-250828"
+            className={inputClass}
+          />
+          <p className="text-[11px] text-[var(--on-surface-tertiary)] mt-1.5">{t("settings.imageGen.modelHint")}</p>
+        </section>
+
         <button
           onClick={handleSave}
           disabled={saving}

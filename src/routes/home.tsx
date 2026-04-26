@@ -145,8 +145,12 @@ export function Home() {
 type LongTaskView = NonNullable<ReturnType<typeof useSessionStore.getState>["longTask"]>;
 
 function LongTaskPanel({ task }: { task: LongTaskView }) {
-  const current = [...task.phases].reverse().find((p) => p.status === "running")
-    || [...task.phases].reverse()[0];
+  const planPhase = task.phases.find((p) => p.phase === "plan");
+  const nonPlanPhases = task.phases.filter((p) => p.phase !== "plan");
+  const current = [...nonPlanPhases].reverse().find((p) => p.status === "running")
+    || [...nonPlanPhases].reverse()[0]
+    || planPhase;
+  const allOutputs = task.phases.flatMap((p) => p.outputs);
 
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-lowest)] shadow-[var(--shadow-sm)] overflow-hidden">
@@ -160,31 +164,41 @@ function LongTaskPanel({ task }: { task: LongTaskView }) {
           工作目录：{task.workspaceDir}
         </div>
       </div>
-      <div className="p-3 space-y-2">
-        {current && (
+      <div className="p-3 space-y-2.5">
+        {planPhase && (
+          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-low)] px-3 py-2">
+            <div className="flex items-center gap-2 mb-1">
+              <StatusDot status={planPhase.status} />
+              <span className="text-[12px] font-semibold text-[var(--on-surface)]">计划</span>
+              <span className="text-[11px] text-[var(--on-surface-tertiary)]">{formatStatus(planPhase.status)}</span>
+            </div>
+            <p className="text-[12px] text-[var(--on-surface-secondary)] leading-relaxed whitespace-pre-wrap break-words">{planPhase.summary}</p>
+          </div>
+        )}
+        {current && current !== planPhase && (
           <div className="rounded-lg bg-[var(--surface-low)] px-3 py-2">
             <div className="flex items-center gap-2">
               <StatusDot status={current.status} />
               <span className="text-[12px] font-medium text-[var(--on-surface)]">{formatPhase(current.phase)}</span>
               <span className="text-[11px] text-[var(--on-surface-tertiary)]">{formatStatus(current.status)}</span>
             </div>
-            <p className="mt-1 text-[12px] text-[var(--on-surface-secondary)] leading-relaxed">{current.summary}</p>
+            <p className="mt-1 text-[12px] text-[var(--on-surface-secondary)] leading-relaxed whitespace-pre-wrap break-words">{current.summary}</p>
           </div>
         )}
-        {task.phases.length > 0 && (
-          <div className="space-y-1">
-            {task.phases.map((phase) => (
-              <div key={phase.phase} className="flex items-center gap-2 text-[12px] px-1 py-0.5">
+        {nonPlanPhases.length > 0 && (
+          <div className="space-y-1.5">
+            {nonPlanPhases.map((phase) => (
+              <div key={phase.phase} className="flex items-start gap-2 text-[12px] px-1 py-0.5">
                 <StatusDot status={phase.status} />
-                <span className="w-24 truncate text-[var(--on-surface-secondary)]">{formatPhase(phase.phase)}</span>
-                <span className="flex-1 truncate text-[var(--on-surface-tertiary)]">{phase.summary}</span>
+                <span className="w-24 shrink-0 truncate text-[var(--on-surface-secondary)]">{formatPhase(phase.phase)}</span>
+                <span className="flex-1 text-[var(--on-surface-tertiary)] whitespace-pre-wrap break-words leading-relaxed">{phase.summary}</span>
               </div>
             ))}
           </div>
         )}
-        {task.phases.flatMap((p) => p.outputs).length > 0 && (
+        {allOutputs.length > 0 && (
           <div className="flex flex-wrap gap-1.5 pt-1">
-            {task.phases.flatMap((p) => p.outputs).map((output, index) => (
+            {allOutputs.map((output, index) => (
               output.path ? (
                 <button
                   key={`${output.path}-${index}`}

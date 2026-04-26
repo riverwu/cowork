@@ -11,7 +11,7 @@ Use this for:
 - Data analysis and computation (pandas, numpy)
 - Reading/writing Excel files (openpyxl)
 - Generating/reading Word documents (python-docx)
-- Creating charts (matplotlib)
+- Data charts plotted from real numbers (matplotlib, seaborn, plotly). For illustrations/covers use \`image_gen\` instead.
 - PDF processing (PyPDF2)
 - Any computation that benefits from Python
 

@@ -44,6 +44,14 @@ export async function getSettings(): Promise<Settings> {
   const openaiApiKey = (await getSetting("openai_api_key")) || undefined;
   const openaiBaseUrl = (await getSetting("openai_base_url")) || undefined;
   const modelId = (await getSetting("model_id")) || undefined;
+  const modelContextTokensRaw = await getSetting("model_context_tokens");
+  const modelContextTokens = modelContextTokensRaw ? Number(modelContextTokensRaw) : undefined;
+  const modelMaxOutputTokensRaw = await getSetting("model_max_output_tokens");
+  const modelMaxOutputTokens = modelMaxOutputTokensRaw ? Number(modelMaxOutputTokensRaw) : undefined;
+  const imageProvider = ((await getSetting("image_provider")) as Settings["imageProvider"]) || undefined;
+  const imageApiKey = (await getSetting("image_api_key")) || undefined;
+  const imageBaseUrl = (await getSetting("image_base_url")) || undefined;
+  const imageModel = (await getSetting("image_model")) || undefined;
   return {
     llmProvider: provider as Settings["llmProvider"],
     anthropicApiKey,
@@ -51,6 +59,12 @@ export async function getSettings(): Promise<Settings> {
     openaiApiKey,
     openaiBaseUrl,
     modelId,
+    modelContextTokens: Number.isFinite(modelContextTokens) ? modelContextTokens : undefined,
+    modelMaxOutputTokens: Number.isFinite(modelMaxOutputTokens) ? modelMaxOutputTokens : undefined,
+    imageProvider,
+    imageApiKey,
+    imageBaseUrl,
+    imageModel,
   };
 }
 
@@ -61,6 +75,12 @@ export async function saveSettings(settings: Partial<Settings>): Promise<void> {
   if (settings.openaiApiKey !== undefined) await setSetting("openai_api_key", settings.openaiApiKey);
   if (settings.openaiBaseUrl !== undefined) await setSetting("openai_base_url", settings.openaiBaseUrl);
   if (settings.modelId !== undefined) await setSetting("model_id", settings.modelId);
+  if (settings.modelContextTokens !== undefined) await setSetting("model_context_tokens", String(settings.modelContextTokens));
+  if (settings.modelMaxOutputTokens !== undefined) await setSetting("model_max_output_tokens", String(settings.modelMaxOutputTokens));
+  if (settings.imageProvider !== undefined) await setSetting("image_provider", settings.imageProvider);
+  if (settings.imageApiKey !== undefined) await setSetting("image_api_key", settings.imageApiKey);
+  if (settings.imageBaseUrl !== undefined) await setSetting("image_base_url", settings.imageBaseUrl);
+  if (settings.imageModel !== undefined) await setSetting("image_model", settings.imageModel);
 }
 
 // ---- Sources ----

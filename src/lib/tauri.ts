@@ -302,6 +302,21 @@ export async function deleteFile(path: string): Promise<void> {
   return invokeDesktop<void>("delete_file", { path });
 }
 
+/** Recursively delete a directory if it exists. */
+export async function deleteDirectory(path: string): Promise<void> {
+  return invokeDesktop<void>("delete_directory", { path });
+}
+
+/** Read a local file and return its bytes as a base64 string. */
+export async function readFileBase64(path: string): Promise<string> {
+  return invokeDesktop<string>("read_file_base64", { path });
+}
+
+/** Download a URL and save its body to a local file. Returns the saved path. */
+export async function downloadUrl(url: string, path: string): Promise<string> {
+  return invokeDesktop<string>("download_url", { url, path });
+}
+
 /** List directory contents (non-recursive). */
 export async function listDirectory(path: string): Promise<FileInfo[]> {
   return invokeDesktop<FileInfo[]>("list_directory", { path });

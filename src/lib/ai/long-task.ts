@@ -83,7 +83,7 @@ Reason: ${context.reason}
 Use the workspace as durable scratch space for plans, extracted source summaries, intermediate specs, scripts, logs, and final deliverables.
 
 Required workflow:
-1. Call \`update_task_progress\` first with phase \`plan\`, status \`running\`, and a concise stage plan.
+1. Call \`update_task_progress\` first with phase \`plan\`, status \`running\`. The \`summary\` is shown to the user as the visible plan, so it MUST contain the full plan in multi-line markdown — numbered steps, expected deliverables (file names/paths), how many slides/pages/images, image specs, and any open assumptions. Do not collapse it to a single sentence.
 2. For large inputs, build an inventory before analysis. Save it as \`${context.workspaceDir}/inventory.json\` or \`${context.workspaceDir}/inventory.md\`.
 3. Summarize source files in batches. Save per-source and aggregate summaries in the workspace; do not load all raw content into chat at once.
 4. For large outputs, write a compact specification first, such as \`${context.workspaceDir}/deck_spec.json\`, \`report_outline.md\`, or \`site_spec.json\`.

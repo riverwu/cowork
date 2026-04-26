@@ -10,8 +10,10 @@ import {
 import { now as dbNow, newId } from "@/lib/db";
 import { getEnv } from "@/lib/tauri";
 
-/** Max messages sent to LLM (context window management). */
-const LLM_CONTEXT_WINDOW = 40;
+/** Per-message tool-history excerpt size (used in the trusted-tool-history
+ *  footer appended to each assistant turn for cross-turn recall). The full
+ *  conversation is still passed to the agent — token-level budgeting now
+ *  happens in `lib/ai/context-budget.ts`. */
 const TOOL_HISTORY_RESULT_LIMIT = 300;
 
 /** Special role for context divider markers. */
@@ -156,13 +158,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const userMsg = await createMessage({ sessionId, role: "user", content });
     set((s) => ({ messages: [...s.messages, userMsg] }));
 
-    // Build LLM context: only messages AFTER the last context divider
+    // Build LLM context: only messages AFTER the last context divider.
+    // Token-level fitting is delegated to the agent (context-budget.ts) so
+    // we don't truncate twice and we keep semantic shape (tool_use/tool_result
+    // pairing) intact.
     const allMessages = get().messages;
     const lastDividerIndex = findLastDividerIndex(allMessages);
     const contextMessages = allMessages.slice(lastDividerIndex);
-    const windowedMessages = contextMessages.slice(-LLM_CONTEXT_WINDOW);
 
-    const llmMessages: LLMMessage[] = windowedMessages
+    const llmMessages: LLMMessage[] = contextMessages
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({
         role: m.role === "user" ? "user" as const : "assistant" as const,

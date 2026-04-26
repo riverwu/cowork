@@ -766,6 +766,53 @@ pub fn delete_file(path: &str) -> Result<(), String> {
     fs::remove_file(path).map_err(|e| format!("Failed to delete {}: {}", path, e))
 }
 
+/// Recursively delete a directory if it exists. Used by the skill uninstaller.
+#[tauri::command]
+pub fn delete_directory(path: &str) -> Result<(), String> {
+    let dir_path = Path::new(path);
+    if !dir_path.exists() {
+        return Ok(());
+    }
+    if !dir_path.is_dir() {
+        return Err(format!("Not a directory: {}", path));
+    }
+    fs::remove_dir_all(path).map_err(|e| format!("Failed to delete {}: {}", path, e))
+}
+
+/// Read a local file and return its bytes encoded as base64. Used by tools that
+/// need to embed file contents in JSON payloads (e.g. reference images for the
+/// image generation API).
+#[tauri::command]
+pub fn read_file_base64(path: &str) -> Result<String, String> {
+    use base64::{engine::general_purpose, Engine as _};
+    let bytes = fs::read(path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
+    Ok(general_purpose::STANDARD.encode(bytes))
+}
+
+/// Download a URL and write the response body to `path`. Returns the saved
+/// path. Parent directories are created if they don't exist.
+#[tauri::command]
+pub async fn download_url(url: String, path: String) -> Result<String, String> {
+    let response = reqwest::get(&url)
+        .await
+        .map_err(|e| format!("Download request failed: {}", e))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("Download failed with HTTP {}", status.as_u16()));
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read download body: {}", e))?;
+    let target = Path::new(&path);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+    fs::write(&path, &bytes).map_err(|e| format!("Failed to write {}: {}", path, e))?;
+    Ok(path)
+}
+
 /// List directory contents (non-recursive).
 #[tauri::command]
 pub fn list_directory(path: &str) -> Result<Vec<FileInfo>, String> {

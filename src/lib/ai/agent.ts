@@ -9,8 +9,20 @@ import { retrieveMemoryContext, buildMemoryPrompt, extractMemories } from "@/lib
 import { mcpManager } from "@/lib/mcp";
 import type { AgentEvent } from "@/types";
 import { buildLongTaskPrompt, detectLongTask } from "./long-task";
-import { setCurrentLongTask } from "./task-context";
+import {
+  setCurrentLongTask,
+  setCurrentWorkingDirectory,
+  getCurrentLongTask,
+} from "./task-context";
 import { isToolResultFailure } from "./tool-result";
+import { getSettings } from "@/lib/db";
+import {
+  computeBudget,
+  estimateMessagesTokens,
+  estimateTokens,
+  estimateToolDefTokens,
+  fitMessagesToBudget,
+} from "./context-budget";
 
 const MAX_STEPS = 25;
 const MAX_TRUNCATION_RECOVERIES = 3;
@@ -116,6 +128,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   // LLM reads SKILL.md on-demand via read_file (progressive disclosure).
   const availableSkillsPrompt = skillRegistry.getAvailableSkillsPrompt();
 
+  setCurrentWorkingDirectory(params.workingDirectory || null);
   const longTask = detectLongTask(params.messages, params.workingDirectory);
   setCurrentLongTask(longTask);
   if (longTask) {
@@ -127,10 +140,28 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     };
   }
 
-  const system = buildSystemPrompt({
+  // 3a. Resolve the model's context budget (Codex-style: per-model registry
+  // with optional Settings override; effective input ceiling = 95% of window
+  // minus reserved output; auto-compact threshold at 90% of window).
+  // Without this guard, on smaller-context models the backend silently
+  // truncates the request — most often dropping the tools array entirely,
+  // which makes the agent look like it "refuses to call tools" when in
+  // fact it never received them.
+  const settings = await getSettings();
+  const budget = computeBudget({
+    modelId: settings.modelId,
+    contextTokensOverride: settings.modelContextTokens,
+    maxOutputTokens: settings.modelMaxOutputTokens,
+  });
+  const toolBudgetTokens = toolDefs.reduce((sum, def) => sum + estimateToolDefTokens(def), 0);
+
+  let droppedKnowledge = false;
+  let droppedMemory = false;
+
+  const buildPrompt = () => buildSystemPrompt({
     tools: toolDefs,
-    memoryContext: memoryContext || undefined,
-    knowledgeContext: knowledgeContext || undefined,
+    memoryContext: droppedMemory ? undefined : (memoryContext || undefined),
+    knowledgeContext: droppedKnowledge ? undefined : (knowledgeContext || undefined),
     longTaskContext: longTask ? buildLongTaskPrompt(longTask) : undefined,
     planMode: params.planMode,
     workingDirectory: params.workingDirectory,
@@ -142,8 +173,55 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     },
   });
 
-  // 4. Agent loop
-  const currentMessages: LLMMessage[] = [...params.messages];
+  let system = buildPrompt();
+  let systemTokens = estimateTokens(system);
+
+  // Drop priority (Codex compaction order): knowledge first, then memory,
+  // then trim oldest history. Trigger when projected total
+  // (system + tools + ALL message tokens) exceeds the 90% auto-compact
+  // threshold. Estimating the full message payload — not just user
+  // content — matters: on a long conversation, assistant turns and
+  // tool_result blocks dominate the cost.
+  const messagesTokens = estimateMessagesTokens(params.messages);
+  const overhead = () => systemTokens + toolBudgetTokens + messagesTokens;
+  if (knowledgeContext && overhead() > budget.autoCompactThreshold) {
+    droppedKnowledge = true;
+    system = buildPrompt();
+    systemTokens = estimateTokens(system);
+  }
+  if (memoryContext && overhead() > budget.autoCompactThreshold) {
+    droppedMemory = true;
+    system = buildPrompt();
+    systemTokens = estimateTokens(system);
+  }
+
+  // 4. Trim history to fit the input budget (oldest first, last 4 always
+  // preserved so a tool_use never gets stranded without its tool_result).
+  const fit = fitMessagesToBudget({
+    systemTokens,
+    toolTokens: toolBudgetTokens,
+    messages: params.messages,
+    inputBudget: budget.inputBudget,
+  });
+  if (fit.exceedsBudget) {
+    yield {
+      type: "error",
+      error: `Even the most recent messages exceed the model's input budget (~${budget.inputBudget} tokens for a ${budget.contextTokens}-token context). Increase 'Context window' in Settings to match your model, or shorten the latest message.`,
+    };
+    yield { type: "done" };
+    return;
+  }
+  if (fit.droppedMessages > 0 || droppedKnowledge || droppedMemory) {
+    const dropped: string[] = [];
+    if (droppedKnowledge) dropped.push("retrieved knowledge");
+    if (droppedMemory) dropped.push("memory");
+    if (fit.droppedMessages > 0) dropped.push(`${fit.droppedMessages} oldest message(s)`);
+    console.log(`[Agent] Context budget: model=${settings.modelId || "default"}, window=${budget.contextTokens}, input_budget=${budget.inputBudget}, max_output=${budget.maxOutputTokens}. Dropped: ${dropped.join(", ")}. Estimated input ~${fit.estimatedInputTokens}.`);
+  } else {
+    console.log(`[Agent] Context budget: model=${settings.modelId || "default"}, window=${budget.contextTokens}, input_budget=${budget.inputBudget}, max_output=${budget.maxOutputTokens}. Estimated input ~${fit.estimatedInputTokens}.`);
+  }
+
+  const currentMessages: LLMMessage[] = [...fit.messages];
   let fullAssistantText = "";
   let hitStepLimit = true;
   let truncationRecoveries = 0;
@@ -160,6 +238,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         system,
         messages: currentMessages,
         tools: toolDefs,
+        maxOutputTokens: budget.maxOutputTokens,
       })) {
         if (event.type === "text-delta") {
           yield { type: "text-delta", text: event.text };
@@ -211,7 +290,10 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       break;
     }
 
-    if (doneEvent.stopReason !== "tool_use" && doneEvent.toolCalls.length === 0) {
+    // Loop ends when the model stops calling tools. If it produced neither
+    // tool calls NOR text we still need to break, otherwise the next request
+    // would carry an empty assistant message that the API will reject.
+    if (doneEvent.toolCalls.length === 0) {
       hitStepLimit = false;
       break;
     }
@@ -226,6 +308,17 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       const tool = allTools[toolCall.name];
       if (!tool) {
         const errResult = `Unknown tool: ${toolCall.name}`;
+        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: errResult });
+        yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0, success: false };
+        continue;
+      }
+
+      // Provider parser stashes a truncated tool input as { _raw, _error }.
+      // Executing the tool with that garbage produces misleading errors the
+      // LLM then tries to "fix"; short-circuit with a clean recovery hint.
+      const rawInput = toolCall.input as { _error?: string; _raw?: string } | undefined;
+      if (rawInput && typeof rawInput === "object" && rawInput._error === "Truncated tool call input") {
+        const errResult = `Tool call to "${toolCall.name}" was truncated by the model output token limit before its arguments finished streaming, so the tool was not run. Re-issue the call with smaller, complete arguments.`;
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: errResult });
         yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0, success: false };
         continue;
@@ -247,24 +340,48 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         const success = !isToolResultFailure(result);
 
         let uiResult: unknown = summarizeResult(result);
+        // Internal dispatch markers (`__ARTIFACT__:…`, `__TASK_PROGRESS__:…`)
+        // are private wire-format between tools and the agent loop. Strip
+        // them before pushing the tool result back into the LLM context so
+        // the model sees a clean, human-readable confirmation instead of the
+        // raw marker + duplicated payload.
+        let llmResult = result;
         if (success && result.startsWith("__ARTIFACT__:")) {
           const artifact = parseArtifactMarker(result);
           if (artifact) {
             yield { type: "artifact", artifact };
+            llmResult = `Artifact created (${artifact.type}): "${artifact.title}". It is now visible to the user in a dedicated panel; do not paste its contents back into chat.`;
           }
         } else if (success && result.startsWith("__TASK_PROGRESS__:")) {
           const progress = parseTaskProgressMarker(result);
           if (progress) {
+            // The tool may have just bootstrapped a long task on the fly
+            // (because detectLongTask didn't fire for this prompt). In that
+            // case emit a synthetic long-task-start so the UI panel and the
+            // session store have a runId/workspaceDir before phases arrive.
+            const active = getCurrentLongTask();
+            if (active && active.runId === progress.runId && !longTask) {
+              yield {
+                type: "long-task-start",
+                runId: active.runId,
+                workspaceDir: active.workspaceDir,
+                reason: active.reason,
+              };
+            }
             yield { type: "long-task-progress", ...progress };
             uiResult = `${progress.phase}: ${progress.status} — ${progress.summary}`;
+            const outputsLine = progress.outputs.length > 0
+              ? ` Outputs: ${progress.outputs.map((o) => o.path || o.title).join(", ")}.`
+              : "";
+            llmResult = `Task progress recorded — phase "${progress.phase}", status "${progress.status}". Plan/summary is now visible to the user in the panel.${outputsLine}`;
           }
         }
 
-        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(result) });
+        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, llmResult) });
         yield { type: "skill-done", skill: toolCall.name, result: uiResult, durationMs, success };
       } catch (err) {
         const durationMs = Date.now() - startTime;
-        const errResult = `Tool execution error: ${err}`;
+        const errResult = `Tool execution error in ${toolCall.name}: ${err instanceof Error ? err.message : String(err)}`;
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: errResult });
         yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs, success: false };
       }
@@ -336,14 +453,14 @@ function summarizeResult(result: string): unknown {
   return result.slice(0, 200) + `... (${result.length} chars total)`;
 }
 
-function truncateToolResultForLlm(result: string): string {
+function truncateToolResultForLlm(toolName: string, result: string): string {
   if (result.length <= MAX_TOOL_RESULT_CHARS_FOR_LLM) return result;
   const headSize = Math.floor(MAX_TOOL_RESULT_CHARS_FOR_LLM * 0.65);
   const tailSize = MAX_TOOL_RESULT_CHARS_FOR_LLM - headSize;
   const omitted = result.length - headSize - tailSize;
   return [
     result.slice(0, headSize),
-    `\n\n[Tool result truncated before sending back to the LLM: ${omitted} middle characters omitted. Head and tail are preserved. Use a narrower query, smaller max_chars, or offset-based reads instead of loading everything.]\n\n`,
+    `\n\n[${toolName} result truncated before sending back to the LLM: ${omitted} middle characters omitted. Head and tail are preserved. Use a narrower query, smaller max_chars, or offset-based reads instead of loading everything.]\n\n`,
     result.slice(result.length - tailSize),
   ].join("");
 }

@@ -7,7 +7,7 @@
  * copied to ~/.cowork/skills/{id}/.
  */
 
-import { writeFile, readFileText } from "./tauri";
+import { writeFile, readFileText, deleteDirectory } from "./tauri";
 import { getSkillsDir } from "./ai/skill-loader";
 import { getMcpsDir, installMcpToFilesystem } from "./mcp/loader";
 import { CATALOG_SKILLS, CATALOG_MCPS } from "./catalog";
@@ -136,6 +136,24 @@ export async function installCatalogMcp(id: string): Promise<void> {
   if (!mcp) throw new Error(`MCP '${id}' not found in catalog`);
 
   await installMcpToFilesystem(id, mcp.definition);
+}
+
+/**
+ * Uninstall an installed skill by removing its directory under
+ * ~/.cowork/skills/. Accepts either a directory name (e.g. "pptx") or an
+ * absolute path to the skill directory. The caller is expected to reload
+ * the skill registry afterwards.
+ */
+export async function uninstallSkill(target: string): Promise<void> {
+  if (!target) throw new Error("Skill target is required for uninstall");
+  let dirPath: string;
+  if (target.startsWith("/")) {
+    dirPath = target;
+  } else {
+    const skillsDir = await getSkillsDir();
+    dirPath = `${skillsDir}/${target}`;
+  }
+  await deleteDirectory(dirPath);
 }
 
 /** Simple semver comparison: returns >0 if a > b, <0 if a < b, 0 if equal. */

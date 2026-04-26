@@ -10,6 +10,9 @@ export interface StreamParams {
   system: string;
   messages: LLMMessage[];
   tools?: ToolDefinition[];
+  /** Cap on tokens the model may generate. Forwarded to the underlying API.
+   *  When omitted, providers fall back to a conservative default. */
+  maxOutputTokens?: number;
 }
 
 export type LLMMessage =

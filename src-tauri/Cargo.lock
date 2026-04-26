@@ -754,6 +754,7 @@ dependencies = [
 name = "cowork"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "calamine",
  "dirs-next",
  "docx-rs",

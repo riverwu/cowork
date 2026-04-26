@@ -30,6 +30,9 @@ export class OpenAIProvider implements LLMProvider {
     if (tools && tools.length > 0) {
       body.tools = tools;
     }
+    if (params.maxOutputTokens) {
+      body.max_tokens = params.maxOutputTokens;
+    }
 
     const url = `${this.baseURL}/chat/completions`;
     const headers: Record<string, string> = {

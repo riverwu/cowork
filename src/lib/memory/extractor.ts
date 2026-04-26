@@ -5,7 +5,9 @@ import {
   upsertCoreFact,
   createMemory,
   createEpisode,
+  getSettings,
 } from "@/lib/db";
+import { computeBudget, estimateTokens } from "@/lib/ai/context-budget";
 import type { CoreFact, MemoryType, EpisodeOutcome } from "@/types";
 
 const EXTRACTION_PROMPT = `You are a memory extraction system. Analyze the conversation and extract structured information.
@@ -48,11 +50,28 @@ export async function extractMemories(
   try {
     const provider = await getConfiguredProvider();
 
-    // Build extraction request
-    const conversationText = conversationMessages
-      .filter((m) => m.role === "user" || (m.role === "assistant" && m.content))
-      .map((m) => `${m.role}: ${m.content}`)
-      .join("\n");
+    // Bound the extractor's own LLM call to the same context budget the
+    // agent uses, so a long conversation can't overflow the model. We give
+    // the extractor a generous half of the input budget — it receives just
+    // one user message (no tool defs, no agent state) and returns small JSON.
+    const settings = await getSettings();
+    const budget = computeBudget({
+      modelId: settings.modelId,
+      contextTokensOverride: settings.modelContextTokens,
+      maxOutputTokens: settings.modelMaxOutputTokens,
+    });
+    const systemTokens = estimateTokens(EXTRACTION_PROMPT);
+    const wrapperOverheadTokens = 64; // role headers + the "Analyze this…" prefix
+    const conversationBudgetTokens = Math.max(
+      1_500,
+      Math.floor(budget.inputBudget / 2) - systemTokens - wrapperOverheadTokens,
+    );
+    const conversationBudgetBytes = conversationBudgetTokens * 4; // matches APPROX_BYTES_PER_TOKEN
+
+    // Build conversation transcript from the TAIL of the conversation —
+    // the most recent turns are most useful for extracting current
+    // preferences and the latest task outcome.
+    const conversationText = buildBoundedTranscript(conversationMessages, conversationBudgetBytes);
 
     const messages: LLMMessage[] = [
       { role: "user", content: `Analyze this conversation and extract memories:\n\n${conversationText}` },
@@ -63,6 +82,7 @@ export async function extractMemories(
     for await (const event of provider.stream({
       system: EXTRACTION_PROMPT,
       messages,
+      maxOutputTokens: budget.maxOutputTokens,
     })) {
       if (event.type === "text-delta") {
         fullText += event.text;
@@ -149,4 +169,44 @@ interface ExtractionResult {
     reflection: string;
     skills_used?: string[];
   };
+}
+
+/**
+ * Walk the conversation tail-first, accumulating role-tagged lines until we
+ * approach the byte budget. The tail (most recent turns) is most useful for
+ * memory extraction, so we keep newest messages and drop oldest if needed.
+ * Per-message content is itself capped so a single huge user dump doesn't
+ * burn the entire budget.
+ */
+function buildBoundedTranscript(messages: LLMMessage[], maxBytes: number): string {
+  const PER_MESSAGE_BYTE_CAP = Math.min(8_000, Math.floor(maxBytes / 2));
+  const filtered = messages.filter(
+    (m) => m.role === "user" || (m.role === "assistant" && m.content),
+  );
+
+  const lines: string[] = [];
+  let usedBytes = 0;
+  let truncatedAtHead = false;
+
+  for (let i = filtered.length - 1; i >= 0; i--) {
+    const msg = filtered[i];
+    const content = msg.content || "";
+    const capped = content.length > PER_MESSAGE_BYTE_CAP
+      ? `${content.slice(0, PER_MESSAGE_BYTE_CAP)}…[content truncated]`
+      : content;
+    const line = `${msg.role}: ${capped}`;
+    const lineBytes = new TextEncoder().encode(line).length + 1;
+    if (usedBytes + lineBytes > maxBytes) {
+      truncatedAtHead = i > 0;
+      break;
+    }
+    lines.push(line);
+    usedBytes += lineBytes;
+  }
+
+  lines.reverse();
+  if (truncatedAtHead) {
+    lines.unshift("[older conversation turns omitted to fit memory-extraction budget]");
+  }
+  return lines.join("\n");
 }

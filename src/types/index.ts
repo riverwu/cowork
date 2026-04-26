@@ -7,6 +7,21 @@ export interface Settings {
   openaiApiKey?: string;
   openaiBaseUrl?: string;
   modelId?: string;
+  /** Total context window of the configured chat model, in tokens.
+   *  Defaults to 32_000 (a conservative value that covers Doubao, MiniMax,
+   *  Qwen, GPT-4o-mini, and older Claude). Set to 128_000 for GPT-4o /
+   *  GPT-4-turbo / Claude 4 Sonnet/Opus, or 200_000 for full Claude 4. */
+  modelContextTokens?: number;
+  /** Maximum tokens reserved for the assistant's reply. Defaults to 4_096.
+   *  Lower values free more room for tool definitions and history; higher
+   *  values give the model more headroom for long single-turn answers. */
+  modelMaxOutputTokens?: number;
+
+  /** Image generation settings (currently only Doubao Seedream). */
+  imageProvider?: "doubao";
+  imageApiKey?: string;
+  imageBaseUrl?: string;
+  imageModel?: string;
 }
 
 // ---- Knowledge ----

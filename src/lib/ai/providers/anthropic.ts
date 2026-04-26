@@ -20,7 +20,7 @@ export class AnthropicProvider implements LLMProvider {
 
     const body: Record<string, unknown> = {
       model: this.model,
-      max_tokens: 16384,
+      max_tokens: params.maxOutputTokens ?? 4096,
       system: params.system,
       messages,
       stream: true,

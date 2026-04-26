@@ -88,6 +88,9 @@ async function dispatch(command, args, sender) {
     case "start_knowledge_index": return startKnowledgeIndex(sender, args.sourceId, args.path, args.knownFiles || []);
     case "write_file": return writeFile(args.path, args.content);
     case "delete_file": return deleteFile(args.path);
+    case "delete_directory": return deleteDirectory(args.path);
+    case "read_file_base64": return readFileBase64(args.path);
+    case "download_url": return downloadUrl(args.url, args.path);
     case "list_directory": return listDirectory(args.path);
     case "grep": return grep(args.directory, args.pattern, args.maxResults);
     case "ripgrep_search": return ripgrepSearch(args.directory, args.pattern, args.maxResults);
@@ -326,6 +329,24 @@ async function writeFile(filePath, content) {
 
 async function deleteFile(filePath) {
   await fsp.rm(filePath, { force: true });
+}
+
+async function deleteDirectory(dirPath) {
+  await fsp.rm(dirPath, { recursive: true, force: true });
+}
+
+async function readFileBase64(filePath) {
+  const buffer = await fsp.readFile(filePath);
+  return buffer.toString("base64");
+}
+
+async function downloadUrl(url, savePath) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Download failed with HTTP ${response.status}`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  await fsp.mkdir(path.dirname(savePath), { recursive: true });
+  await fsp.writeFile(savePath, buffer);
+  return savePath;
 }
 
 async function grep(directory, pattern, maxResults = 50) {

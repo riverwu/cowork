@@ -11,6 +11,8 @@ import {
 import { mcpManager } from "@/lib/mcp";
 import { readFileText } from "@/lib/tauri";
 import { getMcpEnvConfig, setMcpEnvVar } from "@/lib/db";
+import { uninstallSkill } from "@/lib/catalog-installer";
+import { skillRegistry } from "@/lib/ai/skill-registry";
 import { t } from "@/lib/i18n";
 import type { SkillRecord } from "@/types";
 
@@ -42,6 +44,8 @@ export function ToolDetail({ tool, onBack, onRefresh }: ToolDetailProps) {
   const [scriptFiles, setScriptFiles] = useState<string[]>([]);
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [envSaving, setEnvSaving] = useState(false);
+  const [uninstalling, setUninstalling] = useState(false);
+  const [uninstallError, setUninstallError] = useState<string | null>(null);
 
   useEffect(() => {
     // Load SKILL.md content for skills
@@ -249,6 +253,35 @@ export function ToolDetail({ tool, onBack, onRefresh }: ToolDetailProps) {
             )}
           </div>
         </section>
+
+        {/* Skill actions */}
+        {isSkill && tool.dirPath && (
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={async () => {
+                if (!tool.dirPath) return;
+                if (!confirm(t("tools.uninstallConfirm").replace("{name}", tool.name))) return;
+                setUninstalling(true);
+                setUninstallError(null);
+                try {
+                  await uninstallSkill(tool.dirPath);
+                  await skillRegistry.reload();
+                  onRefresh();
+                } catch (err) {
+                  setUninstallError(String(err));
+                  setUninstalling(false);
+                }
+              }}
+              disabled={uninstalling}
+              className="self-start px-4 py-2 rounded-lg text-[13px] bg-red-50 text-[var(--error)] cursor-pointer disabled:opacity-50"
+            >
+              {uninstalling ? t("tools.uninstalling") : t("tools.uninstall")}
+            </button>
+            {uninstallError && (
+              <p className="text-[12px] text-[var(--error)]">{uninstallError}</p>
+            )}
+          </div>
+        )}
 
         {/* MCP actions */}
         {!isSkill && (

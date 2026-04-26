@@ -1,6 +1,6 @@
 import type { Tool } from "./types";
 import { writeFile } from "@/lib/tauri";
-import { getCurrentLongTask } from "../task-context";
+import { getOrBootstrapLongTask } from "../task-context";
 
 interface TaskOutput {
   title: string;
@@ -22,7 +22,7 @@ export const updateTaskProgress: Tool = {
   definition: {
     name: "update_task_progress",
     description:
-      "Update the visible progress for a long-running task and persist a task manifest in the run workspace. Use this at the start and end of each long-task phase.",
+      "Update the visible plan/progress panel for a multi-step task. Call once with phase=\"plan\" and a multi-line summary listing each step, file path, page/slide/image count, and assumptions. Call again with status=\"done\" at the end and pass every produced file path in `outputs[]` — those are what the user clicks in the result panel.",
     parameters: {
       type: "object",
       properties: {
@@ -58,10 +58,10 @@ export const updateTaskProgress: Tool = {
   },
 
   async execute(input) {
-    const context = getCurrentLongTask();
-    if (!context) {
-      return "Task progress update ignored: no long task is active.";
-    }
+    // Bootstrap a long-task context if the agent calls this tool before
+    // detection fired. The bootstrapped run is rooted at the active working
+    // directory so progress, the plan, and the outputs panel still show up.
+    const context = getOrBootstrapLongTask("Bootstrapped via update_task_progress");
 
     const progress: TaskProgress = {
       runId: context.runId,
@@ -74,7 +74,12 @@ export const updateTaskProgress: Tool = {
     };
 
     const manifestPath = `${context.workspaceDir}/task-progress.json`;
-    await writeFile(manifestPath, JSON.stringify(progress, null, 2));
+    try {
+      await writeFile(manifestPath, JSON.stringify(progress, null, 2));
+    } catch {
+      // Persisting the manifest is best-effort; never block the progress
+      // event on a write failure (e.g. read-only working directory).
+    }
 
     return `__TASK_PROGRESS__:${JSON.stringify(progress)}`;
   },

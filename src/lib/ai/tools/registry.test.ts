@@ -19,11 +19,12 @@ describe("Tool Registry", () => {
     "shell",
     "apply_patch",
     "update_task_progress",
+    "image_gen",
   ];
 
-  it("has exactly 16 built-in tools", () => {
+  it("has exactly 17 built-in tools", () => {
     const skills = getTools();
-    expect(Object.keys(skills)).toHaveLength(16);
+    expect(Object.keys(skills)).toHaveLength(17);
   });
 
   it("has all expected skills registered", () => {
@@ -45,7 +46,7 @@ describe("Tool Registry", () => {
 
   it("generates valid tool definitions for all skills", () => {
     const defs = getToolDefinitions();
-    expect(defs).toHaveLength(16);
+    expect(defs).toHaveLength(17);
 
     for (const def of defs) {
       expect(def.name).toBeTruthy();
