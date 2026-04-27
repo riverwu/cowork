@@ -27,6 +27,9 @@ import imageGrid2x2,       { slots as imageGrid2x2Slots }      from "./image-gri
 import processTimeline,    { slots as processTimelineSlots }   from "./process-timeline.js";
 import quote,              { slots as quoteSlots }             from "./quote.js";
 import sectionDivider,     { slots as sectionDividerSlots }    from "./section-divider.js";
+import split2,             { slots as split2Slots }            from "./split-2.js";
+import split3Horizontal,   { slots as split3HorizontalSlots }  from "./split-3-horizontal.js";
+import split3Vertical,     { slots as split3VerticalSlots }    from "./split-3-vertical.js";
 import statGrid3,          { slots as statGrid3Slots }         from "./stat-grid-3.js";
 import titleOnly,          { slots as titleOnlySlots }         from "./title-only.js";
 import twoColTextImage,    { slots as twoColTextImageSlots }   from "./two-col-text-image.js";
@@ -53,6 +56,9 @@ const ENTRIES: RegisteredLayout[] = [
   { name: "process-timeline",    slots: processTimelineSlots,     render: processTimeline },
   { name: "quote",               slots: quoteSlots,               render: quote },
   { name: "section-divider",     slots: sectionDividerSlots,      render: sectionDivider },
+  { name: "split-2",             slots: split2Slots,              render: split2 },
+  { name: "split-3-horizontal",  slots: split3HorizontalSlots,    render: split3Horizontal },
+  { name: "split-3-vertical",    slots: split3VerticalSlots,      render: split3Vertical },
   { name: "stat-grid-3",         slots: statGrid3Slots,           render: statGrid3 },
   { name: "title-only",          slots: titleOnlySlots,           render: titleOnly },
   { name: "two-col-text-image",  slots: twoColTextImageSlots,     render: twoColTextImage },

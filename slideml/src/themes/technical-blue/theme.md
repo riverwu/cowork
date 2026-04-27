@@ -180,6 +180,39 @@ must surface multiple kinds of content at once (KPI + chart + table + text).
 
 ![dashboard](thumbnails/dashboard.png)
 
+### split-2
+Optional title above two side-by-side cells. Each cell hosts a polymorphic
+region (one of 8 kinds: kpi / chart / table / text / bullets / image / code / quote).
+Use for "bullets vs. chart", "image vs. quote", "code vs. explanation".
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `left`, `right` — `region` cells (both required).
+
+> **Guidance:** Use only when the slide truly needs HETEROGENEOUS content side-by-side. For two pieces of the same kind (two text blocks, two charts), use the focused layout. Mixing kinds is the whole point.
+
+![split-2](thumbnails/split-2.png)
+
+### split-3-horizontal
+Optional title over three equal columns. Each column is a `region`.
+Use for parallel comparison of three items (three options, three KPIs
+expressed as different cell kinds, three image+caption tiles).
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `left`, `center`, `right` — `region` cells (all required).
+
+![split-3-horizontal](thumbnails/split-3-horizontal.png)
+
+### split-3-vertical
+Optional title; full-width top region over a 50/50 bottom row. Use for
+"headline + supporting evidence" (e.g. one chart on top, KPI + commentary
+on the bottom row).
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `top` — `region` (required, full width).
+- `bl`, `br` — `region` cells (optional, bottom 50/50).
+
+![split-3-vertical](thumbnails/split-3-vertical.png)
+
 ## Components
 
 ### header

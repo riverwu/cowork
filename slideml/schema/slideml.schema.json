@@ -300,6 +300,9 @@
             "process-timeline",
             "quote",
             "section-divider",
+            "split-2",
+            "split-3-horizontal",
+            "split-3-vertical",
             "stat-grid-3",
             "title-only",
             "two-col-text-image"
@@ -1003,6 +1006,114 @@
                 },
                 "required": [
                   "title"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "split-2"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  },
+                  "left": {
+                    "$ref": "#/$defs/Region"
+                  },
+                  "right": {
+                    "$ref": "#/$defs/Region"
+                  }
+                },
+                "required": [
+                  "left",
+                  "right"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "split-3-horizontal"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  },
+                  "left": {
+                    "$ref": "#/$defs/Region"
+                  },
+                  "center": {
+                    "$ref": "#/$defs/Region"
+                  },
+                  "right": {
+                    "$ref": "#/$defs/Region"
+                  }
+                },
+                "required": [
+                  "left",
+                  "center",
+                  "right"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "split-3-vertical"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  },
+                  "top": {
+                    "$ref": "#/$defs/Region"
+                  },
+                  "bl": {
+                    "$ref": "#/$defs/Region"
+                  },
+                  "br": {
+                    "$ref": "#/$defs/Region"
+                  }
+                },
+                "required": [
+                  "top"
                 ]
               }
             }

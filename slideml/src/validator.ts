@@ -251,17 +251,43 @@ function validateSlotValue(
       return;
 
     case "region": {
-      // Polymorphic cell: { kind: "kpi"|"chart"|"table"|"text", ... }.
-      // Shallow validation here (kind enum); deep shape enforcement
-      // happens in the consuming layout because each kind has its own
-      // shape that mirrors existing slot types.
+      // Polymorphic cell — 8 kinds (kpi/chart/table/text/bullets/image/code/quote).
+      // Shallow validation here (kind enum + per-kind required-field check);
+      // deep shape enforcement happens at render time.
+      const REGION_KINDS = ["kpi", "chart", "table", "text", "bullets", "image", "code", "quote"];
       if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected a region object: { kind: "kpi"|"chart"|"table"|"text", ... }.` });
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected a region object: { kind: ${REGION_KINDS.map((k) => `"${k}"`).join("|")}, ... }.` });
         return;
       }
-      const kind = (value as { kind?: unknown }).kind;
-      if (typeof kind !== "string" || !["kpi", "chart", "table", "text"].includes(kind)) {
-        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.kind must be one of "kpi", "chart", "table", "text".` });
+      const v = value as Record<string, unknown>;
+      const kind = v.kind;
+      if (typeof kind !== "string" || !REGION_KINDS.includes(kind)) {
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.kind must be one of ${REGION_KINDS.map((k) => `"${k}"`).join(", ")}.` });
+        return;
+      }
+      // Per-kind required-field check.
+      const missing: Record<string, string[]> = {
+        kpi:     ["value", "label"],
+        chart:   ["chart"],
+        table:   ["table"],
+        text:    ["body"],
+        bullets: ["items"],
+        image:   ["image"],
+        code:    ["code"],
+        quote:   ["text"],
+      };
+      const need = missing[kind] ?? [];
+      for (const field of need) {
+        if (!(field in v) || v[field] === undefined || v[field] === null) {
+          out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} (kind="${kind}") is missing required field "${field}".` });
+        }
+      }
+      // Specific shape spot-checks (cheap, agent-actionable).
+      if (kind === "bullets" && "items" in v && !Array.isArray(v.items)) {
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} (kind="bullets").items must be a string[].` });
+      }
+      if (kind === "code" && "code" in v && typeof v.code !== "string") {
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} (kind="code").code must be a string.` });
       }
       return;
     }

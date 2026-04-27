@@ -175,6 +175,37 @@ const SAMPLES = {
     chrome: "none",
     slots: { title: "Thanks", subtitle: "Questions?" },
   },
+  "split-2": {
+    slots: {
+      title: "Bullets vs. chart",
+      left: { kind: "bullets", title: "What we shipped", items: ["Connection multiplexing", "Hot-cache warming", "Adaptive backpressure"] },
+      right: {
+        kind: "chart",
+        title: "P99 latency",
+        chart: { type: "line", data: { labels: ["W1","W2","W3","W4"], series: [{ name: "ms", values: [180,165,150,142] }] }, format: { y: "int" } },
+      },
+    },
+  },
+  "split-3-horizontal": {
+    slots: {
+      title: "Three perspectives",
+      left:   { kind: "kpi",  value: "99.95%", label: "Availability", delta: "+0.04%", trend: "up" },
+      center: { kind: "kpi",  value: "120ms",  label: "P99 latency",  delta: "-32%",   trend: "up" },
+      right:  { kind: "text", title: "Why it matters", body: "Tail latency drops translate directly to user-perceived speed and retention." },
+    },
+  },
+  "split-3-vertical": {
+    slots: {
+      title: "Quarter at a glance",
+      top: {
+        kind: "chart",
+        title: "Quarterly ARR",
+        chart: { type: "bar", data: { labels: ["Q1","Q2","Q3","Q4"], series: [{ name: "$M", values: [8.2,9.6,11.3,13.4] }] }, format: { y: "decimal" } },
+      },
+      bl:  { kind: "kpi",  value: "+85%", label: "YoY growth", delta: "Best ever", trend: "up" },
+      br:  { kind: "text", title: "Takeaway", body: "Compounding growth — Q4 added 19% over Q3." },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------

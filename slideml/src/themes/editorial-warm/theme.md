@@ -67,6 +67,31 @@ Mirror of `cover` — full-bleed deep panel. Use as the final "thank you" slide.
 
 ![closing](thumbnails/closing.png)
 
+### split-2
+Title (optional) over two side-by-side cells; each cell is a polymorphic `region` (one of 8 kinds: kpi/chart/table/text/bullets/image/code/quote). Use for heterogeneous side-by-side content (bullets vs. chart, image vs. quote, code vs. explanation).
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `left`, `right` — `region` cells (required).
+
+![split-2](thumbnails/split-2.png)
+
+### split-3-horizontal
+Title (optional) over three equal-width regions. Use for parallel comparison.
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `left`, `center`, `right` — `region` cells (required).
+
+![split-3-horizontal](thumbnails/split-3-horizontal.png)
+
+### split-3-vertical
+Title (optional); full-width top region over a 50/50 bottom row. Use for "headline + supporting evidence".
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `top` — `region` (required, full width).
+- `bl`, `br` — `region` cells (optional, bottom 50/50).
+
+![split-3-vertical](thumbnails/split-3-vertical.png)
+
 ## Tokens
 
 | Token | Value | Use |

@@ -78,15 +78,24 @@ export function exampleForSlot(
       return { name: "<component-name>", slots: {} };
 
     case "region":
+      // Region cells are polymorphic — 8 kinds. The example shows the
+      // simplest (kpi); the inline comment enumerates the rest so the
+      // agent knows the full vocabulary.
       return {
         kind: "kpi",
         value: "$42.5M",
         label: "ARR",
         delta: "+85% YoY",
         trend: "up",
-        // alternatively: { kind: "chart", chart: { type, data, format? }, title? }
-        //                 { kind: "table", table: { header, rows, colWidths? }, title? }
-        //                 { kind: "text", body, title? }
+        // 8 kinds total (use whichever fits the cell):
+        //   { kind: "kpi",     value, label, delta?, trend? }
+        //   { kind: "chart",   chart: { type, data, format? }, title? }
+        //   { kind: "table",   table: { header, rows, colWidths? }, title? }
+        //   { kind: "text",    body, title? }
+        //   { kind: "bullets", items: ["..."], title? }
+        //   { kind: "image",   image: "/abs/path.png" | { src, alt?, ... }, caption? }
+        //   { kind: "code",    code: "...", language?, title? }
+        //   { kind: "quote",   text: "...", attribution? }
       };
 
     case "markdown-inline":

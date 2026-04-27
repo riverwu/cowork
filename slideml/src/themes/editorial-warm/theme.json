@@ -148,6 +148,21 @@
       "name": "closing",
       "module": "layouts/closing.js",
       "thumbnail": "thumbnails/closing.png"
+    },
+    {
+      "name": "split-2",
+      "module": "layouts/split-2.js",
+      "thumbnail": "thumbnails/split-2.png"
+    },
+    {
+      "name": "split-3-horizontal",
+      "module": "layouts/split-3-horizontal.js",
+      "thumbnail": "thumbnails/split-3-horizontal.png"
+    },
+    {
+      "name": "split-3-vertical",
+      "module": "layouts/split-3-vertical.js",
+      "thumbnail": "thumbnails/split-3-vertical.png"
     }
   ],
   "chrome": [

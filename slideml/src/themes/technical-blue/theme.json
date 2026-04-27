@@ -75,6 +75,9 @@
     { "name": "quote",                "module": "layouts/quote.js",                "thumbnail": "thumbnails/quote.png" },
     { "name": "chart-with-takeaway",  "module": "layouts/chart-with-takeaway.js",  "thumbnail": "thumbnails/chart-with-takeaway.png" },
     { "name": "dashboard",            "module": "layouts/dashboard.js",            "thumbnail": "thumbnails/dashboard.png" },
+    { "name": "split-2",              "module": "layouts/split-2.js",              "thumbnail": "thumbnails/split-2.png" },
+    { "name": "split-3-horizontal",   "module": "layouts/split-3-horizontal.js",   "thumbnail": "thumbnails/split-3-horizontal.png" },
+    { "name": "split-3-vertical",     "module": "layouts/split-3-vertical.js",     "thumbnail": "thumbnails/split-3-vertical.png" },
     { "name": "closing",              "module": "layouts/closing.js",              "thumbnail": "thumbnails/closing.png" }
   ],
   "components": [
