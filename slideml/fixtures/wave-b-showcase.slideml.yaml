@@ -1,0 +1,87 @@
+slideml: 1
+deck:
+  size: 16x9
+  language: en-US
+  theme: technical-blue
+
+slides:
+  - layout: cover
+    chrome: none
+    slots:
+      eyebrow: "Wave B Demo"
+      title: "Hyperlinks · New Charts · Code Block"
+      subtitle: "Interactivity and chart-type expansion"
+
+  - layout: chart-with-takeaway
+    slots:
+      title: "Stacked revenue (multi-product)"
+      chart:
+        type: stacked-bar
+        data:
+          labels: ["Q1", "Q2", "Q3", "Q4"]
+          series:
+            - { name: "AI",       values: [3200, 4100, 5400, 6700] }
+            - { name: "Manual",   values: [1800, 1700, 1600, 1500] }
+            - { name: "Adjacent", values: [ 920, 1050, 1180, 1320] }
+        format: { y: int }
+      takeaway: "**AI** continues to outpace adjacent lines."
+
+  - layout: chart-with-takeaway
+    slots:
+      title: "Market share"
+      chart:
+        type: doughnut
+        data:
+          labels: ["Vendor A", "Vendor B", "Vendor C", "Other"]
+          series:
+            - { name: "Share %", values: [42, 28, 18, 12] }
+      takeaway: "Top three vendors hold ~88% of the market."
+
+  - layout: chart-with-takeaway
+    slots:
+      title: "Engagement trend"
+      chart:
+        type: area
+        data:
+          labels: ["Wk1", "Wk2", "Wk3", "Wk4", "Wk5"]
+          series:
+            - { name: "DAU", values: [1200, 1480, 1720, 2010, 2340] }
+        format: { y: int }
+      takeaway: "Steady week-over-week growth."
+
+  - layout: code-block
+    slots:
+      title: "Compile a deck"
+      language: "bash"
+      code: |
+        # 1. Install slideml
+        pnpm add slideml
+
+        # 2. Compile a deck
+        slideml compile deck.yaml \
+          --theme technical-blue \
+          -o build/deck.pptx
+
+        # 3. Validate without rendering
+        slideml validate deck.yaml --theme technical-blue
+      caption: "*See `slideml --help` for the full CLI surface.*"
+
+  - layout: code-block
+    slots:
+      title: "Programmatic API"
+      language: "typescript"
+      code: |
+        import { compile } from "slideml";
+
+        const result = await compile(yaml, {
+          themeDir: "/path/to/themes/technical-blue",
+          output: "/tmp/out.pptx",
+        });
+
+        console.log(`wrote ${result.buffer.length} bytes`);
+
+  - layout: closing
+    chrome: none
+    slots:
+      title: "Thanks"
+      subtitle: "Open the docs at example.com/slideml"

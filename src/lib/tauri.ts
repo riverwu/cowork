@@ -381,6 +381,68 @@ export async function runNodeScript(script: string, cwd?: string, timeoutSecs?: 
   return invokeDesktop<PythonResult>("run_node_script", { script, cwd, timeoutSecs });
 }
 
+// ---- SlideML ----
+
+/** Compact summary returned by `slideml_list_layouts`. */
+export interface SlidemlLayoutSummary {
+  name: string;
+  purpose: string;
+  requiredSlots: string[];
+  optionalSlots: string[];
+}
+
+/** Full schema (with per-slot examples) returned by `slideml_describe_layout`. */
+export interface SlidemlLayoutDetail {
+  name: string;
+  description: string;
+  slotSchema: Record<string, unknown>;
+  thumbnailPath: string;
+}
+
+export type SlidemlValidateResult =
+  | { ok: true }
+  | { ok: false; errors: string };
+
+/** Compile a SlideML YAML body to a .pptx file at `outputPath`. */
+export async function slidemlCompile(
+  slidemlYaml: string,
+  theme: string | undefined,
+  outputPath: string,
+): Promise<{ outputPath?: string } | string> {
+  return invokeDesktop("slideml_compile", {
+    slideml: slidemlYaml,
+    theme,
+    outputPath,
+  });
+}
+
+/** List layout summaries (compact: name + purpose + slot names). */
+export async function slidemlListLayouts(theme?: string): Promise<SlidemlLayoutSummary[]> {
+  return invokeDesktop<SlidemlLayoutSummary[]>("slideml_list_layouts", { theme });
+}
+
+/** Fetch full schema + per-slot examples for a single layout. */
+export async function slidemlDescribeLayout(
+  layoutName: string,
+  theme?: string,
+): Promise<SlidemlLayoutDetail> {
+  return invokeDesktop<SlidemlLayoutDetail>("slideml_describe_layout", {
+    layoutName,
+    theme,
+  });
+}
+
+/** Dry-run validate a SlideML YAML body without compiling/writing. */
+export async function slidemlValidate(
+  slidemlYaml: string,
+  theme?: string,
+): Promise<SlidemlValidateResult> {
+  return invokeDesktop<SlidemlValidateResult>("slideml_validate", {
+    slideml: slidemlYaml,
+    theme,
+  });
+}
+
 // ---- Web ----
 
 export interface WebFetchResult {

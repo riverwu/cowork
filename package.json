@@ -33,6 +33,7 @@
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
+    "slideml": "workspace:*",
     "zustand": "^5.0.0"
   },
   "devDependencies": {

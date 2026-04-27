@@ -1,0 +1,38 @@
+Third-party code carve-outs
+===========================
+
+slideml vendors selected portions of OOXML serialization logic from PptxGenJS.
+That upstream is licensed under Apache-2.0 and re-distributed here under the
+same terms. The vendored regions are marked in the relevant source files
+with a header block citing the original file.
+
+Vendored regions (planned, by stage):
+
+  Stage 2:
+    - EMU constants and unit conversions (PptxGenJS gen-utils).
+    - Shape XML emitter scaffolding (PptxGenJS gen-xml).
+    - Text run / paragraph property serialization.
+    - Color hex validation / pitfalls (no `#` prefix, no 8-char hex).
+    - Image embedding rules (Content_Types, rel binding).
+
+  Stage 4:
+    - Chart XML emitter for BAR / LINE / PIE (PptxGenJS gen-charts).
+    - Stripped to the chart shapes used by SlideML's `chart-spec` slot;
+      adds a `wanyuan` / `yi` Y-axis number-format extension not in upstream.
+
+==============================================================================
+PptxGenJS — Apache License 2.0
+==============================================================================
+Copyright Brent Ely (https://github.com/gitbrent)
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.

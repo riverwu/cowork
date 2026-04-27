@@ -1299,3 +1299,242 @@ pub async fn run_node_script(
 
     result
 }
+
+// ===========================================================================
+// SlideML — compile / list_layouts via subprocess to the bundled CLI.
+// ===========================================================================
+
+fn slideml_cli_path() -> Result<String, String> {
+    use std::env::current_dir;
+    let cwd = current_dir().map_err(|e| format!("cwd: {}", e))?;
+    let mut dir: Option<&Path> = Some(cwd.as_path());
+    while let Some(d) = dir {
+        let candidate = d.join("node_modules").join("slideml").join("dist").join("bin").join("slideml.js");
+        if candidate.exists() {
+            return Ok(candidate.to_string_lossy().to_string());
+        }
+        dir = d.parent();
+    }
+    Err("slideml CLI not found under any ancestor's node_modules. Run `pnpm install` at the workspace root.".into())
+}
+
+fn slideml_theme_path(theme: &str) -> Result<String, String> {
+    let theme = if theme.is_empty() { "technical-blue" } else { theme };
+    if theme.starts_with('/') || theme.starts_with('~') {
+        let expanded = if let Some(stripped) = theme.strip_prefix("~/") {
+            dirs_next::home_dir()
+                .map(|h| h.join(stripped).to_string_lossy().to_string())
+                .ok_or_else(|| "no HOME".to_string())?
+        } else {
+            theme.to_string()
+        };
+        return Ok(expanded);
+    }
+    let cli = slideml_cli_path()?;
+    let cli_path = Path::new(&cli);
+    let themes_dir = cli_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|p| p.join("themes"))
+        .ok_or_else(|| "could not derive themes dir from CLI path".to_string())?;
+    let builtin = themes_dir.join(theme);
+    if builtin.exists() {
+        return Ok(builtin.to_string_lossy().to_string());
+    }
+    let user = dirs_next::home_dir()
+        .map(|h| h.join(".cowork").join("themes").join(theme))
+        .ok_or_else(|| "no HOME".to_string())?;
+    if user.exists() {
+        return Ok(user.to_string_lossy().to_string());
+    }
+    Err(format!("Theme \"{}\" not found in built-ins or ~/.cowork/themes/", theme))
+}
+
+#[tauri::command]
+pub async fn slideml_compile(
+    slideml: String,
+    theme: Option<String>,
+    output_path: String,
+) -> Result<String, String> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::time::{timeout, Duration};
+
+    if slideml.is_empty() {
+        return Err("slideml_compile: slideml YAML body is required".into());
+    }
+    if output_path.is_empty() {
+        return Err("slideml_compile: output_path is required".into());
+    }
+    let cli = slideml_cli_path()?;
+    let theme_dir = slideml_theme_path(theme.as_deref().unwrap_or(""))?;
+
+    let tmp = std::env::temp_dir().join(format!("slideml-{}.yaml", uuid::Uuid::new_v4()));
+    fs::write(&tmp, slideml.as_bytes()).map_err(|e| format!("write tmp yaml: {}", e))?;
+    if let Some(parent) = Path::new(&output_path).parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create output dir: {}", e))?;
+    }
+    let expanded_path = super::mcp::expanded_path_str();
+
+    let result = timeout(Duration::from_secs(120), async {
+        let output = Command::new("node")
+            .arg(&cli)
+            .arg("compile")
+            .arg(tmp.to_str().unwrap())
+            .arg("--theme")
+            .arg(&theme_dir)
+            .arg("-o")
+            .arg(&output_path)
+            .env("PATH", &expanded_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("spawn node: {}", e))?;
+        if !output.status.success() {
+            let msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if msg.is_empty() {
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            } else {
+                msg
+            });
+        }
+        Ok::<String, String>(output_path.clone())
+    })
+    .await
+    .map_err(|_| "slideml_compile timed out after 120s".to_string())?;
+
+    let _ = fs::remove_file(&tmp);
+    result
+}
+
+#[tauri::command]
+pub async fn slideml_list_layouts(theme: Option<String>) -> Result<serde_json::Value, String> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::time::{timeout, Duration};
+
+    let cli = slideml_cli_path()?;
+    let theme_dir = slideml_theme_path(theme.as_deref().unwrap_or(""))?;
+    let expanded_path = super::mcp::expanded_path_str();
+
+    let output = timeout(Duration::from_secs(30), async {
+        Command::new("node")
+            .arg(&cli)
+            .arg("layouts")
+            .arg("--theme")
+            .arg(&theme_dir)
+            .arg("--json")
+            .env("PATH", &expanded_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("spawn node: {}", e))
+    })
+    .await
+    .map_err(|_| "slideml_list_layouts timed out after 30s".to_string())??;
+
+    if !output.status.success() {
+        let msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(msg);
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(&stdout).map_err(|e| format!("parse layouts JSON: {}", e))
+}
+
+#[tauri::command]
+pub async fn slideml_describe_layout(
+    theme: Option<String>,
+    layout_name: String,
+) -> Result<serde_json::Value, String> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::time::{timeout, Duration};
+
+    if layout_name.is_empty() {
+        return Err("slideml_describe_layout: layoutName is required".into());
+    }
+    let cli = slideml_cli_path()?;
+    let theme_dir = slideml_theme_path(theme.as_deref().unwrap_or(""))?;
+    let expanded_path = super::mcp::expanded_path_str();
+
+    let output = timeout(Duration::from_secs(30), async {
+        Command::new("node")
+            .arg(&cli)
+            .arg("describe")
+            .arg(&layout_name)
+            .arg("--theme")
+            .arg(&theme_dir)
+            .arg("--json")
+            .env("PATH", &expanded_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("spawn node: {}", e))
+    })
+    .await
+    .map_err(|_| "slideml_describe_layout timed out after 30s".to_string())??;
+
+    if !output.status.success() {
+        let msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(msg);
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(&stdout).map_err(|e| format!("parse describe JSON: {}", e))
+}
+
+#[tauri::command]
+pub async fn slideml_validate(
+    slideml: String,
+    theme: Option<String>,
+) -> Result<serde_json::Value, String> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::time::{timeout, Duration};
+
+    if slideml.is_empty() {
+        return Err("slideml_validate: slideml YAML body is required".into());
+    }
+    let cli = slideml_cli_path()?;
+    let theme_dir = slideml_theme_path(theme.as_deref().unwrap_or(""))?;
+    let tmp = std::env::temp_dir().join(format!("slideml-validate-{}.yaml", uuid::Uuid::new_v4()));
+    fs::write(&tmp, slideml.as_bytes()).map_err(|e| format!("write tmp yaml: {}", e))?;
+    let expanded_path = super::mcp::expanded_path_str();
+
+    let output = timeout(Duration::from_secs(30), async {
+        Command::new("node")
+            .arg(&cli)
+            .arg("validate")
+            .arg(tmp.to_str().unwrap())
+            .arg("--theme")
+            .arg(&theme_dir)
+            .env("PATH", &expanded_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("spawn node: {}", e))
+    })
+    .await
+    .map_err(|_| "slideml_validate timed out after 30s".to_string())?;
+
+    let _ = fs::remove_file(&tmp);
+    let output = output?;
+    if output.status.success() {
+        Ok(serde_json::json!({ "ok": true }))
+    } else {
+        let errors = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let errors = if errors.is_empty() {
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        } else {
+            errors
+        };
+        Ok(serde_json::json!({ "ok": false, "errors": errors }))
+    }
+}

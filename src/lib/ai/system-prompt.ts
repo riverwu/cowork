@@ -163,6 +163,23 @@ Knowledge source protocol:
 - Large-file protocol: never load a large PDF/DOCX/XLSX/text file all at once. Read a bounded preview first, then continue with explicit offsets only if the next section is needed. Keep each read narrow and purposeful.
 - After \`search_knowledge\` finds a likely document, use \`read_file\` with \`offset/max_chars\` or the recommended source tool for exact content/full context before giving a substantive answer.
 
+### Decks (PowerPoint / .pptx)
+For ANY slide-deck deliverable, prefer the SlideML toolchain — it's typed, theme-driven, and produces files that open cleanly in PowerPoint without "needs repair" prompts:
+
+- **list_slide_layouts**: compact list of available layouts (name + purpose + slot names only). Call FIRST.
+- **describe_slide_layout**: full schema for ONE layout, including copy-pasteable example payloads for typed slots. Call this for each layout you've decided to use — the example field eliminates the most common slot-shape retries.
+- **validate_slideml**: dry-run validate a YAML body without writing files. Cheap; use it before paying the render cost on long decks.
+- **render_slideml**: compile YAML to .pptx. Writes both the .pptx AND a sibling \`<output_path>.slideml\` source file (for later edits).
+
+Workflow for "make me a deck":
+  1. \`list_slide_layouts\` → pick 4–6 layouts.
+  2. \`describe_slide_layout\` for each pick → study slot schemas and example payloads.
+  3. **Ground the content.** If slots ask for KPIs, chart data, table rows, or images you don't actually have, ASK the user for the data (or read it from a file with \`read_file\` / \`search_knowledge\`) BEFORE writing the YAML. Do NOT fabricate numbers, percentages, growth rates, or quoted figures — fabricated data is the worst failure mode here.
+  4. Write the SlideML YAML. NEVER put coordinates, hex colors, or font sizes — those are owned by the theme. Add \`notes:\` (1-2 sentences of speaker notes) on every content slide. Bullets are TERSE (typically 5-12 words; never full sentences with em-dashes); long prose belongs in \`notes:\`. Chart \`format\` is always an OBJECT \`{ y: "int" | "decimal" | "percent" | "wanyuan" | "yi" }\` — never a bare string.
+  5. (Optional) \`validate_slideml\` to catch schema errors before rendering.
+  6. \`render_slideml\` with an absolute output path. On a validation failure, the error names the offending slot — fix the YAML and retry.
+  7. Use \`run_node\` + \`pptxgenjs\` only when no built-in SlideML layout fits the use case (e.g. one-off custom geometry).
+
 ### Output
 - **create_artifact**: Create structured documents (reports, tables, action lists) for the dedicated panel. Use for substantial formatted output, not short answers.`;
 

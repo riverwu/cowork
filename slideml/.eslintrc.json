@@ -1,0 +1,20 @@
+{
+  "root": true,
+  "rules": {
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["@/*"],
+            "message": "slideml is independent. No `@/` aliases — they belong to the parent project."
+          },
+          {
+            "group": ["**/../../*", "**/../../../*", "../../*", "../../../*"],
+            "message": "slideml is independent. No imports out of the slideml/src tree."
+          }
+        ]
+      }
+    ]
+  }
+}

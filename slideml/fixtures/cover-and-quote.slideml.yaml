@@ -1,0 +1,17 @@
+slideml: 1
+deck:
+  size: 16x9
+  language: zh-CN
+  theme: technical-blue
+
+slides:
+  - layout: cover
+    chrome: none
+    slots:
+      title: "极简两页演示"
+
+  - layout: quote
+    chrome: none
+    slots:
+      quote: "做对的事，把它做对。"
+      attribution: "团队信条"

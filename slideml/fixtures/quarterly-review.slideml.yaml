@@ -1,0 +1,51 @@
+slideml: 1
+deck:
+  size: 16x9
+  language: zh-CN
+  theme: technical-blue
+
+slides:
+  - layout: cover
+    chrome: none
+    slots:
+      eyebrow: "市场报告 · 2026 Q1"
+      title: "同传市场格局分析"
+      subtitle: "AI 与传统服务的拐点已到"
+
+  - layout: section-divider
+    chrome: none
+    slots:
+      eyebrow: "第一部分"
+      title: "市场规模与增长"
+
+  - layout: stat-grid-3
+    slots:
+      title: "市场规模"
+      items:
+        - { value: "82.3亿", label: "市场规模",  delta: "+12% YoY", trend: up }
+        - { value: "3,400万", label: "月活用户", delta: "+8%",      trend: up }
+        - { value: "1.4×",   label: "ARPU",    delta: "持平",     trend: flat }
+
+  - layout: chart-with-takeaway
+    slots:
+      title: "各赛道收入"
+      chart:
+        type: bar
+        data:
+          labels: ["AI 同传", "人工同传", "字幕生成", "翻译记忆"]
+          series:
+            - { name: "Q1 收入", values: [3200, 1800, 920, 650] }
+        format: { y: wanyuan }
+      takeaway: "AI 同传超过传统人工同传 1.7×。"
+
+  - layout: bullet-with-image
+    slots:
+      title: "头部玩家定位"
+      bullets:
+        - "三家头部厂商占据 62% 份额"
+        - "字节跳动以技术领先优势加速渗透"
+        - "传统会议同传向 AI 辅助稳步过渡"
+        - "中长尾市场仍存在大量机会"
+      image:
+        src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII="
+        alt: "竞争格局图"

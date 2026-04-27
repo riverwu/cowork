@@ -101,6 +101,10 @@ async function dispatch(command, args, sender) {
     case "install_node_package": return installNodePackage(args.package);
     case "get_node_path": return getNodePath();
     case "run_node_script": return runNodeScript(args.script, args.cwd, args.timeoutSecs);
+    case "slideml_compile": return slidemlCompile(args.slideml, args.theme, args.outputPath);
+    case "slideml_list_layouts": return slidemlListLayouts(args.theme);
+    case "slideml_describe_layout": return slidemlDescribeLayout(args.theme, args.layoutName);
+    case "slideml_validate": return slidemlValidate(args.slideml, args.theme);
     case "get_env": return process.env[args.key] || null;
     case "http_post": return httpPost(args.request);
     case "http_stream_post": return httpStreamPost(sender, args.request);
@@ -413,6 +417,113 @@ async function getNodePath() {
 
 async function runNodeScript(script, cwd, timeoutSecs = 30) {
   return runScript("node", ["-e", script], cwd || process.cwd(), timeoutSecs, { NODE_PATH: await getNodePath() });
+}
+
+// Path to slideml's compiled CLI (workspace-linked into cowork's node_modules).
+function slidemlCliPath() {
+  return path.resolve(__dirname, "..", "node_modules", "slideml", "dist", "bin", "slideml.js");
+}
+
+// Resolve a theme name to its directory. Built-in themes ship in
+// node_modules/slideml/dist/themes/<name>; user-installed themes live in
+// ~/.cowork/themes/<name>.
+function slidemlThemePath(theme) {
+  if (!theme) theme = "technical-blue";
+  if (theme.startsWith("/") || theme.startsWith("~")) {
+    return theme.replace(/^~/, os.homedir());
+  }
+  const builtin = path.resolve(__dirname, "..", "node_modules", "slideml", "dist", "themes", theme);
+  if (fs.existsSync(builtin)) return builtin;
+  const user = path.join(os.homedir(), ".cowork", "themes", theme);
+  if (fs.existsSync(user)) return user;
+  throw new Error(`Theme "${theme}" not found in built-ins or ~/.cowork/themes/`);
+}
+
+async function slidemlCompile(slidemlYaml, theme, outputPath) {
+  if (!slidemlYaml) throw new Error("slideml_compile: slideml YAML body is required");
+  if (!outputPath) throw new Error("slideml_compile: outputPath is required");
+
+  const cli = slidemlCliPath();
+  if (!fs.existsSync(cli)) {
+    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+  }
+  const themeDir = slidemlThemePath(theme);
+  const tmpYaml = path.join(os.tmpdir(), `slideml-${crypto.randomUUID()}.yaml`);
+  await fsp.writeFile(tmpYaml, slidemlYaml, "utf8");
+  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+
+  try {
+    const result = await runScript(
+      "node",
+      [cli, "compile", tmpYaml, "--theme", themeDir, "-o", outputPath],
+      undefined,
+      120,
+    );
+    if (result.exit_code !== 0) {
+      const msg = (result.stderr || result.stdout || "").trim() || `slideml compile exited ${result.exit_code}`;
+      throw new Error(msg);
+    }
+    return { outputPath, stdout: result.stdout.trim() };
+  } finally {
+    fsp.rm(tmpYaml, { force: true }).catch(() => {});
+  }
+}
+
+async function slidemlListLayouts(theme) {
+  // Returns compact summaries (`slideml layouts` default mode). Use
+  // slideml_describe_layout to fetch the full schema for a chosen layout.
+  const cli = slidemlCliPath();
+  if (!fs.existsSync(cli)) {
+    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+  }
+  const themeDir = slidemlThemePath(theme);
+  const result = await runScript("node", [cli, "layouts", "--theme", themeDir, "--json"], undefined, 30);
+  if (result.exit_code !== 0) {
+    throw new Error((result.stderr || result.stdout || "").trim() || `slideml layouts exited ${result.exit_code}`);
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch (err) {
+    throw new Error(`slideml_list_layouts: failed to parse JSON output: ${err}`);
+  }
+}
+
+async function slidemlDescribeLayout(theme, layoutName) {
+  if (!layoutName) throw new Error("slideml_describe_layout: layoutName is required");
+  const cli = slidemlCliPath();
+  if (!fs.existsSync(cli)) {
+    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+  }
+  const themeDir = slidemlThemePath(theme);
+  const result = await runScript("node", [cli, "describe", layoutName, "--theme", themeDir, "--json"], undefined, 30);
+  if (result.exit_code !== 0) {
+    throw new Error((result.stderr || result.stdout || "").trim() || `slideml describe exited ${result.exit_code}`);
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch (err) {
+    throw new Error(`slideml_describe_layout: failed to parse JSON output: ${err}`);
+  }
+}
+
+async function slidemlValidate(slidemlYaml, theme) {
+  if (!slidemlYaml) throw new Error("slideml_validate: slideml YAML body is required");
+  const cli = slidemlCliPath();
+  if (!fs.existsSync(cli)) {
+    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+  }
+  const themeDir = slidemlThemePath(theme);
+  const tmpYaml = path.join(os.tmpdir(), `slideml-validate-${crypto.randomUUID()}.yaml`);
+  await fsp.writeFile(tmpYaml, slidemlYaml, "utf8");
+  try {
+    const result = await runScript("node", [cli, "validate", tmpYaml, "--theme", themeDir], undefined, 30);
+    if (result.exit_code === 0) {
+      return { ok: true };
+    }
+    return { ok: false, errors: (result.stderr || result.stdout || "").trim() };
+  } finally {
+    fsp.rm(tmpYaml, { force: true }).catch(() => {});
+  }
 }
 
 async function shellExec(params) {

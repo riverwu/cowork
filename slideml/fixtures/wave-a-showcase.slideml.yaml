@@ -1,0 +1,95 @@
+slideml: 1
+deck:
+  size: 16x9
+  language: zh-CN
+  theme: technical-blue
+
+slides:
+  - layout: cover
+    chrome: none
+    slots:
+      eyebrow: "Wave A 演示"
+      title: "SlideML 表现力扩展"
+      subtitle: "新增 8 个布局 + 表格 + 注释"
+    notes: "演示者：开场介绍 Wave A 的目标。"
+
+  - layout: agenda
+    slots:
+      title: "目录"
+      items:
+        - "市场背景"
+        - "产品对比"
+        - "实施流程"
+        - "数据汇总"
+        - "总结展望"
+
+  - layout: title-only
+    chrome: none
+    slots:
+      title: "01  市场背景"
+
+  - layout: hero-image-overlay
+    slots:
+      image:
+        src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII="
+        alt: "市场环境"
+      title: "AI 同传市场进入加速期"
+      subtitle: "2026 Q1 同比增长 43%"
+      align: "bottom-left"
+
+  - layout: compare-two-columns
+    slots:
+      title: "AI 同传 vs 人工同传"
+      leftTitle: "AI 同传"
+      leftBody: "延迟低至 120ms。\n\n按使用计费，按需扩容。\n\n语种覆盖广，可同时输出字幕。"
+      rightTitle: "人工同传"
+      rightBody: "高难度场景表达更自然。\n\n需提前预约，单价高。\n\n受译员体力与精度限制。"
+
+  - layout: process-timeline
+    slots:
+      title: "实施流程"
+      steps:
+        - { title: "需求确认", description: "采集业务场景与术语库" }
+        - { title: "试运行",   description: "小范围验证质量与体验" }
+        - { title: "推广",     description: "扩展语种与组织覆盖" }
+        - { title: "回顾迭代", description: "复盘指标，迭代模型" }
+
+  - layout: data-table
+    slots:
+      title: "各产品线 Q1 数据"
+      table:
+        header: ["产品线", "收入(万元)", "同比", "毛利率"]
+        rows:
+          - ["AI 同传",   "3200",  "+62%", "44%"]
+          - ["人工同传", "1800",  "-12%", "31%"]
+          - ["字幕生成",  "920",   "+18%", "52%"]
+          - ["翻译记忆",  "650",   "+5%",  "48%"]
+        colWidths: [3, 2, 2, 2]
+    notes: "Q1 表现：AI 同传是增长引擎；人工同传同比下滑。"
+
+  - layout: chart-with-takeaway
+    slots:
+      title: "各赛道收入"
+      chart:
+        type: bar
+        data:
+          labels: ["AI 同传", "人工同传", "字幕生成", "翻译记忆"]
+          series:
+            - { name: "Q1 收入", values: [3200, 1800, 920, 650] }
+        format: { y: wanyuan }
+      takeaway: "**AI 同传**超过传统人工同传 *1.7×*。"
+
+  - layout: image-grid-2x2
+    slots:
+      title: "客户案例"
+      images:
+        - { src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=", caption: "国际峰会" }
+        - { src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=", caption: "教育直播" }
+        - { src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=", caption: "企业培训" }
+        - { src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=", caption: "跨国会议" }
+
+  - layout: closing
+    chrome: none
+    slots:
+      title: "Q&A"
+      subtitle: "感谢聆听"

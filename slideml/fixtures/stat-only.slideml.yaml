@@ -1,0 +1,26 @@
+slideml: 1
+deck:
+  size: 16x9
+  language: en-US
+  theme: technical-blue
+
+slides:
+  - layout: cover
+    chrome: none
+    slots:
+      title: "Engineering Review"
+      subtitle: "2026 Q1"
+
+  - layout: stat-grid-3
+    slots:
+      title: "Reliability KPIs"
+      items:
+        - { value: "99.95%", label: "Availability", delta: "+0.04%", trend: up }
+        - { value: "120ms",  label: "P99 latency",  delta: "-32%",   trend: up }
+        - { value: "0",      label: "SEV-1 outages", delta: "—",     trend: flat }
+
+  - layout: quote
+    chrome: none
+    slots:
+      quote: "Reliability is shipped, not declared."
+      attribution: "Engineering team"

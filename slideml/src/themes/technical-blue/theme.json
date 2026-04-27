@@ -1,0 +1,46 @@
+{
+  "name": "technical-blue",
+  "version": "1.0.0",
+  "slidemlVersion": "1",
+  "displayName": "Technical Blue",
+  "description": "Engineering / data deck — deep navy canvas with cyan accents and high information density.",
+  "author": "SlideML",
+  "tokens": {
+    "bg-canvas": "0B1B2A",
+    "bg-card": "11293E",
+    "brand-primary": "3CC2FF",
+    "brand-deep": "1078B5",
+    "text-strong": "F5F9FC",
+    "text-muted": "8DA8C2",
+    "accent": "FF9F45",
+    "divider": "1F3F5C",
+    "font-latin": ["Inter", "Helvetica Neue", "Helvetica", "Arial", "sans-serif"],
+    "font-cjk": ["PingFang SC", "Microsoft YaHei", "Source Han Sans CN", "Noto Sans SC", "sans-serif"],
+    "font-mono": ["JetBrains Mono", "Menlo", "Consolas", "monospace"]
+  },
+  "layouts": [
+    { "name": "cover",                "module": "layouts/cover.js",                "thumbnail": "thumbnails/cover.png" },
+    { "name": "title-only",           "module": "layouts/title-only.js",           "thumbnail": "thumbnails/title-only.png" },
+    { "name": "agenda",               "module": "layouts/agenda.js",               "thumbnail": "thumbnails/agenda.png" },
+    { "name": "section-divider",      "module": "layouts/section-divider.js",      "thumbnail": "thumbnails/section-divider.png" },
+    { "name": "stat-grid-3",          "module": "layouts/stat-grid-3.js",          "thumbnail": "thumbnails/stat-grid-3.png" },
+    { "name": "bullet-with-image",    "module": "layouts/bullet-with-image.js",    "thumbnail": "thumbnails/bullet-with-image.png" },
+    { "name": "two-col-text-image",   "module": "layouts/two-col-text-image.js",   "thumbnail": "thumbnails/two-col-text-image.png" },
+    { "name": "compare-two-columns",  "module": "layouts/compare-two-columns.js",  "thumbnail": "thumbnails/compare-two-columns.png" },
+    { "name": "process-timeline",     "module": "layouts/process-timeline.js",     "thumbnail": "thumbnails/process-timeline.png" },
+    { "name": "image-grid-2x2",       "module": "layouts/image-grid-2x2.js",       "thumbnail": "thumbnails/image-grid-2x2.png" },
+    { "name": "hero-image-overlay",   "module": "layouts/hero-image-overlay.js",   "thumbnail": "thumbnails/hero-image-overlay.png" },
+    { "name": "data-table",           "module": "layouts/data-table.js",           "thumbnail": "thumbnails/data-table.png" },
+    { "name": "code-block",           "module": "layouts/code-block.js",           "thumbnail": "thumbnails/code-block.png" },
+    { "name": "quote",                "module": "layouts/quote.js",                "thumbnail": "thumbnails/quote.png" },
+    { "name": "chart-with-takeaway",  "module": "layouts/chart-with-takeaway.js",  "thumbnail": "thumbnails/chart-with-takeaway.png" },
+    { "name": "closing",              "module": "layouts/closing.js",              "thumbnail": "thumbnails/closing.png" }
+  ],
+  "components": [
+    { "name": "header",            "module": "components/header.js" },
+    { "name": "footer",            "module": "components/footer.js" },
+    { "name": "kpi-tile",          "module": "components/kpi-tile.js" },
+    { "name": "takeaway-callout",  "module": "components/takeaway-callout.js" }
+  ],
+  "chrome": ["page-number", "brand-bar"]
+}
