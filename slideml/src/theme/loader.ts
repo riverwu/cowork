@@ -10,18 +10,19 @@
  * the file and section that's wrong.
  */
 
-import { readFile, access } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { resolve, isAbsolute, dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
 import { validateThemeStructure, parseThemeMd, extractGuidance, type ThemeMdSections } from "./validator.js";
 import { auditThemeContrast } from "./contrast.js";
 import { assertHex } from "../emitter/xml.js";
+import { LAYOUT_REGISTRY } from "../layouts/_registry.js";
+import { COMPONENT_REGISTRY } from "../components/_registry.js";
+import { CHROME_REGISTRY } from "../chrome/_registry.js";
 import type {
   LoadedComponent,
   LoadedLayout,
   LoadedTheme,
   RequiredTokens,
-  SlotSchema,
   ThemeManifest,
 } from "./types.js";
 
@@ -77,34 +78,26 @@ export async function loadTheme(themeDir: string): Promise<LoadedTheme> {
     throw structured("THEME_INVALID", err instanceof Error ? err.message : String(err));
   }
 
-  // 5. Dynamic-import layout/component/chrome modules.
+  // 5. Resolve layout/component/chrome from the global registries (Phase A).
+  // Themes no longer ship code; the manifest's layouts[]/components[]/chrome[]
+  // arrays are now selection lists referencing names in the core registries.
+  // The `module:` field on layout/component entries is tolerated but ignored.
   const layouts = new Map<string, LoadedLayout>();
   for (const entry of manifest.layouts) {
-    const modulePath = resolveModulePath(rootDir, entry.module);
-    await assertExists(modulePath, `Layout "${entry.name}" module ${modulePath}`);
-
-    const mod = await dynamicImport(modulePath);
-    const slots = mod.slots as Record<string, SlotSchema> | undefined;
-    const render = mod.default as ((...args: unknown[]) => unknown) | undefined;
-    if (!slots || typeof slots !== "object") {
+    const reg = LAYOUT_REGISTRY.get(entry.name);
+    if (!reg) {
       throw structured(
         "THEME_INVALID",
-        `Layout "${entry.name}" (${modulePath}) must export a \`slots\` object.`,
+        `Theme "${manifest.name}" references layout "${entry.name}" which is not in the SlideML core registry. ` +
+          `Available: ${[...LAYOUT_REGISTRY.keys()].join(", ")}.`,
       );
     }
-    if (typeof render !== "function") {
-      throw structured(
-        "THEME_INVALID",
-        `Layout "${entry.name}" (${modulePath}) must default-export a render function.`,
-      );
-    }
-
     const thumbAbs = resolve(rootDir, entry.thumbnail);
     const layoutSubsection = docSections.layoutSubsections[entry.name] ?? "";
     layouts.set(entry.name, {
       entry,
-      slots,
-      render,
+      slots: reg.slots,
+      render: reg.render as unknown as LoadedLayout["render"],
       description: docSections.layoutDescriptions[entry.name] ?? "",
       thumbnailAbsPath: thumbAbs,
       guidance: extractGuidance(layoutSubsection),
@@ -113,38 +106,32 @@ export async function loadTheme(themeDir: string): Promise<LoadedTheme> {
 
   const components = new Map<string, LoadedComponent>();
   for (const entry of manifest.components ?? []) {
-    const modulePath = resolveModulePath(rootDir, entry.module);
-    await assertExists(modulePath, `Component "${entry.name}" module ${modulePath}`);
-    const mod = await dynamicImport(modulePath);
-    const slots = (mod.slots as Record<string, SlotSchema>) ?? {};
-    const render = mod.default as ((...args: unknown[]) => unknown) | undefined;
-    if (typeof render !== "function") {
+    const reg = COMPONENT_REGISTRY.get(entry.name);
+    if (!reg) {
       throw structured(
         "THEME_INVALID",
-        `Component "${entry.name}" (${modulePath}) must default-export a render function.`,
+        `Theme "${manifest.name}" references component "${entry.name}" which is not in the SlideML core registry. ` +
+          `Available: ${[...COMPONENT_REGISTRY.keys()].join(", ")}.`,
       );
     }
-    components.set(entry.name, { entry, slots, render });
+    components.set(entry.name, {
+      entry,
+      slots: reg.slots,
+      render: reg.render as unknown as LoadedComponent["render"],
+    });
   }
 
   const chrome = new Map<string, (...args: unknown[]) => unknown>();
   for (const name of manifest.chrome ?? []) {
-    // Convention: chrome modules live at chrome/<name>.{ts|js}
-    const modulePath = resolveModulePath(rootDir, `chrome/${name}.js`);
-    try {
-      await access(modulePath);
-    } catch {
-      throw structured("THEME_INVALID", `Chrome decoration "${name}" missing at ${modulePath}`);
-    }
-    const mod = await dynamicImport(modulePath);
-    const fn = mod.default as ((...args: unknown[]) => unknown) | undefined;
-    if (typeof fn !== "function") {
+    const fn = CHROME_REGISTRY.get(name);
+    if (!fn) {
       throw structured(
         "THEME_INVALID",
-        `Chrome "${name}" (${modulePath}) must default-export a function.`,
+        `Theme "${manifest.name}" references chrome "${name}" which is not in the SlideML core registry. ` +
+          `Available: ${[...CHROME_REGISTRY.keys()].join(", ")}.`,
       );
     }
-    chrome.set(name, fn);
+    chrome.set(name, fn as unknown as (...args: unknown[]) => unknown);
   }
 
   // WCAG contrast audit. We warn (stderr) by default and only throw when
@@ -172,28 +159,6 @@ export async function loadTheme(themeDir: string): Promise<LoadedTheme> {
     chrome,
     docSections: docSections.byHeading,
   };
-}
-
-/** Resolve a module path declared in theme.json, allowing `.ts`/`.js` swap. */
-function resolveModulePath(rootDir: string, declared: string): string {
-  let resolved = isAbsolute(declared) ? declared : resolve(rootDir, declared);
-  // Theme manifests typically declare `.ts` paths for source readability; at
-  // runtime we load the compiled `.js`.
-  if (resolved.endsWith(".ts")) resolved = `${resolved.slice(0, -3)}.js`;
-  return resolved;
-}
-
-async function assertExists(path: string, label: string): Promise<void> {
-  try {
-    await access(path);
-  } catch {
-    throw structured("THEME_INVALID", `${label} not found.`);
-  }
-}
-
-async function dynamicImport(absPath: string): Promise<Record<string, unknown>> {
-  const url = pathToFileURL(absPath).href;
-  return (await import(url)) as Record<string, unknown>;
 }
 
 function validateRequiredTokens(manifest: ThemeManifest): void {
