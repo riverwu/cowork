@@ -1,6 +1,7 @@
 import type { LayoutContext, LayoutFn } from "../../../render/layout-context.js";
 import type { ShapeList } from "../../../emitter/types.js";
 import type { SlotSchema } from "../../../theme/types.js";
+import { card, slideTitle } from "../../../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
   title:  { type: "text",    maxChars: 50, optional: true },
@@ -17,23 +18,7 @@ const imageGrid2x2: LayoutFn = (ctx: LayoutContext): ShapeList => {
 
   let bodyTop = ctx.cm(2);
   if (title) {
-    out.push({
-      type: "text",
-      id: ctx.id(),
-      xfrm: { x: ctx.cm(2), y: ctx.cm(1.4), cx: ctx.deck.width - ctx.cm(4), cy: ctx.cm(1.6) },
-      valign: "middle",
-      paragraphs: [{
-        align: "left",
-        runs: [{
-          text: title,
-          sizeHalfPt: 44,
-          color: ctx.color("text-strong"),
-          bold: true,
-          cjk: ctx.cjk,
-          fontFace,
-        }],
-      }],
-    });
+    out.push(...slideTitle(ctx, title));
     bodyTop = ctx.cm(3.4);
   }
 
@@ -44,7 +29,6 @@ const imageGrid2x2: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const cellW = (gridWidth - gap) / 2;
   const cellH = (gridHeight - gap) / 2;
 
-  // Up to 4 cells, row-major.
   for (let i = 0; i < Math.min(items.length, 4); i++) {
     const row = Math.floor(i / 2);
     const col = i % 2;
@@ -52,20 +36,16 @@ const imageGrid2x2: LayoutFn = (ctx: LayoutContext): ShapeList => {
     const y = bodyTop + row * (cellH + gap);
     const item = items[i]!;
     if (typeof item === "object" && item.src) {
-      // Card backing.
-      out.push({
-        type: "shape",
-        id: ctx.id(),
-        preset: "roundRect",
-        xfrm: { x, y, cx: cellW, cy: cellH },
-        fill: { type: "solid", color: ctx.color("bg-card") },
-        line: { color: ctx.color("divider"), width: ctx.pt(0.5) },
-        cornerRadius: 0.02,
-      });
+      out.push(...card(ctx, { x, y, width: cellW, height: cellH }, { cornerRadius: 0.02 }));
       out.push({
         type: "image",
         id: ctx.id(),
-        xfrm: { x: x + ctx.cm(0.3), y: y + ctx.cm(0.3), cx: cellW - ctx.cm(0.6), cy: cellH - ctx.cm(item.caption ? 1.6 : 0.6) },
+        xfrm: {
+          x: x + ctx.cm(0.3),
+          y: y + ctx.cm(0.3),
+          cx: cellW - ctx.cm(0.6),
+          cy: cellH - ctx.cm(item.caption ? 1.6 : 0.6),
+        },
         src: item.src,
         altText: item.alt,
       });
@@ -77,13 +57,7 @@ const imageGrid2x2: LayoutFn = (ctx: LayoutContext): ShapeList => {
           valign: "middle",
           paragraphs: [{
             align: "center",
-            runs: [{
-              text: item.caption,
-              sizeHalfPt: 22,
-              color: ctx.color("text-muted"),
-              cjk: ctx.cjk,
-              fontFace,
-            }],
+            runs: [{ text: item.caption, sizeHalfPt: 22, color: ctx.color("text-muted"), cjk: ctx.cjk, fontFace }],
           }],
         });
       }

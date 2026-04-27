@@ -32,7 +32,9 @@ export type {
   LoadedTheme,
   SlotSchema,
 } from "./theme/types.js";
-export type { DeckSpec, SlideSpec } from "./render/index.js";
+export type { DeckSpec, SlideSpec, BandSpec, BackgroundSpec, ChromeSpec } from "./render/index.js";
+export { editDeck, type EditOp, type EditResult } from "./edit.js";
+export { auditPptx, auditPptxBuffer, type AuditReport, type AuditIssue, type Severity } from "./audit.js";
 
 export interface CompileOptions {
   /** Path to a theme package directory, OR a pre-loaded theme. */

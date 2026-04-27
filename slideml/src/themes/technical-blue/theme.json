@@ -42,5 +42,5 @@
     { "name": "kpi-tile",          "module": "components/kpi-tile.js" },
     { "name": "takeaway-callout",  "module": "components/takeaway-callout.js" }
   ],
-  "chrome": ["page-number", "brand-bar"]
+  "chrome": ["page-header", "page-footer", "page-number", "brand-bar"]
 }

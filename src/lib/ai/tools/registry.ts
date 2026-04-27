@@ -20,9 +20,11 @@ import { listSlideLayoutsTool } from "./list-slide-layouts";
 import { describeSlideLayoutTool } from "./describe-slide-layout";
 import { validateSlidemlTool } from "./validate-slideml";
 import { renderSlidemlTool } from "./render-slideml";
+import { editSlidemlTool } from "./edit-slideml";
+import { auditPptxTool } from "./audit-pptx";
 
 /**
- * Built-in tool registry — 21 tools.
+ * Built-in tool registry — 23 tools.
  *
  * These are the agent's built-in capabilities, registered as LLM function-calling tools.
  * They are NOT user-installed skills (SKILL.md) — those are managed by SkillRegistry.
@@ -39,8 +41,9 @@ import { renderSlidemlTool } from "./render-slideml";
  *   create_artifact, update_task_progress
  * Media:
  *   image_gen
- * Decks (progressive disclosure: list → describe → validate → render):
- *   list_slide_layouts, describe_slide_layout, validate_slideml, render_slideml
+ * Decks (progressive disclosure: list → describe → validate → render → edit/audit):
+ *   list_slide_layouts, describe_slide_layout, validate_slideml, render_slideml,
+ *   edit_slideml, audit_pptx
  */
 const tools: Record<string, Tool> = {
   // File operations
@@ -71,6 +74,8 @@ const tools: Record<string, Tool> = {
   describe_slide_layout: describeSlideLayoutTool,
   validate_slideml: validateSlidemlTool,
   render_slideml: renderSlidemlTool,
+  edit_slideml: editSlidemlTool,
+  audit_pptx: auditPptxTool,
 };
 
 export function getTools(): Record<string, Tool> {

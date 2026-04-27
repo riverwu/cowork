@@ -34,6 +34,8 @@ pub fn run() {
             commands::fs::slideml_list_layouts,
             commands::fs::slideml_describe_layout,
             commands::fs::slideml_validate,
+            commands::fs::slideml_edit,
+            commands::fs::slideml_audit,
             commands::env::get_env,
             commands::http::http_post,
             commands::http::http_stream_post,

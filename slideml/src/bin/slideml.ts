@@ -23,6 +23,9 @@ import {
   listLayouts,
   summarizeLayouts,
   describeLayout,
+  editDeck,
+  auditPptx,
+  type EditOp,
   SlidemlAggregateError,
 } from "../index.js";
 
@@ -31,10 +34,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const HELP = `slideml — compile SlideML decks to .pptx
 
 usage:
-  slideml compile <deck.yaml> --theme <name|path> [-o <out.pptx>] [--no-sidecar]
+  slideml compile  <deck.yaml> --theme <name|path> [-o <out.pptx>] [--no-sidecar]
   slideml validate <deck.yaml> --theme <name|path>
-  slideml layouts --theme <name|path> [--full] [--json]
+  slideml layouts  --theme <name|path> [--full] [--json]
   slideml describe <layout-name> --theme <name|path> [--json]
+  slideml edit     <sidecar.slideml> --ops <ops.json> --theme <name|path> -o <out.pptx>
+  slideml audit    <deck.pptx> [--json]
 
 themes:
   built-in: technical-blue
@@ -47,6 +52,13 @@ notes:
     use --full for the complete schema.
   - \`describe <name>\` returns the full schema with example payloads
     for typed slots (chart-spec/table/image-ref/bullets).
+  - \`edit\` applies a JSON ops array to a sidecar and recompiles.
+    Ops:
+      { "kind": "set", "path": "slides[3].slots.title", "value": "..." }
+      { "kind": "delete", "path": "slides[2].notes" }
+      { "kind": "insertSlide", "at": 4, "slide": { "layout": "...", "slots": {...} } }
+      { "kind": "deleteSlide", "at": 3 }
+      { "kind": "moveSlide", "from": 4, "to": 1 }
 `;
 
 async function main(): Promise<void> {
@@ -153,6 +165,62 @@ async function main(): Promise<void> {
         process.stdout.write(`  ${slotName}: ${JSON.stringify(schema)}\n`);
       }
     }
+    return;
+  }
+
+  if (cmd === "edit") {
+    const sidecar = opts.positional[0];
+    if (!sidecar) fail("edit: missing sidecar file. Usage: slideml edit <sidecar.slideml> --ops <ops.json> --theme <name|path> -o <out.pptx>");
+    const opsPath = opts.flags["ops"];
+    if (!opsPath) fail("edit: --ops <ops.json> is required.");
+    const themeDir = resolveTheme(opts.flags["theme"]);
+    const out = opts.flags["o"] ?? opts.flags["output"];
+    const opsRaw = await readFile(resolve(opsPath!), "utf8");
+    let ops: EditOp[];
+    try {
+      ops = JSON.parse(opsRaw);
+      if (!Array.isArray(ops)) throw new Error("ops file must contain a JSON array");
+    } catch (err) {
+      fail(`edit: cannot parse ops file: ${err instanceof Error ? err.message : err}`);
+    }
+    try {
+      const result = await editDeck(resolve(sidecar!), ops!, {
+        themeDir,
+        output: out ? resolve(out) : undefined,
+      });
+      if (result.written) {
+        process.stdout.write(`Applied ${result.applied} op(s); wrote ${result.buffer.length} bytes to ${result.written}\n`);
+        if (result.sidecar) process.stdout.write(`Sidecar: ${result.sidecar}\n`);
+      } else {
+        process.stdout.write(`Applied ${result.applied} op(s).\n`);
+        process.stdout.write(result.buffer as unknown as Uint8Array);
+      }
+    } catch (err) {
+      if (err instanceof SlidemlAggregateError) {
+        process.stderr.write(`Validation failed after edit:\n`);
+        for (const e of err.errors) process.stderr.write(`  - [${e.code}] ${e.message}\n`);
+        process.exit(2);
+      }
+      throw err;
+    }
+    return;
+  }
+
+  if (cmd === "audit") {
+    const target = opts.positional[0];
+    if (!target) fail("audit: missing pptx file. Usage: slideml audit <deck.pptx> [--json]");
+    const report = await auditPptx(resolve(target!));
+    if (opts.flags["json"] === "true") {
+      process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+    } else {
+      const status = report.ok ? "OK" : "FAIL";
+      process.stdout.write(`${status} — ${target} (${report.stats.slides} slides, ${report.stats.parts} parts, ${report.stats.media} media, ${report.stats.charts} charts, ${report.stats.notesSlides} notes)\n`);
+      for (const issue of report.issues) {
+        const tag = issue.severity === "error" ? "✗" : "!";
+        process.stdout.write(`  ${tag} [${issue.code}] ${issue.message}\n`);
+      }
+    }
+    if (!report.ok) process.exit(2);
     return;
   }
 

@@ -25,9 +25,31 @@ export interface ChromeContext extends LayoutContext {
   slideIndex: number;
   /** Total slides in the deck. */
   slideCount: number;
+  /** Resolved header band content (left/center/right). Empty when no header. */
+  header: { left?: string; center?: string; right?: string };
+  /** Resolved footer band content. Empty when no footer. */
+  footer: { left?: string; center?: string; right?: string };
 }
 
 export type ChromeFn = (ctx: ChromeContext) => ShapeList;
+
+/**
+ * Map of chrome module name → which `flags` key gates it. Modules NOT in
+ * this map ignore flags (always run when listed in the theme manifest).
+ */
+const CHROME_FLAG_KEYS: Record<string, keyof ChromeFlags> = {
+  "page-header": "header",
+  "page-footer": "footer",
+  "brand-bar":   "brandBar",
+  "page-number": "pageNumber",
+};
+
+export interface ChromeFlags {
+  header: boolean;
+  footer: boolean;
+  brandBar: boolean;
+  pageNumber: boolean;
+}
 
 /**
  * Compose chrome decorations onto an existing shape list.
@@ -42,6 +64,9 @@ export function applyChrome(opts: {
   language?: string;
   /** Highest id used by the layout shapes — chrome continues from id+1. */
   startId: number;
+  header?: { left?: string; center?: string; right?: string };
+  footer?: { left?: string; center?: string; right?: string };
+  flags: ChromeFlags;
 }): ShapeList {
   const chromeNames = opts.theme.manifest.chrome ?? [];
   if (chromeNames.length === 0) return opts.shapes;
@@ -50,6 +75,10 @@ export function applyChrome(opts: {
   let nextId = opts.startId;
 
   for (const name of chromeNames) {
+    // Per-slide gating: skip a chrome module when its flag is false.
+    const flagKey = CHROME_FLAG_KEYS[name];
+    if (flagKey && !opts.flags[flagKey]) continue;
+
     const fn = opts.theme.chrome?.get(name);
     if (!fn) continue; // chrome listed in manifest but not loaded — silently skip; loader warned
 
@@ -64,6 +93,8 @@ export function applyChrome(opts: {
     const ctx: ChromeContext = Object.assign(baseCtx, {
       slideIndex: opts.slideIndex,
       slideCount: opts.slideCount,
+      header: opts.header ?? {},
+      footer: opts.footer ?? {},
     });
 
     const produced = (fn as ChromeFn)(ctx);

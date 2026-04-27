@@ -170,6 +170,8 @@ For ANY slide-deck deliverable, prefer the SlideML toolchain — it's typed, the
 - **describe_slide_layout**: full schema for ONE layout, including copy-pasteable example payloads for typed slots. Call this for each layout you've decided to use — the example field eliminates the most common slot-shape retries.
 - **validate_slideml**: dry-run validate a YAML body without writing files. Cheap; use it before paying the render cost on long decks.
 - **render_slideml**: compile YAML to .pptx. Writes both the .pptx AND a sibling \`<output_path>.slideml\` source file (for later edits).
+- **edit_slideml**: apply structured ops (\`set\` / \`delete\` / \`insertSlide\` / \`deleteSlide\` / \`moveSlide\`) to an existing sidecar and recompile. Use this for follow-up edits ("change slide 3 subtitle to ...") instead of re-emitting the whole YAML.
+- **audit_pptx**: check a generated .pptx for OOXML conformance issues that would make PowerPoint reject the file. Run when a deck is intended for PowerPoint distribution.
 
 Workflow for "make me a deck":
   1. \`list_slide_layouts\` → pick 4–6 layouts.

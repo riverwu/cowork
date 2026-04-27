@@ -443,6 +443,43 @@ export async function slidemlValidate(
   });
 }
 
+export interface SlidemlEditOp {
+  kind: "set" | "delete" | "insertSlide" | "deleteSlide" | "moveSlide";
+  path?: string;
+  value?: unknown;
+  at?: number;
+  from?: number;
+  to?: number;
+  slide?: Record<string, unknown>;
+}
+
+/** Apply structured ops to a sidecar .slideml and recompile. */
+export async function slidemlEdit(
+  sidecarPath: string,
+  ops: SlidemlEditOp[],
+  outputPath: string,
+  theme?: string,
+): Promise<{ outputPath: string }> {
+  return invokeDesktop<{ outputPath: string }>("slideml_edit", {
+    sidecarPath,
+    ops,
+    outputPath,
+    theme,
+  });
+}
+
+export interface SlidemlAuditReport {
+  ok: boolean;
+  path: string;
+  stats: { slides: number; parts: number; media: number; charts: number; notesSlides: number };
+  issues: Array<{ severity: "error" | "warn"; code: string; message: string }>;
+}
+
+/** Audit a .pptx for OOXML conformance issues. */
+export async function slidemlAudit(path: string): Promise<SlidemlAuditReport> {
+  return invokeDesktop<SlidemlAuditReport>("slideml_audit", { path });
+}
+
 // ---- Web ----
 
 export interface WebFetchResult {

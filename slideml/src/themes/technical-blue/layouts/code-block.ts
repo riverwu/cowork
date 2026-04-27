@@ -1,6 +1,7 @@
 import type { LayoutContext, LayoutFn } from "../../../render/layout-context.js";
 import type { ShapeList, TextRun } from "../../../emitter/types.js";
 import type { SlotSchema } from "../../../theme/types.js";
+import { slideTitle } from "../../../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
   title:    { type: "text",       maxChars: 50, optional: true },
@@ -19,23 +20,7 @@ const codeBlock: LayoutFn = (ctx: LayoutContext): ShapeList => {
 
   let bodyTop = ctx.cm(2);
   if (title) {
-    out.push({
-      type: "text",
-      id: ctx.id(),
-      xfrm: { x: ctx.cm(2), y: ctx.cm(1.4), cx: ctx.deck.width - ctx.cm(4), cy: ctx.cm(1.6) },
-      valign: "middle",
-      paragraphs: [{
-        align: "left",
-        runs: [{
-          text: title,
-          sizeHalfPt: 44,
-          color: ctx.color("text-strong"),
-          bold: true,
-          cjk: ctx.cjk,
-          fontFace: labelFont,
-        }],
-      }],
-    });
+    out.push(...slideTitle(ctx, title, { rule: false }));
     bodyTop = ctx.cm(3.4);
   }
 
@@ -55,7 +40,6 @@ const codeBlock: LayoutFn = (ctx: LayoutContext): ShapeList => {
     cornerRadius: 0.02,
   });
 
-  // Language badge top-right of the card.
   if (language) {
     out.push({
       type: "text",
@@ -64,19 +48,11 @@ const codeBlock: LayoutFn = (ctx: LayoutContext): ShapeList => {
       valign: "middle",
       paragraphs: [{
         align: "right",
-        runs: [{
-          text: language,
-          sizeHalfPt: 18,
-          color: ctx.color("text-muted"),
-          fontFace: ctx.font("mono"),
-          mono: true,
-        }],
+        runs: [{ text: language, sizeHalfPt: 18, color: ctx.color("text-muted"), fontFace: ctx.font("mono"), mono: true }],
       }],
     });
   }
 
-  // Code body — split on newlines into one paragraph per line so wrapping
-  // doesn't surprise the agent.
   const lines = code.split(/\r?\n/);
   out.push({
     type: "text",
@@ -97,11 +73,7 @@ const codeBlock: LayoutFn = (ctx: LayoutContext): ShapeList => {
         fontFace: ctx.font("mono"),
         mono: true,
       }] : [];
-      return {
-        align: "left",
-        lineSpacingHalfPt: 44,
-        runs,
-      };
+      return { align: "left", lineSpacingHalfPt: 44, runs };
     }),
   });
 
@@ -113,14 +85,7 @@ const codeBlock: LayoutFn = (ctx: LayoutContext): ShapeList => {
       valign: "middle",
       paragraphs: [{
         align: "left",
-        runs: [{
-          text: caption,
-          sizeHalfPt: 22,
-          color: ctx.color("text-muted"),
-          italic: true,
-          cjk: ctx.cjk,
-          fontFace: labelFont,
-        }],
+        runs: [{ text: caption, sizeHalfPt: 22, color: ctx.color("text-muted"), italic: true, cjk: ctx.cjk, fontFace: labelFont }],
       }],
     });
   }

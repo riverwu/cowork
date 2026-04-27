@@ -25,7 +25,10 @@ export interface SlideXml {
 export function slideXml(slide: SlideAst, slidePart: string): SlideXml {
   const rels: SlideRels = { entries: [] };
 
-  const bgXml = backgroundXml(slide);
+  // Background image needs a slide-level rel BEFORE shape rels, so the
+  // package emitter can match it deterministically. nextRelId for shapes
+  // starts at rId2, so an image-bg consumes rId2 and bumps shapes to rId3+.
+  const bgXml = backgroundXml(slide, rels);
 
   // Required first two shapes: the title placeholder and the body
   // placeholder slots are NOT mandatory in OOXML for slides that don't
@@ -59,7 +62,7 @@ export function slideXml(slide: SlideAst, slidePart: string): SlideXml {
   return { body, rels };
 }
 
-function backgroundXml(slide: SlideAst): string {
+function backgroundXml(slide: SlideAst, rels: SlideRels): string {
   if (!slide.background) return "";
   if (slide.background.type === "solid") {
     assertHex(slide.background.color, "Slide.background.color");
@@ -72,10 +75,27 @@ function backgroundXml(slide: SlideAst): string {
       `</p:bg>`
     );
   }
-  // Image backgrounds: the package emitter will add the rel + media file
-  // when it sees a `bgImage` marker. For Stage 2 we keep it simple — solid
-  // only. Image-bg lands in Stage 3 alongside chrome.
-  return "";
+  // Image background: register a slide-level image rel and emit blipFill.
+  // The package emitter rewrites the placeholder Target to the actual
+  // `../media/imageN.{ext}` once it has resolved the asset.
+  const rId = `rId${rels.entries.length + 2}`; // rId1 reserved for slideLayout
+  rels.entries.push({
+    id: rId,
+    type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
+    target: `../media/__background-${slide.background.src}`, // package emitter rewrites
+  });
+  return (
+    `<p:bg>` +
+    `<p:bgPr>` +
+    `<a:blipFill dpi="0" rotWithShape="1">` +
+    `<a:blip r:embed="${rId}"/>` +
+    `<a:srcRect/>` +
+    `<a:stretch><a:fillRect/></a:stretch>` +
+    `</a:blipFill>` +
+    `<a:effectLst/>` +
+    `</p:bgPr>` +
+    `</p:bg>`
+  );
 }
 
 /** Build the `slide{N}.xml.rels` document for a slide's relationships. */

@@ -1,11 +1,10 @@
 import type { LayoutContext, LayoutFn } from "../../../render/layout-context.js";
 import type { ShapeList } from "../../../emitter/types.js";
 import type { SlotSchema } from "../../../theme/types.js";
+import { slideTitle } from "../../../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
   title: { type: "text",    maxChars: 50 },
-  // 80 chars matches the typical "Verb — short clause" pattern agents
-  // produce; 60 was forcing 1-char-over retries on common phrasings.
   steps: { type: "bullets", min: 3, max: 5, itemMaxChars: 80 },
 };
 
@@ -27,31 +26,7 @@ const processTimeline: LayoutFn = (ctx: LayoutContext): ShapeList => {
     };
   });
 
-  // Title.
-  out.push({
-    type: "text",
-    id: ctx.id(),
-    xfrm: { x: ctx.cm(2), y: ctx.cm(1.4), cx: ctx.deck.width - ctx.cm(4), cy: ctx.cm(1.6) },
-    valign: "middle",
-    paragraphs: [{
-      align: "left",
-      runs: [{
-        text: title,
-        sizeHalfPt: 44,
-        color: ctx.color("text-strong"),
-        bold: true,
-        cjk: ctx.cjk,
-        fontFace,
-      }],
-    }],
-  });
-  out.push({
-    type: "shape",
-    id: ctx.id(),
-    preset: "rect",
-    xfrm: { x: ctx.cm(2), y: ctx.cm(3.2), cx: ctx.cm(2.4), cy: ctx.cm(0.12) },
-    fill: { type: "solid", color: ctx.color("brand-primary") },
-  });
+  out.push(...slideTitle(ctx, title));
 
   const railY = ctx.cm(7.4);
   const railLeft = ctx.cm(2.5);
@@ -68,11 +43,9 @@ const processTimeline: LayoutFn = (ctx: LayoutContext): ShapeList => {
     fill: { type: "solid", color: ctx.color("divider") },
   });
 
-  // Step dots + labels.
   steps.forEach((step, idx) => {
     const x = railLeft + (railWidth * idx) / Math.max(1, steps.length - 1) - dotSize / 2;
     const labelX = x + dotSize / 2 - ctx.cm(2.4);
-    // Number / dot
     out.push({
       type: "shape",
       id: ctx.id(),
@@ -80,7 +53,6 @@ const processTimeline: LayoutFn = (ctx: LayoutContext): ShapeList => {
       xfrm: { x, y: railY, cx: dotSize, cy: dotSize },
       fill: { type: "solid", color: ctx.color("brand-primary") },
     });
-    // Step title above the dot
     out.push({
       type: "text",
       id: ctx.id(),
@@ -88,17 +60,9 @@ const processTimeline: LayoutFn = (ctx: LayoutContext): ShapeList => {
       valign: "middle",
       paragraphs: [{
         align: "center",
-        runs: [{
-          text: step.title,
-          sizeHalfPt: 28,
-          color: ctx.color("text-strong"),
-          bold: true,
-          cjk: ctx.cjk,
-          fontFace,
-        }],
+        runs: [{ text: step.title, sizeHalfPt: 28, color: ctx.color("text-strong"), bold: true, cjk: ctx.cjk, fontFace }],
       }],
     });
-    // Description below
     if (step.description) {
       out.push({
         type: "text",
@@ -108,13 +72,7 @@ const processTimeline: LayoutFn = (ctx: LayoutContext): ShapeList => {
         paragraphs: [{
           align: "center",
           lineSpacingHalfPt: 48,
-          runs: [{
-            text: step.description,
-            sizeHalfPt: 22,
-            color: ctx.color("text-muted"),
-            cjk: ctx.cjk,
-            fontFace,
-          }],
+          runs: [{ text: step.description, sizeHalfPt: 22, color: ctx.color("text-muted"), cjk: ctx.cjk, fontFace }],
         }],
       });
     }

@@ -1,6 +1,7 @@
 import type { LayoutContext, LayoutFn } from "../../../render/layout-context.js";
 import type { ShapeList, TableCell } from "../../../emitter/types.js";
 import type { SlotSchema } from "../../../theme/types.js";
+import { slideTitle } from "../../../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
   title: { type: "text",  maxChars: 50, optional: true },
@@ -23,30 +24,7 @@ const dataTable: LayoutFn = (ctx: LayoutContext): ShapeList => {
 
   let bodyTop = ctx.cm(2);
   if (title) {
-    out.push({
-      type: "text",
-      id: ctx.id(),
-      xfrm: { x: ctx.cm(2), y: ctx.cm(1.4), cx: ctx.deck.width - ctx.cm(4), cy: ctx.cm(1.6) },
-      valign: "middle",
-      paragraphs: [{
-        align: "left",
-        runs: [{
-          text: title,
-          sizeHalfPt: 44,
-          color: ctx.color("text-strong"),
-          bold: true,
-          cjk: ctx.cjk,
-          fontFace,
-        }],
-      }],
-    });
-    out.push({
-      type: "shape",
-      id: ctx.id(),
-      preset: "rect",
-      xfrm: { x: ctx.cm(2), y: ctx.cm(3.2), cx: ctx.cm(2.4), cy: ctx.cm(0.12) },
-      fill: { type: "solid", color: ctx.color("brand-primary") },
-    });
+    out.push(...slideTitle(ctx, title));
     bodyTop = ctx.cm(4.4);
   }
 
@@ -70,37 +48,22 @@ const dataTable: LayoutFn = (ctx: LayoutContext): ShapeList => {
 
   // Build cells.
   const cells: TableCell[][] = [];
-  // Header row.
   cells.push(
     tableSpec.header.map((h) => ({
-      runs: [{
-        text: String(h),
-        sizeHalfPt: 26,
-        color: "FFFFFF",
-        bold: true,
-        cjk: ctx.cjk,
-        fontFace,
-      }],
+      runs: [{ text: String(h), sizeHalfPt: 26, color: "FFFFFF", bold: true, cjk: ctx.cjk, fontFace }],
       fill: { type: "solid", color: ctx.color("brand-deep") },
       valign: "middle",
       align: "left",
     })),
   );
-  // Body rows.
   for (let r = 0; r < tableSpec.rows.length; r++) {
     const row = tableSpec.rows[r]!;
     cells.push(
-      row.map((cell, c) => ({
-        runs: [{
-          text: String(cell),
-          sizeHalfPt: 24,
-          color: ctx.color("text-strong"),
-          cjk: ctx.cjk,
-          fontFace,
-        }],
+      row.map((cell) => ({
+        runs: [{ text: String(cell), sizeHalfPt: 24, color: ctx.color("text-strong"), cjk: ctx.cjk, fontFace }],
         fill: r % 2 === 1 ? { type: "solid", color: ctx.color("bg-card") } : undefined,
         valign: "middle",
-        align: c === 0 ? "left" : "left",
+        align: "left",
       })),
     );
   }

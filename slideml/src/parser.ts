@@ -7,7 +7,7 @@
  */
 
 import yaml from "js-yaml";
-import type { DeckSpec, SlideSpec } from "./render/index.js";
+import type { BackgroundSpec, BandSpec, ChromeSpec, DeckSpec, SlideSpec } from "./render/index.js";
 
 export interface SlidemlParseError extends Error {
   code: "PARSE_ERROR" | "EXTRA_KEY" | "MISSING_KEY" | "TYPE_MISMATCH";
@@ -15,10 +15,12 @@ export interface SlidemlParseError extends Error {
   path?: string;
 }
 
-const ALLOWED_DECK_KEYS = new Set(["size", "language", "theme", "defaults"]);
+const ALLOWED_DECK_KEYS = new Set(["size", "language", "theme", "defaults", "header", "footer", "background"]);
 const ALLOWED_SIZES = new Set(["16x9", "16x10", "4x3", "wide"]);
-const ALLOWED_SLIDE_KEYS = new Set(["layout", "chrome", "notes", "transition", "slots"]);
+const ALLOWED_SLIDE_KEYS = new Set(["layout", "chrome", "notes", "transition", "slots", "header", "footer", "background"]);
 const ALLOWED_TRANSITIONS = new Set(["none", "fade"]);
+const ALLOWED_CHROME_OBJECT_KEYS = new Set(["header", "footer", "brandBar", "pageNumber"]);
+const ALLOWED_BAND_KEYS = new Set(["left", "center", "right"]);
 
 /** Parse a SlideML YAML string into a typed DeckSpec. */
 export function parseSlideml(input: string): DeckSpec {
@@ -106,6 +108,10 @@ export function parseSlideml(input: string): DeckSpec {
 
   const slides: SlideSpec[] = slidesRaw.map((s, i) => parseSlide(s, i));
 
+  const header = parseBand(deckRaw["header"], "deck.header");
+  const footer = parseBand(deckRaw["footer"], "deck.footer");
+  const background = parseBackground(deckRaw["background"], "deck.background");
+
   return {
     slideml: 1,
     deck: {
@@ -113,6 +119,9 @@ export function parseSlideml(input: string): DeckSpec {
       language: typeof language === "string" ? language : undefined,
       theme,
       defaults: (defaults as Record<string, string>) ?? undefined,
+      header,
+      footer,
+      background,
     },
     slides,
   };
@@ -138,10 +147,7 @@ function parseSlide(raw: unknown, index: number): SlideSpec {
     throw structured("MISSING_KEY", `slides[${index}].layout (string) is required.`, undefined, `slides[${index}].layout`);
   }
 
-  const chrome = raw["chrome"];
-  if (chrome !== undefined && chrome !== "default" && chrome !== "none") {
-    throw structured("TYPE_MISMATCH", `slides[${index}].chrome must be "default" or "none".`);
-  }
+  const chrome = parseChrome(raw["chrome"], `slides[${index}].chrome`);
 
   const notes = raw["notes"];
   if (notes !== undefined && typeof notes !== "string") {
@@ -158,12 +164,90 @@ function parseSlide(raw: unknown, index: number): SlideSpec {
     throw structured("MISSING_KEY", `slides[${index}].slots mapping is required.`, undefined, `slides[${index}].slots`);
   }
 
+  // Per-slide overrides — `null` is the explicit "clear deck default" sentinel.
+  const header = "header" in raw
+    ? (raw["header"] === null ? null : parseBand(raw["header"], `slides[${index}].header`))
+    : undefined;
+  const footer = "footer" in raw
+    ? (raw["footer"] === null ? null : parseBand(raw["footer"], `slides[${index}].footer`))
+    : undefined;
+  const background = "background" in raw
+    ? (raw["background"] === null ? null : parseBackground(raw["background"], `slides[${index}].background`))
+    : undefined;
+
   return {
     layout,
-    chrome: chrome as SlideSpec["chrome"],
+    chrome,
     notes: notes as string | undefined,
     transition: transition as SlideSpec["transition"],
     slots: slots as Record<string, unknown>,
+    header,
+    footer,
+    background,
+  };
+}
+
+function parseChrome(value: unknown, path: string): ChromeSpec | undefined {
+  if (value === undefined) return undefined;
+  if (value === "default" || value === "none") return value;
+  if (!isObject(value)) {
+    throw structured("TYPE_MISMATCH", `${path} must be "default" | "none" | { header, footer, brandBar, pageNumber } object.`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!ALLOWED_CHROME_OBJECT_KEYS.has(key)) {
+      throw structured("EXTRA_KEY", `${path}.${key} is not a recognized chrome flag. Allowed: ${[...ALLOWED_CHROME_OBJECT_KEYS].join(", ")}.`);
+    }
+    if (typeof value[key] !== "boolean") {
+      throw structured("TYPE_MISMATCH", `${path}.${key} must be a boolean.`);
+    }
+  }
+  return value as ChromeSpec;
+}
+
+function parseBand(value: unknown, path: string): BandSpec | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return value;
+  if (!isObject(value)) {
+    throw structured("TYPE_MISMATCH", `${path} must be a string or { left?, center?, right? } object.`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!ALLOWED_BAND_KEYS.has(key)) {
+      throw structured("EXTRA_KEY", `${path}.${key} is not allowed. Allowed: ${[...ALLOWED_BAND_KEYS].join(", ")}.`);
+    }
+    if (value[key] !== undefined && typeof value[key] !== "string") {
+      throw structured("TYPE_MISMATCH", `${path}.${key} must be a string.`);
+    }
+  }
+  return value as BandSpec;
+}
+
+function parseBackground(value: unknown, path: string): BackgroundSpec | undefined {
+  if (value === undefined) return undefined;
+  if (!isObject(value)) {
+    throw structured("TYPE_MISMATCH", `${path} must be { color: "RRGGBB" } or { image: { src, ... } }.`);
+  }
+  const hasColor = "color" in value;
+  const hasImage = "image" in value;
+  if (hasColor === hasImage) {
+    throw structured("TYPE_MISMATCH", `${path} must have exactly one of "color" or "image".`);
+  }
+  if (hasColor) {
+    const c = value["color"];
+    if (typeof c !== "string") {
+      throw structured("TYPE_MISMATCH", `${path}.color must be a hex color string (e.g. "0B1B2A").`);
+    }
+    return { color: c };
+  }
+  const img = value["image"];
+  if (!isObject(img) || typeof img["src"] !== "string") {
+    throw structured("TYPE_MISMATCH", `${path}.image must be { src: "<path|url|data:>", alt?, opacity? }.`);
+  }
+  return {
+    image: {
+      src: img["src"],
+      alt: typeof img["alt"] === "string" ? img["alt"] : undefined,
+      opacity: typeof img["opacity"] === "number" ? img["opacity"] : undefined,
+    },
   };
 }
 

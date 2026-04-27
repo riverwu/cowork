@@ -105,6 +105,8 @@ async function dispatch(command, args, sender) {
     case "slideml_list_layouts": return slidemlListLayouts(args.theme);
     case "slideml_describe_layout": return slidemlDescribeLayout(args.theme, args.layoutName);
     case "slideml_validate": return slidemlValidate(args.slideml, args.theme);
+    case "slideml_edit": return slidemlEdit(args.sidecarPath, args.ops, args.theme, args.outputPath);
+    case "slideml_audit": return slidemlAudit(args.path);
     case "get_env": return process.env[args.key] || null;
     case "http_post": return httpPost(args.request);
     case "http_stream_post": return httpStreamPost(sender, args.request);
@@ -503,6 +505,52 @@ async function slidemlDescribeLayout(theme, layoutName) {
     return JSON.parse(result.stdout);
   } catch (err) {
     throw new Error(`slideml_describe_layout: failed to parse JSON output: ${err}`);
+  }
+}
+
+async function slidemlEdit(sidecarPath, ops, theme, outputPath) {
+  if (!sidecarPath) throw new Error("slideml_edit: sidecarPath is required");
+  if (!Array.isArray(ops)) throw new Error("slideml_edit: ops must be an array");
+  if (!outputPath) throw new Error("slideml_edit: outputPath is required");
+  const cli = slidemlCliPath();
+  if (!fs.existsSync(cli)) {
+    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+  }
+  const themeDir = slidemlThemePath(theme);
+  const tmpOps = path.join(os.tmpdir(), `slideml-ops-${crypto.randomUUID()}.json`);
+  await fsp.writeFile(tmpOps, JSON.stringify(ops), "utf8");
+  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+  try {
+    const result = await runScript(
+      "node",
+      [cli, "edit", sidecarPath, "--ops", tmpOps, "--theme", themeDir, "-o", outputPath],
+      undefined,
+      120,
+    );
+    if (result.exit_code !== 0) {
+      throw new Error((result.stderr || result.stdout || "").trim() || `slideml edit exited ${result.exit_code}`);
+    }
+    return { outputPath, stdout: result.stdout.trim() };
+  } finally {
+    fsp.rm(tmpOps, { force: true }).catch(() => {});
+  }
+}
+
+async function slidemlAudit(targetPath) {
+  if (!targetPath) throw new Error("slideml_audit: path is required");
+  const cli = slidemlCliPath();
+  if (!fs.existsSync(cli)) {
+    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+  }
+  const result = await runScript("node", [cli, "audit", targetPath, "--json"], undefined, 30);
+  // audit returns exit code 2 on failure (with JSON on stdout), 0 on pass
+  if (result.exit_code !== 0 && result.exit_code !== 2) {
+    throw new Error((result.stderr || result.stdout || "").trim() || `slideml audit exited ${result.exit_code}`);
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch (err) {
+    throw new Error(`slideml_audit: failed to parse JSON output: ${err}`);
   }
 }
 

@@ -1489,6 +1489,110 @@ pub async fn slideml_describe_layout(
 }
 
 #[tauri::command]
+pub async fn slideml_edit(
+    sidecar_path: String,
+    ops: serde_json::Value,
+    theme: Option<String>,
+    output_path: String,
+) -> Result<String, String> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::time::{timeout, Duration};
+
+    if sidecar_path.is_empty() {
+        return Err("slideml_edit: sidecarPath is required".into());
+    }
+    if output_path.is_empty() {
+        return Err("slideml_edit: outputPath is required".into());
+    }
+    if !ops.is_array() {
+        return Err("slideml_edit: ops must be a JSON array".into());
+    }
+    let cli = slideml_cli_path()?;
+    let theme_dir = slideml_theme_path(theme.as_deref().unwrap_or(""))?;
+    let tmp_ops = std::env::temp_dir().join(format!("slideml-ops-{}.json", uuid::Uuid::new_v4()));
+    fs::write(&tmp_ops, serde_json::to_vec(&ops).map_err(|e| format!("encode ops: {}", e))?)
+        .map_err(|e| format!("write tmp ops: {}", e))?;
+    if let Some(parent) = Path::new(&output_path).parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("create output dir: {}", e))?;
+    }
+    let expanded_path = super::mcp::expanded_path_str();
+
+    let result = timeout(Duration::from_secs(120), async {
+        let output = Command::new("node")
+            .arg(&cli)
+            .arg("edit")
+            .arg(&sidecar_path)
+            .arg("--ops")
+            .arg(tmp_ops.to_str().unwrap())
+            .arg("--theme")
+            .arg(&theme_dir)
+            .arg("-o")
+            .arg(&output_path)
+            .env("PATH", &expanded_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("spawn node: {}", e))?;
+        if !output.status.success() {
+            let msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if msg.is_empty() {
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            } else {
+                msg
+            });
+        }
+        Ok::<String, String>(output_path.clone())
+    })
+    .await
+    .map_err(|_| "slideml_edit timed out after 120s".to_string())?;
+
+    let _ = fs::remove_file(&tmp_ops);
+    result
+}
+
+#[tauri::command]
+pub async fn slideml_audit(path: String) -> Result<serde_json::Value, String> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::time::{timeout, Duration};
+
+    if path.is_empty() {
+        return Err("slideml_audit: path is required".into());
+    }
+    let cli = slideml_cli_path()?;
+    let expanded_path = super::mcp::expanded_path_str();
+
+    let output = timeout(Duration::from_secs(30), async {
+        Command::new("node")
+            .arg(&cli)
+            .arg("audit")
+            .arg(&path)
+            .arg("--json")
+            .env("PATH", &expanded_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("spawn node: {}", e))
+    })
+    .await
+    .map_err(|_| "slideml_audit timed out after 30s".to_string())??;
+
+    // exit 0 = ok, 2 = audit failure with JSON on stdout. Both are valid results.
+    let code = output.status.code().unwrap_or(-1);
+    if code != 0 && code != 2 {
+        let msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(msg);
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(&stdout).map_err(|e| format!("parse audit JSON: {}", e))
+}
+
+#[tauri::command]
 pub async fn slideml_validate(
     slideml: String,
     theme: Option<String>,

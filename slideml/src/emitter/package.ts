@@ -9,7 +9,7 @@
  */
 
 import JSZip from "jszip";
-import { resolveImage, type ResolvedImage } from "./image.js";
+import { Assets } from "../assets.js";
 import { chartXml } from "./chart.js";
 import {
   notesMasterRelsXml,
@@ -44,8 +44,20 @@ export async function emitPackage(deck: DeckAst): Promise<Buffer> {
   });
   const hasNotes = notesIndices.length > 0;
 
+  // Asset pipeline: walk the deck once to intern every image src (shapes +
+  // backgrounds). After this, the zip writer just iterates assets.entries().
+  const assets = new Assets();
+  for (const slide of deck.slides) {
+    if (slide.background?.type === "image") {
+      await assets.intern(slide.background.src);
+    }
+    for (const shape of slide.shapes) {
+      if (shape.type === "image") await assets.intern(shape.src);
+    }
+  }
+
   // --- Top-level package files ---------------------------------------------
-  zip.file("[Content_Types].xml", contentTypesXml(deck.slides.length, await collectImageExts(deck), chartCount, notesIndices));
+  zip.file("[Content_Types].xml", contentTypesXml(deck.slides.length, assets.extensions(), chartCount, notesIndices));
   zip.file("_rels/.rels", rootRelsXml());
   zip.file("docProps/app.xml", appXml(deck.slides.length));
   zip.file("docProps/core.xml", coreXml(title, author));
@@ -79,10 +91,10 @@ export async function emitPackage(deck: DeckAst): Promise<Buffer> {
   zip.file("ppt/tableStyles.xml", tableStylesXml());
 
   // --- Slides --------------------------------------------------------------
-  // Image bookkeeping: each unique image src gets one media file shared
-  // across the deck.
-  const imageCache = new Map<string, { filename: string; image: ResolvedImage }>();
-  let nextImageIndex = 1;
+  // Write all media files once (assets already interned above).
+  for (const entry of assets.entries()) {
+    zip.file(`ppt/media/${entry.filename}`, entry.resolved.bytes);
+  }
   // Charts: each chart shape gets its own chart{N}.xml part.
   let nextChartIndex = 1;
 
@@ -91,20 +103,9 @@ export async function emitPackage(deck: DeckAst): Promise<Buffer> {
     const slideNum = i + 1;
     const slidePart = `ppt/slides/slide${slideNum}.xml`;
 
-    // Resolve image sources first so slide-rels can reference them.
-    for (const shape of slide.shapes) {
-      if (shape.type === "image") {
-        if (!imageCache.has(shape.src)) {
-          const resolved = await resolveImage(shape.src);
-          const filename = `image${nextImageIndex++}.${resolved.ext}`;
-          imageCache.set(shape.src, { filename, image: resolved });
-          zip.file(`ppt/media/${filename}`, resolved.bytes);
-        }
-      }
-    }
-
     // Build slide XML. The shape emitter populates `rels` with placeholder
-    // targets that we rewrite after the fact.
+    // targets that we rewrite after the fact. The slide emitter also adds
+    // a background-image rel marker if the slide has an image background.
     const built = slideXml(slide, slidePart);
 
     // Rewrite image and chart rel targets to the actual filenames.
@@ -127,11 +128,24 @@ export async function emitPackage(deck: DeckAst): Promise<Buffer> {
       );
     }
 
+    // Image rels appear in TWO orders inside built.rels.entries:
+    //   - background-image rel (added by the slide emitter, FIRST when present)
+    //   - shape-image rels (added by image shape emitters, in slide-order)
+    // We resolve them by which side they're on. Background uses src directly;
+    // shape rels consume image shapes in order.
+    const bgImageSrc = slide.background?.type === "image" ? slide.background.src : undefined;
+    let bgRelConsumed = false;
     built.rels.entries = built.rels.entries.map((rel) => {
       if (rel.type.endsWith("/image")) {
+        // First image rel is the background (when present), then shape rels.
+        if (bgImageSrc && !bgRelConsumed) {
+          bgRelConsumed = true;
+          const entry = assets.get(bgImageSrc)!;
+          return { ...rel, target: `../media/${entry.filename}` };
+        }
         const src = imageShapes[imgRelIdx++]!.src;
-        const cached = imageCache.get(src)!;
-        return { ...rel, target: `../media/${cached.filename}` };
+        const entry = assets.get(src)!;
+        return { ...rel, target: `../media/${entry.filename}` };
       }
       if (rel.type.endsWith("/chart")) {
         const filename = slideChartFilenames[chartRelIdx++]!;
@@ -175,25 +189,6 @@ export async function emitPackage(deck: DeckAst): Promise<Buffer> {
     type: "nodebuffer",
     compression: "DEFLATE",
   });
-}
-
-/** Walk the deck collecting unique image extensions for Content_Types. */
-async function collectImageExts(deck: DeckAst): Promise<Set<string>> {
-  const exts = new Set<string>();
-  for (const slide of deck.slides) {
-    for (const shape of slide.shapes) {
-      if (shape.type === "image") {
-        // We don't actually resolve here — the package emitter resolves once
-        // and re-uses. This pre-scan only ensures Content_Types has every
-        // override registered. For Stage 2 we add all common image
-        // extensions defensively; the cost is two unused `<Default>` entries.
-      }
-    }
-  }
-  // Always declare png/jpg as defaults so any image works without round-tripping.
-  exts.add("png");
-  exts.add("jpg");
-  return exts;
 }
 
 
@@ -242,7 +237,11 @@ function contentTypesXml(slideCount: number, imageExts: Set<string>, chartCount:
     `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`,
     `<Default Extension="xml" ContentType="application/xml"/>`,
   ];
-  for (const ext of imageExts) {
+  // Always declare png/jpg defaults so a deck without an image still
+  // validates if a layout decides to inject one later (charts hand-rolled
+  // to PptxGenJS shape style sometimes carry inline png blips).
+  const allExts = new Set<string>([...imageExts, "png", "jpg"]);
+  for (const ext of allExts) {
     const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
     defaults.push(`<Default Extension="${ext}" ContentType="${mime}"/>`);
   }

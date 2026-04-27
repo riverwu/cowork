@@ -1,6 +1,7 @@
 import type { LayoutContext, LayoutFn } from "../../../render/layout-context.js";
 import type { ShapeList } from "../../../emitter/types.js";
 import type { SlotSchema } from "../../../theme/types.js";
+import { card, contentRect, gridCols, slideTitle } from "../../../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
   title: { type: "text", maxChars: 40 },
@@ -22,58 +23,23 @@ const statGrid3: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const items = (ctx.slot<KpiItem[]>("items") ?? []).slice(0, 3);
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
 
-  // Title bar.
-  out.push({
-    type: "text",
-    id: ctx.id(),
-    xfrm: { x: ctx.cm(2), y: ctx.cm(1.4), cx: ctx.deck.width - ctx.cm(4), cy: ctx.cm(1.6) },
-    valign: "middle",
-    paragraphs: [{
-      align: "left",
-      runs: [{
-        text: title,
-        sizeHalfPt: 44,
-        color: ctx.color("text-strong"),
-        bold: true,
-        cjk: ctx.cjk,
-        fontFace,
-      }],
-    }],
-  });
+  out.push(...slideTitle(ctx, title));
 
-  // Decorative cyan rule under the title.
-  out.push({
-    type: "shape",
-    id: ctx.id(),
-    preset: "rect",
-    xfrm: { x: ctx.cm(2), y: ctx.cm(3.2), cx: ctx.cm(2.4), cy: ctx.cm(0.12) },
-    fill: { type: "solid", color: ctx.color("brand-primary") },
-  });
+  // Three KPI tiles. This layout uses CENTERED text + large value (sz 40pt)
+  // — visually distinct from the inline kpiTile primitive (left-aligned,
+  // smaller). Kept inline rather than over-parameterizing the primitive.
+  const tileBand = contentRect(ctx, { top: ctx.cm(4.6), bottom: ctx.cm(2) });
+  const cells = gridCols(ctx, tileBand, 3, { gap: ctx.cm(0.8) });
 
-  // Three KPI cards.
-  const tileTop = ctx.cm(4.6);
-  const tileHeight = ctx.cm(6.6);
-
-  for (let i = 0; i < 3; i++) {
-    const cell = ctx.gridCol(i, 3, { gap: ctx.cm(0.8), marginX: ctx.cm(2) });
+  cells.forEach((cell, i) => {
     const item = items[i] ?? { value: "—", label: "" };
+    out.push(...card(ctx, cell));
 
-    // Card.
-    out.push({
-      type: "shape",
-      id: ctx.id(),
-      preset: "roundRect",
-      xfrm: { x: cell.x, y: tileTop, cx: cell.width, cy: tileHeight },
-      fill: { type: "solid", color: ctx.color("bg-card") },
-      line: { color: ctx.color("divider"), width: ctx.pt(0.5) },
-      cornerRadius: 0.04,
-    });
-
-    // KPI value (large).
+    // KPI value (large, centered).
     out.push({
       type: "text",
       id: ctx.id(),
-      xfrm: { x: cell.x, y: tileTop + ctx.cm(1.0), cx: cell.width, cy: ctx.cm(2.4) },
+      xfrm: { x: cell.x, y: cell.y + ctx.cm(1.0), cx: cell.width, cy: ctx.cm(2.4) },
       valign: "middle",
       paragraphs: [{
         align: "center",
@@ -92,7 +58,7 @@ const statGrid3: LayoutFn = (ctx: LayoutContext): ShapeList => {
     out.push({
       type: "text",
       id: ctx.id(),
-      xfrm: { x: cell.x, y: tileTop + ctx.cm(3.6), cx: cell.width, cy: ctx.cm(1.0) },
+      xfrm: { x: cell.x, y: cell.y + ctx.cm(3.6), cx: cell.width, cy: ctx.cm(1.0) },
       valign: "middle",
       paragraphs: [{
         align: "center",
@@ -106,14 +72,13 @@ const statGrid3: LayoutFn = (ctx: LayoutContext): ShapeList => {
       }],
     });
 
-    // Delta (optional).
     if (item.delta) {
       const trendColor =
         item.trend === "down" ? ctx.color("accent") : ctx.color("brand-primary");
       out.push({
         type: "text",
         id: ctx.id(),
-        xfrm: { x: cell.x, y: tileTop + ctx.cm(4.8), cx: cell.width, cy: ctx.cm(0.9) },
+        xfrm: { x: cell.x, y: cell.y + ctx.cm(4.8), cx: cell.width, cy: ctx.cm(0.9) },
         valign: "middle",
         paragraphs: [{
           align: "center",
@@ -128,7 +93,7 @@ const statGrid3: LayoutFn = (ctx: LayoutContext): ShapeList => {
         }],
       });
     }
-  }
+  });
 
   return out;
 };

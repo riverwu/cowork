@@ -59,7 +59,7 @@ describe("Stage 3 — theme loader", () => {
     ]);
 
     expect([...theme.components.keys()].sort()).toEqual(["footer", "header", "kpi-tile", "takeaway-callout"]);
-    expect([...(theme.chrome ?? new Map()).keys()].sort()).toEqual(["brand-bar", "page-number"]);
+    expect([...(theme.chrome ?? new Map()).keys()].sort()).toEqual(["brand-bar", "page-footer", "page-header", "page-number"]);
   });
 
   it("attaches each layout's first-paragraph description from theme.md", async () => {

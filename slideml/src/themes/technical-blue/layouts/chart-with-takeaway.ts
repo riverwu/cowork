@@ -1,6 +1,7 @@
 import type { LayoutContext, LayoutFn } from "../../../render/layout-context.js";
 import type { ChartShape, ShapeList } from "../../../emitter/types.js";
 import type { SlotSchema } from "../../../theme/types.js";
+import { slideTitle } from "../../../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
   title:    { type: "text",            maxChars: 50 },
@@ -22,33 +23,7 @@ const chartWithTakeaway: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const takeaway = ctx.slot<string>("takeaway");
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
 
-  // Title.
-  out.push({
-    type: "text",
-    id: ctx.id(),
-    xfrm: { x: ctx.cm(2), y: ctx.cm(1.4), cx: ctx.deck.width - ctx.cm(4), cy: ctx.cm(1.6) },
-    valign: "middle",
-    paragraphs: [{
-      align: "left",
-      runs: [{
-        text: title,
-        sizeHalfPt: 44,
-        color: ctx.color("text-strong"),
-        bold: true,
-        cjk: ctx.cjk,
-        fontFace,
-      }],
-    }],
-  });
-
-  // Cyan rule.
-  out.push({
-    type: "shape",
-    id: ctx.id(),
-    preset: "rect",
-    xfrm: { x: ctx.cm(2), y: ctx.cm(3.2), cx: ctx.cm(2.4), cy: ctx.cm(0.12) },
-    fill: { type: "solid", color: ctx.color("brand-primary") },
-  });
+  out.push(...slideTitle(ctx, title));
 
   // Chart fills the upper region; takeaway sits below it.
   const chartTop = ctx.cm(4.0);
@@ -78,8 +53,6 @@ const chartWithTakeaway: LayoutFn = (ctx: LayoutContext): ShapeList => {
       cx: ctx.deck.width - ctx.cm(4),
       cy: takeawayHeight,
     };
-    // Draw the takeaway box inline (the component is also exposed for layouts
-    // that want it standalone).
     out.push({
       type: "shape",
       id: ctx.id(),
