@@ -102,7 +102,8 @@ class SkillRegistry {
 
     lines.push("");
     lines.push("### How to use skills");
-    lines.push(`- **Trigger**: If the user's task clearly matches a skill's description, use that skill.
+    lines.push(`- **The list above is EXHAUSTIVE.** Do NOT speculatively read SKILL.md paths for skills not listed (e.g. don't probe \`~/.cowork/skills/<guess>/SKILL.md\` based on the path convention you see for installed skills). If a domain isn't covered by a listed skill, use built-in tools directly — for .pptx that means \`render_slideml\` etc., not a hypothetical pptx skill.
+- **Trigger**: If the user's task clearly matches a listed skill's description, use that skill.
 - **Activation requirement**: A skill is not active just because it is listed here. To use a skill, you MUST first read its SKILL.md with \`read_file\` in the current turn.
 - **Progressive disclosure**: Do NOT load all skills upfront. When you decide to use a skill:
   1. Use \`read_file\` to open its SKILL.md

@@ -1,6 +1,7 @@
 import type { LayoutContext, LayoutFn } from "../../../render/layout-context.js";
 import type { ShapeList } from "../../../emitter/types.js";
 import type { SlotSchema } from "../../../theme/types.js";
+import { imageRefOf } from "../../../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
   image:    { type: "image-ref" },
@@ -14,7 +15,7 @@ interface ImageSlot { src: string; alt?: string }
 
 const heroImageOverlay: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const out: ShapeList = [];
-  const image = ctx.slot<ImageSlot>("image");
+  const image = imageRefOf(ctx.slot<unknown>("image"));
   const title = ctx.slot<string>("title") ?? "";
   const subtitle = ctx.slot<string>("subtitle");
   const align = (ctx.slot<string>("align") ?? "bottom-left").toLowerCase();

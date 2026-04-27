@@ -415,6 +415,23 @@ function relLum(hex: string): number {
 }
 
 /**
+ * Normalize an image-ref slot value into `{ src, alt? }`. Accepts the
+ * canonical object form, a bare path/URL string (auto-wrapped), or
+ * `{ url, ... }` (alias for src — agents naturally use both keys).
+ *
+ * Returns undefined when the value can't be coerced — layouts use
+ * `imageOrPlaceholder()` to render a polite fallback in that case.
+ */
+export function imageRefOf(value: unknown): { src: string; alt?: string } | undefined {
+  if (typeof value === "string" && value.length > 0) return { src: value };
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const o = value as { src?: unknown; url?: unknown; alt?: unknown };
+  const src = typeof o.src === "string" ? o.src : (typeof o.url === "string" ? o.url : undefined);
+  if (!src) return undefined;
+  return { src, alt: typeof o.alt === "string" ? o.alt : undefined };
+}
+
+/**
  * Normalize a text-block slot value into a single string. Real-LLM testing
  * showed agents naturally reach for `string[]` when a slot accepts "list of
  * points", so the validator accepts both shapes — this helper lets layout

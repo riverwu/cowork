@@ -6,6 +6,7 @@ import {
   contentRect,
   gridCols,
   imageOrPlaceholder,
+  imageRefOf,
   slideTitle,
 } from "../../../render/primitives.js";
 
@@ -22,7 +23,7 @@ const bulletWithImage: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const out: ShapeList = [];
   const title = ctx.slot<string>("title") ?? "";
   const bullets = ctx.slot<string[]>("bullets") ?? [];
-  const image = ctx.slot<ImageSlot>("image");
+  const image = imageRefOf(ctx.slot<unknown>("image"));
 
   out.push(...slideTitle(ctx, title));
 

@@ -1,7 +1,7 @@
 import type { LayoutContext, LayoutFn } from "../../../render/layout-context.js";
 import type { ShapeList } from "../../../emitter/types.js";
 import type { SlotSchema } from "../../../theme/types.js";
-import { card, slideTitle } from "../../../render/primitives.js";
+import { card, imageRefOf, slideTitle } from "../../../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
   title:  { type: "text",    maxChars: 50, optional: true },
@@ -34,33 +34,39 @@ const imageGrid2x2: LayoutFn = (ctx: LayoutContext): ShapeList => {
     const col = i % 2;
     const x = gridLeft + col * (cellW + gap);
     const y = bodyTop + row * (cellH + gap);
-    const item = items[i]!;
-    if (typeof item === "object" && item.src) {
-      out.push(...card(ctx, { x, y, width: cellW, height: cellH }, { cornerRadius: 0.02 }));
+    const raw = items[i]!;
+    // Accept any of: { src, ... } | { url, ... } | bare path string.
+    // Caption may live on `caption`, `alt`, or `label`.
+    const ref = imageRefOf(raw);
+    if (!ref) continue;
+    const captionText = typeof raw === "object" && raw !== null
+      ? ((raw as { caption?: unknown }).caption ?? (raw as { label?: unknown }).label ?? ref.alt)
+      : undefined;
+    const caption = typeof captionText === "string" && captionText.length > 0 ? captionText : undefined;
+    out.push(...card(ctx, { x, y, width: cellW, height: cellH }, { cornerRadius: 0.02 }));
+    out.push({
+      type: "image",
+      id: ctx.id(),
+      xfrm: {
+        x: x + ctx.cm(0.3),
+        y: y + ctx.cm(0.3),
+        cx: cellW - ctx.cm(0.6),
+        cy: cellH - ctx.cm(caption ? 1.6 : 0.6),
+      },
+      src: ref.src,
+      altText: ref.alt,
+    });
+    if (caption) {
       out.push({
-        type: "image",
+        type: "text",
         id: ctx.id(),
-        xfrm: {
-          x: x + ctx.cm(0.3),
-          y: y + ctx.cm(0.3),
-          cx: cellW - ctx.cm(0.6),
-          cy: cellH - ctx.cm(item.caption ? 1.6 : 0.6),
-        },
-        src: item.src,
-        altText: item.alt,
+        xfrm: { x: x + ctx.cm(0.3), y: y + cellH - ctx.cm(1.2), cx: cellW - ctx.cm(0.6), cy: ctx.cm(1) },
+        valign: "middle",
+        paragraphs: [{
+          align: "center",
+          runs: [{ text: caption, sizeHalfPt: 22, color: ctx.color("text-muted"), cjk: ctx.cjk, fontFace }],
+        }],
       });
-      if (item.caption) {
-        out.push({
-          type: "text",
-          id: ctx.id(),
-          xfrm: { x: x + ctx.cm(0.3), y: y + cellH - ctx.cm(1.2), cx: cellW - ctx.cm(0.6), cy: ctx.cm(1) },
-          valign: "middle",
-          paragraphs: [{
-            align: "center",
-            runs: [{ text: item.caption, sizeHalfPt: 22, color: ctx.color("text-muted"), cjk: ctx.cjk, fontFace }],
-          }],
-        });
-      }
     }
   }
   return out;

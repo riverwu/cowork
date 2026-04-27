@@ -45,13 +45,31 @@ export function exampleForSlot(
       };
 
     case "bullets":
-      // Heuristic: KPI-shaped slots (small itemMaxChars) want objects;
-      // everything else takes plain strings. Aligns with stat-grid-3.
+      // Heuristic by slot name:
+      //   - "items" with small itemMaxChars → KPI tiles (stat-grid-3)
+      //   - "images" → image-grid cells (image-grid-2x2)
+      //   - "steps" → process-timeline; accepts plain strings OR
+      //     { title, description? }
+      //   - everything else → plain strings
       if (slotName === "items" && schema.itemMaxChars <= 64) {
         return [
           { value: "82.3亿", label: "市场规模", delta: "+12% YoY", trend: "up" },
           { value: "3,400万", label: "月活", delta: "+8%", trend: "up" },
           { value: "1.4×", label: "ARPU", delta: "—", trend: "flat" },
+        ];
+      }
+      if (slotName === "images") {
+        return [
+          { src: "/absolute/path/or/https/url/image1.png", alt: "First image", caption: "Caption A" },
+          { src: "/absolute/path/or/https/url/image2.png", caption: "Caption B" },
+          // `url:` is also accepted as an alias for `src:`.
+        ];
+      }
+      if (slotName === "steps") {
+        return [
+          "Detect — describe the trigger",
+          { title: "Triage", description: "1-line elaboration if needed" },
+          "Mitigate — short verb phrase",
         ];
       }
       return ["First item", "Second item", "Third item"];

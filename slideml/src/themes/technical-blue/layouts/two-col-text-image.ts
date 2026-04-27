@@ -6,6 +6,7 @@ import {
   contentRect,
   gridCols,
   imageOrPlaceholder,
+  imageRefOf,
   slideTitle,
   textBlockOf,
 } from "../../../render/primitives.js";
@@ -23,7 +24,7 @@ const twoColTextImage: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const out: ShapeList = [];
   const title = ctx.slot<string>("title") ?? "";
   const text = textBlockOf(ctx.slot<unknown>("text"));
-  const image = ctx.slot<ImageSlot>("image");
+  const image = imageRefOf(ctx.slot<unknown>("image"));
   const imageOnLeft = (ctx.slot<string>("imageSide") ?? "right").toLowerCase() === "left";
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
 

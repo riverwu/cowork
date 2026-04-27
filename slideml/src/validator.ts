@@ -195,8 +195,14 @@ function validateSlotValue(
     }
 
     case "image-ref":
+      // Bare-string shorthand: `image: "/path.png"` is treated as
+      // `image: { src: "/path.png" }`. Real-LLM testing showed agents
+      // reach for the bare-string form ~50% of the time on the first
+      // try; auto-coercing in layouts (via `imageRefOf`) eliminates
+      // the retry. Validator accepts both.
+      if (typeof value === "string" && value.length > 0) return;
       if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected image-ref { src, alt? }, got ${typeOf(value)}.` });
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected image-ref { src, alt? } or a bare path string, got ${typeOf(value)}.` });
         return;
       }
       if (typeof (value as { src?: unknown }).src !== "string") {
