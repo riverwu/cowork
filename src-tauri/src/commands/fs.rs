@@ -1315,7 +1315,7 @@ fn slideml_cli_path() -> Result<String, String> {
         }
         dir = d.parent();
     }
-    Err("slideml CLI not found under any ancestor's node_modules. Run `pnpm install` at the workspace root.".into())
+    Err("slideml CLI not found under any ancestor's node_modules. The slideml package needs to be built. Run `pnpm install` (prepare script auto-builds) or `pnpm -F slideml build` at the workspace root.".into())
 }
 
 fn slideml_theme_path(theme: &str) -> Result<String, String> {

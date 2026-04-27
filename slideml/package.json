@@ -19,6 +19,7 @@
   ],
   "scripts": {
     "build": "tsc && node scripts/copy-theme-assets.mjs",
+    "prepare": "pnpm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src",

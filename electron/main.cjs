@@ -448,7 +448,7 @@ async function slidemlCompile(slidemlYaml, theme, outputPath) {
 
   const cli = slidemlCliPath();
   if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
   }
   const themeDir = slidemlThemePath(theme);
   const tmpYaml = path.join(os.tmpdir(), `slideml-${crypto.randomUUID()}.yaml`);
@@ -479,7 +479,7 @@ async function slidemlListLayouts(theme) {
   // slideml_describe_layout to fetch the full schema for a chosen layout.
   const cli = slidemlCliPath();
   if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
   }
   const themeDir = slidemlThemePath(theme);
   const result = await runScript("node", [cli, "layouts", "--theme", themeDir, "--json"], undefined, 30);
@@ -497,7 +497,7 @@ async function slidemlDescribeLayout(theme, layoutName) {
   if (!layoutName) throw new Error("slideml_describe_layout: layoutName is required");
   const cli = slidemlCliPath();
   if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
   }
   const themeDir = slidemlThemePath(theme);
   const result = await runScript("node", [cli, "describe", layoutName, "--theme", themeDir, "--json"], undefined, 30);
@@ -517,7 +517,7 @@ async function slidemlEdit(sidecarPath, ops, theme, outputPath) {
   if (!outputPath) throw new Error("slideml_edit: outputPath is required");
   const cli = slidemlCliPath();
   if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
   }
   const themeDir = slidemlThemePath(theme);
   const tmpOps = path.join(os.tmpdir(), `slideml-ops-${crypto.randomUUID()}.json`);
@@ -542,7 +542,7 @@ async function slidemlEdit(sidecarPath, ops, theme, outputPath) {
 async function slidemlListThemes() {
   const cli = slidemlCliPath();
   if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
   }
   const result = await runScript("node", [cli, "themes", "--json"], undefined, 30);
   if (result.exit_code !== 0) {
@@ -559,7 +559,7 @@ async function slidemlAudit(targetPath) {
   if (!targetPath) throw new Error("slideml_audit: path is required");
   const cli = slidemlCliPath();
   if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
   }
   const result = await runScript("node", [cli, "audit", targetPath, "--json"], undefined, 30);
   // audit returns exit code 2 on failure (with JSON on stdout), 0 on pass
@@ -577,7 +577,7 @@ async function slidemlValidate(slidemlYaml, theme) {
   if (!slidemlYaml) throw new Error("slideml_validate: slideml YAML body is required");
   const cli = slidemlCliPath();
   if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
   }
   const themeDir = slidemlThemePath(theme);
   const tmpYaml = path.join(os.tmpdir(), `slideml-validate-${crypto.randomUUID()}.yaml`);
