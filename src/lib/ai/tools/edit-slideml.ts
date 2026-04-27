@@ -37,10 +37,31 @@ Indexes are 0-based. \`output_path\` may be the same as the original (overwrites
     const sidecarPath = String(input.sidecar_path || "").trim();
     const outputPath = String(input.output_path || "").trim();
     const theme = (input.theme as string | undefined) || "technical-blue";
-    const ops = (input.ops as SlidemlEditOp[]) || [];
+
+    // Lenient: accept either an actual array OR a JSON-encoded string.
+    // Real-LLM observation: agents sometimes double-encode large nested
+    // arrays (string ~3KB+) as a JSON string for the `ops` argument
+    // instead of passing the array directly. Auto-parse rather than
+    // forcing a retry.
+    let ops: SlidemlEditOp[];
+    if (typeof input.ops === "string") {
+      try {
+        const parsed = JSON.parse(input.ops);
+        if (!Array.isArray(parsed)) {
+          return `Error: ops was a JSON string but parsed to ${typeof parsed}, expected an array.`;
+        }
+        ops = parsed as SlidemlEditOp[];
+      } catch (err) {
+        return `Error: ops was a string that did not parse as JSON: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    } else {
+      ops = (input.ops as SlidemlEditOp[]) ?? [];
+    }
+
     if (!sidecarPath) return "Error: sidecar_path is required.";
     if (!outputPath) return "Error: output_path is required.";
     if (!Array.isArray(ops) || ops.length === 0) return "Error: ops must be a non-empty array.";
+
     try {
       await slidemlEdit(sidecarPath, ops, outputPath, theme);
       return `Edited ${sidecarPath} (${ops.length} op(s)) → ${outputPath} (sidecar: ${outputPath}.slideml).`;

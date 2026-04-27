@@ -94,6 +94,25 @@ describe("SlideML cowork integration — tool↔IPC contract", () => {
     expect(out).toContain("edit_slideml");  // suggests next-step tool
   });
 
+  it("edit_slideml — accepts ops as a JSON-encoded STRING (lenient form)", async () => {
+    // Real-LLM regression: large nested ops arrays sometimes arrive as a
+    // JSON string instead of an array. Tool auto-parses.
+    ipcReturns["slideml_edit"] = { outputPath: "/tmp/z.pptx", sidecar: "/tmp/z.pptx.slideml" };
+    const tool = getTool("edit_slideml")!;
+    const opsStr = JSON.stringify([
+      { kind: "set", path: "slides[0].slots.title", value: "from-string" },
+    ]);
+    const result = await tool.execute({ sidecar_path: "/tmp/z.pptx.slideml", ops: opsStr, output_path: "/tmp/z.pptx" });
+    expect(result).not.toContain("Error");
+    expect(ipcCalls[0]?.args).toMatchObject({
+      sidecarPath: "/tmp/z.pptx.slideml",
+      outputPath: "/tmp/z.pptx",
+    });
+    // The IPC layer received a real array, not the original string.
+    const sentOps = (ipcCalls[0]!.args as { ops?: unknown }).ops;
+    expect(Array.isArray(sentOps)).toBe(true);
+  });
+
   it("edit_slideml — passes ops as a JSON array", async () => {
     ipcReturns["slideml_edit"] = { outputPath: "/tmp/y.pptx", sidecar: "/tmp/y.pptx.slideml" };
     const tool = getTool("edit_slideml")!;
