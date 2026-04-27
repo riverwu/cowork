@@ -8,16 +8,18 @@ export const runNode: Tool = {
       `Execute JavaScript code in an isolated Node.js environment (~/.cowork/node/). Packages installed here persist across calls.
 
 Use this for:
-- Generating PowerPoint presentations (pptxgenjs)
-- Generating Word documents (docx)
 - JSON/data processing
-- Any task that benefits from Node.js libraries
+- Generating Word documents (docx) — no built-in tool exists
+- Custom data-shaping scripts that other tools don't cover
+- Any task that benefits from a one-off Node.js library
+
+DO NOT use this to generate .pptx files. Use the dedicated SlideML tools (\`list_slide_layouts\` → \`describe_slide_layout\` → \`render_slideml\`) instead — they ship typed layouts, theme support, and produce decks that open cleanly in PowerPoint. \`run_node\` + \`pptxgenjs\` is a fallback ONLY when no SlideML layout fits a truly custom geometry (rare).
 
 The script runs with a 60-second timeout by default. Use console.log() for output.
-If you need packages, use the install_package parameter — it installs to the isolated environment. You may pass one package or a comma/space-separated list, e.g. "pptxgenjs react react-dom".
+If you need packages, use the install_package parameter — it installs to the isolated environment. You may pass one package or a comma/space-separated list.
 
 IMPORTANT: This is the correct way to run Node.js scripts. Do NOT use shell to run "node" directly.
-IMPORTANT FOR LARGE OUTPUTS: Keep code compact and data-driven. For decks/reports, define arrays of slide/page data and helper functions, then loop. Do not pass thousands of lines of repeated code as a tool argument.
+IMPORTANT FOR LARGE OUTPUTS: Keep code compact and data-driven. Define arrays of data and helper functions, then loop. Do not pass thousands of lines of repeated code as a tool argument.
 If a script is too large for one tool call, write it to a workspace file with write_file chunks, then call run_node with a short loader: require("/absolute/path/to/script.js").`,
     parameters: {
       type: "object",
@@ -28,7 +30,7 @@ If a script is too large for one tool call, write it to a workspace file with wr
         },
         install_package: {
           type: "string",
-          description: "If set, install npm package(s) before running code. Accepts one package or a comma/space-separated list, e.g. \"pptxgenjs\" or \"pptxgenjs react react-dom\". Leave empty if not needed.",
+          description: "If set, install npm package(s) before running code. Accepts one package or a comma/space-separated list. Leave empty if not needed.",
         },
         cwd: {
           type: "string",
