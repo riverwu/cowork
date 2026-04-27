@@ -6,21 +6,97 @@
   "description": "Sustainability / outdoor / wellness theme — cream canvas, deep forest text, moss accents. Restrained editorial style.",
   "author": "SlideML",
   "tokens": {
-    "bg-canvas":     "F5F5F0",
-    "bg-card":       "FFFFFF",
+    "bg-canvas": "F5F5F0",
+    "bg-card": "FFFFFF",
     "brand-primary": "2C5F2D",
-    "brand-deep":    "1A3A1B",
-    "text-strong":   "1E2A1F",
-    "text-muted":    "5A6B5D",
-    "accent":        "5A7F35",
-    "divider":       "D5DDD0",
-    "font-latin":    ["Source Sans Pro", "Helvetica Neue", "Helvetica", "Arial", "sans-serif"],
-    "font-cjk":      ["PingFang SC", "Microsoft YaHei", "Source Han Sans CN", "Noto Sans SC", "sans-serif"],
-    "font-mono":     ["JetBrains Mono", "Menlo", "Consolas", "monospace"]
+    "brand-deep": "1A3A1B",
+    "text-strong": "1E2A1F",
+    "text-muted": "5A6B5D",
+    "accent": "5A7F35",
+    "divider": "D5DDD0",
+    "font-latin": [
+      "Source Sans Pro",
+      "Helvetica Neue",
+      "Helvetica",
+      "Arial",
+      "sans-serif"
+    ],
+    "font-cjk": [
+      "PingFang SC",
+      "Microsoft YaHei",
+      "Source Han Sans CN",
+      "Noto Sans SC",
+      "sans-serif"
+    ],
+    "font-mono": [
+      "JetBrains Mono",
+      "Menlo",
+      "Consolas",
+      "monospace"
+    ]
+  },
+  "meta": {
+    "audiences": [
+      "sustainability teams",
+      "wellness / lifestyle audiences",
+      "outdoor / environmental orgs",
+      "academic ecology"
+    ],
+    "industries": [
+      "sustainability",
+      "ESG",
+      "outdoor / hospitality",
+      "wellness",
+      "agriculture",
+      "environmental research"
+    ],
+    "moods": [
+      "calm",
+      "natural",
+      "warm-but-restrained",
+      "earthy",
+      "considered"
+    ],
+    "antiPatterns": [
+      "high-finance pitches",
+      "tech keynotes",
+      "data-dense engineering reviews",
+      "urgency / crisis comms"
+    ]
   },
   "style": {
     "titleAccentRule": false,
-    "contrastTarget": "warn"
+    "contrastTarget": "warn",
+    "imagery": {
+      "guidance": "Natural / outdoor / botanical. Warm cream backgrounds with deep forest and moss accents. Subjects: forest canopies, moss-covered stones, hands holding plants, soil close-ups, watercolor leaves, organic materials, hiking / quiet outdoor settings. Lighting: soft daylight filtering through canopy; never harsh sun or studio strobe. Composition: organic asymmetry, natural textures. Avoid: tech / screens, urban concrete, neon, anything synthetic-feeling.",
+      "palette": [
+        "#F5F5F0",
+        "#2C5F2D",
+        "#5A7F35",
+        "#1A3A1B"
+      ],
+      "preferredStyles": [
+        "natural light photography",
+        "botanical illustration",
+        "watercolor",
+        "documentary outdoor"
+      ],
+      "avoid": [
+        "tech / screens",
+        "urban / concrete",
+        "neon",
+        "studio strobe",
+        "cool blue palette"
+      ]
+    },
+    "voice": {
+      "tone": "Calm, measured, grounded. Concrete subjects (a place, a person, a number) over abstractions.",
+      "avoid": [
+        "technobabble",
+        "urgency adverbs",
+        "hyperbole"
+      ]
+    }
   },
   "oxml": {
     "clrScheme": {
@@ -43,12 +119,38 @@
     }
   },
   "layouts": [
-    { "name": "cover",                "module": "layouts/cover.js",                "thumbnail": "thumbnails/cover.png" },
-    { "name": "agenda",               "module": "layouts/agenda.js",               "thumbnail": "thumbnails/agenda.png" },
-    { "name": "stat-grid-3",          "module": "layouts/stat-grid-3.js",          "thumbnail": "thumbnails/stat-grid-3.png" },
-    { "name": "chart-with-takeaway",  "module": "layouts/chart-with-takeaway.js",  "thumbnail": "thumbnails/chart-with-takeaway.png" },
-    { "name": "bullet-with-image",    "module": "layouts/bullet-with-image.js",    "thumbnail": "thumbnails/bullet-with-image.png" },
-    { "name": "closing",              "module": "layouts/closing.js",              "thumbnail": "thumbnails/closing.png" }
+    {
+      "name": "cover",
+      "module": "layouts/cover.js",
+      "thumbnail": "thumbnails/cover.png"
+    },
+    {
+      "name": "agenda",
+      "module": "layouts/agenda.js",
+      "thumbnail": "thumbnails/agenda.png"
+    },
+    {
+      "name": "stat-grid-3",
+      "module": "layouts/stat-grid-3.js",
+      "thumbnail": "thumbnails/stat-grid-3.png"
+    },
+    {
+      "name": "chart-with-takeaway",
+      "module": "layouts/chart-with-takeaway.js",
+      "thumbnail": "thumbnails/chart-with-takeaway.png"
+    },
+    {
+      "name": "bullet-with-image",
+      "module": "layouts/bullet-with-image.js",
+      "thumbnail": "thumbnails/bullet-with-image.png"
+    },
+    {
+      "name": "closing",
+      "module": "layouts/closing.js",
+      "thumbnail": "thumbnails/closing.png"
+    }
   ],
-  "chrome": ["page-number"]
+  "chrome": [
+    "page-number"
+  ]
 }

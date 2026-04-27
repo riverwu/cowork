@@ -108,6 +108,7 @@ async function dispatch(command, args, sender) {
     case "slideml_edit": return slidemlEdit(args.sidecarPath, args.ops, args.theme, args.outputPath);
     case "slideml_audit": return slidemlAudit(args.path);
     case "slideml_list_themes": return slidemlListThemes();
+    case "slideml_describe_theme": return slidemlDescribeTheme(args.name);
     case "get_env": return process.env[args.key] || null;
     case "http_post": return httpPost(args.request);
     case "http_stream_post": return httpStreamPost(sender, args.request);
@@ -552,6 +553,23 @@ async function slidemlListThemes() {
     return JSON.parse(result.stdout);
   } catch (err) {
     throw new Error(`slideml_list_themes: failed to parse JSON output: ${err}`);
+  }
+}
+
+async function slidemlDescribeTheme(themeName) {
+  if (!themeName) throw new Error("slideml_describe_theme: name is required");
+  const cli = slidemlCliPath();
+  if (!fs.existsSync(cli)) {
+    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
+  }
+  const result = await runScript("node", [cli, "describe-theme", themeName, "--json"], undefined, 30);
+  if (result.exit_code !== 0) {
+    throw new Error((result.stderr || result.stdout || "").trim() || `slideml describe-theme exited ${result.exit_code}`);
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch (err) {
+    throw new Error(`slideml_describe_theme: failed to parse JSON output: ${err}`);
   }
 }
 

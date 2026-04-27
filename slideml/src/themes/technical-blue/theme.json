@@ -18,6 +18,26 @@
     "font-cjk": ["PingFang SC", "Microsoft YaHei", "Source Han Sans CN", "Noto Sans SC", "sans-serif"],
     "font-mono": ["JetBrains Mono", "Menlo", "Consolas", "monospace"]
   },
+  "meta": {
+    "audiences":   ["engineers", "data teams", "internal technical reviewers"],
+    "industries":  ["software", "platform engineering", "infrastructure", "data analytics", "DevOps", "fintech"],
+    "moods":       ["serious", "precise", "data-dense", "high-information"],
+    "antiPatterns": ["consumer marketing", "wellness / lifestyle", "playful presentations", "elementary education"]
+  },
+  "style": {
+    "titleAccentRule": true,
+    "contrastTarget": "warn",
+    "imagery": {
+      "guidance": "Photographic or rendered, deep-tone, high-contrast. Cool blue / navy / cyan palette dominant. Subjects: server rooms, network diagrams, code on screens, geometric data visualizations, abstract circuitry, satellite/aerial views. Lighting: cinematic low-key with cyan accent highlights. Avoid: bright pastels, cartoonish illustrations, white backgrounds, hand-drawn marketing illustration styles, lifestyle photography.",
+      "palette": ["#0B1B2A", "#3CC2FF", "#1078B5", "#F5F9FC"],
+      "preferredStyles": ["photographic", "cinematic", "low-key lit", "isometric technical illustration", "data-visualization aesthetic"],
+      "avoid":           ["cartoon", "bright pastels", "white background", "hand-drawn marketing illustration", "lifestyle / consumer photography"]
+    },
+    "voice": {
+      "tone": "Precise, technical, measured. Numbers > adjectives. Avoid marketing language.",
+      "avoid": ["exclamation marks", "buzzwords (synergy, leverage, unlock)", "vague qualifiers (significantly, substantially)"]
+    }
+  },
   "oxml": {
     "clrScheme": {
       "bg1": "bg-canvas",

@@ -1595,6 +1595,43 @@ pub async fn slideml_list_themes() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+pub async fn slideml_describe_theme(name: String) -> Result<serde_json::Value, String> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::time::{timeout, Duration};
+
+    if name.is_empty() {
+        return Err("slideml_describe_theme: name is required".into());
+    }
+    let cli = slideml_cli_path()?;
+    let expanded_path = super::mcp::expanded_path_str();
+
+    let output = timeout(Duration::from_secs(30), async {
+        Command::new("node")
+            .arg(&cli)
+            .arg("describe-theme")
+            .arg(&name)
+            .arg("--json")
+            .env("PATH", &expanded_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("spawn node: {}", e))
+    })
+    .await
+    .map_err(|_| "slideml_describe_theme timed out after 30s".to_string())??;
+
+    if !output.status.success() {
+        let msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(msg);
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(&stdout).map_err(|e| format!("parse describe-theme JSON: {}", e))
+}
+
+#[tauri::command]
 pub async fn slideml_audit(path: String) -> Result<serde_json::Value, String> {
     use std::process::Stdio;
     use tokio::process::Command;

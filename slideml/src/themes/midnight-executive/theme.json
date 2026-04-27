@@ -6,21 +6,96 @@
   "description": "Premium executive theme — deep navy canvas with ice-blue muted text and an amber accent. Reads like a board pack.",
   "author": "SlideML",
   "tokens": {
-    "bg-canvas":     "1E2761",
-    "bg-card":       "2A3580",
+    "bg-canvas": "1E2761",
+    "bg-card": "2A3580",
     "brand-primary": "8FA6FF",
-    "brand-deep":    "5566D2",
-    "text-strong":   "F5F8FF",
-    "text-muted":    "CADCFC",
-    "accent":        "FFB400",
-    "divider":       "4554A8",
-    "font-latin":    ["Inter", "Helvetica Neue", "Helvetica", "Arial", "sans-serif"],
-    "font-cjk":      ["PingFang SC", "Microsoft YaHei", "Source Han Sans CN", "Noto Sans SC", "sans-serif"],
-    "font-mono":     ["JetBrains Mono", "Menlo", "Consolas", "monospace"]
+    "brand-deep": "5566D2",
+    "text-strong": "F5F8FF",
+    "text-muted": "CADCFC",
+    "accent": "FFB400",
+    "divider": "4554A8",
+    "font-latin": [
+      "Inter",
+      "Helvetica Neue",
+      "Helvetica",
+      "Arial",
+      "sans-serif"
+    ],
+    "font-cjk": [
+      "PingFang SC",
+      "Microsoft YaHei",
+      "Source Han Sans CN",
+      "Noto Sans SC",
+      "sans-serif"
+    ],
+    "font-mono": [
+      "JetBrains Mono",
+      "Menlo",
+      "Consolas",
+      "monospace"
+    ]
+  },
+  "meta": {
+    "audiences": [
+      "board / executives",
+      "investors (premium / private)",
+      "C-suite",
+      "M&A / bank reviewers"
+    ],
+    "industries": [
+      "finance",
+      "private equity",
+      "venture capital",
+      "premium SaaS",
+      "enterprise software"
+    ],
+    "moods": [
+      "premium",
+      "serious",
+      "trustworthy",
+      "high-stakes",
+      "polished"
+    ],
+    "antiPatterns": [
+      "consumer / playful",
+      "scrappy startup pitch",
+      "internal eng review",
+      "casual workshop"
+    ]
   },
   "style": {
     "titleAccentRule": true,
-    "contrastTarget": "warn"
+    "contrastTarget": "warn",
+    "imagery": {
+      "guidance": "Premium / aspirational. Deep navy background dominant; ice-blue and amber as highlights. Subjects: night skylines from a high floor, polished marble lobbies, modernist boardrooms, abstract financial geometry, brushed metal, single-source amber accent lighting. Lighting: low-key, cinematic, single-source warm highlight on cool background. Avoid: daytime / harsh light, cartoon, bright primary colors, casual lifestyle photography, anything that reads as 'startup hustle'.",
+      "palette": [
+        "#1E2761",
+        "#8FA6FF",
+        "#FFB400",
+        "#0F1340"
+      ],
+      "preferredStyles": [
+        "cinematic low-key",
+        "architectural night photography",
+        "luxury product photography",
+        "abstract minimalist"
+      ],
+      "avoid": [
+        "daytime / bright",
+        "cartoon",
+        "casual / startup vibe",
+        "primary colors",
+        "white backgrounds"
+      ]
+    },
+    "voice": {
+      "tone": "Confident, decisive, no hedging. Numbers carry the argument; adjectives are sparse and earned.",
+      "avoid": [
+        "hedge words (perhaps, possibly, might)",
+        "exclamation marks",
+        "marketing superlatives"
+      ]
+    }
   },
   "oxml": {
     "clrScheme": {
@@ -43,12 +118,38 @@
     }
   },
   "layouts": [
-    { "name": "cover",                "module": "layouts/cover.js",                "thumbnail": "thumbnails/cover.png" },
-    { "name": "agenda",               "module": "layouts/agenda.js",               "thumbnail": "thumbnails/agenda.png" },
-    { "name": "stat-grid-3",          "module": "layouts/stat-grid-3.js",          "thumbnail": "thumbnails/stat-grid-3.png" },
-    { "name": "chart-with-takeaway",  "module": "layouts/chart-with-takeaway.js",  "thumbnail": "thumbnails/chart-with-takeaway.png" },
-    { "name": "bullet-with-image",    "module": "layouts/bullet-with-image.js",    "thumbnail": "thumbnails/bullet-with-image.png" },
-    { "name": "closing",              "module": "layouts/closing.js",              "thumbnail": "thumbnails/closing.png" }
+    {
+      "name": "cover",
+      "module": "layouts/cover.js",
+      "thumbnail": "thumbnails/cover.png"
+    },
+    {
+      "name": "agenda",
+      "module": "layouts/agenda.js",
+      "thumbnail": "thumbnails/agenda.png"
+    },
+    {
+      "name": "stat-grid-3",
+      "module": "layouts/stat-grid-3.js",
+      "thumbnail": "thumbnails/stat-grid-3.png"
+    },
+    {
+      "name": "chart-with-takeaway",
+      "module": "layouts/chart-with-takeaway.js",
+      "thumbnail": "thumbnails/chart-with-takeaway.png"
+    },
+    {
+      "name": "bullet-with-image",
+      "module": "layouts/bullet-with-image.js",
+      "thumbnail": "thumbnails/bullet-with-image.png"
+    },
+    {
+      "name": "closing",
+      "module": "layouts/closing.js",
+      "thumbnail": "thumbnails/closing.png"
+    }
   ],
-  "chrome": ["page-number"]
+  "chrome": [
+    "page-number"
+  ]
 }

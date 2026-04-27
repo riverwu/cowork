@@ -62,9 +62,28 @@ export interface ThemeManifest {
    * brand colors. All values reference token names already in `tokens`.
    */
   /**
+   * Routing metadata — helps an agent pick the right theme for a given
+   * deck request. Surfaced via `list_themes` so the LLM can match user
+   * intent ("board pack", "consulting brief") to a theme without first
+   * loading layouts. All fields optional; populated themes show up
+   * with richer routing hints, themes without meta still list cleanly.
+   */
+  meta?: {
+    /** Audiences this theme is designed for, e.g. "board / executives". */
+    audiences?: readonly string[];
+    /** Industries / domains this theme suits, e.g. "saas", "finance". */
+    industries?: readonly string[];
+    /** Mood / tone descriptors, e.g. "serious", "warm", "minimal". */
+    moods?: readonly string[];
+    /** Use-cases this theme is NOT for; agent should pick another. */
+    antiPatterns?: readonly string[];
+  };
+  /**
    * Theme-level style flags consumed by primitives. Lets a theme opt out
    * of common AI-tells (accent rules under titles, centered body text)
-   * without rewriting layout source files.
+   * without rewriting layout source files. Also carries imagery guidance
+   * the agent should follow when calling `image_gen` so generated images
+   * stay visually coherent with the theme.
    */
   style?: {
     /**
@@ -79,6 +98,27 @@ export interface ThemeManifest {
      * warnings; "AA" / "AAA" throw on failure.
      */
     contrastTarget?: "warn" | "AA" | "AAA";
+    /**
+     * Image generation guidance — the agent reads this BEFORE calling
+     * `image_gen` so cover/background/illustration images match the
+     * theme. Without this, image_gen tends to produce style-clashing
+     * outputs (bright cartoon images on a serious dark deck, etc.).
+     */
+    imagery?: {
+      /** One-paragraph style brief — paste verbatim into image_gen prompt. */
+      guidance?: string;
+      /** Hex colors to mention in image_gen prompts (palette anchors). */
+      palette?: readonly string[];
+      /** Negative cues — what to avoid (cartoon, bright pastels, etc.). */
+      avoid?: readonly string[];
+      /** Style descriptors to include (photographic, line-art, etc.). */
+      preferredStyles?: readonly string[];
+    };
+    /** Voice / tone guidance for slide text content. */
+    voice?: {
+      tone?: string;
+      avoid?: readonly string[];
+    };
   };
   oxml?: {
     /** 12 OOXML color slots; values are TOKEN NAMES from `tokens`. */

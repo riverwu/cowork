@@ -23,9 +23,10 @@ import { renderSlidemlTool } from "./render-slideml";
 import { editSlidemlTool } from "./edit-slideml";
 import { auditPptxTool } from "./audit-pptx";
 import { listThemesTool } from "./list-themes";
+import { describeThemeTool } from "./describe-theme";
 
 /**
- * Built-in tool registry — 24 tools.
+ * Built-in tool registry — 25 tools.
  *
  * These are the agent's built-in capabilities, registered as LLM function-calling tools.
  * They are NOT user-installed skills (SKILL.md) — those are managed by SkillRegistry.
@@ -42,9 +43,9 @@ import { listThemesTool } from "./list-themes";
  *   create_artifact, update_task_progress
  * Media:
  *   image_gen
- * Decks (progressive disclosure: theme → list → describe → validate → render → edit/audit):
- *   list_themes, list_slide_layouts, describe_slide_layout, validate_slideml,
- *   render_slideml, edit_slideml, audit_pptx
+ * Decks (progressive disclosure: list_themes → describe_theme → list_layouts → describe_layout → validate → render → edit/audit):
+ *   list_themes, describe_theme, list_slide_layouts, describe_slide_layout,
+ *   validate_slideml, render_slideml, edit_slideml, audit_pptx
  */
 const tools: Record<string, Tool> = {
   // File operations
@@ -72,6 +73,7 @@ const tools: Record<string, Tool> = {
   image_gen: imageGen,
   // Decks
   list_themes: listThemesTool,
+  describe_theme: describeThemeTool,
   list_slide_layouts: listSlideLayoutsTool,
   describe_slide_layout: describeSlideLayoutTool,
   validate_slideml: validateSlidemlTool,

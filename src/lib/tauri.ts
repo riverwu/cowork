@@ -392,6 +392,7 @@ import type {
   EditOp as SlidemlEditOp,
   AuditReport as SlidemlAuditReport,
   ThemeSummary as SlidemlThemeSummary,
+  ThemeDetail as SlidemlThemeDetail,
 } from "slideml";
 export type {
   SlidemlLayoutSummary,
@@ -399,6 +400,7 @@ export type {
   SlidemlEditOp,
   SlidemlAuditReport,
   SlidemlThemeSummary,
+  SlidemlThemeDetail,
 };
 
 export type SlidemlValidateResult =
@@ -473,6 +475,11 @@ export async function slidemlAudit(path: string): Promise<SlidemlAuditReport> {
 /** List all themes installed on this machine (built-in + user). */
 export async function slidemlListThemes(): Promise<SlidemlThemeSummary[]> {
   return invokeDesktop<SlidemlThemeSummary[]>("slideml_list_themes");
+}
+
+/** Full detail of one theme: imagery guidance, palette, layouts, voice. */
+export async function slidemlDescribeTheme(name: string): Promise<SlidemlThemeDetail> {
+  return invokeDesktop<SlidemlThemeDetail>("slideml_describe_theme", { name });
 }
 
 // ---- Web ----

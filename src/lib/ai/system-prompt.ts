@@ -166,7 +166,8 @@ Knowledge source protocol:
 ### Decks (PowerPoint / .pptx) — ALWAYS use SlideML
 For ANY slide-deck deliverable (PPT, presentation, pitch deck, quarterly review, market analysis, post-mortem, status report, board pack, brief, …), use the SlideML toolchain. Do **NOT** reach for \`run_node\` + \`pptxgenjs\` — that bypasses theme + validation and produces decks PowerPoint flags as corrupted. SlideML is typed, theme-driven, ships 5 themes (technical-blue is the densest with 17 layouts; the other 4 ship 6 essential layouts each), and emits OOXML that opens cleanly in PowerPoint, Keynote, and LibreOffice. Call \`list_slide_layouts\` against the chosen theme to see what's actually available there.
 
-- **list_themes**: enumerate installed themes (5 built-in: technical-blue / editorial-warm / midnight-executive / forest-moss / charcoal-minimal). Call when the deck mood matters — engineering vs. board pack vs. sustainability vs. minimal print. Default if not called: \`technical-blue\`.
+- **list_themes**: enumerate installed themes with routing metadata (audiences / industries / moods / antiPatterns). 5 built-in: technical-blue (engineering / data) / editorial-warm (consulting / narrative) / midnight-executive (board / finance) / forest-moss (sustainability / wellness) / charcoal-minimal (print / restrained). Call FIRST when picking a theme is non-trivial.
+- **describe_theme**: full theme detail — imagery guidance + palette hex + voice tone + layout list. Call AFTER picking a theme and BEFORE \`image_gen\`. Imagery guidance feeds directly into image_gen prompts so generated covers / backgrounds / illustrations stay coherent with the deck's visual style. Without this, image_gen tends to produce style-clashing output (bright cartoon on a serious dark deck, etc.).
 - **list_slide_layouts**: compact list of available layouts (name + purpose + slot names only). Call AFTER picking a theme (or accept the default).
 - **describe_slide_layout**: full schema for ONE layout, including copy-pasteable example payloads for typed slots. Call this for each layout you've decided to use — the example field eliminates the most common slot-shape retries.
 - **validate_slideml**: dry-run validate a YAML body without writing files. Cheap; use it before paying the render cost on long decks.
@@ -175,7 +176,8 @@ For ANY slide-deck deliverable (PPT, presentation, pitch deck, quarterly review,
 - **audit_pptx**: check a generated .pptx for OOXML conformance issues that would make PowerPoint reject the file. Run when a deck is intended for PowerPoint distribution.
 
 Workflow for "make me a deck":
-  0. (Optional) \`list_themes\` if the deck mood matters (engineering vs. board pack vs. sustainability vs. minimal print). Skip when the user's request is generic — \`technical-blue\` is the default and covers most cases.
+  0a. (Optional) \`list_themes\` if the deck mood matters (engineering vs. board pack vs. sustainability vs. minimal print). Skip when the user's request is generic — \`technical-blue\` is the default and covers most cases.
+  0b. (When the deck needs cover / background / illustration imagery) \`describe_theme(name)\` → read \`imagery.guidance\` + \`palette\`. Pass the guidance verbatim AND mention the palette hex codes when calling \`image_gen\` — that's what keeps images visually coherent with the rest of the deck.
   1. \`list_slide_layouts\` (with the chosen theme, or default) → pick 4–6 layouts.
   2. \`describe_slide_layout\` for each pick → study slot schemas and example payloads.
   3. **Ground the content.** If slots ask for KPIs, chart data, table rows, or images you don't actually have, ASK the user for the data (or read it from a file with \`read_file\` / \`search_knowledge\`) BEFORE writing the YAML. Do NOT fabricate numbers, percentages, growth rates, or quoted figures — fabricated data is the worst failure mode here.

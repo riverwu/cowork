@@ -26,6 +26,7 @@ import {
   editDeck,
   auditPptx,
   listInstalledThemes,
+  describeInstalledTheme,
   type EditOp,
   SlidemlAggregateError,
 } from "../index.js";
@@ -42,6 +43,7 @@ usage:
   slideml edit     <sidecar.slideml> --ops <ops.json> --theme <name|path> -o <out.pptx>
   slideml audit    <deck.pptx> [--json]
   slideml themes   [--json]
+  slideml describe-theme <name> [--json]
 
 themes:
   built-in: technical-blue
@@ -217,7 +219,31 @@ async function main(): Promise<void> {
         const tag = t.source === "builtin" ? "[builtin]" : "[user]   ";
         process.stdout.write(`${tag} ${t.name.padEnd(22)} ${t.displayName} — ${t.description}\n`);
         if (t.whenToUse) process.stdout.write(`${" ".repeat(34)}use: ${t.whenToUse}\n`);
+        if (t.audiences) process.stdout.write(`${" ".repeat(34)}audiences: ${t.audiences.join(", ")}\n`);
+        if (t.industries) process.stdout.write(`${" ".repeat(34)}industries: ${t.industries.join(", ")}\n`);
+        if (t.moods) process.stdout.write(`${" ".repeat(34)}moods: ${t.moods.join(", ")}\n`);
       }
+    }
+    return;
+  }
+
+  if (cmd === "describe-theme") {
+    const themeName = opts.positional[0];
+    if (!themeName) fail("describe-theme: missing theme name. Usage: slideml describe-theme <name>");
+    const detail = await describeInstalledTheme(themeName!);
+    if (!detail) fail(`Theme "${themeName}" not found.`);
+    if (opts.flags["json"] === "true") {
+      process.stdout.write(JSON.stringify(detail, null, 2) + "\n");
+    } else {
+      process.stdout.write(`${detail!.displayName} (${detail!.name})\n${detail!.description}\n`);
+      if (detail!.imagery?.guidance) {
+        process.stdout.write(`\nImagery: ${detail!.imagery.guidance}\n`);
+        if (detail!.imagery.palette) process.stdout.write(`  palette: ${detail!.imagery.palette.join(", ")}\n`);
+        if (detail!.imagery.preferredStyles) process.stdout.write(`  prefer:  ${detail!.imagery.preferredStyles.join(", ")}\n`);
+        if (detail!.imagery.avoid) process.stdout.write(`  avoid:   ${detail!.imagery.avoid.join(", ")}\n`);
+      }
+      if (detail!.voice?.tone) process.stdout.write(`\nVoice: ${detail!.voice.tone}\n`);
+      process.stdout.write(`\nLayouts (${detail!.layouts.length}): ${detail!.layouts.join(", ")}\n`);
     }
     return;
   }
