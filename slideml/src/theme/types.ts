@@ -54,6 +54,35 @@ export interface ThemeManifest {
   layouts: readonly LayoutEntry[];
   components?: readonly ComponentEntry[];
   chrome?: readonly string[];
+  /**
+   * OOXML-level overrides written into `ppt/theme/theme1.xml`. Optional —
+   * when omitted, the package emits the generic Office Theme. Setting this
+   * makes PowerPoint's Color/Font picker show the theme's actual palette
+   * and lets master-driven tokens (`schemeClr val="accent1"`) inherit the
+   * brand colors. All values reference token names already in `tokens`.
+   */
+  oxml?: {
+    /** 12 OOXML color slots; values are TOKEN NAMES from `tokens`. */
+    clrScheme?: {
+      bg1: string;       // light 1 (canvas)
+      tx1: string;       // dark 1 (body text)
+      bg2: string;       // light 2 (card)
+      tx2: string;       // dark 2 (muted text)
+      accent1: string;
+      accent2: string;
+      accent3: string;
+      accent4: string;
+      accent5: string;
+      accent6: string;
+      hlink: string;
+      folHlink: string;
+    };
+    /** Font scheme written into theme1.xml's `<a:fontScheme>`. */
+    fontScheme?: {
+      majorLatin: string;
+      minorLatin: string;
+    };
+  };
 }
 
 /**
@@ -73,6 +102,13 @@ export interface LoadedLayout {
   description: string;
   /** Resolved absolute path to the thumbnail PNG. */
   thumbnailAbsPath: string;
+  /**
+   * Optional agent-facing guidance — text following a `**Guidance:**`
+   * marker inside the layout's `theme.md` subsection. Surfaced in
+   * `describeLayout()` so an LLM picking this layout sees do/don't tips
+   * (e.g. "use the takeaway as a CONCLUSION, not chart commentary").
+   */
+  guidance?: string;
 }
 
 export interface LoadedComponent {
@@ -103,6 +139,11 @@ export interface LoadedTheme {
 /**
  * Slot schema declared by a layout/component module. Mirrors SPEC.md → Slot
  * value vocabulary. The validator (Stage 4) compiles these to JSON Schema.
+ *
+ * `region` is a polymorphic slot: the value is `{ kind: "kpi" | "chart" |
+ * "table" | "text", ... }` and the consuming layout enforces the cell
+ * shape. Used by the `dashboard` layout to host arbitrary content per
+ * cell without exploding the schema surface.
  */
 export type SlotSchema =
   | { type: "text"; maxChars: number; optional?: boolean }
@@ -112,4 +153,5 @@ export type SlotSchema =
   | { type: "image-ref"; optional?: boolean }
   | { type: "chart-spec"; optional?: boolean }
   | { type: "component-ref"; allowed?: readonly string[]; optional?: boolean }
-  | { type: "table"; optional?: boolean };
+  | { type: "table"; optional?: boolean }
+  | { type: "region"; optional?: boolean };

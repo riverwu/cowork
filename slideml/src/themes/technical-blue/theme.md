@@ -40,6 +40,8 @@ Three KPI tiles in a row. Pick when surfacing 3 headline metrics.
 - `items` — `bullets`, exactly 3 entries. Each entry is a KPI object:
   `{ value: text(8), label: text(20), delta: text(10), trend: up|down|flat }`.
 
+> **Guidance:** Pick THE three most newsworthy numbers — not whatever you have data for. If only two KPIs are genuinely material, use a different layout. Don't set every `trend` to `up`; that loses signal. `value` is the headline (e.g. "$42.5M"), `label` names the metric, `delta` shows the comparison ("+85% YoY", not "85").
+
 ![stat-grid-3](thumbnails/stat-grid-3.png)
 
 ### bullet-with-image
@@ -47,7 +49,9 @@ Title + 3-6 bullets on the left, image on the right.
 
 - `title` — `text`, ≤ 50 chars. Required.
 - `bullets` — `bullets`, 3-6 entries, each ≤ 80 chars. Required.
-- `image` — `image-ref`. Required. Cover-fits the right column.
+- `image` — `image-ref`. Optional — when omitted, bullets expand to full width.
+
+> **Guidance:** Bullets are TERSE — typically 5-12 words, never full sentences with em-dashes. Long prose belongs in `notes:`. If you don't have a real image, omit `image` (don't fabricate URLs).
 
 ![bullet-with-image](thumbnails/bullet-with-image.png)
 
@@ -77,6 +81,8 @@ to show one chart and one takeaway sentence.
 - `title` — `text`, ≤ 50 chars. Required.
 - `chart` — `chart-spec`. Required. `{ type: bar|stacked-bar|line|area|pie|doughnut, data: { labels, series }, format: { y: int|decimal|percent|wanyuan|yi }, title? }`.
 - `takeaway` — `markdown-inline`, ≤ 160 chars. Optional. Rendered in a callout below the chart.
+
+> **Guidance:** The `takeaway` is a CONCLUSION (so-what), not a chart caption. Bad: "Chart shows quarterly revenue". Good: "**Q4 grew 19% QoQ** — second-half acceleration is real, not a base-effect." Pick chart `type` by intent: bar = compare across categories; line = change over time; stacked-bar = composition over time; pie = part-of-whole when ≤4 slices.
 
 ![chart-with-takeaway](thumbnails/chart-with-takeaway.png)
 
@@ -157,6 +163,22 @@ Mirror of `cover` — full-bleed deep-blue panel with a centered title and optio
 - `subtitle` — `text`, ≤ 80 chars. Optional.
 
 ![closing](thumbnails/closing.png)
+
+### dashboard
+2×2 grid where each cell hosts a polymorphic region. Use when one slide
+must surface multiple kinds of content at once (KPI + chart + table + text).
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `tl` / `tr` / `bl` / `br` — `region` cells. Each cell is one of:
+  - `{ kind: "kpi", value, label, delta?, trend? }`
+  - `{ kind: "chart", chart: { type, data, format? }, title? }`
+  - `{ kind: "table", table: { header, rows, colWidths? }, title? }`
+  - `{ kind: "text", body, title? }`
+- Only `tl` is required; remaining cells render empty when omitted.
+
+> **Guidance:** Use this ONLY when the slide truly needs heterogeneous content together (executive briefing). For a single chart, single table, or single KPI grid prefer the focused layout (chart-with-takeaway / data-table / stat-grid-3) — they look better. Mix kinds across cells: don't put 4 KPIs here, use stat-grid-3.
+
+![dashboard](thumbnails/dashboard.png)
 
 ## Components
 

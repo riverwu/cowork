@@ -243,6 +243,22 @@ function validateSlotValue(
         out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.rows (array of arrays) is required.` });
       }
       return;
+
+    case "region": {
+      // Polymorphic cell: { kind: "kpi"|"chart"|"table"|"text", ... }.
+      // Shallow validation here (kind enum); deep shape enforcement
+      // happens in the consuming layout because each kind has its own
+      // shape that mirrors existing slot types.
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected a region object: { kind: "kpi"|"chart"|"table"|"text", ... }.` });
+        return;
+      }
+      const kind = (value as { kind?: unknown }).kind;
+      if (typeof kind !== "string" || !["kpi", "chart", "table", "text"].includes(kind)) {
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.kind must be one of "kpi", "chart", "table", "text".` });
+      }
+      return;
+    }
   }
 }
 

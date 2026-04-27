@@ -13,7 +13,7 @@
 import { readFile, access } from "node:fs/promises";
 import { resolve, isAbsolute, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { validateThemeStructure, parseThemeMd, type ThemeMdSections } from "./validator.js";
+import { validateThemeStructure, parseThemeMd, extractGuidance, type ThemeMdSections } from "./validator.js";
 import { assertHex } from "../emitter/xml.js";
 import type {
   LoadedComponent,
@@ -99,12 +99,14 @@ export async function loadTheme(themeDir: string): Promise<LoadedTheme> {
     }
 
     const thumbAbs = resolve(rootDir, entry.thumbnail);
+    const layoutSubsection = docSections.layoutSubsections[entry.name] ?? "";
     layouts.set(entry.name, {
       entry,
       slots,
       render,
       description: docSections.layoutDescriptions[entry.name] ?? "",
       thumbnailAbsPath: thumbAbs,
+      guidance: extractGuidance(layoutSubsection),
     });
   }
 

@@ -47,6 +47,7 @@ describe("Stage 3 — theme loader", () => {
       "code-block",
       "compare-two-columns",
       "cover",
+      "dashboard",
       "data-table",
       "hero-image-overlay",
       "image-grid-2x2",

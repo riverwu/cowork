@@ -59,6 +59,18 @@ export function exampleForSlot(
     case "component-ref":
       return { name: "<component-name>", slots: {} };
 
+    case "region":
+      return {
+        kind: "kpi",
+        value: "$42.5M",
+        label: "ARR",
+        delta: "+85% YoY",
+        trend: "up",
+        // alternatively: { kind: "chart", chart: { type, data, format? }, title? }
+        //                 { kind: "table", table: { header, rows, colWidths? }, title? }
+        //                 { kind: "text", body, title? }
+      };
+
     case "markdown-inline":
     case "text-block":
     case "text":

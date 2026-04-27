@@ -1,0 +1,50 @@
+{
+  "name": "editorial-warm",
+  "version": "1.0.0",
+  "slidemlVersion": "1",
+  "displayName": "Editorial Warm",
+  "description": "Editorial / consulting deck — cream canvas, deep warm grays, rust accent. Serif headings, sans body. Print-friendly.",
+  "author": "SlideML",
+  "tokens": {
+    "bg-canvas":     "FBF7F0",
+    "bg-card":       "FFFFFF",
+    "brand-primary": "C0432D",
+    "brand-deep":    "8C2E1B",
+    "text-strong":   "2C2620",
+    "text-muted":    "7A6F62",
+    "accent":        "A88859",
+    "divider":       "E5DCC9",
+    "font-latin":    ["Source Sans Pro", "Helvetica Neue", "Helvetica", "Arial", "sans-serif"],
+    "font-cjk":      ["PingFang SC", "Microsoft YaHei", "Source Han Sans CN", "Noto Sans SC", "sans-serif"],
+    "font-mono":     ["JetBrains Mono", "Menlo", "Consolas", "monospace"]
+  },
+  "oxml": {
+    "clrScheme": {
+      "bg1": "bg-canvas",
+      "tx1": "text-strong",
+      "bg2": "bg-card",
+      "tx2": "text-muted",
+      "accent1": "brand-primary",
+      "accent2": "brand-deep",
+      "accent3": "accent",
+      "accent4": "text-muted",
+      "accent5": "divider",
+      "accent6": "bg-card",
+      "hlink": "brand-primary",
+      "folHlink": "brand-deep"
+    },
+    "fontScheme": {
+      "majorLatin": "Source Serif Pro",
+      "minorLatin": "Source Sans Pro"
+    }
+  },
+  "layouts": [
+    { "name": "cover",                "module": "layouts/cover.js",                "thumbnail": "thumbnails/cover.png" },
+    { "name": "agenda",               "module": "layouts/agenda.js",               "thumbnail": "thumbnails/agenda.png" },
+    { "name": "stat-grid-3",          "module": "layouts/stat-grid-3.js",          "thumbnail": "thumbnails/stat-grid-3.png" },
+    { "name": "chart-with-takeaway",  "module": "layouts/chart-with-takeaway.js",  "thumbnail": "thumbnails/chart-with-takeaway.png" },
+    { "name": "bullet-with-image",    "module": "layouts/bullet-with-image.js",    "thumbnail": "thumbnails/bullet-with-image.png" },
+    { "name": "closing",              "module": "layouts/closing.js",              "thumbnail": "thumbnails/closing.png" }
+  ],
+  "chrome": ["page-number"]
+}

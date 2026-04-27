@@ -18,6 +18,26 @@
     "font-cjk": ["PingFang SC", "Microsoft YaHei", "Source Han Sans CN", "Noto Sans SC", "sans-serif"],
     "font-mono": ["JetBrains Mono", "Menlo", "Consolas", "monospace"]
   },
+  "oxml": {
+    "clrScheme": {
+      "bg1": "bg-canvas",
+      "tx1": "text-strong",
+      "bg2": "bg-card",
+      "tx2": "text-muted",
+      "accent1": "brand-primary",
+      "accent2": "brand-deep",
+      "accent3": "accent",
+      "accent4": "text-muted",
+      "accent5": "divider",
+      "accent6": "bg-card",
+      "hlink": "brand-primary",
+      "folHlink": "brand-deep"
+    },
+    "fontScheme": {
+      "majorLatin": "Inter",
+      "minorLatin": "Inter"
+    }
+  },
   "layouts": [
     { "name": "cover",                "module": "layouts/cover.js",                "thumbnail": "thumbnails/cover.png" },
     { "name": "title-only",           "module": "layouts/title-only.js",           "thumbnail": "thumbnails/title-only.png" },
@@ -34,6 +54,7 @@
     { "name": "code-block",           "module": "layouts/code-block.js",           "thumbnail": "thumbnails/code-block.png" },
     { "name": "quote",                "module": "layouts/quote.js",                "thumbnail": "thumbnails/quote.png" },
     { "name": "chart-with-takeaway",  "module": "layouts/chart-with-takeaway.js",  "thumbnail": "thumbnails/chart-with-takeaway.png" },
+    { "name": "dashboard",            "module": "layouts/dashboard.js",            "thumbnail": "thumbnails/dashboard.png" },
     { "name": "closing",              "module": "layouts/closing.js",              "thumbnail": "thumbnails/closing.png" }
   ],
   "components": [

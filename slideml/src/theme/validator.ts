@@ -177,6 +177,36 @@ function firstParagraph(text: string): string {
   return (idx > 0 ? trimmed.slice(0, idx) : trimmed).trim();
 }
 
+/**
+ * Extract the body of a `**Guidance:**` marker in a layout subsection.
+ * Convention: a line starting with `**Guidance:**` (with optional `>`
+ * blockquote prefix); content runs until the next blank line OR the
+ * next markdown heading. Returns undefined when no marker is present.
+ */
+export function extractGuidance(subsectionBody: string): string | undefined {
+  const lines = subsectionBody.split(/\r?\n/);
+  let inGuidance = false;
+  const collected: string[] = [];
+  for (const line of lines) {
+    if (!inGuidance) {
+      const m = /^>?\s*\*\*Guidance:\*\*\s*(.*)$/.exec(line);
+      if (m) {
+        inGuidance = true;
+        if (m[1]!.trim()) collected.push(m[1]!.trim());
+      }
+      continue;
+    }
+    // Stop on blank line, heading, or thumbnail image.
+    if (line.trim() === "" || /^#+\s/.test(line) || /^!\[/.test(line.trim())) {
+      break;
+    }
+    // Strip leading `>` (blockquote continuation).
+    collected.push(line.replace(/^>\s?/, "").trim());
+  }
+  if (collected.length === 0) return undefined;
+  return collected.join(" ").trim();
+}
+
 function capitalize(s: string): string {
   return s.replace(/\b\w/g, (c) => c.toUpperCase());
 }

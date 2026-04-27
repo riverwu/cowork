@@ -9,11 +9,59 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { parseSlideml } from "./parser.js";
 import { renderDeck, type DeckSpec } from "./render/index.js";
-import { emitPackage } from "./emitter/package.js";
+import { emitPackage, type ResolvedThemeOxml } from "./emitter/package.js";
 import { loadTheme as internalLoadTheme } from "./theme/loader.js";
 import { validateDeckSpec, type SlidemlValidationError } from "./validator.js";
 import type { LoadedTheme, SlotSchema } from "./theme/types.js";
 import { exampleForSlot } from "./slot-examples.js";
+
+/**
+ * Resolve a theme's OOXML overrides (token references) into concrete
+ * hex/font values for the emitter. Returns undefined when the theme
+ * doesn't declare an `oxml` block — the emitter then falls back to
+ * generic Office defaults.
+ */
+function resolveThemeOxml(theme: LoadedTheme): ResolvedThemeOxml | undefined {
+  const oxml = theme.manifest.oxml;
+  if (!oxml || !oxml.clrScheme) return undefined;
+  const tokens = theme.manifest.tokens;
+  const colorToken = (tokenName: string): string => {
+    const v = tokens[tokenName];
+    if (typeof v !== "string") {
+      throw new Error(`theme "${theme.manifest.name}" oxml.clrScheme references unknown or non-color token "${tokenName}".`);
+    }
+    return v;
+  };
+  const cs = oxml.clrScheme;
+  return {
+    name: theme.manifest.displayName ?? theme.manifest.name,
+    colors: {
+      // dk1/lt1 may be omitted to keep the OOXML sysClr fallback (best for
+      // accessibility — follows Windows light/dark mode).
+      dk1: cs.tx1 ? colorToken(cs.tx1) : undefined,
+      lt1: cs.bg1 ? colorToken(cs.bg1) : undefined,
+      dk2:     colorToken(cs.tx2),
+      lt2:     colorToken(cs.bg2),
+      accent1: colorToken(cs.accent1),
+      accent2: colorToken(cs.accent2),
+      accent3: colorToken(cs.accent3),
+      accent4: colorToken(cs.accent4),
+      accent5: colorToken(cs.accent5),
+      accent6: colorToken(cs.accent6),
+      hlink:   colorToken(cs.hlink),
+      folHlink: colorToken(cs.folHlink),
+    },
+    fonts: oxml.fontScheme ?? {
+      majorLatin: firstFontFromToken(tokens["font-latin"]) ?? "Calibri Light",
+      minorLatin: firstFontFromToken(tokens["font-latin"]) ?? "Calibri",
+    },
+  };
+}
+
+function firstFontFromToken(value: unknown): string | undefined {
+  if (Array.isArray(value) && value.length > 0 && typeof value[0] === "string") return value[0];
+  return undefined;
+}
 
 export type { Length, DeckSize } from "./units.js";
 export { toEmu, cm, inch, pt, SLIDE_SIZES } from "./units.js";
@@ -97,9 +145,15 @@ export interface LayoutSummary {
  * Full layout detail with per-slot examples. Returned by `describeLayout`
  * for the layouts the agent has decided to use, after picking from the
  * compact summary list. Examples eliminate the slot-shape retry loop.
+ *
+ * `guidance` carries content-quality tips authored in `theme.md` under a
+ * `**Guidance:**` marker (e.g. "use the takeaway slot for a CONCLUSION,
+ * not chart commentary"). Optional — only present when the theme author
+ * wrote one.
  */
 export interface LayoutDetail extends LayoutInfo {
   slotSchema: Record<string, SlotSchema & { example?: unknown }>;
+  guidance?: string;
 }
 
 /**
@@ -122,7 +176,7 @@ export async function compile(
   }
 
   const ast = renderDeck(spec, theme);
-  const buffer = await emitPackage(ast);
+  const buffer = await emitPackage(ast, resolveThemeOxml(theme));
 
   if (opts.output) {
     await mkdir(dirname(opts.output), { recursive: true });
@@ -224,6 +278,7 @@ export function describeLayout(
     description: loaded.description,
     slotSchema: enriched,
     thumbnailPath: loaded.thumbnailAbsPath,
+    guidance: loaded.guidance,
   };
 }
 

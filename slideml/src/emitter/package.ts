@@ -21,8 +21,42 @@ import { slideRelsXml, slideXml } from "./slide.js";
 import { SLIDE_SIZES } from "../units.js";
 import type { ChartShape, DeckAst, ImageShape } from "./types.js";
 
+/**
+ * Resolved theme1.xml inputs — produced from `ThemeManifest.oxml` by
+ * the renderer (which has the token table and can resolve names → hex).
+ */
+export interface ResolvedThemeOxml {
+  name: string;
+  colors: {
+    dk1?: string; // optional → emit sysClr fallback
+    lt1?: string;
+    dk2: string;
+    lt2: string;
+    accent1: string;
+    accent2: string;
+    accent3: string;
+    accent4: string;
+    accent5: string;
+    accent6: string;
+    hlink: string;
+    folHlink: string;
+  };
+  fonts: { majorLatin: string; minorLatin: string };
+}
+
+const OFFICE_FALLBACK_COLORS: ResolvedThemeOxml["colors"] = {
+  dk2: "44546A", lt2: "E7E6E6",
+  accent1: "4472C4", accent2: "ED7D31", accent3: "A5A5A5",
+  accent4: "FFC000", accent5: "5B9BD5", accent6: "70AD47",
+  hlink: "0563C1", folHlink: "954F72",
+};
+const OFFICE_FALLBACK_FONTS: ResolvedThemeOxml["fonts"] = {
+  majorLatin: "Calibri Light",
+  minorLatin: "Calibri",
+};
+
 /** Compile a `DeckAst` to a `.pptx` Buffer. */
-export async function emitPackage(deck: DeckAst): Promise<Buffer> {
+export async function emitPackage(deck: DeckAst, themeOxml?: ResolvedThemeOxml): Promise<Buffer> {
   if (deck.slides.length === 0) {
     throw new Error("emitPackage: deck has no slides");
   }
@@ -63,7 +97,7 @@ export async function emitPackage(deck: DeckAst): Promise<Buffer> {
   zip.file("docProps/core.xml", coreXml(title, author));
 
   // --- Theme (single fixed default) ---------------------------------------
-  zip.file("ppt/theme/theme1.xml", themeXml());
+  zip.file("ppt/theme/theme1.xml", themeXml(themeOxml));
 
   // --- Slide master + layout (single, fixed) ------------------------------
   zip.file("ppt/slideMasters/slideMaster1.xml", slideMasterXml());
@@ -294,28 +328,43 @@ function coreXml(title: string, author: string): string {
 </cp:coreProperties>`;
 }
 
-/** A theme1.xml minimal enough for PowerPoint to accept the package. */
-function themeXml(): string {
+/**
+ * theme1.xml. When `themeOxml` is provided (typically computed from
+ * `ThemeManifest.oxml`), the color scheme and fonts reflect the SlideML
+ * theme — making PowerPoint's color picker and font picker show the
+ * brand palette instead of generic Office. When omitted, falls back to
+ * Office defaults.
+ */
+function themeXml(themeOxml?: ResolvedThemeOxml): string {
+  const themeName = themeOxml?.name ?? "Office Theme";
+  const c = themeOxml?.colors ?? OFFICE_FALLBACK_COLORS;
+  const f = themeOxml?.fonts ?? OFFICE_FALLBACK_FONTS;
+  const dk1 = c.dk1
+    ? `<a:srgbClr val="${c.dk1.toUpperCase()}"/>`
+    : `<a:sysClr val="windowText" lastClr="000000"/>`;
+  const lt1 = c.lt1
+    ? `<a:srgbClr val="${c.lt1.toUpperCase()}"/>`
+    : `<a:sysClr val="window" lastClr="FFFFFF"/>`;
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office Theme">
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="${escapeForXml(themeName)}">
 <a:themeElements>
-<a:clrScheme name="Office">
-<a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>
-<a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1>
-<a:dk2><a:srgbClr val="44546A"/></a:dk2>
-<a:lt2><a:srgbClr val="E7E6E6"/></a:lt2>
-<a:accent1><a:srgbClr val="4472C4"/></a:accent1>
-<a:accent2><a:srgbClr val="ED7D31"/></a:accent2>
-<a:accent3><a:srgbClr val="A5A5A5"/></a:accent3>
-<a:accent4><a:srgbClr val="FFC000"/></a:accent4>
-<a:accent5><a:srgbClr val="5B9BD5"/></a:accent5>
-<a:accent6><a:srgbClr val="70AD47"/></a:accent6>
-<a:hlink><a:srgbClr val="0563C1"/></a:hlink>
-<a:folHlink><a:srgbClr val="954F72"/></a:folHlink>
+<a:clrScheme name="${escapeForXml(themeName)}">
+<a:dk1>${dk1}</a:dk1>
+<a:lt1>${lt1}</a:lt1>
+<a:dk2><a:srgbClr val="${c.dk2.toUpperCase()}"/></a:dk2>
+<a:lt2><a:srgbClr val="${c.lt2.toUpperCase()}"/></a:lt2>
+<a:accent1><a:srgbClr val="${c.accent1.toUpperCase()}"/></a:accent1>
+<a:accent2><a:srgbClr val="${c.accent2.toUpperCase()}"/></a:accent2>
+<a:accent3><a:srgbClr val="${c.accent3.toUpperCase()}"/></a:accent3>
+<a:accent4><a:srgbClr val="${c.accent4.toUpperCase()}"/></a:accent4>
+<a:accent5><a:srgbClr val="${c.accent5.toUpperCase()}"/></a:accent5>
+<a:accent6><a:srgbClr val="${c.accent6.toUpperCase()}"/></a:accent6>
+<a:hlink><a:srgbClr val="${c.hlink.toUpperCase()}"/></a:hlink>
+<a:folHlink><a:srgbClr val="${c.folHlink.toUpperCase()}"/></a:folHlink>
 </a:clrScheme>
-<a:fontScheme name="Office">
-<a:majorFont><a:latin typeface="Calibri Light"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>
-<a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont>
+<a:fontScheme name="${escapeForXml(themeName)}">
+<a:majorFont><a:latin typeface="${escapeForXml(f.majorLatin)}"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>
+<a:minorFont><a:latin typeface="${escapeForXml(f.minorLatin)}"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont>
 </a:fontScheme>
 <a:fmtScheme name="Office">
 <a:fillStyleLst>
