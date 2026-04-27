@@ -104,6 +104,31 @@ describe("Stage 4 — validator", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("rejects chart-spec with mismatched labels.length and series.values.length (cross-field)", async () => {
+    const theme = await loadTheme(BUILT_THEME);
+    const yaml =
+`slideml: 1
+deck: { size: 16x9, theme: technical-blue }
+slides:
+  - layout: chart-with-takeaway
+    slots:
+      title: "Bad chart"
+      chart:
+        type: bar
+        data:
+          labels: ["Q1", "Q2", "Q3"]
+          series:
+            - { name: "Revenue", values: [100, 120] }
+        format: { y: "int" }
+`;
+    const result = validateDeckSpec(parseSlideml(yaml), theme);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    const err = result.errors.find((e) => e.code === "SLOT_LENGTH_MISMATCH");
+    expect(err).toBeDefined();
+    expect(err?.message).toMatch(/2 items but data\.labels has 3/);
+  });
+
   it("rejects extra unrecognized slot names", async () => {
     const theme = await loadTheme(BUILT_THEME);
     const yaml = `slideml: 1\ndeck: { size: 16x9, theme: technical-blue }\nslides:\n  - layout: cover\n    slots:\n      title: hi\n      mystery: 42\n`;

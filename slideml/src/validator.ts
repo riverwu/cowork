@@ -319,6 +319,13 @@ function validateChartSpec(value: Record<string, unknown>, ctx: SlidemlValidatio
     out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.data.series must be a non-empty array.` });
     return;
   }
+  // Track labels.length so we can flag mismatched series.values arrays —
+  // a class of bug JSON Schema can't express (cross-field constraint).
+  // Only run the alignment check when labels actually parsed successfully.
+  const labelCount = Array.isArray(labels) && labels.every((l) => typeof l === "string")
+    ? labels.length
+    : null;
+
   series.forEach((s, i) => {
     if (typeof s !== "object" || s === null) {
       out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.data.series[${i}] must be { name, values }.` });
@@ -330,6 +337,17 @@ function validateChartSpec(value: Record<string, unknown>, ctx: SlidemlValidatio
     const values = (s as { values?: unknown }).values;
     if (!Array.isArray(values) || values.some((n) => typeof n !== "number" || !Number.isFinite(n))) {
       out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.data.series[${i}].values must be number[].` });
+      return;
+    }
+    if (labelCount !== null && values.length !== labelCount) {
+      out.push({
+        ...ctx,
+        code: "SLOT_LENGTH_MISMATCH",
+        message:
+          `${slotPath(ctx)}.data.series[${i}].values has ${values.length} items but data.labels has ${labelCount}. ` +
+          `Each series's values[] must align 1:1 with labels[].`,
+        hint: `Pad/truncate values to length ${labelCount} or add/remove labels to match.`,
+      });
     }
   });
 }

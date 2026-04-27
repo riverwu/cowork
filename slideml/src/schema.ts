@@ -75,10 +75,94 @@ export function buildSlidemlSchema(): Record<string, unknown> {
           },
           theme: {
             description:
-              "Theme name (informational). Renderer reads inline palette/fonts; theme is consumed by the agent for advice. " +
-              "Built-in: technical-blue, editorial-warm, midnight-executive, forest-moss, charcoal-minimal.",
+              "Theme name. The agent reads the named theme's advice (palette, imagery, voice) when authoring; " +
+              "the renderer reads `palette`/`fonts`/`style` blocks below if present, otherwise falls back to the " +
+              "named theme's tokens. Built-in: technical-blue, editorial-warm, midnight-executive, forest-moss, " +
+              "charcoal-minimal. Custom themes can live under ~/.cowork/themes/<name>/.",
             type: "string",
           },
+          // ── Phase-B fields (deck inlines its own visual identity) ─────
+          // These let a deck be self-contained — renderer doesn't need
+          // the named theme to be installed if these are present.
+          palette: {
+            description:
+              "Brand palette — token name → 6-char hex (no #). Required tokens: bg-canvas, bg-card, " +
+              "brand-primary, brand-deep, text-strong, text-muted, accent, divider. Custom token names " +
+              "are allowed but only the standard set is consumed by built-in layouts.",
+            type: "object",
+            additionalProperties: { type: "string", pattern: HEX6_PATTERN },
+            properties: {
+              "bg-canvas":     { type: "string", pattern: HEX6_PATTERN },
+              "bg-card":       { type: "string", pattern: HEX6_PATTERN },
+              "brand-primary": { type: "string", pattern: HEX6_PATTERN },
+              "brand-deep":    { type: "string", pattern: HEX6_PATTERN },
+              "text-strong":   { type: "string", pattern: HEX6_PATTERN },
+              "text-muted":    { type: "string", pattern: HEX6_PATTERN },
+              "accent":        { type: "string", pattern: HEX6_PATTERN },
+              "divider":       { type: "string", pattern: HEX6_PATTERN },
+            },
+          },
+          fonts: {
+            description: "Font family names by role. Each role accepts a single family or an ordered fallback list.",
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              latin: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" }, minItems: 1 }] },
+              cjk:   { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" }, minItems: 1 }] },
+              mono:  { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" }, minItems: 1 }] },
+            },
+          },
+          style: {
+            description: "Theme-style flags consumed by primitives.",
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              titleAccentRule: {
+                description: "Whether slideTitle() draws the brand accent rule under titles. Default true.",
+                type: "boolean",
+              },
+              contrastTarget: {
+                description: "WCAG contrast enforcement at theme load.",
+                enum: ["warn", "AA", "AAA"],
+              },
+            },
+          },
+          oxml: {
+            description:
+              "OOXML scheme overrides written to theme1.xml (so PowerPoint's color picker reflects the brand). " +
+              "Values reference token names from `palette`.",
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              clrScheme: {
+                type: "object",
+                additionalProperties: false,
+                required: ["bg1", "tx1", "bg2", "tx2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink"],
+                properties: {
+                  bg1:     { type: "string" }, tx1:     { type: "string" },
+                  bg2:     { type: "string" }, tx2:     { type: "string" },
+                  accent1: { type: "string" }, accent2: { type: "string" },
+                  accent3: { type: "string" }, accent4: { type: "string" },
+                  accent5: { type: "string" }, accent6: { type: "string" },
+                  hlink:   { type: "string" }, folHlink: { type: "string" },
+                },
+              },
+              fontScheme: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  majorLatin: { type: "string" },
+                  minorLatin: { type: "string" },
+                },
+              },
+            },
+          },
+          chrome: {
+            description: "Names of chrome modules to enable for every slide unless suppressed by `slide.chrome`.",
+            type: "array",
+            items: { enum: ["page-header", "page-footer", "page-number", "brand-bar"] },
+          },
+          // ── End Phase-B fields ────────────────────────────────────────
           defaults: {
             description: "Token-name → token-name remappings (informational; renderer ignores).",
             type: "object",
@@ -97,7 +181,12 @@ export function buildSlidemlSchema(): Record<string, unknown> {
         additionalProperties: false,
         properties: {
           layout: {
-            description: "Layout name from the SlideML core registry.",
+            description:
+              "Layout name from the SlideML core registry. The enum is closed by design — themes do NOT add layouts. " +
+              "Extension contract: if you need a layout that doesn't exist here, do NOT invent a name (the renderer " +
+              "will reject unknown layouts). Instead pick the closest existing layout and embed bespoke content via " +
+              "a `component-ref` slot. New layouts are added to the SlideML core after community review, then become " +
+              "available everywhere.",
             enum: allLayoutNames,
           },
           chrome: { $ref: "#/$defs/ChromeSpec" },
@@ -187,17 +276,37 @@ export function buildSlidemlSchema(): Record<string, unknown> {
 
       ImageRef: {
         description:
-          "Image reference. Accepts an object `{ src, alt? }`, a bare path/URL string (auto-wrapped), " +
-          "or `{ url, alt? }` (alias for src).",
+          "Image reference. CANONICAL form: `{ src, alt?, aspectRatio?, fit? }`. " +
+          "Two alternate forms are accepted for ergonomics: a bare path/URL string (auto-wrapped to `{ src }`), " +
+          "and `{ url, ... }` where `url` is a deprecated alias for `src` (kept for compatibility). " +
+          "Prefer `src` in new content.",
         oneOf: [
-          { type: "string", minLength: 1 },
+          { type: "string", minLength: 1, description: "Bare path / URL — auto-wrapped to { src }." },
           {
             type: "object",
             properties: {
-              src: { type: "string" },
-              url: { type: "string" },
+              src: {
+                description: "Canonical. Path, http(s) URL, or data: URL.",
+                type: "string",
+              },
+              url: {
+                description: "Deprecated alias for `src`. Prefer `src`.",
+                type: "string",
+                deprecated: true,
+              },
               alt: { type: "string" },
-              fit: { enum: ["contain", "cover", "crop"] },
+              fit: {
+                enum: ["contain", "cover", "crop"],
+                description: "How the image fits its bounding box. Default `cover`.",
+              },
+              aspectRatio: {
+                description:
+                  "Optional intrinsic aspect ratio (width / height) of the source image. " +
+                  "Lets the renderer reserve space accurately and lets image_gen size the output to match. " +
+                  "Common values: 1.778 (16:9), 1.0 (square), 0.75 (3:4 portrait).",
+                type: "number",
+                exclusiveMinimum: 0,
+              },
             },
             anyOf: [{ required: ["src"] }, { required: ["url"] }],
           },
@@ -205,6 +314,11 @@ export function buildSlidemlSchema(): Record<string, unknown> {
       },
 
       ChartSpec: {
+        description:
+          "Chart specification. CROSS-FIELD CONSTRAINT (enforced by the SlideML compiler, not by JSON Schema): " +
+          "every series's `values` array MUST have the same length as `data.labels`. JSON Schema cannot express " +
+          "this directly — the compiler raises SLOT_TYPE_MISMATCH if labels.length ≠ values.length. " +
+          "Pie / doughnut charts use only the first series.",
         type: "object",
         required: ["type", "data"],
         additionalProperties: false,
@@ -225,7 +339,11 @@ export function buildSlidemlSchema(): Record<string, unknown> {
                   additionalProperties: false,
                   properties: {
                     name:   { type: "string" },
-                    values: { type: "array", items: { type: "number" } },
+                    values: {
+                      type: "array",
+                      items: { type: "number" },
+                      description: "Length MUST equal data.labels.length (compiler-enforced).",
+                    },
                   },
                 },
               },
