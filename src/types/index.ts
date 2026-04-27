@@ -202,6 +202,7 @@ export type AgentEvent =
   | { type: "skill-done"; skill: string; result: unknown; durationMs: number; success: boolean }
   | { type: "artifact"; artifact: Artifact }
   | { type: "knowledge-ref"; refs: { documentId: string; filename: string; snippet: string }[] }
+  | { type: "context-dump"; content: string }
   | { type: "error"; error: string }
   | { type: "done" };
 

@@ -31,6 +31,7 @@ interface ToolDetailProps {
     toolCount?: number;
     builtin?: boolean;
     requiredEnv?: Record<string, string>;
+    callTimeoutMs?: number;
   };
   onBack: () => void;
   onRefresh: () => void;
@@ -46,6 +47,12 @@ export function ToolDetail({ tool, onBack, onRefresh }: ToolDetailProps) {
   const [envSaving, setEnvSaving] = useState(false);
   const [uninstalling, setUninstalling] = useState(false);
   const [uninstallError, setUninstallError] = useState<string | null>(null);
+  // Per-server tool-call timeout (seconds in the input, ms in storage).
+  // Empty string = use the transport default; explicit number = override.
+  const [timeoutSecondsInput, setTimeoutSecondsInput] = useState<string>(
+    tool.callTimeoutMs ? String(Math.round(tool.callTimeoutMs / 1000)) : "",
+  );
+  const [timeoutSaving, setTimeoutSaving] = useState(false);
 
   useEffect(() => {
     // Load SKILL.md content for skills
@@ -126,6 +133,46 @@ export function ToolDetail({ tool, onBack, onRefresh }: ToolDetailProps) {
             <IconWarning size={16} className="text-[var(--error)] mt-0.5 shrink-0" />
             <p className="text-[13px] text-[var(--error)]">{tool.error}</p>
           </div>
+        )}
+
+        {/* Per-server tool-call timeout (any MCP) */}
+        {!isSkill && (
+          <section className="mb-8">
+            <h2 className="text-[14px] font-semibold text-[var(--on-surface)] mb-3">Call timeout</h2>
+            <div className="bg-[var(--surface-lowest)] rounded-xl border border-[var(--border)] p-4 space-y-3">
+              <p className="text-[12px] text-[var(--on-surface-tertiary)] leading-relaxed">
+                Maximum time a single <code className="font-mono text-[11px]">tools/call</code> request to this server can take before it is aborted. Leave empty to use the default (300s). Use a smaller value (e.g. 30–60s) for servers with slow upstream APIs that you don't want to hang on.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={timeoutSecondsInput}
+                  onChange={(e) => setTimeoutSecondsInput(e.target.value)}
+                  placeholder="default (300)"
+                  className="w-32 px-3 py-2 bg-[var(--surface-low)] border border-[var(--border)] rounded-lg text-[13px] font-mono text-[var(--on-surface)] placeholder:text-[var(--on-surface-tertiary)] focus:outline-none focus:border-[var(--primary-accent)]"
+                />
+                <span className="text-[12px] text-[var(--on-surface-tertiary)]">seconds</span>
+                <button
+                  onClick={async () => {
+                    setTimeoutSaving(true);
+                    const mcpId = tool.id.replace("mcp_", "");
+                    const trimmed = timeoutSecondsInput.trim();
+                    const seconds = trimmed === "" ? NaN : Number(trimmed);
+                    const ms = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : undefined;
+                    await mcpManager.setCallTimeout(mcpId, ms);
+                    setTimeoutSaving(false);
+                    onRefresh();
+                  }}
+                  disabled={timeoutSaving}
+                  className="px-3 py-2 rounded-lg text-[12px] bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)] cursor-pointer transition-colors disabled:opacity-40"
+                >
+                  {timeoutSaving ? "..." : t("apps.save")}
+                </button>
+              </div>
+            </div>
+          </section>
         )}
 
         {/* Env configuration (for MCP with required env vars) */}

@@ -29,6 +29,7 @@ interface ToolItem {
   toolCount?: number;
   builtin?: boolean;
   requiredEnv?: Record<string, string>;
+  callTimeoutMs?: number;
 }
 
 export function AppsPage() {
@@ -81,6 +82,7 @@ export function AppsPage() {
         builtin: false,
         dirPath: server.dirPath,
         requiredEnv: server.requiredEnv,
+        callTimeoutMs: server.callTimeoutMs,
       });
     }
 

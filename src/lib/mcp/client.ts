@@ -19,13 +19,17 @@ export class McpClient {
   private serverName: string;
   private tools: McpToolInfo[] = [];
   private initialized = false;
+  /** Per-server cap on `tools/call` request duration, in ms. Unset = fall
+   *  back to the transport's built-in default. */
+  private callTimeoutMs: number | undefined;
   /** Called when the underlying process exits unexpectedly. */
   onProcessExit: ((serverId: string) => void) | null = null;
 
-  constructor(config: McpServerConfig & { name?: string }) {
+  constructor(config: McpServerConfig & { name?: string; callTimeoutMs?: number }) {
     this.transport = new McpTransport(config);
     this.serverId = config.id;
     this.serverName = config.name || config.id;
+    this.callTimeoutMs = config.callTimeoutMs;
 
     // Propagate transport exit event
     this.transport.onProcessExit = () => {
@@ -83,7 +87,7 @@ export class McpClient {
     const result = await this.transport.request("tools/call", {
       name,
       arguments: args,
-    }) as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+    }, this.callTimeoutMs) as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
 
     // Extract text content from response
     const textParts = (result.content || [])

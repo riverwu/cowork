@@ -37,6 +37,26 @@ function IconAttach({ size = 18 }: { size?: number }) {
   );
 }
 
+function IconDump({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 3H15V15H3V3Z" />
+      <path d="M6 6H12" />
+      <path d="M6 9H12" />
+      <path d="M6 12H10" />
+    </svg>
+  );
+}
+
+function IconReset({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 8.5C3 5.46 5.46 3 8.5 3C11.54 3 14 5.46 14 8.5C14 11.54 11.54 14 8.5 14C6.83 14 5.34 13.27 4.32 12.11" />
+      <path d="M3 5V8H6" />
+    </svg>
+  );
+}
+
 export function CommandBar() {
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<AttachedFile[]>([]);
@@ -46,6 +66,7 @@ export function CommandBar() {
   const {
     sendMessage, clearContext, planMode, togglePlanMode,
     workingDirectory, setWorkingDirectory, isStreaming, pendingMessages,
+    dumpContext, resetAll,
   } = useSessionStore();
 
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -101,6 +122,13 @@ export function CommandBar() {
 
   function handleClearContext() { clearContext(); setShowMenu(false); }
   function handleTogglePlan() { togglePlanMode(); setShowMenu(false); }
+  function handleDumpContext() { dumpContext(); setShowMenu(false); }
+  function handleResetAll() {
+    setShowMenu(false);
+    if (confirm("Reset everything?\n\nThis will permanently delete all sessions, messages, and memory (core facts, semantic memories, episodes). Settings and the knowledge base are preserved.")) {
+      resetAll();
+    }
+  }
   async function handleChangeWorkDir() {
     const path = await pickFolder();
     if (path) setWorkingDirectory(path);
@@ -171,6 +199,15 @@ export function CommandBar() {
                 <button onClick={handleClearContext} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors text-left">
                   <IconEraser size={15} />
                   {t("home.clearContext")}
+                </button>
+                <button onClick={handleDumpContext} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors text-left">
+                  <IconDump size={15} />
+                  Dump Context
+                </button>
+                <div className="my-1 border-t border-[var(--border)]" />
+                <button onClick={handleResetAll} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--error)] hover:bg-[var(--error-light)] cursor-pointer transition-colors text-left">
+                  <IconReset size={15} />
+                  Reset (clear all memory)
                 </button>
               </div>
             )}

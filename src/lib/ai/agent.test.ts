@@ -59,11 +59,6 @@ vi.mock("@/lib/mcp", () => ({
   },
 }));
 
-vi.mock("@/lib/knowledge", () => ({
-  retrieveRelevant: vi.fn().mockResolvedValue([]),
-  buildKnowledgeContext: vi.fn().mockReturnValue(""),
-}));
-
 vi.mock("@/lib/memory", () => ({
   retrieveMemoryContext: vi.fn().mockResolvedValue({ coreFacts: "", relevantMemories: "", relevantEpisodes: "" }),
   buildMemoryPrompt: vi.fn().mockReturnValue(""),
@@ -87,7 +82,6 @@ describe("runAgent truncation recovery", () => {
     for await (const event of runAgent({
       sessionId: "session-1",
       workingDirectory: "/Users/river/Documents/Workspace",
-      skipKnowledge: true,
       messages: [{
         role: "user",
         content: `根据这个文件的内容生成一个Apple Design Guidelines风格的PPT。

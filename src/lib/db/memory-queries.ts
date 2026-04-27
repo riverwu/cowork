@@ -207,3 +207,18 @@ export async function getAllEpisodesWithEmbeddings(): Promise<
     embedding: JSON.parse(r.embedding),
   }));
 }
+
+// ---- Full reset ----
+
+/** Wipe all conversational + memory state: sessions, messages, artifacts,
+ *  core facts, semantic memories, and episodes. Does NOT touch settings,
+ *  knowledge sources/documents/chunks, apps, or runs. */
+export async function resetAllConversationAndMemory(): Promise<void> {
+  const db = await getDb();
+  await db.execute("DELETE FROM messages");
+  await db.execute("DELETE FROM artifacts");
+  await db.execute("DELETE FROM sessions");
+  await db.execute("DELETE FROM core_facts");
+  await db.execute("DELETE FROM memories");
+  await db.execute("DELETE FROM episodes");
+}

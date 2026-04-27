@@ -30,6 +30,10 @@ export interface McpDefinition {
   args: string[];
   env?: Record<string, string>;
   enabled?: boolean;
+  /** Per-server timeout for `tools/call` requests, in milliseconds. When
+   *  unset, the transport falls back to its built-in default. Useful for
+   *  capping slow servers (e.g., Tavily can otherwise hang on a slow API). */
+  callTimeoutMs?: number;
 }
 
 export interface LoadedMcp {

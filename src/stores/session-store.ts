@@ -6,6 +6,7 @@ import type { AgentEvent, Artifact, Message } from "@/types";
 import {
   createSession, createMessage, listMessages,
   listRecentSessions, getSetting, setSetting,
+  resetAllConversationAndMemory,
 } from "@/lib/db";
 import { now as dbNow, newId } from "@/lib/db";
 import { getEnv } from "@/lib/tauri";
@@ -67,12 +68,21 @@ interface SessionState {
   workingDirectory: string;
   /** Queued messages waiting to be sent after current run completes. */
   pendingMessages: string[];
+  /** Debug dump of the prepared agent context (system prompt + tools +
+   *  fitted messages + budget). When set, the UI shows it in a modal. */
+  contextDump: string | null;
 
   initialize: () => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   clearContext: () => void;
   togglePlanMode: () => void;
   setWorkingDirectory: (path: string) => void;
+  dumpContext: () => Promise<void>;
+  closeContextDump: () => void;
+  /** Wipe all sessions, messages, artifacts, and memory (core facts,
+   *  semantic memories, episodes). Then start a fresh session and clear
+   *  all in-memory UI state. Settings and the knowledge base are preserved. */
+  resetAll: () => Promise<void>;
 }
 
 export const useSessionStore = create<SessionState>((set, get) => ({
@@ -89,6 +99,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   planMode: false,
   workingDirectory: "",
   pendingMessages: [],
+  contextDump: null,
 
   initialize: async () => {
     const recent = await listRecentSessions(1);
@@ -130,6 +141,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
 
     // Handle slash commands
+    if (content.trim() === "/reset") {
+      await get().resetAll();
+      return;
+    }
     if (content.trim() === "/reload-skills") {
       try {
         const result = await skillRegistry.reload();
@@ -280,6 +295,78 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // Persist for next session
     setSetting("working_directory", path);
   },
+
+  dumpContext: async () => {
+    let { sessionId } = get();
+    if (!sessionId) {
+      const session = await createSession("Cowork");
+      sessionId = session.id;
+      set({ sessionId });
+    }
+
+    // Build llmMessages exactly the way sendMessage would, so the dump reflects
+    // what the next LLM call would actually receive.
+    const allMessages = get().messages;
+    const lastDividerIndex = findLastDividerIndex(allMessages);
+    const contextMessages = allMessages.slice(lastDividerIndex);
+    const llmMessages: LLMMessage[] = contextMessages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => ({
+        role: m.role === "user" ? "user" as const : "assistant" as const,
+        content: m.role === "assistant" ? appendTrustedToolHistory(m) : m.content,
+      }));
+
+    const { planMode, workingDirectory } = get();
+    let dump = "";
+    try {
+      for await (const event of runAgent({
+        messages: llmMessages,
+        sessionId,
+        planMode,
+        workingDirectory,
+        dumpOnly: true,
+      })) {
+        if (event.type === "context-dump") dump = event.content;
+      }
+      set({ contextDump: dump || "(empty dump)" });
+    } catch (err) {
+      set({ contextDump: `Failed to build context dump: ${err}` });
+    }
+  },
+
+  closeContextDump: () => set({ contextDump: null }),
+
+  resetAll: async () => {
+    try {
+      await resetAllConversationAndMemory();
+    } catch (err) {
+      set({ error: `Reset failed: ${err}` });
+      return;
+    }
+    const session = await createSession("Cowork");
+    set({
+      sessionId: session.id,
+      messages: [],
+      isStreaming: false,
+      streamingText: "",
+      steps: [],
+      artifacts: [],
+      knowledgeRefs: [],
+      error: null,
+      longTask: null,
+      pendingMessages: [],
+      contextDump: null,
+    });
+    const ack: Message = {
+      id: newId(),
+      sessionId: session.id,
+      role: "assistant",
+      content: "Reset complete. All sessions, messages, and memory have been cleared.",
+      metadata: null,
+      createdAt: dbNow(),
+    };
+    set((s) => ({ messages: [...s.messages, ack] }));
+  },
 }));
 
 /** Find the index after the last context divider. Returns 0 if no divider. */
@@ -385,13 +472,25 @@ function appendTrustedToolHistory(message: Message): string {
   const completedSteps = steps?.filter((step) => step.skill !== "__thinking__" && step.status === "done");
   if (!completedSteps?.length) return message.content;
 
+  // Lead with [OK] / [FAIL] tags so a model skimming this section can't
+  // collapse "1 of 23 calls failed" into "all good". Use fenced delimiters
+  // that the LLM is told never to reproduce — past turns showed the model
+  // mimicking the old `[Trusted tool execution record …]` heading inside
+  // its own assistant text, which then contaminated the next turn's
+  // history. The fenced markers here are easier to spot and to refuse.
   const lines = completedSteps.map((step) => {
-    const status = step.success === false ? "failed" : "succeeded";
+    const tag = step.success === false ? "[FAIL]" : "[OK]";
     const result = summarizeForContext(step.result);
-    return `- ${step.skill}: ${status}${result ? `; result: ${result}` : ""}`;
+    return `${tag} ${step.skill}${result ? ` :: ${result}` : ""}`;
   });
 
-  return `${message.content}\n\n[Trusted tool execution record from this assistant turn]\n${lines.join("\n")}`;
+  return [
+    message.content,
+    "",
+    "<<<TURN_TOOL_HISTORY (system-generated; do NOT reproduce this section in your own assistant text — the user already sees it)>>>",
+    ...lines,
+    "<<<END_TURN_TOOL_HISTORY>>>",
+  ].join("\n");
 }
 
 function summarizeForContext(value: unknown): string {

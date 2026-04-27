@@ -93,9 +93,15 @@ export async function extractMemories(
     const extracted = parseExtractionResponse(fullText);
     if (!extracted) return;
 
-    // Store core facts
+    // Store core facts — skip ephemeral / per-task data. Paths, file
+    // names, slide / page counts, run-workspace ids and similar are
+    // garbage in a long-lived "what we know about the user" store: they
+    // turn into stale claims the next turn quietly trusts (e.g. saved
+    // `output_location: /Users/river/...pptx` made the agent skip
+    // verification and assume the file already existed).
     if (extracted.facts) {
       for (const fact of extracted.facts) {
+        if (isEphemeralFact(fact.key, fact.value)) continue;
         await upsertCoreFact(
           fact.key,
           fact.value,
@@ -158,6 +164,35 @@ function parseExtractionResponse(text: string): ExtractionResult | null {
   } catch {
     return null;
   }
+}
+
+/** Reject facts that are about a single task's output rather than enduring
+ *  user/work context. Heuristics are deliberately broad: false negatives
+ *  here corrupt future turns, false positives just mean the user's next
+ *  conversation has slightly less seeded context. */
+function isEphemeralFact(key: string, value: string): boolean {
+  const k = key.toLowerCase();
+  const v = (value || "").trim();
+  // Keys that are obviously about a single deliverable's location / shape.
+  const ephemeralKeyPatterns = [
+    /output_(location|file|dir(ectory)?|path)/,
+    /^(file_path|filename|file_name)$/,
+    /(ppt|deck|slide|page|image|note)_?(count|filename|file|path)$/,
+    /^(run_?id|workspace_?path|workspace_?dir|work_?dir)$/,
+    /_path$/,
+    /^current_(task|topic|work_project|file)$/,
+    /^total_/,
+    /^first_ppt|^second_ppt|^magazine_ppt/,
+    /^slide_count$/,
+    /^content_scope$/,
+    /^ppt_(structure|page_count|filename|file)/,
+  ];
+  if (ephemeralKeyPatterns.some((p) => p.test(k))) return true;
+  // Values that look like absolute paths or file names with extensions —
+  // those are state, not preferences.
+  if (/^\/(Users|home|var|tmp)\//.test(v)) return true;
+  if (/\.(pptx|docx|xlsx|pdf|md|json|yaml|png|jpe?g|html|csv|tsv)(\W|$)/i.test(v)) return true;
+  return false;
 }
 
 interface ExtractionResult {

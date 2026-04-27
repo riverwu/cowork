@@ -1,10 +1,9 @@
 import { getConfiguredProvider } from "./providers";
-import type { LLMMessage, StreamEvent } from "./providers/types";
+import type { LLMMessage, StreamEvent, ToolDefinition } from "./providers/types";
 import { getTools } from "./tools/registry";
 import { skillRegistry } from "./skill-registry";
 import { getSkillsDir } from "./skill-loader";
 import { buildSystemPrompt } from "./system-prompt";
-import { retrieveRelevant, buildKnowledgeContext } from "@/lib/knowledge";
 import { retrieveMemoryContext, buildMemoryPrompt, extractMemories } from "@/lib/memory";
 import { mcpManager } from "@/lib/mcp";
 import type { AgentEvent } from "@/types";
@@ -14,7 +13,7 @@ import {
   setCurrentWorkingDirectory,
   getCurrentLongTask,
 } from "./task-context";
-import { isToolResultFailure } from "./tool-result";
+import { isToolResultFailure, extractFailureSnippet } from "./tool-result";
 import { getSettings } from "@/lib/db";
 import {
   computeBudget,
@@ -31,12 +30,17 @@ const MAX_TOOL_RESULT_CHARS_FOR_LLM = 12000;
 export interface AgentParams {
   messages: LLMMessage[];
   sessionId: string;
-  skipKnowledge?: boolean;
   planMode?: boolean;
   /** Working directory — tools use this as default cwd. */
   workingDirectory?: string;
   /** Called when a skill produces streaming output (e.g., shell command output). */
   onProgress?: (skill: string, output: string) => void;
+  /** Debug: build the full context (system prompt, tools, fitted messages,
+   *  budget summary) and yield it as a single `context-dump` event instead
+   *  of calling the LLM. The yielded content is what would actually be sent
+   *  to the provider, so this is the source of truth for "what does the
+   *  model see". */
+  dumpOnly?: boolean;
 }
 
 /**
@@ -44,11 +48,17 @@ export interface AgentParams {
  *
  * Flow:
  *   1. Retrieve memory context (core facts + semantic memories + episodes)
- *   2. Retrieve relevant knowledge (RAG)
- *   3. Build system prompt with memory + knowledge
- *   4. Loop: call LLM → yield streaming events → execute tool calls → repeat
- *   5. Until LLM stops calling tools (task complete)
- *   6. After completion: extract memories from conversation (async, non-blocking)
+ *   2. Build system prompt with memory
+ *   3. Loop: call LLM → yield streaming events → execute tool calls → repeat
+ *   4. Until LLM stops calling tools (task complete)
+ *   5. After completion: extract memories from conversation (async, non-blocking)
+ *
+ * Knowledge base lookup is agent-driven: the model calls `search_knowledge`
+ * (or related tools) when it decides retrieval is needed. We do not
+ * auto-inject retrieval results into the prompt — past auto-injection
+ * could push the request past the input budget and cause the provider to
+ * silently drop the tools array, which made the agent reply with text
+ * only and look like it was "refusing" to call tools.
  */
 export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent> {
   const provider = await getConfiguredProvider();
@@ -86,28 +96,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     // Memory retrieval failed — continue without
   }
 
-  // 2. Retrieve knowledge context
-  let knowledgeContext = "";
-  if (!params.skipKnowledge && query && !isKnowledgeDiscoveryRequest(query)) {
-    try {
-      const results = await retrieveRelevant(query, 5);
-      if (results.length > 0) {
-        knowledgeContext = buildKnowledgeContext(results);
-        yield {
-          type: "knowledge-ref",
-          refs: results.map((r) => ({
-            documentId: r.documentId,
-            filename: (r.metadata?.filename as string) || "unknown",
-            snippet: r.content.slice(0, 100),
-          })),
-        };
-      }
-    } catch {
-      // Knowledge retrieval failed — continue without
-    }
-  }
-
-  // 3. Build system prompt with system paths + MCP status
+  // 2. Build system prompt with system paths + MCP status
   let skillsDir = "";
   try { skillsDir = await getSkillsDir(); } catch { /* ignore */ }
   const home = skillsDir.replace(/\/\.cowork\/skills$/, "");
@@ -140,7 +129,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     };
   }
 
-  // 3a. Resolve the model's context budget (Codex-style: per-model registry
+  // 2a. Resolve the model's context budget (Codex-style: per-model registry
   // with optional Settings override; effective input ceiling = 95% of window
   // minus reserved output; auto-compact threshold at 90% of window).
   // Without this guard, on smaller-context models the backend silently
@@ -155,13 +144,11 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   });
   const toolBudgetTokens = toolDefs.reduce((sum, def) => sum + estimateToolDefTokens(def), 0);
 
-  let droppedKnowledge = false;
   let droppedMemory = false;
 
   const buildPrompt = () => buildSystemPrompt({
     tools: toolDefs,
     memoryContext: droppedMemory ? undefined : (memoryContext || undefined),
-    knowledgeContext: droppedKnowledge ? undefined : (knowledgeContext || undefined),
     longTaskContext: longTask ? buildLongTaskPrompt(longTask) : undefined,
     planMode: params.planMode,
     workingDirectory: params.workingDirectory,
@@ -176,19 +163,13 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   let system = buildPrompt();
   let systemTokens = estimateTokens(system);
 
-  // Drop priority (Codex compaction order): knowledge first, then memory,
-  // then trim oldest history. Trigger when projected total
-  // (system + tools + ALL message tokens) exceeds the 90% auto-compact
-  // threshold. Estimating the full message payload — not just user
-  // content — matters: on a long conversation, assistant turns and
+  // Drop priority: memory first, then trim oldest history. Trigger when
+  // projected total (system + tools + ALL message tokens) exceeds the 90%
+  // auto-compact threshold. Estimating the full message payload — not just
+  // user content — matters: on a long conversation, assistant turns and
   // tool_result blocks dominate the cost.
   const messagesTokens = estimateMessagesTokens(params.messages);
   const overhead = () => systemTokens + toolBudgetTokens + messagesTokens;
-  if (knowledgeContext && overhead() > budget.autoCompactThreshold) {
-    droppedKnowledge = true;
-    system = buildPrompt();
-    systemTokens = estimateTokens(system);
-  }
   if (memoryContext && overhead() > budget.autoCompactThreshold) {
     droppedMemory = true;
     system = buildPrompt();
@@ -211,9 +192,8 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     yield { type: "done" };
     return;
   }
-  if (fit.droppedMessages > 0 || droppedKnowledge || droppedMemory) {
+  if (fit.droppedMessages > 0 || droppedMemory) {
     const dropped: string[] = [];
-    if (droppedKnowledge) dropped.push("retrieved knowledge");
     if (droppedMemory) dropped.push("memory");
     if (fit.droppedMessages > 0) dropped.push(`${fit.droppedMessages} oldest message(s)`);
     console.log(`[Agent] Context budget: model=${settings.modelId || "default"}, window=${budget.contextTokens}, input_budget=${budget.inputBudget}, max_output=${budget.maxOutputTokens}. Dropped: ${dropped.join(", ")}. Estimated input ~${fit.estimatedInputTokens}.`);
@@ -222,6 +202,30 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   }
 
   const currentMessages: LLMMessage[] = [...fit.messages];
+
+  if (params.dumpOnly) {
+    yield {
+      type: "context-dump",
+      content: formatContextDump({
+        modelId: settings.modelId,
+        budget,
+        systemTokens,
+        toolBudgetTokens,
+        estimatedInputTokens: fit.estimatedInputTokens,
+        droppedMemory,
+        droppedMessages: fit.droppedMessages,
+        builtinToolCount: Object.keys(builtinTools).length,
+        mcpToolCount: Object.keys(mcpTools).length,
+        toolDefs,
+        system,
+        messages: currentMessages,
+      }),
+    };
+    setCurrentLongTask(null);
+    yield { type: "done" };
+    return;
+  }
+
   let fullAssistantText = "";
   let hitStepLimit = true;
   let truncationRecoveries = 0;
@@ -308,7 +312,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       const tool = allTools[toolCall.name];
       if (!tool) {
         const errResult = `Unknown tool: ${toolCall.name}`;
-        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: errResult });
+        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, errResult, false) });
         yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0, success: false };
         continue;
       }
@@ -319,7 +323,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       const rawInput = toolCall.input as { _error?: string; _raw?: string } | undefined;
       if (rawInput && typeof rawInput === "object" && rawInput._error === "Truncated tool call input") {
         const errResult = `Tool call to "${toolCall.name}" was truncated by the model output token limit before its arguments finished streaming, so the tool was not run. Re-issue the call with smaller, complete arguments.`;
-        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: errResult });
+        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, errResult, false) });
         yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0, success: false };
         continue;
       }
@@ -377,18 +381,31 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
           }
         }
 
-        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, llmResult) });
+        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, llmResult, success) });
         yield { type: "skill-done", skill: toolCall.name, result: uiResult, durationMs, success };
       } catch (err) {
         const durationMs = Date.now() - startTime;
         const errResult = `Tool execution error in ${toolCall.name}: ${err instanceof Error ? err.message : String(err)}`;
-        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: errResult });
+        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, errResult, false) });
         yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs, success: false };
       }
     }
   }
 
   if (hitStepLimit) {
+    // Hard-stop: append an explicit incompletion notice so the saved
+    // assistant message can't read like a successful completion. Earlier
+    // streamed text from inside the loop almost always contains optimistic
+    // "PPT制作完成" / "Task done" claims, because the model writes those
+    // before the next tool call rather than only at the end. Replacing
+    // (not appending to) the saved text avoids the historical pattern of
+    // the next turn reading a confident "已完成" and acting on it.
+    const incompletion = [
+      "[TASK INCOMPLETE — agent stopped at the step limit]",
+      `The agent ran out of tool/LLM steps (${MAX_STEPS}) before the task finished. Any "完成 / 已生成 / 已渲染 / audit通过" wording earlier in this turn was premature: the final verification step never ran. Treat the deliverable as NOT confirmed; verify file existence before reusing it in a later turn.`,
+    ].join("\n\n");
+    yield { type: "text-delta", text: `\n\n${incompletion}` };
+    fullAssistantText = incompletion;
     yield { type: "error", error: `Agent stopped after reaching the maximum of ${MAX_STEPS} tool/LLM steps.` };
   }
   } finally {
@@ -453,20 +470,114 @@ function summarizeResult(result: string): unknown {
   return result.slice(0, 200) + `... (${result.length} chars total)`;
 }
 
-function truncateToolResultForLlm(toolName: string, result: string): string {
-  if (result.length <= MAX_TOOL_RESULT_CHARS_FOR_LLM) return result;
-  const headSize = Math.floor(MAX_TOOL_RESULT_CHARS_FOR_LLM * 0.65);
-  const tailSize = MAX_TOOL_RESULT_CHARS_FOR_LLM - headSize;
+/** Format a tool result for the LLM context.
+ *
+ *  Two changes vs. the naive "head + tail" approach:
+ *  1. Every result is tagged with an explicit `[TOOL OK]` / `[TOOL FAILED]`
+ *     prefix on its own line, so a model skimming the first tokens of the
+ *     tool message can't miss the success/failure verdict.
+ *  2. On failures, we promote the most informative error line to the very
+ *     top via {@link extractFailureSnippet} and bias the visible window
+ *     toward the *tail* (where stack traces and the actual error usually
+ *     live), instead of the default head-heavy window. This kills the
+ *     pattern where an agent reads "Validation failed: Validation failed:"
+ *     once at the top of a long error and then writes "渲染成功" anyway. */
+function truncateToolResultForLlm(toolName: string, result: string, success: boolean): string {
+  const verdict = success ? "[TOOL OK]" : "[TOOL FAILED]";
+  const failureSnippet = success ? null : extractFailureSnippet(result);
+  const header = failureSnippet
+    ? `${verdict} ${toolName}\nFailure summary: ${failureSnippet}\n---`
+    : `${verdict} ${toolName}\n---`;
+
+  // Reserve some chars for the header itself.
+  const bodyBudget = MAX_TOOL_RESULT_CHARS_FOR_LLM - header.length - 4;
+  if (result.length <= bodyBudget) return `${header}\n${result}`;
+
+  // For failures, bias toward the tail (errors usually appear there).
+  // For successes, keep the existing head-heavy split.
+  const headRatio = success ? 0.65 : 0.3;
+  const headSize = Math.floor(bodyBudget * headRatio);
+  const tailSize = bodyBudget - headSize;
   const omitted = result.length - headSize - tailSize;
-  return [
+  const body = [
     result.slice(0, headSize),
-    `\n\n[${toolName} result truncated before sending back to the LLM: ${omitted} middle characters omitted. Head and tail are preserved. Use a narrower query, smaller max_chars, or offset-based reads instead of loading everything.]\n\n`,
+    `\n\n[${toolName} result truncated for the LLM: ${omitted} middle characters omitted. Tail preserved (errors usually appear there). Re-call with a narrower query / smaller max_chars / explicit offset for full content.]\n\n`,
     result.slice(result.length - tailSize),
   ].join("");
+  return `${header}\n${body}`;
 }
 
-function isKnowledgeDiscoveryRequest(query: string): boolean {
-  return /(找|找到|查找|搜索|列出|有哪些|相关).*(文档|文件|资料|报告)|find.*(document|file|report)/i.test(query);
+function formatContextDump(input: {
+  modelId: string | undefined;
+  budget: { contextTokens: number; inputBudget: number; maxOutputTokens: number; autoCompactThreshold: number };
+  systemTokens: number;
+  toolBudgetTokens: number;
+  estimatedInputTokens: number;
+  droppedMemory: boolean;
+  droppedMessages: number;
+  builtinToolCount: number;
+  mcpToolCount: number;
+  toolDefs: ToolDefinition[];
+  system: string;
+  messages: LLMMessage[];
+}): string {
+  const lines: string[] = [];
+  lines.push(`# Agent Context Dump`);
+  lines.push(`generated: ${new Date().toISOString()}`);
+  lines.push(``);
+  lines.push(`## Model & Budget`);
+  lines.push(`- model: ${input.modelId || "(default)"}`);
+  lines.push(`- context window: ${input.budget.contextTokens}`);
+  lines.push(`- input budget: ${input.budget.inputBudget}`);
+  lines.push(`- max output: ${input.budget.maxOutputTokens}`);
+  lines.push(`- auto-compact threshold: ${input.budget.autoCompactThreshold}`);
+  lines.push(`- estimated input tokens: ${input.estimatedInputTokens}`);
+  lines.push(`- system prompt tokens: ~${input.systemTokens}`);
+  lines.push(`- tool definition tokens: ~${input.toolBudgetTokens}`);
+  lines.push(`- dropped memory: ${input.droppedMemory}`);
+  lines.push(`- dropped oldest messages: ${input.droppedMessages}`);
+  lines.push(``);
+  lines.push(`## Tools (${input.toolDefs.length}: ${input.builtinToolCount} built-in + ${input.mcpToolCount} MCP)`);
+  for (const def of input.toolDefs) {
+    const desc = (def.description || "").split("\n")[0].slice(0, 200);
+    lines.push(`- **${def.name}** — ${desc}`);
+  }
+  lines.push(``);
+  lines.push(`## System Prompt`);
+  lines.push("```");
+  lines.push(input.system);
+  lines.push("```");
+  lines.push(``);
+  lines.push(`## Messages (${input.messages.length})`);
+  input.messages.forEach((msg, i) => {
+    lines.push(``);
+    if (msg.role === "user") {
+      lines.push(`### [${i + 1}] user`);
+      lines.push("```");
+      lines.push(msg.content);
+      lines.push("```");
+    } else if (msg.role === "assistant") {
+      lines.push(`### [${i + 1}] assistant`);
+      lines.push("```");
+      lines.push(msg.content || "(no text)");
+      lines.push("```");
+      if (msg.toolCalls && msg.toolCalls.length > 0) {
+        lines.push(`tool_calls:`);
+        for (const tc of msg.toolCalls) {
+          lines.push(`- ${tc.name} (${tc.id})`);
+          lines.push("  ```json");
+          lines.push("  " + JSON.stringify(tc.input, null, 2).split("\n").join("\n  "));
+          lines.push("  ```");
+        }
+      }
+    } else if (msg.role === "tool") {
+      lines.push(`### [${i + 1}] tool result (${msg.toolCallId})`);
+      lines.push("```");
+      lines.push(msg.content);
+      lines.push("```");
+    }
+  });
+  return lines.join("\n");
 }
 
 function parseTaskProgressMarker(result: string) {

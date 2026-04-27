@@ -163,6 +163,7 @@ class McpManager {
     error?: string; missingEnv?: string[];
     version: string; description: string; dirPath: string;
     requiredEnv: Record<string, string>;
+    callTimeoutMs?: number;
   }> {
     return this.loadedMcps.map((m) => {
       const info = this.serverInfo.get(m.id) || { status: "error" as McpStatus, toolCount: 0 };
@@ -180,8 +181,24 @@ class McpManager {
         description: m.definition.description || "",
         dirPath: m.dirPath,
         requiredEnv: m.definition.env || {},
+        callTimeoutMs: m.definition.callTimeoutMs,
       };
     });
+  }
+
+  /** Persist a per-server tool-call timeout to MCP.json and reconnect so
+   *  the new value takes effect for subsequent calls. Pass `undefined` to
+   *  clear and fall back to the transport default. */
+  async setCallTimeout(id: string, callTimeoutMs: number | undefined): Promise<void> {
+    const mcp = this.loadedMcps.find((m) => m.id === id);
+    if (!mcp) return;
+    if (callTimeoutMs === undefined) {
+      delete mcp.definition.callTimeoutMs;
+    } else {
+      mcp.definition.callTimeoutMs = callTimeoutMs;
+    }
+    await installMcpToFilesystem(id, mcp.definition);
+    await this.reconnectServer(id);
   }
 
   /** Get loaded MCP definitions (for catalog comparison). */
@@ -325,6 +342,7 @@ class McpManager {
         command: mcp.definition.command,
         args: mcp.definition.args,
         env: mergedEnv,
+        callTimeoutMs: mcp.definition.callTimeoutMs,
       });
 
       // On unexpected exit: clean up, mark as available (not error).

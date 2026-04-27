@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "@/stores/app-store";
 import { useViewStore } from "@/stores/view-store";
 import { CommandBar } from "@/components/chat/command-bar";
@@ -17,7 +17,7 @@ export function Home() {
   const { initialized, hasApiKey, sources, load } = useAppStore();
   const {
     messages, isStreaming, streamingText, steps, artifacts,
-    knowledgeRefs, error, longTask,
+    knowledgeRefs, error, longTask, contextDump, closeContextDump,
   } = useSessionStore();
   const viewPanels = useViewStore((s) => s.panels);
   const addPanel = useViewStore((s) => s.addPanel);
@@ -138,7 +138,68 @@ export function Home() {
 
       {/* Right panel: Apps + artifact views */}
       <RightPanel sources={sources} hasViews={hasViews} recentOutputs={recentOutputs} />
+
+      {contextDump !== null && (
+        <ContextDumpModal content={contextDump} onClose={closeContextDump} />
+      )}
     </div>
+  );
+}
+
+function ContextDumpModal({ content, onClose }: { content: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore — user can still select and copy manually
+    }
+  }
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-6" onClick={onClose}>
+      <div
+        className="bg-[var(--surface-lowest)] border border-[var(--border)] rounded-2xl shadow-[var(--shadow-lg)] w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+          <h2 className="text-[14px] font-semibold text-[var(--on-surface)]">Agent Context Dump</h2>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleCopy}
+              title="复制全部内容到剪贴板"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-medium cursor-pointer transition-colors ${
+                copied
+                  ? "bg-[var(--success-light,#dcfce7)] text-[var(--success)]"
+                  : "bg-[var(--primary)] text-white hover:bg-[var(--primary-dark)]"
+              }`}
+            >
+              <IconCopy size={13} />
+              {copied ? "已复制" : "复制"}
+            </button>
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-lg text-[12px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors"
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+        <pre className="flex-1 overflow-auto px-4 py-3 text-[12px] leading-relaxed text-[var(--on-surface)] whitespace-pre-wrap break-words font-mono">
+          {content}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+function IconCopy({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="5" width="9" height="9" rx="1.5" />
+      <path d="M11 5V3.5C11 2.95 10.55 2.5 10 2.5H3.5C2.95 2.5 2.5 2.95 2.5 3.5V10C2.5 10.55 2.95 11 3.5 11H5" />
+    </svg>
   );
 }
 
@@ -168,19 +229,17 @@ function LongTaskPanel({ task }: { task: LongTaskView }) {
         {planPhase && (
           <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-low)] px-3 py-2">
             <div className="flex items-center gap-2 mb-1">
-              <StatusDot status={planPhase.status} />
+              <StatusCheckbox status={planPhase.status} />
               <span className="text-[12px] font-semibold text-[var(--on-surface)]">计划</span>
-              <span className="text-[11px] text-[var(--on-surface-tertiary)]">{formatStatus(planPhase.status)}</span>
             </div>
-            <p className="text-[12px] text-[var(--on-surface-secondary)] leading-relaxed whitespace-pre-wrap break-words">{planPhase.summary}</p>
+            <PlanSummary summary={planPhase.summary} />
           </div>
         )}
         {current && current !== planPhase && (
           <div className="rounded-lg bg-[var(--surface-low)] px-3 py-2">
             <div className="flex items-center gap-2">
-              <StatusDot status={current.status} />
+              <StatusCheckbox status={current.status} />
               <span className="text-[12px] font-medium text-[var(--on-surface)]">{formatPhase(current.phase)}</span>
-              <span className="text-[11px] text-[var(--on-surface-tertiary)]">{formatStatus(current.status)}</span>
             </div>
             <p className="mt-1 text-[12px] text-[var(--on-surface-secondary)] leading-relaxed whitespace-pre-wrap break-words">{current.summary}</p>
           </div>
@@ -189,7 +248,7 @@ function LongTaskPanel({ task }: { task: LongTaskView }) {
           <div className="space-y-1.5">
             {nonPlanPhases.map((phase) => (
               <div key={phase.phase} className="flex items-start gap-2 text-[12px] px-1 py-0.5">
-                <StatusDot status={phase.status} />
+                <StatusCheckbox status={phase.status} />
                 <span className="w-24 shrink-0 truncate text-[var(--on-surface-secondary)]">{formatPhase(phase.phase)}</span>
                 <span className="flex-1 text-[var(--on-surface-tertiary)] whitespace-pre-wrap break-words leading-relaxed">{phase.summary}</span>
               </div>
@@ -220,26 +279,87 @@ function LongTaskPanel({ task }: { task: LongTaskView }) {
   );
 }
 
-function StatusDot({ status }: { status: "pending" | "running" | "done" | "failed" }) {
-  const cls = status === "done"
-    ? "bg-[var(--success)]"
-    : status === "failed"
-      ? "bg-[var(--error)]"
-      : status === "running"
-        ? "bg-[var(--primary-accent)] animate-pulse"
-        : "bg-[var(--on-surface-tertiary)]";
-  return <span className={`w-2 h-2 rounded-full shrink-0 ${cls}`} />;
+type PhaseStatus = "pending" | "running" | "done" | "failed";
+
+function StatusCheckbox({ status, size = 14 }: { status: PhaseStatus; size?: number }) {
+  const title = status === "done" ? "完成" : status === "failed" ? "失败" : status === "running" ? "进行中" : "等待";
+  const stroke = "1.6";
+  if (status === "done") {
+    // ✅ green filled box with white check
+    return (
+      <svg width={size} height={size} viewBox="0 0 16 16" className="shrink-0" aria-label={title}>
+        <rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="var(--success)" />
+        <path d="M4.5 8.2L7 10.5L11.5 5.5" fill="none" stroke="white" strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (status === "running") {
+    // 红色实心 checkbox（with subtle pulse）
+    return (
+      <svg width={size} height={size} viewBox="0 0 16 16" className="shrink-0 animate-pulse" aria-label={title}>
+        <rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="var(--error)" />
+      </svg>
+    );
+  }
+  if (status === "failed") {
+    // 红色 X
+    return (
+      <svg width={size} height={size} viewBox="0 0 16 16" className="shrink-0" aria-label={title}>
+        <rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="none" stroke="var(--error)" strokeWidth={stroke} />
+        <path d="M5 5L11 11M11 5L5 11" fill="none" stroke="var(--error)" strokeWidth={stroke} strokeLinecap="round" />
+      </svg>
+    );
+  }
+  // pending — empty checkbox
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" className="shrink-0" aria-label={title}>
+      <rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="none" stroke="var(--on-surface-tertiary)" strokeWidth={stroke} />
+    </svg>
+  );
 }
 
 function formatPhase(phase: string): string {
   return phase.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatStatus(status: string): string {
-  if (status === "running") return "进行中";
-  if (status === "done") return "完成";
-  if (status === "failed") return "失败";
-  return "等待";
+/** Render a plan summary that may contain markdown-style checkboxes
+ *  (`- [ ]` / `- [x]`). Each checkbox line becomes a styled row with the
+ *  same StatusCheckbox visuals (done / pending), so the plan reads as a
+ *  proper to-do list instead of raw markdown. Non-checkbox lines render
+ *  as plain text. */
+function PlanSummary({ summary }: { summary: string }) {
+  const lines = summary.split("\n");
+  const items: { kind: "todo"; checked: boolean; text: string }[] | { kind: "text"; text: string }[] = [];
+  const out: ({ kind: "todo"; checked: boolean; text: string } | { kind: "text"; text: string })[] = [];
+  for (const raw of lines) {
+    const m = /^\s*[-*]\s*\[( |x|X)\]\s*(.*)$/.exec(raw);
+    if (m) {
+      out.push({ kind: "todo", checked: m[1].toLowerCase() === "x", text: m[2] });
+    } else {
+      out.push({ kind: "text", text: raw });
+    }
+    void items;
+  }
+  const hasTodo = out.some((o) => o.kind === "todo");
+  if (!hasTodo) {
+    return <p className="text-[12px] text-[var(--on-surface-secondary)] leading-relaxed whitespace-pre-wrap break-words">{summary}</p>;
+  }
+  return (
+    <div className="text-[12px] text-[var(--on-surface-secondary)] leading-relaxed space-y-1">
+      {out.map((item, i) => {
+        if (item.kind === "todo") {
+          return (
+            <div key={i} className="flex items-start gap-2">
+              <span className="mt-[2px]"><StatusCheckbox status={item.checked ? "done" : "pending"} size={13} /></span>
+              <span className={`flex-1 break-words ${item.checked ? "text-[var(--on-surface-tertiary)] line-through" : ""}`}>{item.text}</span>
+            </div>
+          );
+        }
+        if (!item.text.trim()) return <div key={i} className="h-1" />;
+        return <div key={i} className="whitespace-pre-wrap break-words">{item.text}</div>;
+      })}
+    </div>
+  );
 }
 
 function DashboardCard({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
