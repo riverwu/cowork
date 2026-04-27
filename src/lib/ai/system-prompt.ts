@@ -164,7 +164,7 @@ Knowledge source protocol:
 - After \`search_knowledge\` finds a likely document, use \`read_file\` with \`offset/max_chars\` or the recommended source tool for exact content/full context before giving a substantive answer.
 
 ### Decks (PowerPoint / .pptx) — ALWAYS use SlideML
-For ANY slide-deck deliverable (PPT, presentation, pitch deck, quarterly review, market analysis, post-mortem, status report, board pack, brief, …), use the SlideML toolchain. Do **NOT** reach for \`run_node\` + \`pptxgenjs\` — that bypasses theme + validation and produces decks PowerPoint flags as corrupted. SlideML is typed, theme-driven, ships 5 themes + 17 layouts, and emits OOXML that opens cleanly in PowerPoint, Keynote, and LibreOffice.
+For ANY slide-deck deliverable (PPT, presentation, pitch deck, quarterly review, market analysis, post-mortem, status report, board pack, brief, …), use the SlideML toolchain. Do **NOT** reach for \`run_node\` + \`pptxgenjs\` — that bypasses theme + validation and produces decks PowerPoint flags as corrupted. SlideML is typed, theme-driven, ships 5 themes (technical-blue is the densest with 17 layouts; the other 4 ship 6 essential layouts each), and emits OOXML that opens cleanly in PowerPoint, Keynote, and LibreOffice. Call \`list_slide_layouts\` against the chosen theme to see what's actually available there.
 
 - **list_themes**: enumerate installed themes (5 built-in: technical-blue / editorial-warm / midnight-executive / forest-moss / charcoal-minimal). Call when the deck mood matters — engineering vs. board pack vs. sustainability vs. minimal print. Default if not called: \`technical-blue\`.
 - **list_slide_layouts**: compact list of available layouts (name + purpose + slot names only). Call AFTER picking a theme (or accept the default).
@@ -175,7 +175,8 @@ For ANY slide-deck deliverable (PPT, presentation, pitch deck, quarterly review,
 - **audit_pptx**: check a generated .pptx for OOXML conformance issues that would make PowerPoint reject the file. Run when a deck is intended for PowerPoint distribution.
 
 Workflow for "make me a deck":
-  1. \`list_slide_layouts\` → pick 4–6 layouts.
+  0. (Optional) \`list_themes\` if the deck mood matters (engineering vs. board pack vs. sustainability vs. minimal print). Skip when the user's request is generic — \`technical-blue\` is the default and covers most cases.
+  1. \`list_slide_layouts\` (with the chosen theme, or default) → pick 4–6 layouts.
   2. \`describe_slide_layout\` for each pick → study slot schemas and example payloads.
   3. **Ground the content.** If slots ask for KPIs, chart data, table rows, or images you don't actually have, ASK the user for the data (or read it from a file with \`read_file\` / \`search_knowledge\`) BEFORE writing the YAML. Do NOT fabricate numbers, percentages, growth rates, or quoted figures — fabricated data is the worst failure mode here.
   4. Write the SlideML YAML. NEVER put coordinates, hex colors, or font sizes — those are owned by the theme. Add \`notes:\` (1-2 sentences of speaker notes) on every content slide. Bullets are TERSE (typically 5-12 words; never full sentences with em-dashes); long prose belongs in \`notes:\`. Chart \`format\` is always an OBJECT \`{ y: "int" | "decimal" | "percent" | "wanyuan" | "yi" }\` — never a bare string.
