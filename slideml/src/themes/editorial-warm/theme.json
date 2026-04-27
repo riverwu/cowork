@@ -15,6 +15,7 @@
     "accent": "A88859",
     "divider": "E5DCC9",
     "font-latin": [
+      "Source Sans 3",
       "Source Sans Pro",
       "Helvetica Neue",
       "Helvetica",
@@ -22,14 +23,17 @@
       "sans-serif"
     ],
     "font-cjk": [
+      "Source Han Serif SC",
       "PingFang SC",
       "Microsoft YaHei",
       "Source Han Sans CN",
+      "Noto Sans CJK SC",
       "Noto Sans SC",
-      "sans-serif"
+      "serif"
     ],
     "font-mono": [
       "JetBrains Mono",
+      "Iosevka",
       "Menlo",
       "Consolas",
       "monospace"
@@ -67,6 +71,7 @@
   "style": {
     "titleAccentRule": false,
     "contrastTarget": "warn",
+    "bullets": { "glyph": "—", "color": "brand-primary" },
     "imagery": {
       "guidance": "Editorial photography or warm-tone illustration. Cream paper background feel, with rust / terracotta / muted-gold accents. Subjects: hands writing, books, neutral office environments, abstract paper textures, warm portraits, architectural details. Lighting: soft natural daylight, golden-hour warmth. Composition: classical, considered, plenty of negative space. Avoid: cool blues, neon, cyberpunk, screens / monitors, harsh strobe lighting.",
       "palette": [
@@ -133,6 +138,66 @@
       "name": "stat-grid-3",
       "module": "layouts/stat-grid-3.js",
       "thumbnail": "thumbnails/stat-grid-3.png"
+    },
+    {
+      "name": "hero-stat",
+      "module": "layouts/hero-stat.js",
+      "thumbnail": "thumbnails/hero-stat.png"
+    },
+    {
+      "name": "matrix-2x2",
+      "module": "layouts/matrix-2x2.js",
+      "thumbnail": "thumbnails/matrix-2x2.png"
+    },
+    {
+      "name": "team-grid",
+      "module": "layouts/team-grid.js",
+      "thumbnail": "thumbnails/team-grid.png"
+    },
+    {
+      "name": "image-full-bleed",
+      "module": "layouts/image-full-bleed.js",
+      "thumbnail": "thumbnails/image-full-bleed.png"
+    },
+    {
+      "name": "image-with-caption",
+      "module": "layouts/image-with-caption.js",
+      "thumbnail": "thumbnails/image-with-caption.png"
+    },
+    {
+      "name": "image-pair",
+      "module": "layouts/image-pair.js",
+      "thumbnail": "thumbnails/image-pair.png"
+    },
+    {
+      "name": "image-split-text",
+      "module": "layouts/image-split-text.js",
+      "thumbnail": "thumbnails/image-split-text.png"
+    },
+    {
+      "name": "pricing-table",
+      "module": "layouts/pricing-table.js",
+      "thumbnail": "thumbnails/pricing-table.png"
+    },
+    {
+      "name": "quote-with-portrait",
+      "module": "layouts/quote-with-portrait.js",
+      "thumbnail": "thumbnails/quote-with-portrait.png"
+    },
+    {
+      "name": "key-point",
+      "module": "layouts/key-point.js",
+      "thumbnail": "thumbnails/key-point.png"
+    },
+    {
+      "name": "freeform",
+      "module": "layouts/freeform.js",
+      "thumbnail": "thumbnails/freeform.png"
+    },
+    {
+      "name": "framed",
+      "module": "layouts/framed.js",
+      "thumbnail": "thumbnails/framed.png"
     },
     {
       "name": "chart-with-takeaway",

@@ -1,7 +1,7 @@
 import type { LayoutContext, LayoutFn } from "../render/layout-context.js";
 import type { ShapeList, TableCell } from "../emitter/types.js";
 import type { SlotSchema } from "../theme/types.js";
-import { slideTitle } from "../render/primitives.js";
+import { inferTableAlign, slideTitle, tableCellOf } from "../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
   title: { type: "text",  maxChars: 50, optional: true },
@@ -10,16 +10,17 @@ export const slots: Record<string, SlotSchema> = {
 
 interface TableSlot {
   header: string[];
-  rows: string[][];
+  rows: unknown[][];
   /** Optional relative column weights. */
   colWidths?: number[];
+  /** Optional per-column alignment. Defaults: numeric→right, else left. */
+  align?: Array<"left" | "center" | "right">;
 }
 
 const dataTable: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const out: ShapeList = [];
   const title = ctx.slot<string>("title");
   const tableSpec = ctx.slot<TableSlot>("table");
-  const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
   if (!tableSpec) return out;
 
   let bodyTop = ctx.cm(2);
@@ -46,24 +47,28 @@ const dataTable: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const bodyRowH = Math.floor((tableH - headerH) / Math.max(1, rowCount - 1));
   const rowHeights = [headerH, ...Array(tableSpec.rows.length).fill(bodyRowH)];
 
-  // Build cells.
+  // Build cells via the shared `tableCellOf` primitive — picks up inline
+  // markdown, chip syntax, and the optional `{ value, emphasis }` shape.
+  // Header cells follow each column's `align` override; body cells fall
+  // back to a numeric-vs-text heuristic when no explicit align is given.
+  const colAlign = tableSpec.align ?? [];
   const cells: TableCell[][] = [];
   cells.push(
-    tableSpec.header.map((h) => ({
-      runs: [{ text: String(h), sizeHalfPt: 26, color: "FFFFFF", bold: true, cjk: ctx.cjk, fontFace }],
-      fill: { type: "solid", color: ctx.color("brand-deep") },
-      valign: "middle",
-      align: "left",
+    tableSpec.header.map((h, ci) => tableCellOf(ctx, h, {
+      sizeHalfPt: 26,
+      baseColor: "FFFFFF",
+      bold: true,
+      align: colAlign[ci] ?? "left",
+      fill: { color: ctx.color("brand-deep") },
     })),
   );
   for (let r = 0; r < tableSpec.rows.length; r++) {
     const row = tableSpec.rows[r]!;
     cells.push(
-      row.map((cell) => ({
-        runs: [{ text: String(cell), sizeHalfPt: 24, color: ctx.color("text-strong"), cjk: ctx.cjk, fontFace }],
-        fill: r % 2 === 1 ? { type: "solid", color: ctx.color("bg-card") } : undefined,
-        valign: "middle",
-        align: "left",
+      row.map((cell, ci) => tableCellOf(ctx, cell, {
+        sizeHalfPt: 24,
+        align: inferTableAlign(cell, colAlign[ci]),
+        fill: r % 2 === 1 ? { color: ctx.color("bg-card") } : undefined,
       })),
     );
   }

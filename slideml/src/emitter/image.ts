@@ -41,14 +41,16 @@ const EXT_PATTERN = /\.(png|jpe?g|gif|svg|webp)$/i;
 
 /** Resolve any supported `src` to bytes + ext. */
 export async function resolveImage(src: string): Promise<ResolvedImage> {
-  // data: URL
+  // data: URL — accepts the standard form `data:<mime>[;param[;param...]],<body>`
+  // including the inline-SVG idiom `data:image/svg+xml;utf8,<svg...>`.
   if (src.startsWith("data:")) {
-    const m = /^data:([^;,]+)(?:;base64)?,(.*)$/s.exec(src);
+    const m = /^data:([^;,]+)((?:;[^,]+)*),(.*)$/s.exec(src);
     if (!m) throw new Error(`Invalid data URL`);
-    const [, mime, body] = m;
+    const [, mime, params, body] = m;
     const ext = MIME_TO_EXT[mime!.toLowerCase()];
     if (!ext) throw new Error(`Unsupported image mime in data URL: ${mime}`);
-    const bytes = src.includes(";base64,")
+    const isBase64 = (params ?? "").split(";").some((p) => p === "base64");
+    const bytes = isBase64
       ? Uint8Array.from(Buffer.from(body!, "base64"))
       : new TextEncoder().encode(decodeURIComponent(body!));
     return { bytes, ext, mimeType: EXT_TO_MIME[ext] };

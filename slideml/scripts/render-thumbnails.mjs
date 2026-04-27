@@ -46,6 +46,13 @@ if (!existsSync(CLI)) {
 // Per-layout sample content. Keep terse — thumbnails just need to LOOK like
 // the layout. Real content quality doesn't matter at thumbnail size.
 // ---------------------------------------------------------------------------
+// Single-pixel transparent PNG, base64-encoded — the renderer scales it to
+// fill any image rect, so the resulting thumbnail's image area is empty
+// but the layout's composition still reads correctly.
+function PLACEHOLDER_PNG() {
+  return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=";
+}
+
 const SAMPLES = {
   "cover": {
     chrome: "none",
@@ -206,13 +213,128 @@ const SAMPLES = {
       br:  { kind: "text", title: "Takeaway", body: "Compounding growth — Q4 added 19% over Q3." },
     },
   },
+  "hero-stat": {
+    chrome: "none",
+    slots: {
+      eyebrow: "Q3 headline",
+      value: "$1.2M",
+      label: "MRR — first time over $1M",
+      caption: "Driven by enterprise upsells and net-new logos in vertical SaaS.",
+    },
+  },
+  "matrix-2x2": {
+    slots: {
+      title: "Bets — priority × effort",
+      xLabel: "Effort →",
+      yLabel: "Impact →",
+      topLeft:  { kind: "bullets", title: "Quick wins", items: ["Pricing experiment", "Onboarding nudge"] },
+      topRight: { kind: "bullets", title: "Big bets",   items: ["AI co-pilot", "Multi-region"] },
+      botLeft:  { kind: "text",    title: "Fill-ins",   body: "Polish between sprints." },
+      botRight: { kind: "text",    title: "Time-sinks", body: "Avoid: bespoke for one customer." },
+    },
+  },
+  "team-grid": {
+    slots: {
+      title: "Founding team",
+      members: [
+        { name: "Wei Zhang",  role: "CEO" },
+        { name: "Rohan Patel", role: "CTO" },
+        { name: "Lina Nguyen", role: "Head of Product" },
+        { name: "Marco Silva", role: "Head of GTM" },
+      ],
+    },
+  },
+  "image-full-bleed": {
+    chrome: "none",
+    slots: {
+      image: { src: PLACEHOLDER_PNG(), alt: "hero image" },
+      caption: "Photo · 2026 — full-bleed editorial",
+    },
+  },
+  "image-with-caption": {
+    slots: {
+      image: { src: PLACEHOLDER_PNG(), alt: "editorial photo" },
+      caption: "A printed page asks for the reader's full attention; a slide rarely does. The discipline is to refuse the easy thing.",
+      credit: "PHOTO · ANONYMOUS",
+    },
+  },
+  "image-pair": {
+    slots: {
+      title: "Before / After",
+      leftImage:  { src: PLACEHOLDER_PNG(), alt: "before" },
+      rightImage: { src: PLACEHOLDER_PNG(), alt: "after" },
+      leftLabel:  "Before",
+      rightLabel: "After",
+    },
+  },
+  "image-split-text": {
+    slots: {
+      title: "Headline goes here",
+      text: "An immersive 50/50 split. The image is full-bleed on its half — touching the slide edges, no card backing — while the text fills the other half with generous interior padding.\n\nUse this when two-col-text-image feels too contained.",
+      image: { src: PLACEHOLDER_PNG(), alt: "split image" },
+      imageSide: "right",
+    },
+  },
+  "pricing-table": {
+    slots: {
+      title: "Pick a plan",
+      tiers: [
+        { name: "Starter",  price: "$0",   period: "/mo", features: ["Solo seat", "1GB storage", "Community support"] },
+        { name: "Pro",      price: "$29",  period: "/mo", features: ["Up to 10 seats", "100GB storage", "Priority email"], recommended: true, cta: "Most popular" },
+        { name: "Business", price: "$99",  period: "/mo", features: ["Unlimited seats", "1TB storage", "SSO + audit log"] },
+      ],
+    },
+  },
+  "quote-with-portrait": {
+    slots: {
+      quote: "Type that *insists* on being read slowly is the typographer's only defence against the scroll.",
+      name: "M. Frutiger",
+      role: "Type designer (apocryphal)",
+      portrait: { src: PLACEHOLDER_PNG(), alt: "portrait" },
+    },
+  },
+  "key-point": {
+    slots: {
+      headline: "Three reasons this matters",
+      points: [
+        { icon: "check",   title: "Faster",     description: "Cuts the build by 40%." },
+        { icon: "star",    title: "Cheaper",    description: "Same SLAs at half the cost." },
+        { icon: "users",   title: "Loved",      description: "NPS up 22 points in pilot." },
+      ],
+    },
+  },
+  "freeform": {
+    slots: {
+      title: "Bespoke composition",
+      shapes: [
+        { kind: "roundRect", x: 0.1, y: 0.25, w: 0.35, h: 0.5, fill: "brand-primary", cornerRadius: 0.15 },
+        { kind: "ellipse",   x: 0.55, y: 0.3, w: 0.3,  h: 0.4, fill: "accent" },
+        { kind: "text",      x: 0.1,  y: 0.78, w: 0.8, h: 0.1, text: "Free-form layout — last-resort escape hatch.", size: 14, color: "text-muted", align: "center" },
+      ],
+    },
+  },
+  "framed": {
+    chrome: "none",
+    slots: {
+      title: "Q3 review — full context",
+      header: { kind: "text", body: "Q3 closed at $1.2M MRR — first time over $1M." },
+      footer: { kind: "bullets", items: ["Source: ARR ledger 2026-04", "Updated 2026-04-27"] },
+      leftEdge: { kind: "kpi", value: "$1.2M", label: "MRR", delta: "+18% QoQ", trend: "up" },
+      rightEdge: { kind: "bullets", title: "Watchlist", items: ["EMEA churn", "Vertical SaaS"] },
+      center: {
+        kind: "chart",
+        title: "Revenue by quarter",
+        chart: { type: "bar", data: { labels: ["Q1","Q2","Q3","Q4"], series: [{ name: "Revenue", values: [820,920,1100,1200] }] }, format: { y: "int" } },
+      },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------
 // Theme discovery
 // ---------------------------------------------------------------------------
 function listThemes() {
-  return ["technical-blue", "editorial-warm", "midnight-executive", "forest-moss", "charcoal-minimal"];
+  return ["technical-blue", "editorial-warm", "midnight-executive", "forest-moss", "charcoal-minimal", "editorial-paper"];
 }
 
 function readThemeLayouts(themeDir) {

@@ -17,6 +17,9 @@ export function exampleForSlot(
 ): unknown | undefined {
   switch (schema.type) {
     case "chart-spec":
+      // The basic shape — one series, plain bar. The full vocabulary
+      // (combo, scatter, waterfall, annotations) is documented in the
+      // JSON Schema's ChartSpec definition.
       return {
         type: "bar",
         data: {
@@ -26,22 +29,49 @@ export function exampleForSlot(
           ],
         },
         format: { y: "int" },
+        // Optional — chart types: bar | stacked-bar | line | area | pie |
+        //   doughnut | combo | scatter | waterfall.
+        // Combo:    each series picks `type: "bar" | "line"`.
+        // Scatter:  each series uses `points: [{x,y}]` instead of values.
+        // Waterfall: a value of `null` marks a "total" bar.
+        //
+        // annotations: highlight specific points / ranges. Rendered as
+        // overlay shapes by the layout (callout, marker, or band).
+        // annotations: [
+        //   { at: 2, label: "first time over $1M MRR", style: "callout" },
+        //   { range: [0, 1], label: "guidance window", style: "band" },
+        // ]
       };
 
     case "table":
+      // Cells can be plain strings/numbers OR `{ value, emphasis? }`.
+      // emphasis ∈ ok | warn | bad | highlight | up | down | flat — picks
+      // a chip colour and bolds the cell.
       return {
         header: ["Metric", "Plan", "Actual"],
         rows: [
-          ["Revenue", "8000", "8283"],
-          ["GM%", "42", "39.8"],
+          ["Revenue", "8000", { value: "8283", emphasis: "ok" }],
+          ["GM%",     "42",   { value: "39.8", emphasis: "warn" }],
         ],
         colWidths: [3, 2, 2],
       };
 
     case "image-ref":
       return {
+        // Three accepted forms. Pick whichever matches what you have:
+        //   (1) `{ src }` — local path, https URL, or data URL.
+        //   (2) `{ svg }` — inline SVG markup (auto-wrapped as a data URL).
+        //   (3) bare path string — e.g. `image: "/path/to.png"`.
+        // Optional modifiers: { shape, border, overlay, alt, fit, aspectRatio }.
         src: "/absolute/path/or/https/url/to/image.png",
         alt: "short description",
+        // shape: "circle"            // also "rounded" | "square" (default)
+        // border: { color: "3CC2FF", width: 38100 }
+        // overlay: { color: "0B1B2A", alpha: 0.35 }
+        //
+        // Inline SVG alternative — useful when an agent generates the
+        // graphic inline (icons, sparklines, abstract diagrams):
+        //   svg: "<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><circle cx='50' cy='50' r='40' fill='#3CC2FF'/></svg>"
       };
 
     case "bullets":
@@ -50,7 +80,11 @@ export function exampleForSlot(
       //   - "images" → image-grid cells (image-grid-2x2)
       //   - "steps" → process-timeline; accepts plain strings OR
       //     { title, description? }
-      //   - everything else → plain strings
+      //   - everything else → plain strings or { text, sub? } for 2-level nesting
+      //
+      // Item text supports the inline-markdown vocabulary: **bold**,
+      // *italic*, `code`, {up:+12%}/{down:-3%}/{flat:—}/{ok}/{warn}/{bad}/
+      // {highlight}, and :icon-name: (12-icon enum).
       if (slotName === "items" && schema.itemMaxChars <= 64) {
         return [
           { value: "82.3亿", label: "市场规模", delta: "+12% YoY", trend: "up" },
@@ -72,13 +106,17 @@ export function exampleForSlot(
           "Mitigate — short verb phrase",
         ];
       }
-      return ["First item", "Second item", "Third item"];
+      return [
+        "First item — supports **bold**, *italic*, `code`",
+        { text: "Second item with sub-points", sub: ["nested point a", "nested point b"] },
+        "Revenue {up:+12% YoY} or risk {warn:vendor lock-in}",
+      ];
 
     case "component-ref":
       return { name: "<component-name>", slots: {} };
 
     case "region":
-      // Region cells are polymorphic — 8 kinds. The example shows the
+      // Region cells are polymorphic — 10 kinds. Example shows the
       // simplest (kpi); the inline comment enumerates the rest so the
       // agent knows the full vocabulary.
       return {
@@ -87,15 +125,17 @@ export function exampleForSlot(
         label: "ARR",
         delta: "+85% YoY",
         trend: "up",
-        // 8 kinds total (use whichever fits the cell):
-        //   { kind: "kpi",     value, label, delta?, trend? }
-        //   { kind: "chart",   chart: { type, data, format? }, title? }
-        //   { kind: "table",   table: { header, rows, colWidths? }, title? }
-        //   { kind: "text",    body, title? }
-        //   { kind: "bullets", items: ["..."], title? }
-        //   { kind: "image",   image: "/abs/path.png" | { src, alt?, ... }, caption? }
-        //   { kind: "code",    code: "...", language?, title? }
-        //   { kind: "quote",   text: "...", attribution? }
+        // 10 kinds total (use whichever fits the cell):
+        //   { kind: "kpi",       value, label, delta?, trend? }
+        //   { kind: "chart",     chart: { type, data, format? }, title? }
+        //   { kind: "table",     table: { header, rows, colWidths?, align? }, title? }
+        //   { kind: "text",      body, title? }
+        //   { kind: "bullets",   items: ["..."], title? }
+        //   { kind: "image",     image: "/abs/path.png" | { src, alt?, ... }, caption? }
+        //   { kind: "code",      code: "...", language?, title? }
+        //   { kind: "quote",     text: "...", attribution? }
+        //   { kind: "sparkline", values: [1,3,2,5,4], color?: "brand-primary", area?: true, title?, caption? }
+        //   { kind: "progress",  value: 0.73, label?: "Adoption", color?, trackColor?, showPercent?: true }
       };
 
     case "markdown-inline":

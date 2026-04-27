@@ -119,6 +119,41 @@ export interface ThemeManifest {
       tone?: string;
       avoid?: readonly string[];
     };
+    /**
+     * Per-theme typography scale (point values). Layouts can ask for a
+     * named size (`ctx.size("display")`) instead of hard-coding pt — the
+     * theme decides what each step actually looks like. When omitted the
+     * built-in default scale is used.
+     *
+     * Defaults:
+     *   xs: 10, sm: 12, base: 14, lg: 18, xl: 24, display: 48, hero: 96.
+     */
+    fontSizes?: {
+      xs?: number;
+      sm?: number;
+      base?: number;
+      lg?: number;
+      xl?: number;
+      display?: number;
+      hero?: number;
+    };
+    /**
+     * Per-theme bullet styling. Optional — when omitted, layouts fall back
+     * to the renderer's default bullets (PowerPoint-style auto bullets).
+     *
+     * `glyph` is the leading character emitted before each bullet's text;
+     * common choices: "•" (round), "›" (chevron), "—" (en-dash editorial),
+     * "▸" (filled triangle), "◆" (diamond). Themes pick the one that
+     * matches their visual register — editorial themes lean en-dash,
+     * technical themes lean chevron, executive themes lean diamond.
+     *
+     * `color` overrides the default text-strong colour for the glyph
+     * (use it to highlight bullets in brand-primary).
+     */
+    bullets?: {
+      glyph?: string;
+      color?: string;
+    };
   };
   oxml?: {
     /** 12 OOXML color slots; values are TOKEN NAMES from `tokens`. */

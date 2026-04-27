@@ -7,16 +7,24 @@
 
 import type { ChromeFn } from "../render/chrome.js";
 
-import brandBar     from "./brand-bar.js";
-import pageFooter   from "./page-footer.js";
-import pageHeader   from "./page-header.js";
-import pageNumber   from "./page-number.js";
+import brandBar      from "./brand-bar.js";
+import hairline      from "./hairline.js";
+import pageFooter    from "./page-footer.js";
+import pageHeader    from "./page-header.js";
+import pageNumber    from "./page-number.js";
+import progressBar   from "./progress-bar.js";
+import sectionMarker from "./section-marker.js";
+import watermark     from "./watermark.js";
 
 export const CHROME_REGISTRY: ReadonlyMap<string, ChromeFn> = new Map<string, ChromeFn>([
-  ["brand-bar",   brandBar     as ChromeFn],
-  ["page-footer", pageFooter   as ChromeFn],
-  ["page-header", pageHeader   as ChromeFn],
-  ["page-number", pageNumber   as ChromeFn],
+  ["brand-bar",      brandBar      as ChromeFn],
+  ["hairline",       hairline      as ChromeFn],
+  ["page-footer",    pageFooter    as ChromeFn],
+  ["page-header",    pageHeader    as ChromeFn],
+  ["page-number",    pageNumber    as ChromeFn],
+  ["progress-bar",   progressBar   as ChromeFn],
+  ["section-marker", sectionMarker as ChromeFn],
+  ["watermark",      watermark     as ChromeFn],
 ]);
 
 export function getChrome(name: string): ChromeFn | undefined {

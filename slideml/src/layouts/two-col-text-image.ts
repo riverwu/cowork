@@ -7,8 +7,8 @@ import {
   gridCols,
   imageOrPlaceholder,
   imageRefOf,
+  richText,
   slideTitle,
-  textBlockOf,
 } from "../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
@@ -23,10 +23,8 @@ interface ImageSlot { src: string; alt?: string; fit?: "contain" | "cover" | "cr
 const twoColTextImage: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const out: ShapeList = [];
   const title = ctx.slot<string>("title") ?? "";
-  const text = textBlockOf(ctx.slot<unknown>("text"));
   const image = imageRefOf(ctx.slot<unknown>("image"));
   const imageOnLeft = (ctx.slot<string>("imageSide") ?? "right").toLowerCase() === "left";
-  const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
 
   out.push(...slideTitle(ctx, title));
 
@@ -35,20 +33,10 @@ const twoColTextImage: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const textCol = imageOnLeft ? colB! : colA!;
   const imageCol = imageOnLeft ? colA! : colB!;
 
-  // Text block — split on blank lines into paragraphs.
-  const paras = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  out.push({
-    type: "text",
-    id: ctx.id(),
-    xfrm: { x: textCol.x, y: textCol.y, cx: textCol.width, cy: textCol.height },
-    valign: "top",
-    paragraphs: (paras.length > 0 ? paras : [text]).map((p) => ({
-      align: "left",
-      lineSpacingHalfPt: 56,
-      spaceAfterHalfPt: 24,
-      runs: [{ text: p, sizeHalfPt: 28, color: ctx.color("text-strong"), cjk: ctx.cjk, fontFace }],
-    })),
-  });
+  out.push(...richText(ctx, textCol, ctx.slot<unknown>("text"), {
+    sizeHalfPt: 28,
+    spaceAfterHalfPt: 24,
+  }));
 
   // Image on a card (insets keep the image off the card border).
   out.push(...card(ctx, imageCol));

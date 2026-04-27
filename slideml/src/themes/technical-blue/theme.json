@@ -14,9 +14,9 @@
     "text-muted": "8DA8C2",
     "accent": "FF9F45",
     "divider": "1F3F5C",
-    "font-latin": ["Inter", "Helvetica Neue", "Helvetica", "Arial", "sans-serif"],
-    "font-cjk": ["PingFang SC", "Microsoft YaHei", "Source Han Sans CN", "Noto Sans SC", "sans-serif"],
-    "font-mono": ["JetBrains Mono", "Menlo", "Consolas", "monospace"]
+    "font-latin": ["Inter", "IBM Plex Sans", "Helvetica Neue", "Helvetica", "Arial", "sans-serif"],
+    "font-cjk":   ["PingFang SC", "Source Han Sans CN", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "sans-serif"],
+    "font-mono":  ["JetBrains Mono", "Fira Code", "SF Mono", "Menlo", "Consolas", "monospace"]
   },
   "meta": {
     "audiences":   ["engineers", "data teams", "internal technical reviewers"],
@@ -27,6 +27,7 @@
   "style": {
     "titleAccentRule": true,
     "contrastTarget": "warn",
+    "bullets": { "glyph": "›", "color": "brand-primary" },
     "imagery": {
       "guidance": "Photographic or rendered, deep-tone, high-contrast. Cool blue / navy / cyan palette dominant. Subjects: server rooms, network diagrams, code on screens, geometric data visualizations, abstract circuitry, satellite/aerial views. Lighting: cinematic low-key with cyan accent highlights. Avoid: bright pastels, cartoonish illustrations, white backgrounds, hand-drawn marketing illustration styles, lifestyle photography.",
       "palette": ["#0B1B2A", "#3CC2FF", "#1078B5", "#F5F9FC"],
@@ -64,12 +65,23 @@
     { "name": "agenda",               "module": "layouts/agenda.js",               "thumbnail": "thumbnails/agenda.png" },
     { "name": "section-divider",      "module": "layouts/section-divider.js",      "thumbnail": "thumbnails/section-divider.png" },
     { "name": "stat-grid-3",          "module": "layouts/stat-grid-3.js",          "thumbnail": "thumbnails/stat-grid-3.png" },
+    { "name": "hero-stat",            "module": "layouts/hero-stat.js",            "thumbnail": "thumbnails/hero-stat.png" },
+    { "name": "matrix-2x2",           "module": "layouts/matrix-2x2.js",           "thumbnail": "thumbnails/matrix-2x2.png" },
+    { "name": "team-grid",            "module": "layouts/team-grid.js",            "thumbnail": "thumbnails/team-grid.png" },
     { "name": "bullet-with-image",    "module": "layouts/bullet-with-image.js",    "thumbnail": "thumbnails/bullet-with-image.png" },
     { "name": "two-col-text-image",   "module": "layouts/two-col-text-image.js",   "thumbnail": "thumbnails/two-col-text-image.png" },
     { "name": "compare-two-columns",  "module": "layouts/compare-two-columns.js",  "thumbnail": "thumbnails/compare-two-columns.png" },
     { "name": "process-timeline",     "module": "layouts/process-timeline.js",     "thumbnail": "thumbnails/process-timeline.png" },
     { "name": "image-grid-2x2",       "module": "layouts/image-grid-2x2.js",       "thumbnail": "thumbnails/image-grid-2x2.png" },
+    { "name": "image-full-bleed",     "module": "layouts/image-full-bleed.js",     "thumbnail": "thumbnails/image-full-bleed.png" },
+    { "name": "image-with-caption",   "module": "layouts/image-with-caption.js",   "thumbnail": "thumbnails/image-with-caption.png" },
+    { "name": "image-pair",           "module": "layouts/image-pair.js",           "thumbnail": "thumbnails/image-pair.png" },
+    { "name": "image-split-text",     "module": "layouts/image-split-text.js",     "thumbnail": "thumbnails/image-split-text.png" },
     { "name": "hero-image-overlay",   "module": "layouts/hero-image-overlay.js",   "thumbnail": "thumbnails/hero-image-overlay.png" },
+    { "name": "pricing-table",        "module": "layouts/pricing-table.js",        "thumbnail": "thumbnails/pricing-table.png" },
+    { "name": "quote-with-portrait",  "module": "layouts/quote-with-portrait.js",  "thumbnail": "thumbnails/quote-with-portrait.png" },
+    { "name": "key-point",            "module": "layouts/key-point.js",            "thumbnail": "thumbnails/key-point.png" },
+    { "name": "freeform",             "module": "layouts/freeform.js",             "thumbnail": "thumbnails/freeform.png" },
     { "name": "data-table",           "module": "layouts/data-table.js",           "thumbnail": "thumbnails/data-table.png" },
     { "name": "code-block",           "module": "layouts/code-block.js",           "thumbnail": "thumbnails/code-block.png" },
     { "name": "quote",                "module": "layouts/quote.js",                "thumbnail": "thumbnails/quote.png" },
@@ -78,6 +90,7 @@
     { "name": "split-2",              "module": "layouts/split-2.js",              "thumbnail": "thumbnails/split-2.png" },
     { "name": "split-3-horizontal",   "module": "layouts/split-3-horizontal.js",   "thumbnail": "thumbnails/split-3-horizontal.png" },
     { "name": "split-3-vertical",     "module": "layouts/split-3-vertical.js",     "thumbnail": "thumbnails/split-3-vertical.png" },
+    { "name": "framed",               "module": "layouts/framed.js",               "thumbnail": "thumbnails/framed.png" },
     { "name": "closing",              "module": "layouts/closing.js",              "thumbnail": "thumbnails/closing.png" }
   ],
   "components": [

@@ -1,0 +1,181 @@
+{
+  "name": "editorial-paper",
+  "version": "1.0.0",
+  "slidemlVersion": "1",
+  "displayName": "Editorial Paper",
+  "description": "Magazine-style theme — refined paper palette, serif headlines, asymmetric margins, hairline rules. Designed for long-form essays, founder letters, design-led keynote pieces, and published reports that should feel like print.",
+  "author": "SlideML",
+  "tokens": {
+    "bg-canvas": "F4EFE3",
+    "bg-card": "FFFFFF",
+    "brand-primary": "9B2D20",
+    "brand-deep": "2B1810",
+    "text-strong": "1A1410",
+    "text-muted": "6F635A",
+    "accent": "C49B5C",
+    "divider": "D8CFBF",
+    "semantic-up": "5C7A4A",
+    "semantic-down": "9B2D20",
+    "semantic-warn": "B8821C",
+    "semantic-bad": "9B2D20",
+    "font-latin": [
+      "Source Serif 4",
+      "Source Serif Pro",
+      "Crimson Pro",
+      "Georgia",
+      "Times New Roman",
+      "serif"
+    ],
+    "font-cjk": [
+      "Source Han Serif SC",
+      "Songti SC",
+      "STSong",
+      "SimSun",
+      "Noto Serif CJK SC",
+      "serif"
+    ],
+    "font-mono": [
+      "JetBrains Mono",
+      "Iosevka",
+      "Menlo",
+      "Consolas",
+      "monospace"
+    ]
+  },
+  "meta": {
+    "audiences": [
+      "magazine readers",
+      "long-form readers",
+      "design / culture",
+      "founder-letter recipients",
+      "annual-report committees"
+    ],
+    "industries": [
+      "publishing",
+      "design / media",
+      "fashion / lifestyle brands",
+      "non-profit annual reports",
+      "cultural institutions"
+    ],
+    "moods": [
+      "refined",
+      "literary",
+      "considered",
+      "print-feel",
+      "warm but disciplined"
+    ],
+    "antiPatterns": [
+      "engineering / data-heavy decks",
+      "fast-paced sales decks",
+      "dashboards",
+      "code walkthroughs",
+      "anything that needs to read at 6m projection distance"
+    ]
+  },
+  "style": {
+    "titleAccentRule": false,
+    "contrastTarget": "warn",
+    "bullets": { "glyph": "—", "color": "brand-primary" },
+    "fontSizes": {
+      "xs": 9,
+      "sm": 11,
+      "base": 13,
+      "lg": 17,
+      "xl": 26,
+      "display": 56,
+      "hero": 110
+    },
+    "imagery": {
+      "guidance": "Editorial print photography — natural light, paper textures, hands, archival objects, classical portraits, fine-art still lifes. Warm cream / terracotta / muted-gold palette. Composition is deliberate and asymmetric with generous negative space. Lighting is soft daylight or golden hour. Avoid: tech / screens, neon, cool blues, harsh studio strobe, lifestyle stock photography, anything with obvious colour grading.",
+      "palette": ["#F4EFE3", "#9B2D20", "#C49B5C", "#2B1810"],
+      "preferredStyles": [
+        "editorial photography",
+        "natural light",
+        "fine-art still life",
+        "watercolor accent",
+        "letterpress / risograph",
+        "documentary"
+      ],
+      "avoid": [
+        "screens / monitors",
+        "neon",
+        "cool blue / cyber",
+        "stock-photo sheen",
+        "harsh strobe",
+        "saturated marketing illustration"
+      ]
+    },
+    "voice": {
+      "tone": "Considered, literary, slightly formal. Full sentences over bullets. Reads aloud. Uses semicolons. Avoids buzzwords, exclamation marks, and any phrase you'd hear in a sales meeting.",
+      "avoid": [
+        "buzzwords",
+        "exclamation marks",
+        "tech jargon",
+        "bullet shorthand for ideas that deserve a sentence",
+        "sales-deck superlatives ('industry-leading', 'best-in-class')"
+      ]
+    }
+  },
+  "oxml": {
+    "clrScheme": {
+      "bg1": "bg-canvas",
+      "tx1": "text-strong",
+      "bg2": "bg-card",
+      "tx2": "text-muted",
+      "accent1": "brand-primary",
+      "accent2": "brand-deep",
+      "accent3": "accent",
+      "accent4": "text-muted",
+      "accent5": "divider",
+      "accent6": "bg-card",
+      "hlink": "brand-primary",
+      "folHlink": "brand-deep"
+    },
+    "fontScheme": {
+      "majorLatin": "Source Serif 4",
+      "minorLatin": "Source Serif Pro"
+    }
+  },
+  "layouts": [
+    { "name": "cover",                "module": "layouts/cover.js",                "thumbnail": "thumbnails/cover.png" },
+    { "name": "title-only",           "module": "layouts/title-only.js",           "thumbnail": "thumbnails/title-only.png" },
+    { "name": "agenda",               "module": "layouts/agenda.js",               "thumbnail": "thumbnails/agenda.png" },
+    { "name": "section-divider",      "module": "layouts/section-divider.js",      "thumbnail": "thumbnails/section-divider.png" },
+    { "name": "stat-grid-3",          "module": "layouts/stat-grid-3.js",          "thumbnail": "thumbnails/stat-grid-3.png" },
+    { "name": "hero-stat",            "module": "layouts/hero-stat.js",            "thumbnail": "thumbnails/hero-stat.png" },
+    { "name": "matrix-2x2",           "module": "layouts/matrix-2x2.js",           "thumbnail": "thumbnails/matrix-2x2.png" },
+    { "name": "team-grid",            "module": "layouts/team-grid.js",            "thumbnail": "thumbnails/team-grid.png" },
+    { "name": "image-full-bleed",     "module": "layouts/image-full-bleed.js",     "thumbnail": "thumbnails/image-full-bleed.png" },
+    { "name": "image-with-caption",   "module": "layouts/image-with-caption.js",   "thumbnail": "thumbnails/image-with-caption.png" },
+    { "name": "image-pair",           "module": "layouts/image-pair.js",           "thumbnail": "thumbnails/image-pair.png" },
+    { "name": "image-split-text",     "module": "layouts/image-split-text.js",     "thumbnail": "thumbnails/image-split-text.png" },
+    { "name": "hero-image-overlay",   "module": "layouts/hero-image-overlay.js",   "thumbnail": "thumbnails/hero-image-overlay.png" },
+    { "name": "bullet-with-image",    "module": "layouts/bullet-with-image.js",    "thumbnail": "thumbnails/bullet-with-image.png" },
+    { "name": "two-col-text-image",   "module": "layouts/two-col-text-image.js",   "thumbnail": "thumbnails/two-col-text-image.png" },
+    { "name": "compare-two-columns",  "module": "layouts/compare-two-columns.js",  "thumbnail": "thumbnails/compare-two-columns.png" },
+    { "name": "process-timeline",     "module": "layouts/process-timeline.js",     "thumbnail": "thumbnails/process-timeline.png" },
+    { "name": "image-grid-2x2",       "module": "layouts/image-grid-2x2.js",       "thumbnail": "thumbnails/image-grid-2x2.png" },
+    { "name": "data-table",           "module": "layouts/data-table.js",           "thumbnail": "thumbnails/data-table.png" },
+    { "name": "quote",                "module": "layouts/quote.js",                "thumbnail": "thumbnails/quote.png" },
+    { "name": "quote-with-portrait",  "module": "layouts/quote-with-portrait.js",  "thumbnail": "thumbnails/quote-with-portrait.png" },
+    { "name": "chart-with-takeaway",  "module": "layouts/chart-with-takeaway.js",  "thumbnail": "thumbnails/chart-with-takeaway.png" },
+    { "name": "key-point",            "module": "layouts/key-point.js",            "thumbnail": "thumbnails/key-point.png" },
+    { "name": "pricing-table",        "module": "layouts/pricing-table.js",        "thumbnail": "thumbnails/pricing-table.png" },
+    { "name": "split-2",              "module": "layouts/split-2.js",              "thumbnail": "thumbnails/split-2.png" },
+    { "name": "split-3-horizontal",   "module": "layouts/split-3-horizontal.js",   "thumbnail": "thumbnails/split-3-horizontal.png" },
+    { "name": "split-3-vertical",     "module": "layouts/split-3-vertical.js",     "thumbnail": "thumbnails/split-3-vertical.png" },
+    { "name": "framed",               "module": "layouts/framed.js",               "thumbnail": "thumbnails/framed.png" },
+    { "name": "freeform",             "module": "layouts/freeform.js",             "thumbnail": "thumbnails/freeform.png" },
+    { "name": "closing",              "module": "layouts/closing.js",              "thumbnail": "thumbnails/closing.png" }
+  ],
+  "components": [
+    { "name": "header",            "module": "components/header.js" },
+    { "name": "footer",            "module": "components/footer.js" },
+    { "name": "kpi-tile",          "module": "components/kpi-tile.js" },
+    { "name": "takeaway-callout",  "module": "components/takeaway-callout.js" }
+  ],
+  "chrome": [
+    "hairline",
+    "page-number"
+  ]
+}

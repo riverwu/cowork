@@ -96,8 +96,26 @@ export interface LayoutContext {
    */
   style: {
     titleAccentRule: boolean;
+    /** Optional per-theme bullet styling (glyph + colour token). */
+    bullets?: {
+      glyph?: string;
+      color?: string;
+    };
   };
+
+  /**
+   * Resolve a semantic size token to half-points (PowerPoint's run unit).
+   * Defaults: xs=20, sm=24, base=28, lg=36, xl=48, display=96, hero=192.
+   * Themes override via manifest.style.fontSizes (in pt).
+   */
+  size: (token: SizeToken) => number;
 }
+
+export type SizeToken = "xs" | "sm" | "base" | "lg" | "xl" | "display" | "hero";
+
+const DEFAULT_SIZES_PT: Record<SizeToken, number> = {
+  xs: 10, sm: 12, base: 14, lg: 18, xl: 24, display: 48, hero: 96,
+};
 
 export interface BuildContextOptions {
   theme: LoadedTheme;
@@ -189,6 +207,13 @@ export function buildLayoutContext(opts: BuildContextOptions): LayoutContext {
 
     style: {
       titleAccentRule: theme.manifest.style?.titleAccentRule ?? true,
+      bullets: theme.manifest.style?.bullets,
+    },
+
+    size(token) {
+      const overrides = theme.manifest.style?.fontSizes ?? {};
+      const pt = overrides[token] ?? DEFAULT_SIZES_PT[token];
+      return Math.round(pt * 2);   // OOXML half-point convention
     },
   };
 }

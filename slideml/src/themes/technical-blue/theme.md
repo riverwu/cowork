@@ -213,6 +213,132 @@ on the bottom row).
 
 ![split-3-vertical](thumbnails/split-3-vertical.png)
 
+### hero-stat
+One enormous headline number with a tagline. Use when the slide exists to
+make ONE point land — single source of truth, like "47% of Americans...".
+
+- `value` — `text`, ≤ 20 chars. Required. The big number ("$1.2M MRR", "47%").
+- `label` — `text`, ≤ 60 chars. Required. One-sentence supporting line.
+- `caption` — `text-block`, ≤ 240 chars. Optional. Smaller body context below the label.
+- `eyebrow` — `text`, ≤ 32 chars. Optional. Small uppercase label above the number.
+
+> **Guidance:** Use sparingly — at most one hero-stat per deck. The whole slide is one number, so make sure that number is the headline of the deck. Pair with a section-divider before, not a chart-with-takeaway.
+
+![hero-stat](thumbnails/hero-stat.png)
+
+### matrix-2x2
+Quadrant matrix with optional axis labels. Each quadrant is a polymorphic
+region — kpi/text/bullets/image/etc. Use for BCG-style frameworks
+(priority×effort, urgency×importance, growth×profitability).
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `xLabel` — `text`, ≤ 32 chars. Optional. Axis label below the matrix.
+- `yLabel` — `text`, ≤ 32 chars. Optional. Axis label rotated on the left.
+- `topLeft`, `topRight`, `botLeft`, `botRight` — `region` cells (all required).
+
+> **Guidance:** Quadrants only make sense when the two axes are genuinely orthogonal. If the four boxes are just "four good ideas", use stat-grid-3 or split-3-horizontal instead. Use bullets-shaped regions for option lists; kpi for headline numbers per quadrant.
+
+![matrix-2x2](thumbnails/matrix-2x2.png)
+
+### image-full-bleed
+The image fills the entire slide; an optional `caption` renders in a thin dark band along the bottom edge. Use for cinematic shots, product photography, or place-setting visuals where the picture IS the slide.
+
+- `image` — `image-ref`. Required.
+- `caption` — `text`, ≤ 120 chars. Optional. Italic credit/location line.
+
+![image-full-bleed](thumbnails/image-full-bleed.png)
+
+### image-with-caption
+Editorial layout: image at 60% width with generous left margin, italic caption below, optional uppercase credit line further down. Magazine feel.
+
+- `image` — `image-ref`. Required.
+- `caption` — `text-block`, ≤ 320 chars. Required.
+- `credit` — `text`, ≤ 80 chars. Optional. Renders in small uppercase muted text.
+
+![image-with-caption](thumbnails/image-with-caption.png)
+
+### image-pair
+Two images side by side with optional brand-colored labels above each. Perfect for before/after, comparison studies, design A/B.
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `leftImage`, `rightImage` — `image-ref`. Both required.
+- `leftLabel`, `rightLabel` — `text`, ≤ 32 chars. Optional. Rendered as small uppercase headings.
+
+![image-pair](thumbnails/image-pair.png)
+
+### image-split-text
+Immersive 50/50: image is full-bleed on its half (no card backing — touches slide edges), text fills the other half with generous interior padding.
+
+- `title` — `text`, ≤ 60 chars. Required.
+- `text` — `text-block`, ≤ 480 chars. Required.
+- `image` — `image-ref`. Required.
+- `imageSide` — `text` (`left` or `right`). Optional, default `right`.
+
+![image-split-text](thumbnails/image-split-text.png)
+
+### pricing-table
+2–4 pricing tier cards in a row. Each tier: `{ name, price, period?, features?, recommended? }`. Recommended tier renders with a brand fill + ribbon.
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `tiers` — `bullets`, 2–4 entries. Each entry is the tier object above.
+
+![pricing-table](thumbnails/pricing-table.png)
+
+### quote-with-portrait
+Pull-quote with a circular portrait of the speaker on the left, italic quote on the right, name + role beneath. More humane than `quote` when the source matters.
+
+- `quote` — `text-block`, ≤ 280 chars. Required.
+- `name` — `text`, ≤ 60 chars. Required.
+- `role` — `text`, ≤ 80 chars. Optional. Italic role/affiliation line.
+- `portrait` — `image-ref`. Optional — placeholder circle when omitted.
+
+![quote-with-portrait](thumbnails/quote-with-portrait.png)
+
+### key-point
+One central tagline + 2–4 supporting points underneath, each with optional icon (from the 12-icon enum) + heading + 1-line description. Use for "3 reasons why", "core principles", learn-objectives slides.
+
+- `headline` — `text`, ≤ 80 chars. Required.
+- `points` — `bullets`, 2–4 entries. Each entry is `{ icon?, title, description? }`.
+
+![key-point](thumbnails/key-point.png)
+
+### freeform
+Escape-hatch layout — pass a `shapes` array of typed primitives with positions in fractions of slide size. Use ONLY when no other layout fits (custom diagrams, bespoke compositions).
+
+- `title` — `text`, ≤ 80 chars. Optional.
+- `shapes` — `bullets`, 1–40 entries. Each entry is `{ kind, x, y, w, h, ... }` where `kind` is `text | rect | roundRect | ellipse | line | image`. Coordinates are 0..1 fractions; origin top-left.
+
+> **Guidance:** This is a power tool — most decks should never reach for it. Try a region-based layout (split-N, dashboard, framed, matrix-2x2) first.
+
+![freeform](thumbnails/freeform.png)
+
+### framed
+Five-region layout with optional edge bands — header, footer, leftEdge,
+rightEdge, plus a required center. Use when one slide needs more
+context than the global chrome can carry: persistent legends, side
+glossaries, full-width headlines tied to a chart below.
+
+- `title` — `text`, ≤ 50 chars. Optional. Small slide title above the header band.
+- `header` — `region`. Optional. Top band, full slide width.
+- `footer` — `region`. Optional. Bottom band, full slide width.
+- `leftEdge` / `rightEdge` — `region`. Optional. Sidebar columns.
+- `center` — `region`. Required. Main content area; expands to fill any unused edge space.
+
+> **Guidance:** If you only need a header or only a footer, prefer the standard chrome (`page-header`, `page-footer`) and a focused layout. Reach for `framed` when two or more edges genuinely carry content. Avoid pairing it with thick global chrome — set `chrome: none` to give the edges room.
+
+![framed](thumbnails/framed.png)
+
+### team-grid
+Photo grid of team members — circular avatars + name + role + optional bio.
+2–8 members; 5+ members render as two rows.
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `members` — `bullets`, 2–8 entries. Each entry is `{ name, role?, image?, bio? }` where `image` is an `image-ref` (rendered with `shape: "circle"` automatically).
+
+> **Guidance:** Bios are 1-line max. Don't over-pack — if you have 6 members and 3 sentences each, the slide collapses. Use `image_gen` only when you have actual headshot URLs; otherwise omit `image` and the layout draws a polite placeholder circle.
+
+![team-grid](thumbnails/team-grid.png)
+
 ## Components
 
 ### header
@@ -247,9 +373,9 @@ This theme exposes these tokens. SlideML can reference them via theme defaults.
 - `text-muted` — labels, captions, page numbers.
 - `accent` — warm orange, used sparingly for deltas / callouts.
 - `divider` — hairline color for separators and outlines.
-- `font-latin` — Latin font fallback chain (Inter → Helvetica → Arial).
-- `font-cjk` — CJK font fallback chain (PingFang SC → Microsoft YaHei → Source Han / Noto).
-- `font-mono` — monospace fallback chain.
+- `font-latin` — Latin: Inter → IBM Plex Sans → Helvetica Neue → Arial. Inter is the engineering-blog default; IBM Plex is the next-best fallback when Inter is unavailable.
+- `font-cjk` — CJK: PingFang SC (macOS) → Source Han Sans CN (Linux) → Microsoft YaHei (Windows) → Noto Sans CJK SC (cross-platform). Order targets macOS first because the deck author is most likely viewing on macOS; Windows-installed Office picks YaHei.
+- `font-mono` — JetBrains Mono → Fira Code → SF Mono → Menlo → Consolas. Code blocks expect a programming font with proper ligatures and 0/O distinction.
 
 ## Chrome
 

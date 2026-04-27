@@ -95,7 +95,23 @@ export interface TextShape {
   line?: LineSpec;
 }
 
-export type ShapePreset = "rect" | "roundRect" | "ellipse" | "line";
+export type ShapePreset =
+  | "rect"
+  | "roundRect"
+  | "ellipse"
+  | "line"
+  // Polygon presets — added in Batch C. Names map to OOXML `prstGeom`
+  // entries one-to-one; no compound geometry, no auto-shape adjustments.
+  | "triangle"
+  | "rightTriangle"
+  | "pentagon"
+  | "arrow-right"
+  | "arrow-down"
+  | "callout"
+  | "chevron"
+  | "star-5"
+  | "parallelogram"
+  | "cloud";
 
 export interface PresetShape {
   type: "shape";
@@ -118,6 +134,51 @@ export interface ImageShape {
    *  The package emitter resolves all of these to bytes + an extension. */
   src: string;
   altText?: string;
+  /**
+   * Optional clip shape — turns the image's bounding box into a non-
+   * rectangular silhouette. "circle" maps to OOXML `prstGeom prst="ellipse"`,
+   * "rounded" maps to roundRect with cornerRadius, "square" is the default
+   * (no clipping). Other values are ignored.
+   */
+  clip?: "square" | "rounded" | "circle";
+  /** Corner radius for the "rounded" clip (0..0.5 of the shorter side). */
+  cornerRadius?: number;
+  /** Optional border drawn around the clipped image. */
+  border?: LineSpec;
+  /** Translucent colored overlay drawn on top of the image. */
+  overlay?: { color: HexColor; alpha?: number };
+  /**
+   * Inset crop (fractions 0..1 of width/height). Maps to OOXML
+   * `<a:srcRect l="..." r="..." t="..." b="..."/>` inside the blipFill.
+   * Handy when the image's hot region isn't centred in the source file.
+   */
+  crop?: { left?: number; right?: number; top?: number; bottom?: number };
+  /**
+   * Soft / feathered edge (fade-into-canvas). Value is a fraction of the
+   * shorter side (0..0.5). OOXML `<a:softEdge rad="EMU"/>` inside the
+   * picture's `<a:effectLst>`.
+   */
+  softEdge?: number;
+  /**
+   * Drop shadow underneath the image. Maps to `<a:outerShdw>` inside
+   * `<a:effectLst>`. `blur` and offsets are in EMU.
+   */
+  shadow?: { color: HexColor; alpha?: number; blur?: number; dx?: number; dy?: number };
+  /** Convert the image to grayscale. OOXML `<a:grayscl/>` inside the blip. */
+  grayscale?: boolean;
+  /**
+   * Brightness/luminance shift in [-1, 1]. Maps to `<a:lum bright="N"/>`
+   * (PowerPoint expects the value as a per-mille integer in the OOXML).
+   */
+  brightness?: number;
+  /** Gaussian blur on the image itself (EMU radius). `<a:blur rad="N"/>`. */
+  blur?: number;
+  /**
+   * Two-tone recolour. Maps to `<a:duotone>` with the two srgbClr stops.
+   * Great for editorial / magazine treatments — keeps photos visually
+   * coherent with the brand palette.
+   */
+  duotone?: { dark: HexColor; light: HexColor };
 }
 
 /**
@@ -132,7 +193,10 @@ export type ChartType =
   | "line"         // line chart with markers
   | "area"         // filled area chart
   | "pie"          // single-series pie
-  | "doughnut";    // single-series doughnut
+  | "doughnut"     // single-series doughnut
+  | "combo"        // mixed bar + line (per-series `type` picks)
+  | "scatter"      // x/y scatter (per-series `points: {x,y}[]`)
+  | "waterfall";   // styled cumulative bar (positive/negative/total colors)
 
 export type ChartNumberFormat =
   | "int"        // 1234   (formatCode "0")
@@ -143,7 +207,51 @@ export type ChartNumberFormat =
 
 export interface ChartSeries {
   name: string;
-  values: number[];
+  /**
+   * Numeric values, one per category label. `null` is only meaningful
+   * for waterfall charts, where it marks a "total" bar (the running
+   * total of every prior delta). Other chart types treat null as 0.
+   */
+  values: Array<number | null>;
+  /**
+   * Per-series chart type override — only consumed when the parent
+   * `chartType` is "combo". Default "bar". Any other parent chartType
+   * ignores this field.
+   */
+  type?: "bar" | "line";
+  /**
+   * Per-series xy data — only consumed when parent `chartType` is
+   * "scatter". When present, `values` is ignored. Each point is a
+   * literal {x,y} pair; the emitter writes both into the OOXML.
+   */
+  points?: Array<{ x: number; y: number }>;
+}
+
+/**
+ * Inline annotation on a chart — a callout, marker, or band that
+ * highlights a specific category or range. Annotations are rendered as
+ * overlay shapes by the layout that owns the chart (not by the chart
+ * emitter itself), so they cooperate with whatever bounding rectangle
+ * the layout chose for the chart.
+ *
+ * Positioning is approximate — the layout computes proportional x
+ * based on category index ÷ labels.length. Good enough for "look at
+ * Q3" callouts; not a substitute for native chart data labels.
+ */
+export interface ChartAnnotation {
+  /** Category index this annotation refers to (0-based). */
+  at?: number;
+  /** Inclusive [start, end] category range — used for "band" style. */
+  range?: [number, number];
+  /** Label text (supports SlideML inline markdown). */
+  label: string;
+  /**
+   * Visual style:
+   *   "callout" (default) — small chip with an arrow pointing to the bar
+   *   "marker"            — bold dot + label, rendered at the data point
+   *   "band"              — translucent vertical band spanning `range`
+   */
+  style?: "callout" | "marker" | "band";
 }
 
 export interface ChartShape {
@@ -164,6 +272,13 @@ export interface ChartShape {
   showLegend?: boolean;
   /** Show data values on each point. Default false. */
   showValues?: boolean;
+  /**
+   * Annotations attached to this chart. Carried on the shape so layouts
+   * can render them as overlay text shapes layered over the chart frame.
+   * The chart emitter (chart.ts) IGNORES this field — it only affects
+   * the layout's overlay pass.
+   */
+  annotations?: ChartAnnotation[];
 }
 
 /**

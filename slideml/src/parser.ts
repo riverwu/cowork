@@ -19,7 +19,8 @@ const ALLOWED_DECK_KEYS = new Set(["size", "language", "theme", "defaults", "hea
 const ALLOWED_SIZES = new Set(["16x9", "16x10", "4x3", "wide"]);
 const ALLOWED_SLIDE_KEYS = new Set(["layout", "chrome", "notes", "transition", "slots", "header", "footer", "background"]);
 const ALLOWED_TRANSITIONS = new Set(["none", "fade"]);
-const ALLOWED_CHROME_OBJECT_KEYS = new Set(["header", "footer", "brandBar", "pageNumber"]);
+const ALLOWED_CHROME_OBJECT_KEYS = new Set(["header", "footer", "brandBar", "pageNumber", "enable", "disable", "override"]);
+const CHROME_BOOLEAN_KEYS = new Set(["header", "footer", "brandBar", "pageNumber"]);
 const ALLOWED_BAND_KEYS = new Set(["left", "center", "right"]);
 
 /** Parse a SlideML YAML string into a typed DeckSpec. */
@@ -191,14 +192,36 @@ function parseChrome(value: unknown, path: string): ChromeSpec | undefined {
   if (value === undefined) return undefined;
   if (value === "default" || value === "none") return value;
   if (!isObject(value)) {
-    throw structured("TYPE_MISMATCH", `${path} must be "default" | "none" | { header, footer, brandBar, pageNumber } object.`);
+    throw structured("TYPE_MISMATCH", `${path} must be "default" | "none" | { header?, footer?, brandBar?, pageNumber?, enable?, disable?, override? } object.`);
   }
   for (const key of Object.keys(value)) {
     if (!ALLOWED_CHROME_OBJECT_KEYS.has(key)) {
-      throw structured("EXTRA_KEY", `${path}.${key} is not a recognized chrome flag. Allowed: ${[...ALLOWED_CHROME_OBJECT_KEYS].join(", ")}.`);
+      throw structured("EXTRA_KEY", `${path}.${key} is not a recognized chrome key. Allowed: ${[...ALLOWED_CHROME_OBJECT_KEYS].join(", ")}.`);
     }
-    if (typeof value[key] !== "boolean") {
-      throw structured("TYPE_MISMATCH", `${path}.${key} must be a boolean.`);
+    if (CHROME_BOOLEAN_KEYS.has(key)) {
+      if (typeof value[key] !== "boolean") {
+        throw structured("TYPE_MISMATCH", `${path}.${key} must be a boolean.`);
+      }
+      continue;
+    }
+    if (key === "enable" || key === "disable") {
+      const arr = value[key];
+      if (!Array.isArray(arr) || arr.some((v) => typeof v !== "string")) {
+        throw structured("TYPE_MISMATCH", `${path}.${key} must be an array of chrome module name strings.`);
+      }
+      continue;
+    }
+    if (key === "override") {
+      const ov = value[key];
+      if (!isObject(ov)) {
+        throw structured("TYPE_MISMATCH", `${path}.override must be an object mapping chrome module name → params object.`);
+      }
+      for (const moduleName of Object.keys(ov)) {
+        if (!isObject(ov[moduleName])) {
+          throw structured("TYPE_MISMATCH", `${path}.override.${moduleName} must be an object.`);
+        }
+      }
+      continue;
     }
   }
   return value as ChromeSpec;

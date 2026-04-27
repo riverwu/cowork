@@ -26,11 +26,16 @@ import type { ChartShape, ShapeList, TableCell } from "../emitter/types.js";
 import {
   bulletsBlock,
   card,
+  chartAnnotationOverlay,
+  chipColorResolver,
   imageOrPlaceholder,
   imageRefOf,
+  inferTableAlign,
   kpiTile,
-  textBlockOf,
+  richText,
+  tableCellOf,
 } from "./primitives.js";
+import { parseInline } from "./markdown-inline.js";
 
 // ---------------------------------------------------------------------------
 // Region union
@@ -38,14 +43,58 @@ import {
 
 export interface RegionRect { x: number; y: number; width: number; height: number }
 
-export interface RegionKpi    { kind: "kpi"; value: string; label: string; delta?: string; trend?: "up" | "down" | "flat" }
-export interface RegionChart  { kind: "chart"; chart: { type: ChartShape["chartType"]; data: { labels: string[]; series: Array<{ name: string; values: number[] }> }; format?: { y?: ChartShape["yFormat"] } }; title?: string }
-export interface RegionTable  { kind: "table"; table: { header: string[]; rows: string[][]; colWidths?: number[] }; title?: string }
-export interface RegionText   { kind: "text"; body: string | string[]; title?: string }
-export interface RegionBullets { kind: "bullets"; items: string[]; title?: string }
-export interface RegionImage  { kind: "image"; image: unknown; caption?: string }
-export interface RegionCode   { kind: "code"; code: string; language?: string; title? : string }
-export interface RegionQuote  { kind: "quote"; text: string; attribution?: string }
+/**
+ * Visual style applied to every region cell. `filled` (default) is the
+ * existing card backing with accent stripe. `ghost` removes the backing
+ * entirely, `outlined` is a hairline rect with no fill, `elevated` adds
+ * a drop shadow, `glass` is a semi-transparent fill (good over hero
+ * backgrounds).
+ */
+export type RegionStyle = "filled" | "ghost" | "outlined" | "elevated" | "glass";
+export interface RegionStyleable { style?: RegionStyle }
+
+export interface RegionKpi extends RegionStyleable    { kind: "kpi"; value: string; label: string; delta?: string; trend?: "up" | "down" | "flat" }
+export interface RegionChart extends RegionStyleable  {
+  kind: "chart";
+  chart: {
+    type: ChartShape["chartType"];
+    data: {
+      labels: string[];
+      series: Array<{
+        name: string;
+        values?: number[];
+        type?: "bar" | "line";
+        points?: Array<{ x: number; y: number }>;
+      }>;
+    };
+    format?: { y?: ChartShape["yFormat"] };
+    annotations?: Array<{ at?: number; range?: [number, number]; label: string; style?: "callout" | "marker" | "band" }>;
+  };
+  title?: string;
+}
+export interface RegionTable extends RegionStyleable  { kind: "table"; table: { header: string[]; rows: unknown[][]; colWidths?: number[]; align?: Array<"left" | "center" | "right"> }; title?: string }
+export interface RegionText extends RegionStyleable   { kind: "text"; body: string | string[]; title?: string }
+export interface RegionBullets extends RegionStyleable { kind: "bullets"; items: string[]; title?: string }
+export interface RegionImage extends RegionStyleable  { kind: "image"; image: unknown; caption?: string }
+export interface RegionCode extends RegionStyleable   { kind: "code"; code: string; language?: string; title? : string }
+export interface RegionQuote extends RegionStyleable  { kind: "quote"; text: string; attribution?: string }
+export interface RegionSparkline extends RegionStyleable {
+  kind: "sparkline";
+  values: number[];
+  color?: string;          // token name or hex
+  area?: boolean;          // fill below the line
+  baseline?: number;       // explicit baseline; default = min(values)
+  title?: string;
+  caption?: string;
+}
+export interface RegionProgress extends RegionStyleable {
+  kind: "progress";
+  value: number;           // 0..1
+  label?: string;
+  color?: string;          // token name or hex (defaults to brand-primary)
+  trackColor?: string;     // defaults to divider
+  showPercent?: boolean;   // defaults true
+}
 
 export type Region =
   | RegionKpi
@@ -55,10 +104,12 @@ export type Region =
   | RegionBullets
   | RegionImage
   | RegionCode
-  | RegionQuote;
+  | RegionQuote
+  | RegionSparkline
+  | RegionProgress;
 
 /** Discriminator values agents see in `describe_slide_layout` examples. */
-export const REGION_KINDS = ["kpi", "chart", "table", "text", "bullets", "image", "code", "quote"] as const;
+export const REGION_KINDS = ["kpi", "chart", "table", "text", "bullets", "image", "code", "quote", "sparkline", "progress"] as const;
 
 // ---------------------------------------------------------------------------
 // Top-level dispatch
@@ -66,20 +117,81 @@ export const REGION_KINDS = ["kpi", "chart", "table", "text", "bullets", "image"
 
 export function renderRegion(ctx: LayoutContext, rect: RegionRect, region: Region): ShapeList {
   switch (region.kind) {
-    case "kpi":     return kpiTile(ctx, rect, region);
-    case "chart":   return renderChartCell(ctx, rect, region);
-    case "table":   return renderTableCell(ctx, rect, region);
-    case "text":    return renderTextCell(ctx, rect, region);
-    case "bullets": return renderBulletsCell(ctx, rect, region);
-    case "image":   return renderImageCell(ctx, rect, region);
-    case "code":    return renderCodeCell(ctx, rect, region);
-    case "quote":   return renderQuoteCell(ctx, rect, region);
+    case "kpi":       return renderKpiCell(ctx, rect, region);
+    case "chart":     return renderChartCell(ctx, rect, region);
+    case "table":     return renderTableCell(ctx, rect, region);
+    case "text":      return renderTextCell(ctx, rect, region);
+    case "bullets":   return renderBulletsCell(ctx, rect, region);
+    case "image":     return renderImageCell(ctx, rect, region);
+    case "code":      return renderCodeCell(ctx, rect, region);
+    case "quote":     return renderQuoteCell(ctx, rect, region);
+    case "sparkline": return renderSparklineCell(ctx, rect, region);
+    case "progress":  return renderProgressCell(ctx, rect, region);
   }
 }
 
 // ---------------------------------------------------------------------------
 // Per-kind cell renderers
 // ---------------------------------------------------------------------------
+
+/**
+ * Build the cell backing for a region according to its `style` field.
+ * - filled (default): existing card with accent stripe
+ * - ghost: nothing (transparent)
+ * - outlined: hairline rect, no fill
+ * - elevated: solid card with a soft drop shadow
+ * - glass: semi-transparent fill, suited for slides with hero backgrounds
+ */
+function regionBacking(
+  ctx: LayoutContext,
+  rect: RegionRect,
+  style: RegionStyle | undefined,
+  opts: { accentStripe?: string } = {},
+): ShapeList {
+  const s = style ?? "filled";
+  if (s === "ghost") return [];
+  if (s === "outlined") {
+    return [{
+      type: "shape",
+      id: ctx.id(),
+      preset: "roundRect",
+      xfrm: { x: rect.x, y: rect.y, cx: rect.width, cy: rect.height },
+      fill: { type: "none" },
+      line: { color: ctx.color("divider"), width: ctx.pt(0.75) },
+      cornerRadius: 0.03,
+    }];
+  }
+  if (s === "elevated") {
+    // Soft shadow approximation via a slightly-offset duplicate rect.
+    const out: ShapeList = [];
+    const shadowOffset = ctx.cm(0.18);
+    out.push({
+      type: "shape",
+      id: ctx.id(),
+      preset: "roundRect",
+      xfrm: { x: rect.x + shadowOffset, y: rect.y + shadowOffset, cx: rect.width, cy: rect.height },
+      fill: { type: "solid", color: "000000", alpha: 0.12 },
+      line: { color: "000000", width: 0 },
+      cornerRadius: 0.03,
+    });
+    out.push(...card(ctx, rect, { accentStripe: opts.accentStripe }));
+    return out;
+  }
+  if (s === "glass") {
+    const out: ShapeList = [];
+    out.push({
+      type: "shape",
+      id: ctx.id(),
+      preset: "roundRect",
+      xfrm: { x: rect.x, y: rect.y, cx: rect.width, cy: rect.height },
+      fill: { type: "solid", color: ctx.color("bg-card"), alpha: 0.55 },
+      line: { color: "FFFFFF", width: ctx.pt(0.5) },
+      cornerRadius: 0.03,
+    });
+    return out;
+  }
+  return card(ctx, rect, { accentStripe: opts.accentStripe });
+}
 
 function cellTitle(ctx: LayoutContext, rect: RegionRect, title: string, sizeHalfPt = 24): { shape: ShapeList[number]; height: number } {
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
@@ -100,8 +212,20 @@ function cellTitle(ctx: LayoutContext, rect: RegionRect, title: string, sizeHalf
   };
 }
 
+function renderKpiCell(ctx: LayoutContext, rect: RegionRect, region: RegionKpi): ShapeList {
+  // For non-default styles we emit our own backing then ask kpiTile to
+  // skip its own card. For "filled" we let kpiTile draw its standard
+  // tile (which already has the accent stripe).
+  if (!region.style || region.style === "filled") {
+    return kpiTile(ctx, rect, region);
+  }
+  const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
+  out.push(...kpiTile(ctx, rect, region, { card: false }));
+  return out;
+}
+
 function renderChartCell(ctx: LayoutContext, rect: RegionRect, region: RegionChart): ShapeList {
-  const out: ShapeList = card(ctx, rect, { accentStripe: "brand-primary" });
+  const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const inset = ctx.cm(0.6);
   let titleH = 0;
   if (region.title) {
@@ -109,23 +233,36 @@ function renderChartCell(ctx: LayoutContext, rect: RegionRect, region: RegionCha
     out.push(t.shape);
     titleH = t.height;
   }
+  const chartFrame = {
+    x: rect.x + inset,
+    y: rect.y + ctx.cm(0.45) + titleH,
+    width: rect.width - inset * 2,
+    height: rect.height - ctx.cm(0.9) - titleH,
+  };
   const chartShape: ChartShape = {
     type: "chart",
     id: ctx.id(),
-    xfrm: { x: rect.x + inset, y: rect.y + ctx.cm(0.45) + titleH, cx: rect.width - inset * 2, cy: rect.height - ctx.cm(0.9) - titleH },
+    xfrm: { x: chartFrame.x, y: chartFrame.y, cx: chartFrame.width, cy: chartFrame.height },
     chartType: region.chart.type,
     labels: region.chart.data.labels,
-    series: region.chart.data.series,
+    series: region.chart.data.series.map((s) => ({
+      name: s.name,
+      values: s.values ?? [],
+      ...(s.type ? { type: s.type } : {}),
+      ...(s.points ? { points: s.points } : {}),
+    })),
     yFormat: region.chart.format?.y ?? "int",
     colors: [ctx.color("brand-primary"), ctx.color("accent"), ctx.color("text-muted")],
-    showValues: region.chart.type !== "pie",
+    showValues: region.chart.type !== "pie" && region.chart.type !== "doughnut" && region.chart.type !== "scatter",
+    annotations: region.chart.annotations,
   };
   out.push(chartShape);
+  out.push(...chartAnnotationOverlay(ctx, chartFrame, region.chart.data.labels, region.chart.annotations));
   return out;
 }
 
 function renderTableCell(ctx: LayoutContext, rect: RegionRect, region: RegionTable): ShapeList {
-  const out: ShapeList = card(ctx, rect, { accentStripe: "brand-primary" });
+  const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const inset = ctx.cm(0.5);
   let titleH = 0;
   if (region.title) {
@@ -144,19 +281,19 @@ function renderTableCell(ctx: LayoutContext, rect: RegionRect, region: RegionTab
   const rowCount = 1 + region.table.rows.length;
   const headerH = ctx.cm(0.7);
   const bodyRowH = Math.floor((tableH - headerH) / Math.max(1, rowCount - 1));
-  const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
+  const colAlign = region.table.align ?? [];
   const cells: TableCell[][] = [
-    region.table.header.map((h) => ({
-      runs: [{ text: String(h), sizeHalfPt: 20, color: "FFFFFF", bold: true, cjk: ctx.cjk, fontFace }],
-      fill: { type: "solid", color: ctx.color("brand-deep") },
-      valign: "middle",
-      align: "left",
+    region.table.header.map((h, ci) => tableCellOf(ctx, h, {
+      sizeHalfPt: 20,
+      baseColor: "FFFFFF",
+      bold: true,
+      align: colAlign[ci] ?? "left",
+      fill: { color: ctx.color("brand-deep") },
     })),
-    ...region.table.rows.map((r, ri) => r.map((c): TableCell => ({
-      runs: [{ text: String(c), sizeHalfPt: 18, color: ctx.color("text-strong"), cjk: ctx.cjk, fontFace }],
-      fill: ri % 2 === 1 ? { type: "solid", color: ctx.color("bg-card") } : undefined,
-      valign: "middle",
-      align: "left",
+    ...region.table.rows.map((r, ri) => r.map((c, ci) => tableCellOf(ctx, c, {
+      sizeHalfPt: 18,
+      align: inferTableAlign(c, colAlign[ci]),
+      fill: ri % 2 === 1 ? { color: ctx.color("bg-card") } : undefined,
     }))),
   ];
   out.push({
@@ -174,34 +311,25 @@ function renderTableCell(ctx: LayoutContext, rect: RegionRect, region: RegionTab
 }
 
 function renderTextCell(ctx: LayoutContext, rect: RegionRect, region: RegionText): ShapeList {
-  const out: ShapeList = card(ctx, rect, { accentStripe: "brand-primary" });
+  const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const inset = ctx.cm(0.6);
-  const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
   let titleH = 0;
   if (region.title) {
     const t = cellTitle(ctx, rect, region.title);
     out.push(t.shape);
     titleH = t.height;
   }
-  const text = textBlockOf(region.body);
-  const paras = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  out.push({
-    type: "text",
-    id: ctx.id(),
-    xfrm: { x: rect.x + inset, y: rect.y + ctx.cm(0.45) + titleH, cx: rect.width - inset * 2, cy: rect.height - ctx.cm(0.9) - titleH },
-    valign: "top",
-    paragraphs: (paras.length > 0 ? paras : [text]).map((p) => ({
-      align: "left",
-      lineSpacingHalfPt: 48,
-      spaceAfterHalfPt: 12,
-      runs: [{ text: p, sizeHalfPt: 20, color: ctx.color("text-strong"), cjk: ctx.cjk, fontFace }],
-    })),
-  });
+  out.push(...richText(ctx, {
+    x: rect.x + inset,
+    y: rect.y + ctx.cm(0.45) + titleH,
+    width: rect.width - inset * 2,
+    height: rect.height - ctx.cm(0.9) - titleH,
+  }, region.body, { sizeHalfPt: 20, lineSpacingHalfPt: 48, spaceAfterHalfPt: 12 }));
   return out;
 }
 
 function renderBulletsCell(ctx: LayoutContext, rect: RegionRect, region: RegionBullets): ShapeList {
-  const out: ShapeList = card(ctx, rect, { accentStripe: "brand-primary" });
+  const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const inset = ctx.cm(0.6);
   let titleH = 0;
   if (region.title) {
@@ -219,7 +347,7 @@ function renderBulletsCell(ctx: LayoutContext, rect: RegionRect, region: RegionB
 }
 
 function renderImageCell(ctx: LayoutContext, rect: RegionRect, region: RegionImage): ShapeList {
-  const out: ShapeList = card(ctx, rect, { accentStripe: "brand-primary" });
+  const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const ref = imageRefOf(region.image);
   const inset = ctx.cm(0.4);
   const captionH = region.caption ? ctx.cm(0.9) : 0;
@@ -302,8 +430,138 @@ function renderCodeCell(ctx: LayoutContext, rect: RegionRect, region: RegionCode
   return out;
 }
 
+function resolveColorOrToken(ctx: LayoutContext, value: string | undefined, fallback: string): string {
+  const v = value ?? fallback;
+  return /^[0-9A-Fa-f]{6}$/.test(v) ? v : ctx.color(v);
+}
+
+function renderSparklineCell(ctx: LayoutContext, rect: RegionRect, region: RegionSparkline): ShapeList {
+  const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
+  const inset = ctx.cm(0.6);
+  let titleH = 0;
+  if (region.title) {
+    const t = cellTitle(ctx, rect, region.title);
+    out.push(t.shape);
+    titleH = t.height;
+  }
+  const captionH = region.caption ? ctx.cm(0.7) : 0;
+  const chartX = rect.x + inset;
+  const chartY = rect.y + ctx.cm(0.45) + titleH;
+  const chartW = rect.width - inset * 2;
+  const chartH = rect.height - ctx.cm(0.9) - titleH - captionH;
+
+  // Build inline SVG so the renderer pipes it through the data-URL image
+  // path. SVG viewBox is 0..100 × 0..100 — points scale to that, image
+  // shape stretches to chartW × chartH.
+  const values = region.values.length > 0 ? region.values : [0];
+  const baseline = region.baseline ?? Math.min(...values);
+  const max = Math.max(...values);
+  const range = Math.max(1e-9, max - baseline);
+  const colorRaw = region.color ?? "brand-primary";
+  const color = /^[0-9A-Fa-f]{6}$/.test(colorRaw) ? colorRaw : ctx.color(colorRaw);
+  const stepX = values.length > 1 ? 100 / (values.length - 1) : 0;
+  const points = values.map((v, i) => {
+    const x = i * stepX;
+    const y = 100 - ((v - baseline) / range) * 90 - 5; // 5% top/bottom padding
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  });
+  const polyline = `<polyline points="${points.join(" ")}" fill="none" stroke="#${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const area = region.area
+    ? `<polygon points="0,100 ${points.join(" ")} 100,100" fill="#${color}" fill-opacity="0.18" stroke="none"/>`
+    : "";
+  // End marker at the last point.
+  const lastPt = points[points.length - 1]?.split(",") ?? ["100", "50"];
+  const endDot = `<circle cx="${lastPt[0]}" cy="${lastPt[1]}" r="3" fill="#${color}"/>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none">${area}${polyline}${endDot}</svg>`;
+  out.push({
+    type: "image",
+    id: ctx.id(),
+    xfrm: { x: chartX, y: chartY, cx: chartW, cy: chartH },
+    src: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`,
+    altText: region.title ?? "sparkline",
+  });
+
+  if (region.caption) {
+    const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
+    out.push({
+      type: "text",
+      id: ctx.id(),
+      xfrm: { x: chartX, y: chartY + chartH + ctx.cm(0.1), cx: chartW, cy: captionH },
+      valign: "middle",
+      paragraphs: [{
+        align: "left",
+        runs: [{ text: region.caption, sizeHalfPt: 18, color: ctx.color("text-muted"), italic: true, cjk: ctx.cjk, fontFace }],
+      }],
+    });
+  }
+  return out;
+}
+
+function renderProgressCell(ctx: LayoutContext, rect: RegionRect, region: RegionProgress): ShapeList {
+  const out: ShapeList = regionBacking(ctx, rect, region.style);
+  const inset = ctx.cm(0.6);
+  const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
+  const fillColor = resolveColorOrToken(ctx, region.color, "brand-primary");
+  const trackColor = resolveColorOrToken(ctx, region.trackColor, "divider");
+  const value = Math.max(0, Math.min(1, region.value));
+  const showPercent = region.showPercent !== false;
+
+  // Layout: label (top), big percent (center), bar (bottom).
+  if (region.label) {
+    out.push({
+      type: "text",
+      id: ctx.id(),
+      xfrm: { x: rect.x + inset, y: rect.y + inset, cx: rect.width - inset * 2, cy: ctx.cm(0.8) },
+      valign: "top",
+      paragraphs: [{
+        align: "left",
+        runs: [{ text: region.label, sizeHalfPt: 22, color: ctx.color("text-muted"), bold: true, cjk: ctx.cjk, fontFace }],
+      }],
+    });
+  }
+  if (showPercent) {
+    out.push({
+      type: "text",
+      id: ctx.id(),
+      xfrm: { x: rect.x + inset, y: rect.y + inset + ctx.cm(0.7), cx: rect.width - inset * 2, cy: rect.height - inset * 2 - ctx.cm(2.0) },
+      valign: "middle",
+      paragraphs: [{
+        align: "left",
+        runs: [{ text: `${Math.round(value * 100)}%`, sizeHalfPt: 80, color: fillColor, bold: true, cjk: ctx.cjk, fontFace }],
+      }],
+    });
+  }
+  // Bar
+  const barH = ctx.cm(0.4);
+  const barY = rect.y + rect.height - inset - barH;
+  out.push({
+    type: "shape",
+    id: ctx.id(),
+    preset: "roundRect",
+    xfrm: { x: rect.x + inset, y: barY, cx: rect.width - inset * 2, cy: barH },
+    fill: { type: "solid", color: trackColor },
+    line: { color: trackColor, width: 0 },
+    cornerRadius: 0.5,
+  });
+  out.push({
+    type: "shape",
+    id: ctx.id(),
+    preset: "roundRect",
+    xfrm: {
+      x: rect.x + inset,
+      y: barY,
+      cx: Math.round((rect.width - inset * 2) * value),
+      cy: barH,
+    },
+    fill: { type: "solid", color: fillColor },
+    line: { color: fillColor, width: 0 },
+    cornerRadius: 0.5,
+  });
+  return out;
+}
+
 function renderQuoteCell(ctx: LayoutContext, rect: RegionRect, region: RegionQuote): ShapeList {
-  const out: ShapeList = card(ctx, rect, { accentStripe: "brand-primary" });
+  const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const inset = ctx.cm(0.8);
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
   // Big opening quote mark in brand color, top-left.
@@ -318,6 +576,14 @@ function renderQuoteCell(ctx: LayoutContext, rect: RegionRect, region: RegionQuo
     }],
   });
   const quoteHeight = region.attribution ? rect.height - inset * 2 - ctx.cm(1.2) : rect.height - inset * 2;
+  const quoteRuns = parseInline(region.text, {
+    sizeHalfPt: 26,
+    color: ctx.color("text-strong"),
+    fontFace,
+    monoFont: ctx.font("mono"),
+    cjk: ctx.cjk,
+    resolveChipColor: chipColorResolver(ctx),
+  }).map((r) => ({ ...r, italic: r.italic ?? true }));
   out.push({
     type: "text",
     id: ctx.id(),
@@ -326,7 +592,7 @@ function renderQuoteCell(ctx: LayoutContext, rect: RegionRect, region: RegionQuo
     paragraphs: [{
       align: "left",
       lineSpacingHalfPt: 56,
-      runs: [{ text: region.text, sizeHalfPt: 26, color: ctx.color("text-strong"), italic: true, cjk: ctx.cjk, fontFace }],
+      runs: quoteRuns,
     }],
   });
   if (region.attribution) {

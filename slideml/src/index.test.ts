@@ -138,6 +138,51 @@ slides:
     const code = result.errors.find((e) => e.slot === "mystery")?.code;
     expect(code).toBe("EXTRA_KEY");
   });
+
+  it("accepts nested bullet items ({ text, sub: [...] })", async () => {
+    const theme = await loadTheme(BUILT_THEME);
+    const yaml =
+`slideml: 1
+deck: { size: 16x9, theme: technical-blue }
+slides:
+  - layout: bullet-with-image
+    slots:
+      title: "Nested bullets"
+      bullets:
+        - "Top-level point one"
+        - text: "Top-level with sub-points"
+          sub:
+            - "first sub-point"
+            - "second sub-point"
+        - "Top-level point three"
+`;
+    const result = validateDeckSpec(parseSlideml(yaml), theme);
+    if (!result.ok) throw new Error(`Unexpected validation errors: ${JSON.stringify(result.errors)}`);
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects bullets nested deeper than 2 levels", async () => {
+    const theme = await loadTheme(BUILT_THEME);
+    const yaml =
+`slideml: 1
+deck: { size: 16x9, theme: technical-blue }
+slides:
+  - layout: bullet-with-image
+    slots:
+      title: "Deep nesting"
+      bullets:
+        - "First"
+        - text: "Second"
+          sub:
+            - text: "Sub item"
+              sub: ["too-deep"]
+        - "Third"
+`;
+    const result = validateDeckSpec(parseSlideml(yaml), theme);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors.find((e) => /nest 2 levels/.test(e.message))).toBeDefined();
+  });
 });
 
 describe("Stage 4 — public API: compile + validateDeck + listLayouts", () => {

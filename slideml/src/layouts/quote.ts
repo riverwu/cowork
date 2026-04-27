@@ -1,6 +1,8 @@
 import type { LayoutContext, LayoutFn } from "../render/layout-context.js";
 import type { ShapeList } from "../emitter/types.js";
 import type { SlotSchema } from "../theme/types.js";
+import { chipColorResolver } from "../render/primitives.js";
+import { parseInline } from "../render/markdown-inline.js";
 
 export const slots: Record<string, SlotSchema> = {
   quote:       { type: "text-block", maxChars: 240 },
@@ -32,9 +34,18 @@ const quote: LayoutFn = (ctx: LayoutContext): ShapeList => {
     }],
   });
 
-  // The quote itself, indented under the open mark.
+  // The quote itself, indented under the open mark. Runs through the
+  // inline-markdown parser so authors can emphasize words inside the quote.
   const bodyTop = ctx.cm(5.6);
   const bodyHeight = ctx.cm(5.5);
+  const quoteRuns = parseInline(quoteText, {
+    sizeHalfPt: 40,
+    color: ctx.color("text-strong"),
+    fontFace,
+    monoFont: ctx.font("mono"),
+    cjk: ctx.cjk,
+    resolveChipColor: chipColorResolver(ctx),
+  }).map((r) => ({ ...r, italic: r.italic ?? true }));
   out.push({
     type: "text",
     id: ctx.id(),
@@ -43,14 +54,7 @@ const quote: LayoutFn = (ctx: LayoutContext): ShapeList => {
     paragraphs: [{
       align: "left",
       lineSpacingHalfPt: 76,
-      runs: [{
-        text: quoteText,
-        sizeHalfPt: 40,
-        color: ctx.color("text-strong"),
-        italic: true,
-        cjk: ctx.cjk,
-        fontFace,
-      }],
+      runs: quoteRuns,
     }],
   });
 

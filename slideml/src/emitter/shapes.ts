@@ -18,6 +18,16 @@ const PRESET_TO_GEOM: Record<ShapePreset, string> = {
   roundRect: "roundRect",
   ellipse: "ellipse",
   line: "line",
+  triangle: "triangle",
+  rightTriangle: "rtTriangle",
+  pentagon: "pentagon",
+  "arrow-right": "rightArrow",
+  "arrow-down": "downArrow",
+  callout: "wedgeRectCallout",
+  chevron: "chevron",
+  "star-5": "star5",
+  parallelogram: "parallelogram",
+  cloud: "cloud",
 };
 
 export function shapeXml(shape: Shape, slidePart: string, rels: SlideRels): string {
@@ -148,13 +158,109 @@ function imageShapeXml(shape: ImageShape, _slidePart: string, rels: SlideRels): 
     `<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr>` +
     `<p:nvPr/>` +
     `</p:nvPicPr>`;
-  const blipFill = `<p:blipFill><a:blip r:embed="${rId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>`;
+  // Inner blip filters — order matters per OOXML schema:
+  //   alphaModFix → biLevel → blur → clrChange → clrRepl → duotone →
+  //   fillOverlay → grayscl → hsl → lum → tint → extLst.
+  // We support: blur, duotone, grayscl, lum.
+  const blipInner: string[] = [];
+  if (shape.blur !== undefined && shape.blur > 0) {
+    blipInner.push(`<a:blur rad="${Math.round(shape.blur)}" grow="0"/>`);
+  }
+  if (shape.duotone) {
+    blipInner.push(
+      `<a:duotone>` +
+      `<a:srgbClr val="${shape.duotone.dark.toUpperCase()}"/>` +
+      `<a:srgbClr val="${shape.duotone.light.toUpperCase()}"/>` +
+      `</a:duotone>`,
+    );
+  }
+  if (shape.grayscale) {
+    blipInner.push(`<a:grayscl/>`);
+  }
+  if (shape.brightness !== undefined && shape.brightness !== 0) {
+    // OOXML `bright` attribute is per-mille (-100000..100000) per spec.
+    const bright = Math.round(Math.max(-1, Math.min(1, shape.brightness)) * 100000);
+    blipInner.push(`<a:lum bright="${bright}"/>`);
+  }
+  const blipXml = blipInner.length > 0
+    ? `<a:blip r:embed="${rId}">${blipInner.join("")}</a:blip>`
+    : `<a:blip r:embed="${rId}"/>`;
+  // srcRect crop — fractions are passed as per-mille integers.
+  const srcRectXml = shape.crop
+    ? `<a:srcRect` +
+      ` l="${Math.round(Math.max(0, Math.min(1, shape.crop.left ?? 0)) * 100000)}"` +
+      ` r="${Math.round(Math.max(0, Math.min(1, shape.crop.right ?? 0)) * 100000)}"` +
+      ` t="${Math.round(Math.max(0, Math.min(1, shape.crop.top ?? 0)) * 100000)}"` +
+      ` b="${Math.round(Math.max(0, Math.min(1, shape.crop.bottom ?? 0)) * 100000)}"` +
+      `/>`
+    : "";
+  const blipFill = `<p:blipFill>${blipXml}${srcRectXml}<a:stretch><a:fillRect/></a:stretch></p:blipFill>`;
+  const clip = shape.clip ?? "square";
+  const geom =
+    clip === "circle"  ? "ellipse" :
+    clip === "rounded" ? "roundRect" :
+    "rect";
+  const adjustments = clip === "rounded" && shape.cornerRadius !== undefined
+    ? `<a:avLst><a:gd name="adj" fmla="val ${Math.round(Math.max(0, Math.min(0.5, shape.cornerRadius)) * 50000)}"/></a:avLst>`
+    : `<a:avLst/>`;
+  const lineXml = shape.border ? lineXmlOf(shape.border) : "";
+  // Outer effect list — softEdge + outerShdw. OOXML `<a:effectLst>` per
+  // CT_EffectList ordering: blur → fillOverlay → glow → innerShdw →
+  // outerShdw → prstShdw → reflection → softEdge.
+  const effectParts: string[] = [];
+  if (shape.shadow) {
+    const sh = shape.shadow;
+    const blurEmu = Math.round(sh.blur ?? 76200); // ≈6pt default
+    const dx = Math.round(sh.dx ?? 0);
+    const dy = Math.round(sh.dy ?? 38100); // ≈3pt default
+    const dist = Math.round(Math.sqrt(dx * dx + dy * dy));
+    const dirDeg = dist === 0 ? 0 : Math.round((Math.atan2(dy, dx) * 180 / Math.PI) * 60000);
+    const alphaXml = sh.alpha !== undefined && sh.alpha < 1
+      ? `<a:alpha val="${Math.round(sh.alpha * 100000)}"/>`
+      : "";
+    effectParts.push(
+      `<a:outerShdw blurRad="${blurEmu}" dist="${dist}" dir="${dirDeg}" algn="tl" rotWithShape="0">` +
+      `<a:srgbClr val="${sh.color.toUpperCase()}">${alphaXml}</a:srgbClr>` +
+      `</a:outerShdw>`,
+    );
+  }
+  if (shape.softEdge !== undefined && shape.softEdge > 0) {
+    // Convert fraction-of-shorter-side to EMU radius.
+    const shorter = Math.min(shape.xfrm.cx, shape.xfrm.cy);
+    const rad = Math.round(Math.max(0, Math.min(0.5, shape.softEdge)) * shorter);
+    effectParts.push(`<a:softEdge rad="${rad}"/>`);
+  }
+  const effectLstXml = effectParts.length > 0 ? `<a:effectLst>${effectParts.join("")}</a:effectLst>` : "";
   const spPr =
     `<p:spPr>` +
     xfrmXml(shape.xfrm) +
-    `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>` +
+    `<a:prstGeom prst="${geom}">${adjustments}</a:prstGeom>` +
+    lineXml +
+    effectLstXml +
     `</p:spPr>`;
-  return `<p:pic>${nvPicPr}${blipFill}${spPr}</p:pic>`;
+  let out = `<p:pic>${nvPicPr}${blipFill}${spPr}</p:pic>`;
+  if (shape.overlay) {
+    // Translucent rect on top of the image. Inherits the same clip
+    // geometry so circle/rounded overlays don't bleed past the image.
+    const ov = shape.overlay;
+    const alphaXml = ov.alpha !== undefined && ov.alpha < 1
+      ? `<a:alpha val="${Math.round(ov.alpha * 100000)}"/>`
+      : "";
+    const overlayId = shape.id + 100000; // disambiguate id (slide-scope)
+    const overlayNvSpPr = nvSpPrXml(overlayId, `Overlay ${overlayId}`);
+    const overlaySpPr =
+      `<p:spPr>` +
+      xfrmXml(shape.xfrm) +
+      `<a:prstGeom prst="${geom}">${adjustments}</a:prstGeom>` +
+      `<a:solidFill><a:srgbClr val="${ov.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:solidFill>` +
+      `<a:ln><a:noFill/></a:ln>` +
+      `</p:spPr>`;
+    const emptyTxBody =
+      `<p:txBody><a:bodyPr wrap="square" rtlCol="0" anchor="ctr"/><a:lstStyle/>` +
+      `<a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody>`;
+    out += `<p:sp>${overlayNvSpPr}${overlaySpPr}${emptyTxBody}</p:sp>`;
+  }
+  return out;
 }
 
 // ---- Shared building blocks ----------------------------------------------

@@ -67,10 +67,21 @@ export function chartXml(shape: ChartShape): string {
     plotInner = pieChartXml(shape, colors, /* doughnut */ false);
   } else if (shape.chartType === "doughnut") {
     plotInner = pieChartXml(shape, colors, /* doughnut */ true);
+  } else if (shape.chartType === "combo") {
+    plotInner = comboChartXml(shape, colors, catAxId, valAxId);
+  } else if (shape.chartType === "scatter") {
+    plotInner = scatterChartXml(shape, colors, catAxId, valAxId);
+  } else if (shape.chartType === "waterfall") {
+    plotInner = waterfallChartXml(shape, colors, catAxId, valAxId);
   }
 
   const axisLessTypes: ChartShape["chartType"][] = ["pie", "doughnut"];
-  const axesXml = axisLessTypes.includes(shape.chartType) ? "" : axesXmlOf(catAxId, valAxId, numFmt);
+  const isScatter = shape.chartType === "scatter";
+  const axesXml = axisLessTypes.includes(shape.chartType)
+    ? ""
+    : isScatter
+      ? scatterAxesXml(catAxId, valAxId, numFmt)
+      : axesXmlOf(catAxId, valAxId, numFmt);
 
   // PowerPoint requires three chartSpace-level elements (date1904, lang,
   // roundedCorners) to validate strictly — without them PowerPoint shows
@@ -184,7 +195,7 @@ function pieChartXml(shape: ChartShape, colors: HexColor[], doughnut: boolean): 
 }
 
 function seriesXml(
-  s: { name: string; values: number[] },
+  s: { name: string; values: Array<number | null> },
   idx: number,
   colors: HexColor[],
   labels: string[],
@@ -233,11 +244,196 @@ function catRefXml(labels: string[]): string {
   );
 }
 
-function valRefXml(values: number[]): string {
+function valRefXml(values: Array<number | null>): string {
   return (
     `<c:val><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>` +
-    values.map((v, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(v) ? v : 0}</c:v></c:pt>`).join("") +
+    values.map((v, i) => `<c:pt idx="${i}"><c:v>${typeof v === "number" && Number.isFinite(v) ? v : 0}</c:v></c:pt>`).join("") +
     `</c:numLit></c:val>`
+  );
+}
+
+// ---- Combo / Scatter / Waterfall ---------------------------------------
+
+/**
+ * Combo chart — bar series rendered as `<c:barChart>`, line series as
+ * `<c:lineChart>` in the same plotArea, sharing axes. Each series's
+ * per-series `type` defaults to "bar" when the field is missing.
+ */
+function comboChartXml(
+  shape: ChartShape,
+  colors: HexColor[],
+  catAxId: number,
+  valAxId: number,
+): string {
+  // Preserve original series order so colour cycling matches the legend.
+  const indexed = shape.series.map((s, idx) => ({ s, idx }));
+  const bars = indexed.filter((e) => (e.s.type ?? "bar") === "bar");
+  const lines = indexed.filter((e) => e.s.type === "line");
+  const barXml = bars.length === 0 ? "" :
+    `<c:barChart>` +
+    `<c:barDir val="col"/>` +
+    `<c:grouping val="clustered"/>` +
+    `<c:varyColors val="0"/>` +
+    bars.map((e) => seriesXml(e.s, e.idx, colors, shape.labels, shape.showValues)).join("") +
+    `<c:gapWidth val="100"/>` +
+    `<c:axId val="${catAxId}"/>` +
+    `<c:axId val="${valAxId}"/>` +
+    `</c:barChart>`;
+  const lineXml = lines.length === 0 ? "" :
+    `<c:lineChart>` +
+    `<c:grouping val="standard"/>` +
+    `<c:varyColors val="0"/>` +
+    lines.map((e) => seriesXml(e.s, e.idx, colors, shape.labels, shape.showValues, true)).join("") +
+    `<c:marker val="1"/>` +
+    `<c:axId val="${catAxId}"/>` +
+    `<c:axId val="${valAxId}"/>` +
+    `</c:lineChart>`;
+  return barXml + lineXml;
+}
+
+function scatterChartXml(
+  shape: ChartShape,
+  colors: HexColor[],
+  xAxId: number,
+  yAxId: number,
+): string {
+  return (
+    `<c:scatterChart>` +
+    `<c:scatterStyle val="lineMarker"/>` +
+    `<c:varyColors val="0"/>` +
+    shape.series.map((s, idx) => {
+      const pts = s.points && s.points.length > 0
+        ? s.points
+        // Fallback: derive {x,y} from labels (parsed as numbers) + values.
+        : shape.labels.map((l, i) => ({ x: Number(l) || i, y: s.values[i] ?? 0 }));
+      const color = colors[idx % colors.length]!;
+      return (
+        `<c:ser>` +
+        `<c:idx val="${idx}"/>` +
+        `<c:order val="${idx}"/>` +
+        `<c:tx><c:v>${xmlEscapeText(s.name)}</c:v></c:tx>` +
+        `<c:spPr><a:ln w="22225"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:ln></c:spPr>` +
+        `<c:marker><c:symbol val="circle"/><c:size val="6"/><c:spPr><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></c:spPr></c:marker>` +
+        `<c:xVal><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${pts.length}"/>` +
+        pts.map((p, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(p.x) ? p.x : 0}</c:v></c:pt>`).join("") +
+        `</c:numLit></c:xVal>` +
+        `<c:yVal><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${pts.length}"/>` +
+        pts.map((p, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(p.y) ? p.y : 0}</c:v></c:pt>`).join("") +
+        `</c:numLit></c:yVal>` +
+        `<c:smooth val="0"/>` +
+        `</c:ser>`
+      );
+    }).join("") +
+    `<c:axId val="${xAxId}"/>` +
+    `<c:axId val="${yAxId}"/>` +
+    `</c:scatterChart>`
+  );
+}
+
+/**
+ * Waterfall — rendered as a stacked bar chart with two synthetic series:
+ * an invisible "base" series and a visible "delta" series. Per-bar fill
+ * colours encode positive / negative / total. Real Office 2016 waterfall
+ * uses the c15 namespace extension; we keep portable OOXML that round-trips
+ * through LibreOffice / Keynote and looks waterfall-like in PowerPoint.
+ *
+ * Convention: a bar with `value === null` (or NaN) is treated as a "total"
+ * (cumulative). All other bars are deltas applied to the running total.
+ */
+function waterfallChartXml(
+  shape: ChartShape,
+  colors: HexColor[],
+  catAxId: number,
+  valAxId: number,
+): string {
+  const upColor = colors[0] ?? "3CC2FF";
+  const downColor = "C0432D";
+  const totalColor = colors[1] ?? "1078B5";
+  const series = shape.series[0] ?? { name: "Series", values: [] };
+  const values = series.values;
+  // Compute base + delta + per-point colors.
+  let running = 0;
+  const base: number[] = [];
+  const delta: number[] = [];
+  const fill: string[] = [];
+  values.forEach((raw) => {
+    if (raw === null || typeof raw !== "number" || !Number.isFinite(raw)) {
+      base.push(0);
+      delta.push(running);
+      fill.push(totalColor);
+      return;
+    }
+    const v = raw;
+    if (v >= 0) {
+      base.push(running);
+      delta.push(v);
+      fill.push(upColor);
+      running += v;
+    } else {
+      base.push(running + v);
+      delta.push(-v);
+      fill.push(downColor);
+      running += v;
+    }
+  });
+  const baseSer =
+    `<c:ser>` +
+    `<c:idx val="0"/><c:order val="0"/>` +
+    `<c:tx><c:v>${xmlEscapeText("(base)")}</c:v></c:tx>` +
+    `<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>` +
+    catRefXml(shape.labels) +
+    valRefXml(base) +
+    `</c:ser>`;
+  const deltaSer =
+    `<c:ser>` +
+    `<c:idx val="1"/><c:order val="1"/>` +
+    `<c:tx><c:v>${xmlEscapeText(series.name)}</c:v></c:tx>` +
+    fill.map((c, i) =>
+      `<c:dPt><c:idx val="${i}"/><c:invertIfNegative val="0"/><c:bubble3D val="0"/>` +
+      `<c:spPr><a:solidFill><a:srgbClr val="${c}"/></a:solidFill></c:spPr></c:dPt>`,
+    ).join("") +
+    catRefXml(shape.labels) +
+    valRefXml(delta) +
+    `</c:ser>`;
+  return (
+    `<c:barChart>` +
+    `<c:barDir val="col"/>` +
+    `<c:grouping val="stacked"/>` +
+    `<c:varyColors val="0"/>` +
+    baseSer +
+    deltaSer +
+    `<c:gapWidth val="40"/>` +
+    `<c:overlap val="100"/>` +
+    `<c:axId val="${catAxId}"/>` +
+    `<c:axId val="${valAxId}"/>` +
+    `</c:barChart>`
+  );
+}
+
+function scatterAxesXml(xAxId: number, yAxId: number, numFmt: string): string {
+  return (
+    `<c:valAx>` +
+    `<c:axId val="${xAxId}"/>` +
+    `<c:scaling><c:orientation val="minMax"/></c:scaling>` +
+    `<c:delete val="0"/>` +
+    `<c:axPos val="b"/>` +
+    `<c:numFmt formatCode="General" sourceLinked="1"/>` +
+    `<c:majorTickMark val="out"/>` +
+    `<c:minorTickMark val="none"/>` +
+    `<c:tickLblPos val="nextTo"/>` +
+    `<c:crossAx val="${yAxId}"/>` +
+    `</c:valAx>` +
+    `<c:valAx>` +
+    `<c:axId val="${yAxId}"/>` +
+    `<c:scaling><c:orientation val="minMax"/></c:scaling>` +
+    `<c:delete val="0"/>` +
+    `<c:axPos val="l"/>` +
+    `<c:numFmt formatCode="${numFmt}" sourceLinked="0"/>` +
+    `<c:majorTickMark val="out"/>` +
+    `<c:minorTickMark val="none"/>` +
+    `<c:tickLblPos val="nextTo"/>` +
+    `<c:crossAx val="${xAxId}"/>` +
+    `</c:valAx>`
   );
 }
 

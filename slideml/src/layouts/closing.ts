@@ -1,7 +1,8 @@
 import type { LayoutContext, LayoutFn } from "../render/layout-context.js";
 import type { ShapeList } from "../emitter/types.js";
 import type { SlotSchema } from "../theme/types.js";
-import { bestTextOn } from "../render/primitives.js";
+import { bestTextOn, chipColorResolver } from "../render/primitives.js";
+import { parseInline } from "../render/markdown-inline.js";
 
 export const slots: Record<string, SlotSchema> = {
   title:    { type: "text", maxChars: 60 },
@@ -37,6 +38,12 @@ const closing: LayoutFn = (ctx: LayoutContext): ShapeList => {
     fill: { type: "solid", color: ctx.color("brand-primary") },
   });
 
+  const baseInline = {
+    fontFace,
+    monoFont: ctx.font("mono"),
+    cjk: ctx.cjk,
+    resolveChipColor: chipColorResolver(ctx),
+  };
   out.push({
     type: "text",
     id: ctx.id(),
@@ -44,14 +51,8 @@ const closing: LayoutFn = (ctx: LayoutContext): ShapeList => {
     valign: "middle",
     paragraphs: [{
       align: "center",
-      runs: [{
-        text: title,
-        sizeHalfPt: 96,
-        color: titleColor,
-        bold: true,
-        cjk: ctx.cjk,
-        fontFace,
-      }],
+      runs: parseInline(title, { ...baseInline, sizeHalfPt: 96, color: titleColor })
+        .map((r) => ({ ...r, bold: r.bold ?? true })),
     }],
   });
   if (subtitle) {
@@ -62,13 +63,7 @@ const closing: LayoutFn = (ctx: LayoutContext): ShapeList => {
       valign: "middle",
       paragraphs: [{
         align: "center",
-        runs: [{
-          text: subtitle,
-          sizeHalfPt: 32,
-          color: subtitleColor,
-          cjk: ctx.cjk,
-          fontFace,
-        }],
+        runs: parseInline(subtitle, { ...baseInline, sizeHalfPt: 32, color: subtitleColor }),
       }],
     });
   }

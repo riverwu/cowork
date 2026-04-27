@@ -22,15 +22,27 @@ import compareTwoColumns,  { slots as compareTwoColumnsSlots } from "./compare-t
 import cover,              { slots as coverSlots }             from "./cover.js";
 import dashboard,          { slots as dashboardSlots }         from "./dashboard.js";
 import dataTable,          { slots as dataTableSlots }         from "./data-table.js";
+import framed,             { slots as framedSlots }            from "./framed.js";
+import freeform,           { slots as freeformSlots }          from "./freeform.js";
 import heroImageOverlay,   { slots as heroImageOverlaySlots }  from "./hero-image-overlay.js";
+import heroStat,           { slots as heroStatSlots }          from "./hero-stat.js";
+import imageFullBleed,     { slots as imageFullBleedSlots }    from "./image-full-bleed.js";
 import imageGrid2x2,       { slots as imageGrid2x2Slots }      from "./image-grid-2x2.js";
+import imagePair,          { slots as imagePairSlots }         from "./image-pair.js";
+import imageSplitText,     { slots as imageSplitTextSlots }    from "./image-split-text.js";
+import imageWithCaption,   { slots as imageWithCaptionSlots }  from "./image-with-caption.js";
+import keyPoint,           { slots as keyPointSlots }          from "./key-point.js";
+import matrix2x2,          { slots as matrix2x2Slots }         from "./matrix-2x2.js";
+import pricingTable,       { slots as pricingTableSlots }      from "./pricing-table.js";
 import processTimeline,    { slots as processTimelineSlots }   from "./process-timeline.js";
 import quote,              { slots as quoteSlots }             from "./quote.js";
+import quoteWithPortrait,  { slots as quoteWithPortraitSlots } from "./quote-with-portrait.js";
 import sectionDivider,     { slots as sectionDividerSlots }    from "./section-divider.js";
 import split2,             { slots as split2Slots }            from "./split-2.js";
 import split3Horizontal,   { slots as split3HorizontalSlots }  from "./split-3-horizontal.js";
 import split3Vertical,     { slots as split3VerticalSlots }    from "./split-3-vertical.js";
 import statGrid3,          { slots as statGrid3Slots }         from "./stat-grid-3.js";
+import teamGrid,           { slots as teamGridSlots }          from "./team-grid.js";
 import titleOnly,          { slots as titleOnlySlots }         from "./title-only.js";
 import twoColTextImage,    { slots as twoColTextImageSlots }   from "./two-col-text-image.js";
 
@@ -51,15 +63,27 @@ const ENTRIES: RegisteredLayout[] = [
   { name: "cover",               slots: coverSlots,               render: cover },
   { name: "dashboard",           slots: dashboardSlots,           render: dashboard },
   { name: "data-table",          slots: dataTableSlots,           render: dataTable },
+  { name: "framed",              slots: framedSlots,              render: framed },
+  { name: "freeform",            slots: freeformSlots,            render: freeform },
   { name: "hero-image-overlay",  slots: heroImageOverlaySlots,    render: heroImageOverlay },
+  { name: "hero-stat",           slots: heroStatSlots,            render: heroStat },
+  { name: "image-full-bleed",    slots: imageFullBleedSlots,      render: imageFullBleed },
   { name: "image-grid-2x2",      slots: imageGrid2x2Slots,        render: imageGrid2x2 },
+  { name: "image-pair",          slots: imagePairSlots,           render: imagePair },
+  { name: "image-split-text",    slots: imageSplitTextSlots,      render: imageSplitText },
+  { name: "image-with-caption",  slots: imageWithCaptionSlots,    render: imageWithCaption },
+  { name: "key-point",           slots: keyPointSlots,            render: keyPoint },
+  { name: "matrix-2x2",          slots: matrix2x2Slots,           render: matrix2x2 },
+  { name: "pricing-table",       slots: pricingTableSlots,        render: pricingTable },
   { name: "process-timeline",    slots: processTimelineSlots,     render: processTimeline },
   { name: "quote",               slots: quoteSlots,               render: quote },
+  { name: "quote-with-portrait", slots: quoteWithPortraitSlots,   render: quoteWithPortrait },
   { name: "section-divider",     slots: sectionDividerSlots,      render: sectionDivider },
   { name: "split-2",             slots: split2Slots,              render: split2 },
   { name: "split-3-horizontal",  slots: split3HorizontalSlots,    render: split3Horizontal },
   { name: "split-3-vertical",    slots: split3VerticalSlots,      render: split3Vertical },
   { name: "stat-grid-3",         slots: statGrid3Slots,           render: statGrid3 },
+  { name: "team-grid",           slots: teamGridSlots,            render: teamGrid },
   { name: "title-only",          slots: titleOnlySlots,           render: titleOnly },
   { name: "two-col-text-image",  slots: twoColTextImageSlots,     render: twoColTextImage },
 ];

@@ -49,14 +49,36 @@ export type BackgroundSpec =
   | { image: { src: string; alt?: string; opacity?: number } };
 
 /**
- * Per-slide chrome control. `"default"` keeps everything declared by the
- * theme; `"none"` suppresses all. The object form lets a slide selectively
- * disable individual chrome modules (header, footer, brandBar, pageNumber).
+ * Per-slide chrome control.
+ *
+ *   "default" — keep everything the theme declares.
+ *   "none"    — suppress every chrome module.
+ *   object    — selective control. Three orthogonal mechanisms:
+ *
+ *     1. legacy booleans (`header`/`footer`/`brandBar`/`pageNumber`):
+ *        flip individual theme-declared modules on/off.
+ *     2. `enable`: list of chrome module names to ADD for this slide,
+ *        even if the theme doesn't declare them (e.g. add a one-off
+ *        progress-bar to the cover slide).
+ *     3. `disable`: list of chrome module names to suppress for this
+ *        slide (modern alternative to the legacy booleans).
+ *     4. `override`: per-module parameter overrides. Each chrome module
+ *        defines what overrides it accepts; e.g. page-footer accepts
+ *        `{ left, center, right }`, brand-bar accepts `{ color }`,
+ *        watermark accepts `{ text, color, alpha }`.
  */
 export type ChromeSpec =
   | "default"
   | "none"
-  | { header?: boolean; footer?: boolean; brandBar?: boolean; pageNumber?: boolean };
+  | {
+      header?: boolean;
+      footer?: boolean;
+      brandBar?: boolean;
+      pageNumber?: boolean;
+      enable?: readonly string[];
+      disable?: readonly string[];
+      override?: Record<string, Record<string, unknown>>;
+    };
 
 export interface SlideSpec {
   layout: string;
@@ -96,8 +118,22 @@ export function renderDeck(spec: DeckSpec, theme: LoadedTheme): DeckAst {
   const deckFooter = spec.deck.footer ?? undefined;
   const deckBackground = spec.deck.background ?? undefined;
 
+  // Walk slides once to compute "current section name" per slide — chrome
+  // modules like `section-marker` need this. A slide is considered to start
+  // a section when its layout is "section-divider"; the divider's `title`
+  // slot (or `eyebrow`) sticks until the next divider.
+  const sectionNames: Array<string | undefined> = [];
+  let currentSection: string | undefined;
+  for (const s of spec.slides) {
+    if (s.layout === "section-divider") {
+      const t = (s.slots["title"] ?? s.slots["eyebrow"]) as unknown;
+      if (typeof t === "string") currentSection = t;
+    }
+    sectionNames.push(currentSection);
+  }
+
   const slides: SlideAst[] = spec.slides.map((slideSpec, i) =>
-    renderSlide(slideSpec, theme, dims, i, spec.slides.length, language, deckHeader, deckFooter, deckBackground),
+    renderSlide(slideSpec, theme, dims, i, spec.slides.length, language, deckHeader, deckFooter, deckBackground, sectionNames[i]),
   );
 
   return {
@@ -118,6 +154,7 @@ function renderSlide(
   deckHeader: BandSpec | undefined,
   deckFooter: BandSpec | undefined,
   deckBackground: BackgroundSpec | undefined,
+  sectionName: string | undefined,
 ): SlideAst {
   const loaded = theme.layouts.get(spec.layout);
   if (!loaded) {
@@ -148,8 +185,8 @@ function renderSlide(
   const effectiveFooter = spec.footer === null ? undefined : (spec.footer ?? deckFooter);
   const effectiveBackground = spec.background === null ? undefined : (spec.background ?? deckBackground);
 
-  const chromeFlags = resolveChromeFlags(spec.chrome);
-  const withChrome = chromeFlags === null
+  const chromeResolved = resolveChrome(spec.chrome);
+  const withChrome = chromeResolved === null
     ? layoutShapes
     : applyChrome({
         shapes: layoutShapes,
@@ -161,7 +198,11 @@ function renderSlide(
         startId: maxId + 1,
         header: resolveBand(effectiveHeader),
         footer: resolveBand(effectiveFooter),
-        flags: chromeFlags,
+        flags: chromeResolved.flags,
+        enable: chromeResolved.enable,
+        disable: chromeResolved.disable,
+        overrides: chromeResolved.overrides,
+        sectionName,
       });
 
   // Background: image (if provided) wins over solid color; both fall back
@@ -180,18 +221,34 @@ function renderSlide(
 }
 
 /**
- * Map ChromeSpec → flag set the compositor uses, or `null` to skip chrome
- * entirely. Defaults all flags to true (= "default").
+ * Resolve ChromeSpec → the four facets the compositor needs, or `null` to
+ * skip chrome entirely. Defaults all legacy flags to true (= "default").
  */
-function resolveChromeFlags(spec: ChromeSpec | undefined): { header: boolean; footer: boolean; brandBar: boolean; pageNumber: boolean } | null {
+interface ResolvedChrome {
+  flags: { header: boolean; footer: boolean; brandBar: boolean; pageNumber: boolean };
+  enable: readonly string[];
+  disable: readonly string[];
+  overrides: Record<string, Record<string, unknown>>;
+}
+function resolveChrome(spec: ChromeSpec | undefined): ResolvedChrome | null {
   if (spec === "none") return null;
   if (spec === undefined || spec === "default") {
-    return { header: true, footer: true, brandBar: true, pageNumber: true };
+    return {
+      flags: { header: true, footer: true, brandBar: true, pageNumber: true },
+      enable: [],
+      disable: [],
+      overrides: {},
+    };
   }
   return {
-    header:     spec.header     ?? true,
-    footer:     spec.footer     ?? true,
-    brandBar:   spec.brandBar   ?? true,
-    pageNumber: spec.pageNumber ?? true,
+    flags: {
+      header:     spec.header     ?? true,
+      footer:     spec.footer     ?? true,
+      brandBar:   spec.brandBar   ?? true,
+      pageNumber: spec.pageNumber ?? true,
+    },
+    enable:    spec.enable    ?? [],
+    disable:   spec.disable   ?? [],
+    overrides: spec.override  ?? {},
   };
 }
