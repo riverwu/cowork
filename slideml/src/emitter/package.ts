@@ -63,6 +63,12 @@ export async function emitPackage(deck: DeckAst): Promise<Buffer> {
   if (hasNotes) {
     zip.file("ppt/notesMasters/notesMaster1.xml", notesMasterXml());
     zip.file("ppt/notesMasters/_rels/notesMaster1.xml.rels", notesMasterRelsXml());
+    // PowerPoint requires the notesMaster to have its OWN theme part
+    // (typically theme2.xml). Sharing theme1.xml across slideMaster and
+    // notesMaster triggers a "found a problem with content" warning even
+    // though the file otherwise validates. Confirmed by gold-file diff
+    // (python-pptx and Office both ship a separate theme2.xml for notes).
+    zip.file("ppt/theme/theme2.xml", themeXml());
   }
 
   // --- Presentation root ---------------------------------------------------
@@ -220,6 +226,10 @@ function contentTypesXml(slideCount: number, imageExts: Set<string>, chartCount:
   if (notesIndices.length > 0) {
     overrides.push(
       `<Override PartName="/ppt/notesMasters/notesMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"/>`,
+    );
+    // theme2.xml is the notesMaster's own theme part (see package.ts).
+    overrides.push(
+      `<Override PartName="/ppt/theme/theme2.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>`,
     );
     for (const i of notesIndices) {
       overrides.push(

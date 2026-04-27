@@ -25,36 +25,47 @@ const SLIDE_NS =
   ` xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"` +
   ` xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"`;
 
-// Standard placeholder dimensions copied from the python-pptx default.
-// Values are in EMU; positions assume the standard notes page (6858000 × 9144000).
-const PLACEHOLDER_DIMS = {
-  hdr:    { x:        0, y:        0, cx: 2971800, cy:  458788 },
-  dt:     { x:  3884613, y:        0, cx: 2971800, cy:  458788 },
-  sldImg: { x:   685800, y:   685800, cx: 5486400, cy: 3086100 },
-  body:   { x:   685800, y:  3884613, cx: 5486400, cy: 4351338 },
-  ftr:    { x:        0, y:  8685213, cx: 2971800, cy:  458788 },
-  sldNum: { x:  3884613, y:  8685213, cx: 2971800, cy:  458788 },
+// Standard placeholder dimensions for the notesMaster (notes page is
+// 6858000 × 9144000 EMU). The master defines positions; the notesSlide
+// inherits them via empty `<p:spPr/>`.
+const MASTER_DIMS = {
+  hdr:    { x:        0, y:        0, cx: 2971800, cy:  457200 },
+  dt:     { x:  3884613, y:        0, cx: 2971800, cy:  457200 },
+  sldImg: { x:  1143000, y:   685800, cx: 4572000, cy: 3429000 },
+  body:   { x:   685800, y:  4343400, cx: 5486400, cy: 4114800 },
+  ftr:    { x:        0, y:  8685213, cx: 2971800, cy:  457200 },
+  sldNum: { x:  3884613, y:  8685213, cx: 2971800, cy:  457200 },
 } as const;
 
-function placeholderSp(
+// Per-placeholder ph attribute strings — the `idx` and `sz` values must
+// match exactly what python-pptx / Office produce, otherwise PowerPoint
+// flags the file as corrupted on open. Specifically:
+//   - hdr/dt are default placeholders (no idx, only `sz` for hdr)
+//   - sldImg=2, body=3, ftr=4, sldNum=5 — non-default, idx required
+const PH_ATTRS = {
+  hdr:    `type="hdr" sz="quarter"`,
+  dt:     `type="dt" idx="1"`,
+  sldImg: `type="sldImg" idx="2"`,
+  body:   `type="body" sz="quarter" idx="3"`,
+  ftr:    `type="ftr" sz="quarter" idx="4"`,
+  sldNum: `type="sldNum" sz="quarter" idx="5"`,
+} as const;
+
+/** Master placeholder — full xfrm + prstGeom + bodyPr (it owns the layout). */
+function masterPlaceholderSp(
   id: number,
   name: string,
-  phType: keyof typeof PLACEHOLDER_DIMS,
-  phSz: "quarter" | "half" | "full" | undefined,
-  phIdx: number | undefined,
+  phType: keyof typeof MASTER_DIMS,
   body: string,
+  spLocksExtra = "",
 ): string {
-  const dims = PLACEHOLDER_DIMS[phType];
-  const phAttrs =
-    `type="${phType}"` +
-    (phSz ? ` sz="${phSz}"` : "") +
-    (phIdx !== undefined ? ` idx="${phIdx}"` : "");
+  const dims = MASTER_DIMS[phType];
   return (
     `<p:sp>` +
     `<p:nvSpPr>` +
     `<p:cNvPr id="${id}" name="${name}"/>` +
-    `<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>` +
-    `<p:nvPr><p:ph ${phAttrs}/></p:nvPr>` +
+    `<p:cNvSpPr><a:spLocks noGrp="1"${spLocksExtra}/></p:cNvSpPr>` +
+    `<p:nvPr><p:ph ${PH_ATTRS[phType]}/></p:nvPr>` +
     `</p:nvSpPr>` +
     `<p:spPr>` +
     `<a:xfrm><a:off x="${dims.x}" y="${dims.y}"/><a:ext cx="${dims.cx}" cy="${dims.cy}"/></a:xfrm>` +
@@ -65,32 +76,52 @@ function placeholderSp(
   );
 }
 
+/** Notes-slide placeholder — empty `<p:spPr/>` to inherit from the master. */
+function slidePlaceholderSp(
+  id: number,
+  name: string,
+  phType: "sldImg" | "body" | "sldNum",
+  body: string,
+): string {
+  return (
+    `<p:sp>` +
+    `<p:nvSpPr>` +
+    `<p:cNvPr id="${id}" name="${name}"/>` +
+    `<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>` +
+    `<p:nvPr><p:ph ${PH_ATTRS[phType]}/></p:nvPr>` +
+    `</p:nvSpPr>` +
+    `<p:spPr/>` +
+    body +
+    `</p:sp>`
+  );
+}
+
 const EMPTY_BODY =
   `<p:txBody>` +
-  `<a:bodyPr vert="horz" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0" anchor="ctr"/>` +
+  `<a:bodyPr vert="horz" lIns="91440" tIns="45720" rIns="91440" bIns="45720" rtlCol="0"/>` +
   `<a:lstStyle/>` +
   `<a:p><a:endParaRPr lang="en-US"/></a:p>` +
   `</p:txBody>`;
 
-/** Build `notesSlide{N}.xml` with the full standard placeholder set. */
-export function notesSlideXml(notes: string, slideNumber: number): string {
+/**
+ * Build `notesSlide{N}.xml`. Only emits the 3 placeholders the slide
+ * customizes (sldImg, body, sldNum) — header/date/footer are inherited
+ * from the master. Each placeholder uses `<p:spPr/>` (empty) so PowerPoint
+ * pulls position from the master.
+ *
+ * Mirrors the python-pptx-generated structure exactly. Earlier we emitted
+ * the full 6-placeholder set with custom positions on every notes slide,
+ * which PowerPoint flagged as corrupted (placeholders override master
+ * placeholders by `idx`, and an `idx` mismatch breaks rendering).
+ */
+export function notesSlideXml(notes: string, _slideNumber: number): string {
   const escaped = escapeText(notes);
-  const fldGuid = `{${stableGuid(slideNumber)}}`;
 
-  // Notes body — carries the actual note text.
   const notesBody =
     `<p:txBody>` +
     `<a:bodyPr/>` +
     `<a:lstStyle/>` +
     `<a:p><a:r><a:rPr lang="en-US" dirty="0"/><a:t xml:space="preserve">${escaped}</a:t></a:r></a:p>` +
-    `</p:txBody>`;
-
-  // Slide number placeholder — auto-fills with the page number.
-  const sldNumBody =
-    `<p:txBody>` +
-    `<a:bodyPr/>` +
-    `<a:lstStyle/>` +
-    `<a:p><a:fld id="${fldGuid}" type="slidenum"><a:rPr lang="en-US"/><a:t>${slideNumber}</a:t></a:fld></a:p>` +
     `</p:txBody>`;
 
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -99,12 +130,9 @@ export function notesSlideXml(notes: string, slideNumber: number): string {
 <p:spTree>
 <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
 <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-${placeholderSp(2, "Header Placeholder 1", "hdr", "quarter", undefined, EMPTY_BODY)}
-${placeholderSp(3, "Date Placeholder 2", "dt", "half", undefined, EMPTY_BODY)}
-${placeholderSp(4, "Slide Image Placeholder 3", "sldImg", undefined, undefined, EMPTY_BODY)}
-${placeholderSp(5, "Notes Placeholder 4", "body", undefined, 1, notesBody)}
-${placeholderSp(6, "Footer Placeholder 5", "ftr", "quarter", undefined, EMPTY_BODY)}
-${placeholderSp(7, "Slide Number Placeholder 6", "sldNum", "quarter", undefined, sldNumBody)}
+${slidePlaceholderSp(2, "Slide Image Placeholder 1", "sldImg", "")}
+${slidePlaceholderSp(3, "Notes Placeholder 2", "body", notesBody)}
+${slidePlaceholderSp(4, "Slide Number Placeholder 3", "sldNum", "")}
 </p:spTree>
 </p:cSld>
 <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
@@ -122,6 +150,7 @@ export function notesSlideRelsXml(slideNumber: number): string {
 
 /** `notesMaster1.xml` with the full standard placeholder set + notesStyle. */
 export function notesMasterXml(): string {
+  // sldImg has noRot+noChangeAspect locks (PowerPoint requires these).
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:notesMaster${SLIDE_NS}>
 <p:cSld>
@@ -129,12 +158,12 @@ export function notesMasterXml(): string {
 <p:spTree>
 <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
 <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-${placeholderSp(2, "Header Placeholder 1", "hdr", "quarter", undefined, EMPTY_BODY)}
-${placeholderSp(3, "Date Placeholder 2", "dt", "half", undefined, EMPTY_BODY)}
-${placeholderSp(4, "Slide Image Placeholder 3", "sldImg", undefined, undefined, EMPTY_BODY)}
-${placeholderSp(5, "Notes Placeholder 4", "body", undefined, 1, EMPTY_BODY)}
-${placeholderSp(6, "Footer Placeholder 5", "ftr", "quarter", undefined, EMPTY_BODY)}
-${placeholderSp(7, "Slide Number Placeholder 6", "sldNum", "quarter", undefined, EMPTY_BODY)}
+${masterPlaceholderSp(2, "Header Placeholder 1", "hdr", EMPTY_BODY)}
+${masterPlaceholderSp(3, "Date Placeholder 2", "dt", EMPTY_BODY)}
+${masterPlaceholderSp(4, "Slide Image Placeholder 3", "sldImg", EMPTY_BODY, ` noRot="1" noChangeAspect="1"`)}
+${masterPlaceholderSp(5, "Notes Placeholder 4", "body", EMPTY_BODY)}
+${masterPlaceholderSp(6, "Footer Placeholder 5", "ftr", EMPTY_BODY)}
+${masterPlaceholderSp(7, "Slide Number Placeholder 6", "sldNum", EMPTY_BODY)}
 </p:spTree>
 </p:cSld>
 <p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>
@@ -147,15 +176,10 @@ ${placeholderSp(7, "Slide Number Placeholder 6", "sldNum", "quarter", undefined,
 }
 
 export function notesMasterRelsXml(): string {
+  // theme2.xml is the notesMaster's OWN theme — see package.ts comment.
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/>
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme2.xml"/>
 </Relationships>`;
 }
 
-/** Stable GUID per slide number — Office expects field IDs to be unique. */
-function stableGuid(seed: number): string {
-  // Format: 8-4-4-4-12 hex chars. Deterministic from `seed`.
-  const hex = (n: number, w: number) => n.toString(16).padStart(w, "0").slice(-w).toUpperCase();
-  return `${hex(seed * 0x9e3779b1, 8)}-${hex(seed * 0x85ebca6b, 4)}-4${hex(seed * 0xc2b2ae35, 3)}-A${hex(seed * 0x27d4eb2f, 3)}-${hex(seed * 0x165667b1, 12)}`;
-}
