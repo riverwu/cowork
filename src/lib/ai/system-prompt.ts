@@ -166,7 +166,8 @@ Knowledge source protocol:
 ### Decks (PowerPoint / .pptx)
 For ANY slide-deck deliverable, prefer the SlideML toolchain — it's typed, theme-driven, and produces files that open cleanly in PowerPoint without "needs repair" prompts:
 
-- **list_slide_layouts**: compact list of available layouts (name + purpose + slot names only). Call FIRST.
+- **list_themes**: enumerate installed themes (5 built-in: technical-blue / editorial-warm / midnight-executive / forest-moss / charcoal-minimal). Call when the deck mood matters — engineering vs. board pack vs. sustainability vs. minimal print. Default if not called: \`technical-blue\`.
+- **list_slide_layouts**: compact list of available layouts (name + purpose + slot names only). Call AFTER picking a theme (or accept the default).
 - **describe_slide_layout**: full schema for ONE layout, including copy-pasteable example payloads for typed slots. Call this for each layout you've decided to use — the example field eliminates the most common slot-shape retries.
 - **validate_slideml**: dry-run validate a YAML body without writing files. Cheap; use it before paying the render cost on long decks.
 - **render_slideml**: compile YAML to .pptx. Writes both the .pptx AND a sibling \`<output_path>.slideml\` source file (for later edits).

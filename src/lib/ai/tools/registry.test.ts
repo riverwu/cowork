@@ -20,6 +20,7 @@ describe("Tool Registry", () => {
     "apply_patch",
     "update_task_progress",
     "image_gen",
+    "list_themes",
     "list_slide_layouts",
     "describe_slide_layout",
     "validate_slideml",
@@ -28,9 +29,9 @@ describe("Tool Registry", () => {
     "audit_pptx",
   ];
 
-  it("has exactly 23 built-in tools", () => {
+  it("has exactly 24 built-in tools", () => {
     const skills = getTools();
-    expect(Object.keys(skills)).toHaveLength(23);
+    expect(Object.keys(skills)).toHaveLength(24);
   });
 
   it("has all expected skills registered", () => {
@@ -52,7 +53,7 @@ describe("Tool Registry", () => {
 
   it("generates valid tool definitions for all skills", () => {
     const defs = getToolDefinitions();
-    expect(defs).toHaveLength(23);
+    expect(defs).toHaveLength(24);
 
     for (const def of defs) {
       expect(def.name).toBeTruthy();
@@ -69,7 +70,7 @@ describe("Tool Registry", () => {
     // A few tools (e.g. list_slide_layouts) take only optional parameters
     // because their behavior is fully defaulted. Declaring `required: []`
     // is still mandatory so the JSON schema is well-formed.
-    const ALLOW_EMPTY_REQUIRED = new Set(["list_slide_layouts"]);
+    const ALLOW_EMPTY_REQUIRED = new Set(["list_slide_layouts", "list_themes"]);
     for (const def of defs) {
       const params = def.parameters as { required?: string[] };
       expect(params.required, `${def.name} must declare a required array`).toBeDefined();

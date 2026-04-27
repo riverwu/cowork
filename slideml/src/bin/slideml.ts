@@ -25,6 +25,7 @@ import {
   describeLayout,
   editDeck,
   auditPptx,
+  listInstalledThemes,
   type EditOp,
   SlidemlAggregateError,
 } from "../index.js";
@@ -40,6 +41,7 @@ usage:
   slideml describe <layout-name> --theme <name|path> [--json]
   slideml edit     <sidecar.slideml> --ops <ops.json> --theme <name|path> -o <out.pptx>
   slideml audit    <deck.pptx> [--json]
+  slideml themes   [--json]
 
 themes:
   built-in: technical-blue
@@ -202,6 +204,20 @@ async function main(): Promise<void> {
         process.exit(2);
       }
       throw err;
+    }
+    return;
+  }
+
+  if (cmd === "themes") {
+    const themes = await listInstalledThemes();
+    if (opts.flags["json"] === "true") {
+      process.stdout.write(JSON.stringify(themes, null, 2) + "\n");
+    } else {
+      for (const t of themes) {
+        const tag = t.source === "builtin" ? "[builtin]" : "[user]   ";
+        process.stdout.write(`${tag} ${t.name.padEnd(22)} ${t.displayName} — ${t.description}\n`);
+        if (t.whenToUse) process.stdout.write(`${" ".repeat(34)}use: ${t.whenToUse}\n`);
+      }
     }
     return;
   }

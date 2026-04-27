@@ -65,10 +65,12 @@ Hard rules:
 
     try {
       const result = await slidemlCompile(slideml, theme, outputPath);
-      const written = typeof result === "object" && result !== null && "outputPath" in result
-        ? (result.outputPath ?? outputPath)
-        : outputPath;
-      return `SlideML compiled to ${written} (sidecar: ${written}.slideml). Theme: ${theme}.`;
+      // Sidecar is editable: any future call can read it as the
+      // source-of-truth and apply edit_slideml ops without re-emitting
+      // the whole YAML. Mention this explicitly so follow-up turns find
+      // it.
+      return `SlideML compiled to ${result.outputPath}. Theme: ${theme}. ` +
+        `Editable source written to ${result.sidecar} — use edit_slideml for follow-up changes.`;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return `Error: render_slideml failed.\n${msg}`;

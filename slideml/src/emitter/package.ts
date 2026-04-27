@@ -22,6 +22,20 @@ import { SLIDE_SIZES } from "../units.js";
 import type { ChartShape, DeckAst, ImageShape } from "./types.js";
 
 /**
+ * Wrap an asset.intern call so failures (404s, missing files,
+ * unsupported MIME types) carry the slide-level context the agent
+ * needs to find the offending slot.
+ */
+async function internOrAnnotate(assets: Assets, src: string, context: string): Promise<void> {
+  try {
+    await assets.intern(src);
+  } catch (err) {
+    const original = err instanceof Error ? err.message : String(err);
+    throw new Error(`${context}: failed to load image "${src}" — ${original}`);
+  }
+}
+
+/**
  * Resolved theme1.xml inputs — produced from `ThemeManifest.oxml` by
  * the renderer (which has the token table and can resolve names → hex).
  */
@@ -80,13 +94,19 @@ export async function emitPackage(deck: DeckAst, themeOxml?: ResolvedThemeOxml):
 
   // Asset pipeline: walk the deck once to intern every image src (shapes +
   // backgrounds). After this, the zip writer just iterates assets.entries().
+  // Errors are wrapped with the slide index + role so the agent can attribute
+  // them to the offending slot (otherwise it'd see a bare "HTTP 404").
   const assets = new Assets();
-  for (const slide of deck.slides) {
+  for (let i = 0; i < deck.slides.length; i++) {
+    const slide = deck.slides[i]!;
+    const slideNum = i + 1;
     if (slide.background?.type === "image") {
-      await assets.intern(slide.background.src);
+      await internOrAnnotate(assets, slide.background.src, `slides[${slideNum}].background`);
     }
     for (const shape of slide.shapes) {
-      if (shape.type === "image") await assets.intern(shape.src);
+      if (shape.type === "image") {
+        await internOrAnnotate(assets, shape.src, `slides[${slideNum}] image shape "${shape.name ?? shape.id}"`);
+      }
     }
   }
 

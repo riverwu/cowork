@@ -383,33 +383,40 @@ export async function runNodeScript(script: string, cwd?: string, timeoutSecs?: 
 
 // ---- SlideML ----
 
-/** Compact summary returned by `slideml_list_layouts`. */
-export interface SlidemlLayoutSummary {
-  name: string;
-  purpose: string;
-  requiredSlots: string[];
-  optionalSlots: string[];
-}
-
-/** Full schema (with per-slot examples) returned by `slideml_describe_layout`. */
-export interface SlidemlLayoutDetail {
-  name: string;
-  description: string;
-  slotSchema: Record<string, unknown>;
-  thumbnailPath: string;
-}
+// Re-export the canonical types directly from the slideml package so
+// the cowork frontend and the slideml runtime never drift. The IPC
+// layer returns objects matching these shapes.
+import type {
+  LayoutSummary as SlidemlLayoutSummary,
+  LayoutDetail as SlidemlLayoutDetail,
+  EditOp as SlidemlEditOp,
+  AuditReport as SlidemlAuditReport,
+  ThemeSummary as SlidemlThemeSummary,
+} from "slideml";
+export type {
+  SlidemlLayoutSummary,
+  SlidemlLayoutDetail,
+  SlidemlEditOp,
+  SlidemlAuditReport,
+  SlidemlThemeSummary,
+};
 
 export type SlidemlValidateResult =
   | { ok: true }
   | { ok: false; errors: string };
+
+export interface SlidemlCompileResult {
+  outputPath: string;
+  sidecar?: string;
+}
 
 /** Compile a SlideML YAML body to a .pptx file at `outputPath`. */
 export async function slidemlCompile(
   slidemlYaml: string,
   theme: string | undefined,
   outputPath: string,
-): Promise<{ outputPath?: string } | string> {
-  return invokeDesktop("slideml_compile", {
+): Promise<SlidemlCompileResult> {
+  return invokeDesktop<SlidemlCompileResult>("slideml_compile", {
     slideml: slidemlYaml,
     theme,
     outputPath,
@@ -443,24 +450,14 @@ export async function slidemlValidate(
   });
 }
 
-export interface SlidemlEditOp {
-  kind: "set" | "delete" | "insertSlide" | "deleteSlide" | "moveSlide";
-  path?: string;
-  value?: unknown;
-  at?: number;
-  from?: number;
-  to?: number;
-  slide?: Record<string, unknown>;
-}
-
 /** Apply structured ops to a sidecar .slideml and recompile. */
 export async function slidemlEdit(
   sidecarPath: string,
   ops: SlidemlEditOp[],
   outputPath: string,
   theme?: string,
-): Promise<{ outputPath: string }> {
-  return invokeDesktop<{ outputPath: string }>("slideml_edit", {
+): Promise<SlidemlCompileResult> {
+  return invokeDesktop<SlidemlCompileResult>("slideml_edit", {
     sidecarPath,
     ops,
     outputPath,
@@ -468,16 +465,14 @@ export async function slidemlEdit(
   });
 }
 
-export interface SlidemlAuditReport {
-  ok: boolean;
-  path: string;
-  stats: { slides: number; parts: number; media: number; charts: number; notesSlides: number };
-  issues: Array<{ severity: "error" | "warn"; code: string; message: string }>;
-}
-
 /** Audit a .pptx for OOXML conformance issues. */
 export async function slidemlAudit(path: string): Promise<SlidemlAuditReport> {
   return invokeDesktop<SlidemlAuditReport>("slideml_audit", { path });
+}
+
+/** List all themes installed on this machine (built-in + user). */
+export async function slidemlListThemes(): Promise<SlidemlThemeSummary[]> {
+  return invokeDesktop<SlidemlThemeSummary[]>("slideml_list_themes");
 }
 
 // ---- Web ----

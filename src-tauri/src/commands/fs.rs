@@ -1355,7 +1355,7 @@ pub async fn slideml_compile(
     slideml: String,
     theme: Option<String>,
     output_path: String,
-) -> Result<String, String> {
+) -> Result<serde_json::Value, String> {
     use std::process::Stdio;
     use tokio::process::Command;
     use tokio::time::{timeout, Duration};
@@ -1400,7 +1400,12 @@ pub async fn slideml_compile(
                 msg
             });
         }
-        Ok::<String, String>(output_path.clone())
+        // Both runtimes (Tauri + Electron) return the same shape so the
+        // cowork tool reads it without runtime type checks.
+        Ok::<serde_json::Value, String>(serde_json::json!({
+            "outputPath": output_path,
+            "sidecar":    format!("{}.slideml", output_path),
+        }))
     })
     .await
     .map_err(|_| "slideml_compile timed out after 120s".to_string())?;
@@ -1494,7 +1499,7 @@ pub async fn slideml_edit(
     ops: serde_json::Value,
     theme: Option<String>,
     output_path: String,
-) -> Result<String, String> {
+) -> Result<serde_json::Value, String> {
     use std::process::Stdio;
     use tokio::process::Command;
     use tokio::time::{timeout, Duration};
@@ -1544,13 +1549,49 @@ pub async fn slideml_edit(
                 msg
             });
         }
-        Ok::<String, String>(output_path.clone())
+        Ok::<serde_json::Value, String>(serde_json::json!({
+            "outputPath": output_path,
+            "sidecar":    format!("{}.slideml", output_path),
+        }))
     })
     .await
     .map_err(|_| "slideml_edit timed out after 120s".to_string())?;
 
     let _ = fs::remove_file(&tmp_ops);
     result
+}
+
+#[tauri::command]
+pub async fn slideml_list_themes() -> Result<serde_json::Value, String> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+    use tokio::time::{timeout, Duration};
+
+    let cli = slideml_cli_path()?;
+    let expanded_path = super::mcp::expanded_path_str();
+
+    let output = timeout(Duration::from_secs(30), async {
+        Command::new("node")
+            .arg(&cli)
+            .arg("themes")
+            .arg("--json")
+            .env("PATH", &expanded_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| format!("spawn node: {}", e))
+    })
+    .await
+    .map_err(|_| "slideml_list_themes timed out after 30s".to_string())??;
+
+    if !output.status.success() {
+        let msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(msg);
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(&stdout).map_err(|e| format!("parse themes JSON: {}", e))
 }
 
 #[tauri::command]

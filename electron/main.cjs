@@ -107,6 +107,7 @@ async function dispatch(command, args, sender) {
     case "slideml_validate": return slidemlValidate(args.slideml, args.theme);
     case "slideml_edit": return slidemlEdit(args.sidecarPath, args.ops, args.theme, args.outputPath);
     case "slideml_audit": return slidemlAudit(args.path);
+    case "slideml_list_themes": return slidemlListThemes();
     case "get_env": return process.env[args.key] || null;
     case "http_post": return httpPost(args.request);
     case "http_stream_post": return httpStreamPost(sender, args.request);
@@ -465,7 +466,9 @@ async function slidemlCompile(slidemlYaml, theme, outputPath) {
       const msg = (result.stderr || result.stdout || "").trim() || `slideml compile exited ${result.exit_code}`;
       throw new Error(msg);
     }
-    return { outputPath, stdout: result.stdout.trim() };
+    // Both runtimes (Electron + Tauri) return the same shape so the
+    // cowork tool can rely on it without runtime type checks.
+    return { outputPath, sidecar: `${outputPath}.slideml` };
   } finally {
     fsp.rm(tmpYaml, { force: true }).catch(() => {});
   }
@@ -530,9 +533,25 @@ async function slidemlEdit(sidecarPath, ops, theme, outputPath) {
     if (result.exit_code !== 0) {
       throw new Error((result.stderr || result.stdout || "").trim() || `slideml edit exited ${result.exit_code}`);
     }
-    return { outputPath, stdout: result.stdout.trim() };
+    return { outputPath, sidecar: `${outputPath}.slideml` };
   } finally {
     fsp.rm(tmpOps, { force: true }).catch(() => {});
+  }
+}
+
+async function slidemlListThemes() {
+  const cli = slidemlCliPath();
+  if (!fs.existsSync(cli)) {
+    throw new Error(`slideml CLI not found at ${cli}. Run \`pnpm install\` at the workspace root.`);
+  }
+  const result = await runScript("node", [cli, "themes", "--json"], undefined, 30);
+  if (result.exit_code !== 0) {
+    throw new Error((result.stderr || result.stdout || "").trim() || `slideml themes exited ${result.exit_code}`);
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch (err) {
+    throw new Error(`slideml_list_themes: failed to parse JSON output: ${err}`);
   }
 }
 
