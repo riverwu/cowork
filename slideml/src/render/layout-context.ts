@@ -88,6 +88,15 @@ export interface LayoutContext {
 
   /** Run-language hint: "cjk" if the deck language is a CJK locale. */
   cjk: boolean;
+
+  /**
+   * Theme-level style flags from `manifest.style`. Primitives consult
+   * these to apply theme-driven design defaults (e.g. whether to draw
+   * an accent rule under titles).
+   */
+  style: {
+    titleAccentRule: boolean;
+  };
 }
 
 export interface BuildContextOptions {
@@ -177,6 +186,10 @@ export function buildLayoutContext(opts: BuildContextOptions): LayoutContext {
     },
 
     cjk: isCjk,
+
+    style: {
+      titleAccentRule: theme.manifest.style?.titleAccentRule ?? true,
+    },
   };
 }
 

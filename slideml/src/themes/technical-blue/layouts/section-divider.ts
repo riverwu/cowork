@@ -1,6 +1,7 @@
 import type { LayoutContext, LayoutFn } from "../../../render/layout-context.js";
 import type { ShapeList } from "../../../emitter/types.js";
 import type { SlotSchema } from "../../../theme/types.js";
+import { bestTextOn } from "../../../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
   eyebrow: { type: "text", maxChars: 20, optional: true },
@@ -12,7 +13,8 @@ const sectionDivider: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const title = ctx.slot<string>("title") ?? "";
   const eyebrow = ctx.slot<string>("eyebrow");
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
-
+  const panelColor = ctx.color("brand-deep");
+  const titleColor = bestTextOn(ctx, panelColor);
   // Full-bleed deep-blue panel.
   out.push({
     type: "shape",
@@ -75,7 +77,7 @@ const sectionDivider: LayoutFn = (ctx: LayoutContext): ShapeList => {
       runs: [{
         text: title,
         sizeHalfPt: 64,
-        color: ctx.color("text-strong"),
+        color: titleColor,
         bold: true,
         cjk: ctx.cjk,
         fontFace,

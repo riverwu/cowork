@@ -1,0 +1,54 @@
+{
+  "name": "midnight-executive",
+  "version": "1.0.0",
+  "slidemlVersion": "1",
+  "displayName": "Midnight Executive",
+  "description": "Premium executive theme — deep navy canvas with ice-blue muted text and an amber accent. Reads like a board pack.",
+  "author": "SlideML",
+  "tokens": {
+    "bg-canvas":     "1E2761",
+    "bg-card":       "2A3580",
+    "brand-primary": "8FA6FF",
+    "brand-deep":    "0F1340",
+    "text-strong":   "F5F8FF",
+    "text-muted":    "CADCFC",
+    "accent":        "FFB400",
+    "divider":       "4554A8",
+    "font-latin":    ["Inter", "Helvetica Neue", "Helvetica", "Arial", "sans-serif"],
+    "font-cjk":      ["PingFang SC", "Microsoft YaHei", "Source Han Sans CN", "Noto Sans SC", "sans-serif"],
+    "font-mono":     ["JetBrains Mono", "Menlo", "Consolas", "monospace"]
+  },
+  "style": {
+    "titleAccentRule": true,
+    "contrastTarget": "warn"
+  },
+  "oxml": {
+    "clrScheme": {
+      "bg1": "bg-canvas",
+      "tx1": "text-strong",
+      "bg2": "bg-card",
+      "tx2": "text-muted",
+      "accent1": "brand-primary",
+      "accent2": "accent",
+      "accent3": "brand-deep",
+      "accent4": "text-muted",
+      "accent5": "divider",
+      "accent6": "bg-card",
+      "hlink": "brand-primary",
+      "folHlink": "accent"
+    },
+    "fontScheme": {
+      "majorLatin": "Inter",
+      "minorLatin": "Inter"
+    }
+  },
+  "layouts": [
+    { "name": "cover",                "module": "layouts/cover.js",                "thumbnail": "thumbnails/cover.png" },
+    { "name": "agenda",               "module": "layouts/agenda.js",               "thumbnail": "thumbnails/agenda.png" },
+    { "name": "stat-grid-3",          "module": "layouts/stat-grid-3.js",          "thumbnail": "thumbnails/stat-grid-3.png" },
+    { "name": "chart-with-takeaway",  "module": "layouts/chart-with-takeaway.js",  "thumbnail": "thumbnails/chart-with-takeaway.png" },
+    { "name": "bullet-with-image",    "module": "layouts/bullet-with-image.js",    "thumbnail": "thumbnails/bullet-with-image.png" },
+    { "name": "closing",              "module": "layouts/closing.js",              "thumbnail": "thumbnails/closing.png" }
+  ],
+  "chrome": ["page-number"]
+}

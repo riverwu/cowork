@@ -61,6 +61,25 @@ export interface ThemeManifest {
    * and lets master-driven tokens (`schemeClr val="accent1"`) inherit the
    * brand colors. All values reference token names already in `tokens`.
    */
+  /**
+   * Theme-level style flags consumed by primitives. Lets a theme opt out
+   * of common AI-tells (accent rules under titles, centered body text)
+   * without rewriting layout source files.
+   */
+  style?: {
+    /**
+     * Whether `slideTitle()` should draw a brand-color rule beneath the
+     * title. The Pptx skill notes universal accent rules are a hallmark
+     * of AI-generated decks; restrained themes (charcoal-minimal,
+     * editorial-warm, …) should set false. Default true.
+     */
+    titleAccentRule?: boolean;
+    /**
+     * Contrast enforcement at theme-load. "warn" (default) emits stderr
+     * warnings; "AA" / "AAA" throw on failure.
+     */
+    contrastTarget?: "warn" | "AA" | "AAA";
+  };
   oxml?: {
     /** 12 OOXML color slots; values are TOKEN NAMES from `tokens`. */
     clrScheme?: {

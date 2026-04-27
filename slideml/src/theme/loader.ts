@@ -14,6 +14,7 @@ import { readFile, access } from "node:fs/promises";
 import { resolve, isAbsolute, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { validateThemeStructure, parseThemeMd, extractGuidance, type ThemeMdSections } from "./validator.js";
+import { auditThemeContrast } from "./contrast.js";
 import { assertHex } from "../emitter/xml.js";
 import type {
   LoadedComponent,
@@ -144,6 +145,23 @@ export async function loadTheme(themeDir: string): Promise<LoadedTheme> {
       );
     }
     chrome.set(name, fn);
+  }
+
+  // WCAG contrast audit. We warn (stderr) by default and only throw when
+  // the theme opted into strict enforcement via `style.contrastTarget`.
+  const target = (manifest as { style?: { contrastTarget?: "AA" | "AAA" | "warn" } }).style?.contrastTarget ?? "warn";
+  const contrastReport = auditThemeContrast(manifest.tokens, target === "AAA" ? "AAA" : "AA");
+  if (!contrastReport.ok) {
+    if (target === "warn") {
+      for (const w of contrastReport.warnings) {
+        process.stderr.write(`[slideml] theme "${manifest.name}" contrast warning: ${w}\n`);
+      }
+    } else {
+      throw structured(
+        "THEME_INVALID",
+        `Theme "${manifest.name}" fails ${target} contrast checks:\n  - ${contrastReport.warnings.join("\n  - ")}`,
+      );
+    }
   }
 
   return {

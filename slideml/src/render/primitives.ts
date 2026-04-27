@@ -36,9 +36,13 @@ export interface TitleOptions {
 }
 
 /**
- * Standard slide title: bold left-aligned text + cyan accent rule beneath.
- * Returns the shapes; the caller controls where to start content (use
- * `contentRect()` after the rule for chrome-aware bounds).
+ * Standard slide title: bold left-aligned text + (optionally) a brand-color
+ * accent rule beneath. The accent rule defaults to the theme's
+ * `style.titleAccentRule` flag — restrained themes (editorial, minimal)
+ * suppress it because universal accent rules are an AI-generated-deck
+ * tell (per Pptx skill guidance).
+ *
+ * Layouts can force the rule on/off via `opts.rule`.
  */
 export function slideTitle(ctx: LayoutContext, text: string, opts: TitleOptions = {}): ShapeList {
   const out: ShapeList = [];
@@ -63,7 +67,8 @@ export function slideTitle(ctx: LayoutContext, text: string, opts: TitleOptions 
     }],
   });
 
-  if (opts.rule !== false) {
+  const showRule = opts.rule ?? ctx.style.titleAccentRule;
+  if (showRule) {
     out.push({
       type: "shape",
       id: ctx.id(),
@@ -380,6 +385,34 @@ export function imageOrPlaceholder(
 // ---------------------------------------------------------------------------
 // Coercions
 // ---------------------------------------------------------------------------
+
+/**
+ * Pick the best-contrast foreground color (white vs theme text-strong)
+ * for a given background hex. Used by full-bleed layouts (closing,
+ * section-divider, hero overlays) so a theme with dark text-strong
+ * doesn't paint dark-on-dark on a brand-deep panel.
+ *
+ * Uses WCAG relative luminance — same math as the theme contrast audit.
+ */
+export function bestTextOn(ctx: LayoutContext, bgHex: string): string {
+  const lum = relLum(bgHex);
+  // Compare to text-strong's luminance — pick whichever has more contrast.
+  const strong = ctx.color("text-strong");
+  const strongLum = relLum(strong);
+  const whiteContrast = (1.0 + 0.05) / (lum + 0.05);
+  const strongContrast = strongLum > lum
+    ? (strongLum + 0.05) / (lum + 0.05)
+    : (lum + 0.05) / (strongLum + 0.05);
+  return whiteContrast >= strongContrast ? "FFFFFF" : strong;
+}
+
+function relLum(hex: string): number {
+  const c = (i: number) => {
+    const v = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * c(0) + 0.7152 * c(2) + 0.0722 * c(4);
+}
 
 /**
  * Normalize a text-block slot value into a single string. Real-LLM testing
