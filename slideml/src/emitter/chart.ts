@@ -72,8 +72,16 @@ export function chartXml(shape: ChartShape): string {
   const axisLessTypes: ChartShape["chartType"][] = ["pie", "doughnut"];
   const axesXml = axisLessTypes.includes(shape.chartType) ? "" : axesXmlOf(catAxId, valAxId, numFmt);
 
+  // PowerPoint requires three chartSpace-level elements (date1904, lang,
+  // roundedCorners) to validate strictly — without them PowerPoint shows
+  // a "found a problem with content" / corruption warning even though
+  // LibreOffice and python-pptx accept the file. LibreOffice writes them
+  // on every chart, Excel does too. Reproduced via LO round-trip diff.
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <c:chartSpace xmlns:c="${NS_CHART}" xmlns:a="${NS_DRAWING}" xmlns:r="${NS_REL}">
+<c:date1904 val="0"/>
+<c:lang val="en-US"/>
+<c:roundedCorners val="0"/>
 <c:chart>
 ${titleXml}
 <c:autoTitleDeleted val="${shape.title ? 0 : 1}"/>

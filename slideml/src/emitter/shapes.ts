@@ -37,7 +37,12 @@ function tableShapeXml(shape: TableShape): string {
 // ---- Text shapes ----------------------------------------------------------
 
 function textShapeXml(shape: TextShape, rels: SlideRels): string {
-  const nvSpPr = nvSpPrXml(shape.id, shape.name ?? `Text ${shape.id}`);
+  // Text-bearing shapes need `txBox="1"` on `<p:cNvSpPr>` so PowerPoint
+  // treats them as text frames (not auto-shapes with rich text). Without
+  // this, PowerPoint's strict-validate path flags the file as having
+  // "content problems" and offers to repair on open. LibreOffice and
+  // python-pptx tolerate the omission.
+  const nvSpPr = nvSpPrXml(shape.id, shape.name ?? `Text ${shape.id}`, true);
   const spPr = spPrXml(shape.xfrm, "rect", undefined, shape.fill, shape.line);
   // Adapter: text-emitter asks for hyperlink rIds via this RunRels, which
   // pushes a slide-level rel of type `/hyperlink` with TargetMode=External.
@@ -154,11 +159,12 @@ function imageShapeXml(shape: ImageShape, _slidePart: string, rels: SlideRels): 
 
 // ---- Shared building blocks ----------------------------------------------
 
-function nvSpPrXml(id: number, name: string): string {
+function nvSpPrXml(id: number, name: string, isTextBox = false): string {
+  const cNvSpPr = isTextBox ? `<p:cNvSpPr txBox="1"/>` : `<p:cNvSpPr/>`;
   return (
     `<p:nvSpPr>` +
     `<p:cNvPr id="${id}" name="${name}"/>` +
-    `<p:cNvSpPr/>` +
+    cNvSpPr +
     `<p:nvPr/>` +
     `</p:nvSpPr>`
   );
