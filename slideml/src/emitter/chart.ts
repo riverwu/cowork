@@ -211,21 +211,25 @@ function seriesXml(
   );
 }
 
+// PowerPoint resolves `c:strRef`/`c:numRef` formula refs (e.g.
+// `Sheet1!$A$2:$A$5`) by looking for an embedded xlsx workbook via
+// chart{N}.xml.rels. We don't ship one — LibreOffice silently falls
+// back to the cache, but PowerPoint reports the file as corrupted /
+// "needs repair". Use the literal-data forms (`c:strLit` / `c:numLit`)
+// which are self-contained and accepted by both renderers.
 function catRefXml(labels: string[]): string {
   return (
-    `<c:cat><c:strRef><c:f>Sheet1!$A$2:$A$${labels.length + 1}</c:f>` +
-    `<c:strCache><c:ptCount val="${labels.length}"/>` +
+    `<c:cat><c:strLit><c:ptCount val="${labels.length}"/>` +
     labels.map((l, i) => `<c:pt idx="${i}"><c:v>${xmlEscapeText(l)}</c:v></c:pt>`).join("") +
-    `</c:strCache></c:strRef></c:cat>`
+    `</c:strLit></c:cat>`
   );
 }
 
 function valRefXml(values: number[]): string {
   return (
-    `<c:val><c:numRef><c:f>Sheet1!$B$2:$B$${values.length + 1}</c:f>` +
-    `<c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>` +
+    `<c:val><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>` +
     values.map((v, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(v) ? v : 0}</c:v></c:pt>`).join("") +
-    `</c:numCache></c:numRef></c:val>`
+    `</c:numLit></c:val>`
   );
 }
 
