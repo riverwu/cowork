@@ -11,6 +11,7 @@
   "files": [
     "dist",
     "themes",
+    "schema",
     "PLAN.md",
     "SPEC.md",
     "README.md",
@@ -18,7 +19,7 @@
     "LICENSE-thirdparty"
   ],
   "scripts": {
-    "build": "tsc && node scripts/copy-theme-assets.mjs",
+    "build": "tsc && node scripts/copy-theme-assets.mjs && node dist/bin/slideml.js schema -o schema/slideml.schema.json",
     "prepare": "pnpm run build",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -84,6 +84,7 @@ export type { DeckSpec, SlideSpec, BandSpec, BackgroundSpec, ChromeSpec } from "
 export { editDeck, type EditOp, type EditResult } from "./edit.js";
 export { auditPptx, auditPptxBuffer, type AuditReport, type AuditIssue, type Severity } from "./audit.js";
 export { listInstalledThemes, describeInstalledTheme, type ThemeSummary, type ThemeDetail } from "./themes.js";
+export { buildSlidemlSchema } from "./schema.js";
 
 export interface CompileOptions {
   /** Path to a theme package directory, OR a pre-loaded theme. */

@@ -27,9 +27,11 @@ import {
   auditPptx,
   listInstalledThemes,
   describeInstalledTheme,
+  buildSlidemlSchema,
   type EditOp,
   SlidemlAggregateError,
 } from "../index.js";
+import { writeFile } from "node:fs/promises";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -44,6 +46,7 @@ usage:
   slideml audit    <deck.pptx> [--json]
   slideml themes   [--json]
   slideml describe-theme <name> [--json]
+  slideml schema   [-o <out.json>]
 
 themes:
   built-in: technical-blue
@@ -244,6 +247,19 @@ async function main(): Promise<void> {
       }
       if (detail!.voice?.tone) process.stdout.write(`\nVoice: ${detail!.voice.tone}\n`);
       process.stdout.write(`\nLayouts (${detail!.layouts.length}): ${detail!.layouts.join(", ")}\n`);
+    }
+    return;
+  }
+
+  if (cmd === "schema") {
+    const schema = buildSlidemlSchema();
+    const json = JSON.stringify(schema, null, 2) + "\n";
+    const out = opts.flags["o"] ?? opts.flags["output"];
+    if (out) {
+      await writeFile(resolve(out), json, "utf8");
+      process.stdout.write(`Wrote SlideML JSON Schema to ${resolve(out)}\n`);
+    } else {
+      process.stdout.write(json);
     }
     return;
   }

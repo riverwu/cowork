@@ -1,0 +1,1334 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://slideml.dev/slideml.schema.json",
+  "title": "SlideML",
+  "description": "SlideML — typed YAML language that compiles to .pptx. A document declares a deck (palette/fonts/chrome) and a list of slides; each slide picks a layout from the SlideML core registry and fills its slots. Generated from the live layout registry; do not hand-edit.",
+  "type": "object",
+  "required": [
+    "slideml",
+    "deck",
+    "slides"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "slideml": {
+      "description": "Schema version. Accept either the number 1 or the string \"1\".",
+      "oneOf": [
+        {
+          "const": 1
+        },
+        {
+          "const": "1"
+        }
+      ]
+    },
+    "deck": {
+      "$ref": "#/$defs/Deck"
+    },
+    "slides": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/Slide"
+      }
+    }
+  },
+  "$defs": {
+    "Deck": {
+      "type": "object",
+      "required": [
+        "size",
+        "theme"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "size": {
+          "description": "Slide size preset.",
+          "enum": [
+            "16x9",
+            "16x10",
+            "4x3",
+            "wide"
+          ]
+        },
+        "language": {
+          "description": "BCP-47 language tag. CJK locales (zh-*, ja-*, ko-*) trigger the CJK font fallback.",
+          "type": "string"
+        },
+        "theme": {
+          "description": "Theme name (informational). Renderer reads inline palette/fonts; theme is consumed by the agent for advice. Built-in: technical-blue, editorial-warm, midnight-executive, forest-moss, charcoal-minimal.",
+          "type": "string"
+        },
+        "defaults": {
+          "description": "Token-name → token-name remappings (informational; renderer ignores).",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "header": {
+          "$ref": "#/$defs/BandSpec"
+        },
+        "footer": {
+          "$ref": "#/$defs/BandSpec"
+        },
+        "background": {
+          "$ref": "#/$defs/BackgroundSpec"
+        }
+      }
+    },
+    "Slide": {
+      "description": "One slide. `layout` selects the renderer; `slots` carries content.",
+      "type": "object",
+      "required": [
+        "layout",
+        "slots"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "layout": {
+          "description": "Layout name from the SlideML core registry.",
+          "enum": [
+            "agenda",
+            "bullet-with-image",
+            "chart-with-takeaway",
+            "closing",
+            "code-block",
+            "compare-two-columns",
+            "cover",
+            "dashboard",
+            "data-table",
+            "hero-image-overlay",
+            "image-grid-2x2",
+            "process-timeline",
+            "quote",
+            "section-divider",
+            "stat-grid-3",
+            "title-only",
+            "two-col-text-image"
+          ]
+        },
+        "chrome": {
+          "$ref": "#/$defs/ChromeSpec"
+        },
+        "notes": {
+          "description": "Speaker notes for this slide (plain text).",
+          "type": "string"
+        },
+        "transition": {
+          "description": "Slide transition (currently informational; not emitted to OOXML).",
+          "enum": [
+            "none",
+            "fade"
+          ]
+        },
+        "slots": {
+          "type": "object",
+          "description": "Per-layout slot map. Constraints below depend on the chosen `layout`."
+        },
+        "header": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/BandSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "footer": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/BandSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "background": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/BackgroundSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "agenda"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 30,
+                    "description": "Single-line text, ≤ 30 chars."
+                  },
+                  "items": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 8,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 60
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "value",
+                            "label"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "value": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "delta": {
+                              "type": "string"
+                            },
+                            "trend": {
+                              "enum": [
+                                "up",
+                                "down",
+                                "flat"
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "2–8 items, each ≤ 60 chars when string-shaped."
+                  }
+                },
+                "required": [
+                  "items"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "bullet-with-image"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  },
+                  "bullets": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 6,
+                    "items": {
+                      "type": "string",
+                      "maxLength": 80
+                    },
+                    "description": "3–6 items, each ≤ 80 chars when string-shaped."
+                  },
+                  "image": {
+                    "$ref": "#/$defs/ImageRef"
+                  }
+                },
+                "required": [
+                  "title",
+                  "bullets"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "chart-with-takeaway"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  },
+                  "chart": {
+                    "$ref": "#/$defs/ChartSpec"
+                  },
+                  "takeaway": {
+                    "type": "string",
+                    "maxLength": 160,
+                    "description": "Inline markdown, ≤ 160 chars. Supports **bold**, *italic*, `code` only."
+                  }
+                },
+                "required": [
+                  "title",
+                  "chart"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "closing"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Single-line text, ≤ 60 chars."
+                  },
+                  "subtitle": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "Single-line text, ≤ 80 chars."
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "code-block"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  },
+                  "language": {
+                    "type": "string",
+                    "maxLength": 16,
+                    "description": "Single-line text, ≤ 16 chars."
+                  },
+                  "code": {
+                    "description": "Multi-line text, ≤ 1600 chars. Accepts a string OR a string[] joined with paragraph breaks.",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 1600
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "caption": {
+                    "type": "string",
+                    "maxLength": 160,
+                    "description": "Inline markdown, ≤ 160 chars. Supports **bold**, *italic*, `code` only."
+                  }
+                },
+                "required": [
+                  "code"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "compare-two-columns"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  },
+                  "leftTitle": {
+                    "type": "string",
+                    "maxLength": 30,
+                    "description": "Single-line text, ≤ 30 chars."
+                  },
+                  "leftBody": {
+                    "description": "Multi-line text, ≤ 280 chars. Accepts a string OR a string[] joined with paragraph breaks.",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 280
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "rightTitle": {
+                    "type": "string",
+                    "maxLength": 30,
+                    "description": "Single-line text, ≤ 30 chars."
+                  },
+                  "rightBody": {
+                    "description": "Multi-line text, ≤ 280 chars. Accepts a string OR a string[] joined with paragraph breaks.",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 280
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "leftTitle",
+                  "leftBody",
+                  "rightTitle",
+                  "rightBody"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "cover"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Single-line text, ≤ 60 chars."
+                  },
+                  "subtitle": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "Single-line text, ≤ 80 chars."
+                  },
+                  "eyebrow": {
+                    "type": "string",
+                    "maxLength": 32,
+                    "description": "Single-line text, ≤ 32 chars."
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "dashboard"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  },
+                  "tl": {
+                    "$ref": "#/$defs/Region"
+                  },
+                  "tr": {
+                    "$ref": "#/$defs/Region"
+                  },
+                  "bl": {
+                    "$ref": "#/$defs/Region"
+                  },
+                  "br": {
+                    "$ref": "#/$defs/Region"
+                  }
+                },
+                "required": [
+                  "tl"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "data-table"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  },
+                  "table": {
+                    "$ref": "#/$defs/TableSpec"
+                  }
+                },
+                "required": [
+                  "table"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "hero-image-overlay"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "image": {
+                    "$ref": "#/$defs/ImageRef"
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Single-line text, ≤ 60 chars."
+                  },
+                  "subtitle": {
+                    "type": "string",
+                    "maxLength": 100,
+                    "description": "Single-line text, ≤ 100 chars."
+                  },
+                  "align": {
+                    "type": "string",
+                    "maxLength": 16,
+                    "description": "Single-line text, ≤ 16 chars."
+                  }
+                },
+                "required": [
+                  "image",
+                  "title"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "image-grid-2x2"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  },
+                  "images": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 4,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "src": {
+                              "type": "string"
+                            },
+                            "url": {
+                              "type": "string"
+                            },
+                            "alt": {
+                              "type": "string"
+                            },
+                            "caption": {
+                              "type": "string"
+                            },
+                            "fit": {
+                              "enum": [
+                                "contain",
+                                "cover"
+                              ]
+                            }
+                          },
+                          "anyOf": [
+                            {
+                              "required": [
+                                "src"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "url"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "description": "2–4 items, each ≤ 64 chars when string-shaped."
+                  }
+                },
+                "required": [
+                  "images"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "process-timeline"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  },
+                  "steps": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 5,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "title": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "text": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "3–5 items, each ≤ 80 chars when string-shaped."
+                  }
+                },
+                "required": [
+                  "title",
+                  "steps"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "quote"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "quote": {
+                    "description": "Multi-line text, ≤ 240 chars. Accepts a string OR a string[] joined with paragraph breaks.",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 240
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "attribution": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Single-line text, ≤ 60 chars."
+                  }
+                },
+                "required": [
+                  "quote"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "section-divider"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "eyebrow": {
+                    "type": "string",
+                    "maxLength": 20,
+                    "description": "Single-line text, ≤ 20 chars."
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "stat-grid-3"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "description": "Single-line text, ≤ 40 chars."
+                  },
+                  "items": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 64
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "value",
+                            "label"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "value": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "delta": {
+                              "type": "string"
+                            },
+                            "trend": {
+                              "enum": [
+                                "up",
+                                "down",
+                                "flat"
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "3–3 items, each ≤ 64 chars when string-shaped."
+                  }
+                },
+                "required": [
+                  "title",
+                  "items"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "title-only"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "Single-line text, ≤ 80 chars."
+                  }
+                },
+                "required": [
+                  "title"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "two-col-text-image"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars."
+                  },
+                  "text": {
+                    "description": "Multi-line text, ≤ 400 chars. Accepts a string OR a string[] joined with paragraph breaks.",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 400
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "image": {
+                    "$ref": "#/$defs/ImageRef"
+                  },
+                  "imageSide": {
+                    "type": "string",
+                    "maxLength": 6,
+                    "description": "Single-line text, ≤ 6 chars."
+                  }
+                },
+                "required": [
+                  "title",
+                  "text",
+                  "image"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "BandSpec": {
+      "description": "Header / footer band content. A bare string is shorthand for `{ left }`.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "left": {
+              "type": "string"
+            },
+            "center": {
+              "type": "string"
+            },
+            "right": {
+              "type": "string"
+            }
+          }
+        }
+      ]
+    },
+    "BackgroundSpec": {
+      "description": "Slide background. Either a solid color or an embedded image.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "color"
+          ],
+          "properties": {
+            "color": {
+              "type": "string",
+              "pattern": "^[0-9A-Fa-f]{6}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "image"
+          ],
+          "properties": {
+            "image": {
+              "type": "object",
+              "required": [
+                "src"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "src": {
+                  "type": "string",
+                  "description": "Path, http(s) URL, or data: URL."
+                },
+                "alt": {
+                  "type": "string"
+                },
+                "opacity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ChromeSpec": {
+      "description": "Chrome control. \"default\" applies all enabled chrome modules; \"none\" suppresses them all; the object form lets a slide selectively disable individual modules.",
+      "oneOf": [
+        {
+          "const": "default"
+        },
+        {
+          "const": "none"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "header": {
+              "type": "boolean"
+            },
+            "footer": {
+              "type": "boolean"
+            },
+            "brandBar": {
+              "type": "boolean"
+            },
+            "pageNumber": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    },
+    "ImageRef": {
+      "description": "Image reference. Accepts an object `{ src, alt? }`, a bare path/URL string (auto-wrapped), or `{ url, alt? }` (alias for src).",
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "properties": {
+            "src": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "alt": {
+              "type": "string"
+            },
+            "fit": {
+              "enum": [
+                "contain",
+                "cover",
+                "crop"
+              ]
+            }
+          },
+          "anyOf": [
+            {
+              "required": [
+                "src"
+              ]
+            },
+            {
+              "required": [
+                "url"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "ChartSpec": {
+      "type": "object",
+      "required": [
+        "type",
+        "data"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "bar",
+            "stacked-bar",
+            "line",
+            "area",
+            "pie",
+            "doughnut"
+          ]
+        },
+        "data": {
+          "type": "object",
+          "required": [
+            "labels",
+            "series"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "labels": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "series": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "values"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "format": {
+          "description": "Y-axis number format. MUST be an object — bare strings are rejected.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "y": {
+              "enum": [
+                "int",
+                "decimal",
+                "percent",
+                "wanyuan",
+                "yi"
+              ]
+            }
+          }
+        },
+        "title": {
+          "type": "string"
+        }
+      }
+    },
+    "TableSpec": {
+      "type": "object",
+      "required": [
+        "header",
+        "rows"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "header": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "colWidths": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "Region": {
+      "description": "Polymorphic dashboard cell. `kind` picks the shape: kpi | chart | table | text.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "value",
+            "label"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "kpi"
+            },
+            "value": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "delta": {
+              "type": "string"
+            },
+            "trend": {
+              "enum": [
+                "up",
+                "down",
+                "flat"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "chart"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "chart"
+            },
+            "title": {
+              "type": "string"
+            },
+            "chart": {
+              "$ref": "#/$defs/ChartSpec"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "table"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "table"
+            },
+            "title": {
+              "type": "string"
+            },
+            "table": {
+              "$ref": "#/$defs/TableSpec"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "body"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "text"
+            },
+            "title": {
+              "type": "string"
+            },
+            "body": {
+              "description": "Text body. Accepts a string OR a string[] joined with paragraph breaks.",
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ComponentRef": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "slots": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}
