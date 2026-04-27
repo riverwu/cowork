@@ -127,7 +127,7 @@ const TOOL_RULES = `## Tool usage
 ### Execution
 - **shell**: Run system commands (git, make, cargo, curl, etc.). Prefer checking before writing/deleting. Do not use shell for agent-generated Node scripts or npm package installation; use \`run_node\` instead. Set appropriate timeout for long-running commands.
 - **run_python**: Execute Python code in isolated environment (\`~/.cowork/python/\`). Pre-installed: pandas, openpyxl, python-docx, matplotlib, PyPDF2. Use \`install_package\` to add pip packages. Use matplotlib/plotly here for DATA CHARTS only; for illustrations or cover art use \`image_gen\`.
-- **run_node**: Execute JavaScript code in isolated environment (\`~/.cowork/node/\`). Use \`install_package\` to add npm packages. Use for: Word documents (docx), JSON processing, custom data scripts. **Do NOT use this for .pptx generation** — use the SlideML deck tools (\`render_slideml\` etc.) instead; pptxgenjs is a fallback only when no SlideML layout fits a truly custom geometry.
+- **run_node**: Execute JavaScript code in isolated environment (\`~/.cowork/node/\`). Use \`install_package\` to add npm packages. Use for: Word documents (docx), JSON processing, custom data scripts.
 
 ### Media
 - **image_gen**: Generate illustrative/designed/photographic images (Doubao Seedream). Use for covers, section dividers, hero/banner images, posters, icons, logos, mood imagery — anything the user calls 配图/插图/封面/illustration. Do NOT use for data charts (use \`run_python\` + matplotlib for those — image_gen cannot draw exact numbers). For a deck with imagery, expect to call BOTH image_gen and run_python. Omit \`size\` for the 4K default, or pick a documented preset.
