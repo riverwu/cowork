@@ -1,7 +1,7 @@
 import type { LayoutContext, LayoutFn } from "../../../render/layout-context.js";
 import type { ChartShape, ShapeList } from "../../../emitter/types.js";
 import type { SlotSchema } from "../../../theme/types.js";
-import { slideTitle } from "../../../render/primitives.js";
+import { bestTextOn, slideTitle } from "../../../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
   title:    { type: "text",            maxChars: 50 },
@@ -40,7 +40,10 @@ const chartWithTakeaway: LayoutFn = (ctx: LayoutContext): ShapeList => {
       series: chart.data.series,
       yFormat: chart.format?.y ?? "int",
       title: chart.title,
-      colors: [ctx.color("brand-primary"), ctx.color("brand-deep"), ctx.color("accent")],
+      // Series palette: pick colors that are visually distinct from
+      // bg-canvas across both light and dark themes. brand-deep is
+      // unsafe — in dark themes it tends to be near-canvas.
+      colors: [ctx.color("brand-primary"), ctx.color("accent"), ctx.color("text-muted")],
       showValues: chart.type !== "pie",
     };
     out.push(chartShape);
@@ -53,12 +56,14 @@ const chartWithTakeaway: LayoutFn = (ctx: LayoutContext): ShapeList => {
       cx: ctx.deck.width - ctx.cm(4),
       cy: takeawayHeight,
     };
+    const panelColor = ctx.color("brand-deep");
+    const takeawayTextColor = bestTextOn(ctx, panelColor);
     out.push({
       type: "shape",
       id: ctx.id(),
       preset: "roundRect",
       xfrm: pos,
-      fill: { type: "solid", color: ctx.color("brand-deep") },
+      fill: { type: "solid", color: panelColor },
       line: { color: ctx.color("brand-primary"), width: ctx.pt(1) },
       cornerRadius: 0.05,
     });
@@ -73,7 +78,9 @@ const chartWithTakeaway: LayoutFn = (ctx: LayoutContext): ShapeList => {
         runs: [{
           text: takeaway.replace(/\*\*(.*?)\*\*/g, "$1").replace(/\*(.*?)\*/g, "$1").replace(/`(.*?)`/g, "$1"),
           sizeHalfPt: 26,
-          color: ctx.color("text-strong"),
+          // Pick white vs theme text-strong by luminance — fixes
+          // dark-text-on-dark-panel for light themes.
+          color: takeawayTextColor,
           bold: true,
           cjk: ctx.cjk,
           fontFace,

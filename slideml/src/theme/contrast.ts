@@ -80,11 +80,22 @@ export function auditThemeContrast(
     { name: "body text on card",         fg: get("text-strong"),   bg: get("bg-card"),       required: NORMAL },
     { name: "muted text on canvas",      fg: get("text-muted"),    bg: get("bg-canvas"),     required: NORMAL },
     { name: "brand-primary on canvas",   fg: get("brand-primary"), bg: get("bg-canvas"),     required: LARGE  },
+    { name: "brand-primary on card",     fg: get("brand-primary"), bg: get("bg-card"),       required: LARGE  },
     { name: "accent on canvas",          fg: get("accent"),        bg: get("bg-canvas"),     required: LARGE  },
-    // Closing / section-divider layouts use the `bestTextOn` primitive to
-    // pick whichever of (text-strong, white) gives the highest contrast on
-    // brand-deep. Audit the EFFECTIVE contrast — not necessarily text-strong.
+    // Closing / section-divider / takeaway-callout layouts paint text on
+    // a brand-deep panel via the `bestTextOn` primitive — audit the
+    // EFFECTIVE contrast (best of text-strong vs white).
     { name: "best text on brand-deep",   fg: get("text-strong"),   bg: get("brand-deep"),    required: NORMAL, bestText: true },
+    // White on brand-deep: data-table and dashboard table headers paint
+    // hard-coded white text on brand-deep. If white doesn't meet AA on
+    // brand-deep, the table header is illegible.
+    { name: "white on brand-deep",       fg: "FFFFFF",             bg: get("brand-deep"),    required: NORMAL },
+    // Visual distinction between brand-deep and bg-canvas (closing /
+    // section-divider full-bleed panels read as a "block" only if the
+    // luminance differs enough). Below 2:1 the panel disappears into
+    // the canvas — strict 3:1 is too aggressive for dark themes
+    // (rarely achievable), so we warn at 2.0.
+    { name: "brand-deep distinct from canvas", fg: get("brand-deep"), bg: get("bg-canvas"), required: 2.0 },
   ];
 
   const ratios: ContrastReport["ratios"] = [];

@@ -39,6 +39,10 @@ const sectionDivider: LayoutFn = (ctx: LayoutContext): ShapeList => {
   });
 
   if (eyebrow) {
+    // Eyebrow color: use the same titleColor (best contrast on the dark
+    // brand-deep panel). brand-primary often fails contrast on
+    // brand-deep when both are tints of the same hue (e.g. rust on
+    // deeper rust, forest on deeper forest).
     out.push({
       type: "text",
       id: ctx.id(),
@@ -54,7 +58,7 @@ const sectionDivider: LayoutFn = (ctx: LayoutContext): ShapeList => {
         runs: [{
           text: eyebrow,
           sizeHalfPt: 24,
-          color: ctx.color("brand-primary"),
+          color: titleColor,
           cjk: ctx.cjk,
           fontFace,
         }],

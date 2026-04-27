@@ -111,7 +111,7 @@ function renderChartCell(ctx: LayoutContext, rect: { x: number; y: number; width
     labels: region.chart.data.labels,
     series: region.chart.data.series,
     yFormat: region.chart.format?.y ?? "int",
-    colors: [ctx.color("brand-primary"), ctx.color("brand-deep"), ctx.color("accent")],
+    colors: [ctx.color("brand-primary"), ctx.color("accent"), ctx.color("text-muted")],
     showValues: region.chart.type !== "pie",
   };
   out.push(chartShape);
