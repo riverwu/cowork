@@ -22,6 +22,22 @@ export type ValidationOutcome =
   | { ok: true }
   | { ok: false; errors: SlidemlValidationError[] };
 
+/**
+ * CJK glyphs occupy roughly 1.6× the visual width of a Latin character at
+ * the same point size, so character-count budgets need a corresponding
+ * boost when the deck language is CJK. Without this multiplier, agents
+ * writing Chinese / Japanese / Korean content hit `SLOT_OVERFLOW` at
+ * what would visually be a half-full column.
+ *
+ * Applied to `text` and `text-block` `maxChars` ceilings; bullet
+ * `itemMaxChars` also benefits but bullets are typically already short.
+ */
+const CJK_BUDGET_MULTIPLIER = 1.6;
+
+function isCjkLanguage(lang: string | undefined): boolean {
+  return !!lang && /^(zh|ja|ko)/i.test(lang);
+}
+
 /** Validate a parsed deck against a loaded theme. Pure — no side effects. */
 export function validateDeckSpec(spec: DeckSpec, theme: LoadedTheme): ValidationOutcome {
   const errors: SlidemlValidationError[] = [];
@@ -47,7 +63,8 @@ export function validateDeckSpec(spec: DeckSpec, theme: LoadedTheme): Validation
     }
   }
 
-  spec.slides.forEach((slide, index) => validateSlide(slide, index, theme, errors));
+  const cjk = isCjkLanguage(spec.deck.language);
+  spec.slides.forEach((slide, index) => validateSlide(slide, index, theme, errors, cjk));
 
   return errors.length === 0 ? { ok: true } : { ok: false, errors };
 }
@@ -57,6 +74,7 @@ function validateSlide(
   index: number,
   theme: LoadedTheme,
   out: SlidemlValidationError[],
+  cjk: boolean,
 ): void {
   const layout = theme.layouts.get(slide.layout);
   if (!layout) {
@@ -92,7 +110,7 @@ function validateSlide(
       layout: slide.layout,
       slot: slotName,
       message: "",
-    }, out, theme);
+    }, out, theme, cjk);
   }
 
   // Reject extra slots the layout doesn't declare.
@@ -116,6 +134,7 @@ function validateSlotValue(
   ctx: SlidemlValidationError,
   out: SlidemlValidationError[],
   theme: LoadedTheme,
+  cjk: boolean,
 ): void {
   switch (schema.type) {
     case "text":
@@ -124,16 +143,17 @@ function validateSlotValue(
         out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected ${schema.type} (string), got ${typeOf(value)}.` });
         return;
       }
-      if (schema.maxChars !== undefined && [...value].length > schema.maxChars) {
-        // Include the offending VALUE so the agent sees what it's trimming —
-        // without this, real-LLM testing showed agents re-emitting the same
-        // 21-char string for 3 retries instead of shortening it.
-        out.push({
-          ...ctx,
-          code: "SLOT_OVERFLOW",
-          message: `${slotPath(ctx)} is ${[...value].length} chars, exceeds maxChars ${schema.maxChars}. Current value: ${quote(value)}`,
-          hint: `Trim "${ctx.slot}" to at most ${schema.maxChars} characters.`,
-        });
+      if (schema.maxChars !== undefined) {
+        const effectiveMax = cjk ? Math.round(schema.maxChars * CJK_BUDGET_MULTIPLIER) : schema.maxChars;
+        if ([...value].length > effectiveMax) {
+          // Include the offending VALUE so the agent sees what it's trimming.
+          out.push({
+            ...ctx,
+            code: "SLOT_OVERFLOW",
+            message: `${slotPath(ctx)} is ${[...value].length} chars, exceeds ${cjk ? "CJK-adjusted " : ""}maxChars ${effectiveMax}${cjk ? ` (${schema.maxChars} × 1.6 CJK)` : ""}. Current value: ${quote(value)}`,
+            hint: `Trim "${ctx.slot}" to at most ${effectiveMax} characters.`,
+          });
+        }
       }
       return;
 
@@ -144,6 +164,10 @@ function validateSlotValue(
       //   3. (string | { kind, text })[] — typed paragraphs (Tier 3a).
       // Each typed paragraph picks distinctive styling at render time.
       const PARA_KINDS = new Set(["quote", "note", "callout", "h2"]);
+      const effectiveMax = schema.maxChars !== undefined
+        ? (cjk ? Math.round(schema.maxChars * CJK_BUDGET_MULTIPLIER) : schema.maxChars)
+        : undefined;
+      const cjkNote = cjk ? ` (${schema.maxChars} × 1.6 CJK)` : "";
       if (Array.isArray(value)) {
         let total = 0;
         let bad = false;
@@ -165,12 +189,12 @@ function validateSlotValue(
           out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} accepts string | string[] | Array<string | { kind: 'quote'|'note'|'callout'|'h2', text: string }>.` });
           return;
         }
-        if (schema.maxChars !== undefined && total > schema.maxChars) {
+        if (effectiveMax !== undefined && total > effectiveMax) {
           out.push({
             ...ctx,
             code: "SLOT_OVERFLOW",
-            message: `${slotPath(ctx)} (joined paragraphs) is ${total} chars, exceeds maxChars ${schema.maxChars}.`,
-            hint: `Trim "${ctx.slot}" to at most ${schema.maxChars} characters.`,
+            message: `${slotPath(ctx)} (joined paragraphs) is ${total} chars, exceeds maxChars ${effectiveMax}${cjkNote}.`,
+            hint: `Trim "${ctx.slot}" to at most ${effectiveMax} characters, or switch to a denser layout (prose/two-column-prose).`,
           });
         }
         return;
@@ -179,12 +203,12 @@ function validateSlotValue(
         out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected text-block (string, string[], or Array<{kind,text}>), got ${typeOf(value)}.` });
         return;
       }
-      if (schema.maxChars !== undefined && [...value].length > schema.maxChars) {
+      if (effectiveMax !== undefined && [...value].length > effectiveMax) {
         out.push({
           ...ctx,
           code: "SLOT_OVERFLOW",
-          message: `${slotPath(ctx)} is ${[...value].length} chars, exceeds maxChars ${schema.maxChars}. Current first 60 chars: ${quote(value.slice(0, 60))}`,
-          hint: `Trim "${ctx.slot}" to at most ${schema.maxChars} characters.`,
+          message: `${slotPath(ctx)} is ${[...value].length} chars, exceeds maxChars ${effectiveMax}${cjkNote}. Current first 60 chars: ${quote(value.slice(0, 60))}`,
+          hint: `Trim "${ctx.slot}" to at most ${effectiveMax} characters, or switch to a denser layout (prose/two-column-prose).`,
         });
       }
       return;
@@ -357,6 +381,21 @@ function validateSlotValue(
           }
         });
       });
+      return;
+    }
+
+    case "enum": {
+      if (typeof value !== "string") {
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected one of: ${schema.values.join(" | ")}.` });
+        return;
+      }
+      if (!schema.values.includes(value)) {
+        out.push({
+          ...ctx,
+          code: "SLOT_TYPE_MISMATCH",
+          message: `${slotPath(ctx)} = ${quote(value)} is not allowed. Pick one of: ${schema.values.map(quote).join(", ")}.`,
+        });
+      }
       return;
     }
 

@@ -252,6 +252,82 @@ Optional title; full-width top region over a 50/50 bottom row.
 
 ![split-3-vertical](thumbnails/split-3-vertical.png)
 
+### prose
+Single-column long-form text — the *signature* layout for this theme.
+
+- `title` — `text`, ≤ 80. Optional.
+- `subtitle` — `text`, ≤ 120. Optional.
+- `body` — `text-block`, ≤ 1600. Required. Supports typed paragraphs `{ kind: "quote"|"note"|"callout"|"h2", text }`.
+
+![prose](thumbnails/prose.png)
+
+### two-column-prose
+Magazine-style body flowed across two columns. Editorial-paper essential.
+
+- `title`, `subtitle` — `text`. Optional.
+- `body` — `text-block`, ≤ 2400. Required.
+
+![two-column-prose](thumbnails/two-column-prose.png)
+
+### executive-summary
+Numbered TL;DR for essay front-pages.
+
+- `title` — `text`, ≤ 60. Optional.
+- `items` — `bullets`, 2–6 entries. Each `{ heading, line? }`.
+
+![executive-summary](thumbnails/executive-summary.png)
+
+### q-and-a
+1–5 question + answer pairs.
+
+- `title` — `text`, ≤ 60. Optional.
+- `items` — `bullets`, 1–5 entries. Each `{ q, a? }`.
+
+![q-and-a](thumbnails/q-and-a.png)
+
+### definition
+Single-term editorial dictionary page.
+
+- `term` — `text`, ≤ 40. Required.
+- `pronounce`, `partOfSpeech` — `text`. Optional.
+- `body` — `text-block`, ≤ 600. Required.
+- `example` — `text-block`, ≤ 240. Optional.
+
+![definition](thumbnails/definition.png)
+
+### outline
+Multi-level table of contents — book / essay structure.
+
+- `title` — `text`, ≤ 60. Optional.
+- `items` — `bullets`, 2–8 entries.
+
+![outline](thumbnails/outline.png)
+
+### timeline-text
+Vertical narrative timeline — perfect for company history slides.
+
+- `title` — `text`, ≤ 60. Optional.
+- `events` — `bullets`, 2–6 entries.
+
+![timeline-text](thumbnails/timeline-text.png)
+
+### letter
+Open-letter format — the magazine voice incarnate.
+
+- `date`, `recipient`, `signoff`, `signRole` — `text`. Optional.
+- `body` — `text-block`, ≤ 1400. Required.
+- `signature` — `text`, ≤ 60. Required.
+
+![letter](thumbnails/letter.png)
+
+### glossary
+Two-column term + definition list.
+
+- `title` — `text`, ≤ 60. Optional.
+- `terms` — `bullets`, 3–12 entries.
+
+![glossary](thumbnails/glossary.png)
+
 ### framed
 Five-region layout with optional edge bands.
 
@@ -276,6 +352,27 @@ Mirror of cover — full-bleed deep-brown panel for the last "thank you" slide.
 - `subtitle` — `text`, ≤ 80 chars. Optional.
 
 ![closing](thumbnails/closing.png)
+
+### code-block
+Code snippet on a dark card with monospace text and an optional language badge.
+
+- `title`, `language` — `text`. Optional.
+- `code` — `text-block`, ≤ 1600 chars. Required.
+- `caption` — `markdown-inline`, ≤ 160 chars. Optional.
+
+> **Guidance:** Anti-pattern for editorial-paper — code disrupts the print rhythm. Use only when an essay genuinely cites code.
+
+![code-block](thumbnails/code-block.png)
+
+### dashboard
+2×2 grid of polymorphic region cells.
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `tl`, `tr`, `bl`, `br` — `region`. Only `tl` required.
+
+> **Guidance:** Strong anti-pattern for editorial-paper — dashboards belong in `technical-blue` / `midnight-executive`. Listed for completeness only.
+
+![dashboard](thumbnails/dashboard.png)
 
 ## Components
 

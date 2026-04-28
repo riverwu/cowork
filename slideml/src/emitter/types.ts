@@ -135,6 +135,25 @@ export interface ImageShape {
   src: string;
   altText?: string;
   /**
+   * How the image fits its target rectangle:
+   *   "cover" (default) — scale to fill, cropping the longer dimension via
+   *                       OOXML `<a:srcRect>`. Preserves aspect ratio.
+   *   "contain"        — scale to fit inside, letterboxing with the
+   *                       canvas color. Preserves aspect ratio.
+   *   "fill"           — stretch to fill (legacy behaviour). Distorts.
+   *
+   * `cover` requires source pixel dimensions to compute the crop; the
+   * package emitter probes them at compile time and stashes them on
+   * `sourceDimensions`. When dimensions are unknown, falls back to "fill".
+   */
+  fit?: "cover" | "contain" | "fill";
+  /**
+   * Pixel dimensions of the source image — populated by the package
+   * emitter from the asset pipeline's probe. Used to compute srcRect for
+   * `fit: "cover"` and letterbox math for `fit: "contain"`.
+   */
+  sourceDimensions?: { width: number; height: number };
+  /**
    * Optional clip shape — turns the image's bounding box into a non-
    * rectangular silhouette. "circle" maps to OOXML `prstGeom prst="ellipse"`,
    * "rounded" maps to roundRect with cornerRadius, "square" is the default

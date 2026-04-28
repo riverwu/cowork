@@ -11,6 +11,7 @@
  */
 
 import { readFile } from "node:fs/promises";
+import { probeImageDimensions, type ImageDimensions } from "./image-dim.js";
 
 export type ImageExt = "png" | "jpg" | "gif" | "svg" | "webp";
 
@@ -18,6 +19,8 @@ export interface ResolvedImage {
   bytes: Uint8Array;
   ext: ImageExt;
   mimeType: string;
+  /** Source pixel dimensions when the format header could be parsed. */
+  dimensions?: ImageDimensions;
 }
 
 const EXT_TO_MIME: Record<ImageExt, string> = {
@@ -53,7 +56,7 @@ export async function resolveImage(src: string): Promise<ResolvedImage> {
     const bytes = isBase64
       ? Uint8Array.from(Buffer.from(body!, "base64"))
       : new TextEncoder().encode(decodeURIComponent(body!));
-    return { bytes, ext, mimeType: EXT_TO_MIME[ext] };
+    return withDimensions({ bytes, ext, mimeType: EXT_TO_MIME[ext] });
   }
 
   // HTTP(S) URL
@@ -68,7 +71,7 @@ export async function resolveImage(src: string): Promise<ResolvedImage> {
       throw new Error(`Cannot determine image extension for URL ${src} (content-type: ${contentType})`);
     }
     const arrayBuffer = await response.arrayBuffer();
-    return { bytes: new Uint8Array(arrayBuffer), ext, mimeType: EXT_TO_MIME[ext] };
+    return withDimensions({ bytes: new Uint8Array(arrayBuffer), ext, mimeType: EXT_TO_MIME[ext] });
   }
 
   // Local file path
@@ -77,7 +80,13 @@ export async function resolveImage(src: string): Promise<ResolvedImage> {
     throw new Error(`Cannot determine image extension for path ${src}`);
   }
   const bytes = await readFile(src);
-  return { bytes: new Uint8Array(bytes), ext, mimeType: EXT_TO_MIME[ext] };
+  return withDimensions({ bytes: new Uint8Array(bytes), ext, mimeType: EXT_TO_MIME[ext] });
+}
+
+/** Attach probed pixel dimensions to a ResolvedImage when possible. */
+function withDimensions(img: ResolvedImage): ResolvedImage {
+  const dim = probeImageDimensions(img.bytes, img.ext);
+  return dim ? { ...img, dimensions: dim } : img;
 }
 
 function extFromUrlPath(s: string): ImageExt | undefined {

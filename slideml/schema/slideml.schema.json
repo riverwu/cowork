@@ -299,8 +299,11 @@
             "cover",
             "dashboard",
             "data-table",
+            "definition",
+            "executive-summary",
             "framed",
             "freeform",
+            "glossary",
             "hero-image-overlay",
             "hero-stat",
             "image-full-bleed",
@@ -309,9 +312,13 @@
             "image-split-text",
             "image-with-caption",
             "key-point",
+            "letter",
             "matrix-2x2",
+            "outline",
             "pricing-table",
             "process-timeline",
+            "prose",
+            "q-and-a",
             "quote",
             "quote-with-portrait",
             "section-divider",
@@ -320,8 +327,10 @@
             "split-3-vertical",
             "stat-grid-3",
             "team-grid",
+            "timeline-text",
             "title-only",
-            "two-col-text-image"
+            "two-col-text-image",
+            "two-column-prose"
           ]
         },
         "chrome": {
@@ -500,7 +509,6 @@
                   }
                 },
                 "required": [
-                  "title",
                   "bullets"
                 ]
               }
@@ -536,7 +544,6 @@
                   }
                 },
                 "required": [
-                  "title",
                   "chart"
                 ]
               }
@@ -882,6 +889,186 @@
           "if": {
             "properties": {
               "layout": {
+                "const": "definition"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "term": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "description": "Single-line text, ≤ 40 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "pronounce": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "partOfSpeech": {
+                    "type": "string",
+                    "maxLength": 32,
+                    "description": "Single-line text, ≤ 32 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "body": {
+                    "description": "Multi-line text, ≤ 600 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "kind",
+                                "text"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "enum": [
+                                    "quote",
+                                    "note",
+                                    "callout",
+                                    "h2"
+                                  ]
+                                },
+                                "text": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "example": {
+                    "description": "Multi-line text, ≤ 240 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 240
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "kind",
+                                "text"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "enum": [
+                                    "quote",
+                                    "note",
+                                    "callout",
+                                    "h2"
+                                  ]
+                                },
+                                "text": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "term",
+                  "body"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "executive-summary"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "items": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 6,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 240
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 240
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 240
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "2–6 items, each ≤ 240 chars when string-shaped."
+                  }
+                },
+                "required": [
+                  "items"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
                 "const": "framed"
               }
             }
@@ -977,6 +1164,68 @@
                 },
                 "required": [
                   "shapes"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "glossary"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "terms": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 12,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 200
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 200
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 200
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "3–12 items, each ≤ 200 chars when string-shaped."
+                  }
+                },
+                "required": [
+                  "terms"
                 ]
               }
             }
@@ -1270,11 +1519,11 @@
                     "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
                   },
                   "text": {
-                    "description": "Multi-line text, ≤ 480 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 1200 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 480
+                        "maxLength": 1200
                       },
                       {
                         "type": "array",
@@ -1316,10 +1565,19 @@
                     "type": "string",
                     "maxLength": 6,
                     "description": "Single-line text, ≤ 6 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "density": {
+                    "enum": [
+                      "loose",
+                      "normal",
+                      "dense",
+                      "micro"
+                    ],
+                    "default": "normal",
+                    "description": "One of: loose | normal | dense | micro."
                   }
                 },
                 "required": [
-                  "title",
                   "text",
                   "image"
                 ]
@@ -1465,6 +1723,94 @@
           "if": {
             "properties": {
               "layout": {
+                "const": "letter"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "date": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "description": "Single-line text, ≤ 40 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "recipient": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "body": {
+                    "description": "Multi-line text, ≤ 1400 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 1400
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "kind",
+                                "text"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "enum": [
+                                    "quote",
+                                    "note",
+                                    "callout",
+                                    "h2"
+                                  ]
+                                },
+                                "text": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "signoff": {
+                    "type": "string",
+                    "maxLength": 40,
+                    "description": "Single-line text, ≤ 40 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "signature": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "signRole": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  }
+                },
+                "required": [
+                  "body",
+                  "signature"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
                 "const": "matrix-2x2"
               }
             }
@@ -1508,6 +1854,68 @@
                   "topRight",
                   "botLeft",
                   "botRight"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "outline"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "items": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 8,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 100
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 100
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 100
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "2–8 items, each ≤ 100 chars when string-shaped."
+                  }
+                },
+                "required": [
+                  "items"
                 ]
               }
             }
@@ -1627,8 +2035,151 @@
                   }
                 },
                 "required": [
-                  "title",
                   "steps"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "prose"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "subtitle": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "description": "Single-line text, ≤ 120 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "body": {
+                    "description": "Multi-line text, ≤ 2400 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 2400
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "kind",
+                                "text"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "enum": [
+                                    "quote",
+                                    "note",
+                                    "callout",
+                                    "h2"
+                                  ]
+                                },
+                                "text": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "density": {
+                    "enum": [
+                      "loose",
+                      "normal",
+                      "dense",
+                      "micro"
+                    ],
+                    "default": "normal",
+                    "description": "One of: loose | normal | dense | micro."
+                  }
+                },
+                "required": [
+                  "body"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "q-and-a"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "items": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 400
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 400
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 400
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "1–5 items, each ≤ 400 chars when string-shaped."
+                  }
+                },
+                "required": [
+                  "items"
                 ]
               }
             }
@@ -1978,7 +2529,6 @@
                   }
                 },
                 "required": [
-                  "title",
                   "items"
                 ]
               }
@@ -2051,6 +2601,68 @@
           "if": {
             "properties": {
               "layout": {
+                "const": "timeline-text"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 60,
+                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "events": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 6,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 320
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 320
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 320
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "2–6 items, each ≤ 320 chars when string-shaped."
+                  }
+                },
+                "required": [
+                  "events"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
                 "const": "title-only"
               }
             }
@@ -2094,11 +2706,11 @@
                     "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
                   },
                   "text": {
-                    "description": "Multi-line text, ≤ 400 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 1200 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 400
+                        "maxLength": 1200
                       },
                       {
                         "type": "array",
@@ -2140,12 +2752,103 @@
                     "type": "string",
                     "maxLength": 6,
                     "description": "Single-line text, ≤ 6 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "density": {
+                    "enum": [
+                      "loose",
+                      "normal",
+                      "dense",
+                      "micro"
+                    ],
+                    "default": "normal",
+                    "description": "One of: loose | normal | dense | micro."
                   }
                 },
                 "required": [
-                  "title",
                   "text",
                   "image"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "two-column-prose"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "subtitle": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "description": "Single-line text, ≤ 120 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "body": {
+                    "description": "Multi-line text, ≤ 3600 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 3600
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "kind",
+                                "text"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "enum": [
+                                    "quote",
+                                    "note",
+                                    "callout",
+                                    "h2"
+                                  ]
+                                },
+                                "text": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "density": {
+                    "enum": [
+                      "loose",
+                      "normal",
+                      "dense",
+                      "micro"
+                    ],
+                    "default": "normal",
+                    "description": "One of: loose | normal | dense | micro."
+                  }
+                },
+                "required": [
+                  "body"
                 ]
               }
             }

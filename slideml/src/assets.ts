@@ -107,7 +107,12 @@ async function readHttpCache(url: string): Promise<ResolvedImage | undefined> {
   try {
     const bytes = await readFile(path);
     const meta = JSON.parse(await readFile(`${path}.meta`, "utf8"));
-    return { bytes: new Uint8Array(bytes), ext: meta.ext, mimeType: meta.mimeType };
+    return {
+      bytes: new Uint8Array(bytes),
+      ext: meta.ext,
+      mimeType: meta.mimeType,
+      ...(meta.dimensions ? { dimensions: meta.dimensions } : {}),
+    };
   } catch {
     return undefined;
   }
@@ -117,7 +122,10 @@ async function writeHttpCache(url: string, img: ResolvedImage): Promise<void> {
   const path = httpCachePath(url);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, img.bytes);
-  await writeFile(`${path}.meta`, JSON.stringify({ ext: img.ext, mimeType: img.mimeType }));
+  await writeFile(`${path}.meta`, JSON.stringify({
+    ext: img.ext, mimeType: img.mimeType,
+    ...(img.dimensions ? { dimensions: img.dimensions } : {}),
+  }));
 }
 
 function httpCachePath(url: string): string {

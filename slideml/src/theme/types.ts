@@ -248,4 +248,5 @@ export type SlotSchema =
   | { type: "chart-spec"; optional?: boolean }
   | { type: "component-ref"; allowed?: readonly string[]; optional?: boolean }
   | { type: "table"; optional?: boolean }
-  | { type: "region"; optional?: boolean };
+  | { type: "region"; optional?: boolean }
+  | { type: "enum"; values: readonly string[]; default?: string; optional?: boolean };

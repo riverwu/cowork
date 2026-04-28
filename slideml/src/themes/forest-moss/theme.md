@@ -189,6 +189,83 @@ Escape-hatch — `shapes: [{ kind, x, y, w, h, ... }]`.
 
 ![freeform](thumbnails/freeform.png)
 
+### prose
+Single-column long-form text.
+
+- `title` — `text`, ≤ 80. Optional.
+- `subtitle` — `text`, ≤ 120. Optional.
+- `body` — `text-block`, ≤ 1600. Required.
+
+![prose](thumbnails/prose.png)
+
+### two-column-prose
+Long body flowed across two columns.
+
+- `title` — `text`, ≤ 80. Optional.
+- `subtitle` — `text`, ≤ 120. Optional.
+- `body` — `text-block`, ≤ 2400. Required.
+
+![two-column-prose](thumbnails/two-column-prose.png)
+
+### executive-summary
+Numbered TL;DR clipboard.
+
+- `title` — `text`, ≤ 60. Optional.
+- `items` — `bullets`, 2–6 entries. Each `{ heading, line? }`.
+
+![executive-summary](thumbnails/executive-summary.png)
+
+### q-and-a
+FAQ list — 1–5 question + answer pairs.
+
+- `title` — `text`, ≤ 60. Optional.
+- `items` — `bullets`, 1–5 entries. Each `{ q, a? }`.
+
+![q-and-a](thumbnails/q-and-a.png)
+
+### definition
+Single-term dictionary page.
+
+- `term` — `text`, ≤ 40. Required.
+- `pronounce`, `partOfSpeech` — `text`. Optional.
+- `body` — `text-block`, ≤ 600. Required.
+- `example` — `text-block`, ≤ 240. Optional.
+
+![definition](thumbnails/definition.png)
+
+### outline
+Multi-level table of contents.
+
+- `title` — `text`, ≤ 60. Optional.
+- `items` — `bullets`, 2–8. Each `string` or `{ text, sub: [string] }`.
+
+![outline](thumbnails/outline.png)
+
+### timeline-text
+Vertical narrative timeline.
+
+- `title` — `text`, ≤ 60. Optional.
+- `events` — `bullets`, 2–6 entries. Each `{ when, title, body? }`.
+
+![timeline-text](thumbnails/timeline-text.png)
+
+### letter
+Letter format with date + recipient + body + signature.
+
+- `date`, `recipient`, `signoff`, `signRole` — `text`. Optional.
+- `body` — `text-block`, ≤ 1400. Required.
+- `signature` — `text`, ≤ 60. Required.
+
+![letter](thumbnails/letter.png)
+
+### glossary
+Two-column term + definition list.
+
+- `title` — `text`, ≤ 60. Optional.
+- `terms` — `bullets`, 3–12 entries.
+
+![glossary](thumbnails/glossary.png)
+
 ### framed
 Five-region layout with optional edge bands.
 
@@ -197,6 +274,102 @@ Five-region layout with optional edge bands.
 - `center` — `region`. Required.
 
 ![framed](thumbnails/framed.png)
+
+### title-only
+Single centered title.
+
+- `title` — `text`, ≤ 80 chars. Required.
+
+![title-only](thumbnails/title-only.png)
+
+### section-divider
+Section break with optional eyebrow.
+
+- `eyebrow` — `text`, ≤ 32. Optional.
+- `title` — `text`, ≤ 50. Required.
+
+![section-divider](thumbnails/section-divider.png)
+
+### two-col-text-image
+Title + text on one side, image on the other.
+
+- `title` — `text`, ≤ 50. Required.
+- `text` — `text-block`, ≤ 400. Required.
+- `image` — `image-ref`. Required.
+- `imageSide` — `text` (left|right). Optional.
+
+![two-col-text-image](thumbnails/two-col-text-image.png)
+
+### compare-two-columns
+Side-by-side option A vs option B.
+
+- `title` — `text`, ≤ 50. Optional.
+- `leftTitle`, `leftBody`, `rightTitle`, `rightBody` — required.
+
+![compare-two-columns](thumbnails/compare-two-columns.png)
+
+### process-timeline
+3–5 steps along a horizontal rail.
+
+- `title` — `text`, ≤ 50. Required.
+- `steps` — `bullets`, 3–5 entries.
+
+![process-timeline](thumbnails/process-timeline.png)
+
+### image-grid-2x2
+Up to 4 images in a 2×2 grid.
+
+- `title` — `text`, ≤ 50. Optional.
+- `images` — `bullets`, 2–4 entries.
+
+![image-grid-2x2](thumbnails/image-grid-2x2.png)
+
+### hero-image-overlay
+Full-bleed image with overlay carrying title + subtitle.
+
+- `image` — `image-ref`. Required.
+- `title` — `text`, ≤ 60. Required.
+- `subtitle` — `text`, ≤ 100. Optional.
+- `align` — `text`. Optional.
+
+![hero-image-overlay](thumbnails/hero-image-overlay.png)
+
+### data-table
+Native table with header row + alternating rows.
+
+- `title` — `text`, ≤ 50. Optional.
+- `table` — `table`. Required.
+
+![data-table](thumbnails/data-table.png)
+
+### quote
+Pull-quote slide.
+
+- `quote` — `text-block`, ≤ 240. Required.
+- `attribution` — `text`, ≤ 60. Optional.
+
+![quote](thumbnails/quote.png)
+
+### code-block
+Code snippet on a dark card.
+
+- `title`, `language` — `text`. Optional.
+- `code` — `text-block`, ≤ 1600. Required.
+- `caption` — `markdown-inline`, ≤ 160. Optional.
+
+> **Guidance:** Anti-pattern for forest-moss — prefer `technical-blue` for code-heavy decks.
+
+![code-block](thumbnails/code-block.png)
+
+### dashboard
+2×2 grid of region cells.
+
+- `title` — `text`, ≤ 50. Optional.
+- `tl`, `tr`, `bl`, `br` — `region`. Only `tl` required.
+
+> **Guidance:** Anti-pattern for forest-moss — dashboards clash with the calm style.
+
+![dashboard](thumbnails/dashboard.png)
 
 ## Tokens
 

@@ -313,6 +313,108 @@ const SAMPLES = {
       ],
     },
   },
+  "prose": {
+    slots: {
+      title: "On the patience of paper",
+      subtitle: "A short essay on slow design.",
+      body: [
+        "A printed page asks for the reader's full attention; a slide rarely does. The discipline of the editorial layout is to refuse the easy thing — the bullet, the icon, the call-to-action button — and to trust the reader's willingness to spend a few seconds longer on the page.",
+        { kind: "callout", text: "The medium is not the message; the medium *is* the discipline." },
+        "Type that insists on being read slowly is the typographer's only defence against the scroll. The serif tells you to stay; the column width tells you it's worth staying.",
+      ],
+    },
+  },
+  "two-column-prose": {
+    slots: {
+      title: "Why two columns",
+      subtitle: "The argument for narrow measure.",
+      body: [
+        "Long-form prose at 16:9 single-column wraps to lines that feel uncomfortable to read.",
+        "Two columns force a narrower measure — closer to the reading width of a magazine.",
+        "Magazine compositors solved this in the 1900s.",
+        "The same logic applies to slides that are essays, not data shows.",
+        "When you have ~600+ characters and you don't want a wall, this is the layout.",
+        "The reader can drop in mid-column and still find their place.",
+      ],
+    },
+  },
+  "executive-summary": {
+    slots: {
+      title: "Q3 highlights",
+      items: [
+        { heading: "Revenue +18% QoQ", line: "Cleared the $1M MRR mark for the first time, driven by enterprise upsells." },
+        { heading: "Churn moves the right way", line: "Annual cohort churn down 3pp; SMB still elevated and warrants follow-up." },
+        { heading: "Cash runway extended", line: "From 18 to 22 months on lower burn." },
+      ],
+    },
+  },
+  "q-and-a": {
+    slots: {
+      title: "FAQ",
+      items: [
+        { q: "When is GA?", a: "Q1 next year. Beta runs through December." },
+        { q: "How is data stored?", a: "Encrypted at rest with per-tenant keys; SOC2 Type II audit complete." },
+        { q: "What's not supported yet?", a: "Custom retention policies and data residency — both on the Q2 roadmap." },
+      ],
+    },
+  },
+  "definition": {
+    slots: {
+      term: "compound interest",
+      pronounce: "/ˈkɒmpaʊnd ˈɪntrəst/",
+      partOfSpeech: "noun",
+      body: "Interest calculated on the initial principal AND on the accumulated interest of previous periods. Often called \"interest on interest,\" it makes a sum grow at a faster rate than simple interest, which is calculated only on the principal amount.",
+      example: "$1,000 invested at 5% compound interest grows to $1,628.89 in 10 years; at simple interest it grows to only $1,500.",
+    },
+  },
+  "outline": {
+    slots: {
+      title: "Course syllabus",
+      items: [
+        { text: "Foundations", sub: ["History of typography", "Vocabulary of letters"] },
+        { text: "Practice", sub: ["Setting body text", "Pairing fonts", "Hierarchy"] },
+        { text: "Advanced topics", sub: ["Variable fonts", "Web font performance"] },
+        "Final project",
+      ],
+    },
+  },
+  "timeline-text": {
+    slots: {
+      title: "Company history",
+      events: [
+        { when: "2018", title: "Founded", body: "Two engineers and a whiteboard in a co-working space." },
+        { when: "2020", title: "Series A", body: "$8M led by Acme Ventures; team grew to 14." },
+        { when: "2022", title: "Profitable", body: "First quarter of operating profit; expanded to EMEA." },
+        { when: "2026", title: "GA", body: "Public launch and Series B." },
+      ],
+    },
+  },
+  "letter": {
+    slots: {
+      date: "April 28, 2026",
+      recipient: "To our shareholders,",
+      body: [
+        "This year was defined by a single decision: to slow down and rebuild the foundation rather than chase another quarter of growth at all costs.",
+        "It was uncomfortable. We turned away revenue that would have closed the gap. We delayed two product launches that the team had spent months on. And we asked the company to live with the discomfort of a flat quarter so we could build something that lasted.",
+        "We are reporting that decision today as the right one. The product is better. The team is steadier. And the cohorts of customers who joined us during the rebuild are the strongest we have ever measured.",
+      ],
+      signoff: "Sincerely,",
+      signature: "Wei Zhang",
+      signRole: "CEO, Acme Inc.",
+    },
+  },
+  "glossary": {
+    slots: {
+      title: "Glossary",
+      terms: [
+        { term: "ARR", definition: "Annual recurring revenue — contracted subscription revenue normalized to a 12-month period." },
+        { term: "Cohort", definition: "A group of customers who joined in the same period, tracked together over time." },
+        { term: "Churn", definition: "Percentage of customers (or revenue) that stops within a period." },
+        { term: "NRR", definition: "Net revenue retention — change in cohort revenue including expansion and contraction." },
+        { term: "GM", definition: "Gross margin — revenue minus direct cost of delivery, expressed as percentage." },
+      ],
+    },
+  },
   "framed": {
     chrome: "none",
     slots: {

@@ -754,6 +754,12 @@ function slotSchemaFragment(slotName: string, schema: SlotSchema): Record<string
       };
     case "region":
       return { $ref: "#/$defs/Region" };
+    case "enum":
+      return {
+        enum: schema.values,
+        ...(schema.default ? { default: schema.default } : {}),
+        description: `One of: ${schema.values.join(" | ")}.`,
+      };
   }
 }
 

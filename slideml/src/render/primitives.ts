@@ -18,6 +18,7 @@
 import type { LayoutContext } from "./layout-context.js";
 import type { Paragraph, ShapeList, TableCell, TextRun } from "../emitter/types.js";
 import { CHIP_KINDS, type ChipKind, parseInline } from "./markdown-inline.js";
+import { type Density, densityPreset } from "./density.js";
 
 // ---------------------------------------------------------------------------
 // Title + accent rule
@@ -400,6 +401,12 @@ export interface ImageRefValue {
   border?: { color: string; width?: number };
   /** Translucent colored overlay drawn on top of the image. */
   overlay?: { color: string; alpha?: number };
+  /**
+   * Fit mode against the target rectangle. Default `cover` — preserves
+   * source aspect ratio, crops the overflow. `contain` letterboxes;
+   * `fill` stretches (legacy behavior, may distort).
+   */
+  fit?: "cover" | "contain" | "fill";
   /** Inset crop fractions (0..1 each side) — passed straight to OOXML srcRect. */
   crop?: { left?: number; right?: number; top?: number; bottom?: number };
   /** Soft / feathered edge — fade-into-canvas. Fraction of shorter side. */
@@ -440,6 +447,7 @@ export function imageOrPlaceholder(
       src: image.src,
       altText: image.alt,
       clip,
+      fit: image.fit ?? "cover",
       ...(image.cornerRadius !== undefined ? { cornerRadius: image.cornerRadius } : {}),
       ...(image.border ? {
         border: {
@@ -537,6 +545,7 @@ export function imageRefOf(value: unknown): ImageRefValue | undefined {
   if (!src) return undefined;
   const out: ImageRefValue = { src };
   if (typeof o.alt === "string") out.alt = o.alt;
+  if (o.fit === "cover" || o.fit === "contain" || o.fit === "fill") out.fit = o.fit;
   if (o.shape === "circle" || o.shape === "rounded" || o.shape === "square") out.shape = o.shape;
   if (typeof o.cornerRadius === "number") out.cornerRadius = o.cornerRadius;
   if (o.border && typeof o.border === "object" && !Array.isArray(o.border)) {
@@ -583,6 +592,20 @@ export function imageRefOf(value: unknown): ImageRefValue | undefined {
     }
   }
   return out;
+}
+
+/**
+ * Single source of truth for "where does the body start" — used by every
+ * layout that has an optional title. When `title` is present, body starts
+ * at `cm(4.4)` (title row + accent rule + breathing room). When absent,
+ * body collapses up to `cm(2)` so the layout naturally supports title-less
+ * variants without needing dedicated `*-no-title` layouts.
+ *
+ * Convention: every content layout with an optional title uses this helper
+ * for its body geometry instead of hard-coding cm(4.4).
+ */
+export function bodyTopAfterTitle(ctx: LayoutContext, title: unknown): number {
+  return typeof title === "string" && title.length > 0 ? ctx.cm(4.4) : ctx.cm(2);
 }
 
 /**
@@ -917,6 +940,12 @@ export interface RichTextOptions {
   columns?: number;
   /** Inter-column gap when `columns > 1`. Default cm(0.6). */
   columnGap?: number;
+  /**
+   * Named density preset that overrides `sizeHalfPt` / `lineSpacingHalfPt` /
+   * `spaceAfterHalfPt` (loose | normal | dense | micro). Layouts pass the
+   * agent-supplied `density` slot value here. Falls back to "normal".
+   */
+  density?: Density | string;
 }
 
 /**
@@ -1012,7 +1041,16 @@ function renderRichTextShape(
 ): import("../emitter/types.js").TextShape {
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
   const monoFont = ctx.font("mono");
-  const baseSize = opts.sizeHalfPt ?? 28;
+  // Density preset is the visual contract for body text. Layout passes
+  // either the agent-supplied `density` slot value or undefined; the
+  // preset table provides a sensible default (`normal`) so fonts stay
+  // consistent across calls. Explicit `sizeHalfPt` / `lineSpacingHalfPt`
+  // overrides only when a layout intentionally hard-codes them (small
+  // captions, code blocks, etc.).
+  const dp = densityPreset(opts.density);
+  const baseSize = opts.sizeHalfPt ?? dp.sizeHalfPt;
+  const lineSpacing = opts.lineSpacingHalfPt ?? dp.lineSpacingHalfPt;
+  const spaceAfter = opts.spaceAfterHalfPt ?? dp.spaceAfterHalfPt;
   const baseColor = ctx.color(opts.color ?? "text-strong");
   const resolveChipColor = chipColorResolver(ctx);
   const paragraphs: Paragraph[] = paras.map((p) => {
@@ -1050,8 +1088,8 @@ function renderRichTextShape(
     }));
     return {
       align,
-      lineSpacingHalfPt: opts.lineSpacingHalfPt ?? 56,
-      spaceAfterHalfPt: opts.spaceAfterHalfPt ?? 16,
+      lineSpacingHalfPt: lineSpacing,
+      spaceAfterHalfPt: spaceAfter,
       indentLevel,
       runs,
     };

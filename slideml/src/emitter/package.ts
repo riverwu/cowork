@@ -96,6 +96,11 @@ export async function emitPackage(deck: DeckAst, themeOxml?: ResolvedThemeOxml):
   // backgrounds). After this, the zip writer just iterates assets.entries().
   // Errors are wrapped with the slide index + role so the agent can attribute
   // them to the offending slot (otherwise it'd see a bare "HTTP 404").
+  //
+  // Side effect: when intern returns dimensions (PNG/JPG/SVG header probe),
+  // we stamp them onto every matching ImageShape so the slide emitter can
+  // compute `<a:srcRect>` for fit: "cover" / "contain". This is mutation
+  // but contained — the AST is already a single-use intermediate.
   const assets = new Assets();
   for (let i = 0; i < deck.slides.length; i++) {
     const slide = deck.slides[i]!;
@@ -106,6 +111,10 @@ export async function emitPackage(deck: DeckAst, themeOxml?: ResolvedThemeOxml):
     for (const shape of slide.shapes) {
       if (shape.type === "image") {
         await internOrAnnotate(assets, shape.src, `slides[${slideNum}] image shape "${shape.name ?? shape.id}"`);
+        const entry = assets.get(shape.src);
+        if (entry?.resolved.dimensions && !shape.sourceDimensions) {
+          shape.sourceDimensions = { ...entry.resolved.dimensions };
+        }
       }
     }
   }

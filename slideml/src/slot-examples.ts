@@ -138,6 +138,9 @@ export function exampleForSlot(
         //   { kind: "progress",  value: 0.73, label?: "Adoption", color?, trackColor?, showPercent?: true }
       };
 
+    case "enum":
+      return schema.default ?? schema.values[0];
+
     case "markdown-inline":
     case "text-block":
     case "text":

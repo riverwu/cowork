@@ -1,11 +1,11 @@
 import type { LayoutContext, LayoutFn } from "../render/layout-context.js";
 import type { ChartShape, ShapeList } from "../emitter/types.js";
 import type { SlotSchema } from "../theme/types.js";
-import { bestTextOn, chartAnnotationOverlay, chipColorResolver, slideTitle } from "../render/primitives.js";
+import { bestTextOn, bodyTopAfterTitle, chartAnnotationOverlay, chipColorResolver, slideTitle } from "../render/primitives.js";
 import { parseInline } from "../render/markdown-inline.js";
 
 export const slots: Record<string, SlotSchema> = {
-  title:    { type: "text",            maxChars: 50 },
+  title:    { type: "text",            maxChars: 50, optional: true },
   chart:    { type: "chart-spec" },
   takeaway: { type: "markdown-inline", maxChars: 160, optional: true },
 };
@@ -28,15 +28,15 @@ interface ChartSpec {
 
 const chartWithTakeaway: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const out: ShapeList = [];
-  const title = ctx.slot<string>("title") ?? "";
+  const title = ctx.slot<string>("title");
   const chart = ctx.slot<ChartSpec>("chart");
   const takeaway = ctx.slot<string>("takeaway");
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
 
-  out.push(...slideTitle(ctx, title));
+  if (title) out.push(...slideTitle(ctx, title));
 
   // Chart fills the upper region; takeaway sits below it.
-  const chartTop = ctx.cm(4.0);
+  const chartTop = bodyTopAfterTitle(ctx, title);
   const takeawayHeight = takeaway ? ctx.cm(2.0) : 0;
   const chartHeight = ctx.deck.height - chartTop - ctx.cm(2) - takeawayHeight - (takeaway ? ctx.cm(0.4) : 0);
 

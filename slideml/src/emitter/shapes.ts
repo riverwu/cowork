@@ -185,16 +185,39 @@ function imageShapeXml(shape: ImageShape, _slidePart: string, rels: SlideRels): 
   const blipXml = blipInner.length > 0
     ? `<a:blip r:embed="${rId}">${blipInner.join("")}</a:blip>`
     : `<a:blip r:embed="${rId}"/>`;
-  // srcRect crop — fractions are passed as per-mille integers.
-  const srcRectXml = shape.crop
+  // srcRect crop — explicit per-side crop (`shape.crop`) wins. Otherwise,
+  // when fit: "cover" + we have source dimensions + target aspect differs,
+  // compute symmetric crop on the longer dimension so the image fills
+  // without distortion.
+  const fit = shape.fit ?? "cover";
+  const explicitCrop = shape.crop;
+  const autoCover = !explicitCrop && fit === "cover" && shape.sourceDimensions
+    ? coverCrop(shape.sourceDimensions.width, shape.sourceDimensions.height, shape.xfrm.cx, shape.xfrm.cy)
+    : undefined;
+  // For fit: "contain" + dimensions known + aspect differs, we render the
+  // image inside a smaller centered rect via fillRect insets (negative
+  // numbers letterbox). This avoids needing a separate background shape.
+  const containInsets = !explicitCrop && fit === "contain" && shape.sourceDimensions
+    ? containFill(shape.sourceDimensions.width, shape.sourceDimensions.height, shape.xfrm.cx, shape.xfrm.cy)
+    : undefined;
+  const cropToUse = explicitCrop ?? autoCover;
+  const srcRectXml = cropToUse
     ? `<a:srcRect` +
-      ` l="${Math.round(Math.max(0, Math.min(1, shape.crop.left ?? 0)) * 100000)}"` +
-      ` r="${Math.round(Math.max(0, Math.min(1, shape.crop.right ?? 0)) * 100000)}"` +
-      ` t="${Math.round(Math.max(0, Math.min(1, shape.crop.top ?? 0)) * 100000)}"` +
-      ` b="${Math.round(Math.max(0, Math.min(1, shape.crop.bottom ?? 0)) * 100000)}"` +
+      ` l="${Math.round(Math.max(0, Math.min(1, cropToUse.left ?? 0)) * 100000)}"` +
+      ` r="${Math.round(Math.max(0, Math.min(1, cropToUse.right ?? 0)) * 100000)}"` +
+      ` t="${Math.round(Math.max(0, Math.min(1, cropToUse.top ?? 0)) * 100000)}"` +
+      ` b="${Math.round(Math.max(0, Math.min(1, cropToUse.bottom ?? 0)) * 100000)}"` +
       `/>`
     : "";
-  const blipFill = `<p:blipFill>${blipXml}${srcRectXml}<a:stretch><a:fillRect/></a:stretch></p:blipFill>`;
+  const fillRectXml = containInsets
+    ? `<a:fillRect` +
+      ` l="${Math.round(containInsets.left * 100000)}"` +
+      ` r="${Math.round(containInsets.right * 100000)}"` +
+      ` t="${Math.round(containInsets.top * 100000)}"` +
+      ` b="${Math.round(containInsets.bottom * 100000)}"` +
+      `/>`
+    : `<a:fillRect/>`;
+  const blipFill = `<p:blipFill>${blipXml}${srcRectXml}<a:stretch>${fillRectXml}</a:stretch></p:blipFill>`;
   const clip = shape.clip ?? "square";
   const geom =
     clip === "circle"  ? "ellipse" :
@@ -298,6 +321,53 @@ function xfrmXml(xfrm: Xfrm): string {
     `<a:ext cx="${Math.round(xfrm.cx)}" cy="${Math.round(xfrm.cy)}"/>` +
     `</a:xfrm>`
   );
+}
+
+/**
+ * Compute symmetric `<a:srcRect>` crop fractions so a source image of
+ * (srcW × srcH) fills a target rect of (tgtW × tgtH) without distortion.
+ * Crops the longer dimension; the shorter dimension is untouched.
+ */
+function coverCrop(srcW: number, srcH: number, tgtW: number, tgtH: number):
+  { left: number; right: number; top: number; bottom: number } | undefined {
+  if (srcW <= 0 || srcH <= 0 || tgtW <= 0 || tgtH <= 0) return undefined;
+  const srcAspect = srcW / srcH;
+  const tgtAspect = tgtW / tgtH;
+  const EPS = 0.005;
+  if (Math.abs(srcAspect - tgtAspect) < EPS) return undefined;
+  if (srcAspect > tgtAspect) {
+    // Source wider than target — crop sides.
+    const visibleFraction = tgtAspect / srcAspect;
+    const totalCrop = (1 - visibleFraction) / 2;
+    return { left: totalCrop, right: totalCrop, top: 0, bottom: 0 };
+  }
+  // Source taller than target — crop top/bottom.
+  const visibleFraction = srcAspect / tgtAspect;
+  const totalCrop = (1 - visibleFraction) / 2;
+  return { left: 0, right: 0, top: totalCrop, bottom: totalCrop };
+}
+
+/**
+ * Compute `<a:fillRect>` insets so a source image of (srcW × srcH) fits
+ * inside a target rect of (tgtW × tgtH) without cropping (letterbox).
+ * Returns insets as fractions of the target dimensions.
+ */
+function containFill(srcW: number, srcH: number, tgtW: number, tgtH: number):
+  { left: number; right: number; top: number; bottom: number } | undefined {
+  if (srcW <= 0 || srcH <= 0 || tgtW <= 0 || tgtH <= 0) return undefined;
+  const srcAspect = srcW / srcH;
+  const tgtAspect = tgtW / tgtH;
+  const EPS = 0.005;
+  if (Math.abs(srcAspect - tgtAspect) < EPS) return undefined;
+  if (srcAspect > tgtAspect) {
+    // Source wider than target — letterbox top/bottom.
+    const drawnHeight = tgtW / srcAspect;
+    const totalInset = (tgtH - drawnHeight) / tgtH / 2;
+    return { left: 0, right: 0, top: totalInset, bottom: totalInset };
+  }
+  const drawnWidth = tgtH * srcAspect;
+  const totalInset = (tgtW - drawnWidth) / tgtW / 2;
+  return { left: totalInset, right: totalInset, top: 0, bottom: 0 };
 }
 
 function fillXmlOf(fill: FillSpec | undefined): string {

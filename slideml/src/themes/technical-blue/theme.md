@@ -312,6 +312,101 @@ Escape-hatch layout — pass a `shapes` array of typed primitives with positions
 
 ![freeform](thumbnails/freeform.png)
 
+### prose
+Single-column long-form text. Title + optional subtitle + multi-paragraph
+body. Body accepts typed paragraphs `{ kind: "quote"|"note"|"callout"|"h2", text }`
+mixed with plain strings. Use for memo-style slides, white-paper internal
+pages, board minutes, essays.
+
+- `title` — `text`, ≤ 80 chars. Optional.
+- `subtitle` — `text`, ≤ 120 chars. Optional.
+- `body` — `text-block`, ≤ 1600 chars. Required.
+
+> **Guidance:** Keep paragraphs ≤ 4 lines each. If you have > 800 chars and want denser layout, switch to `two-column-prose`.
+
+![prose](thumbnails/prose.png)
+
+### two-column-prose
+Long-form body flowed across two columns. Magazine / journal feel. Use
+when single-column wraps too long.
+
+- `title` — `text`, ≤ 80 chars. Optional.
+- `subtitle` — `text`, ≤ 120 chars. Optional.
+- `body` — `text-block`, ≤ 2400 chars. Required. Distributes paragraphs across the two columns.
+
+![two-column-prose](thumbnails/two-column-prose.png)
+
+### executive-summary
+TL;DR clipboard for report front-pages. Title + 3–6 numbered entries,
+each `{ heading, line }`. Quieter than `key-point` (no icons, left-aligned).
+
+- `title` — `text`, ≤ 60 chars. Optional.
+- `items` — `bullets`, 2–6 entries. Each `{ heading, line? }`.
+
+![executive-summary](thumbnails/executive-summary.png)
+
+### q-and-a
+FAQ / Q&A list. Each pair: bold question + indented answer.
+
+- `title` — `text`, ≤ 60 chars. Optional.
+- `items` — `bullets`, 1–5 entries. Each `{ q | question, a | answer? }`.
+
+![q-and-a](thumbnails/q-and-a.png)
+
+### definition
+Single-term dictionary page. Big term + optional pronunciation +
+part-of-speech + definition body + optional example block.
+
+- `term` — `text`, ≤ 40 chars. Required.
+- `pronounce` — `text`, ≤ 60 chars. Optional.
+- `partOfSpeech` — `text`, ≤ 32 chars. Optional.
+- `body` — `text-block`, ≤ 600 chars. Required.
+- `example` — `text-block`, ≤ 240 chars. Optional. Italic, brand-bordered.
+
+![definition](thumbnails/definition.png)
+
+### outline
+Multi-level table of contents with numbered top-level entries + indented
+sub-items. Like `agenda` but supports nesting via `{ text, sub: [...] }`.
+
+- `title` — `text`, ≤ 60 chars. Optional.
+- `items` — `bullets`, 2–8 entries. Each `string` or `{ text, sub: [string] }`.
+
+![outline](thumbnails/outline.png)
+
+### timeline-text
+Vertical narrative timeline. Date column on the left, content on the right,
+faint vertical rail. Different from `process-timeline` (horizontal step
+diagram for short labels).
+
+- `title` — `text`, ≤ 60 chars. Optional.
+- `events` — `bullets`, 2–6 entries. Each `{ when | date, title | heading, body? | description? }`.
+
+![timeline-text](thumbnails/timeline-text.png)
+
+### letter
+Letter / open-letter format. Date + recipient + multi-paragraph body +
+sign-off + signature + optional role. Use for CEO letters to shareholders,
+public letters to users, commemorative slides.
+
+- `date` — `text`, ≤ 40 chars. Optional.
+- `recipient` — `text`, ≤ 60 chars. Optional.
+- `body` — `text-block`, ≤ 1400 chars. Required.
+- `signoff` — `text`, ≤ 40 chars. Optional. Default "Sincerely," / "此致".
+- `signature` — `text`, ≤ 60 chars. Required.
+- `signRole` — `text`, ≤ 80 chars. Optional.
+
+![letter](thumbnails/letter.png)
+
+### glossary
+Two-column term + definition list. Like a printed glossary or a spec's
+"definitions" page. Different from `definition` which is one-term-per-slide.
+
+- `title` — `text`, ≤ 60 chars. Optional.
+- `terms` — `bullets`, 3–12 entries. Each `{ term | word, definition | meaning }`.
+
+![glossary](thumbnails/glossary.png)
+
 ### framed
 Five-region layout with optional edge bands — header, footer, leftEdge,
 rightEdge, plus a required center. Use when one slide needs more

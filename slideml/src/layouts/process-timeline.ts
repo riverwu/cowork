@@ -4,7 +4,7 @@ import type { SlotSchema } from "../theme/types.js";
 import { slideTitle } from "../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
-  title: { type: "text",    maxChars: 50 },
+  title: { type: "text",    maxChars: 50, optional: true },
   steps: { type: "bullets", min: 3, max: 5, itemMaxChars: 80 },
 };
 
@@ -12,7 +12,7 @@ interface StepObject { title?: string; label?: string; text?: string; descriptio
 
 const processTimeline: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const out: ShapeList = [];
-  const title = ctx.slot<string>("title") ?? "";
+  const title = ctx.slot<string>("title");
   const stepsRaw = ctx.slot<unknown[]>("steps") ?? [];
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
 
@@ -26,7 +26,7 @@ const processTimeline: LayoutFn = (ctx: LayoutContext): ShapeList => {
     };
   });
 
-  out.push(...slideTitle(ctx, title));
+  if (title) out.push(...slideTitle(ctx, title));
 
   const railY = ctx.cm(7.4);
   const railLeft = ctx.cm(2.5);
