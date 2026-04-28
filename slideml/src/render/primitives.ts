@@ -181,25 +181,36 @@ export function card(ctx: LayoutContext, rect: ContentRect, opts: CardOptions = 
 export interface GridColsOptions {
   /** Inter-column gap. Default cm(1.2). */
   gap?: number;
+  /**
+   * Per-column relative weights. When supplied, must have length === n;
+   * column widths are proportional to these weights. Default = all 1s
+   * (equal columns). Examples:
+   *   [1, 1]      → 50/50    (default for n=2)
+   *   [3, 2]      → 60/40
+   *   [1, 2, 1]   → 25/50/25 (wide center)
+   *   [2, 1, 1]   → 50/25/25 (wide left)
+   */
+  weights?: readonly number[];
 }
 
 /**
- * Subdivide a content rectangle into N equal-width columns with `gap`
- * between them. Returns one ContentRect per column (same y/height as the
- * source rect).
+ * Subdivide a content rectangle into N columns with `gap` between them.
+ * Equal-width by default; pass `weights` for proportional sizing.
  */
 export function gridCols(ctx: LayoutContext, rect: ContentRect, n: number, opts: GridColsOptions = {}): ContentRect[] {
   const gap = opts.gap ?? ctx.cm(1.2);
   const totalGap = gap * Math.max(0, n - 1);
-  const colW = Math.floor((rect.width - totalGap) / n);
+  const usable = rect.width - totalGap;
+  const weights = opts.weights && opts.weights.length === n
+    ? opts.weights
+    : Array(n).fill(1);
+  const sum = weights.reduce((a, b) => a + b, 0) || 1;
   const out: ContentRect[] = [];
+  let cursorX = rect.x;
   for (let i = 0; i < n; i++) {
-    out.push({
-      x: rect.x + i * (colW + gap),
-      y: rect.y,
-      width: colW,
-      height: rect.height,
-    });
+    const colW = Math.floor((usable * weights[i]!) / sum);
+    out.push({ x: cursorX, y: rect.y, width: colW, height: rect.height });
+    cursorX += colW + gap;
   }
   return out;
 }

@@ -14,6 +14,7 @@ import { loadTheme as internalLoadTheme } from "./theme/loader.js";
 import { validateDeckSpec, type SlidemlValidationError } from "./validator.js";
 import type { LoadedTheme, SlotSchema } from "./theme/types.js";
 import { exampleForSlot } from "./slot-examples.js";
+import { DENSITY, DENSITY_VALUES } from "./render/density.js";
 
 /**
  * Resolve a theme's OOXML overrides (token references) into concrete
@@ -155,7 +156,16 @@ export interface LayoutSummary {
  */
 export interface LayoutDetail extends LayoutInfo {
   slotSchema: Record<string, SlotSchema & { example?: unknown }>;
+  /** One-line agent-facing purpose from the centralised _purposes.ts table. */
+  purpose?: string;
   guidance?: string;
+  /**
+   * Per-density character budget table — present only when the layout
+   * exposes a `density` slot. Keyed by density preset name; each entry
+   * has the per-language budget so the agent can pick the right preset
+   * for the actual content length.
+   */
+  densityBudgets?: Record<string, { latin: number; cjk: number }>;
 }
 
 /**
@@ -250,9 +260,12 @@ export function summarizeLayouts(theme: LoadedTheme): LayoutSummary[] {
       if (schema.optional) optional.push(slotName);
       else required.push(slotName);
     }
+    // Prefer the centralised one-line purpose (from _purposes.ts) over
+    // a heuristically-extracted first sentence of the theme.md description.
+    const purpose = loaded.purpose ?? firstSentence(loaded.description);
     out.push({
       name,
-      purpose: firstSentence(loaded.description),
+      purpose,
       requiredSlots: required,
       optionalSlots: optional,
     });
@@ -275,14 +288,39 @@ export function describeLayout(
     const example = exampleForSlot(slotName, schema);
     enriched[slotName] = example !== undefined ? { ...schema, example } : { ...schema };
   }
+  // Density budget table — surfaces the agent-facing capacity contract
+  // when the layout has a `density` slot. Multiplier is layout-specific.
+  let densityBudgets: Record<string, { latin: number; cjk: number }> | undefined;
+  const hasDensitySlot = loaded.slots["density"]?.type === "enum";
+  if (hasDensitySlot) {
+    const mult = LAYOUT_BUDGET_MULTIPLIER[layoutName] ?? 1.0;
+    densityBudgets = {};
+    for (const d of DENSITY_VALUES) {
+      densityBudgets[d] = {
+        latin: Math.round(DENSITY[d].latinBudget * mult),
+        cjk:   Math.round(DENSITY[d].cjkBudget * mult),
+      };
+    }
+  }
   return {
     name: layoutName,
     description: loaded.description,
     slotSchema: enriched,
     thumbnailPath: loaded.thumbnailAbsPath,
+    ...(loaded.purpose ? { purpose: loaded.purpose } : {}),
     guidance: loaded.guidance,
+    ...(densityBudgets ? { densityBudgets } : {}),
   };
 }
+
+// Layout-level budget multiplier — kept here so describeLayout can publish
+// the same numbers the validator will check against. Values must match
+// validator.ts:LAYOUT_BUDGET_MULTIPLIER.
+const LAYOUT_BUDGET_MULTIPLIER: Record<string, number> = {
+  "prose": 1.5,
+  "two-column-prose": 3.0,
+  "letter": 1.3,
+};
 
 function firstSentence(s: string): string {
   const trimmed = s.trim();

@@ -311,6 +311,7 @@
             "image-pair",
             "image-split-text",
             "image-with-caption",
+            "image-with-takeaway",
             "key-point",
             "letter",
             "matrix-2x2",
@@ -506,6 +507,17 @@
                   },
                   "image": {
                     "$ref": "#/$defs/ImageRef"
+                  },
+                  "imageRatio": {
+                    "enum": [
+                      "50-50",
+                      "60-40",
+                      "40-60",
+                      "67-33",
+                      "33-67"
+                    ],
+                    "default": "50-50",
+                    "description": "One of: 50-50 | 60-40 | 40-60 | 67-33 | 33-67."
                   }
                 },
                 "required": [
@@ -573,6 +585,9 @@
                     "type": "string",
                     "maxLength": 80,
                     "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "image": {
+                    "$ref": "#/$defs/ImageRef"
                   }
                 },
                 "required": [
@@ -1519,11 +1534,11 @@
                     "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
                   },
                   "text": {
-                    "description": "Multi-line text, ≤ 1200 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 1500 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 1200
+                        "maxLength": 1500
                       },
                       {
                         "type": "array",
@@ -1651,6 +1666,41 @@
                 "required": [
                   "image",
                   "caption"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "image-with-takeaway"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                  },
+                  "image": {
+                    "$ref": "#/$defs/ImageRef"
+                  },
+                  "takeaway": {
+                    "type": "string",
+                    "maxLength": 160,
+                    "description": "Inline markdown, ≤ 160 chars. See `InlineMarkdown` $def: **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name: (12-icon enum)."
+                  }
+                },
+                "required": [
+                  "image"
                 ]
               }
             }
@@ -2032,6 +2082,14 @@
                       ]
                     },
                     "description": "3–5 items, each ≤ 80 chars when string-shaped."
+                  },
+                  "direction": {
+                    "enum": [
+                      "horizontal",
+                      "vertical"
+                    ],
+                    "default": "horizontal",
+                    "description": "One of: horizontal | vertical."
                   }
                 },
                 "required": [
@@ -2384,6 +2442,19 @@
                   },
                   "right": {
                     "$ref": "#/$defs/Region"
+                  },
+                  "ratio": {
+                    "enum": [
+                      "50-50",
+                      "60-40",
+                      "40-60",
+                      "67-33",
+                      "33-67",
+                      "75-25",
+                      "25-75"
+                    ],
+                    "default": "50-50",
+                    "description": "One of: 50-50 | 60-40 | 40-60 | 67-33 | 33-67 | 75-25 | 25-75."
                   }
                 },
                 "required": [
@@ -2421,6 +2492,16 @@
                   },
                   "right": {
                     "$ref": "#/$defs/Region"
+                  },
+                  "ratio": {
+                    "enum": [
+                      "equal",
+                      "wide-center",
+                      "wide-left",
+                      "wide-right"
+                    ],
+                    "default": "equal",
+                    "description": "One of: equal | wide-center | wide-left | wide-right."
                   }
                 },
                 "required": [
@@ -2459,6 +2540,17 @@
                   },
                   "br": {
                     "$ref": "#/$defs/Region"
+                  },
+                  "ratio": {
+                    "enum": [
+                      "50-50",
+                      "60-40",
+                      "40-60",
+                      "67-33",
+                      "33-67"
+                    ],
+                    "default": "50-50",
+                    "description": "One of: 50-50 | 60-40 | 40-60 | 67-33 | 33-67."
                   }
                 },
                 "required": [
@@ -2526,6 +2618,14 @@
                       ]
                     },
                     "description": "3–3 items, each ≤ 64 chars when string-shaped."
+                  },
+                  "style": {
+                    "enum": [
+                      "tile",
+                      "minimal"
+                    ],
+                    "default": "tile",
+                    "description": "One of: tile | minimal."
                   }
                 },
                 "required": [
@@ -2706,11 +2806,11 @@
                     "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
                   },
                   "text": {
-                    "description": "Multi-line text, ≤ 1200 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 1500 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 1200
+                        "maxLength": 1500
                       },
                       {
                         "type": "array",
@@ -2762,6 +2862,17 @@
                     ],
                     "default": "normal",
                     "description": "One of: loose | normal | dense | micro."
+                  },
+                  "imageRatio": {
+                    "enum": [
+                      "50-50",
+                      "60-40",
+                      "40-60",
+                      "67-33",
+                      "33-67"
+                    ],
+                    "default": "50-50",
+                    "description": "One of: 50-50 | 60-40 | 40-60 | 67-33 | 33-67."
                   }
                 },
                 "required": [

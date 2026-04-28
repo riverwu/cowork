@@ -2,7 +2,7 @@ import type { LayoutContext, LayoutFn } from "../render/layout-context.js";
 import type { ShapeList } from "../emitter/types.js";
 import type { SlotSchema } from "../theme/types.js";
 import { contentRect, slideTitle } from "../render/primitives.js";
-import { renderRegion, type Region } from "../render/regions.js";
+import { computeRegionTopInset, renderRegion, type Region } from "../render/regions.js";
 
 /**
  * 2x2 matrix — four polymorphic region cells laid out as a quadrant grid
@@ -50,10 +50,13 @@ const matrix2x2: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const tr = ctx.slot<Region>("topRight");
   const bl = ctx.slot<Region>("botLeft");
   const br = ctx.slot<Region>("botRight");
-  if (tl) out.push(...renderRegion(ctx, { x: matrixX, y: matrixY, width: cellW, height: cellH }, tl));
-  if (tr) out.push(...renderRegion(ctx, { x: matrixX + cellW + gap, y: matrixY, width: cellW, height: cellH }, tr));
-  if (bl) out.push(...renderRegion(ctx, { x: matrixX, y: matrixY + cellH + gap, width: cellW, height: cellH }, bl));
-  if (br) out.push(...renderRegion(ctx, { x: matrixX + cellW + gap, y: matrixY + cellH + gap, width: cellW, height: cellH }, br));
+  // Each row's cells share a topInset for cellTitle baseline alignment.
+  const topRowInset = computeRegionTopInset(ctx, [tl, tr]);
+  const bottomRowInset = computeRegionTopInset(ctx, [bl, br]);
+  if (tl) out.push(...renderRegion(ctx, { x: matrixX, y: matrixY, width: cellW, height: cellH }, tl, { topInset: topRowInset }));
+  if (tr) out.push(...renderRegion(ctx, { x: matrixX + cellW + gap, y: matrixY, width: cellW, height: cellH }, tr, { topInset: topRowInset }));
+  if (bl) out.push(...renderRegion(ctx, { x: matrixX, y: matrixY + cellH + gap, width: cellW, height: cellH }, bl, { topInset: bottomRowInset }));
+  if (br) out.push(...renderRegion(ctx, { x: matrixX + cellW + gap, y: matrixY + cellH + gap, width: cellW, height: cellH }, br, { topInset: bottomRowInset }));
 
   // Axis labels — yLabel rotated 90° on the left, xLabel below the matrix.
   if (yLabel) {

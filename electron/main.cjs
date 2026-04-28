@@ -101,10 +101,10 @@ async function dispatch(command, args, sender) {
     case "install_node_package": return installNodePackage(args.package);
     case "get_node_path": return getNodePath();
     case "run_node_script": return runNodeScript(args.script, args.cwd, args.timeoutSecs);
-    case "slideml_compile": return slidemlCompile(args.slideml, args.theme, args.outputPath);
+    case "slideml_compile": return slidemlCompile(args.slideml, args.theme, args.outputPath, args.path);
     case "slideml_list_layouts": return slidemlListLayouts(args.theme);
     case "slideml_describe_layout": return slidemlDescribeLayout(args.theme, args.layoutName);
-    case "slideml_validate": return slidemlValidate(args.slideml, args.theme);
+    case "slideml_validate": return slidemlValidate(args.slideml, args.theme, args.path);
     case "slideml_edit": return slidemlEdit(args.sidecarPath, args.ops, args.theme, args.outputPath);
     case "slideml_audit": return slidemlAudit(args.path);
     case "slideml_list_themes": return slidemlListThemes();
@@ -443,8 +443,14 @@ function slidemlThemePath(theme) {
   throw new Error(`Theme "${theme}" not found in built-ins or ~/.cowork/themes/`);
 }
 
-async function slidemlCompile(slidemlYaml, theme, outputPath) {
-  if (!slidemlYaml) throw new Error("slideml_compile: slideml YAML body is required");
+async function slidemlCompile(slidemlYaml, theme, outputPath, srcPath) {
+  // Resolve the YAML body from either an inline string or a file path.
+  // The renderer can't import node:fs (Vite browser bundle), so the
+  // file read happens here in the main process.
+  if (srcPath && !slidemlYaml) {
+    slidemlYaml = await fsp.readFile(srcPath, "utf8");
+  }
+  if (!slidemlYaml) throw new Error("slideml_compile: provide either `slideml` (inline YAML) or `path` (file)");
   if (!outputPath) throw new Error("slideml_compile: outputPath is required");
 
   const cli = slidemlCliPath();
@@ -591,8 +597,13 @@ async function slidemlAudit(targetPath) {
   }
 }
 
-async function slidemlValidate(slidemlYaml, theme) {
-  if (!slidemlYaml) throw new Error("slideml_validate: slideml YAML body is required");
+async function slidemlValidate(slidemlYaml, theme, srcPath) {
+  // Resolve YAML body from inline string or file path. Renderer can't
+  // import node:fs (Vite browser bundle); the read happens here.
+  if (srcPath && !slidemlYaml) {
+    slidemlYaml = await fsp.readFile(srcPath, "utf8");
+  }
+  if (!slidemlYaml) throw new Error("slideml_validate: provide either `slideml` (inline YAML) or `path` (file)");
   const cli = slidemlCliPath();
   if (!fs.existsSync(cli)) {
     throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);

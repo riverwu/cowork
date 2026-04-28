@@ -99,6 +99,7 @@ export async function loadTheme(themeDir: string): Promise<LoadedTheme> {
       slots: reg.slots,
       render: reg.render as unknown as LoadedLayout["render"],
       description: docSections.layoutDescriptions[entry.name] ?? "",
+      ...(reg.purpose ? { purpose: reg.purpose } : {}),
       thumbnailAbsPath: thumbAbs,
       guidance: extractGuidance(layoutSubsection),
     });

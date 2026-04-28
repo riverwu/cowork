@@ -13,7 +13,7 @@ import type { LayoutContext, LayoutFn } from "../render/layout-context.js";
 import type { ShapeList } from "../emitter/types.js";
 import type { SlotSchema } from "../theme/types.js";
 import { contentRect, gridCols, slideTitle } from "../render/primitives.js";
-import { renderRegion, type Region } from "../render/regions.js";
+import { computeRegionTopInset, renderRegion, type Region } from "../render/regions.js";
 
 export const slots: Record<string, SlotSchema> = {
   title: { type: "text",   maxChars: 50, optional: true },
@@ -38,16 +38,23 @@ const dashboard: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const rowGap = ctx.cm(0.6);
   const rowH = (body.height - rowGap) / 2;
 
+  const tl = ctx.slot<Region>("tl");
+  const tr = ctx.slot<Region>("tr");
+  const bl = ctx.slot<Region>("bl");
+  const br = ctx.slot<Region>("br");
+  // Per-row baseline alignment: top row cells share inset, bottom row likewise.
+  const topRowInset = computeRegionTopInset(ctx, [tl, tr]);
+  const bottomRowInset = computeRegionTopInset(ctx, [bl, br]);
   const positions = [
-    { region: ctx.slot<Region>("tl"), x: cols[0]!.x, y: body.y,                 w: cols[0]!.width, h: rowH },
-    { region: ctx.slot<Region>("tr"), x: cols[1]!.x, y: body.y,                 w: cols[1]!.width, h: rowH },
-    { region: ctx.slot<Region>("bl"), x: cols[0]!.x, y: body.y + rowH + rowGap, w: cols[0]!.width, h: rowH },
-    { region: ctx.slot<Region>("br"), x: cols[1]!.x, y: body.y + rowH + rowGap, w: cols[1]!.width, h: rowH },
+    { region: tl, x: cols[0]!.x, y: body.y,                 w: cols[0]!.width, h: rowH, inset: topRowInset },
+    { region: tr, x: cols[1]!.x, y: body.y,                 w: cols[1]!.width, h: rowH, inset: topRowInset },
+    { region: bl, x: cols[0]!.x, y: body.y + rowH + rowGap, w: cols[0]!.width, h: rowH, inset: bottomRowInset },
+    { region: br, x: cols[1]!.x, y: body.y + rowH + rowGap, w: cols[1]!.width, h: rowH, inset: bottomRowInset },
   ];
 
   for (const p of positions) {
     if (!p.region) continue;
-    out.push(...renderRegion(ctx, { x: p.x, y: p.y, width: p.w, height: p.h }, p.region));
+    out.push(...renderRegion(ctx, { x: p.x, y: p.y, width: p.w, height: p.h }, p.region, { topInset: p.inset }));
   }
   return out;
 };

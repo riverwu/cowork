@@ -12,6 +12,7 @@
 
 import type { LayoutFn } from "../render/layout-context.js";
 import type { SlotSchema } from "../theme/types.js";
+import { PURPOSES } from "./_purposes.js";
 
 import agenda,             { slots as agendaSlots }            from "./agenda.js";
 import bulletWithImage,    { slots as bulletWithImageSlots }   from "./bullet-with-image.js";
@@ -34,6 +35,7 @@ import imageGrid2x2,       { slots as imageGrid2x2Slots }      from "./image-gri
 import imagePair,          { slots as imagePairSlots }         from "./image-pair.js";
 import imageSplitText,     { slots as imageSplitTextSlots }    from "./image-split-text.js";
 import imageWithCaption,   { slots as imageWithCaptionSlots }  from "./image-with-caption.js";
+import imageWithTakeaway,  { slots as imageWithTakeawaySlots } from "./image-with-takeaway.js";
 import keyPoint,           { slots as keyPointSlots }          from "./key-point.js";
 import letter,             { slots as letterSlots }            from "./letter.js";
 import matrix2x2,          { slots as matrix2x2Slots }         from "./matrix-2x2.js";
@@ -55,11 +57,17 @@ import titleOnly,          { slots as titleOnlySlots }         from "./title-onl
 import twoColTextImage,    { slots as twoColTextImageSlots }   from "./two-col-text-image.js";
 import twoColumnProse,     { slots as twoColumnProseSlots }    from "./two-column-prose.js";
 
-/** A registered layout — slot schema + render function. */
+/** A registered layout — slot schema + render function + agent-facing purpose. */
 export interface RegisteredLayout {
   name: string;
   slots: Record<string, SlotSchema>;
   render: LayoutFn;
+  /**
+   * One-line agent-facing purpose. Surfaced by `summarizeLayouts` and
+   * `describeLayout`. Convention: ≤ 100 chars, says what the layout is
+   * FOR + (when relevant) capacity hint or "use X instead when …".
+   */
+  purpose?: string;
 }
 
 const ENTRIES: RegisteredLayout[] = [
@@ -84,6 +92,7 @@ const ENTRIES: RegisteredLayout[] = [
   { name: "image-pair",          slots: imagePairSlots,           render: imagePair },
   { name: "image-split-text",    slots: imageSplitTextSlots,      render: imageSplitText },
   { name: "image-with-caption",  slots: imageWithCaptionSlots,    render: imageWithCaption },
+  { name: "image-with-takeaway", slots: imageWithTakeawaySlots,   render: imageWithTakeaway },
   { name: "key-point",           slots: keyPointSlots,            render: keyPoint },
   { name: "letter",              slots: letterSlots,              render: letter },
   { name: "matrix-2x2",          slots: matrix2x2Slots,           render: matrix2x2 },
@@ -105,6 +114,12 @@ const ENTRIES: RegisteredLayout[] = [
   { name: "two-col-text-image",  slots: twoColTextImageSlots,     render: twoColTextImage },
   { name: "two-column-prose",    slots: twoColumnProseSlots,      render: twoColumnProse },
 ];
+
+// Stamp purposes from the centralised _purposes.ts table onto each entry
+// so both summarizeLayouts and describeLayout surface the same one-liner.
+for (const e of ENTRIES) {
+  if (PURPOSES[e.name]) e.purpose = PURPOSES[e.name];
+}
 
 export const LAYOUT_REGISTRY: ReadonlyMap<string, RegisteredLayout> = new Map(
   ENTRIES.map((e) => [e.name, e]),

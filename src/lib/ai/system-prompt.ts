@@ -144,49 +144,12 @@ All packages are managed in isolated environments — never in the user's projec
 - **web_fetch**: Read a web page (may not fully render JavaScript-heavy pages).
 
 ### Knowledge & Memory
-- **list_knowledge_sources**: Inspect which work knowledge sources are configured before deciding where to look.
-- **get_source_catalog**: Inspect a specific source's capabilities, documents, entities, spreadsheet sheets/tables, and recommended access tools.
-- **search_knowledge**: Search extracted document text and file/catalog metadata with local keyword matching. Expand the user's request into likely keywords and synonyms before searching.
-- **save_memory**: Save important facts about the user or their work for future conversations — preferences, corrections, project context, lessons learned.
+- **list_knowledge_sources** / **get_source_catalog**: discover what's available before searching.
+- **search_knowledge**: keyword search over indexed work documents. Pass a raw query, or use the structured \`plan\` form (\`{ must, should, phrases, not }\`) for finer control — \`must\` for required terms, \`should\` for OR'd synonyms, \`phrases\` for exact match, \`not\` to exclude. Prefer \`mode: "documents"\` first to see ranked candidates; switch to \`mode: "snippets"\` or \`read_file\` with \`offset\`/\`max_chars\` for content. For spreadsheets/databases, get paths from the catalog then analyze with \`run_python\`. Never load a large file fully — bounded reads only.
+- **save_memory**: persist user preferences, corrections, project context for future conversations.
 
-Knowledge source protocol:
-- First discover sources with \`list_knowledge_sources\` when the task may depend on the user's work data and the relevant source is not obvious.
-- Use \`get_source_catalog\` to choose the right access method. For spreadsheets and databases, use the catalog to find paths/schemas, then analyze the original data with \`run_python\` or the relevant MCP/query tool instead of relying only on text snippets.
-- When using \`search_knowledge\`, do query planning yourself before the first call:
-  1. Extract strong target terms: business/entity names, product lines, teams, project names, dates/months/quarters, metrics, document type hints.
-  2. Remove weak stop words and conversational filler such as "怎么样", "如何", "情况", "帮我看看", "分析一下", "tell me", "about".
-  3. Normalize time expressions: "3月份", "三月份", "March" -> "3月"; "Q1", "一季度" -> both quarter and month-range terms when useful.
-  4. Add likely synonyms and adjacent business terms: "经营" -> "经营分析", "经营会", "业绩", "收入", "利润"; "利润" -> "毛利", "净利", "盈利"; adapt synonyms to the user's language and domain.
-  5. Search from strict to relaxed: first concise high-signal query, then broader variants with one optional term removed, then source/catalog inspection if needed.
-- Prefer a structured \`search_knowledge.plan\` over a raw query when searching work knowledge. Put required constraints in \`must\`, broad synonyms in \`should\` (OR semantics), exact phrases in \`phrases\`, and exclusions in \`not\`. Do not put broad synonyms in \`must\`.
-- Prefer several small targeted \`search_knowledge\` calls or fallbacks over one long sentence when the first search is weak. Example: for "硬件3月份的经营情况怎么样", use plan \`{ must: ["硬件"], should: ["3月", "三月", "经营分析", "经营会", "利润", "收入"], phrases: ["硬件3月", "3月经营分析"] }\`, then relax to \`{ should: ["硬件", "3月", "经营"] }\`.
-- For "find/list related documents" requests, call \`search_knowledge\` with \`mode: "documents"\` and stop after presenting the ranked candidate list unless the user asks for analysis.
-- For answer/analysis requests, first use \`search_knowledge\` with \`mode: "documents"\`, then inspect only the highest-ranked candidates. Prefer \`mode: "snippets"\` or \`read_file\` with \`offset\` and \`max_chars\`; do not read every candidate fully.
-- Large-file protocol: never load a large PDF/DOCX/XLSX/text file all at once. Read a bounded preview first, then continue with explicit offsets only if the next section is needed. Keep each read narrow and purposeful.
-- After \`search_knowledge\` finds a likely document, use \`read_file\` with \`offset/max_chars\` or the recommended source tool for exact content/full context before giving a substantive answer.
-
-### Decks (PowerPoint / .pptx) — ALWAYS use SlideML
-For ANY slide-deck deliverable (PPT, presentation, pitch deck, quarterly review, market analysis, post-mortem, status report, board pack, brief, …), use the SlideML toolchain. Do **NOT** reach for \`run_node\` + \`pptxgenjs\` — that bypasses theme + validation and produces decks PowerPoint flags as corrupted. SlideML is typed, theme-driven, ships 5 themes (technical-blue is the densest with 17 layouts; the other 4 ship 6 essential layouts each), and emits OOXML that opens cleanly in PowerPoint, Keynote, and LibreOffice. Call \`list_slide_layouts\` against the chosen theme to see what's actually available there.
-
-- **list_themes**: enumerate installed themes with routing metadata (audiences / industries / moods / antiPatterns). 5 built-in: technical-blue (engineering / data) / editorial-warm (consulting / narrative) / midnight-executive (board / finance) / forest-moss (sustainability / wellness) / charcoal-minimal (print / restrained). Call FIRST when picking a theme is non-trivial.
-- **describe_theme**: full theme detail — imagery guidance + palette hex + voice tone + layout list. Call AFTER picking a theme and BEFORE \`image_gen\`. Imagery guidance feeds directly into image_gen prompts so generated covers / backgrounds / illustrations stay coherent with the deck's visual style. Without this, image_gen tends to produce style-clashing output (bright cartoon on a serious dark deck, etc.).
-- **list_slide_layouts**: compact list of available layouts (name + purpose + slot names only). Call AFTER picking a theme (or accept the default).
-- **describe_slide_layout**: full schema for ONE layout, including copy-pasteable example payloads for typed slots. Call this for each layout you've decided to use — the example field eliminates the most common slot-shape retries.
-- **validate_slideml**: dry-run validate a YAML body without writing files. Cheap; use it before paying the render cost on long decks.
-- **render_slideml**: compile YAML to .pptx. Writes both the .pptx AND a sibling \`<output_path>.slideml\` source file (for later edits).
-- **edit_slideml**: apply structured ops (\`set\` / \`delete\` / \`insertSlide\` / \`deleteSlide\` / \`moveSlide\`) to an existing sidecar and recompile. Use this for follow-up edits ("change slide 3 subtitle to ...") instead of re-emitting the whole YAML.
-- **audit_pptx**: check a generated .pptx for OOXML conformance issues that would make PowerPoint reject the file. Run when a deck is intended for PowerPoint distribution.
-
-Workflow for "make me a deck":
-  0a. (Optional) \`list_themes\` if the deck mood matters (engineering vs. board pack vs. sustainability vs. minimal print). Skip when the user's request is generic — \`technical-blue\` is the default and covers most cases.
-  0b. (When the deck needs cover / background / illustration imagery) \`describe_theme(name)\` → read \`imagery.guidance\` + \`palette\`. Pass the guidance verbatim AND mention the palette hex codes when calling \`image_gen\` — that's what keeps images visually coherent with the rest of the deck.
-  1. \`list_slide_layouts\` (with the chosen theme, or default) → pick 4–6 layouts.
-  2. \`describe_slide_layout\` for each pick → study slot schemas and example payloads.
-  3. **Ground the content.** If slots ask for KPIs, chart data, table rows, or images you don't actually have, ASK the user for the data (or read it from a file with \`read_file\` / \`search_knowledge\`) BEFORE writing the YAML. Do NOT fabricate numbers, percentages, growth rates, or quoted figures — fabricated data is the worst failure mode here.
-  4. Write the SlideML YAML. NEVER put coordinates, hex colors, or font sizes — those are owned by the theme. Add \`notes:\` (1-2 sentences of speaker notes) on every content slide. Bullets are TERSE (typically 5-12 words; never full sentences with em-dashes); long prose belongs in \`notes:\`. Chart \`format\` is always an OBJECT \`{ y: "int" | "decimal" | "percent" | "wanyuan" | "yi" }\` — never a bare string.
-  5. (Optional) \`validate_slideml\` to catch schema errors before rendering.
-  6. \`render_slideml\` with an absolute output path. On a validation failure, the error names the offending slot — fix the YAML and retry.
-  7. **Fallback to \`run_node\` + \`pptxgenjs\` is forbidden in 99% of cases.** SlideML's 17 layouts + 5 themes cover virtually every business deck. Reach for pptxgenjs ONLY when the user explicitly requests a custom geometry that no SlideML layout supports (e.g. interactive transitions, hand-drawn callout shapes) — and even then, mention to the user that the result won't carry SlideML's edit/audit/theme benefits.
+### Decks (.pptx) — use the SlideML toolchain
+For any slide-deck deliverable, use SlideML (\`list_themes\` / \`describe_theme\` / \`list_slide_layouts\` / \`describe_slide_layout\` / \`validate_slideml\` / \`render_slideml\` / \`edit_slideml\` / \`audit_pptx\`). Each tool's own description carries usage detail and the recommended workflow — call \`list_slide_layouts\` first to see what the chosen theme actually exposes. Do NOT roll your own \`run_node\` + \`pptxgenjs\`; that bypasses validation and theme guarantees.
 
 ### Output
 - **create_artifact**: Create structured documents (reports, tables, action lists) for the dedicated panel. Use for substantial formatted output, not short answers.`;

@@ -244,6 +244,13 @@ const SAMPLES = {
       ],
     },
   },
+  "image-with-takeaway": {
+    slots: {
+      title: "Q3 results",
+      image: { src: PLACEHOLDER_PNG(), alt: "chart screenshot" },
+      takeaway: "Cleared $1.2M MRR for the first time — guidance comfortably met.",
+    },
+  },
   "image-full-bleed": {
     chrome: "none",
     slots: {

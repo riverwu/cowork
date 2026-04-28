@@ -14,6 +14,20 @@ post-mortems, market analyses, and quarterly reviews.
 - Investor pitches (less density, more whitespace).
 - Print-oriented documents.
 
+## How to pick a layout
+
+A 7-line decision tree. Scan top-to-bottom; first match wins.
+
+1. **Long text (>500 CJK / 800 latin chars)?** → `prose` or `two-column-prose`.
+2. **Image is the point?** → `image-with-caption` (editorial) / `image-full-bleed` (cinematic) / `image-pair` (before/after).
+3. **Image + supporting text?** → `two-col-text-image` / `image-split-text` (immersive). Pick `density` matching content length.
+4. **Data?** → `chart-with-takeaway` (1 chart) / `data-table` (table) / `stat-grid-3` (3 KPIs) / `dashboard` (4 mixed).
+5. **3-6 short points?** → `executive-summary` (with descriptions) / `bullet-with-image` / `key-point` (with icons).
+6. **Side-by-side comparison?** → `compare-two-columns` / `split-2` (heterogeneous, with `ratio`).
+7. **Nothing fits?** → `freeform` (last resort).
+
+When text overflows the layout's density budget, the validator emits `DENSITY_OVERFLOW` with concrete next-step suggestions (try denser preset / switch to prose).
+
 ## Layout reference
 
 ### cover
@@ -73,6 +87,15 @@ Pull-quote slide. Use for testimonials, key insights, or punctuation slides.
 - `attribution` — `text`, ≤ 60 chars. Optional. Speaker / source.
 
 ![quote](thumbnails/quote.png)
+
+### image-with-takeaway
+Title + STATIC image (rendered chart, diagram, photo) + boxed conclusion. The image-counterpart of `chart-with-takeaway` — use this when your chart is a PNG/JPG, NOT typed chart-spec data.
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `image` — `image-ref`. Required.
+- `takeaway` — `markdown-inline`, ≤ 160 chars. Optional. Same callout panel as chart-with-takeaway.
+
+![image-with-takeaway](thumbnails/image-with-takeaway.png)
 
 ### chart-with-takeaway
 Title + native data chart + boxed conclusion. Pick when the slide's job is
@@ -161,6 +184,7 @@ Mirror of `cover` — full-bleed deep-blue panel with a centered title and optio
 
 - `title` — `text`, ≤ 60 chars. Required.
 - `subtitle` — `text`, ≤ 80 chars. Optional.
+- `image` — `image-ref`. Optional full-bleed background image; renders under a 75% brand-deep overlay.
 
 ![closing](thumbnails/closing.png)
 

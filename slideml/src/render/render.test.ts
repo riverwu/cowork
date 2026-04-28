@@ -61,6 +61,7 @@ describe("Stage 3 — theme loader", () => {
       "image-pair",
       "image-split-text",
       "image-with-caption",
+      "image-with-takeaway",
       "key-point",
       "letter",
       "matrix-2x2",

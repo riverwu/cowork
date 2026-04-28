@@ -115,18 +115,50 @@ export const REGION_KINDS = ["kpi", "chart", "table", "text", "bullets", "image"
 // Top-level dispatch
 // ---------------------------------------------------------------------------
 
-export function renderRegion(ctx: LayoutContext, rect: RegionRect, region: Region): ShapeList {
+/**
+ * Per-call options threaded into each cell renderer. Composite layouts
+ * (split-2, split-3-h, dashboard, matrix-2x2) use these to enforce
+ * cross-cell visual alignment — most importantly `topInset`, which
+ * forces every cell's body to start at the same y so cells without
+ * `title` line up with cells that have one.
+ */
+export interface RegionRenderOptions {
+  /**
+   * Extra space (EMU) reserved at the top of the cell, regardless of
+   * whether the cell has its own `title`. When one sibling cell has a
+   * title, composite layouts pass this so the title-less cell's body
+   * doesn't fill upward into the title row, breaking baseline alignment.
+   */
+  topInset?: number;
+}
+
+/**
+ * Compute the topInset a composite layout should pass to all its region
+ * cells: the max title-row height across cells with a `title` field.
+ * Returns 0 when no cell has a title.
+ */
+export function computeRegionTopInset(ctx: LayoutContext, regions: ReadonlyArray<Region | undefined>): number {
+  const hasAnyTitle = regions.some((r) => r && typeof (r as { title?: unknown }).title === "string" && ((r as { title: string }).title.length > 0));
+  return hasAnyTitle ? ctx.cm(0.9) : 0;
+}
+
+export function renderRegion(
+  ctx: LayoutContext,
+  rect: RegionRect,
+  region: Region,
+  opts: RegionRenderOptions = {},
+): ShapeList {
   switch (region.kind) {
-    case "kpi":       return renderKpiCell(ctx, rect, region);
-    case "chart":     return renderChartCell(ctx, rect, region);
-    case "table":     return renderTableCell(ctx, rect, region);
-    case "text":      return renderTextCell(ctx, rect, region);
-    case "bullets":   return renderBulletsCell(ctx, rect, region);
-    case "image":     return renderImageCell(ctx, rect, region);
-    case "code":      return renderCodeCell(ctx, rect, region);
-    case "quote":     return renderQuoteCell(ctx, rect, region);
-    case "sparkline": return renderSparklineCell(ctx, rect, region);
-    case "progress":  return renderProgressCell(ctx, rect, region);
+    case "kpi":       return renderKpiCell(ctx, rect, region, opts);
+    case "chart":     return renderChartCell(ctx, rect, region, opts);
+    case "table":     return renderTableCell(ctx, rect, region, opts);
+    case "text":      return renderTextCell(ctx, rect, region, opts);
+    case "bullets":   return renderBulletsCell(ctx, rect, region, opts);
+    case "image":     return renderImageCell(ctx, rect, region, opts);
+    case "code":      return renderCodeCell(ctx, rect, region, opts);
+    case "quote":     return renderQuoteCell(ctx, rect, region, opts);
+    case "sparkline": return renderSparklineCell(ctx, rect, region, opts);
+    case "progress":  return renderProgressCell(ctx, rect, region, opts);
   }
 }
 
@@ -212,7 +244,7 @@ function cellTitle(ctx: LayoutContext, rect: RegionRect, title: string, sizeHalf
   };
 }
 
-function renderKpiCell(ctx: LayoutContext, rect: RegionRect, region: RegionKpi): ShapeList {
+function renderKpiCell(ctx: LayoutContext, rect: RegionRect, region: RegionKpi, _opts: RegionRenderOptions = {}): ShapeList {
   // For non-default styles we emit our own backing then ask kpiTile to
   // skip its own card. For "filled" we let kpiTile draw its standard
   // tile (which already has the accent stripe).
@@ -224,20 +256,20 @@ function renderKpiCell(ctx: LayoutContext, rect: RegionRect, region: RegionKpi):
   return out;
 }
 
-function renderChartCell(ctx: LayoutContext, rect: RegionRect, region: RegionChart): ShapeList {
+function renderChartCell(ctx: LayoutContext, rect: RegionRect, region: RegionChart, opts: RegionRenderOptions = {}): ShapeList {
   const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const inset = ctx.cm(0.6);
-  let titleH = 0;
-  if (region.title) {
-    const t = cellTitle(ctx, rect, region.title);
-    out.push(t.shape);
-    titleH = t.height;
-  }
+  // Body always starts at rect.y + cm(0.45) + max(titleH, opts.topInset).
+  // The max ensures cells without their own title still leave the same
+  // space at top as cells that have one — keeps baselines aligned.
+  const titleH = region.title ? ctx.cm(0.9) : 0;
+  const reserved = Math.max(titleH, opts.topInset ?? 0);
+  if (region.title) out.push(cellTitle(ctx, rect, region.title).shape);
   const chartFrame = {
     x: rect.x + inset,
-    y: rect.y + ctx.cm(0.45) + titleH,
+    y: rect.y + ctx.cm(0.45) + reserved,
     width: rect.width - inset * 2,
-    height: rect.height - ctx.cm(0.9) - titleH,
+    height: rect.height - ctx.cm(0.9) - reserved,
   };
   const chartShape: ChartShape = {
     type: "chart",
@@ -261,19 +293,16 @@ function renderChartCell(ctx: LayoutContext, rect: RegionRect, region: RegionCha
   return out;
 }
 
-function renderTableCell(ctx: LayoutContext, rect: RegionRect, region: RegionTable): ShapeList {
+function renderTableCell(ctx: LayoutContext, rect: RegionRect, region: RegionTable, opts: RegionRenderOptions = {}): ShapeList {
   const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const inset = ctx.cm(0.5);
-  let titleH = 0;
-  if (region.title) {
-    const t = cellTitle(ctx, rect, region.title, 22);
-    out.push(t.shape);
-    titleH = t.height;
-  }
+  const titleH = region.title ? ctx.cm(0.9) : 0;
+  const reserved = Math.max(titleH, opts.topInset ?? 0);
+  if (region.title) out.push(cellTitle(ctx, rect, region.title, 22).shape);
   const tableX = rect.x + inset;
-  const tableY = rect.y + ctx.cm(0.4) + titleH;
+  const tableY = rect.y + ctx.cm(0.4) + reserved;
   const tableW = rect.width - inset * 2;
-  const tableH = rect.height - (titleH + ctx.cm(0.8));
+  const tableH = rect.height - (reserved + ctx.cm(0.8));
   const cols = region.table.header.length;
   const weights = region.table.colWidths && region.table.colWidths.length === cols ? region.table.colWidths : Array(cols).fill(1);
   const sum = weights.reduce((a, b) => a + b, 0);
@@ -310,52 +339,47 @@ function renderTableCell(ctx: LayoutContext, rect: RegionRect, region: RegionTab
   return out;
 }
 
-function renderTextCell(ctx: LayoutContext, rect: RegionRect, region: RegionText): ShapeList {
+function renderTextCell(ctx: LayoutContext, rect: RegionRect, region: RegionText, opts: RegionRenderOptions = {}): ShapeList {
   const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const inset = ctx.cm(0.6);
-  let titleH = 0;
-  if (region.title) {
-    const t = cellTitle(ctx, rect, region.title);
-    out.push(t.shape);
-    titleH = t.height;
-  }
+  const titleH = region.title ? ctx.cm(0.9) : 0;
+  const reserved = Math.max(titleH, opts.topInset ?? 0);
+  if (region.title) out.push(cellTitle(ctx, rect, region.title).shape);
   out.push(...richText(ctx, {
     x: rect.x + inset,
-    y: rect.y + ctx.cm(0.45) + titleH,
+    y: rect.y + ctx.cm(0.45) + reserved,
     width: rect.width - inset * 2,
-    height: rect.height - ctx.cm(0.9) - titleH,
+    height: rect.height - ctx.cm(0.9) - reserved,
   }, region.body, { sizeHalfPt: 20, lineSpacingHalfPt: 48, spaceAfterHalfPt: 12 }));
   return out;
 }
 
-function renderBulletsCell(ctx: LayoutContext, rect: RegionRect, region: RegionBullets): ShapeList {
+function renderBulletsCell(ctx: LayoutContext, rect: RegionRect, region: RegionBullets, opts: RegionRenderOptions = {}): ShapeList {
   const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const inset = ctx.cm(0.6);
-  let titleH = 0;
-  if (region.title) {
-    const t = cellTitle(ctx, rect, region.title);
-    out.push(t.shape);
-    titleH = t.height;
-  }
+  const titleH = region.title ? ctx.cm(0.9) : 0;
+  const reserved = Math.max(titleH, opts.topInset ?? 0);
+  if (region.title) out.push(cellTitle(ctx, rect, region.title).shape);
   out.push(...bulletsBlock(ctx, {
     x: rect.x + inset,
-    y: rect.y + ctx.cm(0.45) + titleH,
+    y: rect.y + ctx.cm(0.45) + reserved,
     width: rect.width - inset * 2,
-    height: rect.height - ctx.cm(0.9) - titleH,
+    height: rect.height - ctx.cm(0.9) - reserved,
   }, region.items, { sizeHalfPt: 22 }));
   return out;
 }
 
-function renderImageCell(ctx: LayoutContext, rect: RegionRect, region: RegionImage): ShapeList {
+function renderImageCell(ctx: LayoutContext, rect: RegionRect, region: RegionImage, opts: RegionRenderOptions = {}): ShapeList {
   const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const ref = imageRefOf(region.image);
   const inset = ctx.cm(0.4);
   const captionH = region.caption ? ctx.cm(0.9) : 0;
+  const topReserve = opts.topInset ?? 0;
   out.push(...imageOrPlaceholder(ctx, {
     x: rect.x + inset,
-    y: rect.y + inset,
+    y: rect.y + inset + topReserve,
     width: rect.width - inset * 2,
-    height: rect.height - inset * 2 - captionH,
+    height: rect.height - inset * 2 - captionH - topReserve,
   }, ref));
   if (region.caption) {
     const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
@@ -373,7 +397,7 @@ function renderImageCell(ctx: LayoutContext, rect: RegionRect, region: RegionIma
   return out;
 }
 
-function renderCodeCell(ctx: LayoutContext, rect: RegionRect, region: RegionCode): ShapeList {
+function renderCodeCell(ctx: LayoutContext, rect: RegionRect, region: RegionCode, _opts: RegionRenderOptions = {}): ShapeList {
   // Dark code card; ignores theme bg-card so code stays readable.
   const out: ShapeList = [];
   out.push({
@@ -435,20 +459,17 @@ function resolveColorOrToken(ctx: LayoutContext, value: string | undefined, fall
   return /^[0-9A-Fa-f]{6}$/.test(v) ? v : ctx.color(v);
 }
 
-function renderSparklineCell(ctx: LayoutContext, rect: RegionRect, region: RegionSparkline): ShapeList {
+function renderSparklineCell(ctx: LayoutContext, rect: RegionRect, region: RegionSparkline, opts: RegionRenderOptions = {}): ShapeList {
   const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const inset = ctx.cm(0.6);
-  let titleH = 0;
-  if (region.title) {
-    const t = cellTitle(ctx, rect, region.title);
-    out.push(t.shape);
-    titleH = t.height;
-  }
+  const titleH = region.title ? ctx.cm(0.9) : 0;
+  const reserved = Math.max(titleH, opts.topInset ?? 0);
+  if (region.title) out.push(cellTitle(ctx, rect, region.title).shape);
   const captionH = region.caption ? ctx.cm(0.7) : 0;
   const chartX = rect.x + inset;
-  const chartY = rect.y + ctx.cm(0.45) + titleH;
+  const chartY = rect.y + ctx.cm(0.45) + reserved;
   const chartW = rect.width - inset * 2;
-  const chartH = rect.height - ctx.cm(0.9) - titleH - captionH;
+  const chartH = rect.height - ctx.cm(0.9) - reserved - captionH;
 
   // Build inline SVG so the renderer pipes it through the data-URL image
   // path. SVG viewBox is 0..100 × 0..100 — points scale to that, image
@@ -497,7 +518,7 @@ function renderSparklineCell(ctx: LayoutContext, rect: RegionRect, region: Regio
   return out;
 }
 
-function renderProgressCell(ctx: LayoutContext, rect: RegionRect, region: RegionProgress): ShapeList {
+function renderProgressCell(ctx: LayoutContext, rect: RegionRect, region: RegionProgress, _opts: RegionRenderOptions = {}): ShapeList {
   const out: ShapeList = regionBacking(ctx, rect, region.style);
   const inset = ctx.cm(0.6);
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
@@ -560,7 +581,7 @@ function renderProgressCell(ctx: LayoutContext, rect: RegionRect, region: Region
   return out;
 }
 
-function renderQuoteCell(ctx: LayoutContext, rect: RegionRect, region: RegionQuote): ShapeList {
+function renderQuoteCell(ctx: LayoutContext, rect: RegionRect, region: RegionQuote, _opts: RegionRenderOptions = {}): ShapeList {
   const out: ShapeList = regionBacking(ctx, rect, region.style, { accentStripe: "brand-primary" });
   const inset = ctx.cm(0.8);
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");

@@ -73,8 +73,12 @@ const MODEL_CONTEXT_REGISTRY: Array<[string, number]> = [
   ["o1", 200_000],
   ["o3", 200_000],
   ["o4", 200_000],
-  // MiniMax — M1/M2/abab/text-* are all 200K+
-  ["minimax-m", 1_000_000],
+  // MiniMax. M1 was 1M but M2 / M2.7 reverted to 200K (server-side).
+  // ORDER MATTERS — longest prefix first so M2/M2.7 don't fall into M1.
+  ["minimax-m1", 1_000_000],
+  ["minimax-m2.7", 200_000],
+  ["minimax-m2", 200_000],
+  ["minimax-m", 200_000],
   ["minimax-text", 245_760],
   ["minimax", 200_000],
   ["abab", 245_760],

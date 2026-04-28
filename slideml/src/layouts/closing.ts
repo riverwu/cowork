@@ -1,18 +1,23 @@
 import type { LayoutContext, LayoutFn } from "../render/layout-context.js";
 import type { ShapeList } from "../emitter/types.js";
 import type { SlotSchema } from "../theme/types.js";
-import { bestTextOn, chipColorResolver } from "../render/primitives.js";
+import { bestTextOn, chipColorResolver, imageOrPlaceholder, imageRefOf } from "../render/primitives.js";
 import { parseInline } from "../render/markdown-inline.js";
 
 export const slots: Record<string, SlotSchema> = {
-  title:    { type: "text", maxChars: 60 },
-  subtitle: { type: "text", maxChars: 80, optional: true },
+  title:    { type: "text",      maxChars: 60 },
+  subtitle: { type: "text",      maxChars: 80, optional: true },
+  // Optional full-bleed background image. When supplied, the brand-deep
+  // panel renders as a 75%-opacity overlay on top of the image so the
+  // title stays readable. Use for hero "thank you" closes.
+  image:    { type: "image-ref", optional: true },
 };
 
 const closing: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const out: ShapeList = [];
   const title = ctx.slot<string>("title") ?? "";
   const subtitle = ctx.slot<string>("subtitle");
+  const image = imageRefOf(ctx.slot<unknown>("image"));
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
   // Pick title color by contrast — handles both dark themes (where
   // text-strong is light) and warm/light themes (where text-strong is
@@ -21,14 +26,29 @@ const closing: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const titleColor = bestTextOn(ctx, panelColor);
   const subtitleColor = titleColor === "FFFFFF" ? "E2E8F0" : ctx.color("text-muted");
 
-  // Full-bleed deep-blue panel for visual closure.
-  out.push({
-    type: "shape",
-    id: ctx.id(),
-    preset: "rect",
-    xfrm: { x: 0, y: 0, cx: ctx.deck.width, cy: ctx.deck.height },
-    fill: { type: "solid", color: ctx.color("brand-deep") },
-  });
+  // Background image (when provided) under a translucent brand panel —
+  // keeps title legible without sacrificing the hero photo.
+  if (image) {
+    out.push(...imageOrPlaceholder(ctx, {
+      x: 0, y: 0, width: ctx.deck.width, height: ctx.deck.height,
+    }, { ...image, fit: "cover" }));
+    out.push({
+      type: "shape",
+      id: ctx.id(),
+      preset: "rect",
+      xfrm: { x: 0, y: 0, cx: ctx.deck.width, cy: ctx.deck.height },
+      fill: { type: "solid", color: panelColor, alpha: 0.75 },
+    });
+  } else {
+    // Full-bleed deep panel for visual closure (default).
+    out.push({
+      type: "shape",
+      id: ctx.id(),
+      preset: "rect",
+      xfrm: { x: 0, y: 0, cx: ctx.deck.width, cy: ctx.deck.height },
+      fill: { type: "solid", color: panelColor },
+    });
+  }
   // Cyan band as a closing flourish.
   out.push({
     type: "shape",

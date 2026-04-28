@@ -16,8 +16,11 @@ describe("context budget — model registry", () => {
     expect(lookupContextWindow("claude-haiku-4-5-20251001")).toBe(200_000);
   });
 
-  it("resolves MiniMax to 200K+", () => {
+  it("resolves MiniMax — M1 keeps 1M, M2 / M2.7 reverted to 200K", () => {
     expect(lookupContextWindow("minimax-m1")).toBe(1_000_000);
+    expect(lookupContextWindow("minimax-m2")).toBe(200_000);
+    expect(lookupContextWindow("minimax-m2.7")).toBe(200_000);
+    expect(lookupContextWindow("minimax-m2.7-highspeed")).toBe(200_000);
     expect(lookupContextWindow("minimax-text-01")).toBe(245_760);
     expect(lookupContextWindow("minimax-abab6.5")).toBe(200_000);
     expect(lookupContextWindow("abab6.5-chat")).toBe(245_760);

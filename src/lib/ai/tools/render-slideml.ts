@@ -38,9 +38,13 @@ Hard rules:
     parameters: {
       type: "object",
       properties: {
+        path: {
+          type: "string",
+          description: "Absolute path to a SlideML YAML file. Preferred when the deck is already on disk (e.g. iterating on a previously-rendered .slideml sidecar).",
+        },
         slideml: {
           type: "string",
-          description: "Full SlideML YAML document (top-level keys: slideml, deck, slides).",
+          description: "Inline SlideML YAML document. Use when the deck isn't on disk yet.",
         },
         theme: {
           type: "string",
@@ -51,20 +55,23 @@ Hard rules:
           description: "Absolute path where the .pptx file should be written. A sibling \`<output_path>.slideml\` source file is written alongside.",
         },
       },
-      required: ["slideml", "output_path"],
+      required: ["output_path"],
     },
   },
 
   async execute(input) {
+    const inputPath = (input.path as string | undefined)?.trim();
     const slideml = String(input.slideml || "").trim();
     const outputPath = String(input.output_path || "").trim();
     const theme = (input.theme as string | undefined) || "technical-blue";
 
-    if (!slideml) return "Error: slideml YAML body is required.";
+    if (!inputPath && !slideml) return "Error: provide either `path` (file) or `slideml` (inline YAML).";
     if (!outputPath) return "Error: output_path (absolute) is required.";
 
     try {
-      const result = await slidemlCompile(slideml, theme, outputPath);
+      // Pass either inline body OR path; the main-process bridge reads
+      // the file. Renderer can't import node:fs (Vite browser bundle).
+      const result = await slidemlCompile(slideml || null, theme, outputPath, inputPath);
       // Sidecar is editable: any future call can read it as the
       // source-of-truth and apply edit_slideml ops without re-emitting
       // the whole YAML. Mention this explicitly so follow-up turns find

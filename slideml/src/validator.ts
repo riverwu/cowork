@@ -8,6 +8,7 @@
 
 import type { DeckSpec, SlideSpec } from "./render/index.js";
 import type { LoadedTheme, SlotSchema } from "./theme/types.js";
+import { DENSITY, DENSITY_VALUES, type Density } from "./render/density.js";
 
 export interface SlidemlValidationError {
   code: string;
@@ -36,6 +37,72 @@ const CJK_BUDGET_MULTIPLIER = 1.6;
 
 function isCjkLanguage(lang: string | undefined): boolean {
   return !!lang && /^(zh|ja|ko)/i.test(lang);
+}
+
+/** Resolve the slide-level density slot value to a Density enum (default normal). */
+function pickDensity(value: unknown): Density {
+  if (typeof value === "string" && (DENSITY_VALUES as readonly string[]).includes(value)) {
+    return value as Density;
+  }
+  return "normal";
+}
+
+/** Per-density character budget (latin or CJK) for a single half-slide column. */
+function budgetForDensity(density: Density, cjk: boolean): number {
+  return cjk ? DENSITY[density].cjkBudget : DENSITY[density].latinBudget;
+}
+
+/**
+ * Layout-level budget multiplier on top of the per-density column budget.
+ *   half-column layouts (two-col-text-image, image-split-text, ...) → 1.0
+ *   prose (single full-width column) → 1.5
+ *   two-column-prose (full width, 2 columns) → 3.0
+ *   letter (full-width body, generous margins, slightly narrower) → 1.3
+ *
+ * Layouts not in this map fall back to 1.0.
+ */
+const LAYOUT_BUDGET_MULTIPLIER: Record<string, number> = {
+  "prose": 1.5,
+  "two-column-prose": 3.0,
+  "letter": 1.3,
+};
+
+function effectiveBudget(layout: string, density: Density, cjk: boolean): number {
+  const base = budgetForDensity(density, cjk);
+  const mult = LAYOUT_BUDGET_MULTIPLIER[layout] ?? 1.0;
+  return Math.round(base * mult);
+}
+
+/**
+ * Build a concrete next-step hint when DENSITY_OVERFLOW fires. Walks the
+ * density ladder upward; if the densest preset (`micro`) still doesn't
+ * have room, recommends switching to a single-column layout (prose) or
+ * two-column-prose, with their effective budgets surfaced inline.
+ */
+function nextDensitySuggestion(
+  slotName: string,
+  current: Density,
+  charCount: number,
+  cjk: boolean,
+  currentLayout: string,
+): string {
+  // Try denser presets at the current layout first.
+  const denser: Density[] = DENSITY_VALUES.slice(DENSITY_VALUES.indexOf(current) + 1);
+  for (const d of denser) {
+    if (charCount <= effectiveBudget(currentLayout, d, cjk)) {
+      return `Set "density: ${d}" (budget ${effectiveBudget(currentLayout, d, cjk)} ${cjk ? "CJK" : "latin"} chars) on this slide.`;
+    }
+  }
+  // Beyond micro on this layout — recommend wider single-column or two-column prose.
+  const proseBudget = effectiveBudget("prose", "micro", cjk);
+  const twoColProseBudget = effectiveBudget("two-column-prose", "micro", cjk);
+  if (currentLayout !== "prose" && charCount <= proseBudget) {
+    return `Densest preset on "${currentLayout}" is too small; switch layout to "prose" (single column, ~${proseBudget} chars at micro density).`;
+  }
+  if (currentLayout !== "two-column-prose" && charCount <= twoColProseBudget) {
+    return `Switch layout to "two-column-prose" (two full columns, ~${twoColProseBudget} chars at micro density).`;
+  }
+  return `Content (${charCount} chars) exceeds even two-column-prose at micro density (~${twoColProseBudget}). Split this slot across multiple slides.`;
 }
 
 /** Validate a parsed deck against a loaded theme. Pure — no side effects. */
@@ -110,7 +177,7 @@ function validateSlide(
       layout: slide.layout,
       slot: slotName,
       message: "",
-    }, out, theme, cjk);
+    }, out, theme, cjk, slide.slots);
   }
 
   // Reject extra slots the layout doesn't declare.
@@ -122,10 +189,48 @@ function validateSlide(
         layout: slide.layout,
         slot: slotName,
         message: `slides[${index}].slots.${slotName} is not declared by layout "${slide.layout}".`,
-        hint: `Layout "${slide.layout}" declares: ${Object.keys(layout.slots).join(", ")}.`,
+        hint: extraKeyHint(slide.layout, slotName, Object.keys(layout.slots)),
       });
     }
   }
+
+  // Common-misuse check: chart-with-takeaway with chart that looks like
+  // an image-ref instead of a chart-spec. Validator's chart-spec branch
+  // emits SLOT_TYPE_MISMATCH on the type field, but the better hint is
+  // "use image-with-takeaway instead". Detect + add a leading hint.
+  if (slide.layout === "chart-with-takeaway") {
+    const c = slide.slots["chart"];
+    if (c && typeof c === "object" && !Array.isArray(c)) {
+      const o = c as { type?: unknown; image?: unknown; src?: unknown };
+      const looksLikeImage = (o.type === "image") || typeof o.image === "string" || typeof o.src === "string";
+      if (looksLikeImage) {
+        out.push({
+          code: "LAYOUT_MISMATCH",
+          slideIndex: index,
+          layout: slide.layout,
+          slot: "chart",
+          message: `slides[${index}] uses layout "chart-with-takeaway" but the chart payload looks like an image (chart.type === "image" or chart.image / chart.src is set).`,
+          hint: `chart-with-takeaway expects a typed chart-spec ({ type: "bar" | "line" | ..., data: { labels, series } }). For a static image (PNG/JPG of a chart), switch to layout: "image-with-takeaway" — same takeaway panel, image instead of native chart.`,
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Build a friendly hint for EXTRA_KEY. Detects common slot-name
+ * confusions and suggests the right layout instead of just listing the
+ * declared slots.
+ */
+function extraKeyHint(layoutName: string, slotName: string, declared: string[]): string {
+  // Closing layout was missing image until recently — agents still
+  // sometimes ask for hero-style closes via the wrong slot.
+  if (layoutName === "closing" && (slotName === "background" || slotName === "bg")) {
+    return `Use slot "image" instead — closing now supports an optional full-bleed background image.`;
+  }
+  // chart-spec slots with image-shaped extra keys: handled separately
+  // by the LAYOUT_MISMATCH check in validateSlide.
+  return `Layout "${layoutName}" declares: ${declared.join(", ")}.`;
 }
 
 function validateSlotValue(
@@ -135,6 +240,7 @@ function validateSlotValue(
   out: SlidemlValidationError[],
   theme: LoadedTheme,
   cjk: boolean,
+  slideSlots: Record<string, unknown>,
 ): void {
   switch (schema.type) {
     case "text":
@@ -164,16 +270,23 @@ function validateSlotValue(
       //   3. (string | { kind, text })[] — typed paragraphs (Tier 3a).
       // Each typed paragraph picks distinctive styling at render time.
       const PARA_KINDS = new Set(["quote", "note", "callout", "h2"]);
-      const effectiveMax = schema.maxChars !== undefined
-        ? (cjk ? Math.round(schema.maxChars * CJK_BUDGET_MULTIPLIER) : schema.maxChars)
-        : undefined;
-      const cjkNote = cjk ? ` (${schema.maxChars} × 1.6 CJK)` : "";
+      // Density-aware budget — when the slide declares a `density` slot,
+      // the effective char budget for this text-block is the density
+      // preset's per-column budget (latin or CJK), NOT the layout's hard
+      // maxChars ceiling. The maxChars ceiling stays as a safety cap at
+      // the densest setting; here we surface DENSITY_OVERFLOW with
+      // concrete next-step suggestions so the agent can iterate.
+      const declaredDensity = pickDensity(slideSlots["density"]);
+      const densityBudget = effectiveBudget(ctx.layout!, declaredDensity, cjk);
+      const cjkNote = cjk ? ` (CJK)` : "";
+      let total = 0;
+      let bad = false;
+      let preview = "";
       if (Array.isArray(value)) {
-        let total = 0;
-        let bad = false;
         for (const item of value) {
           if (typeof item === "string") {
             total += [...item].length + 2;
+            if (!preview && item.length > 0) preview = item.slice(0, 60);
           } else if (item && typeof item === "object" && !Array.isArray(item)) {
             const o = item as { kind?: unknown; text?: unknown };
             if (typeof o.text !== "string") { bad = true; break; }
@@ -181,34 +294,47 @@ function validateSlotValue(
               bad = true; break;
             }
             total += [...o.text].length + 2;
+            if (!preview && o.text.length > 0) preview = o.text.slice(0, 60);
           } else {
             bad = true; break;
           }
         }
-        if (bad) {
-          out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} accepts string | string[] | Array<string | { kind: 'quote'|'note'|'callout'|'h2', text: string }>.` });
-          return;
-        }
-        if (effectiveMax !== undefined && total > effectiveMax) {
-          out.push({
-            ...ctx,
-            code: "SLOT_OVERFLOW",
-            message: `${slotPath(ctx)} (joined paragraphs) is ${total} chars, exceeds maxChars ${effectiveMax}${cjkNote}.`,
-            hint: `Trim "${ctx.slot}" to at most ${effectiveMax} characters, or switch to a denser layout (prose/two-column-prose).`,
-          });
-        }
-        return;
-      }
-      if (typeof value !== "string") {
+      } else if (typeof value !== "string") {
         out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected text-block (string, string[], or Array<{kind,text}>), got ${typeOf(value)}.` });
         return;
+      } else {
+        total = [...value].length;
+        preview = value.slice(0, 60);
       }
-      if (effectiveMax !== undefined && [...value].length > effectiveMax) {
+      if (bad) {
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} accepts string | string[] | Array<string | { kind: 'quote'|'note'|'callout'|'h2', text: string }>.` });
+        return;
+      }
+      // Density-aware soft check (DENSITY_OVERFLOW). Only fires when the
+      // layout actually declares a density slot — layouts without density
+      // (e.g. quote, hero-stat) still rely on the hard maxChars below.
+      const layoutHasDensity = !!theme.layouts.get(ctx.layout!)?.slots["density"]
+        && (theme.layouts.get(ctx.layout!)!.slots["density"] as { type: string }).type === "enum";
+      if (layoutHasDensity && total > densityBudget) {
+        out.push({
+          ...ctx,
+          code: "DENSITY_OVERFLOW",
+          message:
+            `${slotPath(ctx)} is ${total} chars, exceeds density="${declaredDensity}"${cjkNote} budget ${densityBudget}.`,
+          hint: nextDensitySuggestion(ctx.slot!, declaredDensity, total, cjk, ctx.layout!),
+        });
+        return;
+      }
+      // Hard maxChars ceiling — disaster cap that prevents truly oversized input.
+      const effectiveMax = schema.maxChars !== undefined
+        ? (cjk ? Math.round(schema.maxChars * CJK_BUDGET_MULTIPLIER) : schema.maxChars)
+        : undefined;
+      if (effectiveMax !== undefined && total > effectiveMax) {
         out.push({
           ...ctx,
           code: "SLOT_OVERFLOW",
-          message: `${slotPath(ctx)} is ${[...value].length} chars, exceeds maxChars ${effectiveMax}${cjkNote}. Current first 60 chars: ${quote(value.slice(0, 60))}`,
-          hint: `Trim "${ctx.slot}" to at most ${effectiveMax} characters, or switch to a denser layout (prose/two-column-prose).`,
+          message: `${slotPath(ctx)} is ${total} chars, exceeds maxChars ${effectiveMax}${cjkNote}. First 60 chars: ${quote(preview)}`,
+          hint: `Trim "${ctx.slot}" to at most ${effectiveMax} characters, or switch to a denser layout (prose / two-column-prose).`,
         });
       }
       return;

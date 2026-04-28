@@ -71,7 +71,14 @@ describe("Tool Registry", () => {
     // A few tools (e.g. list_slide_layouts) take only optional parameters
     // because their behavior is fully defaulted. Declaring `required: []`
     // is still mandatory so the JSON schema is well-formed.
-    const ALLOW_EMPTY_REQUIRED = new Set(["list_slide_layouts", "list_themes"]);
+    // Tools whose runtime requires "at-least-one-of" semantics that
+    // JSON Schema can't express directly — runtime checks in execute()
+    // enforce the constraint, so `required: []` is intentional.
+    const ALLOW_EMPTY_REQUIRED = new Set([
+      "list_slide_layouts",
+      "list_themes",
+      "validate_slideml",  // accepts `path` OR `slideml`; runtime requires one
+    ]);
     for (const def of defs) {
       const params = def.parameters as { required?: string[] };
       expect(params.required, `${def.name} must declare a required array`).toBeDefined();

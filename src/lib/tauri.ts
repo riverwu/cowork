@@ -412,16 +412,25 @@ export interface SlidemlCompileResult {
   sidecar?: string;
 }
 
-/** Compile a SlideML YAML body to a .pptx file at `outputPath`. */
+/**
+ * Compile a SlideML YAML body to a .pptx file at `outputPath`.
+ *
+ * `slidemlYaml` accepts either an inline YAML body OR `null` when `path`
+ * is supplied — the main-process handler reads the file in that case.
+ * Renderer code can NOT use node:fs (Vite browser bundle); push the file
+ * read through the IPC bridge.
+ */
 export async function slidemlCompile(
-  slidemlYaml: string,
+  slidemlYaml: string | null,
   theme: string | undefined,
   outputPath: string,
+  path?: string,
 ): Promise<SlidemlCompileResult> {
   return invokeDesktop<SlidemlCompileResult>("slideml_compile", {
     slideml: slidemlYaml,
     theme,
     outputPath,
+    path,
   });
 }
 
@@ -441,14 +450,20 @@ export async function slidemlDescribeLayout(
   });
 }
 
-/** Dry-run validate a SlideML YAML body without compiling/writing. */
+/**
+ * Dry-run validate a SlideML YAML body without compiling/writing.
+ * Pass `path` to read from disk in the main process; renderer must not
+ * import node:fs (Vite/Electron renderer bundle is browser-only).
+ */
 export async function slidemlValidate(
-  slidemlYaml: string,
+  slidemlYaml: string | null,
   theme?: string,
+  path?: string,
 ): Promise<SlidemlValidateResult> {
   return invokeDesktop<SlidemlValidateResult>("slideml_validate", {
     slideml: slidemlYaml,
     theme,
+    path,
   });
 }
 

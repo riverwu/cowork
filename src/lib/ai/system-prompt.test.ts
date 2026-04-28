@@ -22,15 +22,17 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("grep");
   });
 
-  it("guides LLM-side knowledge query planning", () => {
+  it("documents the search_knowledge `plan` form", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("do query planning yourself");
-    expect(prompt).toContain("Remove weak stop words");
-    expect(prompt).toContain("Normalize time expressions");
-    expect(prompt).toContain("Add likely synonyms");
-    expect(prompt).toContain("Search from strict to relaxed");
-    expect(prompt).toContain("must: [\"硬件\"]");
-    expect(prompt).toContain("should: [\"3月\"");
+    expect(prompt).toContain("search_knowledge");
+    // Plan-form vocabulary still surfaces — agents need to know the keys exist.
+    expect(prompt).toContain("must");
+    expect(prompt).toContain("should");
+    expect(prompt).toContain("phrases");
+    expect(prompt).toContain("not");
+    // Modes for documents-vs-snippets discovery still mentioned.
+    expect(prompt).toContain("documents");
+    expect(prompt).toContain("snippets");
   });
 
   it("includes autonomy instructions", () => {

@@ -10,8 +10,9 @@ import { imageOrPlaceholder, imageRefOf, richText } from "../render/primitives.j
  */
 export const slots: Record<string, SlotSchema> = {
   title:     { type: "text",       maxChars: 60, optional: true },
-  // text capacity scales with `density`; see two-col-text-image for budgets.
-  text:      { type: "text-block", maxChars: 1200 },
+  // Effective capacity comes from `density` (see two-col-text-image for the
+  // budget table). DENSITY_OVERFLOW fires before this hard ceiling.
+  text:      { type: "text-block", maxChars: 1500 },
   image:     { type: "image-ref" },
   imageSide: { type: "text",       maxChars: 6, optional: true },
   density:   { type: "enum",       values: ["loose", "normal", "dense", "micro"], default: "normal", optional: true },

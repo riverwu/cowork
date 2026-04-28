@@ -159,6 +159,7 @@
     { "name": "quote",                "module": "layouts/quote.js",                "thumbnail": "thumbnails/quote.png" },
     { "name": "quote-with-portrait",  "module": "layouts/quote-with-portrait.js",  "thumbnail": "thumbnails/quote-with-portrait.png" },
     { "name": "chart-with-takeaway",  "module": "layouts/chart-with-takeaway.js",  "thumbnail": "thumbnails/chart-with-takeaway.png" },
+    { "name": "image-with-takeaway",  "module": "layouts/image-with-takeaway.js",  "thumbnail": "thumbnails/image-with-takeaway.png" },
     { "name": "key-point",            "module": "layouts/key-point.js",            "thumbnail": "thumbnails/key-point.png" },
     { "name": "pricing-table",        "module": "layouts/pricing-table.js",        "thumbnail": "thumbnails/pricing-table.png" },
     { "name": "split-2",              "module": "layouts/split-2.js",              "thumbnail": "thumbnails/split-2.png" },

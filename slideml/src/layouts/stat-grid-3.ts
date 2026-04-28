@@ -8,6 +8,10 @@ export const slots: Record<string, SlotSchema> = {
   // Slot value validation for shape-typed entries lands fully in Stage 4.
   // Until then, the layout reads `items` as `KpiItem[]` and ignores extra fields.
   items: { type: "bullets", min: 3, max: 3, itemMaxChars: 64 },
+  // Visual style. "tile" (default) renders each KPI on a card backing.
+  // "minimal" drops the card and uses pure type hierarchy — better for
+  // restrained themes (charcoal-minimal, editorial-paper).
+  style: { type: "enum", values: ["tile", "minimal"], default: "tile", optional: true },
 };
 
 interface KpiItem {
@@ -34,9 +38,10 @@ const statGrid3: LayoutFn = (ctx: LayoutContext): ShapeList => {
   });
   const cells = gridCols(ctx, tileBand, 3, { gap: ctx.cm(0.8) });
 
+  const style = ctx.slot<string>("style") ?? "tile";
   cells.forEach((cell, i) => {
     const item = items[i] ?? { value: "—", label: "" };
-    out.push(...card(ctx, cell));
+    if (style === "tile") out.push(...card(ctx, cell));
 
     // KPI value (large, centered).
     out.push({

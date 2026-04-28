@@ -103,7 +103,10 @@ async function main(): Promise<void> {
     } catch (err) {
       if (err instanceof SlidemlAggregateError) {
         process.stderr.write(`Validation failed:\n`);
-        for (const e of err.errors) process.stderr.write(`  - [${e.code}] ${e.message}\n`);
+        for (const e of err.errors) {
+          process.stderr.write(`  - [${e.code}] ${e.message}\n`);
+          if (e.hint) process.stderr.write(`    hint: ${e.hint}\n`);
+        }
         process.exit(2);
       }
       throw err;
@@ -121,7 +124,10 @@ async function main(): Promise<void> {
       process.stdout.write("OK\n");
     } else {
       process.stderr.write(`Validation failed:\n`);
-      for (const e of result.errors) process.stderr.write(`  - [${e.code}] ${e.message}\n`);
+      for (const e of result.errors) {
+        process.stderr.write(`  - [${e.code}] ${e.message}\n`);
+        if (e.hint) process.stderr.write(`    hint: ${e.hint}\n`);
+      }
       process.exit(2);
     }
     return;

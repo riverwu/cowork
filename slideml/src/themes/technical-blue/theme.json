@@ -95,6 +95,7 @@
     { "name": "code-block",           "module": "layouts/code-block.js",           "thumbnail": "thumbnails/code-block.png" },
     { "name": "quote",                "module": "layouts/quote.js",                "thumbnail": "thumbnails/quote.png" },
     { "name": "chart-with-takeaway",  "module": "layouts/chart-with-takeaway.js",  "thumbnail": "thumbnails/chart-with-takeaway.png" },
+    { "name": "image-with-takeaway",  "module": "layouts/image-with-takeaway.js",  "thumbnail": "thumbnails/image-with-takeaway.png" },
     { "name": "dashboard",            "module": "layouts/dashboard.js",            "thumbnail": "thumbnails/dashboard.png" },
     { "name": "split-2",              "module": "layouts/split-2.js",              "thumbnail": "thumbnails/split-2.png" },
     { "name": "split-3-horizontal",   "module": "layouts/split-3-horizontal.js",   "thumbnail": "thumbnails/split-3-horizontal.png" },

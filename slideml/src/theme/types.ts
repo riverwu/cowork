@@ -194,6 +194,13 @@ export interface LoadedLayout {
   render: (...args: unknown[]) => unknown;
   /** Description: first paragraph of the layout's section in `theme.md`. */
   description: string;
+  /**
+   * One-line agent-facing purpose from the global `_purposes.ts` table.
+   * Surfaced by `summarizeLayouts` and `describeLayout` so the agent can
+   * scan the layout list once and route correctly without reading every
+   * theme.md subsection.
+   */
+  purpose?: string;
   /** Resolved absolute path to the thumbnail PNG. */
   thumbnailAbsPath: string;
   /**

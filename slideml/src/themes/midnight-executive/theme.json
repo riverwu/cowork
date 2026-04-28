@@ -248,6 +248,11 @@
       "thumbnail": "thumbnails/chart-with-takeaway.png"
     },
     {
+      "name": "image-with-takeaway",
+      "module": "layouts/image-with-takeaway.js",
+      "thumbnail": "thumbnails/image-with-takeaway.png"
+    },
+    {
       "name": "bullet-with-image",
       "module": "layouts/bullet-with-image.js",
       "thumbnail": "thumbnails/bullet-with-image.png"
