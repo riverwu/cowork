@@ -26,6 +26,8 @@ const BROWSER_READ_ACTIONS = new Set([
   "state",
   "extract",
   "inspect",
+  "read",
+  "grep",
   "wait_for_change",
   "get_url",
   "tabs",
@@ -967,6 +969,14 @@ async function executeBrowserAction(name, action) {
       }
       return await inspectBrowserRef(frame, ref, Number(action.max_chars || 2000));
     }
+    case "read": {
+      const page = await ensureBrowser({});
+      return await readBrowserContent(page, action);
+    }
+    case "grep": {
+      const page = await ensureBrowser({});
+      return await grepBrowserContent(page, action);
+    }
     case "show":
       return await setBrowserVisibility(true);
     case "hide":
@@ -1442,6 +1452,146 @@ async function sampleBrowserPageState(page) {
     textHead: frames.map((f) => f.textHead || "").filter(Boolean).join("\n").slice(0, 500),
     frames,
   };
+}
+
+async function readBrowserContent(page, action) {
+  const source = normalizeBrowserContentSource(action.source);
+  const offset = Math.max(0, Number(action.offset || 0));
+  const maxChars = Math.max(500, Math.min(Number(action.max_chars || 6000), 50000));
+  const ref = action.ref === undefined ? null : Number(action.ref);
+  const frameIndex = action.frame === undefined ? 0 : Number(action.frame);
+  const frame = getBrowserFrame(page, frameIndex);
+  let content;
+  if (ref !== null) {
+    if (!Number.isFinite(ref)) throw new Error("read ref must be numeric");
+    const { frame: refFrame } = getBrowserFrameForRef(page, ref);
+    content = await getBrowserContent(refFrame, source, ref);
+  } else {
+    content = await getBrowserContent(frame, source, null);
+  }
+  const totalChars = content.length;
+  const text = content.slice(offset, offset + maxChars);
+  return {
+    source,
+    ref,
+    frameIndex: ref !== null ? getBrowserRef(ref).frameIndex : frameIndex,
+    url: ref !== null ? getBrowserRef(ref).frameUrl : frame.url(),
+    offset,
+    maxChars,
+    totalChars,
+    returnedRange: [offset, offset + text.length],
+    hasMore: offset + text.length < totalChars,
+    text,
+  };
+}
+
+async function grepBrowserContent(page, action) {
+  const pattern = String(action.pattern || action.query || "");
+  if (!pattern) throw new Error("grep requires pattern");
+  const source = normalizeBrowserContentSource(action.source);
+  const caseSensitive = !!action.case_sensitive;
+  const maxMatches = Math.max(1, Math.min(Number(action.max_matches || action.max_items || 30), 200));
+  const contextChars = Math.max(0, Math.min(Number(action.context_chars || 120), 1000));
+  const flags = caseSensitive ? "g" : "gi";
+  let regex;
+  try {
+    regex = new RegExp(pattern, flags);
+  } catch {
+    regex = new RegExp(escapeRegExp(pattern), flags);
+  }
+
+  const matches = [];
+  const frames = page.frames();
+  for (let frameIndex = 0; frameIndex < frames.length; frameIndex++) {
+    const frame = frames[frameIndex];
+    let content = "";
+    try {
+      content = await getBrowserContent(frame, source, null);
+    } catch {
+      continue;
+    }
+    regex.lastIndex = 0;
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      matches.push({
+        frameIndex,
+        url: frame.url(),
+        index: start,
+        match: match[0],
+        context: content.slice(Math.max(0, start - contextChars), Math.min(content.length, end + contextChars)).replace(/\s+/g, " ").trim(),
+      });
+      if (matches.length >= maxMatches) break;
+      if (match[0].length === 0) regex.lastIndex += 1;
+    }
+    if (matches.length >= maxMatches) break;
+  }
+  return {
+    source,
+    pattern,
+    caseSensitive,
+    matchCount: matches.length,
+    truncated: matches.length >= maxMatches,
+    matches,
+  };
+}
+
+function getBrowserFrame(page, frameIndex) {
+  const index = Number.isFinite(frameIndex) ? frameIndex : 0;
+  const frame = page.frames()[index];
+  if (!frame) throw new Error(`frame ${index} does not exist`);
+  return frame;
+}
+
+function normalizeBrowserContentSource(source) {
+  const value = String(source || "text");
+  if (["text", "html", "links"].includes(value)) return value;
+  return "text";
+}
+
+async function getBrowserContent(frame, source, ref) {
+  return frame.evaluate(({ source, ref }) => {
+    function shadowRootOf(el) {
+      try {
+        return el.shadowRoot || (window.__coworkClosedShadowRoots && window.__coworkClosedShadowRoots.get(el)) || null;
+      } catch {
+        return null;
+      }
+    }
+    function find(root, depth) {
+      if (!root || depth > 10 || !ref) return null;
+      let found = null;
+      try { found = root.querySelector(`[data-cowork-ref="${ref}"]`); } catch {}
+      if (found) return found;
+      let all = [];
+      try { all = Array.from(root.querySelectorAll("*")); } catch {}
+      for (const el of all) {
+        const sr = shadowRootOf(el);
+        if (sr) {
+          const inner = find(sr, depth + 1);
+          if (inner) return inner;
+        }
+      }
+      return null;
+    }
+    const root = ref ? find(document, 0) : document.documentElement;
+    if (!root) throw new Error(`STALE_REF: ref ${ref} not found in frame`);
+    if (source === "html") return root.outerHTML || "";
+    if (source === "links") {
+      const scope = root.querySelectorAll ? root : document;
+      return Array.from(scope.querySelectorAll("a[href]")).map((a) => {
+        let absoluteUrl = "";
+        try { absoluteUrl = new URL(a.getAttribute("href") || "", location.href).href; } catch { absoluteUrl = a.getAttribute("href") || ""; }
+        return `${(a.innerText || a.textContent || "").replace(/\s+/g, " ").trim()} -> ${absoluteUrl}`;
+      }).join("\n");
+    }
+    return (root.innerText || root.textContent || "").replace(/\n{3,}/g, "\n\n").trim();
+  }, { source, ref: ref == null ? null : String(ref) });
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function extractFromBrowserSnapshot(snapshot, query, maxItems) {

@@ -35,6 +35,8 @@ describe("browser tool", () => {
       "snapshot",
       "extract",
       "inspect",
+      "read",
+      "grep",
       "show",
       "hide",
       "reload",
@@ -80,6 +82,14 @@ describe("browser tool", () => {
       actions: [
         { action: "open", url: "https://ir.youdao.com", timeout_ms: 30000 },
         { action: "extract", query: "company profile financial", max_items: 12 },
+      ],
+    },
+    {
+      name: "large page search and segmented reading",
+      actions: [
+        { action: "grep", pattern: "Financial", source: "html", max_matches: 10, context_chars: 80 },
+        { action: "read", source: "text", offset: 6000, max_chars: 3000 },
+        { action: "read", source: "links", max_chars: 5000 },
       ],
     },
     {

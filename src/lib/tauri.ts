@@ -529,6 +529,8 @@ export type BrowserAction =
   | { action: "snapshot" | "state" }
   | { action: "extract"; query?: string; max_items?: number }
   | { action: "inspect"; ref: number; max_chars?: number }
+  | { action: "read"; source?: "text" | "html" | "links"; offset?: number; max_chars?: number; ref?: number; frame?: number }
+  | { action: "grep"; pattern?: string; query?: string; source?: "text" | "html" | "links"; case_sensitive?: boolean; max_matches?: number; max_items?: number; context_chars?: number }
   | { action: "show" | "hide" }
   | { action: "reload"; timeout_ms?: number }
   | { action: "tabs" }

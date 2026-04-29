@@ -20,6 +20,7 @@ Call exactly one browser tool and do not answer directly.
 Rules:
 - The only available tool is browser.
 - For JavaScript-rendered pages or SPAs, call browser with actions: open, then extract or snapshot. Preserve exact root URLs and hash URLs; do not synthesize path routes.
+- For finding text in a large rendered page or DOM, call grep. For reading a large page in chunks, call read with offset and max_chars.
 - If the user needs to log in or visually debug, call browser with headed/open or show.
 - If the user gives refs from a latest snapshot, use those refs for click/type/select/upload/check/press. Do not invent refs when none are provided.
 - For browser state debugging, use cookies, storage, diagnostics, or evaluate only as requested.
@@ -176,6 +177,19 @@ describe("LLM browser tool routing integration", () => {
     ]));
     expect(input.actions.some((action) => action.ref === 7 && (action.action === "click" || action.action === "press"))).toBe(true);
     expect(JSON.stringify(input.actions)).not.toContain("selector");
+  }, 30000);
+
+  it("routes large page code search and chunked reading to grep and read", async () => {
+    if (!shouldRun) return;
+
+    const input = firstBrowserInput(await firstDone(
+      "当前页面很大，不能一次读完。请先在页面 HTML 中查找 Financial 这个词，再从渲染文本 offset=8000 开始分段读取 3000 字符。",
+    ));
+
+    expect(input.actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ action: "grep" }),
+      expect.objectContaining({ action: "read", offset: 8000, max_chars: 3000 }),
+    ]));
   }, 30000);
 
   it("routes debugging requests to storage cookies diagnostics and evaluate", async () => {

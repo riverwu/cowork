@@ -7,9 +7,9 @@ export const browserTool: Tool = {
     description:
       `Control Cowork's built-in Playwright browser. Use this for JavaScript-rendered pages, authenticated pages, visual checks, and page interaction. ` +
       `Pass an actions[] array. Use open/navigate or snapshot to get structured page facts: real links include href, absoluteUrl, pathname, and hash. ` +
-      `Use extract to pull focused page facts from the current structured snapshot, inspect to read local structure around one ref, and wait_for_change after actions that trigger async updates. ` +
+      `Use extract to pull focused page facts from the current structured snapshot, inspect to read local structure around one ref, grep to find text/html occurrences, read to page through large text/html/link content, and wait_for_change after actions that trigger async updates. ` +
       `Use show when the user needs to login in a visible controlled browser; use hide to return to background mode. ` +
-      `Click/type/select/upload/check/hover only with ref values returned by the latest snapshot. Do not guess selectors, wait text, or synthesize URLs; use snapshot links and refs.`,
+      `Click/type/select/upload/check/hover only with ref values returned by the latest snapshot. Use evaluate only as an advanced fallback when built-in actions cannot express the operation. Do not guess selectors, wait text, or synthesize URLs; use snapshot links and refs.`,
     parameters: {
       type: "object",
       properties: {
@@ -22,7 +22,7 @@ export const browserTool: Tool = {
               action: {
                 type: "string",
                 enum: [
-                  "open", "navigate", "snapshot", "state", "extract", "inspect",
+                  "open", "navigate", "snapshot", "state", "extract", "inspect", "read", "grep",
                   "show", "hide", "reload", "tabs", "new_tab", "switch_tab", "close_tab",
                   "click", "hover", "dblclick", "rightclick", "type", "select", "upload", "check", "uncheck", "clear", "press",
                   "scroll", "back", "wait_for_change", "get_url", "screenshot", "pdf", "downloads", "cookies", "storage", "diagnostics", "evaluate", "close",
@@ -55,7 +55,32 @@ export const browserTool: Tool = {
               },
               max_chars: {
                 type: "number",
-                description: "inspect: maximum outerHTML characters to return for one ref, default 2000.",
+                description: "inspect/read/evaluate: maximum characters to return.",
+              },
+              offset: {
+                type: "number",
+                description: "read: starting character offset for segmented reading, default 0.",
+              },
+              source: {
+                type: "string",
+                enum: ["text", "html", "links"],
+                description: "read/grep: content source. text uses rendered visible text, html uses current DOM HTML, links returns visible link text and absolute URLs.",
+              },
+              pattern: {
+                type: "string",
+                description: "grep: regex or literal text pattern to search for in rendered text/html/links.",
+              },
+              case_sensitive: {
+                type: "boolean",
+                description: "grep: case-sensitive matching when true.",
+              },
+              max_matches: {
+                type: "number",
+                description: "grep: maximum matches to return, default 30.",
+              },
+              context_chars: {
+                type: "number",
+                description: "grep: characters of context before and after each match, default 120.",
               },
               value: {
                 type: "string",
