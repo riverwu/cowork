@@ -456,6 +456,11 @@ function slidemlThemePath(theme) {
   throw new Error(`Theme "${theme}" not found in built-ins or ~/.cowork/themes/`);
 }
 
+function extractDeckTheme(slidemlYaml) {
+  const match = /(?:^|[\s,{])"?theme"?\s*:\s*["']?([A-Za-z0-9_./-]+)["']?/.exec(slidemlYaml || "");
+  return match && match[1];
+}
+
 async function slidemlCompile(slidemlYaml, theme, outputPath, srcPath) {
   // Resolve the YAML body from either an inline string or a file path.
   // The renderer can't import node:fs (Vite browser bundle), so the
@@ -470,7 +475,7 @@ async function slidemlCompile(slidemlYaml, theme, outputPath, srcPath) {
   if (!fs.existsSync(cli)) {
     throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
   }
-  const themeDir = slidemlThemePath(theme);
+  const themeDir = slidemlThemePath(theme || extractDeckTheme(slidemlYaml));
   const tmpYaml = path.join(os.tmpdir(), `slideml-${crypto.randomUUID()}.yaml`);
   await fsp.writeFile(tmpYaml, slidemlYaml, "utf8");
   await fsp.mkdir(path.dirname(outputPath), { recursive: true });
@@ -539,7 +544,15 @@ async function slidemlEdit(sidecarPath, ops, theme, outputPath) {
   if (!fs.existsSync(cli)) {
     throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
   }
-  const themeDir = slidemlThemePath(theme);
+  let sourceTheme = "";
+  if (!theme) {
+    try {
+      sourceTheme = extractDeckTheme(await fsp.readFile(sidecarPath, "utf8")) || "";
+    } catch {
+      sourceTheme = "";
+    }
+  }
+  const themeDir = slidemlThemePath(theme || sourceTheme);
   const tmpOps = path.join(os.tmpdir(), `slideml-ops-${crypto.randomUUID()}.json`);
   await fsp.writeFile(tmpOps, JSON.stringify(ops), "utf8");
   await fsp.mkdir(path.dirname(outputPath), { recursive: true });
@@ -621,7 +634,7 @@ async function slidemlValidate(slidemlYaml, theme, srcPath) {
   if (!fs.existsSync(cli)) {
     throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
   }
-  const themeDir = slidemlThemePath(theme);
+  const themeDir = slidemlThemePath(theme || extractDeckTheme(slidemlYaml));
   const tmpYaml = path.join(os.tmpdir(), `slideml-validate-${crypto.randomUUID()}.yaml`);
   await fsp.writeFile(tmpYaml, slidemlYaml, "utf8");
   try {

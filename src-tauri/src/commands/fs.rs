@@ -1350,6 +1350,30 @@ fn slideml_theme_path(theme: &str) -> Result<String, String> {
     Err(format!("Theme \"{}\" not found in built-ins or ~/.cowork/themes/", theme))
 }
 
+fn extract_slideml_deck_theme(source: &str) -> Option<String> {
+    let idx = source.find("\"theme\"").or_else(|| source.find("theme"))?;
+    let after_key = &source[idx..];
+    let colon = after_key.find(':')?;
+    let value = after_key[colon + 1..].trim_start();
+    let value = value
+        .strip_prefix('"')
+        .or_else(|| value.strip_prefix('\''))
+        .unwrap_or(value);
+    let theme: String = value
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | '-'))
+        .collect();
+    if theme.is_empty() { None } else { Some(theme) }
+}
+
+fn slideml_theme_path_for_source(theme: Option<&str>, source: &str) -> Result<String, String> {
+    if let Some(theme) = theme.map(str::trim).filter(|theme| !theme.is_empty()) {
+        return slideml_theme_path(theme);
+    }
+    let detected = extract_slideml_deck_theme(source);
+    slideml_theme_path(detected.as_deref().unwrap_or(""))
+}
+
 #[tauri::command]
 pub async fn slideml_compile(
     slideml: String,
@@ -1367,7 +1391,7 @@ pub async fn slideml_compile(
         return Err("slideml_compile: output_path is required".into());
     }
     let cli = slideml_cli_path()?;
-    let theme_dir = slideml_theme_path(theme.as_deref().unwrap_or(""))?;
+    let theme_dir = slideml_theme_path_for_source(theme.as_deref(), &slideml)?;
 
     let tmp = std::env::temp_dir().join(format!("slideml-{}.yaml", uuid::Uuid::new_v4()));
     fs::write(&tmp, slideml.as_bytes()).map_err(|e| format!("write tmp yaml: {}", e))?;
@@ -1514,7 +1538,12 @@ pub async fn slideml_edit(
         return Err("slideml_edit: ops must be a JSON array".into());
     }
     let cli = slideml_cli_path()?;
-    let theme_dir = slideml_theme_path(theme.as_deref().unwrap_or(""))?;
+    let sidecar_theme_source = if theme.as_deref().map(str::trim).filter(|t| !t.is_empty()).is_none() {
+        fs::read_to_string(&sidecar_path).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let theme_dir = slideml_theme_path_for_source(theme.as_deref(), &sidecar_theme_source)?;
     let tmp_ops = std::env::temp_dir().join(format!("slideml-ops-{}.json", uuid::Uuid::new_v4()));
     fs::write(&tmp_ops, serde_json::to_vec(&ops).map_err(|e| format!("encode ops: {}", e))?)
         .map_err(|e| format!("write tmp ops: {}", e))?;
@@ -1683,7 +1712,7 @@ pub async fn slideml_validate(
         return Err("slideml_validate: slideml YAML body is required".into());
     }
     let cli = slideml_cli_path()?;
-    let theme_dir = slideml_theme_path(theme.as_deref().unwrap_or(""))?;
+    let theme_dir = slideml_theme_path_for_source(theme.as_deref(), &slideml)?;
     let tmp = std::env::temp_dir().join(format!("slideml-validate-{}.yaml", uuid::Uuid::new_v4()));
     fs::write(&tmp, slideml.as_bytes()).map_err(|e| format!("write tmp yaml: {}", e))?;
     let expanded_path = super::mcp::expanded_path_str();

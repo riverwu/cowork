@@ -1,5 +1,15 @@
 import type { Tool } from "./types";
-import { slidemlEdit, type SlidemlEditOp } from "@/lib/tauri";
+import { readFileText, slidemlEdit, type SlidemlEditOp } from "@/lib/tauri";
+
+/**
+ * Lightweight `deck.theme` peek for JSON/YAML sidecars. This mirrors
+ * render_slideml's auto-detect behavior so edits keep the deck's declared
+ * theme as the source of truth.
+ */
+function extractDeckTheme(body: string): string | undefined {
+  const m = /(?:^|[\s,{])"?theme"?\s*:\s*["']?([A-Za-z0-9_./-]+)["']?/.exec(body);
+  return m?.[1];
+}
 
 export const editSlidemlTool: Tool = {
   definition: {
@@ -27,7 +37,10 @@ Indexes are 0-based. \`output_path\` may be the same as the original (overwrites
           items: { type: "object" },
         },
         output_path: { type: "string", description: "Absolute path where the recompiled .pptx is written." },
-        theme: { type: "string", description: "Theme name. Defaults to 'technical-blue'." },
+        theme: {
+          type: "string",
+          description: "OPTIONAL. Theme name or absolute path to a theme directory. Leave unset and the tool auto-detects from the sidecar's own `deck.theme` field.",
+        },
       },
       required: ["sidecar_path", "ops", "output_path"],
     },
@@ -36,7 +49,7 @@ Indexes are 0-based. \`output_path\` may be the same as the original (overwrites
   async execute(input) {
     const sidecarPath = String(input.sidecar_path || "").trim();
     const outputPath = String(input.output_path || "").trim();
-    const theme = (input.theme as string | undefined) || "technical-blue";
+    const explicitTheme = (input.theme as string | undefined)?.trim();
 
     // Lenient: accept either an actual array OR a JSON-encoded string.
     // Real-LLM observation: agents sometimes double-encode large nested
@@ -62,9 +75,27 @@ Indexes are 0-based. \`output_path\` may be the same as the original (overwrites
     if (!outputPath) return "Error: output_path is required.";
     if (!Array.isArray(ops) || ops.length === 0) return "Error: ops must be a non-empty array.";
 
+    let theme = explicitTheme || "technical-blue";
+    let themeSource = explicitTheme ? "explicit" : "default";
+    if (!explicitTheme) {
+      try {
+        const declared = extractDeckTheme(await readFileText(sidecarPath));
+        if (declared) {
+          theme = declared;
+          themeSource = "sidecar";
+        }
+      } catch {
+        // Fall back to the legacy default. The edit/compile path will report
+        // a clearer file or validation error if the sidecar is unreadable.
+      }
+    }
+
     try {
       await slidemlEdit(sidecarPath, ops, outputPath, theme);
-      return `Edited ${sidecarPath} (${ops.length} op(s)) → ${outputPath} (sidecar: ${outputPath}.slideml).`;
+      const themeNote = themeSource === "sidecar"
+        ? ` Theme: ${theme} (auto-detected from sidecar).`
+        : ` Theme: ${theme}.`;
+      return `Edited ${sidecarPath} (${ops.length} op(s)) → ${outputPath} (sidecar: ${outputPath}.slideml).${themeNote}`;
     } catch (err) {
       return `Error: edit_slideml failed.\n${err instanceof Error ? err.message : String(err)}`;
     }

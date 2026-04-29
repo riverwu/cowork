@@ -118,6 +118,11 @@ describe("SlideML cowork integration — tool↔IPC contract", () => {
   it("edit_slideml — accepts ops as a JSON-encoded STRING (lenient form)", async () => {
     // Real-LLM regression: large nested ops arrays sometimes arrive as a
     // JSON string instead of an array. Tool auto-parses.
+    ipcReturns["read_file_text"] = JSON.stringify({
+      slideml: 1,
+      deck: { size: "16x9", theme: "technical-blue" },
+      slides: [],
+    });
     ipcReturns["slideml_edit"] = { outputPath: "/tmp/z.pptx", sidecar: "/tmp/z.pptx.slideml" };
     const tool = getTool("edit_slideml")!;
     const opsStr = JSON.stringify([
@@ -125,24 +130,34 @@ describe("SlideML cowork integration — tool↔IPC contract", () => {
     ]);
     const result = await tool.execute({ sidecar_path: "/tmp/z.pptx.slideml", ops: opsStr, output_path: "/tmp/z.pptx" });
     expect(result).not.toContain("Error");
-    expect(ipcCalls[0]?.args).toMatchObject({
+    expect(ipcCalls[1]?.args).toMatchObject({
       sidecarPath: "/tmp/z.pptx.slideml",
       outputPath: "/tmp/z.pptx",
     });
     // The IPC layer received a real array, not the original string.
-    const sentOps = (ipcCalls[0]!.args as { ops?: unknown }).ops;
+    const sentOps = (ipcCalls[1]!.args as { ops?: unknown }).ops;
     expect(Array.isArray(sentOps)).toBe(true);
   });
 
   it("edit_slideml — passes ops as a JSON array", async () => {
+    ipcReturns["read_file_text"] = JSON.stringify({
+      slideml: 1,
+      deck: { size: "16x9", theme: "editorial-warm" },
+      slides: [],
+    });
     ipcReturns["slideml_edit"] = { outputPath: "/tmp/y.pptx", sidecar: "/tmp/y.pptx.slideml" };
     const tool = getTool("edit_slideml")!;
     const ops = [{ kind: "set", path: "slides[0].slots.title", value: "new" }];
     await tool.execute({ sidecar_path: "/tmp/y.pptx.slideml", ops, output_path: "/tmp/y.pptx" });
-    expect(ipcCalls[0]?.command).toBe("slideml_edit");
-    expect(ipcCalls[0]?.args).toMatchObject({
+    expect(ipcCalls[0]).toEqual({
+      command: "read_file_text",
+      args: { path: "/tmp/y.pptx.slideml" },
+    });
+    expect(ipcCalls[1]?.command).toBe("slideml_edit");
+    expect(ipcCalls[1]?.args).toMatchObject({
       sidecarPath: "/tmp/y.pptx.slideml",
       outputPath: "/tmp/y.pptx",
+      theme: "editorial-warm",
       ops,
     });
   });
