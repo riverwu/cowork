@@ -10,11 +10,11 @@ import {
 } from "../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
-  title:      { type: "text",       maxChars: 50, optional: true },
-  leftTitle:  { type: "text",       maxChars: 30 },
-  leftBody:   { type: "text-block", maxChars: 280 },
-  rightTitle: { type: "text",       maxChars: 30 },
-  rightBody:  { type: "text-block", maxChars: 280 },
+  title:      { type: "text",       maxChars: 35, optional: true },
+  leftTitle:  { type: "text",       maxChars: 21 },
+  leftBody:   { type: "text-block", maxChars: 196 },
+  rightTitle: { type: "text",       maxChars: 21 },
+  rightBody:  { type: "text-block", maxChars: 196 },
 };
 
 const compareTwoColumns: LayoutFn = (ctx: LayoutContext): ShapeList => {
@@ -60,6 +60,7 @@ const compareTwoColumns: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: col.x + ctx.cm(0.6), y: col.y + ctx.cm(2.0), cx: col.width - ctx.cm(1.2), cy: col.height - ctx.cm(2.6) },
       valign: "top",
+      autoFit: "shrink",
       paragraphs: (paras.length > 0 ? paras : [b]).map((p) => ({
         align: "left",
         lineSpacingHalfPt: 56,

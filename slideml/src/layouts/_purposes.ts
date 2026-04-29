@@ -24,49 +24,44 @@ export const PURPOSES: Record<string, string> = {
   "outline":             "Multi-level ToC with nested sub-items (book/syllabus).",
 
   // ── Pure text ────────────────────────────────────────────────────────
-  "prose":               "Single-column long-form body. ≤270/540/1080/1800 chars CJK by density.",
-  "two-column-prose":    "Magazine 2-column body flow. ≤540/1080/2160/3600 chars CJK by density.",
+  "prose":               "Long-form body. columns: 1 (default, generous margins) | 2 (magazine flow). Density-aware budgets.",
   "executive-summary":   "TL;DR clipboard: 2–6 numbered { heading, line }. Quieter than key-point.",
   "q-and-a":             "FAQ list. 1–5 question + answer pairs.",
   "definition":          "Single-term page: term + pronunciation + body + example.",
   "glossary":            "Two-column term + definition list. 3–12 entries.",
   "letter":              "Open-letter format: date, recipient, body, signoff, signature.",
-  "timeline-text":       "Vertical narrative timeline. 2–6 events with date + body.",
-  "quote":               "Pull-quote. ≤240 chars. Use quote-with-portrait if you have a face.",
-  "quote-with-portrait": "Pull-quote + circular portrait + name + role.",
+  "quote":               "Pull-quote. Optional portrait → magazine layout (circular avatar + name + role); without portrait → bare big-glyph centered quote.",
 
-  // ── Text + image ─────────────────────────────────────────────────────
-  "two-col-text-image":  "Title + paragraph text + image side-by-side. Pick density + imageRatio.",
-  "bullet-with-image":   "Title + 3–6 bullets + side image. imageRatio configurable.",
-  "image-split-text":    "Immersive 50/50 — image edge-to-edge, text on other half.",
+  // ── Text + visual ────────────────────────────────────────────────────
+  "visual-with-text":    "Visual (image | chart | table | svg) + sibling text column. textKind: prose|bullets, imageStyle: card|bleed (image only), position: left|right, ratio.",
 
   // ── Image-led ────────────────────────────────────────────────────────
   "image-full-bleed":    "Image fills the slide. Optional caption band.",
-  "image-with-caption":  "Editorial: image + italic caption + optional credit. Magazine feel.",
-  "image-pair":          "Two side-by-side images (before/after, comparison). Optional labels.",
+  "visual-with-caption": "Visual (image | chart | table | svg) + bottom annotation. style: caption (italic editorial) | takeaway (branded callout panel).",
+  "image-grid":          "Gallery of 2–4 images. count=2 → side-by-side (before/after). count=4 → 2×2 grid with optional captions.",
   "hero-image-overlay":  "Full-bleed image with translucent overlay carrying title + subtitle.",
-  "image-grid-2x2":      "2×2 grid of up to 4 images, each with optional caption.",
 
   // ── Data ─────────────────────────────────────────────────────────────
   "stat-grid-3":         "3 KPI tiles in a row. style: tile|minimal.",
   "hero-stat":           "ONE huge headline number. Use sparingly — once per deck.",
-  "chart-with-takeaway": "Title + NATIVE chart-spec data + boxed conclusion. NOT for static images — use image-with-takeaway.",
-  "image-with-takeaway": "Title + STATIC image (rendered chart, diagram, photo) + boxed conclusion. Use when chart is a PNG/JPG, not data.",
   "data-table":          "Native table with header + alternating rows. align per column.",
-  "dashboard":           "2×2 grid of polymorphic regions (KPI/chart/table/text/...).",
 
   // ── Frameworks / structure ───────────────────────────────────────────
   "matrix-2x2":          "Quadrant framework (priority×effort, etc) with optional axis labels.",
   "compare-two-columns": "Side-by-side option A vs option B card layout.",
-  "process-timeline":    "3–5 step process. direction: horizontal|vertical.",
-  "key-point":           "Tagline + 2–4 supporting points with icons. 'Three reasons' style.",
+  "timeline":            "Step or event sequence. direction: horizontal (process diagram) | vertical (narrative timeline with optional date column). 2–6 items.",
+  "process-flow":        "Causal A→B→C pipeline as connected chevrons. Use over `timeline` when conveying STAGES not events; over `key-point` when order matters. 2–8 steps.",
+  "roadmap":             "Gantt-style time × tracks. periods[] (3–12 quarters/months) × tracks[] (1–7 lanes), each track has bars {start,end,label?,status?}. For product / project / release plans.",
+  "swot":                "Fixed Strengths/Weaknesses/Opportunities/Threats quadrants with canonical color semantics. Use `matrix-2x2` for arbitrary axis frameworks.",
+  "funnel":              "3–6 stages narrowing top-down. Each stage: { label, value?, sublabel? }. For conversion / pipeline / cohort.",
+  "key-point":           "Tagline + 2–4 supporting points with icons. 'Three reasons' style. For 5+ items use content-grid or dashboard cells[].",
+  "content-grid":        "3–8 simple `{title, body}` cards in an auto-flex grid. The 'I have N small content blocks' pattern — use over key-point (max 4) or dashboard (polymorphic regions overkill for plain text).",
+  "dashboard":           "2–8 polymorphic region cells (KPI/chart/table/text/...). cells[] form for 2-8; legacy tl/tr/bl/br for 4. Auto-arranged 1×2..2×4.",
   "pricing-table":       "2–4 pricing tier cards. Recommended tier highlighted.",
   "team-grid":           "2–8 team members with circular avatars + name + role.",
 
   // ── Composition ──────────────────────────────────────────────────────
-  "split-2":             "Two heterogeneous regions side-by-side. ratio: 50-50/60-40/40-60/etc.",
-  "split-3-horizontal":  "Three region columns. ratio: equal/wide-center/wide-left/wide-right.",
-  "split-3-vertical":    "Top region + 50/50 bottom row. ratio: top:bottom height.",
+  "split":               "N polymorphic regions. cells: 2|3, direction: horizontal|vertical (T-shape on 3+vertical), ratio enum. Replaces split-2 / split-3-horizontal / split-3-vertical.",
   "framed":              "Optional header/footer/leftEdge/rightEdge bands + required center.",
 
   // ── Specialised ──────────────────────────────────────────────────────

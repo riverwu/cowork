@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { runAgent } from "@/lib/ai/agent";
 import { skillRegistry } from "@/lib/ai/skill-registry";
-import type { LLMMessage } from "@/lib/ai/providers/types";
+import { getTool } from "@/lib/ai/tools/registry";
+import type { LLMMessage, ToolCall } from "@/lib/ai/providers/types";
 import type { AgentEvent, Artifact, Message } from "@/types";
 import {
   createSession, createMessage, listMessages,
@@ -35,6 +36,13 @@ interface AgentStepRecord {
   durationMs?: number;
   liveOutput?: string;
   success?: boolean;
+  /**
+   * Unique id of the LLM-emitted tool_use, threaded back into the
+   * tool_result on re-ship. Required for native Anthropic / OpenAI
+   * tool block pairing in `assembleLlmMessages`. Optional only for
+   * legacy steps recorded before this field existed.
+   */
+  toolCallId?: string;
 }
 
 interface LongTaskPhase {
@@ -181,12 +189,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const lastDividerIndex = findLastDividerIndex(allMessages);
     const contextMessages = allMessages.slice(lastDividerIndex);
 
-    const llmMessages: LLMMessage[] = contextMessages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({
-        role: m.role === "user" ? "user" as const : "assistant" as const,
-        content: m.role === "assistant" ? appendTrustedToolHistory(m) : m.content,
-      }));
+    const llmMessages: LLMMessage[] = assembleLlmMessages(contextMessages);
 
     set({ isStreaming: true, streamingText: "", steps: [], error: null, knowledgeRefs: [], longTask: null });
 
@@ -309,12 +312,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const allMessages = get().messages;
     const lastDividerIndex = findLastDividerIndex(allMessages);
     const contextMessages = allMessages.slice(lastDividerIndex);
-    const llmMessages: LLMMessage[] = contextMessages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({
-        role: m.role === "user" ? "user" as const : "assistant" as const,
-        content: m.role === "assistant" ? appendTrustedToolHistory(m) : m.content,
-      }));
+    const llmMessages: LLMMessage[] = assembleLlmMessages(contextMessages);
 
     const { planMode, workingDirectory } = get();
     let dump = "";
@@ -438,23 +436,70 @@ function handleEvent(
       break;
     case "skill-start":
       set((s) => ({
-        steps: [...s.steps, { skill: event.skill, status: "running", input: event.input }],
+        steps: [...s.steps, { skill: event.skill, status: "running", input: event.input, toolCallId: event.toolCallId }],
       }));
       break;
     case "skill-done":
-      set((s) => ({
-        steps: s.steps.map((step) =>
-          step.skill === event.skill && step.status === "running"
-            ? { ...step, status: "done", result: event.result, durationMs: event.durationMs, success: event.success }
-            : step,
-        ),
-      }));
+      set((s) => {
+        // Match the running step by toolCallId. Names alone could collide
+        // when the LLM calls the same tool twice in one turn.
+        const idx = s.steps.findIndex(
+          (step) =>
+            step.toolCallId === event.toolCallId ||
+            (step.skill === event.skill && step.status === "running" && !step.toolCallId),
+        );
+        if (idx >= 0) {
+          const next = s.steps.slice();
+          next[idx] = {
+            ...next[idx]!,
+            status: "done",
+            result: event.result,
+            durationMs: event.durationMs,
+            success: event.success,
+            toolCallId: event.toolCallId,
+          };
+          return { steps: next };
+        }
+        // No matching skill-start. Some agent error paths (unknown tool,
+        // truncated input) emit `skill-done` without a paired start —
+        // append a synthetic completed step so the result still surfaces
+        // in the UI panel AND lands in metadata.steps for re-ship.
+        return {
+          steps: [
+            ...s.steps,
+            {
+              skill: event.skill,
+              status: "done",
+              result: event.result,
+              durationMs: event.durationMs,
+              success: event.success,
+              toolCallId: event.toolCallId,
+            },
+          ],
+        };
+      });
       break;
     case "artifact":
       set((s) => ({ artifacts: [...s.artifacts, event.artifact] }));
       break;
     case "knowledge-ref":
       set(() => ({ knowledgeRefs: event.refs }));
+      break;
+    case "compacted":
+      // Surface compaction as a synthetic step so users see what happened.
+      // Past silent drop-oldest looked like the agent "forgot" — making the
+      // summary turn visible kills that confusion.
+      set((s) => ({
+        steps: [
+          ...s.steps,
+          {
+            skill: "__compact__",
+            status: "done",
+            success: true,
+            result: `Conversation summarized to fit context window (preserved ${event.preservedUserMessages} user message${event.preservedUserMessages === 1 ? "" : "s"}, ~${event.estimatedTokens} tokens):\n\n${event.summary}`,
+          },
+        ],
+      }));
       break;
     case "error":
       set(() => ({ error: event.error }));
@@ -467,30 +512,140 @@ export function isContextDivider(message: Message): boolean {
   return message.role === CONTEXT_DIVIDER_ROLE && message.content === CONTEXT_DIVIDER_CONTENT;
 }
 
-function appendTrustedToolHistory(message: Message): string {
-  const steps = (message.metadata as { steps?: AgentStepRecord[] } | null)?.steps;
-  const completedSteps = steps?.filter((step) => step.skill !== "__thinking__" && step.status === "done");
-  if (!completedSteps?.length) return message.content;
+/**
+ * Assemble messages for the LLM as a NATIVE tool-block sequence —
+ * `assistant.toolCalls[]` paired with `role: "tool"` entries. This
+ * matches the Anthropic / OpenAI native protocols (the providers
+ * convert these to `tool_use` / `tool_result` blocks respectively),
+ * and crucially keeps system-generated tool history OUT of the
+ * assistant message's `content` string.
+ *
+ * Past architecture used `appendTrustedToolHistory` to concatenate a
+ * fenced `<<<TURN_TOOL_HISTORY>>>` block into the assistant content.
+ * The model saw its own past responses formatted that way and started
+ * mimicking the structure (printing fake tool-history blocks in new
+ * responses, and asserting work was done without any tool calls). The
+ * mimicry pathway is structurally closed here because tool history is
+ * delivered as separate role:tool messages — content the model never
+ * produces and so cannot accidentally imitate.
+ *
+ * Layout:
+ *   user_1
+ *   assistant_1 { content: "...", toolCalls: [{ id, name, input }, ...] }
+ *   tool      { toolCallId, content: <summarized result> }   ← per call
+ *   tool      { toolCallId, content: <summarized result> }
+ *   user_2
+ *   ...
+ *
+ * Steps without a `toolCallId` (legacy DB rows from before the field
+ * was added) are skipped from the tool sequence — they degrade to a
+ * pure-text assistant turn rather than break the assistant→tool pairing
+ * contract that the providers / API enforce.
+ */
+export function assembleLlmMessages(messages: Message[]): LLMMessage[] {
+  const conversational = messages.filter((m) => m.role === "user" || m.role === "assistant");
+  const out: LLMMessage[] = [];
+  for (const m of conversational) {
+    if (m.role === "user") {
+      out.push({ role: "user", content: m.content });
+      continue;
+    }
+    // assistant — extract paired tool steps from metadata
+    const steps = (m.metadata as { steps?: AgentStepRecord[] } | null)?.steps ?? [];
+    const completed = steps.filter(
+      (s) => s.skill !== "__thinking__" && s.skill !== "__compact__" && s.status === "done" && s.toolCallId,
+    );
+    const toolCalls: ToolCall[] = completed.map((s) => ({
+      id: s.toolCallId!,
+      name: s.skill,
+      input: s.input ?? {},
+    }));
+    out.push({
+      role: "assistant",
+      content: m.content,
+      ...(toolCalls.length > 0 ? { toolCalls } : {}),
+    });
+    for (const s of completed) {
+      out.push({
+        role: "tool",
+        toolCallId: s.toolCallId!,
+        content: summarizeStepResult(s) || (s.success === false ? "[failed without result text]" : "[ok]"),
+      });
+    }
+  }
+  return sanitizeMessageSequence(out);
+}
 
-  // Lead with [OK] / [FAIL] tags so a model skimming this section can't
-  // collapse "1 of 23 calls failed" into "all good". Use fenced delimiters
-  // that the LLM is told never to reproduce — past turns showed the model
-  // mimicking the old `[Trusted tool execution record …]` heading inside
-  // its own assistant text, which then contaminated the next turn's
-  // history. The fenced markers here are easier to spot and to refuse.
-  const lines = completedSteps.map((step) => {
-    const tag = step.success === false ? "[FAIL]" : "[OK]";
-    const result = summarizeForContext(step.result);
-    return `${tag} ${step.skill}${result ? ` :: ${result}` : ""}`;
-  });
+/**
+ * Pre-send sanitizer — fixes structural issues that would cause API
+ * rejections (Anthropic strictly requires `tool_use` ↔ `tool_result`
+ * pairing in adjacent turns; OpenAI requires `tool_calls` followed by
+ * matching `role: "tool"` messages). Mirrors massistant's approach.
+ *
+ * Three repairs:
+ * 1. Inject `[cancelled]` tool result for any orphan `assistant.toolCalls`
+ *    entry that has no matching following `role:tool` message. Happens
+ *    when a session is cut short mid-tool, a tool is cancelled, or a
+ *    legacy step is missing its result.
+ * 2. Drop orphan `role:tool` messages that don't have a preceding
+ *    `assistant.toolCalls` entry pointing at them.
+ * 3. (Future: merge consecutive same-role messages — currently we don't
+ *    produce that pattern, so omitted for now.)
+ */
+export function sanitizeMessageSequence(messages: LLMMessage[]): LLMMessage[] {
+  const out: LLMMessage[] = [];
+  // Track which toolCallIds were declared by the immediately-preceding
+  // assistant message and still need a matching tool result.
+  let pendingIds = new Set<string>();
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!;
+    if (m.role === "assistant") {
+      // If the previous assistant declared tool calls that never got
+      // results (no role:tool messages followed), inject [cancelled]
+      // for each before this new assistant turn starts.
+      for (const id of pendingIds) {
+        out.push({ role: "tool", toolCallId: id, content: "[cancelled]" });
+      }
+      pendingIds = new Set((m.toolCalls ?? []).map((tc) => tc.id));
+      out.push(m);
+      continue;
+    }
+    if (m.role === "tool") {
+      // Drop orphan tool messages — keep only those whose toolCallId was
+      // declared by a recent assistant.
+      if (pendingIds.has(m.toolCallId)) {
+        out.push(m);
+        pendingIds.delete(m.toolCallId);
+      }
+      continue;
+    }
+    // user — flush pending [cancelled] before transitioning to user turn.
+    for (const id of pendingIds) {
+      out.push({ role: "tool", toolCallId: id, content: "[cancelled]" });
+    }
+    pendingIds = new Set();
+    out.push(m);
+  }
+  // End-of-stream: any pending tool_use entries become [cancelled].
+  for (const id of pendingIds) {
+    out.push({ role: "tool", toolCallId: id, content: "[cancelled]" });
+  }
+  return out;
+}
 
-  return [
-    message.content,
-    "",
-    "<<<TURN_TOOL_HISTORY (system-generated; do NOT reproduce this section in your own assistant text — the user already sees it)>>>",
-    ...lines,
-    "<<<END_TURN_TOOL_HISTORY>>>",
-  ].join("\n");
+function summarizeStepResult(step: AgentStepRecord): string {
+  if (step.result === undefined || step.result === null) return "";
+  const raw = typeof step.result === "string" ? step.result : JSON.stringify(step.result);
+  if (!raw) return "";
+  const tool = getTool(step.skill);
+  if (tool?.historySummarizer) {
+    try {
+      return tool.historySummarizer(raw, step.success === false ? "fail" : "ok");
+    } catch {
+      // Fall through to generic truncate if a summarizer throws.
+    }
+  }
+  return summarizeForContext(raw);
 }
 
 function summarizeForContext(value: unknown): string {

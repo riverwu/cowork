@@ -72,10 +72,10 @@ describe("SlideML cowork integration — tool↔IPC contract", () => {
     });
   });
 
-  it("validate_slideml — passes slideml body", async () => {
+  it("validate_slideml — passes slideml body (JSON inline)", async () => {
     ipcReturns["slideml_validate"] = { ok: true };
     const tool = getTool("validate_slideml")!;
-    const out = await tool.execute({ slideml: "slideml: 1\ndeck: { size: 16x9, theme: technical-blue }\nslides: []" });
+    const out = await tool.execute({ slideml: JSON.stringify({ slideml: 1, deck: { size: "16x9", theme: "technical-blue" }, slides: [] }) });
     expect(ipcCalls[0]?.command).toBe("slideml_validate");
     expect(out).toMatch(/OK/);
   });
@@ -84,7 +84,11 @@ describe("SlideML cowork integration — tool↔IPC contract", () => {
     ipcReturns["slideml_compile"] = { outputPath: "/tmp/x.pptx", sidecar: "/tmp/x.pptx.slideml" };
     const tool = getTool("render_slideml")!;
     const out = await tool.execute({
-      slideml: "slideml: 1\ndeck: { size: 16x9, theme: technical-blue }\nslides: [{ layout: cover, slots: { title: hi } }]",
+      slideml: JSON.stringify({
+        slideml: 1,
+        deck: { size: "16x9", theme: "technical-blue" },
+        slides: [{ layout: "cover", slots: { title: "hi" } }],
+      }),
       output_path: "/tmp/x.pptx",
     });
     expect(ipcCalls[0]?.command).toBe("slideml_compile");
@@ -92,6 +96,23 @@ describe("SlideML cowork integration — tool↔IPC contract", () => {
     expect(out).toContain("/tmp/x.pptx");
     expect(out).toContain(".slideml");      // sidecar path discoverable
     expect(out).toContain("edit_slideml");  // suggests next-step tool
+  });
+
+  it("validate_slideml — rejects YAML inline body with clear error", async () => {
+    const tool = getTool("validate_slideml")!;
+    const out = await tool.execute({ slideml: "slideml: 1\ndeck: { size: 16x9, theme: technical-blue }\nslides: []" });
+    expect(out).toMatch(/JSON/);
+    expect(out).toMatch(/must start with `\{`/);
+  });
+
+  it("render_slideml — rejects YAML inline body with clear error", async () => {
+    const tool = getTool("render_slideml")!;
+    const out = await tool.execute({
+      slideml: "slideml: 1\ndeck: { theme: t }\nslides: []",
+      output_path: "/tmp/x.pptx",
+    });
+    expect(out).toMatch(/JSON/);
+    expect(out).toMatch(/must start with `\{`/);
   });
 
   it("edit_slideml — accepts ops as a JSON-encoded STRING (lenient form)", async () => {

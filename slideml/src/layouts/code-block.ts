@@ -4,10 +4,10 @@ import type { SlotSchema } from "../theme/types.js";
 import { slideTitle } from "../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
-  title:    { type: "text",       maxChars: 50, optional: true },
+  title:    { type: "text",       maxChars: 35, optional: true },
   language: { type: "text",       maxChars: 16, optional: true }, // informational badge
-  code:     { type: "text-block", maxChars: 1600 },
-  caption:  { type: "markdown-inline", maxChars: 160, optional: true },
+  code:     { type: "text-block", maxChars: 1120 },
+  caption:  { type: "markdown-inline", maxChars: 112, optional: true },
 };
 
 const codeBlock: LayoutFn = (ctx: LayoutContext): ShapeList => {
@@ -64,6 +64,7 @@ const codeBlock: LayoutFn = (ctx: LayoutContext): ShapeList => {
       cy: cardHeight - ctx.cm(1.4),
     },
     valign: "top",
+    autoFit: "shrink",
     margin: { l: 0, r: 0, t: 0, b: 0 },
     paragraphs: lines.map((line) => {
       const runs: TextRun[] = line.length > 0 ? [{
@@ -83,6 +84,7 @@ const codeBlock: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: cardX, y: bodyTop + cardHeight + ctx.cm(0.4), cx: cardW, cy: ctx.cm(1) },
       valign: "middle",
+      autoFit: "shrink",
       paragraphs: [{
         align: "left",
         runs: [{ text: caption, sizeHalfPt: 22, color: ctx.color("text-muted"), italic: true, cjk: ctx.cjk, fontFace: labelFont }],

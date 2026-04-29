@@ -3,7 +3,7 @@ import type { ShapeList } from "../emitter/types.js";
 import type { SlotSchema } from "../theme/types.js";
 
 export const slots: Record<string, SlotSchema> = {
-  title: { type: "text", maxChars: 80 },
+  title: { type: "text", maxChars: 56 },
 };
 
 const titleOnly: LayoutFn = (ctx: LayoutContext): ShapeList => {
@@ -15,6 +15,7 @@ const titleOnly: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: ctx.cm(2), y: ctx.cm(5), cx: ctx.deck.width - ctx.cm(4), cy: ctx.cm(4) },
       valign: "middle",
+      autoFit: "shrink",
       paragraphs: [{
         align: "center",
         runs: [{

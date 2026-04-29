@@ -74,11 +74,27 @@ export function exampleForSlot(
         //   svg: "<svg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'><circle cx='50' cy='50' r='40' fill='#3CC2FF'/></svg>"
       };
 
+    case "visual":
+      return {
+        kind: "chart",
+        chartType: "bar",
+        data: {
+          labels: ["Q1", "Q2", "Q3"],
+          series: [{ name: "Revenue", values: [100, 120, 145] }],
+        },
+        format: { y: "int" },
+        // Other tagged forms:
+        //   { kind: "image", src: "/abs/path.png", alt?, fit?: "cover"|"contain" }
+        //   { kind: "table", header: [...], rows: [...] }
+        //   { kind: "svg", svg: "<svg ...>...</svg>", alt? }
+        // Legacy untagged image-ref / chart-spec / table also work.
+      };
+
     case "bullets":
       // Heuristic by slot name:
       //   - "items" with small itemMaxChars → KPI tiles (stat-grid-3)
-      //   - "images" → image-grid cells (image-grid-2x2)
-      //   - "steps" → process-timeline; accepts plain strings OR
+      //   - "images" → image-grid cells (image-grid)
+      //   - "steps" → timeline; accepts plain strings OR
       //     { title, description? }
       //   - everything else → plain strings or { text, sub? } for 2-level nesting
       //
@@ -137,6 +153,13 @@ export function exampleForSlot(
         //   { kind: "sparkline", values: [1,3,2,5,4], color?: "brand-primary", area?: true, title?, caption? }
         //   { kind: "progress",  value: 0.73, label?: "Adoption", color?, trackColor?, showPercent?: true }
       };
+
+    case "region-list":
+      return [
+        { kind: "kpi", value: "$42.5M", label: "ARR", delta: "+85% YoY", trend: "up" },
+        { kind: "progress", value: 0.73, label: "Adoption" },
+        { kind: "bullets", title: "Risks", items: ["Vendor dependency", "Long sales cycle"] },
+      ];
 
     case "enum":
       return schema.default ?? schema.values[0];

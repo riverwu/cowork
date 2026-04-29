@@ -39,7 +39,7 @@ describe("Stage 4 — parser", () => {
     expect(spec.deck.theme).toBe("technical-blue");
     expect(spec.slides).toHaveLength(5);
     expect(spec.slides[0]?.layout).toBe("cover");
-    expect(spec.slides[3]?.layout).toBe("chart-with-takeaway");
+    expect(spec.slides[3]?.layout).toBe("visual-with-caption");
   });
 
   it("accepts the version key as a string ('1') as well as the number 1", () => {
@@ -89,7 +89,7 @@ describe("Stage 4 — validator", () => {
     // The overflow message points at the offending slot.
     const overflow = result.errors.find((e) => e.code === "SLOT_OVERFLOW")!;
     expect(overflow.slot).toBe("title");
-    expect(overflow.message).toMatch(/exceeds maxChars 40/);
+    expect(overflow.message).toMatch(/exceeds maxChars (28|40)/); // shrunk-ceiling tolerant
   });
 
   it("accepts the well-formed quarterly-review fixture", async () => {
@@ -110,16 +110,19 @@ describe("Stage 4 — validator", () => {
 `slideml: 1
 deck: { size: 16x9, theme: technical-blue }
 slides:
-  - layout: chart-with-takeaway
+  - layout: visual-with-caption
     slots:
       title: "Bad chart"
-      chart:
-        type: bar
+      style: takeaway
+      visual:
+        kind: chart
+        chartType: bar
         data:
           labels: ["Q1", "Q2", "Q3"]
           series:
             - { name: "Revenue", values: [100, 120] }
         format: { y: "int" }
+      caption: "labels and series length differ"
 `;
     const result = validateDeckSpec(parseSlideml(yaml), theme);
     expect(result.ok).toBe(false);
@@ -145,8 +148,9 @@ slides:
 `slideml: 1
 deck: { size: 16x9, theme: technical-blue }
 slides:
-  - layout: bullet-with-image
+  - layout: visual-with-text
     slots:
+      textKind: bullets
       title: "Nested bullets"
       bullets:
         - "Top-level point one"
@@ -167,8 +171,9 @@ slides:
 `slideml: 1
 deck: { size: 16x9, theme: technical-blue }
 slides:
-  - layout: bullet-with-image
+  - layout: visual-with-text
     slots:
+      textKind: bullets
       title: "Deep nesting"
       bullets:
         - "First"
@@ -235,8 +240,8 @@ describe("Stage 4 — public API: compile + validateDeck + listLayouts", () => {
     expect(cover.slotSchema["title"]?.type).toBe("text");
     expect(cover.thumbnailPath).toMatch(/cover\.png$/);
 
-    const chart = layouts.find((l) => l.name === "chart-with-takeaway")!;
-    expect(chart.slotSchema["chart"]?.type).toBe("chart-spec");
+    const visualLayout = layouts.find((l) => l.name === "visual-with-caption")!;
+    expect(visualLayout.slotSchema["visual"]?.type).toBe("visual");
   });
 });
 
@@ -280,7 +285,7 @@ describe("Stage 4 — slide-rels rId matching (regression for chart/image droppe
     const result = await compile(yaml, { themeDir: BUILT_THEME });
     const zip = await JSZip.loadAsync(result.buffer);
 
-    // The 5th slide in the fixture (`bullet-with-image`) embeds an image.
+    // The 5th slide in the fixture (`visual-with-text` with image) embeds an image.
     const slideXml = await zip.file("ppt/slides/slide5.xml")!.async("string");
     const slideRels = await zip.file("ppt/slides/_rels/slide5.xml.rels")!.async("string");
 

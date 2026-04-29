@@ -46,4 +46,12 @@ Returns a one-line OK summary OR a multi-line failure breakdown. Pass \`format: 
       return `Error: audit_pptx failed.\n${err instanceof Error ? err.message : String(err)}`;
     }
   },
+
+  // History compression: success collapses to one line. Failures stay full —
+  // the [CODE] issues are load-bearing if the agent needs to fix the deck.
+  historySummarizer(rawResult, status) {
+    if (status === "fail" || rawResult.includes("✗ FAIL")) return rawResult;
+    const firstLine = rawResult.split("\n")[0] ?? rawResult;
+    return firstLine.slice(0, 200);
+  },
 };

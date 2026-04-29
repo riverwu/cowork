@@ -12,8 +12,8 @@ import { parseInline } from "../render/markdown-inline.js";
  * decision summaries, release notes.
  */
 export const slots: Record<string, SlotSchema> = {
-  title: { type: "text",    maxChars: 60, optional: true },
-  items: { type: "bullets", min: 2, max: 6, itemMaxChars: 240 },
+  title: { type: "text",    maxChars: 42, optional: true },
+  items: { type: "bullets", min: 2, max: 6, itemMaxChars: 168 },
 };
 
 interface ItemRaw {
@@ -34,39 +34,44 @@ const executiveSummary: LayoutFn = (ctx: LayoutContext): ShapeList => {
 
   const top = title ? ctx.cm(4.4) : ctx.cm(2);
   const body = contentRect(ctx, { top, marginX: ctx.cm(2.4), bottom: ctx.cm(1.6) });
-  const itemGap = ctx.cm(0.5);
-  const itemH = Math.floor((body.height - itemGap * (rawItems.length - 1)) / Math.max(1, rawItems.length));
+  // Item gap shrinks with count so each item retains enough vertical
+  // room for {heading + line} at readable size. With 5 items at gap
+  // 0.5cm, itemH ≈ 1.26cm and the line sub-region collapsed to <0.4cm —
+  // autoFit then crushed body text to ~5pt. Smaller gap at higher
+  // counts gives the same visual rhythm but keeps body legible.
+  const n = Math.max(1, rawItems.length);
+  const itemGap = n <= 3 ? ctx.cm(0.6) : n <= 5 ? ctx.cm(0.3) : ctx.cm(0.2);
+  const itemH = Math.floor((body.height - itemGap * (n - 1)) / n);
+  // Per-count typography: 2-3 items get full hierarchy; 4-6 items
+  // tighten to keep both heading + line readable.
+  const headingSize = n <= 3 ? 28 : n <= 5 ? 24 : 22;
+  const headingCyEmu = n <= 3 ? ctx.cm(0.9) : ctx.cm(0.7);
+  const lineSize = n <= 3 ? 22 : n <= 5 ? 20 : 18;
+  const lineSpacing = n <= 3 ? 48 : 36;
 
   rawItems.forEach((raw, idx) => {
     const item: ItemRaw = typeof raw === "string" ? { heading: raw } : raw;
     const y = body.y + idx * (itemH + itemGap);
-    // A small index numeral on the left, in brand colour.
+    // Short accent rule on the left, in brand colour. Earlier numbered
+    // index (01/02/03) read as a TOC, but this layout is for end-of-deck
+    // summaries where ordering is rhetorical, not navigational.
     out.push({
-      type: "text",
+      type: "shape",
       id: ctx.id(),
-      xfrm: { x: body.x, y, cx: ctx.cm(1.4), cy: itemH },
-      valign: "top",
-      paragraphs: [{
-        align: "right",
-        runs: [{
-          text: String(idx + 1).padStart(2, "0"),
-          sizeHalfPt: 30,
-          color: ctx.color("brand-primary"),
-          bold: true,
-          fontFace: ctx.font("latin"),
-        }],
-      }],
+      preset: "rect",
+      xfrm: { x: body.x, y: y + ctx.cm(0.3), cx: ctx.cm(0.9), cy: ctx.cm(0.12) },
+      fill: { type: "solid", color: ctx.color("brand-primary") },
     });
     // Heading
     out.push({
       type: "text",
       id: ctx.id(),
-      xfrm: { x: body.x + ctx.cm(1.8), y, cx: body.width - ctx.cm(1.8), cy: ctx.cm(0.9) },
+      xfrm: { x: body.x + ctx.cm(1.4), y, cx: body.width - ctx.cm(1.4), cy: headingCyEmu },
       valign: "top",
       paragraphs: [{
         align: "left",
         runs: parseInline(item.heading ?? item.text ?? "", {
-          sizeHalfPt: 28,
+          sizeHalfPt: headingSize,
           color: ctx.color("text-strong"),
           fontFace,
           monoFont,
@@ -75,18 +80,26 @@ const executiveSummary: LayoutFn = (ctx: LayoutContext): ShapeList => {
         }).map((r) => ({ ...r, bold: r.bold ?? true })),
       }],
     });
-    // Line / explanation
+    // Line / explanation — sized so natural height fits the remaining
+    // item height without triggering autoFit shrink. The (lineSize, gap)
+    // combo above is calibrated so 1 line of CJK at the cell width has
+    // natural height ≈ itemH - headingCy - small slack.
     if (item.line) {
       out.push({
         type: "text",
         id: ctx.id(),
-        xfrm: { x: body.x + ctx.cm(1.8), y: y + ctx.cm(0.95), cx: body.width - ctx.cm(1.8), cy: itemH - ctx.cm(0.95) },
+        xfrm: { x: body.x + ctx.cm(1.4), y: y + headingCyEmu, cx: body.width - ctx.cm(1.4), cy: itemH - headingCyEmu },
         valign: "top",
+        // Zero text-frame margins so the available cy is fully usable
+        // (default OOXML margins consume ~0.13cm top + bottom, which is
+        // enough to push autoFit into aggressive shrink at high counts).
+        margin: { l: 0, t: 0, r: 0, b: 0 },
+        autoFit: "shrink",
         paragraphs: [{
           align: "left",
-          lineSpacingHalfPt: 48,
+          lineSpacingHalfPt: lineSpacing,
           runs: parseInline(item.line, {
-            sizeHalfPt: 22,
+            sizeHalfPt: lineSize,
             color: ctx.color("text-muted"),
             fontFace,
             monoFont,

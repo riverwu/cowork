@@ -23,17 +23,52 @@ const ALLOWED_CHROME_OBJECT_KEYS = new Set(["header", "footer", "brandBar", "pag
 const CHROME_BOOLEAN_KEYS = new Set(["header", "footer", "brandBar", "pageNumber"]);
 const ALLOWED_BAND_KEYS = new Set(["left", "center", "right"]);
 
-/** Parse a SlideML YAML string into a typed DeckSpec. */
+/**
+ * Parse a SlideML document — accepts BOTH YAML and JSON.
+ *
+ * Detection: if the first non-whitespace char is `{` or `[`, treat as
+ * JSON and route through `JSON.parse` for clearer errors. Otherwise
+ * use the YAML parser (which technically also accepts JSON since JSON
+ * is a YAML 1.2 subset, but its error messages for JSON syntax are
+ * misleading — they reference YAML rules).
+ *
+ * Recommendation for LLM agents: prefer JSON. It eliminates the entire
+ * class of YAML pitfalls (indentation, nested quotes, implicit typing,
+ * `:`/`#`/`{` ambiguity) at the cost of a few escape sequences in
+ * multi-line strings.
+ */
 export function parseSlideml(input: string): DeckSpec {
+  const trimmed = input.replace(/^\uFEFF/, "").trimStart();
+  const looksLikeJson = trimmed.startsWith("{") || trimmed.startsWith("[");
+
   let raw: unknown;
-  try {
-    raw = yaml.load(input);
-  } catch (err) {
-    throw structured("PARSE_ERROR", `YAML parse error: ${err instanceof Error ? err.message : err}`);
+  if (looksLikeJson) {
+    try {
+      raw = JSON.parse(input);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw structured(
+        "PARSE_ERROR",
+        `JSON parse error: ${msg}`,
+        "Input was detected as JSON (starts with `{` or `[`). Common JSON pitfalls: trailing commas, unquoted keys, single quotes (use double), unescaped `\\n` / `\\\"` inside strings. If you wanted YAML, the document must NOT start with `{` or `[`.",
+      );
+    }
+  } else {
+    try {
+      raw = yaml.load(input);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const hint = diagnoseYamlError(msg, input);
+      throw structured(
+        "PARSE_ERROR",
+        `YAML parse error: ${msg}`,
+        hint ? `${hint} (Tip: switching to JSON output avoids most YAML pitfalls — \`{ "slideml": 1, "deck": {...}, "slides": [...] }\`.)` : undefined,
+      );
+    }
   }
 
   if (!isObject(raw)) {
-    throw structured("TYPE_MISMATCH", "SlideML document must be a YAML mapping at the top level.");
+    throw structured("TYPE_MISMATCH", "SlideML document must be a mapping at the top level (YAML mapping or JSON object).");
   }
 
   // slideml: 1
@@ -289,4 +324,85 @@ function structured(
   if (hint) err.hint = hint;
   if (path) err.path = path;
   return err;
+}
+
+/**
+ * Pattern-match the most common agent-authored YAML mistakes against
+ * the line where js-yaml choked, and return a targeted hint. Pure
+ * heuristics — when nothing matches we return undefined so the caller
+ * just surfaces the raw js-yaml message.
+ *
+ * Caught patterns (in order):
+ *   - Unquoted `{kind:value}` chip → flow-mapping conflict
+ *   - Unbalanced ASCII `"` count → outer quoted value with unescaped
+ *     inner ASCII quotes (CJK pattern: `"...含 "嵌套" 词..."`)
+ *   - Unquoted ASCII `: ` mid-string in a slot value
+ *   - Unquoted multi-line string (no `|` / `>`)
+ *   - `#` mid-string interpreted as a comment
+ *   - `[...]` interpreted as a flow sequence
+ */
+function diagnoseYamlError(message: string, input: string): string | undefined {
+  // Pull "(line:col)" out of the js-yaml message.
+  const lineColMatch = /\((\d+):(\d+)\)/.exec(message);
+  const line = lineColMatch ? Number(lineColMatch[1]) : NaN;
+  const lines = input.split(/\r?\n/);
+  const offending = Number.isFinite(line) && line > 0 && line <= lines.length
+    ? (lines[line - 1] ?? "")
+    : "";
+  const prev = Number.isFinite(line) && line > 1 ? (lines[line - 2] ?? "") : "";
+  const window = `${prev}\n${offending}`;
+
+  // Chip notation `{kind:value}` unquoted.
+  if (/\{[a-zA-Z]+:[^}]*\}/.test(window) && !/["']\s*\{/.test(window)) {
+    return `The line contains a SlideML chip like \`{up:+12%}\` but the value is not quoted — YAML reads \`{...}\` as a flow mapping and chokes on the colon. Fix: wrap the whole value in double quotes, e.g. \`takeaway: "收入 {up:+12%} 强劲"\`.`;
+  }
+
+  // Nested ASCII `"` inside an outer ASCII-quoted value — happens when
+  // the agent wraps a value in `"..."` AND embeds unescaped inner ASCII
+  // `"` (extremely common in CJK content quoting classical phrases like
+  // `"罢黜百家"`, `"书同文"`). YAML closes the outer string at the first
+  // inner `"`; the rest becomes stray tokens. Detection: a `key: "..."`
+  // line where the count of unescaped `"` exceeds 2 (a well-formed
+  // quoted scalar has exactly 2). Works for both odd (truly unbalanced)
+  // and even (one nested phrase = 4 quotes total).
+  const lineLooksQuoted = /^\s*[A-Za-z_][\w-]*:\s+"/.test(offending);
+  if (lineLooksQuoted) {
+    const valuePart = offending.replace(/^\s*[A-Za-z_][\w-]*:\s+/, "");
+    const quoteCount = (valuePart.match(/(?<!\\)"/g) ?? []).length;
+    if (quoteCount > 2) {
+      return `Line ${line}: the value is wrapped in ASCII \`"..."\` but contains ${quoteCount - 2} extra unescaped inner ASCII \`"\` (likely a CJK phrase like \`"书同文"\` or \`"罢黜百家"\`). YAML closes the outer string at the first inner \`"\`. Fix any of: (a) escape inner quotes — \`\\"书同文\\"\`; (b) wrap outer in single quotes — \`'... "书同文" ...'\`; (c) use Chinese curly quotes inside — \`\u201C书同文\u201D\` (U+201C/U+201D); (d) switch to a block scalar — \`body: |\` then content on next line, no quoting needed.`;
+    }
+  }
+
+  // Multi-line string without block scalar marker. Heuristic: previous
+  // line ends in `key: <text>` and current line starts indented but
+  // looks like prose (not `- `, not `key:`).
+  if (/^\s*[A-Za-z_][\w-]*:\s+\S/.test(prev) &&
+      /^\s+\S/.test(offending) &&
+      !/^\s*-\s/.test(offending) &&
+      !/:\s*$|:\s+\S/.test(offending)) {
+    return `Line ${line} looks like a continuation of the previous slot value, but the value isn't a YAML block scalar. Fix: prefix the value with \`|\` (preserves newlines) or \`>\` (folds), e.g. \`text: |\\n  第一段\\n  第二段\`. Or quote the whole value on one line.`;
+  }
+
+  // Unquoted ASCII `: ` mid-value (Chinese full-width `：` is safe; only
+  // ASCII `: ` triggers YAML key-splitting).
+  if (/^\s*[A-Za-z_][\w-]*:\s+[^"'|>].*:\s\S/.test(offending)) {
+    return `The slot value contains an unquoted ASCII \`: \` (colon-space), which YAML splits as a sub-mapping. Fix: wrap the value in double quotes, e.g. \`title: "第三章: 详解"\`. Note Chinese full-width \`：\` is safe.`;
+  }
+
+  // `#` interpreted as a comment in an unquoted value.
+  if (/^\s*[A-Za-z_][\w-]*:\s+[^"'|>].*\s#/.test(offending)) {
+    return `The slot value contains an unquoted \`#\`, which YAML treats as the start of a line comment. Fix: wrap the value in double quotes, e.g. \`subtitle: "第一名 #1"\` or \`accent: "#FF0000"\`.`;
+  }
+
+  // `[...]` parsed as flow sequence.
+  if (/^\s*[A-Za-z_][\w-]*:\s+[^"'|>].*\[.*\]/.test(offending)) {
+    return `The slot value contains \`[...]\`, which YAML reads as a flow sequence. Fix: wrap the value in double quotes, e.g. \`caption: "[备注] 内容"\`.`;
+  }
+
+  // Generic fallback when we have a line number — point at it.
+  if (Number.isFinite(line)) {
+    return `Line ${line}: when a slot value contains \`{\`, \`}\`, \`[\`, \`]\`, ASCII \`: \`, \`#\`, or spans multiple lines, wrap it in double quotes (or use \`|\` / \`>\` for multi-line). Otherwise YAML parses it as a mapping/sequence/comment.`;
+  }
+  return undefined;
 }

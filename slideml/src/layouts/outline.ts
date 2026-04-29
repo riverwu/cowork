@@ -1,7 +1,7 @@
 import type { LayoutContext, LayoutFn } from "../render/layout-context.js";
 import type { ShapeList } from "../emitter/types.js";
 import type { SlotSchema } from "../theme/types.js";
-import { bulletsBlock, contentRect, slideTitle } from "../render/primitives.js";
+import { bulletsBlock, contentRect, formatOrdinal, slideTitle } from "../render/primitives.js";
 
 /**
  * Multi-level outline. Like `agenda` but supports nested sections via
@@ -12,8 +12,8 @@ import { bulletsBlock, contentRect, slideTitle } from "../render/primitives.js";
  * with the theme's bullet glyph.
  */
 export const slots: Record<string, SlotSchema> = {
-  title: { type: "text",    maxChars: 60, optional: true },
-  items: { type: "bullets", min: 2, max: 8, itemMaxChars: 100 },
+  title: { type: "text",    maxChars: 42, optional: true },
+  items: { type: "bullets", min: 2, max: 8, itemMaxChars: 70 },
 };
 
 const outline: LayoutFn = (ctx: LayoutContext): ShapeList => {
@@ -43,20 +43,37 @@ const outline: LayoutFn = (ctx: LayoutContext): ShapeList => {
     return acc;
   }, 0);
   const topRowH = ctx.cm(1.0);
-  const subRowH = ctx.cm(0.7);
+  // sub-row height must comfortably exceed the bullet's natural line
+  // height (sizeHalfPt 20 = 10pt + lineSpacing 32hp = 16pt → ~0.56cm)
+  // plus the spaceAfter, otherwise bulletsBlock's autoFit safety net
+  // shrinks aggressively and sub-items render at 5-6pt unreadable.
+  const subRowH = ctx.cm(0.85);
   const usedH = topEntries.length * topRowH + totalSubCount * subRowH;
   const startY = body.y + Math.max(0, Math.floor((body.height - usedH) / 2));
   let cursorY = startY;
 
   topEntries.forEach((item, idx) => {
+    // Heading text: agents reach for `text|label|title|heading|name`.
+    // Sub-items: agents reach for `sub|subItems|children|items`.
+    const pickText = (o: Record<string, unknown>): string | undefined => {
+      for (const k of ["text", "label", "title", "heading", "name"]) {
+        if (typeof o[k] === "string" && (o[k] as string).length > 0) return o[k] as string;
+      }
+      return undefined;
+    };
+    const pickSub = (o: Record<string, unknown>): unknown[] => {
+      for (const k of ["sub", "subItems", "children", "items"]) {
+        if (Array.isArray(o[k])) return o[k] as unknown[];
+      }
+      return [];
+    };
+    const itemObj = (item && typeof item === "object" && !Array.isArray(item))
+      ? (item as Record<string, unknown>)
+      : null;
     const itemText = typeof item === "string"
       ? item
-      : (item && typeof item === "object" && !Array.isArray(item) && typeof (item as { text?: unknown }).text === "string"
-          ? (item as { text: string }).text
-          : String(item ?? ""));
-    const sub: unknown[] = (item && typeof item === "object" && !Array.isArray(item) && Array.isArray((item as { sub?: unknown }).sub))
-      ? (item as { sub: unknown[] }).sub
-      : [];
+      : (itemObj ? pickText(itemObj) ?? "" : String(item ?? ""));
+    const sub: unknown[] = itemObj ? pickSub(itemObj) : [];
 
     // Numeral
     out.push({
@@ -67,7 +84,7 @@ const outline: LayoutFn = (ctx: LayoutContext): ShapeList => {
       paragraphs: [{
         align: "right",
         runs: [{
-          text: String(idx + 1).padStart(2, "0"),
+          text: formatOrdinal(ctx, idx + 1),
           sizeHalfPt: 30,
           color: ctx.color("brand-primary"),
           bold: true,
@@ -81,6 +98,7 @@ const outline: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: textColX, y: cursorY, cx: textColW, cy: topRowH },
       valign: "middle",
+      autoFit: "shrink",
       paragraphs: [{
         align: "left",
         runs: [{
@@ -97,13 +115,22 @@ const outline: LayoutFn = (ctx: LayoutContext): ShapeList => {
 
     // Sub-items via bulletsBlock (single-level — pass strings).
     if (sub.length > 0) {
-      const subStrings = sub.map((s) => typeof s === "string" ? s : (s && typeof s === "object" && typeof (s as { text?: unknown }).text === "string" ? (s as { text: string }).text : String(s)));
+      const subStrings = sub.map((s) => {
+        if (typeof s === "string") return s;
+        if (s && typeof s === "object") {
+          const o = s as Record<string, unknown>;
+          for (const k of ["text", "label", "title", "heading", "name"]) {
+            if (typeof o[k] === "string") return o[k] as string;
+          }
+        }
+        return String(s);
+      });
       out.push(...bulletsBlock(ctx, {
         x: textColX,
         y: cursorY,
         width: textColW,
         height: sub.length * subRowH,
-      }, subStrings, { sizeHalfPt: 20, color: "text-muted", lineSpacingHalfPt: 40, spaceAfterHalfPt: 8 }));
+      }, subStrings, { sizeHalfPt: 20, color: "text-muted", lineSpacingHalfPt: 32, spaceAfterHalfPt: 4 }));
       cursorY += sub.length * subRowH + ctx.cm(0.1);
     }
   });

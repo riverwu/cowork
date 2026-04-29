@@ -14,7 +14,7 @@
  *   quote    — quotation with attribution
  *
  * Each kind renders inside an arbitrary bounding rectangle, so the same
- * region helpers serve dashboard's 2x2 cells, split-2's halves, and
+ * region helpers serve dashboard's 2x2 cells, split (cells: 2)'s halves, and
  * split-3-{horizontal,vertical}'s thirds.
  *
  * Out of scope by design: nested split layouts. A region cannot contain
@@ -36,6 +36,7 @@ import {
   tableCellOf,
 } from "./primitives.js";
 import { parseInline } from "./markdown-inline.js";
+import { svgToHighResDataUrl } from "./visual.js";
 
 // ---------------------------------------------------------------------------
 // Region union
@@ -117,7 +118,7 @@ export const REGION_KINDS = ["kpi", "chart", "table", "text", "bullets", "image"
 
 /**
  * Per-call options threaded into each cell renderer. Composite layouts
- * (split-2, split-3-h, dashboard, matrix-2x2) use these to enforce
+ * (split, dashboard, matrix-2x2) use these to enforce
  * cross-cell visual alignment — most importantly `topInset`, which
  * forces every cell's body to start at the same y so cells without
  * `title` line up with cells that have one.
@@ -345,12 +346,19 @@ function renderTextCell(ctx: LayoutContext, rect: RegionRect, region: RegionText
   const titleH = region.title ? ctx.cm(0.9) : 0;
   const reserved = Math.max(titleH, opts.topInset ?? 0);
   if (region.title) out.push(cellTitle(ctx, rect, region.title).shape);
+  // Cell text typography: tighter than richText defaults because cells
+  // are small. Earlier (sizeHalfPt 20 + lineSpacing 48 + spaceAfter 12),
+  // a 4-line CJK body in a ~2cm region pushed natural height to 3.4cm,
+  // triggering autoFit at 60% scale → text rendered at 6pt. Trim line
+  // spacing to 36 (≈18pt line) and drop spaceAfter to 4 so the body
+  // fits naturally without aggressive shrink. Also bump bottom padding
+  // back from 0.9 → 0.45 to match the top inset (was wasting 0.45cm).
   out.push(...richText(ctx, {
     x: rect.x + inset,
     y: rect.y + ctx.cm(0.45) + reserved,
     width: rect.width - inset * 2,
-    height: rect.height - ctx.cm(0.9) - reserved,
-  }, region.body, { sizeHalfPt: 20, lineSpacingHalfPt: 48, spaceAfterHalfPt: 12 }));
+    height: rect.height - ctx.cm(0.45) - reserved,
+  }, region.body, { sizeHalfPt: 22, lineSpacingHalfPt: 36, spaceAfterHalfPt: 4, autoFit: "shrink" }));
   return out;
 }
 
@@ -360,12 +368,19 @@ function renderBulletsCell(ctx: LayoutContext, rect: RegionRect, region: RegionB
   const titleH = region.title ? ctx.cm(0.9) : 0;
   const reserved = Math.max(titleH, opts.topInset ?? 0);
   if (region.title) out.push(cellTitle(ctx, rect, region.title).shape);
+  // Quadrant cells (matrix-2x2 / dashboard) typically carry 2-4 short
+  // bullets in a small rect. The previous bottom-padding reservation
+  // (0.9cm) plus default lineSpacing (56hp = 28pt) made the bullets'
+  // natural height exceed the available rect for any cell with 3+
+  // items, triggering aggressive autoFit shrink (text rendered at 30%
+  // and unreadable). Trim bottom padding to match the top inset and
+  // use tighter line-spacing — 16pt line + 4pt after for short items.
   out.push(...bulletsBlock(ctx, {
     x: rect.x + inset,
     y: rect.y + ctx.cm(0.45) + reserved,
     width: rect.width - inset * 2,
-    height: rect.height - ctx.cm(0.9) - reserved,
-  }, region.items, { sizeHalfPt: 22 }));
+    height: rect.height - ctx.cm(0.45) - reserved,
+  }, region.items, { sizeHalfPt: 24, lineSpacingHalfPt: 32, spaceAfterHalfPt: 8 }));
   return out;
 }
 
@@ -442,6 +457,7 @@ function renderCodeCell(ctx: LayoutContext, rect: RegionRect, region: RegionCode
     id: ctx.id(),
     xfrm: { x: rect.x + inset, y: topY, cx: rect.width - inset * 2, cy: rect.y + rect.height - inset - topY },
     valign: "top",
+    autoFit: "shrink",
     margin: { l: 0, r: 0, t: 0, b: 0 },
     paragraphs: lines.map((line) => ({
       align: "left",
@@ -498,7 +514,7 @@ function renderSparklineCell(ctx: LayoutContext, rect: RegionRect, region: Regio
     type: "image",
     id: ctx.id(),
     xfrm: { x: chartX, y: chartY, cx: chartW, cy: chartH },
-    src: `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`,
+    src: svgToHighResDataUrl(svg),
     altText: region.title ?? "sparkline",
   });
 
@@ -610,6 +626,7 @@ function renderQuoteCell(ctx: LayoutContext, rect: RegionRect, region: RegionQuo
     id: ctx.id(),
     xfrm: { x: rect.x + inset + ctx.cm(0.6), y: rect.y + inset + ctx.cm(0.6), cx: rect.width - inset * 2 - ctx.cm(0.6), cy: quoteHeight },
     valign: "middle",
+    autoFit: "shrink",
     paragraphs: [{
       align: "left",
       lineSpacingHalfPt: 56,

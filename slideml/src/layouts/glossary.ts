@@ -11,8 +11,8 @@ import { parseInline } from "../render/markdown-inline.js";
  * Different from `definition` which is one-term-per-slide.
  */
 export const slots: Record<string, SlotSchema> = {
-  title: { type: "text",    maxChars: 60, optional: true },
-  terms: { type: "bullets", min: 3, max: 12, itemMaxChars: 200 },
+  title: { type: "text",    maxChars: 42, optional: true },
+  terms: { type: "bullets", min: 3, max: 12, itemMaxChars: 140 },
 };
 
 interface Term {
@@ -82,6 +82,7 @@ const glossary: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: defColX, y, cx: defColW, cy: rowH },
       valign: "middle",
+      autoFit: "shrink",
       paragraphs: [{
         align: "left",
         lineSpacingHalfPt: 44,

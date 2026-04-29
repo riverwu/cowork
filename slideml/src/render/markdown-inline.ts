@@ -32,6 +32,7 @@ import type { TextRun } from "../emitter/types.js";
  * Adding a new icon? Pick a glyph that renders in PingFang SC + Arial.
  */
 export const INLINE_ICONS = {
+  // ── Canonical 12 ─────────────────────────────────────────────────────
   "check":      "\u2713", // ✓
   "x":          "\u2717", // ✗
   "star":       "\u2605", // ★
@@ -44,6 +45,147 @@ export const INLINE_ICONS = {
   "users":      "\u263B", // ☻ — small social affordance; avoids emoji
   "chart":      "\u25B0", // ▰ — solid block-chart hint
   "code":       "\u2329\u232A", // 〈〉
+  // ── Synonyms for common agent-used names ─────────────────────────────
+  // Without these, agents that emit `lightning` or `target` get nothing
+  // back, so adjacent columns in key-point misalign (icon row reserved
+  // for some points and not others). Map intuitive names to nearest
+  // canonical glyphs rather than introducing new symbols agents wouldn't
+  // predict the rendering of.
+  "lightning":  "\u26A1", // ⚡
+  "bolt":       "\u26A1", // ⚡
+  "target":     "\u25CE", // ◎ — bullseye
+  "bullseye":   "\u25CE", // ◎
+  "trophy":     "\u2605", // ★ → star
+  "graduation": "\u25B0", // ▰ → chart
+  "book":       "\u2630", // ☰
+  "phone":      "\u260E", // ☎
+  "pen":        "\u270E", // ✎
+  "note":       "\u270E", // ✎
+  "edit":       "\u270E", // ✎
+  "question":   "\u2753", // ❓
+  "error":      "\u2717", // ✗
+  "test":       "\u2713", // ✓
+  "refresh":    "\u21BB", // ↻
+  "reload":     "\u21BB", // ↻
+  "cancel":     "\u2717", // ✗
+  "archive":    "\u25A4", // ▤
+  "lightbulb":  "\u2600", // ☀
+  "idea":       "\u2600", // ☀
+  "rocket":     "\u2191", // ↑
+  "fire":       "\u26A0", // ⚠
+  "heart":      "\u2665", // ♥
+  "lock":       "\u25A0", // ■
+  "key":        "\u26B7", // ⚷
+  "globe":      "\u25CB", // ○
+  "world":      "\u25CB", // ○
+  "shield":     "\u25C6", // ◆
+  "calendar":   "\u23F1", // ⏱
+  "schedule":   "\u23F1", // ⏱
+  "money":      "\u00A4", // ¤
+  "currency":   "\u00A4", // ¤
+  "dollar":     "\u0024", // $
+  "search":     "\u25CB", // ○
+  "ok":         "\u2713", // ✓
+  // ── Lucide / Feather / Heroicons names — agents trained on these libraries
+  // emit them without checking our 12-icon enum. Map to nearest BMP glyph
+  // rather than dropping the icon row, which broke key-point alignment
+  // (issue from earlier session). See LUCIDE_NAME_AUDIT below for source.
+  "cpu":        "\u25A6", // ▦  — chip / processor (square with grid)
+  "chip":       "\u25A6", // ▦
+  "zap":        "\u26A1", // ⚡  — energy / fast (Lucide name for lightning)
+  "flash":      "\u26A1", // ⚡
+  "git-merge":  "\u26AB", // ⚫ → use Y-shape; "Y" reads cleaner than ⚫ but no BMP — settle for solid-circle "node" semantic
+  "git-branch": "\u22CE", // ⋎  — vee / branch
+  "git-commit": "\u25C9", // ◉  — commit dot
+  "merge":      "\u26AB", // ⚫
+  "branch":     "\u22CE", // ⋎
+  "workflow":   "\u26AB", // ⚫
+  "play":       "\u25B6", // ▶  — run / start
+  "pause":      "\u2389", // ⎉ (rare but BMP) — fall back if absent in font
+  "stop":       "\u25A0", // ■
+  "settings":   "\u2699", // ⚙
+  "gear":       "\u2699", // ⚙
+  "config":     "\u2699", // ⚙
+  "tool":       "\u2699", // ⚙
+  "wrench":     "\u2699", // ⚙
+  "database":   "\u232C", // ⌬  — hex / database stand-in
+  "db":         "\u232C", // ⌬
+  "cloud":      "\u2601", // ☁
+  "server":     "\u25A6", // ▦
+  "package":    "\u25A1", // □
+  "box":        "\u25A1", // □
+  "folder":     "\u25C7", // ◇
+  "file":       "\u25A1", // □
+  "document":   "\u25A1", // □
+  "link":       "\u26AD", // ⚭  — link/chain BMP
+  "share":      "\u2197", // ↗
+  "external":   "\u2197", // ↗
+  "download":   "\u2913", // ⤓
+  "upload":     "\u2912", // ⤒
+  "send":       "\u2192", // →
+  "mail":       "\u2709", // ✉
+  "email":      "\u2709", // ✉
+  "message":    "\u2709", // ✉
+  "chat":       "\u2709", // ✉
+  "user":       "\u263B", // ☻
+  "person":     "\u263B", // ☻
+  "team":       "\u263B", // ☻
+  "trending-up":"\u2197", // ↗
+  "trending-down":"\u2198", // ↘
+  "alert":      "\u26A0", // ⚠
+  "danger":     "\u26A0", // ⚠
+  "shield-check":"\u25C6", // ◆
+  "verified":   "\u2713", // ✓
+  "thumbs-up":  "\u2713", // ✓
+  "thumbs-down":"\u2717", // ✗
+  "filter":     "\u25BD", // ▽
+  "sort":       "\u21C5", // ⇅
+  "menu":       "\u2630", // ☰
+  "more":       "\u22EF", // ⋯
+  "plus":       "\u002B", // +
+  "add":        "\u002B", // +
+  "minus":      "\u2212", // −
+  "remove":     "\u2212", // −
+  "trash":      "\u2717", // ✗
+  "delete":     "\u2717", // ✗
+  "eye":        "\u25CB", // ○ — view / visibility (no good BMP eye glyph)
+  "view":       "\u25CB", // ○
+  "hide":       "\u2298", // ⊘
+  "bell":       "\u237E", // ⍾
+  "notification":"\u237E", // ⍾
+  "tag":        "\u29B0", // ⦰
+  "label":      "\u29B0", // ⦰
+  "flag":       "\u2691", // ⚑
+  "compass":    "\u2316", // ⌖
+  "navigation": "\u2316", // ⌖
+  "map":        "\u25C7", // ◇
+  "location":   "\u25C9", // ◉
+  "pin":        "\u25C9", // ◉
+  "home":       "\u2302", // ⌂
+  "house":      "\u2302", // ⌂
+  "building":   "\u2386", // ⎆ — placeholder; renders cleanly in mono
+  "office":     "\u2386", // ⎆
+  "graph":      "\u25B0", // ▰
+  "trend":      "\u25B0", // ▰
+  "analytics":  "\u25B0", // ▰
+  "stats":      "\u25B0", // ▰
+  "data":       "\u232C", // ⌬
+  "puzzle":     "\u25C7", // ◇
+  "layers":     "\u2630", // ☰
+  "grid":       "\u25A6", // ▦
+  "list":       "\u2630", // ☰
+  "checklist":  "\u2713", // ✓
+  "task":       "\u2713", // ✓
+  "calendar-check":"\u23F1", // ⏱
+  "history":    "\u21BB", // ↻
+  "time":       "\u23F1", // ⏱
+  "speed":      "\u26A1", // ⚡
+  "performance":"\u26A1", // ⚡
+  "growth":     "\u2197", // ↗
+  "decline":    "\u2198", // ↘
+  "scale":      "\u2696", // ⚖
+  "balance":    "\u2696", // ⚖
+  "compare":    "\u2696", // ⚖
 } as const;
 export type InlineIconName = keyof typeof INLINE_ICONS;
 export const INLINE_ICON_NAMES = Object.keys(INLINE_ICONS) as readonly InlineIconName[];
@@ -76,6 +218,12 @@ export interface BaseRunStyle {
    * See `chipColorResolver(ctx)` in primitives.ts for the standard mapping.
    */
   resolveChipColor?: (kind: ChipKind) => string | undefined;
+  /**
+   * Theme-aware chip glyph resolver. Returns the leading glyph for a chip
+   * kind (e.g. ▲▼→✓⚠✗●) — themes can override via `style.chips.<kind>.glyph`.
+   * When undefined, the default `CHIP_GLYPH` table is used.
+   */
+  resolveChipGlyph?: (kind: ChipKind) => string | undefined;
 }
 
 interface Token {
@@ -169,7 +317,7 @@ export function parseInline(text: string, base: BaseRunStyle): TextRun[] {
     } else if (tok.kind === "chip") {
       const kind = tok.chipKind!;
       const color = base.resolveChipColor?.(kind) ?? base.color;
-      const glyph = CHIP_GLYPH[kind];
+      const glyph = base.resolveChipGlyph?.(kind) ?? CHIP_GLYPH[kind];
       runs.push({
         text: glyph + " ",
         sizeHalfPt: base.sizeHalfPt,

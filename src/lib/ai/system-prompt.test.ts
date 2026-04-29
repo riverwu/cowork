@@ -8,47 +8,33 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Personality");
     expect(prompt).toContain("How you work");
     expect(prompt).toContain("Tool usage");
-    expect(prompt).toContain("Working with code");
     expect(prompt).toContain("Safety");
     expect(prompt).toContain("Output style");
   });
 
-  it("includes tool guidance", () => {
+  it("includes cowork-specific tool routing rules", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("read before modifying");
-    expect(prompt).toContain("apply_patch");
-    expect(prompt).toContain("shell");
-    expect(prompt).toContain("web_search");
-    expect(prompt).toContain("grep");
-  });
-
-  it("documents the search_knowledge `plan` form", () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("search_knowledge");
-    // Plan-form vocabulary still surfaces — agents need to know the keys exist.
-    expect(prompt).toContain("must");
-    expect(prompt).toContain("should");
-    expect(prompt).toContain("phrases");
-    expect(prompt).toContain("not");
-    // Modes for documents-vs-snippets discovery still mentioned.
-    expect(prompt).toContain("documents");
-    expect(prompt).toContain("snippets");
+    // We document the non-obvious cross-tool patterns; per-tool basics live
+    // in each tool's own description (sent via the tools API param).
+    expect(prompt).toContain("isolated envs"); // run_python / run_node sandboxes
+    expect(prompt).toContain("install_package"); // package install routing
+    expect(prompt).toContain("image_gen"); // image vs chart routing
+    expect(prompt).toContain("matplotlib");
+    expect(prompt).toContain("SlideML"); // deck toolchain
   });
 
   it("includes autonomy instructions", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("Current request has priority");
-    expect(prompt).toContain("Autonomy and persistence");
+    // Persistence/autonomy is now folded into Personality as one sentence.
     expect(prompt).toContain("end-to-end");
-    expect(prompt).toContain("Understanding user intent");
   });
 
-  it("requires tool evidence before completion claims", () => {
+  it("requires tool evidence before claiming a file exists", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("Completion evidence protocol");
-    expect(prompt).toContain("do not claim completion");
-    expect(prompt).toContain("file-producing tool result");
+    expect(prompt).toContain("Completion claims");
     expect(prompt).toContain("concrete path");
+    expect(prompt).toContain("protocol-level tool blocks");
   });
 
   it("guides large generated scripts through write_file chunks and run_node", () => {
@@ -70,16 +56,16 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("If a patch fails");
   });
 
-  it("includes tool list when provided", () => {
+  it("does NOT re-list tools (they are sent in the API tools array and covered by TOOL_RULES)", () => {
     const prompt = buildSystemPrompt({
       tools: [
         { name: "shell", description: "Execute shell command", parameters: {} },
         { name: "read_file", description: "Read a file", parameters: {} },
       ],
     });
-    expect(prompt).toContain("Available tools (2)");
-    expect(prompt).toContain("`shell`");
-    expect(prompt).toContain("`read_file`");
+    // Auto-generated `## Available tools (N)` was ~600 wasted tokens that
+    // duplicated the curated TOOL_RULES + the native tools API parameter.
+    expect(prompt).not.toContain("Available tools (");
   });
 
   it("adds plan mode section when enabled", () => {
@@ -107,7 +93,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Q1 sales report data");
   });
 
-  it("orders sections correctly: core → plan → tools → memory → knowledge", () => {
+  it("orders sections correctly: core → plan → memory → knowledge", () => {
     const prompt = buildSystemPrompt({
       tools: [{ name: "t", description: "d", parameters: {} }],
       memoryContext: "mem",
@@ -115,19 +101,17 @@ describe("buildSystemPrompt", () => {
       planMode: true,
     });
     const planPos = prompt.indexOf("MODE: PLANNING");
-    const toolsPos = prompt.indexOf("## Available tools (");
     const memPos = prompt.indexOf("## Your memory");
     const knowPos = prompt.indexOf("## Relevant knowledge");
 
-    expect(planPos).toBeLessThan(toolsPos);
-    expect(toolsPos).toBeLessThan(memPos);
+    expect(planPos).toBeLessThan(memPos);
     expect(memPos).toBeLessThan(knowPos);
   });
 
   it("includes safety and output style guidelines", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("destructive operations");
-    expect(prompt).toContain("No emoji");
+    expect(prompt).toContain("ASCII"); // covers emoji + decorative-punct guidance
     expect(prompt).toContain("concise");
   });
 });

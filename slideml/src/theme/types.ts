@@ -151,8 +151,147 @@ export interface ThemeManifest {
      * (use it to highlight bullets in brand-primary).
      */
     bullets?: {
+      /** Level-0 (top) glyph. */
       glyph?: string;
+      /** Color token name applied to the glyph (defaults to brand-primary). */
       color?: string;
+      /** Level-1 indent glyph (defaults to glyph if omitted). */
+      level1?: string;
+      /** Level-2 indent glyph (defaults to level1 if omitted). */
+      level2?: string;
+    };
+
+    /**
+     * Surface / card visual identity. Themes can opt for sharper corners,
+     * heavier elevation, or omit accent stripes entirely. Layouts that use
+     * the `card()` primitive inherit these without code changes.
+     *
+     * Defaults: { cornerRadius: 0.03, elevation: "hairline",
+     *            accentStripe: { position: "none", width: cm(0.12) } }.
+     */
+    surface?: {
+      /** 0..0.5 of shorter side. 0 = sharp; 0.03 = soft; 0.06 = round. */
+      cornerRadius?: number;
+      /** "flat" (no border, no shadow) | "hairline" (thin border) |
+       *  "shadow" (soft drop shadow) — applied uniformly. */
+      elevation?: "flat" | "hairline" | "shadow";
+      /** Accent stripe across the card. */
+      accentStripe?: {
+        position?: "top" | "left" | "none";
+        widthCm?: number;
+        /** Token name; defaults to brand-primary. */
+        color?: string;
+      };
+      /** Border policy for cards. "card-only" (default) | "full" | "none". */
+      borderPolicy?: "card-only" | "full" | "none";
+    };
+
+    /**
+     * Semantic color overrides — let themes pick semantic palettes that
+     * harmonize with their brand instead of the hardcoded green/red/blue/
+     * amber. Forest themes might use varying greens; midnight themes might
+     * use desaturated tones. Used by SWOT, chip color resolver, alert
+     * styling. Each entry is a hex (no #) — NOT a token name (semantic
+     * colors should be self-contained even when brand changes).
+     */
+    semantic?: {
+      positive?: string;
+      negative?: string;
+      warning?: string;
+      info?: string;
+      neutral?: string;
+    };
+
+    /**
+     * Data visualization palette. Categorical for series colors,
+     * sequential for heatmaps / progress, diverging for centered scales.
+     * All entries hex, no #.
+     */
+    dataviz?: {
+      categorical?: readonly string[];
+      sequential?: { from: string; to: string };
+      diverging?: { negative: string; mid: string; positive: string };
+    };
+
+    /**
+     * Typography scale + role policy. When `typography` is set, layouts
+     * derive sizes from `baseHalfPt × ratio^step` and `ctx.role(...)`
+     * returns a complete style for a named text role (title, body, …).
+     * Without this, layouts fall back to hardcoded sizes + `style.fontSizes`.
+     */
+    typography?: {
+      /** Base body size in half-points (e.g. 28 = 14pt). */
+      baseHalfPt?: number;
+      /** Modular scale ratio (1.2 / 1.25 / 1.333 / 1.414 / 1.5). */
+      ratio?: number;
+      /** Whether to apply italic to CJK text (italic CJK falls back to
+       *  slanted serif on macOS / LO — most themes should set false). */
+      italicCjk?: boolean;
+      /** Numeral style — `tabular` keeps digit widths uniform (good for
+       *  data tables and KPI alignment). */
+      numerals?: "proportional" | "tabular";
+      /** Per-role overrides. */
+      roles?: {
+        title?:   { weight?: "regular" | "medium" | "bold"; transform?: "none" | "upper" | "smallCaps"; trackingHalfPt?: number };
+        heading?: { weight?: "regular" | "medium" | "bold"; transform?: "none" | "upper" | "smallCaps"; trackingHalfPt?: number };
+        body?:    { weight?: "regular" | "medium" | "bold"; transform?: "none" | "upper" | "smallCaps"; trackingHalfPt?: number };
+        caption?: { weight?: "regular" | "medium" | "bold"; transform?: "none" | "upper" | "smallCaps"; trackingHalfPt?: number };
+        label?:   { weight?: "regular" | "medium" | "bold"; transform?: "none" | "upper" | "smallCaps"; trackingHalfPt?: number };
+      };
+    };
+
+    /**
+     * Numbering style for ordered lists / sections (agenda, outline,
+     * process-flow). "padded" → 01/02; "decimal" → 1./2.; "roman" → I./II.;
+     * "circled" → ①②. Default "padded".
+     */
+    numbering?: {
+      style?: "padded" | "decimal" | "roman" | "circled";
+    };
+
+    /**
+     * Inline chip overrides — themes can replace the default ▲▼→✓⚠✗●
+     * glyph set with theme-appropriate alternatives, or override the
+     * resolved color (otherwise chips draw in the matching semantic
+     * color above when set, then fall back to text-muted).
+     */
+    chips?: {
+      up?:        { glyph?: string; color?: string };
+      down?:      { glyph?: string; color?: string };
+      flat?:      { glyph?: string; color?: string };
+      ok?:        { glyph?: string; color?: string };
+      warn?:      { glyph?: string; color?: string };
+      bad?:       { glyph?: string; color?: string };
+      highlight?: { glyph?: string; color?: string };
+    };
+
+    /** Global image rendering defaults applied when a layout doesn't override. */
+    image?: {
+      /** Default clip shape. "rect" | "rounded" | "circle". */
+      defaultClip?: "rect" | "rounded" | "circle";
+      /** Hairline border around images. */
+      border?: { widthPt?: number; color?: string };
+      /** Color treatment hint surfaced in image_gen guidance (no actual
+       *  pixel-level treatment is applied — pptx is static). */
+      treatment?: "none" | "sepia" | "duotone" | "grayscale";
+    };
+
+    /**
+     * Chart styling defaults. Carries through to renderChartCell and any
+     * code-generated chart shapes that consult ctx.style.chart.
+     */
+    chart?: {
+      gridStyle?: "solid" | "dashed" | "none";
+      barCornerRadius?: number;
+      dataLabelPosition?: "inside" | "outside" | "none";
+    };
+
+    /** Table rendering style. */
+    table?: {
+      headerFill?: string;          // token name; default brand-deep
+      rowStripe?: boolean;          // default true
+      borderStyle?: "full" | "rows" | "none"; // default rows
+      firstColEmphasis?: "none" | "bold" | "accent"; // default none
     };
   };
   oxml?: {
@@ -242,18 +381,24 @@ export interface LoadedTheme {
  * value vocabulary. The validator (Stage 4) compiles these to JSON Schema.
  *
  * `region` is a polymorphic slot: the value is `{ kind: "kpi" | "chart" |
- * "table" | "text", ... }` and the consuming layout enforces the cell
- * shape. Used by the `dashboard` layout to host arbitrary content per
- * cell without exploding the schema surface.
+ * "table" | "text" | "bullets" | "image" | "code" | "quote" |
+ * "sparkline" | "progress", ... }` and the consuming layout enforces the
+ * cell shape. `region-list` is the same value vocabulary repeated N times,
+ * used by variable-cell layouts like `dashboard`.
  */
 export type SlotSchema =
   | { type: "text"; maxChars: number; optional?: boolean }
-  | { type: "text-block"; maxChars: number; optional?: boolean }
+  | { type: "text-block"; maxChars: number; maxLines?: number; optional?: boolean }
   | { type: "markdown-inline"; maxChars: number; optional?: boolean }
   | { type: "bullets"; min: number; max: number; itemMaxChars: number; optional?: boolean }
   | { type: "image-ref"; optional?: boolean }
   | { type: "chart-spec"; optional?: boolean }
   | { type: "component-ref"; allowed?: readonly string[]; optional?: boolean }
-  | { type: "table"; optional?: boolean }
+  | { type: "table"; maxRows?: number; maxCols?: number; cellMaxChars?: number; optional?: boolean }
   | { type: "region"; optional?: boolean }
+  | { type: "region-list"; min: number; max: number; optional?: boolean }
+  /** Polymorphic "show me a thing": image | svg | chart | table.
+   *  Tagged via `kind` discriminator; legacy un-tagged shapes (image-ref,
+   *  chart-spec, table) are coerced. See render/visual.ts. */
+  | { type: "visual"; optional?: boolean }
   | { type: "enum"; values: readonly string[]; default?: string; optional?: boolean };

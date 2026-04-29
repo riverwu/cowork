@@ -197,12 +197,13 @@ export type AgentEvent =
   | { type: "thinking"; active: boolean }
   | { type: "long-task-start"; runId: string; workspaceDir: string; reason: string }
   | { type: "long-task-progress"; runId: string; workspaceDir: string; phase: string; status: "pending" | "running" | "done" | "failed"; summary: string; outputs: { title: string; path?: string; kind?: "file" | "artifact" | "note" }[]; updatedAt: number }
-  | { type: "skill-start"; skill: string; input: unknown }
+  | { type: "skill-start"; skill: string; input: unknown; toolCallId: string }
   | { type: "skill-progress"; skill: string; output: string }
-  | { type: "skill-done"; skill: string; result: unknown; durationMs: number; success: boolean }
+  | { type: "skill-done"; skill: string; result: unknown; durationMs: number; success: boolean; toolCallId: string }
   | { type: "artifact"; artifact: Artifact }
   | { type: "knowledge-ref"; refs: { documentId: string; filename: string; snippet: string }[] }
   | { type: "context-dump"; content: string }
+  | { type: "compacted"; summary: string; preservedUserMessages: number; estimatedTokens: number }
   | { type: "error"; error: string }
   | { type: "done" };
 

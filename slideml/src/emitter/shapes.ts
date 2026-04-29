@@ -52,8 +52,17 @@ function textShapeXml(shape: TextShape, rels: SlideRels): string {
   // this, PowerPoint's strict-validate path flags the file as having
   // "content problems" and offers to repair on open. LibreOffice and
   // python-pptx tolerate the omission.
+  //
+  // When `cornerRadius` is set we promote the geometry to `roundRect` so
+  // the same shape carries fill, border, AND text — keeping them in one
+  // resizable unit rather than two stacked shapes that drift apart on
+  // user edits.
+  const isRoundRect = shape.cornerRadius !== undefined;
   const nvSpPr = nvSpPrXml(shape.id, shape.name ?? `Text ${shape.id}`, true);
-  const spPr = spPrXml(shape.xfrm, "rect", undefined, shape.fill, shape.line);
+  const adjustments = isRoundRect
+    ? `<a:avLst><a:gd name="adj" fmla="val ${Math.round(Math.max(0, Math.min(0.5, shape.cornerRadius!)) * 50000)}"/></a:avLst>`
+    : undefined;
+  const spPr = spPrXml(shape.xfrm, isRoundRect ? "roundRect" : "rect", adjustments, shape.fill, shape.line);
   // Adapter: text-emitter asks for hyperlink rIds via this RunRels, which
   // pushes a slide-level rel of type `/hyperlink` with TargetMode=External.
   const runRels: RunRels = {

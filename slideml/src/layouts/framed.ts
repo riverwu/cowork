@@ -25,7 +25,7 @@ import { renderRegion, type Region } from "../render/regions.js";
  * unused edge space.
  */
 export const slots: Record<string, SlotSchema> = {
-  title:     { type: "text",   maxChars: 50, optional: true },
+  title:     { type: "text",   maxChars: 35, optional: true },
   header:    { type: "region", optional: true },
   footer:    { type: "region", optional: true },
   leftEdge:  { type: "region", optional: true },

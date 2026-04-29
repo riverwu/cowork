@@ -23,8 +23,8 @@ import { parseInline } from "../render/markdown-inline.js";
  * (`brand-primary`) or 6-char hex.
  */
 export const slots: Record<string, SlotSchema> = {
-  title:  { type: "text",    maxChars: 80, optional: true },
-  shapes: { type: "bullets", min: 1, max: 40, itemMaxChars: 1200 },
+  title:  { type: "text",    maxChars: 56, optional: true },
+  shapes: { type: "bullets", min: 1, max: 40, itemMaxChars: 840 },
 };
 
 interface FF {
@@ -86,6 +86,7 @@ const freeform: LayoutFn = (ctx: LayoutContext): ShapeList => {
         id: ctx.id(),
         xfrm: { x, y, cx, cy },
         valign: "top",
+        autoFit: "shrink",
         paragraphs: [{
           align: (f.align === "center" || f.align === "right") ? f.align : "left",
           runs: parseInline(f.text ?? "", {

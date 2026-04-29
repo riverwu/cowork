@@ -198,6 +198,16 @@ the user to configure it.`,
       : "";
     return `Image generated and saved to ${outputPath}${refNote}. Model: ${model}, size: ${size}.`;
   },
+
+  // History compression: only the path matters downstream. Model + size +
+  // refNote are first-turn nice-to-haves but pure noise once the deck is
+  // assembled. ~190 chars → ~50 chars per call (× ~10 image_gens per
+  // typical deck = ~1.4KB savings per past turn).
+  historySummarizer(rawResult, status) {
+    if (status === "fail") return rawResult;
+    const m = /saved to (\S+)/.exec(rawResult);
+    return m ? `→ ${m[1]}` : rawResult.slice(0, 120);
+  },
 };
 
 function mimeFromExtension(filePath: string): string {

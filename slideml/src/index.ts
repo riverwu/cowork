@@ -14,7 +14,6 @@ import { loadTheme as internalLoadTheme } from "./theme/loader.js";
 import { validateDeckSpec, type SlidemlValidationError } from "./validator.js";
 import type { LoadedTheme, SlotSchema } from "./theme/types.js";
 import { exampleForSlot } from "./slot-examples.js";
-import { DENSITY, DENSITY_VALUES } from "./render/density.js";
 
 /**
  * Resolve a theme's OOXML overrides (token references) into concrete
@@ -160,12 +159,14 @@ export interface LayoutDetail extends LayoutInfo {
   purpose?: string;
   guidance?: string;
   /**
-   * Per-density character budget table — present only when the layout
-   * exposes a `density` slot. Keyed by density preset name; each entry
-   * has the per-language budget so the agent can pick the right preset
-   * for the actual content length.
+   * Approximate render-time dimensions (in cm) for visual/image slots,
+   * keyed by slot name. Lets the agent size generated images correctly
+   * (e.g. pick a Seedream 4.0 preset whose aspect matches the slot).
+   * Numbers are computed for default layout settings (50-50 ratio,
+   * card style); actual size shifts with `ratio` / `imageStyle` /
+   * `position` / title presence.
    */
-  densityBudgets?: Record<string, { latin: number; cjk: number }>;
+  regionDimensions?: Record<string, { widthCm: number; heightCm: number; aspectHint: string }>;
 }
 
 /**
@@ -288,20 +289,9 @@ export function describeLayout(
     const example = exampleForSlot(slotName, schema);
     enriched[slotName] = example !== undefined ? { ...schema, example } : { ...schema };
   }
-  // Density budget table — surfaces the agent-facing capacity contract
-  // when the layout has a `density` slot. Multiplier is layout-specific.
-  let densityBudgets: Record<string, { latin: number; cjk: number }> | undefined;
-  const hasDensitySlot = loaded.slots["density"]?.type === "enum";
-  if (hasDensitySlot) {
-    const mult = LAYOUT_BUDGET_MULTIPLIER[layoutName] ?? 1.0;
-    densityBudgets = {};
-    for (const d of DENSITY_VALUES) {
-      densityBudgets[d] = {
-        latin: Math.round(DENSITY[d].latinBudget * mult),
-        cjk:   Math.round(DENSITY[d].cjkBudget * mult),
-      };
-    }
-  }
+  // Region dimensions for visual/image slots — agent uses these to size
+  // generated images (e.g. pick a Seedream 4.0 aspect that matches).
+  const regionDimensions = computeRegionDimensions(layoutName, loaded.slots);
   return {
     name: layoutName,
     description: loaded.description,
@@ -309,18 +299,82 @@ export function describeLayout(
     thumbnailPath: loaded.thumbnailAbsPath,
     ...(loaded.purpose ? { purpose: loaded.purpose } : {}),
     guidance: loaded.guidance,
-    ...(densityBudgets ? { densityBudgets } : {}),
+    ...(regionDimensions ? { regionDimensions } : {}),
   };
 }
 
-// Layout-level budget multiplier — kept here so describeLayout can publish
-// the same numbers the validator will check against. Values must match
-// validator.ts:LAYOUT_BUDGET_MULTIPLIER.
-const LAYOUT_BUDGET_MULTIPLIER: Record<string, number> = {
-  "prose": 1.5,
-  "two-column-prose": 3.0,
-  "letter": 1.3,
-};
+/**
+ * Per-layout default-mode region dimensions (cm) for visual/image slots.
+ * 16:9 slide is 25.4cm × 14.3cm. Numbers reflect default settings; the
+ * description's `aspectHint` helps the agent pick a matching aspect.
+ */
+function computeRegionDimensions(
+  layoutName: string,
+  slots: Record<string, SlotSchema>,
+): Record<string, { widthCm: number; heightCm: number; aspectHint: string }> | undefined {
+  const SLIDE_W = 25.4;
+  const SLIDE_H = 14.3;
+  const out: Record<string, { widthCm: number; heightCm: number; aspectHint: string }> = {};
+  const visualSlots = Object.entries(slots).filter(
+    ([, s]) => s.type === "image-ref" || s.type === "visual",
+  );
+  if (visualSlots.length === 0) return undefined;
+  for (const [name] of visualSlots) {
+    const dims = layoutImageRegion(layoutName, name, SLIDE_W, SLIDE_H);
+    if (dims) out[name] = dims;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function layoutImageRegion(
+  layoutName: string,
+  slotName: string,
+  slideW: number,
+  slideH: number,
+): { widthCm: number; heightCm: number; aspectHint: string } | null {
+  // Per-layout geometry — defaults assume title present unless documented.
+  switch (layoutName) {
+    case "visual-with-text": {
+      // Default: 50-50 ratio, card style, image side. Image cell ≈ half
+      // body width × full body height (after title).
+      const w = (slideW - 4) / 2;        // body width minus margins
+      const h = slideH - 4.4 - 2;        // top after title − bottom margin
+      return { widthCm: round(w), heightCm: round(h), aspectHint: "5:4 (~12cm × 9.5cm) — pick a 4:3 or square image preset; for chart/table the cell expands to full width" };
+    }
+    case "visual-with-caption": {
+      // Image is 62% width, centered, with captionH+creditH reserved.
+      const w = slideW * 0.62;
+      const h = slideH - 4.4 - 2.6 - 1.2;
+      return { widthCm: round(w), heightCm: round(h), aspectHint: "16:10 (~15.7cm × 6.1cm) — pick a 16:9 or 16:10 image preset" };
+    }
+    case "image-full-bleed":
+      return { widthCm: round(slideW), heightCm: round(slideH), aspectHint: "16:9 — full slide" };
+    case "hero-image-overlay":
+      return { widthCm: round(slideW), heightCm: round(slideH), aspectHint: "16:9 — full slide, overlay text on top" };
+    case "image-grid":
+      // Default 2-up: each image fills half the body. 4-up: each tile is half width × half height.
+      if (slotName === "images") {
+        return { widthCm: round((slideW - 4) / 2), heightCm: round(slideH - 3.4 - 2), aspectHint: "Each image: count=2 → ~11cm × 9cm (4:3); count=4 → ~11cm × 4.5cm (16:7)" };
+      }
+      return null;
+    case "quote":
+      // Portrait avatar — circular, fixed cm.
+      if (slotName === "portrait") {
+        return { widthCm: 5.4, heightCm: 5.4, aspectHint: "Square (1:1) — auto-cropped to circle" };
+      }
+      return null;
+    case "team-grid":
+      return { widthCm: 3.5, heightCm: 3.5, aspectHint: "Square (1:1) per member — auto-cropped to circle" };
+    case "closing":
+      return { widthCm: round(slideW), heightCm: round(slideH), aspectHint: "16:9 — full slide background" };
+    default:
+      return null;
+  }
+}
+
+function round(v: number): number {
+  return Math.round(v * 10) / 10;
+}
 
 function firstSentence(s: string): string {
   const trimmed = s.trim();

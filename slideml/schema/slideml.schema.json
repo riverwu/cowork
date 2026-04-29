@@ -291,11 +291,10 @@
           "description": "Layout name from the SlideML core registry. The enum is closed by design — themes do NOT add layouts. Extension contract: if you need a layout that doesn't exist here, do NOT invent a name (the renderer will reject unknown layouts). Instead pick the closest existing layout and embed bespoke content via a `component-ref` slot. New layouts are added to the SlideML core after community review, then become available everywhere.",
           "enum": [
             "agenda",
-            "bullet-with-image",
-            "chart-with-takeaway",
             "closing",
             "code-block",
             "compare-two-columns",
+            "content-grid",
             "cover",
             "dashboard",
             "data-table",
@@ -303,35 +302,31 @@
             "executive-summary",
             "framed",
             "freeform",
+            "funnel",
             "glossary",
             "hero-image-overlay",
             "hero-stat",
             "image-full-bleed",
-            "image-grid-2x2",
-            "image-pair",
-            "image-split-text",
-            "image-with-caption",
-            "image-with-takeaway",
+            "image-grid",
             "key-point",
             "letter",
             "matrix-2x2",
             "outline",
             "pricing-table",
-            "process-timeline",
+            "process-flow",
             "prose",
             "q-and-a",
             "quote",
-            "quote-with-portrait",
+            "roadmap",
             "section-divider",
-            "split-2",
-            "split-3-horizontal",
-            "split-3-vertical",
+            "split",
             "stat-grid-3",
+            "swot",
             "team-grid",
-            "timeline-text",
+            "timeline",
             "title-only",
-            "two-col-text-image",
-            "two-column-prose"
+            "visual-with-caption",
+            "visual-with-text"
           ]
         },
         "chrome": {
@@ -400,8 +395,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 30,
-                    "description": "Single-line text, ≤ 30 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 21,
+                    "description": "Single-line text, ≤ 21 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "items": {
                     "type": "array",
@@ -411,152 +406,92 @@
                       "oneOf": [
                         {
                           "type": "string",
-                          "maxLength": 60
+                          "maxLength": 42
                         },
                         {
                           "type": "object",
-                          "required": [
-                            "value",
-                            "label"
-                          ],
-                          "additionalProperties": false,
-                          "properties": {
-                            "value": {
-                              "type": "string"
-                            },
-                            "label": {
-                              "type": "string"
-                            },
-                            "delta": {
-                              "type": "string"
-                            },
-                            "trend": {
-                              "enum": [
-                                "up",
-                                "down",
-                                "flat"
-                              ]
-                            }
-                          }
-                        }
-                      ]
-                    },
-                    "description": "2–8 items, each ≤ 60 chars when string-shaped."
-                  }
-                },
-                "required": [
-                  "items"
-                ]
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "layout": {
-                "const": "bullet-with-image"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "slots": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "bullets": {
-                    "type": "array",
-                    "minItems": 3,
-                    "maxItems": 6,
-                    "items": {
-                      "oneOf": [
-                        {
-                          "type": "string",
-                          "maxLength": 80
-                        },
-                        {
-                          "type": "object",
-                          "required": [
-                            "text"
-                          ],
                           "additionalProperties": false,
                           "properties": {
                             "text": {
                               "type": "string",
-                              "maxLength": 80
+                              "maxLength": 42
                             },
-                            "sub": {
-                              "type": "array",
-                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
-                              "items": {
-                                "type": "string",
-                                "maxLength": 80
-                              }
+                            "title": {
+                              "type": "string",
+                              "maxLength": 42
+                            },
+                            "label": {
+                              "type": "string",
+                              "maxLength": 42
+                            },
+                            "name": {
+                              "type": "string",
+                              "maxLength": 42
+                            },
+                            "heading": {
+                              "type": "string",
+                              "maxLength": 42
+                            },
+                            "num": {
+                              "type": "string",
+                              "maxLength": 42
+                            },
+                            "detail": {
+                              "type": "string",
+                              "maxLength": 42
+                            },
+                            "description": {
+                              "type": "string",
+                              "maxLength": 42
+                            },
+                            "body": {
+                              "type": "string",
+                              "maxLength": 42
+                            },
+                            "caption": {
+                              "type": "string",
+                              "maxLength": 42
+                            },
+                            "subtitle": {
+                              "type": "string",
+                              "maxLength": 42
                             }
-                          }
+                          },
+                          "anyOf": [
+                            {
+                              "required": [
+                                "text"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "title"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "label"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "name"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "heading"
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
-                    "description": "3–6 items, each ≤ 80 chars when string-shaped."
-                  },
-                  "image": {
-                    "$ref": "#/$defs/ImageRef"
-                  },
-                  "imageRatio": {
-                    "enum": [
-                      "50-50",
-                      "60-40",
-                      "40-60",
-                      "67-33",
-                      "33-67"
-                    ],
-                    "default": "50-50",
-                    "description": "One of: 50-50 | 60-40 | 40-60 | 67-33 | 33-67."
+                    "description": "2–8 items, each ≤ 42 chars when string-shaped."
                   }
                 },
                 "required": [
-                  "bullets"
-                ]
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "layout": {
-                "const": "chart-with-takeaway"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "slots": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "chart": {
-                    "$ref": "#/$defs/ChartSpec"
-                  },
-                  "takeaway": {
-                    "type": "string",
-                    "maxLength": 160,
-                    "description": "Inline markdown, ≤ 160 chars. See `InlineMarkdown` $def: **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name: (12-icon enum)."
-                  }
-                },
-                "required": [
-                  "chart"
+                  "items"
                 ]
               }
             }
@@ -578,13 +513,13 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "subtitle": {
                     "type": "string",
-                    "maxLength": 80,
-                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 56,
+                    "description": "Single-line text, ≤ 56 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "image": {
                     "$ref": "#/$defs/ImageRef"
@@ -613,20 +548,20 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 35,
+                    "description": "Single-line text, ≤ 35 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "language": {
                     "type": "string",
                     "maxLength": 16,
-                    "description": "Single-line text, ≤ 16 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "description": "Single-line text, ≤ 16 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "code": {
-                    "description": "Multi-line text, ≤ 1600 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 1120 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def). AUTHORING: keep each paragraph on a SINGLE LINE — do NOT insert `\\n` mid-sentence for cosmetic line wrapping (the renderer will turn each `\\n` into a hard line break, wasting vertical space and risking overflow). Use blank lines (`\\n\\n`) ONLY between distinct paragraphs. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line.",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 1600
+                        "maxLength": 1120
                       },
                       {
                         "type": "array",
@@ -663,8 +598,8 @@
                   },
                   "caption": {
                     "type": "string",
-                    "maxLength": 160,
-                    "description": "Inline markdown, ≤ 160 chars. See `InlineMarkdown` $def: **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name: (12-icon enum)."
+                    "maxLength": 112,
+                    "description": "Inline markdown, ≤ 112 chars. See `InlineMarkdown` $def: **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name: (12-icon enum). YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   }
                 },
                 "required": [
@@ -690,20 +625,20 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 35,
+                    "description": "Single-line text, ≤ 35 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "leftTitle": {
                     "type": "string",
-                    "maxLength": 30,
-                    "description": "Single-line text, ≤ 30 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 21,
+                    "description": "Single-line text, ≤ 21 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "leftBody": {
-                    "description": "Multi-line text, ≤ 280 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 196 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def). AUTHORING: keep each paragraph on a SINGLE LINE — do NOT insert `\\n` mid-sentence for cosmetic line wrapping (the renderer will turn each `\\n` into a hard line break, wasting vertical space and risking overflow). Use blank lines (`\\n\\n`) ONLY between distinct paragraphs. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line.",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 280
+                        "maxLength": 196
                       },
                       {
                         "type": "array",
@@ -740,15 +675,15 @@
                   },
                   "rightTitle": {
                     "type": "string",
-                    "maxLength": 30,
-                    "description": "Single-line text, ≤ 30 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 21,
+                    "description": "Single-line text, ≤ 21 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "rightBody": {
-                    "description": "Multi-line text, ≤ 280 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 196 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def). AUTHORING: keep each paragraph on a SINGLE LINE — do NOT insert `\\n` mid-sentence for cosmetic line wrapping (the renderer will turn each `\\n` into a hard line break, wasting vertical space and risking overflow). Use blank lines (`\\n\\n`) ONLY between distinct paragraphs. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line.",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 280
+                        "maxLength": 196
                       },
                       {
                         "type": "array",
@@ -798,6 +733,119 @@
           "if": {
             "properties": {
               "layout": {
+                "const": "content-grid"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
+                  },
+                  "items": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 8,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 280
+                        },
+                        {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "title": {
+                              "type": "string",
+                              "maxLength": 280
+                            },
+                            "text": {
+                              "type": "string",
+                              "maxLength": 280
+                            },
+                            "heading": {
+                              "type": "string",
+                              "maxLength": 280
+                            },
+                            "label": {
+                              "type": "string",
+                              "maxLength": 280
+                            },
+                            "name": {
+                              "type": "string",
+                              "maxLength": 280
+                            },
+                            "body": {
+                              "type": "string",
+                              "maxLength": 280
+                            },
+                            "description": {
+                              "type": "string",
+                              "maxLength": 280
+                            },
+                            "detail": {
+                              "type": "string",
+                              "maxLength": 280
+                            },
+                            "caption": {
+                              "type": "string",
+                              "maxLength": 280
+                            },
+                            "icon": {
+                              "type": "string"
+                            }
+                          },
+                          "anyOf": [
+                            {
+                              "required": [
+                                "title"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "text"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "heading"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "label"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "name"
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "description": "3–8 items, each ≤ 280 chars when string-shaped."
+                  }
+                },
+                "required": [
+                  "items"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
                 "const": "cover"
               }
             }
@@ -810,18 +858,18 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "subtitle": {
                     "type": "string",
-                    "maxLength": 80,
-                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 56,
+                    "description": "Single-line text, ≤ 56 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "eyebrow": {
                     "type": "string",
-                    "maxLength": 32,
-                    "description": "Single-line text, ≤ 32 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 22,
+                    "description": "Single-line text, ≤ 22 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   }
                 },
                 "required": [
@@ -847,8 +895,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 35,
+                    "description": "Single-line text, ≤ 35 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "tl": {
                     "$ref": "#/$defs/Region"
@@ -861,11 +909,17 @@
                   },
                   "br": {
                     "$ref": "#/$defs/Region"
+                  },
+                  "cells": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 8,
+                    "items": {
+                      "$ref": "#/$defs/Region"
+                    },
+                    "description": "2–8 polymorphic region cells. Each item is a Region object with kind: kpi | chart | table | text | bullets | image | code | quote | sparkline | progress."
                   }
-                },
-                "required": [
-                  "tl"
-                ]
+                }
               }
             }
           }
@@ -886,11 +940,100 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 35,
+                    "description": "Single-line text, ≤ 35 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "table": {
-                    "$ref": "#/$defs/TableSpec"
+                    "type": "object",
+                    "required": [
+                      "header",
+                      "rows"
+                    ],
+                    "additionalProperties": false,
+                    "properties": {
+                      "header": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 6,
+                        "items": {
+                          "type": "string",
+                          "maxLength": 80
+                        }
+                      },
+                      "rows": {
+                        "type": "array",
+                        "maxItems": 8,
+                        "items": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": 6,
+                          "items": {
+                            "oneOf": [
+                              {
+                                "type": "string",
+                                "maxLength": 80
+                              },
+                              {
+                                "type": "number"
+                              },
+                              {
+                                "type": "object",
+                                "required": [
+                                  "value"
+                                ],
+                                "additionalProperties": false,
+                                "properties": {
+                                  "value": {
+                                    "oneOf": [
+                                      {
+                                        "type": "string",
+                                        "maxLength": 80
+                                      },
+                                      {
+                                        "type": "number"
+                                      }
+                                    ]
+                                  },
+                                  "emphasis": {
+                                    "enum": [
+                                      "ok",
+                                      "warn",
+                                      "bad",
+                                      "highlight",
+                                      "up",
+                                      "down",
+                                      "flat"
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "colWidths": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 6,
+                        "items": {
+                          "type": "number",
+                          "minimum": 0
+                        }
+                      },
+                      "align": {
+                        "type": "array",
+                        "maxItems": 6,
+                        "items": {
+                          "enum": [
+                            "left",
+                            "center",
+                            "right"
+                          ]
+                        },
+                        "description": "Per-column horizontal alignment. Index N applies to column N. When omitted, numeric-looking strings auto-right-align and everything else left-aligns."
+                      }
+                    },
+                    "description": "Table: up to 6 columns, 8 body rows, and about 80 chars per cell."
                   }
                 },
                 "required": [
@@ -916,25 +1059,25 @@
                 "properties": {
                   "term": {
                     "type": "string",
-                    "maxLength": 40,
-                    "description": "Single-line text, ≤ 40 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 28,
+                    "description": "Single-line text, ≤ 28 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "pronounce": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "partOfSpeech": {
                     "type": "string",
-                    "maxLength": 32,
-                    "description": "Single-line text, ≤ 32 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 22,
+                    "description": "Single-line text, ≤ 22 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "body": {
-                    "description": "Multi-line text, ≤ 600 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 126 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def). AUTHORING: keep each paragraph on a SINGLE LINE — do NOT insert `\\n` mid-sentence for cosmetic line wrapping (the renderer will turn each `\\n` into a hard line break, wasting vertical space and risking overflow). Use blank lines (`\\n\\n`) ONLY between distinct paragraphs. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line.",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 600
+                        "maxLength": 126
                       },
                       {
                         "type": "array",
@@ -970,11 +1113,11 @@
                     ]
                   },
                   "example": {
-                    "description": "Multi-line text, ≤ 240 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 84 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def). AUTHORING: keep each paragraph on a SINGLE LINE — do NOT insert `\\n` mid-sentence for cosmetic line wrapping (the renderer will turn each `\\n` into a hard line break, wasting vertical space and risking overflow). Use blank lines (`\\n\\n`) ONLY between distinct paragraphs. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line.",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 240
+                        "maxLength": 84
                       },
                       {
                         "type": "array",
@@ -1034,8 +1177,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "items": {
                     "type": "array",
@@ -1045,32 +1188,41 @@
                       "oneOf": [
                         {
                           "type": "string",
-                          "maxLength": 240
+                          "maxLength": 168
                         },
                         {
                           "type": "object",
-                          "required": [
-                            "text"
-                          ],
                           "additionalProperties": false,
                           "properties": {
+                            "heading": {
+                              "type": "string",
+                              "maxLength": 168
+                            },
+                            "line": {
+                              "type": "string",
+                              "maxLength": 168
+                            },
                             "text": {
                               "type": "string",
-                              "maxLength": 240
-                            },
-                            "sub": {
-                              "type": "array",
-                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
-                              "items": {
-                                "type": "string",
-                                "maxLength": 240
-                              }
+                              "maxLength": 168
                             }
-                          }
+                          },
+                          "anyOf": [
+                            {
+                              "required": [
+                                "heading"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "text"
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
-                    "description": "2–6 items, each ≤ 240 chars when string-shaped."
+                    "description": "2–6 items, each ≤ 168 chars when string-shaped."
                   }
                 },
                 "required": [
@@ -1096,8 +1248,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 35,
+                    "description": "Single-line text, ≤ 35 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "header": {
                     "$ref": "#/$defs/Region"
@@ -1138,8 +1290,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 80,
-                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 56,
+                    "description": "Single-line text, ≤ 56 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "shapes": {
                     "type": "array",
@@ -1149,7 +1301,7 @@
                       "oneOf": [
                         {
                           "type": "string",
-                          "maxLength": 1200
+                          "maxLength": 840
                         },
                         {
                           "type": "object",
@@ -1160,25 +1312,87 @@
                           "properties": {
                             "text": {
                               "type": "string",
-                              "maxLength": 1200
+                              "maxLength": 840
                             },
                             "sub": {
                               "type": "array",
                               "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
                               "items": {
                                 "type": "string",
-                                "maxLength": 1200
+                                "maxLength": 840
                               }
                             }
                           }
                         }
                       ]
                     },
-                    "description": "1–40 items, each ≤ 1200 chars when string-shaped."
+                    "description": "1–40 items, each ≤ 840 chars when string-shaped."
                   }
                 },
                 "required": [
                   "shapes"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "funnel"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
+                  },
+                  "stages": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 6,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 84
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 84
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 84
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "3–6 items, each ≤ 84 chars when string-shaped."
+                  }
+                },
+                "required": [
+                  "stages"
                 ]
               }
             }
@@ -1200,8 +1414,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "terms": {
                     "type": "array",
@@ -1211,7 +1425,7 @@
                       "oneOf": [
                         {
                           "type": "string",
-                          "maxLength": 200
+                          "maxLength": 140
                         },
                         {
                           "type": "object",
@@ -1222,21 +1436,21 @@
                           "properties": {
                             "text": {
                               "type": "string",
-                              "maxLength": 200
+                              "maxLength": 140
                             },
                             "sub": {
                               "type": "array",
                               "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
                               "items": {
                                 "type": "string",
-                                "maxLength": 200
+                                "maxLength": 140
                               }
                             }
                           }
                         }
                       ]
                     },
-                    "description": "3–12 items, each ≤ 200 chars when string-shaped."
+                    "description": "3–12 items, each ≤ 140 chars when string-shaped."
                   }
                 },
                 "required": [
@@ -1265,18 +1479,18 @@
                   },
                   "title": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "subtitle": {
                     "type": "string",
-                    "maxLength": 100,
-                    "description": "Single-line text, ≤ 100 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 70,
+                    "description": "Single-line text, ≤ 70 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "align": {
                     "type": "string",
                     "maxLength": 16,
-                    "description": "Single-line text, ≤ 16 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "description": "Single-line text, ≤ 16 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   }
                 },
                 "required": [
@@ -1303,20 +1517,20 @@
                 "properties": {
                   "value": {
                     "type": "string",
-                    "maxLength": 20,
-                    "description": "Single-line text, ≤ 20 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 16,
+                    "description": "Single-line text, ≤ 16 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "label": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "caption": {
-                    "description": "Multi-line text, ≤ 240 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 168 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def). AUTHORING: keep each paragraph on a SINGLE LINE — do NOT insert `\\n` mid-sentence for cosmetic line wrapping (the renderer will turn each `\\n` into a hard line break, wasting vertical space and risking overflow). Use blank lines (`\\n\\n`) ONLY between distinct paragraphs. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line.",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 240
+                        "maxLength": 168
                       },
                       {
                         "type": "array",
@@ -1353,8 +1567,8 @@
                   },
                   "eyebrow": {
                     "type": "string",
-                    "maxLength": 32,
-                    "description": "Single-line text, ≤ 32 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 22,
+                    "description": "Single-line text, ≤ 22 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   }
                 },
                 "required": [
@@ -1384,8 +1598,8 @@
                   },
                   "caption": {
                     "type": "string",
-                    "maxLength": 120,
-                    "description": "Single-line text, ≤ 120 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 84,
+                    "description": "Single-line text, ≤ 84 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   }
                 },
                 "required": [
@@ -1399,7 +1613,7 @@
           "if": {
             "properties": {
               "layout": {
-                "const": "image-grid-2x2"
+                "const": "image-grid"
               }
             }
           },
@@ -1411,8 +1625,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 35,
+                    "description": "Single-line text, ≤ 35 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "images": {
                     "type": "array",
@@ -1460,247 +1674,11 @@
                         }
                       ]
                     },
-                    "description": "2–4 items, each ≤ 64 chars when string-shaped."
+                    "description": "2–4 items, each ≤ 140 chars when string-shaped."
                   }
                 },
                 "required": [
                   "images"
-                ]
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "layout": {
-                "const": "image-pair"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "slots": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "leftImage": {
-                    "$ref": "#/$defs/ImageRef"
-                  },
-                  "rightImage": {
-                    "$ref": "#/$defs/ImageRef"
-                  },
-                  "leftLabel": {
-                    "type": "string",
-                    "maxLength": 32,
-                    "description": "Single-line text, ≤ 32 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "rightLabel": {
-                    "type": "string",
-                    "maxLength": 32,
-                    "description": "Single-line text, ≤ 32 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  }
-                },
-                "required": [
-                  "leftImage",
-                  "rightImage"
-                ]
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "layout": {
-                "const": "image-split-text"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "slots": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "text": {
-                    "description": "Multi-line text, ≤ 1500 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
-                    "oneOf": [
-                      {
-                        "type": "string",
-                        "maxLength": 1500
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "oneOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "object",
-                              "required": [
-                                "kind",
-                                "text"
-                              ],
-                              "additionalProperties": false,
-                              "properties": {
-                                "kind": {
-                                  "enum": [
-                                    "quote",
-                                    "note",
-                                    "callout",
-                                    "h2"
-                                  ]
-                                },
-                                "text": {
-                                  "type": "string"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    ]
-                  },
-                  "image": {
-                    "$ref": "#/$defs/ImageRef"
-                  },
-                  "imageSide": {
-                    "type": "string",
-                    "maxLength": 6,
-                    "description": "Single-line text, ≤ 6 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "density": {
-                    "enum": [
-                      "loose",
-                      "normal",
-                      "dense",
-                      "micro"
-                    ],
-                    "default": "normal",
-                    "description": "One of: loose | normal | dense | micro."
-                  }
-                },
-                "required": [
-                  "text",
-                  "image"
-                ]
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "layout": {
-                "const": "image-with-caption"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "slots": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "image": {
-                    "$ref": "#/$defs/ImageRef"
-                  },
-                  "caption": {
-                    "description": "Multi-line text, ≤ 320 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
-                    "oneOf": [
-                      {
-                        "type": "string",
-                        "maxLength": 320
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "oneOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "object",
-                              "required": [
-                                "kind",
-                                "text"
-                              ],
-                              "additionalProperties": false,
-                              "properties": {
-                                "kind": {
-                                  "enum": [
-                                    "quote",
-                                    "note",
-                                    "callout",
-                                    "h2"
-                                  ]
-                                },
-                                "text": {
-                                  "type": "string"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    ]
-                  },
-                  "credit": {
-                    "type": "string",
-                    "maxLength": 80,
-                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  }
-                },
-                "required": [
-                  "image",
-                  "caption"
-                ]
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "layout": {
-                "const": "image-with-takeaway"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "slots": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "image": {
-                    "$ref": "#/$defs/ImageRef"
-                  },
-                  "takeaway": {
-                    "type": "string",
-                    "maxLength": 160,
-                    "description": "Inline markdown, ≤ 160 chars. See `InlineMarkdown` $def: **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name: (12-icon enum)."
-                  }
-                },
-                "required": [
-                  "image"
                 ]
               }
             }
@@ -1722,8 +1700,8 @@
                 "properties": {
                   "headline": {
                     "type": "string",
-                    "maxLength": 80,
-                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 56,
+                    "description": "Single-line text, ≤ 56 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "points": {
                     "type": "array",
@@ -1733,7 +1711,7 @@
                       "oneOf": [
                         {
                           "type": "string",
-                          "maxLength": 200
+                          "maxLength": 140
                         },
                         {
                           "type": "object",
@@ -1744,21 +1722,21 @@
                           "properties": {
                             "text": {
                               "type": "string",
-                              "maxLength": 200
+                              "maxLength": 140
                             },
                             "sub": {
                               "type": "array",
                               "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
                               "items": {
                                 "type": "string",
-                                "maxLength": 200
+                                "maxLength": 140
                               }
                             }
                           }
                         }
                       ]
                     },
-                    "description": "2–4 items, each ≤ 200 chars when string-shaped."
+                    "description": "2–4 items, each ≤ 140 chars when string-shaped."
                   }
                 },
                 "required": [
@@ -1785,20 +1763,20 @@
                 "properties": {
                   "date": {
                     "type": "string",
-                    "maxLength": 40,
-                    "description": "Single-line text, ≤ 40 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 28,
+                    "description": "Single-line text, ≤ 28 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "recipient": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "body": {
-                    "description": "Multi-line text, ≤ 1400 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 980 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def). AUTHORING: keep each paragraph on a SINGLE LINE — do NOT insert `\\n` mid-sentence for cosmetic line wrapping (the renderer will turn each `\\n` into a hard line break, wasting vertical space and risking overflow). Use blank lines (`\\n\\n`) ONLY between distinct paragraphs. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line.",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 1400
+                        "maxLength": 980
                       },
                       {
                         "type": "array",
@@ -1835,18 +1813,18 @@
                   },
                   "signoff": {
                     "type": "string",
-                    "maxLength": 40,
-                    "description": "Single-line text, ≤ 40 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 28,
+                    "description": "Single-line text, ≤ 28 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "signature": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "signRole": {
                     "type": "string",
-                    "maxLength": 80,
-                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 56,
+                    "description": "Single-line text, ≤ 56 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   }
                 },
                 "required": [
@@ -1873,18 +1851,18 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 35,
+                    "description": "Single-line text, ≤ 35 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "xLabel": {
                     "type": "string",
-                    "maxLength": 32,
-                    "description": "Single-line text, ≤ 32 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 22,
+                    "description": "Single-line text, ≤ 22 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "yLabel": {
                     "type": "string",
-                    "maxLength": 32,
-                    "description": "Single-line text, ≤ 32 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 22,
+                    "description": "Single-line text, ≤ 22 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "topLeft": {
                     "$ref": "#/$defs/Region"
@@ -1925,8 +1903,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "items": {
                     "type": "array",
@@ -1936,7 +1914,7 @@
                       "oneOf": [
                         {
                           "type": "string",
-                          "maxLength": 100
+                          "maxLength": 70
                         },
                         {
                           "type": "object",
@@ -1947,21 +1925,21 @@
                           "properties": {
                             "text": {
                               "type": "string",
-                              "maxLength": 100
+                              "maxLength": 70
                             },
                             "sub": {
                               "type": "array",
                               "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
                               "items": {
                                 "type": "string",
-                                "maxLength": 100
+                                "maxLength": 70
                               }
                             }
                           }
                         }
                       ]
                     },
-                    "description": "2–8 items, each ≤ 100 chars when string-shaped."
+                    "description": "2–8 items, each ≤ 70 chars when string-shaped."
                   }
                 },
                 "required": [
@@ -1987,8 +1965,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 35,
+                    "description": "Single-line text, ≤ 35 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "tiers": {
                     "type": "array",
@@ -1998,7 +1976,7 @@
                       "oneOf": [
                         {
                           "type": "string",
-                          "maxLength": 200
+                          "maxLength": 140
                         },
                         {
                           "type": "object",
@@ -2009,21 +1987,21 @@
                           "properties": {
                             "text": {
                               "type": "string",
-                              "maxLength": 200
+                              "maxLength": 140
                             },
                             "sub": {
                               "type": "array",
                               "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
                               "items": {
                                 "type": "string",
-                                "maxLength": 200
+                                "maxLength": 140
                               }
                             }
                           }
                         }
                       ]
                     },
-                    "description": "2–4 items, each ≤ 200 chars when string-shaped."
+                    "description": "2–4 items, each ≤ 140 chars when string-shaped."
                   }
                 },
                 "required": [
@@ -2037,7 +2015,7 @@
           "if": {
             "properties": {
               "layout": {
-                "const": "process-timeline"
+                "const": "process-flow"
               }
             }
           },
@@ -2049,21 +2027,22 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "steps": {
                     "type": "array",
-                    "minItems": 3,
-                    "maxItems": 5,
+                    "minItems": 2,
+                    "maxItems": 8,
                     "items": {
                       "oneOf": [
                         {
                           "type": "string",
-                          "maxLength": 80
+                          "maxLength": 168
                         },
                         {
                           "type": "object",
+                          "additionalProperties": false,
                           "properties": {
                             "title": {
                               "type": "string"
@@ -2071,17 +2050,51 @@
                             "label": {
                               "type": "string"
                             },
+                            "heading": {
+                              "type": "string"
+                            },
                             "description": {
+                              "type": "string"
+                            },
+                            "body": {
+                              "type": "string"
+                            },
+                            "detail": {
+                              "type": "string"
+                            },
+                            "caption": {
                               "type": "string"
                             },
                             "text": {
                               "type": "string"
                             }
-                          }
+                          },
+                          "anyOf": [
+                            {
+                              "required": [
+                                "title"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "label"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "heading"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "text"
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
-                    "description": "3–5 items, each ≤ 80 chars when string-shaped."
+                    "description": "2–8 items, each ≤ 168 chars when string-shaped."
                   },
                   "direction": {
                     "enum": [
@@ -2115,20 +2128,20 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 80,
-                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 56,
+                    "description": "Single-line text, ≤ 56 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "subtitle": {
                     "type": "string",
-                    "maxLength": 120,
-                    "description": "Single-line text, ≤ 120 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 84,
+                    "description": "Single-line text, ≤ 84 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "body": {
-                    "description": "Multi-line text, ≤ 2400 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 2520 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def). AUTHORING: keep each paragraph on a SINGLE LINE — do NOT insert `\\n` mid-sentence for cosmetic line wrapping (the renderer will turn each `\\n` into a hard line break, wasting vertical space and risking overflow). Use blank lines (`\\n\\n`) ONLY between distinct paragraphs. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line.",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 2400
+                        "maxLength": 2520
                       },
                       {
                         "type": "array",
@@ -2163,15 +2176,13 @@
                       }
                     ]
                   },
-                  "density": {
+                  "columns": {
                     "enum": [
-                      "loose",
-                      "normal",
-                      "dense",
-                      "micro"
+                      "1",
+                      "2"
                     ],
-                    "default": "normal",
-                    "description": "One of: loose | normal | dense | micro."
+                    "default": "1",
+                    "description": "One of: 1 | 2."
                   }
                 },
                 "required": [
@@ -2197,8 +2208,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "items": {
                     "type": "array",
@@ -2208,32 +2219,45 @@
                       "oneOf": [
                         {
                           "type": "string",
-                          "maxLength": 400
+                          "maxLength": 280
                         },
                         {
                           "type": "object",
-                          "required": [
-                            "text"
-                          ],
                           "additionalProperties": false,
                           "properties": {
-                            "text": {
+                            "q": {
                               "type": "string",
-                              "maxLength": 400
+                              "maxLength": 280
                             },
-                            "sub": {
-                              "type": "array",
-                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
-                              "items": {
-                                "type": "string",
-                                "maxLength": 400
-                              }
+                            "question": {
+                              "type": "string",
+                              "maxLength": 280
+                            },
+                            "a": {
+                              "type": "string",
+                              "maxLength": 280
+                            },
+                            "answer": {
+                              "type": "string",
+                              "maxLength": 280
                             }
-                          }
+                          },
+                          "anyOf": [
+                            {
+                              "required": [
+                                "q"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "question"
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
-                    "description": "1–5 items, each ≤ 400 chars when string-shaped."
+                    "description": "1–5 items, each ≤ 280 chars when string-shaped."
                   }
                 },
                 "required": [
@@ -2258,11 +2282,11 @@
                 "additionalProperties": false,
                 "properties": {
                   "quote": {
-                    "description": "Multi-line text, ≤ 240 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                    "description": "Multi-line text, ≤ 196 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def). AUTHORING: keep each paragraph on a SINGLE LINE — do NOT insert `\\n` mid-sentence for cosmetic line wrapping (the renderer will turn each `\\n` into a hard line break, wasting vertical space and risking overflow). Use blank lines (`\\n\\n`) ONLY between distinct paragraphs. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line.",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 240
+                        "maxLength": 196
                       },
                       {
                         "type": "array",
@@ -2299,8 +2323,21 @@
                   },
                   "attribution": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
+                  },
+                  "name": {
+                    "type": "string",
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
+                  },
+                  "role": {
+                    "type": "string",
+                    "maxLength": 56,
+                    "description": "Single-line text, ≤ 56 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
+                  },
+                  "portrait": {
+                    "$ref": "#/$defs/ImageRef"
                   }
                 },
                 "required": [
@@ -2314,7 +2351,7 @@
           "if": {
             "properties": {
               "layout": {
-                "const": "quote-with-portrait"
+                "const": "roadmap"
               }
             }
           },
@@ -2324,63 +2361,125 @@
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
-                  "quote": {
-                    "description": "Multi-line text, ≤ 280 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
-                    "oneOf": [
-                      {
-                        "type": "string",
-                        "maxLength": 280
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "oneOf": [
-                            {
-                              "type": "string"
+                  "title": {
+                    "type": "string",
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
+                  },
+                  "periods": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 12,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 24
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 24
                             },
-                            {
-                              "type": "object",
-                              "required": [
-                                "kind",
-                                "text"
-                              ],
-                              "additionalProperties": false,
-                              "properties": {
-                                "kind": {
-                                  "enum": [
-                                    "quote",
-                                    "note",
-                                    "callout",
-                                    "h2"
-                                  ]
-                                },
-                                "text": {
-                                  "type": "string"
-                                }
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 24
                               }
                             }
-                          ]
+                          }
                         }
-                      }
-                    ]
+                      ]
+                    },
+                    "description": "3–12 items, each ≤ 24 chars when string-shaped."
                   },
-                  "name": {
+                  "tracks": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 7,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 600
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 600
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 600
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "1–7 items, each ≤ 600 chars when string-shaped."
+                  },
+                  "today": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 24,
+                    "description": "Single-line text, ≤ 24 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
-                  "role": {
-                    "type": "string",
-                    "maxLength": 80,
-                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "portrait": {
-                    "$ref": "#/$defs/ImageRef"
+                  "milestones": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 56
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 56
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 56
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "1–8 items, each ≤ 56 chars when string-shaped."
                   }
                 },
                 "required": [
-                  "quote",
-                  "name"
+                  "periods",
+                  "tracks"
                 ]
               }
             }
@@ -2402,13 +2501,13 @@
                 "properties": {
                   "eyebrow": {
                     "type": "string",
-                    "maxLength": 20,
-                    "description": "Single-line text, ≤ 20 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 16,
+                    "description": "Single-line text, ≤ 16 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 35,
+                    "description": "Single-line text, ≤ 35 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   }
                 },
                 "required": [
@@ -2422,7 +2521,7 @@
           "if": {
             "properties": {
               "layout": {
-                "const": "split-2"
+                "const": "split"
               }
             }
           },
@@ -2434,14 +2533,33 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 35,
+                    "description": "Single-line text, ≤ 35 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
-                  "left": {
+                  "cell1": {
                     "$ref": "#/$defs/Region"
                   },
-                  "right": {
+                  "cell2": {
                     "$ref": "#/$defs/Region"
+                  },
+                  "cell3": {
+                    "$ref": "#/$defs/Region"
+                  },
+                  "cells": {
+                    "enum": [
+                      "2",
+                      "3"
+                    ],
+                    "default": "2",
+                    "description": "One of: 2 | 3."
+                  },
+                  "direction": {
+                    "enum": [
+                      "horizontal",
+                      "vertical"
+                    ],
+                    "default": "horizontal",
+                    "description": "One of: horizontal | vertical."
                   },
                   "ratio": {
                     "enum": [
@@ -2451,110 +2569,19 @@
                       "67-33",
                       "33-67",
                       "75-25",
-                      "25-75"
-                    ],
-                    "default": "50-50",
-                    "description": "One of: 50-50 | 60-40 | 40-60 | 67-33 | 33-67 | 75-25 | 25-75."
-                  }
-                },
-                "required": [
-                  "left",
-                  "right"
-                ]
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "layout": {
-                "const": "split-3-horizontal"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "slots": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "left": {
-                    "$ref": "#/$defs/Region"
-                  },
-                  "center": {
-                    "$ref": "#/$defs/Region"
-                  },
-                  "right": {
-                    "$ref": "#/$defs/Region"
-                  },
-                  "ratio": {
-                    "enum": [
+                      "25-75",
                       "equal",
                       "wide-center",
                       "wide-left",
                       "wide-right"
                     ],
-                    "default": "equal",
-                    "description": "One of: equal | wide-center | wide-left | wide-right."
-                  }
-                },
-                "required": [
-                  "left",
-                  "center",
-                  "right"
-                ]
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "layout": {
-                "const": "split-3-vertical"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "slots": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "top": {
-                    "$ref": "#/$defs/Region"
-                  },
-                  "bl": {
-                    "$ref": "#/$defs/Region"
-                  },
-                  "br": {
-                    "$ref": "#/$defs/Region"
-                  },
-                  "ratio": {
-                    "enum": [
-                      "50-50",
-                      "60-40",
-                      "40-60",
-                      "67-33",
-                      "33-67"
-                    ],
                     "default": "50-50",
-                    "description": "One of: 50-50 | 60-40 | 40-60 | 67-33 | 33-67."
+                    "description": "One of: 50-50 | 60-40 | 40-60 | 67-33 | 33-67 | 75-25 | 25-75 | equal | wide-center | wide-left | wide-right."
                   }
                 },
                 "required": [
-                  "top"
+                  "cell1",
+                  "cell2"
                 ]
               }
             }
@@ -2576,8 +2603,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 40,
-                    "description": "Single-line text, ≤ 40 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 28,
+                    "description": "Single-line text, ≤ 28 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "items": {
                     "type": "array",
@@ -2587,7 +2614,7 @@
                       "oneOf": [
                         {
                           "type": "string",
-                          "maxLength": 64
+                          "maxLength": 45
                         },
                         {
                           "type": "object",
@@ -2617,7 +2644,7 @@
                         }
                       ]
                     },
-                    "description": "3–3 items, each ≤ 64 chars when string-shaped."
+                    "description": "3–3 items, each ≤ 45 chars when string-shaped."
                   },
                   "style": {
                     "enum": [
@@ -2639,6 +2666,176 @@
           "if": {
             "properties": {
               "layout": {
+                "const": "swot"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
+                  },
+                  "strengths": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 84
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 84
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 84
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "1–6 items, each ≤ 84 chars when string-shaped."
+                  },
+                  "weaknesses": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 84
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 84
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 84
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "1–6 items, each ≤ 84 chars when string-shaped."
+                  },
+                  "opportunities": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 84
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 84
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 84
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "1–6 items, each ≤ 84 chars when string-shaped."
+                  },
+                  "threats": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 84
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 84
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 84
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "1–6 items, each ≤ 84 chars when string-shaped."
+                  }
+                },
+                "required": [
+                  "strengths",
+                  "weaknesses",
+                  "opportunities",
+                  "threats"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
                 "const": "team-grid"
               }
             }
@@ -2651,8 +2848,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 35,
+                    "description": "Single-line text, ≤ 35 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
                   "members": {
                     "type": "array",
@@ -2662,7 +2859,7 @@
                       "oneOf": [
                         {
                           "type": "string",
-                          "maxLength": 80
+                          "maxLength": 56
                         },
                         {
                           "type": "object",
@@ -2673,21 +2870,21 @@
                           "properties": {
                             "text": {
                               "type": "string",
-                              "maxLength": 80
+                              "maxLength": 56
                             },
                             "sub": {
                               "type": "array",
                               "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
                               "items": {
                                 "type": "string",
-                                "maxLength": 80
+                                "maxLength": 56
                               }
                             }
                           }
                         }
                       ]
                     },
-                    "description": "2–8 items, each ≤ 80 chars when string-shaped."
+                    "description": "2–8 items, each ≤ 56 chars when string-shaped."
                   }
                 },
                 "required": [
@@ -2701,7 +2898,7 @@
           "if": {
             "properties": {
               "layout": {
-                "const": "timeline-text"
+                "const": "timeline"
               }
             }
           },
@@ -2713,10 +2910,10 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 60,
-                    "description": "Single-line text, ≤ 60 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
-                  "events": {
+                  "items": {
                     "type": "array",
                     "minItems": 2,
                     "maxItems": 6,
@@ -2724,36 +2921,96 @@
                       "oneOf": [
                         {
                           "type": "string",
-                          "maxLength": 320
+                          "maxLength": 224
                         },
                         {
                           "type": "object",
-                          "required": [
-                            "text"
-                          ],
                           "additionalProperties": false,
                           "properties": {
+                            "when": {
+                              "type": "string",
+                              "maxLength": 224
+                            },
+                            "date": {
+                              "type": "string",
+                              "maxLength": 224
+                            },
+                            "title": {
+                              "type": "string",
+                              "maxLength": 224
+                            },
+                            "heading": {
+                              "type": "string",
+                              "maxLength": 224
+                            },
+                            "label": {
+                              "type": "string",
+                              "maxLength": 224
+                            },
                             "text": {
                               "type": "string",
-                              "maxLength": 320
+                              "maxLength": 224
                             },
-                            "sub": {
-                              "type": "array",
-                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
-                              "items": {
-                                "type": "string",
-                                "maxLength": 320
-                              }
+                            "description": {
+                              "type": "string",
+                              "maxLength": 224
+                            },
+                            "body": {
+                              "type": "string",
+                              "maxLength": 224
+                            },
+                            "detail": {
+                              "type": "string",
+                              "maxLength": 224
+                            },
+                            "caption": {
+                              "type": "string",
+                              "maxLength": 224
                             }
-                          }
+                          },
+                          "anyOf": [
+                            {
+                              "required": [
+                                "title"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "heading"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "label"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "text"
+                              ]
+                            },
+                            {
+                              "required": [
+                                "description"
+                              ]
+                            }
+                          ]
                         }
                       ]
                     },
-                    "description": "2–6 items, each ≤ 320 chars when string-shaped."
+                    "description": "2–6 items, each ≤ 224 chars when string-shaped."
+                  },
+                  "direction": {
+                    "enum": [
+                      "horizontal",
+                      "vertical"
+                    ],
+                    "default": "horizontal",
+                    "description": "One of: horizontal | vertical."
                   }
                 },
                 "required": [
-                  "events"
+                  "items"
                 ]
               }
             }
@@ -2775,8 +3032,8 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 80,
-                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 56,
+                    "description": "Single-line text, ≤ 56 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   }
                 },
                 "required": [
@@ -2790,7 +3047,7 @@
           "if": {
             "properties": {
               "layout": {
-                "const": "two-col-text-image"
+                "const": "visual-with-caption"
               }
             }
           },
@@ -2802,15 +3059,21 @@
                 "properties": {
                   "title": {
                     "type": "string",
-                    "maxLength": 50,
-                    "description": "Single-line text, ≤ 50 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
                   },
-                  "text": {
-                    "description": "Multi-line text, ≤ 1500 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
+                  "visual": {
+                    "$ref": "#/$defs/Visual"
+                  },
+                  "image": {
+                    "$ref": "#/$defs/ImageRef"
+                  },
+                  "caption": {
+                    "description": "Multi-line text, ≤ 224 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def). AUTHORING: keep each paragraph on a SINGLE LINE — do NOT insert `\\n` mid-sentence for cosmetic line wrapping (the renderer will turn each `\\n` into a hard line break, wasting vertical space and risking overflow). Use blank lines (`\\n\\n`) ONLY between distinct paragraphs. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line.",
                     "oneOf": [
                       {
                         "type": "string",
-                        "maxLength": 1500
+                        "maxLength": 224
                       },
                       {
                         "type": "array",
@@ -2845,25 +3108,152 @@
                       }
                     ]
                   },
+                  "credit": {
+                    "type": "string",
+                    "maxLength": 56,
+                    "description": "Single-line text, ≤ 56 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
+                  },
+                  "style": {
+                    "enum": [
+                      "caption",
+                      "takeaway"
+                    ],
+                    "default": "caption",
+                    "description": "One of: caption | takeaway."
+                  }
+                },
+                "required": [
+                  "caption"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "layout": {
+                "const": "visual-with-text"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "slots": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "maxLength": 42,
+                    "description": "Single-line text, ≤ 42 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line."
+                  },
+                  "visual": {
+                    "$ref": "#/$defs/Visual"
+                  },
                   "image": {
                     "$ref": "#/$defs/ImageRef"
                   },
-                  "imageSide": {
-                    "type": "string",
-                    "maxLength": 6,
-                    "description": "Single-line text, ≤ 6 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "density": {
+                  "textKind": {
                     "enum": [
-                      "loose",
-                      "normal",
-                      "dense",
-                      "micro"
+                      "prose",
+                      "bullets"
                     ],
-                    "default": "normal",
-                    "description": "One of: loose | normal | dense | micro."
+                    "default": "prose",
+                    "description": "One of: prose | bullets."
                   },
-                  "imageRatio": {
+                  "text": {
+                    "description": "Multi-line text, ≤ 1050 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def). AUTHORING: keep each paragraph on a SINGLE LINE — do NOT insert `\\n` mid-sentence for cosmetic line wrapping (the renderer will turn each `\\n` into a hard line break, wasting vertical space and risking overflow). Use blank lines (`\\n\\n`) ONLY between distinct paragraphs. YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), do NOT wrap the outer in `\"...\"` without escaping — pick one of: (a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; (c) inner Chinese curly quotes — `“书同文”`; (d) block scalar — `body: |` then content on next line.",
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 1050
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "oneOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "required": [
+                                "kind",
+                                "text"
+                              ],
+                              "additionalProperties": false,
+                              "properties": {
+                                "kind": {
+                                  "enum": [
+                                    "quote",
+                                    "note",
+                                    "callout",
+                                    "h2"
+                                  ]
+                                },
+                                "text": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "bullets": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 7,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 98
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "text"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "text": {
+                              "type": "string",
+                              "maxLength": 98
+                            },
+                            "sub": {
+                              "type": "array",
+                              "description": "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
+                              "items": {
+                                "type": "string",
+                                "maxLength": 98
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "description": "2–7 items, each ≤ 98 chars when string-shaped."
+                  },
+                  "position": {
+                    "enum": [
+                      "left",
+                      "right"
+                    ],
+                    "default": "right",
+                    "description": "One of: left | right."
+                  },
+                  "imageStyle": {
+                    "enum": [
+                      "card",
+                      "bleed"
+                    ],
+                    "default": "card",
+                    "description": "One of: card | bleed."
+                  },
+                  "ratio": {
                     "enum": [
                       "50-50",
                       "60-40",
@@ -2874,93 +3264,7 @@
                     "default": "50-50",
                     "description": "One of: 50-50 | 60-40 | 40-60 | 67-33 | 33-67."
                   }
-                },
-                "required": [
-                  "text",
-                  "image"
-                ]
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "layout": {
-                "const": "two-column-prose"
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "slots": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "title": {
-                    "type": "string",
-                    "maxLength": 80,
-                    "description": "Single-line text, ≤ 80 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "subtitle": {
-                    "type": "string",
-                    "maxLength": 120,
-                    "description": "Single-line text, ≤ 120 chars. Supports the SlideML inline-markdown vocabulary (see `InlineMarkdown` $def): **bold**, *italic*, `code`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:."
-                  },
-                  "body": {
-                    "description": "Multi-line text, ≤ 3600 chars. Accepts a string OR an array. Array items are either plain strings (paragraphs) or typed paragraphs `{ kind: \"quote\" | \"note\" | \"callout\" | \"h2\", text }` for distinctive styling. Each paragraph supports SlideML inline markdown (see `InlineMarkdown` $def).",
-                    "oneOf": [
-                      {
-                        "type": "string",
-                        "maxLength": 3600
-                      },
-                      {
-                        "type": "array",
-                        "items": {
-                          "oneOf": [
-                            {
-                              "type": "string"
-                            },
-                            {
-                              "type": "object",
-                              "required": [
-                                "kind",
-                                "text"
-                              ],
-                              "additionalProperties": false,
-                              "properties": {
-                                "kind": {
-                                  "enum": [
-                                    "quote",
-                                    "note",
-                                    "callout",
-                                    "h2"
-                                  ]
-                                },
-                                "text": {
-                                  "type": "string"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    ]
-                  },
-                  "density": {
-                    "enum": [
-                      "loose",
-                      "normal",
-                      "dense",
-                      "micro"
-                    ],
-                    "default": "normal",
-                    "description": "One of: loose | normal | dense | micro."
-                  }
-                },
-                "required": [
-                  "body"
-                ]
+                }
               }
             }
           }
@@ -3526,21 +3830,68 @@
       "properties": {
         "header": {
           "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
           "items": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 100
           }
         },
         "rows": {
           "type": "array",
+          "maxItems": 10,
           "items": {
             "type": "array",
+            "minItems": 1,
+            "maxItems": 8,
             "items": {
-              "$ref": "#/$defs/TableCell"
+              "oneOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "value"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "value": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 100
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    },
+                    "emphasis": {
+                      "enum": [
+                        "ok",
+                        "warn",
+                        "bad",
+                        "highlight",
+                        "up",
+                        "down",
+                        "flat"
+                      ]
+                    }
+                  }
+                }
+              ]
             }
           }
         },
         "colWidths": {
           "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
           "items": {
             "type": "number",
             "minimum": 0
@@ -3548,6 +3899,7 @@
         },
         "align": {
           "type": "array",
+          "maxItems": 8,
           "items": {
             "enum": [
               "left",
@@ -3557,7 +3909,241 @@
           },
           "description": "Per-column horizontal alignment. Index N applies to column N. When omitted, numeric-looking strings auto-right-align and everything else left-aligns."
         }
-      }
+      },
+      "description": "Table visual: up to 8 columns, 10 body rows, and about 100 chars per cell."
+    },
+    "Visual": {
+      "description": "Polymorphic visual content. Prefer tagged form: { kind: \"image\" | \"chart\" | \"table\" | \"svg\", ... }. Legacy un-tagged image-ref, chart-spec, table, and bare image path are also accepted.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ImageRef"
+        },
+        {
+          "$ref": "#/$defs/ChartSpec"
+        },
+        {
+          "$ref": "#/$defs/TableSpec"
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "src"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "image"
+            },
+            "src": {
+              "type": "string"
+            },
+            "alt": {
+              "type": "string"
+            },
+            "fit": {
+              "enum": [
+                "contain",
+                "cover"
+              ]
+            },
+            "shape": {
+              "enum": [
+                "rounded",
+                "circle"
+              ]
+            },
+            "border": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "color"
+              ],
+              "properties": {
+                "color": {
+                  "type": "string"
+                },
+                "width": {
+                  "type": "number"
+                }
+              }
+            },
+            "overlay": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "color"
+              ],
+              "properties": {
+                "color": {
+                  "type": "string"
+                },
+                "alpha": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "chartType",
+            "data"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "chart"
+            },
+            "chartType": {
+              "enum": [
+                "bar",
+                "stacked-bar",
+                "line",
+                "area",
+                "pie",
+                "doughnut",
+                "combo",
+                "scatter",
+                "waterfall"
+              ]
+            },
+            "data": {
+              "$ref": "#/$defs/ChartSpec/properties/data"
+            },
+            "format": {
+              "$ref": "#/$defs/ChartSpec/properties/format"
+            },
+            "title": {
+              "type": "string"
+            },
+            "annotations": {
+              "$ref": "#/$defs/ChartSpec/properties/annotations"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "header",
+            "rows"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "table"
+            },
+            "header": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "maxLength": 100
+              }
+            },
+            "rows": {
+              "type": "array",
+              "maxItems": 10,
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "value"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "value": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "maxLength": 100
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ]
+                        },
+                        "emphasis": {
+                          "enum": [
+                            "ok",
+                            "warn",
+                            "bad",
+                            "highlight",
+                            "up",
+                            "down",
+                            "flat"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "colWidths": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "align": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "enum": [
+                  "left",
+                  "center",
+                  "right"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "svg"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "svg"
+            },
+            "svg": {
+              "type": "string"
+            },
+            "alt": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "string",
+          "minLength": 1
+        }
+      ]
     },
     "Region": {
       "description": "Polymorphic dashboard cell. `kind` picks the shape: kpi | chart | table | text | bullets | image | code | quote | sparkline | progress.",
@@ -3644,7 +4230,96 @@
               "type": "string"
             },
             "table": {
-              "$ref": "#/$defs/TableSpec"
+              "type": "object",
+              "required": [
+                "header",
+                "rows"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "header": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 5,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 70
+                  }
+                },
+                "rows": {
+                  "type": "array",
+                  "maxItems": 6,
+                  "items": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 70
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "value"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "value": {
+                              "oneOf": [
+                                {
+                                  "type": "string",
+                                  "maxLength": 70
+                                },
+                                {
+                                  "type": "number"
+                                }
+                              ]
+                            },
+                            "emphasis": {
+                              "enum": [
+                                "ok",
+                                "warn",
+                                "bad",
+                                "highlight",
+                                "up",
+                                "down",
+                                "flat"
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "colWidths": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 5,
+                  "items": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "align": {
+                  "type": "array",
+                  "maxItems": 5,
+                  "items": {
+                    "enum": [
+                      "left",
+                      "center",
+                      "right"
+                    ]
+                  },
+                  "description": "Per-column horizontal alignment. Index N applies to column N. When omitted, numeric-looking strings auto-right-align and everything else left-aligns."
+                }
+              },
+              "description": "Compact region table: up to 5 columns, 6 body rows, and about 70 chars per cell."
             },
             "style": {
               "enum": [
@@ -3684,6 +4359,134 @@
                   }
                 }
               ]
+            },
+            "style": {
+              "enum": [
+                "filled",
+                "ghost",
+                "outlined",
+                "elevated",
+                "glass"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "items"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "bullets"
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 42
+            },
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 5,
+              "items": {
+                "type": "string",
+                "maxLength": 90
+              }
+            },
+            "style": {
+              "enum": [
+                "filled",
+                "ghost",
+                "outlined",
+                "elevated",
+                "glass"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "image"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "image"
+            },
+            "image": {
+              "$ref": "#/$defs/ImageRef"
+            },
+            "caption": {
+              "type": "string",
+              "maxLength": 96
+            },
+            "style": {
+              "enum": [
+                "filled",
+                "ghost",
+                "outlined",
+                "elevated",
+                "glass"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "code"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "code"
+            },
+            "title": {
+              "type": "string",
+              "maxLength": 42
+            },
+            "language": {
+              "type": "string",
+              "maxLength": 16
+            },
+            "code": {
+              "type": "string",
+              "maxLength": 480
+            },
+            "style": {
+              "enum": [
+                "filled",
+                "ghost",
+                "outlined",
+                "elevated",
+                "glass"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "text"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "quote"
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 220
+            },
+            "attribution": {
+              "type": "string",
+              "maxLength": 80
             },
             "style": {
               "enum": [

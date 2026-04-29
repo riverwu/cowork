@@ -40,4 +40,22 @@ Pattern when generating a deck with imagery:
       return `Error: describe_theme failed: ${err instanceof Error ? err.message : String(err)}`;
     }
   },
+
+  // History compression: theme details (palette, imagery guidance, voice) are
+  // load-bearing on the call turn but pure noise once images are generated.
+  // Keep just name + layout count so the agent remembers which theme it picked.
+  historySummarizer(rawResult, status) {
+    if (status === "fail") return rawResult;
+    try {
+      const detail = JSON.parse(rawResult) as {
+        name?: string;
+        displayName?: string;
+        layouts?: unknown[];
+      };
+      const layoutCount = Array.isArray(detail.layouts) ? detail.layouts.length : 0;
+      return `→ ${detail.name ?? "?"} (${detail.displayName ?? ""}, ${layoutCount} layouts)`;
+    } catch {
+      return rawResult.slice(0, 200);
+    }
+  },
 };

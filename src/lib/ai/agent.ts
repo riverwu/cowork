@@ -22,8 +22,13 @@ import {
   estimateToolDefTokens,
   fitMessagesToBudget,
 } from "./context-budget";
+import { runInlineCompaction } from "./compact";
 
-const MAX_STEPS = 25;
+// Slide-deck builds easily run 30-40 tool calls (list_themes → describe_theme
+// → list_layouts → describe_layout × N picks → image_gen × N → validate →
+// render → audit → edit follow-ups). Keep the ceiling generous enough that
+// a 20-slide deck doesn't trip it before the agent finishes verification.
+const MAX_STEPS = 60;
 const MAX_TRUNCATION_RECOVERIES = 3;
 const MAX_TOOL_RESULT_CHARS_FOR_LLM = 12000;
 
@@ -163,12 +168,13 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   let system = buildPrompt();
   let systemTokens = estimateTokens(system);
 
-  // Drop priority: memory first, then trim oldest history. Trigger when
-  // projected total (system + tools + ALL message tokens) exceeds the 90%
-  // auto-compact threshold. Estimating the full message payload — not just
-  // user content — matters: on a long conversation, assistant turns and
-  // tool_result blocks dominate the cost.
-  const messagesTokens = estimateMessagesTokens(params.messages);
+  // Drop priority: memory first, then LLM-summary compaction, then drop
+  // oldest history as last resort. Trigger when projected total
+  // (system + tools + ALL message tokens) exceeds the 90% auto-compact
+  // threshold. Estimating the full message payload — not just user content —
+  // matters: on a long conversation, assistant turns and tool_result blocks
+  // dominate the cost.
+  let messagesTokens = estimateMessagesTokens(params.messages);
   const overhead = () => systemTokens + toolBudgetTokens + messagesTokens;
   if (memoryContext && overhead() > budget.autoCompactThreshold) {
     droppedMemory = true;
@@ -176,12 +182,43 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     systemTokens = estimateTokens(system);
   }
 
+  // LLM-summary compaction (Codex-style). Triggered when even after
+  // dropping memory the projected input still exceeds the 90% threshold.
+  // Runs ONE summary turn over the full history, then replaces the agent's
+  // message list with [preserved user messages] + [summary as final user
+  // turn]. Skipped when dumpOnly so context dumps reflect the un-compacted
+  // state (debug clarity > token efficiency).
+  let workingMessages = params.messages;
+  if (!params.dumpOnly && overhead() > budget.autoCompactThreshold && workingMessages.length >= 4) {
+    const compacted = await runInlineCompaction({
+      provider,
+      messages: workingMessages,
+      maxOutputTokens: Math.min(4_000, budget.maxOutputTokens),
+      baseSystem: "You are a concise technical summarizer producing a handoff for another LLM. Be specific about file paths, function names, decisions, and pending work.",
+    });
+    if (compacted) {
+      workingMessages = compacted.messages;
+      messagesTokens = estimateMessagesTokens(workingMessages);
+      yield {
+        type: "compacted",
+        summary: compacted.summary,
+        preservedUserMessages: workingMessages.length - 1,
+        estimatedTokens: compacted.estimatedTokens,
+      };
+      console.log(
+        `[Agent] Compacted history: ${params.messages.length} → ${workingMessages.length} messages, ~${compacted.estimatedTokens} tokens.`,
+      );
+    }
+  }
+
   // 4. Trim history to fit the input budget (oldest first, last 4 always
   // preserved so a tool_use never gets stranded without its tool_result).
+  // Compaction runs first; this is the safety net if the summary still
+  // doesn't fit.
   const fit = fitMessagesToBudget({
     systemTokens,
     toolTokens: toolBudgetTokens,
-    messages: params.messages,
+    messages: workingMessages,
     inputBudget: budget.inputBudget,
   });
   if (fit.exceedsBudget) {
@@ -313,7 +350,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       if (!tool) {
         const errResult = `Unknown tool: ${toolCall.name}`;
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, errResult, false) });
-        yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0, success: false };
+        yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0, success: false, toolCallId: toolCall.id };
         continue;
       }
 
@@ -324,13 +361,13 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       if (rawInput && typeof rawInput === "object" && rawInput._error === "Truncated tool call input") {
         const errResult = `Tool call to "${toolCall.name}" was truncated by the model output token limit before its arguments finished streaming, so the tool was not run. Re-issue the call with smaller, complete arguments.`;
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, errResult, false) });
-        yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0, success: false };
+        yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0, success: false, toolCallId: toolCall.id };
         continue;
       }
 
       // Yield start event right before execution (not during LLM streaming)
       // so tools appear one at a time in UI, not all at once.
-      yield { type: "skill-start", skill: toolCall.name, input: toolCall.input };
+      yield { type: "skill-start", skill: toolCall.name, input: toolCall.input, toolCallId: toolCall.id };
 
       const startTime = Date.now();
       try {
@@ -382,12 +419,12 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         }
 
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, llmResult, success) });
-        yield { type: "skill-done", skill: toolCall.name, result: uiResult, durationMs, success };
+        yield { type: "skill-done", skill: toolCall.name, result: uiResult, durationMs, success, toolCallId: toolCall.id };
       } catch (err) {
         const durationMs = Date.now() - startTime;
         const errResult = `Tool execution error in ${toolCall.name}: ${err instanceof Error ? err.message : String(err)}`;
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, errResult, false) });
-        yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs, success: false };
+        yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs, success: false, toolCallId: toolCall.id };
       }
     }
   }

@@ -35,15 +35,32 @@ export function txBody(shape: TextShape, rels?: RunRels): string {
   const bIns = margin.b ?? DEFAULT_TEXT_MARGIN_EMU;
   const anchor = shape.valign === "middle" ? "ctr" : shape.valign === "bottom" ? "b" : "t";
 
-  const bodyPr =
-    `<a:bodyPr` +
+  // normAutofit semantics (CRITICAL): the optional `fontScale` /
+  // `lnSpcReduction` attributes are NOT minimum-scale caps — they
+  // specify "this body is ALREADY authored at this scale". Setting
+  // `fontScale="85000"` tells the renderer "text in this shape is at
+  // 85% of nominal size" and the renderer applies that scale
+  // unconditionally on display, even when content fits natively. Earlier
+  // versions emitted those attributes and produced visibly-small text
+  // sitting in the top of an oversized-relative-to-content box.
+  //
+  // Bare `<a:normAutofit/>` is the right form for "shrink ONLY if
+  // needed" — both PowerPoint and LibreOffice compute the actual scale
+  // themselves at view time, applying nothing when the natural text
+  // fits the box and shrinking just enough when it doesn't.
+  const autoFitChild =
+    shape.autoFit === "shrink" ? `<a:normAutofit/>` :
+    shape.autoFit === "resize" ? `<a:spAutoFit/>` : "";
+  const bodyPrAttrs =
     attr("wrap", "square") +
     attr("lIns", lIns) +
     attr("tIns", tIns) +
     attr("rIns", rIns) +
     attr("bIns", bIns) +
-    attr("anchor", anchor) +
-    `/>`;
+    attr("anchor", anchor);
+  const bodyPr = autoFitChild
+    ? `<a:bodyPr${bodyPrAttrs}>${autoFitChild}</a:bodyPr>`
+    : `<a:bodyPr${bodyPrAttrs}/>`;
 
   const lstStyle = `<a:lstStyle/>`;
 

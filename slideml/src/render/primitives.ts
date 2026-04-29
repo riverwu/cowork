@@ -19,6 +19,7 @@ import type { LayoutContext } from "./layout-context.js";
 import type { Paragraph, ShapeList, TableCell, TextRun } from "../emitter/types.js";
 import { CHIP_KINDS, type ChipKind, parseInline } from "./markdown-inline.js";
 import { type Density, densityPreset } from "./density.js";
+import { svgToHighResDataUrl } from "./visual.js";
 
 // ---------------------------------------------------------------------------
 // Title + accent rule
@@ -54,28 +55,45 @@ export function slideTitle(ctx: LayoutContext, text: string, opts: TitleOptions 
   const out: ShapeList = [];
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
   const y = opts.y ?? ctx.cm(1.4);
-  const baseRuns = parseInline(text, {
-    sizeHalfPt: opts.sizeHalfPt ?? 44,
+
+  // Pull weight/transform/tracking from the title role (theme-coordinated)
+  // but keep the legacy 44 halfPt (22pt) as the slide-title default.
+  // Themes that want larger / smaller titles set
+  // `style.typography.roles.title.sizeHalfPt` via a future override hook
+  // OR pass `opts.sizeHalfPt` from the layout. Avoiding `role.sizeHalfPt`
+  // here prevents regression on themes with no typography overrides
+  // (where the modular scale's `display` step is much larger than the
+  // historic title size).
+  const role = ctx.role("title");
+  const sizeHalfPt = opts.sizeHalfPt ?? 44;
+  const transformedText = applyTextTransform(text, role.transform);
+
+  const baseRuns = parseInline(transformedText, {
+    sizeHalfPt,
     color: ctx.color(opts.color ?? "text-strong"),
     fontFace,
     monoFont: ctx.font("mono"),
     cjk: ctx.cjk,
     resolveChipColor: chipColorResolver(ctx),
+    resolveChipGlyph: chipGlyphResolver(ctx),
   });
-  // Force `bold: true` on every title run (preserves chip/code styling).
-  const titleRuns: TextRun[] = baseRuns.map((r) => ({ ...r, bold: r.bold ?? true }));
+  const wantBold = role.weight !== "regular";
+  const titleRuns: TextRun[] = baseRuns.map((r) => ({ ...r, bold: r.bold ?? wantBold }));
 
   out.push({
     type: "text",
     id: ctx.id(),
     xfrm: { x: ctx.cm(2), y, cx: ctx.deck.width - ctx.cm(4), cy: ctx.cm(1.6) },
     valign: "middle",
+    autoFit: "shrink",
     paragraphs: [{
       align: "left",
       runs: titleRuns,
     }],
   });
 
+  // Caller win, then theme. We honour explicit overrides regardless of
+  // role transform (transforms only affect the displayed text).
   const showRule = opts.rule ?? ctx.style.titleAccentRule;
   if (showRule) {
     out.push({
@@ -88,6 +106,20 @@ export function slideTitle(ctx: LayoutContext, text: string, opts: TitleOptions 
   }
 
   return out;
+}
+
+/**
+ * Apply theme-policy text transforms — `upper` uppercases (CJK pass-through
+ * since CJK has no case), `smallCaps` is approximated by uppercasing for
+ * latin runs (true small-caps require a font feature; uppercase reads
+ * close enough at title sizes). `none` returns input unchanged.
+ *
+ * NOTE: this transforms the input STRING. inline markdown tokens (`{up:...}`,
+ * backticks, etc.) survive uppercasing because their syntax is symbol-only.
+ */
+export function applyTextTransform(text: string, transform: "none" | "upper" | "smallCaps"): string {
+  if (transform === "none") return text;
+  return text.toLocaleUpperCase();
 }
 
 // ---------------------------------------------------------------------------
@@ -148,28 +180,76 @@ export interface CardOptions {
 
 /**
  * Rounded card backing — the workhorse for KPI tiles, comparison panes,
- * sidebars, etc. Returns either one shape (just the card) or two (card +
- * accent stripe).
+ * sidebars, etc. Returns one shape per visible element (card + optional
+ * shadow + optional accent stripe).
+ *
+ * Theme-coordination: when the caller doesn't override `cornerRadius`,
+ * `elevation`, or `accentStripe`, the values come from
+ * `ctx.style.surface.*`. So a theme that sets `surface.elevation:
+ * "shadow"` upgrades every card across every layout to a soft drop
+ * shadow without touching layout source. Same for accent stripes — set
+ * `accentStripe.position: "left"` and every cards' stripe migrates from
+ * top-band to left-edge.
  */
 export function card(ctx: LayoutContext, rect: ContentRect, opts: CardOptions = {}): ShapeList {
   const out: ShapeList = [];
+  const surface = ctx.style.surface;
+  const cornerRadius = opts.cornerRadius ?? surface.cornerRadius;
+
+  // Elevation: "shadow" prepends a soft offset duplicate; "flat" omits
+  // the border line; "hairline" (default) keeps the standard border.
+  const elevation = surface.elevation;
+  if (elevation === "shadow") {
+    const offset = ctx.cm(0.18);
+    out.push({
+      type: "shape",
+      id: ctx.id(),
+      preset: "roundRect",
+      xfrm: { x: rect.x + offset, y: rect.y + offset, cx: rect.width, cy: rect.height },
+      fill: { type: "solid", color: "000000", alpha: 0.12 },
+      line: { color: "000000", width: 0 },
+      cornerRadius,
+    });
+  }
+
+  const showBorder = elevation !== "flat" && surface.borderPolicy !== "none";
   out.push({
     type: "shape",
     id: ctx.id(),
     preset: "roundRect",
     xfrm: { x: rect.x, y: rect.y, cx: rect.width, cy: rect.height },
     fill: { type: "solid", color: ctx.color(opts.fill ?? "bg-card") },
-    line: { color: ctx.color(opts.borderColor ?? "divider"), width: opts.borderWidth ?? ctx.pt(0.5) },
-    cornerRadius: opts.cornerRadius ?? 0.03,
+    line: showBorder
+      ? { color: ctx.color(opts.borderColor ?? "divider"), width: opts.borderWidth ?? ctx.pt(0.5) }
+      : { color: "FFFFFF", width: 0 },
+    cornerRadius,
   });
-  if (opts.accentStripe) {
-    out.push({
-      type: "shape",
-      id: ctx.id(),
-      preset: "rect",
-      xfrm: { x: rect.x, y: rect.y, cx: rect.width, cy: ctx.cm(0.12) },
-      fill: { type: "solid", color: ctx.color(opts.accentStripe) },
-    });
+
+  // Accent stripe: per-call override OR theme surface default.
+  const stripeColor = opts.accentStripe ?? (
+    surface.accentStripe.position !== "none" ? surface.accentStripe.color : undefined
+  );
+  if (stripeColor) {
+    const widthEmu = ctx.cm(surface.accentStripe.widthCm);
+    const callerWantsTop = !!opts.accentStripe; // legacy callers always meant top
+    const position = callerWantsTop ? "top" : surface.accentStripe.position;
+    if (position === "top") {
+      out.push({
+        type: "shape",
+        id: ctx.id(),
+        preset: "rect",
+        xfrm: { x: rect.x, y: rect.y, cx: rect.width, cy: widthEmu },
+        fill: { type: "solid", color: ctx.color(stripeColor) },
+      });
+    } else if (position === "left") {
+      out.push({
+        type: "shape",
+        id: ctx.id(),
+        preset: "rect",
+        xfrm: { x: rect.x, y: rect.y, cx: widthEmu, cy: rect.height },
+        fill: { type: "solid", color: ctx.color(stripeColor) },
+      });
+    }
   }
   return out;
 }
@@ -255,31 +335,40 @@ export function bulletsBlock(ctx: LayoutContext, rect: ContentRect, items: reado
   const baseColor = ctx.color(opts.color ?? "text-strong");
   const subColor = ctx.color("text-muted");
   const resolveChipColor = chipColorResolver(ctx);
+  const resolveChipGlyph = chipGlyphResolver(ctx);
   const flat = flattenBullets(items);
   // Theme-supplied bullet glyph: when set, we disable PowerPoint's auto
   // bullets and prepend the glyph as its own run so it inherits theme
   // colour and stays visually consistent across viewers (PPT/Keynote/LO
   // each renderer the auto-bullet glyph slightly differently).
-  const themeGlyph = ctx.style.bullets?.glyph;
+  const themeGlyphL0 = ctx.style.bullets?.glyph;
+  const themeGlyphL1 = ctx.style.bullets?.level1 ?? themeGlyphL0;
+  const themeGlyphL2 = ctx.style.bullets?.level2 ?? themeGlyphL1;
   const themeGlyphColor = ctx.style.bullets?.color
     ? ctx.color(ctx.style.bullets.color)
     : ctx.color("brand-primary");
-  const useThemeGlyph = !!themeGlyph && opts.bullets !== false;
+  const useThemeGlyph = !!themeGlyphL0 && opts.bullets !== false;
+  const glyphForLevel = (lvl: number): string =>
+    lvl >= 2 ? (themeGlyphL2 ?? themeGlyphL0!) : lvl === 1 ? (themeGlyphL1 ?? themeGlyphL0!) : themeGlyphL0!;
   return [{
     type: "text",
     id: ctx.id(),
     xfrm: { x: rect.x, y: rect.y, cx: rect.width, cy: rect.height },
     valign: "top",
+    // Many CJK bullets in narrow regions push past the cell — autoFit
+    // shrinks rather than spilling. Bullet schemas already cap item count
+    // and itemMaxChars; this is the safety net for long CJK items.
+    autoFit: "shrink",
     paragraphs: flat.map((b) => {
       const sizeHalfPt = b.level === 0 ? baseSize : Math.max(20, baseSize - 4);
       const color = b.level === 0 ? baseColor : subColor;
       const inlineRuns = parseInline(b.text, {
-        sizeHalfPt, color, fontFace, monoFont, cjk: ctx.cjk, resolveChipColor,
+        sizeHalfPt, color, fontFace, monoFont, cjk: ctx.cjk, resolveChipColor, resolveChipGlyph,
       });
       const runs: TextRun[] = useThemeGlyph
         ? [
             {
-              text: `${themeGlyph}  `,
+              text: `${glyphForLevel(b.level)}  `,
               sizeHalfPt,
               color: themeGlyphColor,
               fontFace,
@@ -450,7 +539,17 @@ export function imageOrPlaceholder(
   opts: ImageOrPlaceholderOptions = {},
 ): ShapeList {
   if (image && image.src) {
-    const clip = image.shape ?? "square";
+    // Theme-coordinated image defaults: when the layout/payload doesn't
+    // specify a clip, fall back to `style.image.defaultClip`. Same for
+    // border + grayscale (treatment: "grayscale"). Lets a theme apply a
+    // uniform image style without each layout reaching for it.
+    const themeImage = ctx.style.image;
+    const themeClip = themeImage.defaultClip === "circle" ? "circle"
+                    : themeImage.defaultClip === "rounded" ? "rounded"
+                    : "square";
+    const clip = image.shape ?? themeClip;
+    const themeBorder = themeImage.border;
+    const wantThemeGrayscale = themeImage.treatment === "grayscale" && image.grayscale === undefined;
     return [{
       type: "image",
       id: ctx.id(),
@@ -460,17 +559,16 @@ export function imageOrPlaceholder(
       clip,
       fit: image.fit ?? "cover",
       ...(image.cornerRadius !== undefined ? { cornerRadius: image.cornerRadius } : {}),
-      ...(image.border ? {
-        border: {
-          color: image.border.color,
-          width: image.border.width ?? ctx.pt(1),
-        },
-      } : {}),
+      ...(image.border
+        ? { border: { color: image.border.color, width: image.border.width ?? ctx.pt(1) } }
+        : themeBorder
+          ? { border: { color: ctx.color(themeBorder.color), width: ctx.pt(themeBorder.widthPt) } }
+          : {}),
       ...(image.overlay ? { overlay: image.overlay } : {}),
       ...(image.crop ? { crop: image.crop } : {}),
       ...(image.softEdge !== undefined ? { softEdge: image.softEdge } : {}),
       ...(image.shadow ? { shadow: image.shadow } : {}),
-      ...(image.grayscale ? { grayscale: true } : {}),
+      ...((image.grayscale || wantThemeGrayscale) ? { grayscale: true } : {}),
       ...(image.brightness !== undefined ? { brightness: image.brightness } : {}),
       ...(image.blur !== undefined ? { blur: image.blur } : {}),
       ...(image.duotone ? { duotone: image.duotone } : {}),
@@ -550,8 +648,7 @@ export function imageRefOf(value: unknown): ImageRefValue | undefined {
   // without writing it to disk.
   let src = typeof o.src === "string" ? o.src : (typeof o.url === "string" ? (o.url as string) : undefined);
   if (!src && typeof o.svg === "string") {
-    const svg = o.svg.trim();
-    src = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+    src = svgToHighResDataUrl(o.svg.trim());
   }
   if (!src) return undefined;
   const out: ImageRefValue = { src };
@@ -651,6 +748,54 @@ export function textBlockOf(value: unknown): string {
  *
  * The fallbacks are calibrated for AA contrast on every built-in canvas.
  */
+/**
+ * Theme-aware chip glyph lookup — pairs with `chipColorResolver`. Returns
+ * the theme override (`style.chips.<kind>.glyph`) when set, else `undefined`
+ * so the parser falls back to the default `CHIP_GLYPH` table. Wire into
+ * `parseInline` via `resolveChipGlyph: chipGlyphResolver(ctx)`.
+ */
+export function chipGlyphResolver(ctx: LayoutContext): (kind: ChipKind) => string | undefined {
+  return (kind) => ctx.style.chips[kind]?.glyph;
+}
+
+/**
+ * Format a 1-based ordinal number per the theme's numbering style:
+ *   "padded"  → "01" / "02"   (default — uniform width)
+ *   "decimal" → "1." / "2."   (compact)
+ *   "roman"   → "I." / "II."  (formal)
+ *   "circled" → "①" / "②"     (icon-style; 1..50 supported)
+ *
+ * Layouts call this in agenda / outline / process-flow numbering so the
+ * theme controls the look without per-layout branches.
+ */
+export function formatOrdinal(ctx: LayoutContext, n: number): string {
+  const style = ctx.style.numbering.style;
+  if (style === "padded") return n.toString().padStart(2, "0");
+  if (style === "decimal") return `${n}.`;
+  if (style === "roman") return `${toRoman(n)}.`;
+  if (style === "circled") {
+    if (n >= 1 && n <= 20) {
+      return String.fromCodePoint(0x2460 + (n - 1)); // ①..⑳
+    }
+    if (n <= 35) return String.fromCodePoint(0x3251 + (n - 21)); // ㉑..㉟
+    if (n <= 50) return String.fromCodePoint(0x32B1 + (n - 36)); // ㊱..㊿
+    return n.toString();
+  }
+  return n.toString().padStart(2, "0");
+}
+
+function toRoman(n: number): string {
+  const pairs: Array<[number, string]> = [
+    [50, "L"], [40, "XL"], [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"],
+  ];
+  let out = "";
+  let v = n;
+  for (const [val, sym] of pairs) {
+    while (v >= val) { out += sym; v -= val; }
+  }
+  return out;
+}
+
 export function chipColorResolver(ctx: LayoutContext): (kind: ChipKind) => string {
   const tryToken = (name: string): string | undefined => {
     try {
@@ -660,16 +805,25 @@ export function chipColorResolver(ctx: LayoutContext): (kind: ChipKind) => strin
       return undefined;
     }
   };
+  // Resolution order:
+  //   1. style.chips.<kind>.color   (theme override targeting this chip)
+  //   2. style.semantic.<mapped>    (theme semantic palette)
+  //   3. legacy semantic-<kind> hex token
+  //   4. brand fallback
+  // Centralizing here means SWOT, alerts, status badges, and inline chips
+  // all draw from the same theme-coordinated palette.
   return (kind) => {
-    const explicit = tryToken(`semantic-${kind}`);
-    if (explicit) return explicit;
+    const chipOverride = ctx.style.chips[kind]?.color;
+    if (chipOverride) return chipOverride;
+
+    const sem = ctx.style.semantic;
     switch (kind) {
       case "up":
-      case "ok":        return ctx.color("brand-primary");
+      case "ok":        return sem.positive;
       case "down":
-      case "bad":       return tryToken("semantic-bad") ?? "C0432D";
-      case "warn":      return tryToken("semantic-warn") ?? "D08F00";
-      case "flat":      return ctx.color("text-muted");
+      case "bad":       return tryToken("semantic-bad") ?? sem.negative;
+      case "warn":      return tryToken("semantic-warn") ?? sem.warning;
+      case "flat":      return sem.neutral;
       case "highlight": return ctx.color("accent");
     }
   };
@@ -957,6 +1111,13 @@ export interface RichTextOptions {
    * agent-supplied `density` slot value here. Falls back to "normal".
    */
   density?: Density | string;
+  /**
+   * Forwarded to TextShape.autoFit. Use "shrink" on body slots whose char
+   * cap is soft and whose content may still spill in edge cases (CJK with
+   * many short paragraphs, long single sentences). Avoid on titles, KPI
+   * numbers, or anything where shrinking would look broken.
+   */
+  autoFit?: "shrink" | "resize";
 }
 
 /**
@@ -977,23 +1138,111 @@ export type RichParagraph =
   | { kind: "quote";   text: string }
   | { kind: "note";    text: string }
   | { kind: "callout"; text: string }
-  | { kind: "h2";      text: string };
+  | { kind: "h2";      text: string }
+  // Markdown bullet line — emitted by paragraphsFromValue when it
+  // detects `- ` / `* ` / `+ ` at the start of a line. Renderer adds
+  // the theme bullet glyph and indents.
+  | { kind: "bullet";  text: string };
+
+/**
+ * Strip leading whitespace from each line of a paragraph and collapse
+ * empty leading/trailing lines. Defends against YAML over-indent leakage:
+ *
+ *   text: |
+ *           para line 1                    ← YAML strips the BASE indent
+ *             para line 2 (extra 2 spaces) ← but extra indent SURVIVES,
+ *           para line 3                       leaving leading spaces here
+ *
+ * Without this normalize step, those leading spaces flow into the markdown
+ * renderer where they're either rendered literally (visible left padding)
+ * or interpreted as preformatted-block indicators (4+ spaces ⇒ code block
+ * in CommonMark). They also break dash-bulleted continuation lines —
+ * `  - item` reads as a sub-item of an enclosing list, not a top-level
+ * bullet.
+ *
+ * What we DON'T touch: the `\n` between lines is preserved (so explicit
+ * line breaks the agent intends — e.g. inline `· bullet` enumerations —
+ * still render as line breaks). Only horizontal indent is normalized.
+ */
+function normalizeParagraph(p: string): string {
+  return p
+    .split("\n")
+    .map((l) => l.replace(/^[ \t]+/, "")) // strip leading spaces/tabs per line
+    .join("\n")
+    .trim();                              // strip outer blank lines / trailing space
+}
+
+// Recognise both ASCII markdown bullets (- * +) AND Unicode bullets the
+// agent commonly emits when "writing nicely formatted text" rather than
+// markdown — `•` U+2022, `·` U+00B7 middle dot, `‣` U+2023, `▪` U+25AA.
+// Without these the lines stay embedded in one paragraph and the cell
+// over-shrinks via autoFit (raw line breaks consume height without the
+// renderer being able to paragraph-shrink them gracefully).
+const BULLET_LINE_RE = /^[-*+\u2022\u00B7\u2023\u25AA]\s+(.*)$/;
+
+/**
+ * Walk a normalized paragraph line-by-line. Lines starting with
+ * `- ` / `* ` / `+ ` (markdown bullet syntax) get extracted as their
+ * own `kind: "bullet"` entries; non-bullet lines accumulate into
+ * regular paragraphs flanking the bullet block.
+ *
+ * Example input (one paragraph, blank-line-separated upstream):
+ *   宋代的文化成就同样辉煌：
+ *   - **理学**完成儒学的哲学化重建
+ *   - **文人画**达到高峰
+ *   - **活字印刷术**发明
+ *
+ * Output:
+ *   "宋代的文化成就同样辉煌：",
+ *   { kind: "bullet", text: "**理学**完成儒学的哲学化重建" },
+ *   { kind: "bullet", text: "**文人画**达到高峰" },
+ *   { kind: "bullet", text: "**活字印刷术**发明" },
+ */
+function expandBulletLines(p: string): RichParagraph[] {
+  const lines = p.split("\n");
+  if (!lines.some((l) => BULLET_LINE_RE.test(l))) return [p];
+  const out: RichParagraph[] = [];
+  let buffer: string[] = [];
+  const flushBuffer = () => {
+    if (buffer.length === 0) return;
+    const joined = buffer.join("\n").trim();
+    if (joined) out.push(joined);
+    buffer = [];
+  };
+  for (const line of lines) {
+    const m = BULLET_LINE_RE.exec(line);
+    if (m) {
+      flushBuffer();
+      out.push({ kind: "bullet", text: m[1]!.trim() });
+    } else {
+      buffer.push(line);
+    }
+  }
+  flushBuffer();
+  return out;
+}
 
 function paragraphsFromValue(value: unknown): RichParagraph[] {
   if (typeof value === "string") {
-    return value.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+    return value
+      .split(/\n\s*\n/)
+      .map(normalizeParagraph)
+      .filter(Boolean)
+      .flatMap(expandBulletLines);
   }
   if (Array.isArray(value)) {
     const out: RichParagraph[] = [];
     for (const item of value) {
       if (typeof item === "string") {
-        for (const p of item.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean)) out.push(p);
+        for (const p of item.split(/\n\s*\n/).map(normalizeParagraph).filter(Boolean)) {
+          for (const sub of expandBulletLines(p)) out.push(sub);
+        }
       } else if (item && typeof item === "object" && !Array.isArray(item)) {
         const o = item as { kind?: unknown; text?: unknown };
         if (typeof o.text === "string" && (o.kind === "quote" || o.kind === "note" || o.kind === "callout" || o.kind === "h2")) {
-          out.push({ kind: o.kind, text: o.text });
+          out.push({ kind: o.kind, text: normalizeParagraph(o.text) });
         } else if (typeof o.text === "string") {
-          out.push(o.text);
+          for (const sub of expandBulletLines(normalizeParagraph(o.text))) out.push(sub);
         }
       }
     }
@@ -1064,6 +1313,14 @@ function renderRichTextShape(
   const spaceAfter = opts.spaceAfterHalfPt ?? dp.spaceAfterHalfPt;
   const baseColor = ctx.color(opts.color ?? "text-strong");
   const resolveChipColor = chipColorResolver(ctx);
+  // Theme bullet glyph for `kind: "bullet"` paragraphs (markdown-extracted
+  // `- `/`* `/`+ ` lines). Use the theme's configured glyph + colour, the
+  // same convention `bulletsBlock()` uses, so dash-bulleted prose matches
+  // first-class bullets visually.
+  const bulletGlyph = ctx.style.bullets?.glyph ?? "•";
+  const bulletColor = ctx.style.bullets?.color
+    ? ctx.color(ctx.style.bullets.color)
+    : ctx.color("brand-primary");
   const paragraphs: Paragraph[] = paras.map((p) => {
     const isString = typeof p === "string";
     const text = isString ? p : p.text;
@@ -1074,6 +1331,7 @@ function renderRichTextShape(
     let bold = !!opts.bold;
     let align: Paragraph["align"] = opts.align ?? "left";
     let indentLevel: number | undefined = undefined;
+    let prependBullet = false;
     if (kind === "quote") {
       italic = true;
       indentLevel = 1;
@@ -1089,14 +1347,23 @@ function renderRichTextShape(
       sizeHalfPt = Math.max(baseSize + 6, 32);
       bold = true;
       color = ctx.color("text-strong");
+    } else if (kind === "bullet") {
+      prependBullet = true;
+      indentLevel = 0;
     }
-    const runs = parseInline(text, {
+    const inlineRuns = parseInline(text, {
       sizeHalfPt, color, fontFace, monoFont, cjk: ctx.cjk, resolveChipColor,
     }).map((r) => ({
       ...r,
       bold: bold ? true : r.bold,
       italic: italic ? true : r.italic,
     }));
+    const runs = prependBullet
+      ? [
+          { text: `${bulletGlyph}  `, sizeHalfPt, color: bulletColor, fontFace, bold: true },
+          ...inlineRuns,
+        ]
+      : inlineRuns;
     return {
       align,
       lineSpacingHalfPt: lineSpacing,
@@ -1113,5 +1380,6 @@ function renderRichTextShape(
     paragraphs,
     fill: opts.fill ? { type: "solid", color: opts.fill.color, alpha: opts.fill.alpha } : undefined,
     margin: opts.margin,
+    autoFit: opts.autoFit,
   };
 }

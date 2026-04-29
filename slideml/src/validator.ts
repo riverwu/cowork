@@ -8,7 +8,7 @@
 
 import type { DeckSpec, SlideSpec } from "./render/index.js";
 import type { LoadedTheme, SlotSchema } from "./theme/types.js";
-import { DENSITY, DENSITY_VALUES, type Density } from "./render/density.js";
+import { maxCharBudget } from "./render/density.js";
 
 export interface SlidemlValidationError {
   code: string;
@@ -39,70 +39,116 @@ function isCjkLanguage(lang: string | undefined): boolean {
   return !!lang && /^(zh|ja|ko)/i.test(lang);
 }
 
-/** Resolve the slide-level density slot value to a Density enum (default normal). */
-function pickDensity(value: unknown): Density {
-  if (typeof value === "string" && (DENSITY_VALUES as readonly string[]).includes(value)) {
-    return value as Density;
-  }
-  return "normal";
-}
-
-/** Per-density character budget (latin or CJK) for a single half-slide column. */
-function budgetForDensity(density: Density, cjk: boolean): number {
-  return cjk ? DENSITY[density].cjkBudget : DENSITY[density].latinBudget;
-}
-
 /**
- * Layout-level budget multiplier on top of the per-density column budget.
- *   half-column layouts (two-col-text-image, image-split-text, ...) → 1.0
- *   prose (single full-width column) → 1.5
- *   two-column-prose (full width, 2 columns) → 3.0
+ * Layout-level budget multiplier on top of the half-column max char
+ * budget (which already includes autoFit headroom).
+ *   half-column layouts (visual-with-text, …) → 1.0
+ *   prose with columns: 1 (default) → 1.5 (single full-width column)
+ *   prose with columns: 2            → 3.0 (full width × 2 columns)
  *   letter (full-width body, generous margins, slightly narrower) → 1.3
  *
  * Layouts not in this map fall back to 1.0.
  */
-const LAYOUT_BUDGET_MULTIPLIER: Record<string, number> = {
-  "prose": 1.5,
-  "two-column-prose": 3.0,
-  "letter": 1.3,
-};
+function layoutBudgetMultiplier(layout: string, slots?: Record<string, unknown>): number {
+  if (layout === "prose") {
+    const cols = slots && (slots["columns"] === "2" || slots["columns"] === 2) ? 2 : 1;
+    return cols === 2 ? 3.0 : 1.5;
+  }
+  if (layout === "letter") return 1.3;
+  return 1.0;
+}
 
-function effectiveBudget(layout: string, density: Density, cjk: boolean): number {
-  const base = budgetForDensity(density, cjk);
-  const mult = LAYOUT_BUDGET_MULTIPLIER[layout] ?? 1.0;
-  return Math.round(base * mult);
+function effectiveBudget(
+  layout: string,
+  cjk: boolean,
+  slots?: Record<string, unknown>,
+): number {
+  return Math.round(maxCharBudget(cjk) * layoutBudgetMultiplier(layout, slots));
+}
+
+function isTitleLikeTextSlot(slot: string | undefined): boolean {
+  return slot === "title" || slot === "subtitle" || slot === "eyebrow" ||
+    slot === "leftTitle" || slot === "rightTitle" || slot === "xLabel" ||
+    slot === "yLabel" || slot === "term" || slot === "label" ||
+    slot === "signature" || slot === "signRole" || slot === "recipient";
+}
+
+function cjkAdjustedMax(schemaMax: number, cjk: boolean, slot?: string): number {
+  // Fixed-height titles/labels should not receive the 1.6x prose budget
+  // boost: their render boxes do not get taller, so long CJK titles would
+  // validate then clip or shrink to unreadable sizes.
+  if (!cjk || isTitleLikeTextSlot(slot)) return schemaMax;
+  return Math.round(schemaMax * CJK_BUDGET_MULTIPLIER);
 }
 
 /**
- * Build a concrete next-step hint when DENSITY_OVERFLOW fires. Walks the
- * density ladder upward; if the densest preset (`micro`) still doesn't
- * have room, recommends switching to a single-column layout (prose) or
- * two-column-prose, with their effective budgets surfaced inline.
+ * Build a remediation hint when an item-count exceeds a `bullets` slot's
+ * `max`. Lists alternative layouts in the loaded theme whose primary
+ * bullets slot can hold AT LEAST `count` items, ordered by smallest-
+ * sufficient first (closest match). Always tells the agent the silent-
+ * trim anti-pattern is wrong, and suggests splitting across slides
+ * when no single layout fits.
+ *
+ * Why this matters: when key-point's max=4 fires on 7 items, the
+ * default LLM behaviour is to silently drop 3 items — the user never
+ * sees them. Surfacing concrete alternatives + the split option pushes
+ * the agent toward preserving content.
  */
-function nextDensitySuggestion(
-  slotName: string,
-  current: Density,
-  charCount: number,
-  cjk: boolean,
+function bulletCountOverflowHint(
+  theme: LoadedTheme,
   currentLayout: string,
+  currentSlot: string,
+  count: number,
+  currentMax: number,
 ): string {
-  // Try denser presets at the current layout first.
-  const denser: Density[] = DENSITY_VALUES.slice(DENSITY_VALUES.indexOf(current) + 1);
-  for (const d of denser) {
-    if (charCount <= effectiveBudget(currentLayout, d, cjk)) {
-      return `Set "density: ${d}" (budget ${effectiveBudget(currentLayout, d, cjk)} ${cjk ? "CJK" : "latin"} chars) on this slide.`;
+  const candidates: Array<{ layout: string; slot: string; max: number }> = [];
+  for (const [layoutName, loaded] of theme.layouts) {
+    if (layoutName === currentLayout) continue;
+    for (const [slotName, schema] of Object.entries(loaded.slots)) {
+      if (schema.type === "bullets" && schema.max >= count) {
+        candidates.push({ layout: layoutName, slot: slotName, max: schema.max });
+      }
     }
   }
-  // Beyond micro on this layout — recommend wider single-column or two-column prose.
-  const proseBudget = effectiveBudget("prose", "micro", cjk);
-  const twoColProseBudget = effectiveBudget("two-column-prose", "micro", cjk);
-  if (currentLayout !== "prose" && charCount <= proseBudget) {
-    return `Densest preset on "${currentLayout}" is too small; switch layout to "prose" (single column, ~${proseBudget} chars at micro density).`;
+  // Smallest-sufficient first — closer matches lead.
+  candidates.sort((a, b) => a.max - b.max);
+  const top = candidates.slice(0, 4)
+    .map((c) => `"${c.layout}" (${c.slot}, max ${c.max})`)
+    .join(", ");
+  const splits = Math.ceil(count / currentMax);
+  const suggestions: string[] = [
+    `DO NOT silently drop items — the user expected all ${count} to appear.`,
+  ];
+  if (top) {
+    suggestions.push(`Switch layout to one with higher capacity: ${top}.`);
   }
-  if (currentLayout !== "two-column-prose" && charCount <= twoColProseBudget) {
-    return `Switch layout to "two-column-prose" (two full columns, ~${twoColProseBudget} chars at micro density).`;
+  suggestions.push(
+    `Or split into ${splits} slides of "${currentLayout}" (≤${currentMax} items each), giving each section a continuation title.`,
+  );
+  return suggestions.join(" ");
+}
+
+/**
+ * Build a concrete next-step hint when SLOT_OVERFLOW fires on a text-
+ * block. Tries `prose` (1 column) first, then `prose` with columns: 2,
+ * then recommends splitting the slide. All capacities are reported as
+ * the *single* maxChars ceiling (already autoFit-aware).
+ */
+function nextLayoutForOverflow(
+  currentLayout: string,
+  charCount: number,
+  cjk: boolean,
+  currentMax: number,
+): string {
+  const proseMax = effectiveBudget("prose", cjk);
+  const twoColProseMax = effectiveBudget("prose", cjk, { columns: "2" });
+  if (currentLayout !== "prose" && charCount <= proseMax) {
+    return `Switch layout to "prose" — capacity ~${proseMax} ${cjk ? "CJK" : "latin"} chars (vs current ${currentMax}).`;
   }
-  return `Content (${charCount} chars) exceeds even two-column-prose at micro density (~${twoColProseBudget}). Split this slot across multiple slides.`;
+  if (charCount <= twoColProseMax) {
+    return `Switch layout to "prose" with columns: 2 — capacity ~${twoColProseMax} ${cjk ? "CJK" : "latin"} chars.`;
+  }
+  return `Content (${charCount} chars) exceeds even prose with columns: 2 (~${twoColProseMax}). Split this slot across multiple slides.`;
 }
 
 /** Validate a parsed deck against a loaded theme. Pure — no side effects. */
@@ -194,25 +240,44 @@ function validateSlide(
     }
   }
 
-  // Common-misuse check: chart-with-takeaway with chart that looks like
-  // an image-ref instead of a chart-spec. Validator's chart-spec branch
-  // emits SLOT_TYPE_MISMATCH on the type field, but the better hint is
-  // "use image-with-takeaway instead". Detect + add a leading hint.
-  if (slide.layout === "chart-with-takeaway") {
-    const c = slide.slots["chart"];
-    if (c && typeof c === "object" && !Array.isArray(c)) {
-      const o = c as { type?: unknown; image?: unknown; src?: unknown };
-      const looksLikeImage = (o.type === "image") || typeof o.image === "string" || typeof o.src === "string";
-      if (looksLikeImage) {
-        out.push({
-          code: "LAYOUT_MISMATCH",
-          slideIndex: index,
-          layout: slide.layout,
-          slot: "chart",
-          message: `slides[${index}] uses layout "chart-with-takeaway" but the chart payload looks like an image (chart.type === "image" or chart.image / chart.src is set).`,
-          hint: `chart-with-takeaway expects a typed chart-spec ({ type: "bar" | "line" | ..., data: { labels, series } }). For a static image (PNG/JPG of a chart), switch to layout: "image-with-takeaway" — same takeaway panel, image instead of native chart.`,
-        });
-      }
+  validateLayoutCrossSlotRules(slide, index, out);
+
+  // (chart-with-takeaway misuse check removed: that layout was folded
+  // into visual-with-caption with the polymorphic `visual` slot — agents
+  // now pass any visual kind to the same layout, so the kind-mismatch
+  // problem this hint guarded against no longer exists.)
+}
+
+function validateLayoutCrossSlotRules(
+  slide: SlideSpec,
+  index: number,
+  out: SlidemlValidationError[],
+): void {
+  if (slide.layout === "dashboard") {
+    const cells = slide.slots["cells"];
+    const named = ["tl", "tr", "bl", "br"].filter((k) => slide.slots[k] !== undefined && slide.slots[k] !== null);
+    if (!Array.isArray(cells) && named.length < 2) {
+      out.push({
+        code: "SLOT_REQUIRED",
+        slideIndex: index,
+        layout: slide.layout,
+        slot: "cells",
+        message: `slides[${index}].slots must provide dashboard "cells" (2-8 regions) or at least two of tl/tr/bl/br.`,
+        hint: `Prefer cells: [{ kind: ... }, ...] for variable dashboards; use tl/tr/bl/br only for a fixed 2x2 dashboard.`,
+      });
+    }
+  }
+  if (slide.layout === "split") {
+    const cells = slide.slots["cells"] === "3" ? 3 : 2;
+    if (cells === 3 && (slide.slots["cell3"] === undefined || slide.slots["cell3"] === null)) {
+      out.push({
+        code: "SLOT_REQUIRED",
+        slideIndex: index,
+        layout: slide.layout,
+        slot: "cell3",
+        message: `slides[${index}].slots.cell3 is required when split.cells is "3".`,
+        hint: `Use cells: "2" for a two-region split, or provide cell3 for a three-region split.`,
+      });
     }
   }
 }
@@ -250,13 +315,13 @@ function validateSlotValue(
         return;
       }
       if (schema.maxChars !== undefined) {
-        const effectiveMax = cjk ? Math.round(schema.maxChars * CJK_BUDGET_MULTIPLIER) : schema.maxChars;
+        const effectiveMax = cjkAdjustedMax(schema.maxChars, cjk, ctx.slot);
         if ([...value].length > effectiveMax) {
           // Include the offending VALUE so the agent sees what it's trimming.
           out.push({
             ...ctx,
             code: "SLOT_OVERFLOW",
-            message: `${slotPath(ctx)} is ${[...value].length} chars, exceeds ${cjk ? "CJK-adjusted " : ""}maxChars ${effectiveMax}${cjk ? ` (${schema.maxChars} × 1.6 CJK)` : ""}. Current value: ${quote(value)}`,
+            message: `${slotPath(ctx)} is ${[...value].length} chars, exceeds maxChars ${effectiveMax}. Current value: ${quote(value)}`,
             hint: `Trim "${ctx.slot}" to at most ${effectiveMax} characters.`,
           });
         }
@@ -270,22 +335,29 @@ function validateSlotValue(
       //   3. (string | { kind, text })[] — typed paragraphs (Tier 3a).
       // Each typed paragraph picks distinctive styling at render time.
       const PARA_KINDS = new Set(["quote", "note", "callout", "h2"]);
-      // Density-aware budget — when the slide declares a `density` slot,
-      // the effective char budget for this text-block is the density
-      // preset's per-column budget (latin or CJK), NOT the layout's hard
-      // maxChars ceiling. The maxChars ceiling stays as a safety cap at
-      // the densest setting; here we surface DENSITY_OVERFLOW with
-      // concrete next-step suggestions so the agent can iterate.
-      const declaredDensity = pickDensity(slideSlots["density"]);
-      const densityBudget = effectiveBudget(ctx.layout!, declaredDensity, cjk);
+      // Single MAX char ceiling per slot, sized to densest readable
+      // preset × autoFit headroom. Render-time autoFit absorbs spillover
+      // up to ~+40%; anything beyond that gets SLOT_OVERFLOW with a
+      // hint to split the slide or pick a denser layout.
       const cjkNote = cjk ? ` (CJK)` : "";
       let total = 0;
+      // Visible-line count: every non-empty source line takes vertical space
+      // when rendered (single \n inside a paragraph still forces a line
+      // break, e.g. when the agent inlines a `· bullet` list inside one
+      // text-block paragraph). Char count alone misses this — a 200-char
+      // body with 8 short bullets overflows where 200 chars of one
+      // paragraph would fit. Track lines so layouts that declare
+      // `maxLines` can flag it before render.
+      let visibleLines = 0;
+      const countLinesInString = (s: string): number =>
+        s.split("\n").map((l) => l.trim()).filter(Boolean).length;
       let bad = false;
       let preview = "";
       if (Array.isArray(value)) {
         for (const item of value) {
           if (typeof item === "string") {
             total += [...item].length + 2;
+            visibleLines += countLinesInString(item);
             if (!preview && item.length > 0) preview = item.slice(0, 60);
           } else if (item && typeof item === "object" && !Array.isArray(item)) {
             const o = item as { kind?: unknown; text?: unknown };
@@ -294,6 +366,7 @@ function validateSlotValue(
               bad = true; break;
             }
             total += [...o.text].length + 2;
+            visibleLines += countLinesInString(o.text);
             if (!preview && o.text.length > 0) preview = o.text.slice(0, 60);
           } else {
             bad = true; break;
@@ -304,37 +377,42 @@ function validateSlotValue(
         return;
       } else {
         total = [...value].length;
+        visibleLines = countLinesInString(value);
         preview = value.slice(0, 60);
       }
       if (bad) {
         out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} accepts string | string[] | Array<string | { kind: 'quote'|'note'|'callout'|'h2', text: string }>.` });
         return;
       }
-      // Density-aware soft check (DENSITY_OVERFLOW). Only fires when the
-      // layout actually declares a density slot — layouts without density
-      // (e.g. quote, hero-stat) still rely on the hard maxChars below.
-      const layoutHasDensity = !!theme.layouts.get(ctx.layout!)?.slots["density"]
-        && (theme.layouts.get(ctx.layout!)!.slots["density"] as { type: string }).type === "enum";
-      if (layoutHasDensity && total > densityBudget) {
+      // (DENSITY_OVERFLOW removed — there's no density slot anymore.
+      // The single maxChars ceiling below already accounts for autoFit
+      // headroom; anything beyond that needs a layout switch / split.)
+      // Visible-line ceiling — catches multi-paragraph or inline-list
+      // content that fits the char cap but overflows the box vertically.
+      // Layouts opt in by declaring `maxLines`; without it this check is
+      // skipped (back-compat with layouts that haven't been calibrated).
+      if (schema.maxLines !== undefined && visibleLines > schema.maxLines) {
         out.push({
           ...ctx,
-          code: "DENSITY_OVERFLOW",
-          message:
-            `${slotPath(ctx)} is ${total} chars, exceeds density="${declaredDensity}"${cjkNote} budget ${densityBudget}.`,
-          hint: nextDensitySuggestion(ctx.slot!, declaredDensity, total, cjk, ctx.layout!),
+          code: "SLOT_OVERFLOW",
+          message: `${slotPath(ctx)} has ${visibleLines} visible lines, exceeds maxLines ${schema.maxLines} for layout "${ctx.layout}". Char count was ${total} (${cjk ? "CJK" : "Latin"}).`,
+          hint: `Trim to ≤${schema.maxLines} non-empty lines (collapse inline lists into prose, or split each ·/- bullet into its own paragraph and switch to a layout with a bullets slot — e.g. prose / executive-summary / key-point).`,
         });
         return;
       }
-      // Hard maxChars ceiling — disaster cap that prevents truly oversized input.
+      // Single maxChars ceiling — already includes autoFit headroom.
+      // Anything past this WILL clip even after autoFit shrinks fonts,
+      // so the only remedies are split-the-slide or pick a layout with
+      // more capacity (prose / prose+columns:2).
       const effectiveMax = schema.maxChars !== undefined
-        ? (cjk ? Math.round(schema.maxChars * CJK_BUDGET_MULTIPLIER) : schema.maxChars)
+        ? Math.min(cjkAdjustedMax(schema.maxChars, cjk, ctx.slot), effectiveBudget(ctx.layout!, cjk, slideSlots))
         : undefined;
       if (effectiveMax !== undefined && total > effectiveMax) {
         out.push({
           ...ctx,
           code: "SLOT_OVERFLOW",
-          message: `${slotPath(ctx)} is ${total} chars, exceeds maxChars ${effectiveMax}${cjkNote}. First 60 chars: ${quote(preview)}`,
-          hint: `Trim "${ctx.slot}" to at most ${effectiveMax} characters, or switch to a denser layout (prose / two-column-prose).`,
+          message: `${slotPath(ctx)} is ${total} chars, exceeds maxChars ${effectiveMax}${cjkNote} (autoFit cannot rescue values past this ceiling without making text unreadable). First 60 chars: ${quote(preview)}`,
+          hint: nextLayoutForOverflow(ctx.layout!, total, cjk, effectiveMax),
         });
       }
       return;
@@ -349,7 +427,12 @@ function validateSlotValue(
         out.push({ ...ctx, code: "SLOT_UNDERFLOW", message: `${slotPath(ctx)} has ${value.length} items, fewer than min ${schema.min}.` });
       }
       if (value.length > schema.max) {
-        out.push({ ...ctx, code: "SLOT_OVERFLOW", message: `${slotPath(ctx)} has ${value.length} items, exceeds max ${schema.max}.` });
+        out.push({
+          ...ctx,
+          code: "SLOT_OVERFLOW",
+          message: `${slotPath(ctx)} has ${value.length} items, exceeds max ${schema.max} for layout "${ctx.layout}".`,
+          hint: bulletCountOverflowHint(theme, ctx.layout!, ctx.slot!, value.length, schema.max),
+        });
       }
       // Items can be:
       //   - plain strings
@@ -445,6 +528,69 @@ function validateSlotValue(
       validateChartSpec(value as Record<string, unknown>, ctx, out);
       return;
 
+    case "visual": {
+      // Polymorphic: image | chart | table | svg. Accepts either tagged
+      // (`{ kind: ..., ... }`) or legacy un-tagged (image-ref / chart-spec
+      // / table) shapes — render/visual.ts coerceVisual mirrors this.
+      const VISUAL_KINDS = ["image", "chart", "table", "svg"];
+      if (typeof value === "string" && value.length > 0) return; // bare path → image
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        out.push({
+          ...ctx,
+          code: "SLOT_TYPE_MISMATCH",
+          message: `${slotPath(ctx)} expected a visual: { kind: "image" | "chart" | "table" | "svg", ... } or a legacy image-ref / chart-spec / table object.`,
+        });
+        return;
+      }
+      const v = value as Record<string, unknown>;
+      // Tagged form: validate by kind.
+      if (typeof v.kind === "string") {
+        if (!VISUAL_KINDS.includes(v.kind)) {
+          out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.kind must be one of ${VISUAL_KINDS.map((k) => `"${k}"`).join(", ")}.` });
+          return;
+        }
+        if (v.kind === "image" && typeof v.src !== "string") {
+          out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} (kind="image") requires src: string.` });
+        }
+        if (v.kind === "svg" && typeof v.svg !== "string") {
+          out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} (kind="svg") requires svg: string.` });
+        }
+        if (v.kind === "chart") {
+          // Tagged form uses `chartType`; reuse the existing chart-spec
+          // validator (which expects `type`) by remapping. This gives us
+          // the cross-field labels.length === series.values.length check
+          // for free.
+          if (typeof v.chartType !== "string") {
+            out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} (kind="chart") requires chartType: "bar" | "line" | "pie" | …` });
+          } else {
+            const legacy = { type: v.chartType, data: v.data, format: v.format, title: v.title, annotations: v.annotations };
+            validateChartSpec(legacy as Record<string, unknown>, ctx, out);
+          }
+        }
+        if (v.kind === "table") {
+          validateTableSpec(v, ctx, out, { maxRows: 10, maxCols: 8, cellMaxChars: 100 });
+        }
+        return;
+      }
+      // Un-tagged: sniff and route to existing validators.
+      if (typeof v.src === "string") return; // image-ref shape
+      if (typeof v.svg === "string") return; // svg shape
+      if (Array.isArray(v.header) && Array.isArray(v.rows)) {
+        validateTableSpec(v, ctx, out, { maxRows: 10, maxCols: 8, cellMaxChars: 100 });
+        return;
+      }
+      if (typeof v.type === "string" && v.data && typeof v.data === "object") {
+        validateChartSpec(v, ctx, out);
+        return;
+      }
+      out.push({
+        ...ctx,
+        code: "SLOT_TYPE_MISMATCH",
+        message: `${slotPath(ctx)} did not match any visual shape. Use { kind: "image"|"chart"|"table"|"svg", ... } or a legacy image-ref / chart-spec / table object.`,
+      });
+      return;
+    }
+
     case "component-ref": {
       if (typeof value !== "object" || value === null || Array.isArray(value)) {
         out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected component-ref { name, slots }.` });
@@ -469,43 +615,10 @@ function validateSlotValue(
         out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected table mapping.` });
         return;
       }
-      const t = value as { header?: unknown; rows?: unknown };
-      if (!Array.isArray(t.header)) {
-        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.header (array) is required.` });
-      }
-      if (!Array.isArray(t.rows)) {
-        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.rows (array of arrays) is required.` });
-        return;
-      }
-      const align = (t as { align?: unknown }).align;
-      if (align !== undefined) {
-        const ALIGNS = new Set(["left", "center", "right"]);
-        if (!Array.isArray(align) || align.some((a) => typeof a !== "string" || !ALIGNS.has(a))) {
-          out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.align must be Array<"left" | "center" | "right">.` });
-        }
-      }
-      // Cells: each cell may be a string OR { value, emphasis? } where
-      // emphasis is one of ok|warn|bad|highlight|up|down|flat. Anything
-      // else gets coerced to string at render time, so don't error — only
-      // validate the explicit-shape case.
-      const TABLE_EMPHASIS = new Set(["ok", "warn", "bad", "highlight", "up", "down", "flat"]);
-      (t.rows as unknown[]).forEach((row, ri) => {
-        if (!Array.isArray(row)) {
-          out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.rows[${ri}] must be an array of cells.` });
-          return;
-        }
-        row.forEach((cell, ci) => {
-          if (typeof cell === "string" || typeof cell === "number") return;
-          if (cell && typeof cell === "object" && !Array.isArray(cell)) {
-            const c = cell as { value?: unknown; emphasis?: unknown };
-            if (c.value !== undefined && typeof c.value !== "string" && typeof c.value !== "number") {
-              out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.rows[${ri}][${ci}].value must be a string or number.` });
-            }
-            if (c.emphasis !== undefined && (typeof c.emphasis !== "string" || !TABLE_EMPHASIS.has(c.emphasis))) {
-              out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.rows[${ri}][${ci}].emphasis must be one of ${[...TABLE_EMPHASIS].join(", ")}.` });
-            }
-          }
-        });
+      validateTableSpec(value as Record<string, unknown>, ctx, out, {
+        maxRows: schema.maxRows ?? 12,
+        maxCols: schema.maxCols ?? 8,
+        cellMaxChars: schema.cellMaxChars ?? 120,
       });
       return;
     }
@@ -576,6 +689,24 @@ function validateSlotValue(
           out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} (kind="progress").value must be a number 0..1.` });
         }
       }
+      validateRegionValue(v, ctx, out);
+      return;
+    }
+
+    case "region-list": {
+      if (!Array.isArray(value)) {
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected an array of region objects, got ${typeOf(value)}.` });
+        return;
+      }
+      if (value.length < schema.min) {
+        out.push({ ...ctx, code: "SLOT_UNDERFLOW", message: `${slotPath(ctx)} has ${value.length} cells, fewer than min ${schema.min}.` });
+      }
+      if (value.length > schema.max) {
+        out.push({ ...ctx, code: "SLOT_OVERFLOW", message: `${slotPath(ctx)} has ${value.length} cells, exceeds max ${schema.max}.`, hint: `Use ${schema.min}–${schema.max} region cells, or split the dashboard across multiple slides.` });
+      }
+      value.forEach((item, i) => {
+        validateSlotValue(item, { type: "region" }, { ...ctx, slot: `${ctx.slot}[${i}]` }, out, theme, cjk, slideSlots);
+      });
       return;
     }
   }
@@ -583,6 +714,144 @@ function validateSlotValue(
 
 const CHART_TYPES = ["bar", "stacked-bar", "line", "area", "pie", "doughnut", "combo", "scatter", "waterfall"] as const;
 const Y_FORMATS = ["int", "decimal", "percent", "wanyuan", "yi"] as const;
+const TABLE_EMPHASIS = new Set(["ok", "warn", "bad", "highlight", "up", "down", "flat"]);
+
+interface TableCapacity {
+  maxRows: number;
+  maxCols: number;
+  cellMaxChars: number;
+}
+
+function validateTableSpec(
+  value: Record<string, unknown>,
+  ctx: SlidemlValidationError,
+  out: SlidemlValidationError[],
+  cap: TableCapacity,
+): void {
+  const header = value.header;
+  const rows = value.rows;
+  if (!Array.isArray(header) || header.some((h) => typeof h !== "string")) {
+    out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.header must be a string array.` });
+    return;
+  }
+  if (header.length > cap.maxCols) {
+    out.push({
+      ...ctx,
+      code: "SLOT_OVERFLOW",
+      message: `${slotPath(ctx)}.header has ${header.length} columns, exceeds maxCols ${cap.maxCols}.`,
+      hint: `Use at most ${cap.maxCols} columns, or split the table across slides.`,
+    });
+  }
+  header.forEach((h, i) => validateCellTextLength(h, `${slotPath(ctx)}.header[${i}]`, cap.cellMaxChars, ctx, out));
+
+  if (!Array.isArray(rows)) {
+    out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.rows must be an array of row arrays.` });
+    return;
+  }
+  if (rows.length > cap.maxRows) {
+    out.push({
+      ...ctx,
+      code: "SLOT_OVERFLOW",
+      message: `${slotPath(ctx)}.rows has ${rows.length} rows, exceeds maxRows ${cap.maxRows}.`,
+      hint: `Use at most ${cap.maxRows} body rows, summarize, or split the table across slides.`,
+    });
+  }
+  const align = value.align;
+  if (align !== undefined) {
+    const ALIGNS = new Set(["left", "center", "right"]);
+    if (!Array.isArray(align) || align.length > cap.maxCols || align.some((a) => typeof a !== "string" || !ALIGNS.has(a))) {
+      out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.align must be Array<"left" | "center" | "right"> with at most ${cap.maxCols} entries.` });
+    }
+  }
+  const colWidths = value.colWidths;
+  if (colWidths !== undefined && (!Array.isArray(colWidths) || colWidths.length > cap.maxCols || colWidths.some((n) => typeof n !== "number" || n < 0))) {
+    out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.colWidths must be a non-negative number array with at most ${cap.maxCols} entries.` });
+  }
+  rows.forEach((row, ri) => {
+    if (!Array.isArray(row)) {
+      out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.rows[${ri}] must be an array of cells.` });
+      return;
+    }
+    if (row.length > cap.maxCols) {
+      out.push({ ...ctx, code: "SLOT_OVERFLOW", message: `${slotPath(ctx)}.rows[${ri}] has ${row.length} cells, exceeds maxCols ${cap.maxCols}.` });
+    }
+    row.forEach((cell, ci) => {
+      if (typeof cell === "string" || typeof cell === "number") {
+        validateCellTextLength(String(cell), `${slotPath(ctx)}.rows[${ri}][${ci}]`, cap.cellMaxChars, ctx, out);
+        return;
+      }
+      if (cell && typeof cell === "object" && !Array.isArray(cell)) {
+        const c = cell as { value?: unknown; emphasis?: unknown };
+        if (c.value !== undefined && typeof c.value !== "string" && typeof c.value !== "number") {
+          out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.rows[${ri}][${ci}].value must be a string or number.` });
+        }
+        if (c.value !== undefined) {
+          validateCellTextLength(String(c.value), `${slotPath(ctx)}.rows[${ri}][${ci}].value`, cap.cellMaxChars, ctx, out);
+        }
+        if (c.emphasis !== undefined && (typeof c.emphasis !== "string" || !TABLE_EMPHASIS.has(c.emphasis))) {
+          out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)}.rows[${ri}][${ci}].emphasis must be one of ${[...TABLE_EMPHASIS].join(", ")}.` });
+        }
+      }
+    });
+  });
+}
+
+function validateCellTextLength(
+  text: string,
+  path: string,
+  max: number,
+  ctx: SlidemlValidationError,
+  out: SlidemlValidationError[],
+): void {
+  if ([...text].length > max) {
+    out.push({
+      ...ctx,
+      code: "SLOT_OVERFLOW",
+      message: `${path} is ${[...text].length} chars, exceeds cellMaxChars ${max}.`,
+      hint: `Trim this table cell to at most ${max} characters.`,
+    });
+  }
+}
+
+function validateRegionValue(v: Record<string, unknown>, ctx: SlidemlValidationError, out: SlidemlValidationError[]): void {
+  const kind = v.kind;
+  if (kind === "chart" && v.chart && typeof v.chart === "object" && !Array.isArray(v.chart)) {
+    validateChartSpec(v.chart as Record<string, unknown>, ctx, out);
+  }
+  if (kind === "table" && v.table && typeof v.table === "object" && !Array.isArray(v.table)) {
+    validateTableSpec(v.table as Record<string, unknown>, ctx, out, { maxRows: 6, maxCols: 5, cellMaxChars: 70 });
+  }
+  if (kind === "text") {
+    const body = v.body;
+    const total = typeof body === "string"
+      ? [...body].length
+      : Array.isArray(body) ? body.reduce((n, s) => n + (typeof s === "string" ? [...s].length : 0), 0) : 0;
+    if (total > 420) {
+      out.push({ ...ctx, code: "SLOT_OVERFLOW", message: `${slotPath(ctx)} (kind="text").body is ${total} chars, exceeds region text capacity 420.`, hint: "Use a shorter region body, switch to prose, or split into multiple cells/slides." });
+    }
+  }
+  if (kind === "bullets" && Array.isArray(v.items)) {
+    if (v.items.length > 5) {
+      out.push({ ...ctx, code: "SLOT_OVERFLOW", message: `${slotPath(ctx)} (kind="bullets").items has ${v.items.length} items, exceeds region capacity 5.` });
+    }
+    v.items.forEach((item, i) => {
+      if (typeof item !== "string") {
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} (kind="bullets").items[${i}] must be a string.` });
+      } else if ([...item].length > 90) {
+        out.push({ ...ctx, code: "SLOT_OVERFLOW", message: `${slotPath(ctx)} (kind="bullets").items[${i}] is ${[...item].length} chars, exceeds region bullet capacity 90.` });
+      }
+    });
+  }
+  if (kind === "code" && typeof v.code === "string") {
+    const lines = v.code.split(/\r?\n/);
+    if (lines.length > 12 || [...v.code].length > 480) {
+      out.push({ ...ctx, code: "SLOT_OVERFLOW", message: `${slotPath(ctx)} (kind="code") exceeds region code capacity (${lines.length} lines, ${[...v.code].length} chars).`, hint: "Keep region code to <=12 short lines / <=480 chars, or use code-block." });
+    }
+  }
+  if (kind === "quote" && typeof v.text === "string" && [...v.text].length > 220) {
+    out.push({ ...ctx, code: "SLOT_OVERFLOW", message: `${slotPath(ctx)} (kind="quote").text is ${[...v.text].length} chars, exceeds region quote capacity 220.` });
+  }
+}
 
 function validateChartSpec(value: Record<string, unknown>, ctx: SlidemlValidationError, out: SlidemlValidationError[]): void {
   const type = value["type"];

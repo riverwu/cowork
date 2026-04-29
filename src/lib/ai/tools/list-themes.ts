@@ -30,4 +30,18 @@ Default theme is \`technical-blue\` (engineering / data). If you don't call this
       return `Error: list_themes failed: ${err instanceof Error ? err.message : String(err)}`;
     }
   },
+
+  // History compression: list_themes returns ~6KB JSON. Once the agent
+  // has picked a theme, the picked name lives in the deck YAML — the
+  // catalog is throwaway. Collapse to one-line "saw N themes" reminder.
+  historySummarizer(rawResult, status) {
+    if (status === "fail") return rawResult;
+    try {
+      const arr = JSON.parse(rawResult) as Array<{ name?: string }>;
+      const names = arr.map((t) => t.name).filter(Boolean).join(", ");
+      return `→ ${arr.length} themes: ${names}`;
+    } catch {
+      return rawResult.slice(0, 120);
+    }
+  },
 };

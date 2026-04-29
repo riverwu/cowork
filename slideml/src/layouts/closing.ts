@@ -5,8 +5,8 @@ import { bestTextOn, chipColorResolver, imageOrPlaceholder, imageRefOf } from ".
 import { parseInline } from "../render/markdown-inline.js";
 
 export const slots: Record<string, SlotSchema> = {
-  title:    { type: "text",      maxChars: 60 },
-  subtitle: { type: "text",      maxChars: 80, optional: true },
+  title:    { type: "text",      maxChars: 42 },
+  subtitle: { type: "text",      maxChars: 56, optional: true },
   // Optional full-bleed background image. When supplied, the brand-deep
   // panel renders as a 75%-opacity overlay on top of the image so the
   // title stays readable. Use for hero "thank you" closes.
@@ -69,6 +69,7 @@ const closing: LayoutFn = (ctx: LayoutContext): ShapeList => {
     id: ctx.id(),
     xfrm: { x: ctx.cm(2), y: ctx.cm(5.4), cx: ctx.deck.width - ctx.cm(4), cy: ctx.cm(2.4) },
     valign: "middle",
+    autoFit: "shrink",
     paragraphs: [{
       align: "center",
       runs: parseInline(title, { ...baseInline, sizeHalfPt: 96, color: titleColor })
@@ -81,6 +82,7 @@ const closing: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: ctx.cm(2), y: ctx.cm(8.4), cx: ctx.deck.width - ctx.cm(4), cy: ctx.cm(1.4) },
       valign: "middle",
+      autoFit: "shrink",
       paragraphs: [{
         align: "center",
         runs: parseInline(subtitle, { ...baseInline, sizeHalfPt: 32, color: subtitleColor }),

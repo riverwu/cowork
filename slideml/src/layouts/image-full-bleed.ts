@@ -11,7 +11,7 @@ import { imageOrPlaceholder, imageRefOf } from "../render/primitives.js";
  */
 export const slots: Record<string, SlotSchema> = {
   image:   { type: "image-ref" },
-  caption: { type: "text",      maxChars: 120, optional: true },
+  caption: { type: "text",      maxChars: 84, optional: true },
 };
 
 const imageFullBleed: LayoutFn = (ctx: LayoutContext): ShapeList => {

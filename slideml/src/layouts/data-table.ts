@@ -1,11 +1,11 @@
 import type { LayoutContext, LayoutFn } from "../render/layout-context.js";
 import type { ShapeList, TableCell } from "../emitter/types.js";
 import type { SlotSchema } from "../theme/types.js";
-import { inferTableAlign, slideTitle, tableCellOf } from "../render/primitives.js";
+import { bestTextOn, inferTableAlign, slideTitle, tableCellOf } from "../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
-  title: { type: "text",  maxChars: 50, optional: true },
-  table: { type: "table" },
+  title: { type: "text",  maxChars: 35, optional: true },
+  table: { type: "table", maxRows: 8, maxCols: 6, cellMaxChars: 80 },
 };
 
 interface TableSlot {
@@ -53,23 +53,37 @@ const dataTable: LayoutFn = (ctx: LayoutContext): ShapeList => {
   // back to a numeric-vs-text heuristic when no explicit align is given.
   const colAlign = tableSpec.align ?? [];
   const cells: TableCell[][] = [];
+  // Theme-coordinated table styling: header fill, row striping, and
+  // first-column emphasis all flow from `style.table.*` so a theme can
+  // change "data table identity" once and have it apply everywhere
+  // (data-table, dashboard tables, regions). On-header text color
+  // auto-picks white vs text-strong based on the header fill luminance.
+  const tableStyle = ctx.style.table;
+  const headerFillHex = ctx.color(tableStyle.headerFill);
+  const headerTextColor = bestTextOn(ctx, headerFillHex);
   cells.push(
     tableSpec.header.map((h, ci) => tableCellOf(ctx, h, {
       sizeHalfPt: 26,
-      baseColor: "FFFFFF",
+      baseColor: headerTextColor,
       bold: true,
       align: colAlign[ci] ?? "left",
-      fill: { color: ctx.color("brand-deep") },
+      fill: { color: headerFillHex },
     })),
   );
   for (let r = 0; r < tableSpec.rows.length; r++) {
     const row = tableSpec.rows[r]!;
     cells.push(
-      row.map((cell, ci) => tableCellOf(ctx, cell, {
-        sizeHalfPt: 24,
-        align: inferTableAlign(cell, colAlign[ci]),
-        fill: r % 2 === 1 ? { color: ctx.color("bg-card") } : undefined,
-      })),
+      row.map((cell, ci) => {
+        const isFirstCol = ci === 0;
+        const emph = tableStyle.firstColEmphasis;
+        return tableCellOf(ctx, cell, {
+          sizeHalfPt: 24,
+          align: inferTableAlign(cell, colAlign[ci]),
+          fill: tableStyle.rowStripe && r % 2 === 1 ? { color: ctx.color("bg-card") } : undefined,
+          ...(isFirstCol && emph === "bold" ? { bold: true } : {}),
+          ...(isFirstCol && emph === "accent" ? { baseColor: ctx.color("brand-primary"), bold: true } : {}),
+        });
+      }),
     );
   }
 

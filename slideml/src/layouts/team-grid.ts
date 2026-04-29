@@ -13,8 +13,8 @@ import { contentRect, gridCols, imageOrPlaceholder, imageRefOf, slideTitle } fro
  * The layout renders avatars with `shape: "circle"` automatically.
  */
 export const slots: Record<string, SlotSchema> = {
-  title:   { type: "text",    maxChars: 50, optional: true },
-  members: { type: "bullets", min: 2, max: 8, itemMaxChars: 80 },
+  title:   { type: "text",    maxChars: 35, optional: true },
+  members: { type: "bullets", min: 2, max: 8, itemMaxChars: 56 },
 };
 
 interface MemberRaw {
@@ -63,6 +63,7 @@ const teamGrid: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: cellX, y: cellY + avatarSize + ctx.cm(0.3), cx: cellW, cy: ctx.cm(0.9) },
       valign: "top",
+      autoFit: "shrink",
       paragraphs: [{
         align: "center",
         runs: [{
@@ -82,6 +83,7 @@ const teamGrid: LayoutFn = (ctx: LayoutContext): ShapeList => {
         id: ctx.id(),
         xfrm: { x: cellX, y: cellY + avatarSize + ctx.cm(1.2), cx: cellW, cy: ctx.cm(0.7) },
         valign: "top",
+        autoFit: "shrink",
         paragraphs: [{
           align: "center",
           runs: [{ text: m.role, sizeHalfPt: 20, color: ctx.color("brand-primary"), cjk: ctx.cjk, fontFace }],
@@ -95,6 +97,7 @@ const teamGrid: LayoutFn = (ctx: LayoutContext): ShapeList => {
         id: ctx.id(),
         xfrm: { x: cellX + ctx.cm(0.2), y: cellY + avatarSize + ctx.cm(2.0), cx: cellW - ctx.cm(0.4), cy: ctx.cm(2) },
         valign: "top",
+        autoFit: "shrink",
         paragraphs: [{
           align: "center",
           lineSpacingHalfPt: 36,

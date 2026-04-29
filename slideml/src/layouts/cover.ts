@@ -3,11 +3,11 @@ import type { ShapeList, TextShape } from "../emitter/types.js";
 import type { SlotSchema } from "../theme/types.js";
 
 export const slots: Record<string, SlotSchema> = {
-  title:    { type: "text", maxChars: 60 },
-  subtitle: { type: "text", maxChars: 80, optional: true },
+  title:    { type: "text", maxChars: 42 },
+  subtitle: { type: "text", maxChars: 56, optional: true },
   // 32 chars accommodates common values like "Engineering · 2026 Q1"
   // (real-LLM testing showed agents consistently overshot 20 by 1-4 chars).
-  eyebrow:  { type: "text", maxChars: 32, optional: true },
+  eyebrow:  { type: "text", maxChars: 22, optional: true },
 };
 
 const cover: LayoutFn = (ctx: LayoutContext): ShapeList => {
@@ -72,6 +72,7 @@ function textBox(
     id: ctx.id(),
     xfrm: { x: ctx.cm(2), y: opts.y, cx: ctx.deck.width - 2 * ctx.cm(2), cy: opts.cy },
     valign: "middle",
+    autoFit: "shrink",
     paragraphs: [{
       align: opts.align,
       runs: [{

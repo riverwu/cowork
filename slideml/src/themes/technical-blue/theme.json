@@ -7,36 +7,187 @@
   "author": "SlideML",
   "tokens": {
     "bg-canvas": "0B1B2A",
-    "bg-card": "11293E",
-    "brand-primary": "3CC2FF",
-    "brand-deep": "1078B5",
-    "text-strong": "F5F9FC",
-    "text-muted": "8DA8C2",
-    "accent": "FF9F45",
-    "divider": "1F3F5C",
-    "font-latin": ["Inter", "IBM Plex Sans", "Helvetica Neue", "Helvetica", "Arial", "sans-serif"],
-    "font-cjk":   ["PingFang SC", "Source Han Sans CN", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", "sans-serif"],
-    "font-mono":  ["JetBrains Mono", "Fira Code", "SF Mono", "Menlo", "Consolas", "monospace"]
+    "bg-card": "14304A",
+    "brand-primary": "38BDF8",
+    "brand-deep": "0369A1",
+    "text-strong": "F1F5F9",
+    "text-muted": "94A3B8",
+    "accent": "F472B6",
+    "divider": "1E3A5F",
+    "font-latin": [
+      "Inter",
+      "IBM Plex Sans",
+      "Helvetica Neue",
+      "Helvetica",
+      "Arial",
+      "sans-serif"
+    ],
+    "font-cjk": [
+      "PingFang SC",
+      "Source Han Sans CN",
+      "Microsoft YaHei",
+      "Noto Sans CJK SC",
+      "Noto Sans SC",
+      "sans-serif"
+    ],
+    "font-mono": [
+      "JetBrains Mono",
+      "Fira Code",
+      "SF Mono",
+      "Menlo",
+      "Consolas",
+      "monospace"
+    ],
+    "semantic-up": "4ADE80",
+    "semantic-down": "F87171",
+    "semantic-warn": "FBBF24",
+    "semantic-bad": "F87171"
   },
   "meta": {
-    "audiences":   ["engineers", "data teams", "internal technical reviewers"],
-    "industries":  ["software", "platform engineering", "infrastructure", "data analytics", "DevOps", "fintech"],
-    "moods":       ["serious", "precise", "data-dense", "high-information"],
-    "antiPatterns": ["consumer marketing", "wellness / lifestyle", "playful presentations", "elementary education"]
+    "audiences": [
+      "engineers",
+      "data teams",
+      "internal technical reviewers"
+    ],
+    "industries": [
+      "software",
+      "platform engineering",
+      "infrastructure",
+      "data analytics",
+      "DevOps",
+      "fintech"
+    ],
+    "moods": [
+      "serious",
+      "precise",
+      "data-dense",
+      "high-information"
+    ],
+    "antiPatterns": [
+      "consumer marketing",
+      "wellness / lifestyle",
+      "playful presentations",
+      "elementary education"
+    ]
   },
   "style": {
     "titleAccentRule": true,
     "contrastTarget": "warn",
-    "bullets": { "glyph": "›", "color": "brand-primary" },
+    "bullets": {
+      "glyph": "›",
+      "color": "brand-primary"
+    },
     "imagery": {
       "guidance": "Photographic or rendered, deep-tone, high-contrast. Cool blue / navy / cyan palette dominant. Subjects: server rooms, network diagrams, code on screens, geometric data visualizations, abstract circuitry, satellite/aerial views. Lighting: cinematic low-key with cyan accent highlights. Avoid: bright pastels, cartoonish illustrations, white backgrounds, hand-drawn marketing illustration styles, lifestyle photography.",
-      "palette": ["#0B1B2A", "#3CC2FF", "#1078B5", "#F5F9FC"],
-      "preferredStyles": ["photographic", "cinematic", "low-key lit", "isometric technical illustration", "data-visualization aesthetic"],
-      "avoid":           ["cartoon", "bright pastels", "white background", "hand-drawn marketing illustration", "lifestyle / consumer photography"]
+      "palette": [
+        "#0B1B2A",
+        "#3CC2FF",
+        "#1078B5",
+        "#F5F9FC"
+      ],
+      "preferredStyles": [
+        "photographic",
+        "cinematic",
+        "low-key lit",
+        "isometric technical illustration",
+        "data-visualization aesthetic"
+      ],
+      "avoid": [
+        "cartoon",
+        "bright pastels",
+        "white background",
+        "hand-drawn marketing illustration",
+        "lifestyle / consumer photography"
+      ]
     },
     "voice": {
       "tone": "Precise, technical, measured. Numbers > adjectives. Avoid marketing language.",
-      "avoid": ["exclamation marks", "buzzwords (synergy, leverage, unlock)", "vague qualifiers (significantly, substantially)"]
+      "avoid": [
+        "exclamation marks",
+        "buzzwords (synergy, leverage, unlock)",
+        "vague qualifiers (significantly, substantially)"
+      ]
+    },
+    "surface": {
+      "cornerRadius": 0.02,
+      "elevation": "hairline",
+      "accentStripe": {
+        "position": "top",
+        "widthCm": 0.12,
+        "color": "brand-primary"
+      },
+      "borderPolicy": "card-only"
+    },
+    "semantic": {
+      "positive": "4ADE80",
+      "negative": "F87171",
+      "warning": "FBBF24",
+      "info": "60A5FA",
+      "neutral": "94A3B8"
+    },
+    "dataviz": {
+      "categorical": [
+        "38BDF8",
+        "4ADE80",
+        "F87171",
+        "FBBF24",
+        "C084FC",
+        "2DD4BF"
+      ],
+      "sequential": {
+        "from": "0F2A40",
+        "to": "38BDF8"
+      },
+      "diverging": {
+        "negative": "F87171",
+        "mid": "475569",
+        "positive": "4ADE80"
+      }
+    },
+    "typography": {
+      "baseHalfPt": 26,
+      "ratio": 1.25,
+      "italicCjk": false,
+      "numerals": "tabular",
+      "roles": {
+        "title": {
+          "weight": "bold",
+          "transform": "none",
+          "trackingHalfPt": 0
+        },
+        "heading": {
+          "weight": "bold",
+          "transform": "none",
+          "trackingHalfPt": 0
+        },
+        "body": {
+          "weight": "regular",
+          "transform": "none",
+          "trackingHalfPt": 0
+        },
+        "caption": {
+          "weight": "regular",
+          "transform": "none",
+          "trackingHalfPt": 0
+        },
+        "label": {
+          "weight": "medium",
+          "transform": "upper",
+          "trackingHalfPt": 4
+        }
+      }
+    },
+    "numbering": {
+      "style": "decimal"
+    },
+    "table": {
+      "headerFill": "brand-deep",
+      "rowStripe": true,
+      "borderStyle": "rows",
+      "firstColEmphasis": "bold"
+    },
+    "image": {
+      "defaultClip": "rect"
     }
   },
   "oxml": {
@@ -60,54 +211,214 @@
     }
   },
   "layouts": [
-    { "name": "cover",                "module": "layouts/cover.js",                "thumbnail": "thumbnails/cover.png" },
-    { "name": "title-only",           "module": "layouts/title-only.js",           "thumbnail": "thumbnails/title-only.png" },
-    { "name": "agenda",               "module": "layouts/agenda.js",               "thumbnail": "thumbnails/agenda.png" },
-    { "name": "section-divider",      "module": "layouts/section-divider.js",      "thumbnail": "thumbnails/section-divider.png" },
-    { "name": "stat-grid-3",          "module": "layouts/stat-grid-3.js",          "thumbnail": "thumbnails/stat-grid-3.png" },
-    { "name": "hero-stat",            "module": "layouts/hero-stat.js",            "thumbnail": "thumbnails/hero-stat.png" },
-    { "name": "matrix-2x2",           "module": "layouts/matrix-2x2.js",           "thumbnail": "thumbnails/matrix-2x2.png" },
-    { "name": "team-grid",            "module": "layouts/team-grid.js",            "thumbnail": "thumbnails/team-grid.png" },
-    { "name": "bullet-with-image",    "module": "layouts/bullet-with-image.js",    "thumbnail": "thumbnails/bullet-with-image.png" },
-    { "name": "two-col-text-image",   "module": "layouts/two-col-text-image.js",   "thumbnail": "thumbnails/two-col-text-image.png" },
-    { "name": "compare-two-columns",  "module": "layouts/compare-two-columns.js",  "thumbnail": "thumbnails/compare-two-columns.png" },
-    { "name": "process-timeline",     "module": "layouts/process-timeline.js",     "thumbnail": "thumbnails/process-timeline.png" },
-    { "name": "image-grid-2x2",       "module": "layouts/image-grid-2x2.js",       "thumbnail": "thumbnails/image-grid-2x2.png" },
-    { "name": "image-full-bleed",     "module": "layouts/image-full-bleed.js",     "thumbnail": "thumbnails/image-full-bleed.png" },
-    { "name": "image-with-caption",   "module": "layouts/image-with-caption.js",   "thumbnail": "thumbnails/image-with-caption.png" },
-    { "name": "image-pair",           "module": "layouts/image-pair.js",           "thumbnail": "thumbnails/image-pair.png" },
-    { "name": "image-split-text",     "module": "layouts/image-split-text.js",     "thumbnail": "thumbnails/image-split-text.png" },
-    { "name": "hero-image-overlay",   "module": "layouts/hero-image-overlay.js",   "thumbnail": "thumbnails/hero-image-overlay.png" },
-    { "name": "pricing-table",        "module": "layouts/pricing-table.js",        "thumbnail": "thumbnails/pricing-table.png" },
-    { "name": "quote-with-portrait",  "module": "layouts/quote-with-portrait.js",  "thumbnail": "thumbnails/quote-with-portrait.png" },
-    { "name": "key-point",            "module": "layouts/key-point.js",            "thumbnail": "thumbnails/key-point.png" },
-    { "name": "freeform",             "module": "layouts/freeform.js",             "thumbnail": "thumbnails/freeform.png" },
-    { "name": "prose",                "module": "layouts/prose.js",                "thumbnail": "thumbnails/prose.png" },
-    { "name": "two-column-prose",     "module": "layouts/two-column-prose.js",     "thumbnail": "thumbnails/two-column-prose.png" },
-    { "name": "executive-summary",    "module": "layouts/executive-summary.js",    "thumbnail": "thumbnails/executive-summary.png" },
-    { "name": "q-and-a",              "module": "layouts/q-and-a.js",              "thumbnail": "thumbnails/q-and-a.png" },
-    { "name": "definition",           "module": "layouts/definition.js",           "thumbnail": "thumbnails/definition.png" },
-    { "name": "outline",              "module": "layouts/outline.js",              "thumbnail": "thumbnails/outline.png" },
-    { "name": "timeline-text",        "module": "layouts/timeline-text.js",        "thumbnail": "thumbnails/timeline-text.png" },
-    { "name": "letter",               "module": "layouts/letter.js",               "thumbnail": "thumbnails/letter.png" },
-    { "name": "glossary",             "module": "layouts/glossary.js",             "thumbnail": "thumbnails/glossary.png" },
-    { "name": "data-table",           "module": "layouts/data-table.js",           "thumbnail": "thumbnails/data-table.png" },
-    { "name": "code-block",           "module": "layouts/code-block.js",           "thumbnail": "thumbnails/code-block.png" },
-    { "name": "quote",                "module": "layouts/quote.js",                "thumbnail": "thumbnails/quote.png" },
-    { "name": "chart-with-takeaway",  "module": "layouts/chart-with-takeaway.js",  "thumbnail": "thumbnails/chart-with-takeaway.png" },
-    { "name": "image-with-takeaway",  "module": "layouts/image-with-takeaway.js",  "thumbnail": "thumbnails/image-with-takeaway.png" },
-    { "name": "dashboard",            "module": "layouts/dashboard.js",            "thumbnail": "thumbnails/dashboard.png" },
-    { "name": "split-2",              "module": "layouts/split-2.js",              "thumbnail": "thumbnails/split-2.png" },
-    { "name": "split-3-horizontal",   "module": "layouts/split-3-horizontal.js",   "thumbnail": "thumbnails/split-3-horizontal.png" },
-    { "name": "split-3-vertical",     "module": "layouts/split-3-vertical.js",     "thumbnail": "thumbnails/split-3-vertical.png" },
-    { "name": "framed",               "module": "layouts/framed.js",               "thumbnail": "thumbnails/framed.png" },
-    { "name": "closing",              "module": "layouts/closing.js",              "thumbnail": "thumbnails/closing.png" }
+    {
+      "name": "agenda",
+      "module": "layouts/agenda.js",
+      "thumbnail": "thumbnails/agenda.png"
+    },
+    {
+      "name": "closing",
+      "module": "layouts/closing.js",
+      "thumbnail": "thumbnails/closing.png"
+    },
+    {
+      "name": "code-block",
+      "module": "layouts/code-block.js",
+      "thumbnail": "thumbnails/code-block.png"
+    },
+    {
+      "name": "compare-two-columns",
+      "module": "layouts/compare-two-columns.js",
+      "thumbnail": "thumbnails/compare-two-columns.png"
+    },
+    {
+      "name": "content-grid",
+      "module": "layouts/content-grid.js",
+      "thumbnail": "thumbnails/content-grid.png"
+    },
+    {
+      "name": "cover",
+      "module": "layouts/cover.js",
+      "thumbnail": "thumbnails/cover.png"
+    },
+    {
+      "name": "dashboard",
+      "module": "layouts/dashboard.js",
+      "thumbnail": "thumbnails/dashboard.png"
+    },
+    {
+      "name": "data-table",
+      "module": "layouts/data-table.js",
+      "thumbnail": "thumbnails/data-table.png"
+    },
+    {
+      "name": "definition",
+      "module": "layouts/definition.js",
+      "thumbnail": "thumbnails/definition.png"
+    },
+    {
+      "name": "executive-summary",
+      "module": "layouts/executive-summary.js",
+      "thumbnail": "thumbnails/executive-summary.png"
+    },
+    {
+      "name": "framed",
+      "module": "layouts/framed.js",
+      "thumbnail": "thumbnails/framed.png"
+    },
+    {
+      "name": "freeform",
+      "module": "layouts/freeform.js",
+      "thumbnail": "thumbnails/freeform.png"
+    },
+    {
+      "name": "funnel",
+      "module": "layouts/funnel.js",
+      "thumbnail": "thumbnails/funnel.png"
+    },
+    {
+      "name": "glossary",
+      "module": "layouts/glossary.js",
+      "thumbnail": "thumbnails/glossary.png"
+    },
+    {
+      "name": "hero-image-overlay",
+      "module": "layouts/hero-image-overlay.js",
+      "thumbnail": "thumbnails/hero-image-overlay.png"
+    },
+    {
+      "name": "hero-stat",
+      "module": "layouts/hero-stat.js",
+      "thumbnail": "thumbnails/hero-stat.png"
+    },
+    {
+      "name": "image-full-bleed",
+      "module": "layouts/image-full-bleed.js",
+      "thumbnail": "thumbnails/image-full-bleed.png"
+    },
+    {
+      "name": "image-grid",
+      "module": "layouts/image-grid.js",
+      "thumbnail": "thumbnails/image-grid.png"
+    },
+    {
+      "name": "key-point",
+      "module": "layouts/key-point.js",
+      "thumbnail": "thumbnails/key-point.png"
+    },
+    {
+      "name": "letter",
+      "module": "layouts/letter.js",
+      "thumbnail": "thumbnails/letter.png"
+    },
+    {
+      "name": "matrix-2x2",
+      "module": "layouts/matrix-2x2.js",
+      "thumbnail": "thumbnails/matrix-2x2.png"
+    },
+    {
+      "name": "outline",
+      "module": "layouts/outline.js",
+      "thumbnail": "thumbnails/outline.png"
+    },
+    {
+      "name": "pricing-table",
+      "module": "layouts/pricing-table.js",
+      "thumbnail": "thumbnails/pricing-table.png"
+    },
+    {
+      "name": "process-flow",
+      "module": "layouts/process-flow.js",
+      "thumbnail": "thumbnails/process-flow.png"
+    },
+    {
+      "name": "prose",
+      "module": "layouts/prose.js",
+      "thumbnail": "thumbnails/prose.png"
+    },
+    {
+      "name": "q-and-a",
+      "module": "layouts/q-and-a.js",
+      "thumbnail": "thumbnails/q-and-a.png"
+    },
+    {
+      "name": "quote",
+      "module": "layouts/quote.js",
+      "thumbnail": "thumbnails/quote.png"
+    },
+    {
+      "name": "roadmap",
+      "module": "layouts/roadmap.js",
+      "thumbnail": "thumbnails/roadmap.png"
+    },
+    {
+      "name": "section-divider",
+      "module": "layouts/section-divider.js",
+      "thumbnail": "thumbnails/section-divider.png"
+    },
+    {
+      "name": "split",
+      "module": "layouts/split.js",
+      "thumbnail": "thumbnails/split.png"
+    },
+    {
+      "name": "stat-grid-3",
+      "module": "layouts/stat-grid-3.js",
+      "thumbnail": "thumbnails/stat-grid-3.png"
+    },
+    {
+      "name": "swot",
+      "module": "layouts/swot.js",
+      "thumbnail": "thumbnails/swot.png"
+    },
+    {
+      "name": "team-grid",
+      "module": "layouts/team-grid.js",
+      "thumbnail": "thumbnails/team-grid.png"
+    },
+    {
+      "name": "timeline",
+      "module": "layouts/timeline.js",
+      "thumbnail": "thumbnails/timeline.png"
+    },
+    {
+      "name": "title-only",
+      "module": "layouts/title-only.js",
+      "thumbnail": "thumbnails/title-only.png"
+    },
+    {
+      "name": "visual-with-caption",
+      "module": "layouts/visual-with-caption.js",
+      "thumbnail": "thumbnails/visual-with-caption.png"
+    },
+    {
+      "name": "visual-with-text",
+      "module": "layouts/visual-with-text.js",
+      "thumbnail": "thumbnails/visual-with-text.png"
+    }
   ],
   "components": [
-    { "name": "header",            "module": "components/header.js" },
-    { "name": "footer",            "module": "components/footer.js" },
-    { "name": "kpi-tile",          "module": "components/kpi-tile.js" },
-    { "name": "takeaway-callout",  "module": "components/takeaway-callout.js" }
+    {
+      "name": "header",
+      "module": "components/header.js"
+    },
+    {
+      "name": "footer",
+      "module": "components/footer.js"
+    },
+    {
+      "name": "kpi-tile",
+      "module": "components/kpi-tile.js"
+    },
+    {
+      "name": "takeaway-callout",
+      "module": "components/takeaway-callout.js"
+    }
   ],
-  "chrome": ["page-header", "page-footer", "page-number", "brand-bar"]
+  "chrome": [
+    "page-header",
+    "page-footer",
+    "page-number",
+    "brand-bar"
+  ]
 }

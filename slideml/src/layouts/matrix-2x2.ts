@@ -14,9 +14,9 @@ import { computeRegionTopInset, renderRegion, type Region } from "../render/regi
  * code | quote.
  */
 export const slots: Record<string, SlotSchema> = {
-  title:    { type: "text",   maxChars: 50, optional: true },
-  xLabel:   { type: "text",   maxChars: 32, optional: true },
-  yLabel:   { type: "text",   maxChars: 32, optional: true },
+  title:    { type: "text",   maxChars: 35, optional: true },
+  xLabel:   { type: "text",   maxChars: 22, optional: true },
+  yLabel:   { type: "text",   maxChars: 22, optional: true },
   topLeft:  { type: "region" },
   topRight: { type: "region" },
   botLeft:  { type: "region" },
@@ -32,9 +32,15 @@ const matrix2x2: LayoutFn = (ctx: LayoutContext): ShapeList => {
 
   if (title) out.push(...slideTitle(ctx, title));
 
-  // Reserve room for axis labels on the left + bottom.
+  // Reserve room for axis labels on the left + bottom. The yLabel
+  // frame is rotated -90°, so text wrapping happens BEFORE rotation
+  // within the frame's `cx` (pre-rotation width). With cx too narrow,
+  // a 4-char CJK label like "影响程度" wraps onto 2-3 stacked lines
+  // before rotation, then rotation makes the wrapped lines into an
+  // ugly grid. cx must comfortably hold the label's natural single-
+  // line width: 11pt CJK ~ 0.55cm/glyph → 4-6 chars need ~2.5cm.
   const top = title ? ctx.cm(4.4) : ctx.cm(2);
-  const yLabelW = yLabel ? ctx.cm(0.8) : 0;
+  const yLabelW = yLabel ? ctx.cm(2.4) : 0;
   const xLabelH = xLabel ? ctx.cm(0.8) : 0;
   const body = contentRect(ctx, { top, marginX: ctx.cm(2) });
   const matrixX = body.x + yLabelW;
@@ -65,6 +71,7 @@ const matrix2x2: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: body.x, y: matrixY, cx: yLabelW, cy: matrixH, rot: -5400000 },
       valign: "middle",
+      autoFit: "shrink",
       paragraphs: [{
         align: "center",
         runs: [{ text: yLabel, sizeHalfPt: 22, color: ctx.color("text-muted"), bold: true, cjk: ctx.cjk, fontFace }],
@@ -77,6 +84,7 @@ const matrix2x2: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: matrixX, y: matrixY + matrixH, cx: matrixW, cy: xLabelH },
       valign: "middle",
+      autoFit: "shrink",
       paragraphs: [{
         align: "center",
         runs: [{ text: xLabel, sizeHalfPt: 22, color: ctx.color("text-muted"), bold: true, cjk: ctx.cjk, fontFace }],

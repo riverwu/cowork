@@ -9,8 +9,8 @@ import { bulletsBlock, contentRect, gridCols, slideTitle } from "../render/primi
  * (highlights the card), and a list of features.
  */
 export const slots: Record<string, SlotSchema> = {
-  title: { type: "text",    maxChars: 50, optional: true },
-  tiers: { type: "bullets", min: 2, max: 4, itemMaxChars: 200 },
+  title: { type: "text",    maxChars: 35, optional: true },
+  tiers: { type: "bullets", min: 2, max: 4, itemMaxChars: 140 },
 };
 
 interface TierRaw {
@@ -87,6 +87,7 @@ const pricingTable: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: col.x + inset, y: cursorY, cx: col.width - inset * 2, cy: ctx.cm(1) },
       valign: "middle",
+      autoFit: "shrink",
       paragraphs: [{
         align: "center",
         runs: [{ text: t.name ?? "", sizeHalfPt: 28, color: titleColor, bold: true, cjk: ctx.cjk, fontFace }],
@@ -100,6 +101,7 @@ const pricingTable: LayoutFn = (ctx: LayoutContext): ShapeList => {
         id: ctx.id(),
         xfrm: { x: col.x + inset, y: cursorY, cx: col.width - inset * 2, cy: ctx.cm(2.0) },
         valign: "middle",
+        autoFit: "shrink",
         paragraphs: [{
           align: "center",
           runs: [
@@ -135,6 +137,7 @@ const pricingTable: LayoutFn = (ctx: LayoutContext): ShapeList => {
             cy: col.height - (cursorY - col.y) - inset,
           },
           valign: "top",
+          autoFit: "shrink",
           paragraphs: t.features.map((f) => ({
             align: "left",
             lineSpacingHalfPt: 56,

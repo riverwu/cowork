@@ -26,13 +26,16 @@ describe("Tool Registry", () => {
     "describe_slide_layout",
     "validate_slideml",
     "render_slideml",
+    "append_slides",
+    "read_slide",
+    "replace_slide",
     "edit_slideml",
     "audit_pptx",
   ];
 
-  it("has exactly 25 built-in tools", () => {
+  it("has exactly 28 built-in tools", () => {
     const skills = getTools();
-    expect(Object.keys(skills)).toHaveLength(25);
+    expect(Object.keys(skills)).toHaveLength(28);
   });
 
   it("has all expected skills registered", () => {
@@ -54,7 +57,7 @@ describe("Tool Registry", () => {
 
   it("generates valid tool definitions for all skills", () => {
     const defs = getToolDefinitions();
-    expect(defs).toHaveLength(25);
+    expect(defs).toHaveLength(28);
 
     for (const def of defs) {
       expect(def.name).toBeTruthy();

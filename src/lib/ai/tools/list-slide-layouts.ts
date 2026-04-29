@@ -37,4 +37,17 @@ Built-in theme: \`technical-blue\` (the default if you omit \`theme\`).`,
       return `Error: list_slide_layouts failed: ${err instanceof Error ? err.message : String(err)}`;
     }
   },
+
+  // History compression: list_slide_layouts can return ~8KB JSON for a
+  // 42-layout theme. Once the agent has called describe_slide_layout for
+  // its picks, the full catalog is throwaway. Collapse to a name-list.
+  historySummarizer(rawResult, status) {
+    if (status === "fail") return rawResult;
+    try {
+      const arr = JSON.parse(rawResult) as Array<{ name?: string }>;
+      return `→ ${arr.length} layouts (${arr.map((l) => l.name).filter(Boolean).join(", ")})`;
+    } catch {
+      return rawResult.slice(0, 200);
+    }
+  },
 };

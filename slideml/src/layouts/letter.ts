@@ -10,12 +10,12 @@ import { contentRect, richText } from "../render/primitives.js";
  * commemorative slides.
  */
 export const slots: Record<string, SlotSchema> = {
-  date:       { type: "text",       maxChars: 40, optional: true },
-  recipient:  { type: "text",       maxChars: 60, optional: true },
-  body:       { type: "text-block", maxChars: 1400 },
-  signoff:    { type: "text",       maxChars: 40, optional: true },
-  signature:  { type: "text",       maxChars: 60 },
-  signRole:   { type: "text",       maxChars: 80, optional: true },
+  date:       { type: "text",       maxChars: 28, optional: true },
+  recipient:  { type: "text",       maxChars: 42, optional: true },
+  body:       { type: "text-block", maxChars: 980 },
+  signoff:    { type: "text",       maxChars: 28, optional: true },
+  signature:  { type: "text",       maxChars: 42 },
+  signRole:   { type: "text",       maxChars: 56, optional: true },
 };
 
 const letter: LayoutFn = (ctx: LayoutContext): ShapeList => {
@@ -52,6 +52,7 @@ const letter: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: margin, y: cursorY, cx: writableWidth, cy: ctx.cm(0.9) },
       valign: "top",
+      autoFit: "shrink",
       paragraphs: [{
         align: "left",
         runs: [{
@@ -75,6 +76,7 @@ const letter: LayoutFn = (ctx: LayoutContext): ShapeList => {
     color: "text-strong",
     lineSpacingHalfPt: 52,
     spaceAfterHalfPt: 18,
+    autoFit: "shrink",
   }));
 
   // Signature block, anchored bottom-right of the writable column.
@@ -94,6 +96,7 @@ const letter: LayoutFn = (ctx: LayoutContext): ShapeList => {
     id: ctx.id(),
     xfrm: { x: margin, y: signY + ctx.cm(0.7), cx: writableWidth, cy: ctx.cm(0.8) },
     valign: "top",
+    autoFit: "shrink",
     paragraphs: [{
       align: "left",
       runs: [{

@@ -69,4 +69,10 @@ Indexes are 0-based. \`output_path\` may be the same as the original (overwrites
       return `Error: edit_slideml failed.\n${err instanceof Error ? err.message : String(err)}`;
     }
   },
+
+  // History compression: keep target paths + op count.
+  historySummarizer(rawResult, status) {
+    if (status === "fail") return rawResult;
+    return rawResult.slice(0, 150);
+  },
 };

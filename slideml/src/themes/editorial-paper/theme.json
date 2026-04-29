@@ -75,7 +75,10 @@
   "style": {
     "titleAccentRule": false,
     "contrastTarget": "warn",
-    "bullets": { "glyph": "—", "color": "brand-primary" },
+    "bullets": {
+      "glyph": "—",
+      "color": "brand-primary"
+    },
     "fontSizes": {
       "xs": 9,
       "sm": 11,
@@ -87,7 +90,12 @@
     },
     "imagery": {
       "guidance": "Editorial print photography — natural light, paper textures, hands, archival objects, classical portraits, fine-art still lifes. Warm cream / terracotta / muted-gold palette. Composition is deliberate and asymmetric with generous negative space. Lighting is soft daylight or golden hour. Avoid: tech / screens, neon, cool blues, harsh studio strobe, lifestyle stock photography, anything with obvious colour grading.",
-      "palette": ["#F4EFE3", "#9B2D20", "#C49B5C", "#2B1810"],
+      "palette": [
+        "#F4EFE3",
+        "#9B2D20",
+        "#C49B5C",
+        "#2B1810"
+      ],
       "preferredStyles": [
         "editorial photography",
         "natural light",
@@ -114,6 +122,88 @@
         "bullet shorthand for ideas that deserve a sentence",
         "sales-deck superlatives ('industry-leading', 'best-in-class')"
       ]
+    },
+    "surface": {
+      "cornerRadius": 0.02,
+      "elevation": "hairline",
+      "accentStripe": {
+        "position": "top",
+        "widthCm": 0.1,
+        "color": "brand-primary"
+      },
+      "borderPolicy": "card-only"
+    },
+    "semantic": {
+      "positive": "5C7A4A",
+      "negative": "9B2D20",
+      "warning": "A27219",
+      "info": "6B7BA8",
+      "neutral": "6F635A"
+    },
+    "dataviz": {
+      "categorical": [
+        "9B2D20",
+        "6B7BA8",
+        "5C7A4A",
+        "B8821C",
+        "3F3A4F",
+        "4A8C8C"
+      ],
+      "sequential": {
+        "from": "F4EFE3",
+        "to": "9B2D20"
+      },
+      "diverging": {
+        "negative": "9B2D20",
+        "mid": "EAE3D2",
+        "positive": "5C7A4A"
+      }
+    },
+    "typography": {
+      "baseHalfPt": 26,
+      "ratio": 1.25,
+      "italicCjk": false,
+      "numerals": "proportional",
+      "roles": {
+        "title": {
+          "weight": "bold",
+          "transform": "none",
+          "trackingHalfPt": 0
+        },
+        "heading": {
+          "weight": "bold",
+          "transform": "none",
+          "trackingHalfPt": 0
+        },
+        "body": {
+          "weight": "regular",
+          "transform": "none",
+          "trackingHalfPt": 0
+        },
+        "caption": {
+          "weight": "regular",
+          "transform": "none",
+          "trackingHalfPt": 0
+        },
+        "label": {
+          "weight": "medium",
+          "transform": "smallCaps",
+          "trackingHalfPt": 8
+        }
+      }
+    },
+    "numbering": {
+      "style": "roman"
+    },
+    "table": {
+      "headerFill": "brand-deep",
+      "rowStripe": true,
+      "borderStyle": "rows",
+      "firstColEmphasis": "bold"
+    },
+    "image": {
+      "defaultClip": "rect",
+      "treatment": "sepia"
     }
   },
   "oxml": {
@@ -137,54 +227,209 @@
     }
   },
   "layouts": [
-    { "name": "cover",                "module": "layouts/cover.js",                "thumbnail": "thumbnails/cover.png" },
-    { "name": "title-only",           "module": "layouts/title-only.js",           "thumbnail": "thumbnails/title-only.png" },
-    { "name": "agenda",               "module": "layouts/agenda.js",               "thumbnail": "thumbnails/agenda.png" },
-    { "name": "section-divider",      "module": "layouts/section-divider.js",      "thumbnail": "thumbnails/section-divider.png" },
-    { "name": "stat-grid-3",          "module": "layouts/stat-grid-3.js",          "thumbnail": "thumbnails/stat-grid-3.png" },
-    { "name": "hero-stat",            "module": "layouts/hero-stat.js",            "thumbnail": "thumbnails/hero-stat.png" },
-    { "name": "matrix-2x2",           "module": "layouts/matrix-2x2.js",           "thumbnail": "thumbnails/matrix-2x2.png" },
-    { "name": "team-grid",            "module": "layouts/team-grid.js",            "thumbnail": "thumbnails/team-grid.png" },
-    { "name": "image-full-bleed",     "module": "layouts/image-full-bleed.js",     "thumbnail": "thumbnails/image-full-bleed.png" },
-    { "name": "image-with-caption",   "module": "layouts/image-with-caption.js",   "thumbnail": "thumbnails/image-with-caption.png" },
-    { "name": "image-pair",           "module": "layouts/image-pair.js",           "thumbnail": "thumbnails/image-pair.png" },
-    { "name": "image-split-text",     "module": "layouts/image-split-text.js",     "thumbnail": "thumbnails/image-split-text.png" },
-    { "name": "hero-image-overlay",   "module": "layouts/hero-image-overlay.js",   "thumbnail": "thumbnails/hero-image-overlay.png" },
-    { "name": "bullet-with-image",    "module": "layouts/bullet-with-image.js",    "thumbnail": "thumbnails/bullet-with-image.png" },
-    { "name": "two-col-text-image",   "module": "layouts/two-col-text-image.js",   "thumbnail": "thumbnails/two-col-text-image.png" },
-    { "name": "compare-two-columns",  "module": "layouts/compare-two-columns.js",  "thumbnail": "thumbnails/compare-two-columns.png" },
-    { "name": "process-timeline",     "module": "layouts/process-timeline.js",     "thumbnail": "thumbnails/process-timeline.png" },
-    { "name": "image-grid-2x2",       "module": "layouts/image-grid-2x2.js",       "thumbnail": "thumbnails/image-grid-2x2.png" },
-    { "name": "data-table",           "module": "layouts/data-table.js",           "thumbnail": "thumbnails/data-table.png" },
-    { "name": "quote",                "module": "layouts/quote.js",                "thumbnail": "thumbnails/quote.png" },
-    { "name": "quote-with-portrait",  "module": "layouts/quote-with-portrait.js",  "thumbnail": "thumbnails/quote-with-portrait.png" },
-    { "name": "chart-with-takeaway",  "module": "layouts/chart-with-takeaway.js",  "thumbnail": "thumbnails/chart-with-takeaway.png" },
-    { "name": "image-with-takeaway",  "module": "layouts/image-with-takeaway.js",  "thumbnail": "thumbnails/image-with-takeaway.png" },
-    { "name": "key-point",            "module": "layouts/key-point.js",            "thumbnail": "thumbnails/key-point.png" },
-    { "name": "pricing-table",        "module": "layouts/pricing-table.js",        "thumbnail": "thumbnails/pricing-table.png" },
-    { "name": "split-2",              "module": "layouts/split-2.js",              "thumbnail": "thumbnails/split-2.png" },
-    { "name": "split-3-horizontal",   "module": "layouts/split-3-horizontal.js",   "thumbnail": "thumbnails/split-3-horizontal.png" },
-    { "name": "split-3-vertical",     "module": "layouts/split-3-vertical.js",     "thumbnail": "thumbnails/split-3-vertical.png" },
-    { "name": "framed",               "module": "layouts/framed.js",               "thumbnail": "thumbnails/framed.png" },
-    { "name": "freeform",             "module": "layouts/freeform.js",             "thumbnail": "thumbnails/freeform.png" },
-    { "name": "prose",                "module": "layouts/prose.js",                "thumbnail": "thumbnails/prose.png" },
-    { "name": "two-column-prose",     "module": "layouts/two-column-prose.js",     "thumbnail": "thumbnails/two-column-prose.png" },
-    { "name": "executive-summary",    "module": "layouts/executive-summary.js",    "thumbnail": "thumbnails/executive-summary.png" },
-    { "name": "q-and-a",              "module": "layouts/q-and-a.js",              "thumbnail": "thumbnails/q-and-a.png" },
-    { "name": "definition",           "module": "layouts/definition.js",           "thumbnail": "thumbnails/definition.png" },
-    { "name": "outline",              "module": "layouts/outline.js",              "thumbnail": "thumbnails/outline.png" },
-    { "name": "timeline-text",        "module": "layouts/timeline-text.js",        "thumbnail": "thumbnails/timeline-text.png" },
-    { "name": "letter",               "module": "layouts/letter.js",               "thumbnail": "thumbnails/letter.png" },
-    { "name": "glossary",             "module": "layouts/glossary.js",             "thumbnail": "thumbnails/glossary.png" },
-    { "name": "code-block",           "module": "layouts/code-block.js",           "thumbnail": "thumbnails/code-block.png" },
-    { "name": "dashboard",            "module": "layouts/dashboard.js",            "thumbnail": "thumbnails/dashboard.png" },
-    { "name": "closing",              "module": "layouts/closing.js",              "thumbnail": "thumbnails/closing.png" }
+    {
+      "name": "agenda",
+      "module": "layouts/agenda.js",
+      "thumbnail": "thumbnails/agenda.png"
+    },
+    {
+      "name": "closing",
+      "module": "layouts/closing.js",
+      "thumbnail": "thumbnails/closing.png"
+    },
+    {
+      "name": "code-block",
+      "module": "layouts/code-block.js",
+      "thumbnail": "thumbnails/code-block.png"
+    },
+    {
+      "name": "compare-two-columns",
+      "module": "layouts/compare-two-columns.js",
+      "thumbnail": "thumbnails/compare-two-columns.png"
+    },
+    {
+      "name": "content-grid",
+      "module": "layouts/content-grid.js",
+      "thumbnail": "thumbnails/content-grid.png"
+    },
+    {
+      "name": "cover",
+      "module": "layouts/cover.js",
+      "thumbnail": "thumbnails/cover.png"
+    },
+    {
+      "name": "dashboard",
+      "module": "layouts/dashboard.js",
+      "thumbnail": "thumbnails/dashboard.png"
+    },
+    {
+      "name": "data-table",
+      "module": "layouts/data-table.js",
+      "thumbnail": "thumbnails/data-table.png"
+    },
+    {
+      "name": "definition",
+      "module": "layouts/definition.js",
+      "thumbnail": "thumbnails/definition.png"
+    },
+    {
+      "name": "executive-summary",
+      "module": "layouts/executive-summary.js",
+      "thumbnail": "thumbnails/executive-summary.png"
+    },
+    {
+      "name": "framed",
+      "module": "layouts/framed.js",
+      "thumbnail": "thumbnails/framed.png"
+    },
+    {
+      "name": "freeform",
+      "module": "layouts/freeform.js",
+      "thumbnail": "thumbnails/freeform.png"
+    },
+    {
+      "name": "funnel",
+      "module": "layouts/funnel.js",
+      "thumbnail": "thumbnails/funnel.png"
+    },
+    {
+      "name": "glossary",
+      "module": "layouts/glossary.js",
+      "thumbnail": "thumbnails/glossary.png"
+    },
+    {
+      "name": "hero-image-overlay",
+      "module": "layouts/hero-image-overlay.js",
+      "thumbnail": "thumbnails/hero-image-overlay.png"
+    },
+    {
+      "name": "hero-stat",
+      "module": "layouts/hero-stat.js",
+      "thumbnail": "thumbnails/hero-stat.png"
+    },
+    {
+      "name": "image-full-bleed",
+      "module": "layouts/image-full-bleed.js",
+      "thumbnail": "thumbnails/image-full-bleed.png"
+    },
+    {
+      "name": "image-grid",
+      "module": "layouts/image-grid.js",
+      "thumbnail": "thumbnails/image-grid.png"
+    },
+    {
+      "name": "key-point",
+      "module": "layouts/key-point.js",
+      "thumbnail": "thumbnails/key-point.png"
+    },
+    {
+      "name": "letter",
+      "module": "layouts/letter.js",
+      "thumbnail": "thumbnails/letter.png"
+    },
+    {
+      "name": "matrix-2x2",
+      "module": "layouts/matrix-2x2.js",
+      "thumbnail": "thumbnails/matrix-2x2.png"
+    },
+    {
+      "name": "outline",
+      "module": "layouts/outline.js",
+      "thumbnail": "thumbnails/outline.png"
+    },
+    {
+      "name": "pricing-table",
+      "module": "layouts/pricing-table.js",
+      "thumbnail": "thumbnails/pricing-table.png"
+    },
+    {
+      "name": "process-flow",
+      "module": "layouts/process-flow.js",
+      "thumbnail": "thumbnails/process-flow.png"
+    },
+    {
+      "name": "prose",
+      "module": "layouts/prose.js",
+      "thumbnail": "thumbnails/prose.png"
+    },
+    {
+      "name": "q-and-a",
+      "module": "layouts/q-and-a.js",
+      "thumbnail": "thumbnails/q-and-a.png"
+    },
+    {
+      "name": "quote",
+      "module": "layouts/quote.js",
+      "thumbnail": "thumbnails/quote.png"
+    },
+    {
+      "name": "roadmap",
+      "module": "layouts/roadmap.js",
+      "thumbnail": "thumbnails/roadmap.png"
+    },
+    {
+      "name": "section-divider",
+      "module": "layouts/section-divider.js",
+      "thumbnail": "thumbnails/section-divider.png"
+    },
+    {
+      "name": "split",
+      "module": "layouts/split.js",
+      "thumbnail": "thumbnails/split.png"
+    },
+    {
+      "name": "stat-grid-3",
+      "module": "layouts/stat-grid-3.js",
+      "thumbnail": "thumbnails/stat-grid-3.png"
+    },
+    {
+      "name": "swot",
+      "module": "layouts/swot.js",
+      "thumbnail": "thumbnails/swot.png"
+    },
+    {
+      "name": "team-grid",
+      "module": "layouts/team-grid.js",
+      "thumbnail": "thumbnails/team-grid.png"
+    },
+    {
+      "name": "timeline",
+      "module": "layouts/timeline.js",
+      "thumbnail": "thumbnails/timeline.png"
+    },
+    {
+      "name": "title-only",
+      "module": "layouts/title-only.js",
+      "thumbnail": "thumbnails/title-only.png"
+    },
+    {
+      "name": "visual-with-caption",
+      "module": "layouts/visual-with-caption.js",
+      "thumbnail": "thumbnails/visual-with-caption.png"
+    },
+    {
+      "name": "visual-with-text",
+      "module": "layouts/visual-with-text.js",
+      "thumbnail": "thumbnails/visual-with-text.png"
+    }
   ],
   "components": [
-    { "name": "header",            "module": "components/header.js" },
-    { "name": "footer",            "module": "components/footer.js" },
-    { "name": "kpi-tile",          "module": "components/kpi-tile.js" },
-    { "name": "takeaway-callout",  "module": "components/takeaway-callout.js" }
+    {
+      "name": "header",
+      "module": "components/header.js"
+    },
+    {
+      "name": "footer",
+      "module": "components/footer.js"
+    },
+    {
+      "name": "kpi-tile",
+      "module": "components/kpi-tile.js"
+    },
+    {
+      "name": "takeaway-callout",
+      "module": "components/takeaway-callout.js"
+    }
   ],
   "chrome": [
     "hairline",

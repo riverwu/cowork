@@ -1,15 +1,17 @@
 /**
- * Text-density presets — agent-facing concept that pairs (font size +
- * line spacing + character budget) into a single named choice.
+ * Text-density presets — INTERNAL renderer detail. Layouts no longer
+ * expose a `density` slot to the agent; instead every text frame uses
+ * the fixed RENDER_DEFAULT preset and relies on render-time autoFit
+ * (90% font / 20% line-spacing reduction) to absorb overflow gracefully.
  *
- * Layouts with a text body slot expose a `density` enum slot so the
- * agent can match the visual density to the actual content length.
- * Density also drives the validator's DENSITY_OVERFLOW soft check
- * (the layout's hard `maxChars` is preserved as an absolute upper bound).
+ * The validator's hard `maxChars` per slot is calibrated against the
+ * RENDER_DEFAULT preset × autoFit headroom (~1.4×), giving a single
+ * generous ceiling. When content exceeds that, the agent gets a clear
+ * SLOT_OVERFLOW telling it to split the slide or pick a denser layout.
  *
  * Budget numbers are calibrated for a half-slide column at 16:9 / 25.4cm
- * × 14.3cm. A full-slide single-column layout (e.g. `prose`) gets ~1.5×
- * the budget; that's documented in each layout's description.
+ * × 14.3cm. A full-slide single-column layout (e.g. `prose`) effectively
+ * has ~1.5× the budget; `prose` with `columns: 2` has ~3×.
  */
 
 export type Density = "loose" | "normal" | "dense" | "micro";
@@ -36,13 +38,15 @@ export const DENSITY: Record<Density, DensityPreset> = {
 };
 
 /**
- * Pick a preset by name with a safe default. Accepts undefined / unknown
- * input so layouts can pass `ctx.slot<string>("density")` directly.
+ * Pick a preset by name with a safe default. Density is no longer agent-
+ * facing — the only legitimate caller passing a value is the validator
+ * (probing budgets); layout renderers pass undefined to get the fixed
+ * RENDER_DEFAULT baseline (defined below).
  */
-export function densityPreset(value: unknown, fallback: Density = "normal"): DensityPreset {
+export function densityPreset(value: unknown, fallback?: Density): DensityPreset {
   const v = typeof value === "string" && (DENSITY_VALUES as readonly string[]).includes(value)
     ? (value as Density)
-    : fallback;
+    : (fallback ?? "dense"); // ← RENDER_DEFAULT inlined to avoid forward-decl
   return DENSITY[v];
 }
 
@@ -57,4 +61,30 @@ export function suggestDensity(charCount: number, cjk: boolean): Density {
     if (charCount <= budget) return d;
   }
   return "micro";
+}
+
+/**
+ * Single fixed preset every renderer falls back to. "dense" gives a
+ * compact-but-readable baseline (9pt body, 22pt line spacing); autoFit
+ * absorbs the +40% headroom before content visibly clips.
+ */
+export const RENDER_DEFAULT: Density = "dense";
+
+/**
+ * autoFit headroom multiplier: PowerPoint's `<a:normAutofit fontScale=
+ * "90000" lnSpcReduction="20000"/>` yields roughly 1.4× the natural
+ * char capacity before content clips. Validator uses this to derive
+ * the single MAX_CHARS per slot.
+ */
+export const AUTOFIT_HEADROOM = 1.4;
+
+/**
+ * Single MAX char budget for a half-slide column.
+ *   half-column max = densest preset budget × autoFit headroom
+ * Latin gets ~1000, CJK gets ~630 per half-column. Layouts apply their
+ * own multiplier on top (prose × 1.5, prose+columns:2 × 3.0).
+ */
+export function maxCharBudget(cjk: boolean): number {
+  const base = cjk ? DENSITY[RENDER_DEFAULT].cjkBudget : DENSITY[RENDER_DEFAULT].latinBudget;
+  return Math.round(base * AUTOFIT_HEADROOM);
 }

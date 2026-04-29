@@ -52,4 +52,12 @@ For large generated scripts or long documents, write the first chunk with mode "
       return `Error writing file: ${err}`;
     }
   },
+
+  // History compression: keep path + size, drop the boilerplate prefix.
+  historySummarizer(rawResult, status) {
+    if (status === "fail") return rawResult;
+    // Match either "written successfully" or "appended successfully".
+    const m = /successfully:\s+(\S+)\s+\(([+\d,\s]+characters[^)]*)\)/.exec(rawResult);
+    return m ? `→ ${m[1]} (${m[2]})` : rawResult.slice(0, 120);
+  },
 };

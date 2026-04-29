@@ -41,11 +41,10 @@ describe("Stage 3 — theme loader", () => {
     const layoutNames = [...theme.layouts.keys()].sort();
     expect(layoutNames).toEqual([
       "agenda",
-      "bullet-with-image",
-      "chart-with-takeaway",
       "closing",
       "code-block",
       "compare-two-columns",
+      "content-grid",
       "cover",
       "dashboard",
       "data-table",
@@ -53,35 +52,31 @@ describe("Stage 3 — theme loader", () => {
       "executive-summary",
       "framed",
       "freeform",
+      "funnel",
       "glossary",
       "hero-image-overlay",
       "hero-stat",
       "image-full-bleed",
-      "image-grid-2x2",
-      "image-pair",
-      "image-split-text",
-      "image-with-caption",
-      "image-with-takeaway",
+      "image-grid",
       "key-point",
       "letter",
       "matrix-2x2",
       "outline",
       "pricing-table",
-      "process-timeline",
+      "process-flow",
       "prose",
       "q-and-a",
       "quote",
-      "quote-with-portrait",
+      "roadmap",
       "section-divider",
-      "split-2",
-      "split-3-horizontal",
-      "split-3-vertical",
+      "split",
       "stat-grid-3",
+      "swot",
       "team-grid",
-      "timeline-text",
+      "timeline",
       "title-only",
-      "two-col-text-image",
-      "two-column-prose",
+      "visual-with-caption",
+      "visual-with-text",
     ]);
 
     expect([...theme.components.keys()].sort()).toEqual(["footer", "header", "kpi-tile", "takeaway-callout"]);
@@ -97,7 +92,7 @@ describe("Stage 3 — theme loader", () => {
   it("validates required tokens", async () => {
     const theme = await loadTheme(BUILT_THEME);
     expect(theme.manifest.tokens["bg-canvas"]).toBe("0B1B2A");
-    expect(theme.manifest.tokens["brand-primary"]).toBe("3CC2FF");
+    expect(theme.manifest.tokens["brand-primary"]).toBe("38BDF8");
     expect(Array.isArray(theme.manifest.tokens["font-cjk"])).toBe(true);
   });
 });
@@ -119,20 +114,21 @@ describe("Stage 3 — renderDeck against technical-blue", () => {
             { value: "1.4×",   label: "ARPU",  delta: "—",       trend: "flat" },
           ],
         } },
-        { layout: "bullet-with-image", slots: {
+        { layout: "visual-with-text", slots: {
           title: "头部玩家定位",
+          textKind: "bullets",
           bullets: [
             "三家头部厂商占据 62% 份额",
             "字节跳动以技术领先优势加速渗透",
             "传统会议同传服务向 AI 辅助过渡",
           ],
-          image: { src: makePngDataUrl(), alt: "competitive map" },
+          visual: { kind: "image", src: makePngDataUrl(), alt: "competitive map" },
         } },
-        { layout: "two-col-text-image", slots: {
+        { layout: "visual-with-text", slots: {
           title: "技术演进",
           text: "AI 同传在 2025 年走完了从可用到优秀的关键一年。\n\n端到端模型把延迟从 800ms 降到 120ms，词错率下降 40%，已具备进入企业关键场景的能力。",
-          image: { src: makePngDataUrl(), alt: "tech timeline" },
-          imageSide: "right",
+          visual: { kind: "image", src: makePngDataUrl(), alt: "tech timeline" },
+          position: "left",
         } },
         { layout: "quote", chrome: "none", slots: {
           quote: "AI 同传不是替代人类——它把同传服务带到此前根本买不起的场景里。",
@@ -169,7 +165,7 @@ describe("Stage 3 — renderDeck against technical-blue", () => {
 
     // Verify the brand-bar chrome appeared on a non-cover slide.
     const slide4Xml = await zip.file("ppt/slides/slide4.xml")!.async("string");
-    expect(slide4Xml).toContain("3CC2FF"); // brand-primary chunk used by chrome
+    expect(slide4Xml).toContain("38BDF8"); // brand-primary chunk used by chrome
     expect(slide4Xml).toMatch(/<\/p:sld>$/); // well-closed
 
     // Cover slide opted out of chrome — should not contain page-number text.

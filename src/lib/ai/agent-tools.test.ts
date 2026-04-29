@@ -60,11 +60,11 @@ import { mcpManager } from "@/lib/mcp";
 describe("Agent Tool Chain Diagnostics", () => {
 
   describe("Step 1: Built-in skills", () => {
-    it("has exactly 25 built-in tools", () => {
+    it("has exactly 28 built-in tools", () => {
       const skills = getTools();
       const names = Object.keys(skills);
       console.log("[Diagnostic] Built-in skills:", names);
-      expect(names).toHaveLength(25);
+      expect(names).toHaveLength(28);
     });
 
     it("all built-in tools have valid tool definitions", () => {
@@ -100,27 +100,23 @@ describe("Agent Tool Chain Diagnostics", () => {
   });
 
   describe("Step 3: System prompt includes tools", () => {
-    it("system prompt lists all tools when provided", () => {
+    it("system prompt relies on native tool definitions instead of duplicating the list", () => {
       const tools = getToolDefinitions();
       const prompt = buildSystemPrompt({ tools });
 
       console.log(`[Diagnostic] System prompt length: ${prompt.length} chars`);
       console.log(`[Diagnostic] System prompt mentions 'tools available': ${prompt.includes("tools available")}`);
 
-      expect(prompt).toContain("Available tools");
-      expect(prompt).toContain("web_search");
-
-      // Verify each tool is mentioned
+      expect(prompt).not.toContain("Available tools");
       for (const tool of tools) {
-        const mentioned = prompt.includes(tool.name);
-        console.log(`[Diagnostic] Tool '${tool.name}' in prompt: ${mentioned}`);
-        expect(prompt).toContain(tool.name);
+        expect(prompt).not.toContain(`- ${tool.name}:`);
       }
+      expect(prompt).toContain("SlideML toolchain");
     });
 
     it("system prompt includes tool guidance", () => {
       const prompt = buildSystemPrompt();
-      expect(prompt).toContain("web_search");
+      expect(prompt).toContain("web search");
       expect(prompt).toContain("apply_patch");
       expect(prompt).toContain("shell");
       expect(prompt).toContain("read_file");
@@ -142,10 +138,11 @@ describe("Agent Tool Chain Diagnostics", () => {
         },
       };
 
-      // Verify it would be included in system prompt
+      // Tool definitions are sent in the provider-native `tools` parameter;
+      // the system prompt should not duplicate MCP tool names.
       const prompt = buildSystemPrompt({ tools: [mockMcpTool] });
-      expect(prompt).toContain("mcp_browser_navigate");
-      expect(prompt).toContain("[browser]");
+      expect(prompt).not.toContain("mcp_browser_navigate");
+      expect(prompt).not.toContain("[browser]");
       console.log("[Diagnostic] MCP tool in prompt: OK");
     });
 

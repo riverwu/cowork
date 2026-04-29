@@ -9,11 +9,17 @@ import { contentRect, richText } from "../render/primitives.js";
  * to define a single concept (a "what is X" page).
  */
 export const slots: Record<string, SlotSchema> = {
-  term:       { type: "text",       maxChars: 40 },
-  pronounce:  { type: "text",       maxChars: 60, optional: true },
-  partOfSpeech: { type: "text",     maxChars: 32, optional: true },
-  body:       { type: "text-block", maxChars: 600 },
-  example:    { type: "text-block", maxChars: 240, optional: true },
+  term:       { type: "text",       maxChars: 28 },
+  pronounce:  { type: "text",       maxChars: 42, optional: true },
+  partOfSpeech: { type: "text",     maxChars: 22, optional: true },
+  // Honest caps for what fits at 20-halfPt + 40 line spacing in the
+  // ~4.8cm body box (with example) / ~6.4cm (without): up to ~5 visible
+  // lines either way. Char cap and line cap are BOTH needed — the deck
+  // that exposed this bug had 218 CJK chars (under the char cap) but 8
+  // visible lines (over the line cap), and overflowed the page bottom.
+  // For longer bodies switch to `prose` (full single-column).
+  body:       { type: "text-block", maxChars: 126, maxLines: 5 },
+  example:    { type: "text-block", maxChars: 84, maxLines: 3, optional: true },
 };
 
 const definition: LayoutFn = (ctx: LayoutContext): ShapeList => {
@@ -25,8 +31,10 @@ const definition: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const example = ctx.slot<unknown>("example");
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
 
-  // Big term, top-left.
-  const headerH = ctx.cm(2.6);
+  // Big term, top-left. Tightened from sizeHalfPt 88 / headerH 2.6 to
+  // claw back ~0.8cm of body height — definition decks were overflowing
+  // because the term box ate too much vertical space.
+  const headerH = ctx.cm(2.0);
   out.push({
     type: "text",
     id: ctx.id(),
@@ -36,7 +44,7 @@ const definition: LayoutFn = (ctx: LayoutContext): ShapeList => {
       align: "left",
       runs: [{
         text: term,
-        sizeHalfPt: 88,
+        sizeHalfPt: 72,
         color: ctx.color("text-strong"),
         bold: true,
         cjk: ctx.cjk,
@@ -81,19 +89,24 @@ const definition: LayoutFn = (ctx: LayoutContext): ShapeList => {
   });
   cursorY += ctx.cm(0.6);
 
-  // Definition body — large readable.
+  // Definition body — large readable. Sizing tuned for the 220-char cap
+  // on body + 1.6cm example block on a 14.3cm-tall 16:9 slide.
   const bodyRect = contentRect(ctx, { top: cursorY + ctx.cm(0.3), marginX: ctx.cm(2), bottom: ctx.cm(1.6) });
-  const exampleH = example ? ctx.cm(2.2) : 0;
+  const exampleH = example ? ctx.cm(1.6) : 0;
   out.push(...richText(ctx, {
     x: bodyRect.x,
     y: bodyRect.y,
     width: bodyRect.width,
     height: bodyRect.height - exampleH,
   }, body, {
-    sizeHalfPt: 26,
+    sizeHalfPt: 20,
     color: "text-strong",
-    lineSpacingHalfPt: 56,
-    spaceAfterHalfPt: 18,
+    lineSpacingHalfPt: 40,
+    spaceAfterHalfPt: 10,
+    // Soft safety net: when CJK bodies push past the box (validator caps
+    // by char count, not paragraph count), PowerPoint scales the text
+    // down rather than letting it spill into the example block below.
+    autoFit: "shrink",
   }));
 
   // Example block — italic, indented.
@@ -111,10 +124,10 @@ const definition: LayoutFn = (ctx: LayoutContext): ShapeList => {
       width: bodyRect.width - ctx.cm(0.4),
       height: exampleH,
     }, example, {
-      sizeHalfPt: 22,
+      sizeHalfPt: 18,
       color: "text-muted",
       italic: true,
-      lineSpacingHalfPt: 50,
+      lineSpacingHalfPt: 40,
     }));
   }
 

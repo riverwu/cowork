@@ -39,6 +39,19 @@ function createWindow() {
   const devUrl = process.env.COWORK_ELECTRON_DEV_URL;
   if (devUrl) {
     mainWindow.loadURL(devUrl);
+    // Open devtools automatically in dev so the renderer's console is
+    // visible without a manual ⌥⌘I. Also forward every renderer console
+    // message to main-process stdout — invaluable when debugging white
+    // screens in tail-the-log workflows.
+    mainWindow.webContents.openDevTools({ mode: "detach" });
+    mainWindow.webContents.on("console-message", (_e, level, message, line, source) => {
+      const tag = ["LOG", "WARN", "ERROR", "INFO"][level] ?? `L${level}`;
+      const where = source ? ` (${source}:${line})` : "";
+      process.stdout.write(`[renderer ${tag}]${where} ${message}\n`);
+    });
+    mainWindow.webContents.on("render-process-gone", (_e, details) => {
+      process.stderr.write(`[renderer GONE] reason=${details.reason} exitCode=${details.exitCode}\n`);
+    });
   } else {
     mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
@@ -751,19 +764,69 @@ async function mcpStop(serverId) {
 }
 
 async function ensureUvInstalled() {
-  const uvx = findExecutable(["/opt/homebrew/bin/uvx", "/usr/local/bin/uvx", "/usr/bin/uvx"]);
+  // Search common install locations. The official `uv` installer
+  // (https://astral.sh/uv) puts binaries in ~/.local/bin by default;
+  // Homebrew uses /opt/homebrew/bin (Apple Silicon) or /usr/local/bin
+  // (Intel). We accept any of them — finding `uvx` first since most
+  // call sites prefer the ephemeral runner over `uv` itself.
+  const home = os.homedir();
+  const uvxCandidates = [
+    path.join(home, ".local/bin/uvx"),
+    "/opt/homebrew/bin/uvx",
+    "/usr/local/bin/uvx",
+    "/usr/bin/uvx",
+  ];
+  const uvCandidates = [
+    path.join(home, ".local/bin/uv"),
+    "/opt/homebrew/bin/uv",
+    "/usr/local/bin/uv",
+    "/usr/bin/uv",
+  ];
+  const uvx = findExecutable(uvxCandidates);
   if (uvx) return uvx;
-  const uv = findExecutable(["/opt/homebrew/bin/uv", "/usr/local/bin/uv", "/usr/bin/uv"]);
+  const uv = findExecutable(uvCandidates);
   if (uv) return uv;
-  throw new Error("uv/uvx not found");
+  throw new Error(
+    `uv/uvx not found. Searched: ${[...uvxCandidates, ...uvCandidates].join(", ")}. ` +
+      `Install via \`brew install uv\` or \`curl -LsSf https://astral.sh/uv/install.sh | sh\`.`,
+  );
 }
 
 function expandedPath() {
-  return ["/opt/homebrew/bin", "/usr/local/bin", process.env.PATH || ""].join(path.delimiter);
+  // Include the official-installer locations Electron's GUI launch
+  // doesn't inherit (~/.local/bin from astral.sh / Cargo, ~/.cargo/bin,
+  // Homebrew). PATH from the shell is appended last so user overrides
+  // still win.
+  const home = os.homedir();
+  return [
+    path.join(home, ".local/bin"),
+    path.join(home, ".cargo/bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    process.env.PATH || "",
+  ].join(path.delimiter);
 }
 
+/**
+ * Resolve an executable. Tries the explicit candidate paths first
+ * (cheap fs.existsSync), then falls back to scanning every directory
+ * in `expandedPath()` for the basename of the first candidate. This
+ * way `findExecutable(["/opt/homebrew/bin/rg"])` still finds `rg` when
+ * the user installed it via cargo into ~/.cargo/bin — Electron-launched
+ * processes don't inherit the user's shell PATH.
+ */
 function findExecutable(candidates) {
-  return candidates.find((candidate) => fs.existsSync(candidate)) || null;
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  if (candidates.length === 0) return null;
+  const basename = path.basename(candidates[0]);
+  for (const dir of expandedPath().split(path.delimiter)) {
+    if (!dir) continue;
+    const full = path.join(dir, basename);
+    if (fs.existsSync(full)) return full;
+  }
+  return null;
 }
 
 function runCommandText(program, args) {

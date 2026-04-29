@@ -107,7 +107,8 @@ async function main(): Promise<void> {
           process.stderr.write(`  - [${e.code}] ${e.message}\n`);
           if (e.hint) process.stderr.write(`    hint: ${e.hint}\n`);
         }
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
       throw err;
     }
@@ -128,7 +129,8 @@ async function main(): Promise<void> {
         process.stderr.write(`  - [${e.code}] ${e.message}\n`);
         if (e.hint) process.stderr.write(`    hint: ${e.hint}\n`);
       }
-      process.exit(2);
+      process.exitCode = 2;
+      return;
     }
     return;
   }
@@ -157,6 +159,48 @@ async function main(): Promise<void> {
         }
       }
     }
+    return;
+  }
+
+  if (cmd === "audit-theme") {
+    const themeDir = resolveTheme(opts.flags["theme"] ?? opts.positional[0]);
+    const theme = await loadTheme(themeDir);
+    const { auditTheme, applyAuditSuggestions, formatAudit } = await import("../theme/audit.js");
+    const report = auditTheme(theme.manifest);
+    const wantFix = opts.flags["fix"] === "true";
+
+    if (wantFix) {
+      // Apply mechanical suggestions and write the patched theme.json
+      // back to the theme directory. Re-audits and reports the new
+      // score so the user can verify improvement.
+      const { applied, skipped, manifest: patched } = applyAuditSuggestions(theme.manifest, report);
+      if (applied.length === 0) {
+        process.stdout.write("No mechanical fixes available — non-mechanical suggestions only.\n");
+        return;
+      }
+      const themeJsonPath = resolve(themeDir, "theme.json");
+      await writeFile(themeJsonPath, JSON.stringify(patched, null, 2) + "\n");
+      // Re-load + re-audit to verify improvement.
+      const reaudited = auditTheme(patched);
+      process.stdout.write(`Applied ${applied.length} fix(es) to ${themeJsonPath}\n`);
+      for (const a of applied) {
+        const fromStr = a.from ? `${a.from} → ` : "";
+        process.stdout.write(`  - ${a.path}: ${fromStr}${a.to}\n`);
+      }
+      if (skipped.length > 0) {
+        process.stdout.write(`Skipped ${skipped.length} non-mechanical suggestion(s):\n`);
+        for (const s of skipped) process.stdout.write(`  - ${s.path}: ${s.reason}\n`);
+      }
+      process.stdout.write(`\nScore: ${report.score}/100 → ${reaudited.score}/100\n`);
+      return;
+    }
+
+    if (opts.flags["json"] === "true") {
+      process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+    } else {
+      process.stdout.write(formatAudit(report) + "\n");
+    }
+    if (!report.ok) process.exitCode = 2;
     return;
   }
 
@@ -212,7 +256,8 @@ async function main(): Promise<void> {
       if (err instanceof SlidemlAggregateError) {
         process.stderr.write(`Validation failed after edit:\n`);
         for (const e of err.errors) process.stderr.write(`  - [${e.code}] ${e.message}\n`);
-        process.exit(2);
+        process.exitCode = 2;
+        return;
       }
       throw err;
     }
@@ -284,7 +329,7 @@ async function main(): Promise<void> {
         process.stdout.write(`  ${tag} [${issue.code}] ${issue.message}\n`);
       }
     }
-    if (!report.ok) process.exit(2);
+    if (!report.ok) process.exitCode = 2;
     return;
   }
 
@@ -344,12 +389,28 @@ function resolveTheme(flag: string | undefined): string {
   fail(`Theme "${flag}" not found. Pass a directory path or a built-in name (e.g. "technical-blue").`);
 }
 
+/**
+ * Fatal error path. Writes the message to stderr and waits for the
+ * stream to flush BEFORE calling process.exit — otherwise on piped
+ * stderr (e.g. spawned by Electron) the buffer can be truncated and
+ * the parent only sees a non-zero exit code with no error text.
+ *
+ * Same reason every other exit path in this CLI uses
+ * `process.exitCode = N; return;` instead of `process.exit(N)`.
+ */
 function fail(message: string): never {
-  process.stderr.write(message.endsWith("\n") ? message : `${message}\n`);
-  process.exit(1);
+  const text = message.endsWith("\n") ? message : `${message}\n`;
+  // process.exit AFTER stderr drains. Cast to never so TS keeps the
+  // contract; in practice the process exits when the event loop drains.
+  process.stderr.write(text, () => process.exit(1));
+  // Belt-and-braces: if stderr is closed (rare), exit anyway after one tick.
+  setImmediate(() => process.exit(1));
+  // The function is `never` — block forever; the I/O callback exits.
+  return undefined as never;
 }
 
 main().catch((err) => {
-  process.stderr.write(`${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
-  process.exit(1);
+  const text = `${err instanceof Error ? err.stack ?? err.message : String(err)}\n`;
+  process.stderr.write(text, () => process.exit(1));
+  setImmediate(() => process.exit(1));
 });

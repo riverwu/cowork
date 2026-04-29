@@ -19,10 +19,10 @@ process diagrams.
 A 7-line decision tree. Scan top-to-bottom; first match wins.
 
 1. **Long text (>500 CJK / 800 latin chars)?** → `prose` or `two-column-prose`.
-2. **Image is the point?** → `image-with-caption` (editorial) / `image-full-bleed` (cinematic) / `image-pair` (before/after).
-3. **Image + supporting text?** → `two-col-text-image` / `image-split-text` (immersive). Pick `density` matching content length.
+2. **Image is the point?** → `visual-with-caption` (editorial) / `image-full-bleed` (cinematic) / `image-pair` (before/after).
+3. **Image + supporting text?** → `visual-with-text` (visual + sibling text column; imageStyle: card or bleed). Pick `density` matching content length.
 4. **Data?** → `chart-with-takeaway` (1 chart) / `data-table` (table) / `stat-grid-3` (3 KPIs) / `dashboard` (4 mixed).
-5. **3-6 short points?** → `executive-summary` (with descriptions) / `bullet-with-image` / `key-point` (with icons).
+5. **3-6 short points?** → `executive-summary` (with descriptions) / `visual-with-text` (textKind: bullets) / `key-point` (with icons).
 6. **Side-by-side comparison?** → `compare-two-columns` / `split-2` (heterogeneous, with `ratio`).
 7. **Nothing fits?** → `freeform` (last resort).
 
@@ -55,32 +55,8 @@ Three KPI tiles in a row. Pick when surfacing 3 headline metrics.
 
 ![stat-grid-3](thumbnails/stat-grid-3.png)
 
-### image-with-takeaway
-Title + STATIC image (rendered chart, diagram, photo) + boxed conclusion. The image-counterpart of `chart-with-takeaway` — use this when your chart is a PNG/JPG, NOT typed chart-spec data.
 
-- `title` — `text`, ≤ 50 chars. Optional.
-- `image` — `image-ref`. Required.
-- `takeaway` — `markdown-inline`, ≤ 160 chars. Optional. Same callout panel as chart-with-takeaway.
 
-![image-with-takeaway](thumbnails/image-with-takeaway.png)
-
-### chart-with-takeaway
-Title + native data chart + boxed conclusion.
-
-- `title` — `text`, ≤ 50 chars.
-- `chart` — `chart-spec`. See parser docs for shape.
-- `takeaway` — `markdown-inline`, ≤ 160 chars. Optional.
-
-![chart-with-takeaway](thumbnails/chart-with-takeaway.png)
-
-### bullet-with-image
-Title + 3–6 bullets on the left, image on the right (optional).
-
-- `title` — `text`, ≤ 50 chars.
-- `bullets` — `bullets`, 3–6 items, ≤ 80 chars each.
-- `image` — `image-ref`. Optional.
-
-![bullet-with-image](thumbnails/bullet-with-image.png)
 
 ### closing
 Mirror of `cover` — full-bleed deep panel. Use as the final "thank you" slide.
@@ -91,30 +67,8 @@ Mirror of `cover` — full-bleed deep panel. Use as the final "thank you" slide.
 
 ![closing](thumbnails/closing.png)
 
-### split-2
-Title (optional) over two side-by-side cells; each cell is a polymorphic `region` (one of 8 kinds: kpi/chart/table/text/bullets/image/code/quote). Use for heterogeneous side-by-side content (bullets vs. chart, image vs. quote, code vs. explanation).
 
-- `title` — `text`, ≤ 50 chars. Optional.
-- `left`, `right` — `region` cells (required).
 
-![split-2](thumbnails/split-2.png)
-
-### split-3-horizontal
-Title (optional) over three equal-width regions. Use for parallel comparison.
-
-- `title` — `text`, ≤ 50 chars. Optional.
-- `left`, `center`, `right` — `region` cells (required).
-
-![split-3-horizontal](thumbnails/split-3-horizontal.png)
-
-### split-3-vertical
-Title (optional); full-width top region over a 50/50 bottom row. Use for "headline + supporting evidence".
-
-- `title` — `text`, ≤ 50 chars. Optional.
-- `top` — `region` (required, full width).
-- `bl`, `br` — `region` cells (optional, bottom 50/50).
-
-![split-3-vertical](thumbnails/split-3-vertical.png)
 
 ### hero-stat
 One enormous headline number for the deck's load-bearing insight.
@@ -151,33 +105,30 @@ Image fills the entire slide; optional `caption`.
 
 ![image-full-bleed](thumbnails/image-full-bleed.png)
 
-### image-with-caption
+### visual-with-caption
 Magazine-style image + italic caption + optional uppercase credit.
 
 - `image` — `image-ref`. Required.
 - `caption` — `text-block`, ≤ 320 chars. Required.
 - `credit` — `text`, ≤ 80 chars. Optional.
 
-![image-with-caption](thumbnails/image-with-caption.png)
+![visual-with-caption](thumbnails/visual-with-caption.png)
 
-### image-pair
-Two side-by-side images.
+### visual-with-text
+Visual + sibling text column. Replaces the older two-col-text-image / image-split-text / bullet-with-image. Pick `textKind` (prose or bullets) and `imageStyle` (card or bleed, image only).
 
-- `title` — `text`, ≤ 50 chars. Optional.
-- `leftImage`, `rightImage` — `image-ref`. Required.
-- `leftLabel`, `rightLabel` — `text`, ≤ 32 chars. Optional.
+- `title` — `text`, ≤ 60 chars. Optional.
+- `visual` — `visual` ({ kind: "image" | "chart" | "table" | "svg", ... }). Optional (no visual → text fills slide).
+- `textKind` — enum `prose` | `bullets`. Default `prose`.
+- `text` — `text-block`, ≤ 1500 chars. Required when textKind=prose.
+- `bullets` — `bullets`, 2-7 items × 140 chars. Required when textKind=bullets.
+- `position` — enum `left` | `right`. Visual side. Default `right`.
+- `imageStyle` — enum `card` | `bleed`. Image-only; chart/table/svg ignore it. Default `card`.
+- `ratio` — text:visual width. Default `50-50`.
+- `density` — `loose | normal | dense | micro`. Prose body density.
 
-![image-pair](thumbnails/image-pair.png)
+![visual-with-text](thumbnails/visual-with-text.png)
 
-### image-split-text
-Immersive 50/50 — full-bleed image vs editorial text.
-
-- `title` — `text`, ≤ 60 chars. Required.
-- `text` — `text-block`, ≤ 480 chars. Required.
-- `image` — `image-ref`. Required.
-- `imageSide` — `text` (left|right). Optional.
-
-![image-split-text](thumbnails/image-split-text.png)
 
 ### pricing-table
 2–4 pricing tiers.
@@ -187,15 +138,6 @@ Immersive 50/50 — full-bleed image vs editorial text.
 
 ![pricing-table](thumbnails/pricing-table.png)
 
-### quote-with-portrait
-Pull-quote with circular portrait — humane editorial source attribution.
-
-- `quote` — `text-block`, ≤ 280 chars. Required.
-- `name` — `text`, ≤ 60 chars. Required.
-- `role` — `text`, ≤ 80 chars. Optional.
-- `portrait` — `image-ref`. Optional.
-
-![quote-with-portrait](thumbnails/quote-with-portrait.png)
 
 ### key-point
 Headline + 2–4 supporting points with icons.
@@ -222,13 +164,6 @@ Single-column long-form text — the editorial workhorse.
 
 ![prose](thumbnails/prose.png)
 
-### two-column-prose
-Magazine-feel body flowed across two columns.
-
-- `title`, `subtitle` — `text`. Optional.
-- `body` — `text-block`, ≤ 2400. Required.
-
-![two-column-prose](thumbnails/two-column-prose.png)
 
 ### executive-summary
 Numbered TL;DR for memo front-pages.
@@ -264,13 +199,6 @@ Multi-level table of contents.
 
 ![outline](thumbnails/outline.png)
 
-### timeline-text
-Vertical narrative timeline.
-
-- `title` — `text`, ≤ 60. Optional.
-- `events` — `bullets`, 2–6 entries. Each `{ when, title, body? }`.
-
-![timeline-text](thumbnails/timeline-text.png)
 
 ### letter
 Open-letter format — quintessential editorial-warm slide.
@@ -313,15 +241,6 @@ Section break with optional eyebrow.
 
 ![section-divider](thumbnails/section-divider.png)
 
-### two-col-text-image
-Title + text-block on one side, image on the other.
-
-- `title` — `text`, ≤ 50 chars. Required.
-- `text` — `text-block`, ≤ 400 chars. Required.
-- `image` — `image-ref`. Required.
-- `imageSide` — `text` (left|right). Optional.
-
-![two-col-text-image](thumbnails/two-col-text-image.png)
 
 ### compare-two-columns
 Side-by-side option A vs option B.
@@ -331,21 +250,6 @@ Side-by-side option A vs option B.
 
 ![compare-two-columns](thumbnails/compare-two-columns.png)
 
-### process-timeline
-3–5 steps along a horizontal rail.
-
-- `title` — `text`, ≤ 50 chars. Required.
-- `steps` — `bullets`, 3–5 entries.
-
-![process-timeline](thumbnails/process-timeline.png)
-
-### image-grid-2x2
-Up to 4 images in a 2×2 grid.
-
-- `title` — `text`, ≤ 50 chars. Optional.
-- `images` — `bullets`, 2–4 entries.
-
-![image-grid-2x2](thumbnails/image-grid-2x2.png)
 
 ### hero-image-overlay
 Full-bleed image with translucent overlay carrying title + subtitle.
@@ -394,6 +298,79 @@ Code snippet on a dark card.
 > **Guidance:** Anti-pattern for an editorial theme — dashboards belong in `technical-blue` / `midnight-executive`.
 
 ![dashboard](thumbnails/dashboard.png)
+### timeline
+Step or event sequence with a connecting rail and dots. Replaces the older timeline (horizontal step diagram) and timeline-text (vertical narrative timeline).
+
+- `title` — `text`, ≤ 60 chars. Optional.
+- `items` — `bullets`, 2-6 entries. Each `{ when?, title, description? }` (or a bare string treated as title). `when` renders in a left date column when direction=vertical.
+- `direction` — enum `horizontal` (default — process diagram) | `vertical` (narrative timeline with optional date column).
+
+![timeline](thumbnails/timeline.png)
+
+### split
+N polymorphic regions arranged in a row, column, or T-shape. Replaces split-2, split-3-horizontal, and split-3-vertical.
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `cell1`, `cell2` — `region`. Required.
+- `cell3` — `region`. Optional (used when cells=3).
+- `cells` — enum `2` | `3`. Default `2`.
+- `direction` — enum `horizontal` (default) | `vertical` (only meaningful for cells=3 — produces T-shape: top row + 2-cell bottom).
+- `ratio` — width/height ratio between cells. See enum values for direction-specific options.
+
+![split](thumbnails/split.png)
+
+### image-grid
+Gallery of 2–4 images. Replaces image-pair and image-grid.
+
+- `title` — `text`, ≤ 50 chars. Optional.
+- `images` — `bullets`, 2-4 entries. Each `{ src, alt?, caption? }` or bare path string.
+- count=2 (auto when 2 images supplied) renders side-by-side with optional uppercase label band above each image.
+- count=4 renders 2×2 grid with each tile in a card and optional caption below.
+
+![image-grid](thumbnails/image-grid.png)
+
+
+### funnel
+Conversion / sales funnel — 3–6 stages narrowing top-down.
+
+- `title` — `text`, ≤ 42 chars. Optional.
+- `stages` — `bullets`, 3–6. Each `{ label, value?, sublabel? }`. Width tapers uniformly; value/sublabel render in right column.
+
+![funnel](thumbnails/funnel.png)
+
+### process-flow
+Causal A→B→C pipeline rendered as connected chevrons. Use over `timeline` when conveying STAGES (no dates), over `key-point` when order matters.
+
+- `title` — `text`, ≤ 42 chars. Optional.
+- `steps` — `bullets`, 2–8. Each `{ title, description? }`.
+- `direction` — `enum`: `horizontal` (default) | `vertical`. Optional.
+
+![process-flow](thumbnails/process-flow.png)
+
+### swot
+Fixed Strengths / Weaknesses / Opportunities / Threats quadrants with canonical color semantics. Distinct from `matrix-2x2` (which is generic axis-labelled quadrants).
+
+- `title` — `text`, ≤ 42 chars. Optional. Defaults to "SWOT 分析" / "SWOT Analysis".
+- `strengths`, `weaknesses`, `opportunities`, `threats` — `bullets`, 1–6 each.
+
+![swot](thumbnails/swot.png)
+
+### content-grid
+3–8 `{title, body}` cards in an auto-flex grid. Use over `key-point` (max 4) or `dashboard` (overkill for plain text) for the "I have N small content blocks" pattern.
+
+- `title` — `text`, ≤ 42 chars. Optional.
+- `items` — `bullets`, 3–8. Each `{ title, body? }`. Layout shape: 3→1×3, 4→2×2, 5–6→2×3, 7–8→2×4.
+
+![content-grid](thumbnails/content-grid.png)
+
+### roadmap
+Gantt-style time × tracks. Periods axis (3–12 quarters/months) × tracks (1–7 work-stream lanes), each carrying phase bars that span one or more periods.
+
+- `title` — `text`, ≤ 42 chars. Optional.
+- `periods` — `bullets`, 3–12. Time bucket labels (`["Q1 2026", "Q2 2026", ...]`).
+- `tracks` — `bullets`, 1–7. Each `{ name, bars: [{ start, end?, label?, status? }] }`. `start`/`end` are 0-based period indices. `status`: `planned|in-progress|done|at-risk|blocked` drives semantic color; otherwise track inherits a categorical color.
+
+![roadmap](thumbnails/roadmap.png)
 
 ## Tokens
 
@@ -410,3 +387,24 @@ Code snippet on a dark card.
 | `text-muted` | #7A6F62 | Captions and subtitles |
 | `accent` | #A88859 | Secondary accent (gold) |
 | `divider` | #E5DCC9 | Hairlines and card borders |
+### funnel
+Conversion / sales funnel — 3–6 stages narrowing top-down.
+
+- `title` — `text`, ≤ 42 chars. Optional.
+- `stages` — `bullets`, 3–6. Each `{ label, value?, sublabel? }`. Width tapers uniformly; value/sublabel render in right column.
+![funnel](thumbnails/funnel.png)
+
+### process-flow
+Causal A→B→C pipeline rendered as connected chevrons. Use over `timeline` when conveying STAGES (no dates), over `key-point` when order matters.
+
+- `title` — `text`, ≤ 42 chars. Optional.
+- `steps` — `bullets`, 2–8. Each `{ title, description? }`.
+- `direction` — `enum`: `horizontal` (default) | `vertical`. Optional.
+![process-flow](thumbnails/process-flow.png)
+
+### swot
+Fixed Strengths / Weaknesses / Opportunities / Threats quadrants with canonical color semantics. Distinct from `matrix-2x2` (which is generic axis-labelled quadrants).
+
+- `title` — `text`, ≤ 42 chars. Optional. Defaults to "SWOT 分析" / "SWOT Analysis".
+- `strengths`, `weaknesses`, `opportunities`, `threats` — `bullets`, 1–6 each.
+![swot](thumbnails/swot.png)

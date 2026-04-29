@@ -5,8 +5,8 @@ import { imageRefOf } from "../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
   image:    { type: "image-ref" },
-  title:    { type: "text", maxChars: 60 },
-  subtitle: { type: "text", maxChars: 100, optional: true },
+  title:    { type: "text", maxChars: 42 },
+  subtitle: { type: "text", maxChars: 70, optional: true },
   /** Position of the text overlay. Default `bottom-left`. */
   align:    { type: "text", maxChars: 16, optional: true },
 };
@@ -63,6 +63,7 @@ const heroImageOverlay: LayoutFn = (ctx: LayoutContext): ShapeList => {
     id: ctx.id(),
     xfrm: { x: textXLeft, y: overlayY + ctx.cm(0.6), cx: textWidth, cy: ctx.cm(1.6) },
     valign: "middle",
+    autoFit: "shrink",
     paragraphs: [{
       align: textAlign,
       runs: [{
@@ -81,6 +82,7 @@ const heroImageOverlay: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: textXLeft, y: overlayY + ctx.cm(2.2), cx: textWidth, cy: ctx.cm(1.0) },
       valign: "middle",
+      autoFit: "shrink",
       paragraphs: [{
         align: textAlign,
         runs: [{

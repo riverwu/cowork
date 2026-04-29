@@ -41,4 +41,17 @@ Returns:
       return `Error: describe_slide_layout failed: ${err instanceof Error ? err.message : String(err)}`;
     }
   },
+
+  // History compression: schemas are big (sometimes >2KB); the agent
+  // already wrote the deck YAML by the next turn — no need to re-ship.
+  historySummarizer(rawResult, status) {
+    if (status === "fail") return rawResult;
+    try {
+      const detail = JSON.parse(rawResult) as { name?: string; slotSchema?: Record<string, unknown> };
+      const slots = detail.slotSchema ? Object.keys(detail.slotSchema).join(", ") : "";
+      return `→ ${detail.name ?? "?"} schema (slots: ${slots})`;
+    } catch {
+      return rawResult.slice(0, 200);
+    }
+  },
 };

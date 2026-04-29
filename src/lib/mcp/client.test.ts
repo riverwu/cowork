@@ -116,7 +116,7 @@ describe("McpClient", () => {
     const result = await client.callTool("test", { key: "value" });
 
     expect(result).toBe("result data");
-    expect(mockTransport.request).toHaveBeenCalledWith("tools/call", { name: "test", arguments: { key: "value" } });
+    expect(mockTransport.request).toHaveBeenCalledWith("tools/call", { name: "test", arguments: { key: "value" } }, undefined);
   });
 
   it("throws when MCP tool result is marked as an error", async () => {

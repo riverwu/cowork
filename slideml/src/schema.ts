@@ -18,6 +18,92 @@ import type { SlotSchema } from "./theme/types.js";
 
 const HEX6_PATTERN = "^[0-9A-Fa-f]{6}$";
 
+/**
+ * YAML safety rule appended to every text-bearing slot description.
+ *
+ * Agents repeatedly trip on the same YAML pitfalls when authoring
+ * SlideML inline:
+ *   - `{up:+12%}` chips → YAML parses `{...}` as a flow mapping
+ *   - ASCII `: ` inside a title  → YAML splits "key: value"
+ *   - `#` inside an unquoted string → YAML treats it as a comment
+ *   - `[备注]` → YAML parses `[...]` as a flow sequence
+ *   - multi-line strings without `|` / `>` → "implicit key may not be multiline"
+ *
+ * Surface the rule in the slot's own description so it shows up in
+ * `describe_slide_layout` output and the JSON Schema description text.
+ */
+const YAML_QUOTING_RULE =
+  "YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, " +
+  "or spans multiple lines, wrap it in double quotes — or use `|` / `>` for multi-line. " +
+  "Otherwise YAML parses it as a flow mapping/sequence/comment and rendering fails with a PARSE_ERROR. " +
+  "If the content itself contains ASCII `\"` (very common in CJK prose: `\"罢黜百家\"`, `\"书同文\"` etc.), " +
+  "do NOT wrap the outer in `\"...\"` without escaping — pick one of: " +
+  "(a) escape inner — `\\\"书同文\\\"`; (b) outer single quotes — `'...\"书同文\"...'`; " +
+  "(c) inner Chinese curly quotes — `\u201C书同文\u201D`; (d) block scalar — `body: |` then content on next line.";
+
+/**
+ * Authoring rule appended to text-block slot descriptions.
+ *
+ * Agents (esp. LLMs trained on prose corpora) instinctively wrap long
+ * sentences at ~70-80 characters with a literal `\n`, then continue the
+ * SAME sentence on the next line. That `\n` becomes a HARD line break
+ * in the rendered slide — wasting vertical space (every wrapped line
+ * gets a ragged-short last line) and often blowing past the box.
+ *
+ * Within a single paragraph, content should be one continuous string
+ * (no cosmetic line breaks). Use a blank line `\n\n` between paragraphs
+ * only.
+ */
+const PARAGRAPH_AUTHORING_RULE =
+  "AUTHORING: keep each paragraph on a SINGLE LINE — do NOT insert `\\n` mid-sentence " +
+  "for cosmetic line wrapping (the renderer will turn each `\\n` into a hard line break, " +
+  "wasting vertical space and risking overflow). Use blank lines (`\\n\\n`) ONLY between " +
+  "distinct paragraphs.";
+
+interface TableSchemaCapacity {
+  maxRows: number;
+  maxCols: number;
+  cellMaxChars: number;
+  description: string;
+}
+
+function tableSpecSchema(cap: TableSchemaCapacity): Record<string, unknown> {
+  const cell = tableCellSchema(cap.cellMaxChars);
+  return {
+    type: "object",
+    required: ["header", "rows"],
+    additionalProperties: false,
+    properties: {
+      header: {
+        type: "array",
+        minItems: 1,
+        maxItems: cap.maxCols,
+        items: { type: "string", maxLength: cap.cellMaxChars },
+      },
+      rows: {
+        type: "array",
+        maxItems: cap.maxRows,
+        items: {
+          type: "array",
+          minItems: 1,
+          maxItems: cap.maxCols,
+          items: cell,
+        },
+      },
+      colWidths: { type: "array", minItems: 1, maxItems: cap.maxCols, items: { type: "number", minimum: 0 } },
+      align: {
+        type: "array",
+        maxItems: cap.maxCols,
+        items: { enum: ["left", "center", "right"] },
+        description:
+          "Per-column horizontal alignment. Index N applies to column N. " +
+          "When omitted, numeric-looking strings auto-right-align and everything else left-aligns.",
+      },
+    },
+    description: cap.description,
+  };
+}
+
 export function buildSlidemlSchema(): Record<string, unknown> {
   const allLayoutNames = [...LAYOUT_REGISTRY.keys()].sort();
 
@@ -526,22 +612,82 @@ export function buildSlidemlSchema(): Record<string, unknown> {
         ],
       },
 
-      TableSpec: {
-        type: "object",
-        required: ["header", "rows"],
-        additionalProperties: false,
-        properties: {
-          header:    { type: "array", items: { type: "string" } },
-          rows:      { type: "array", items: { type: "array", items: { $ref: "#/$defs/TableCell" } } },
-          colWidths: { type: "array", items: { type: "number", minimum: 0 } },
-          align: {
-            type: "array",
-            items: { enum: ["left", "center", "right"] },
-            description:
-              "Per-column horizontal alignment. Index N applies to column N. " +
-              "When omitted, numeric-looking strings auto-right-align and everything else left-aligns.",
+      TableSpec: tableSpecSchema({
+        maxRows: 10,
+        maxCols: 8,
+        cellMaxChars: 100,
+        description: "Table visual: up to 8 columns, 10 body rows, and about 100 chars per cell.",
+      }),
+
+      Visual: {
+        description:
+          "Polymorphic visual content. Prefer tagged form: { kind: \"image\" | \"chart\" | \"table\" | \"svg\", ... }. " +
+          "Legacy un-tagged image-ref, chart-spec, table, and bare image path are also accepted.",
+        oneOf: [
+          { $ref: "#/$defs/ImageRef" },
+          { $ref: "#/$defs/ChartSpec" },
+          { $ref: "#/$defs/TableSpec" },
+          {
+            type: "object",
+            required: ["kind", "src"],
+            additionalProperties: false,
+            properties: {
+              kind: { const: "image" },
+              src: { type: "string" },
+              alt: { type: "string" },
+              fit: { enum: ["contain", "cover"] },
+              shape: { enum: ["rounded", "circle"] },
+              border: {
+                type: "object",
+                additionalProperties: false,
+                required: ["color"],
+                properties: { color: { type: "string" }, width: { type: "number" } },
+              },
+              overlay: {
+                type: "object",
+                additionalProperties: false,
+                required: ["color"],
+                properties: { color: { type: "string" }, alpha: { type: "number", minimum: 0, maximum: 1 } },
+              },
+            },
           },
-        },
+          {
+            type: "object",
+            required: ["kind", "chartType", "data"],
+            additionalProperties: false,
+            properties: {
+              kind: { const: "chart" },
+              chartType: { enum: ["bar", "stacked-bar", "line", "area", "pie", "doughnut", "combo", "scatter", "waterfall"] },
+              data: { $ref: "#/$defs/ChartSpec/properties/data" },
+              format: { $ref: "#/$defs/ChartSpec/properties/format" },
+              title: { type: "string" },
+              annotations: { $ref: "#/$defs/ChartSpec/properties/annotations" },
+            },
+          },
+          {
+            type: "object",
+            required: ["kind", "header", "rows"],
+            additionalProperties: false,
+            properties: {
+              kind: { const: "table" },
+              header: { type: "array", minItems: 1, maxItems: 8, items: { type: "string", maxLength: 100 } },
+              rows: { type: "array", maxItems: 10, items: { type: "array", minItems: 1, maxItems: 8, items: tableCellSchema(100) } },
+              colWidths: { type: "array", minItems: 1, maxItems: 8, items: { type: "number", minimum: 0 } },
+              align: { type: "array", maxItems: 8, items: { enum: ["left", "center", "right"] } },
+            },
+          },
+          {
+            type: "object",
+            required: ["kind", "svg"],
+            additionalProperties: false,
+            properties: {
+              kind: { const: "svg" },
+              svg: { type: "string" },
+              alt: { type: "string" },
+            },
+          },
+          { type: "string", minLength: 1 },
+        ],
       },
 
       Region: {
@@ -579,7 +725,12 @@ export function buildSlidemlSchema(): Record<string, unknown> {
             properties: {
               kind:  { const: "table" },
               title: { type: "string" },
-              table: { $ref: "#/$defs/TableSpec" },
+              table: tableSpecSchema({
+                maxRows: 6,
+                maxCols: 5,
+                cellMaxChars: 70,
+                description: "Compact region table: up to 5 columns, 6 body rows, and about 70 chars per cell.",
+              }),
               style: { enum: ["filled", "ghost", "outlined", "elevated", "glass"] },
             },
           },
@@ -595,6 +746,51 @@ export function buildSlidemlSchema(): Record<string, unknown> {
                 oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
               },
               style: { enum: ["filled", "ghost", "outlined", "elevated", "glass"] },
+            },
+          },
+          {
+            type: "object",
+            required: ["kind", "items"],
+            additionalProperties: false,
+            properties: {
+              kind:  { const: "bullets" },
+              title: { type: "string", maxLength: 42 },
+              items: { type: "array", minItems: 1, maxItems: 5, items: { type: "string", maxLength: 90 } },
+              style: { enum: ["filled", "ghost", "outlined", "elevated", "glass"] },
+            },
+          },
+          {
+            type: "object",
+            required: ["kind", "image"],
+            additionalProperties: false,
+            properties: {
+              kind:    { const: "image" },
+              image:   { $ref: "#/$defs/ImageRef" },
+              caption: { type: "string", maxLength: 96 },
+              style:   { enum: ["filled", "ghost", "outlined", "elevated", "glass"] },
+            },
+          },
+          {
+            type: "object",
+            required: ["kind", "code"],
+            additionalProperties: false,
+            properties: {
+              kind:     { const: "code" },
+              title:    { type: "string", maxLength: 42 },
+              language: { type: "string", maxLength: 16 },
+              code:     { type: "string", maxLength: 480 },
+              style:    { enum: ["filled", "ghost", "outlined", "elevated", "glass"] },
+            },
+          },
+          {
+            type: "object",
+            required: ["kind", "text"],
+            additionalProperties: false,
+            properties: {
+              kind:        { const: "quote" },
+              text:        { type: "string", maxLength: 220 },
+              attribution: { type: "string", maxLength: 80 },
+              style:       { enum: ["filled", "ghost", "outlined", "elevated", "glass"] },
             },
           },
           {
@@ -671,7 +867,7 @@ function slotsObjectSchema(layout: RegisteredLayout): Record<string, unknown> {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
   for (const [slotName, schema] of Object.entries(layout.slots)) {
-    properties[slotName] = slotSchemaFragment(slotName, schema);
+    properties[slotName] = slotSchemaFragment(layout.name, slotName, schema);
     if (!schema.optional) required.push(slotName);
   }
   return {
@@ -683,7 +879,7 @@ function slotsObjectSchema(layout: RegisteredLayout): Record<string, unknown> {
 }
 
 /** Convert one SlotSchema variant to a JSON Schema fragment. */
-function slotSchemaFragment(slotName: string, schema: SlotSchema): Record<string, unknown> {
+function slotSchemaFragment(layoutName: string, slotName: string, schema: SlotSchema): Record<string, unknown> {
   switch (schema.type) {
     case "text":
       return {
@@ -691,7 +887,8 @@ function slotSchemaFragment(slotName: string, schema: SlotSchema): Record<string
         maxLength: schema.maxChars,
         description:
           `Single-line text, ≤ ${schema.maxChars} chars. Supports the SlideML inline-markdown vocabulary ` +
-          `(see \`InlineMarkdown\` $def): **bold**, *italic*, \`code\`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:.`,
+          `(see \`InlineMarkdown\` $def): **bold**, *italic*, \`code\`, {up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name:. ` +
+          YAML_QUOTING_RULE,
       };
     case "text-block":
       return {
@@ -699,7 +896,9 @@ function slotSchemaFragment(slotName: string, schema: SlotSchema): Record<string
           `Multi-line text, ≤ ${schema.maxChars} chars. Accepts a string OR an array. Array items are either ` +
           `plain strings (paragraphs) or typed paragraphs ` +
           `\`{ kind: "quote" | "note" | "callout" | "h2", text }\` for distinctive styling. ` +
-          `Each paragraph supports SlideML inline markdown (see \`InlineMarkdown\` $def).`,
+          `Each paragraph supports SlideML inline markdown (see \`InlineMarkdown\` $def). ` +
+          PARAGRAPH_AUTHORING_RULE + " " +
+          YAML_QUOTING_RULE,
         oneOf: [
           { type: "string", maxLength: schema.maxChars },
           {
@@ -727,12 +926,13 @@ function slotSchemaFragment(slotName: string, schema: SlotSchema): Record<string
         maxLength: schema.maxChars,
         description:
           `Inline markdown, ≤ ${schema.maxChars} chars. See \`InlineMarkdown\` $def: **bold**, *italic*, \`code\`, ` +
-          `{up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name: (12-icon enum).`,
+          `{up|down|flat|ok|warn|bad|highlight:value} chips, :icon-name: (12-icon enum). ` +
+          YAML_QUOTING_RULE,
       };
     case "bullets": {
       // Item shape varies per layout. Use slot-name heuristics that mirror
       // the runtime examples in src/slot-examples.ts.
-      const items = bulletsItemSchema(slotName, schema);
+      const items = bulletsItemSchema(layoutName, slotName, schema);
       return {
         type: "array",
         minItems: schema.min,
@@ -746,7 +946,7 @@ function slotSchemaFragment(slotName: string, schema: SlotSchema): Record<string
     case "chart-spec":
       return { $ref: "#/$defs/ChartSpec" };
     case "table":
-      return { $ref: "#/$defs/TableSpec" };
+      return tableSlotSchema(schema);
     case "component-ref":
       return {
         $ref: "#/$defs/ComponentRef",
@@ -754,6 +954,18 @@ function slotSchemaFragment(slotName: string, schema: SlotSchema): Record<string
       };
     case "region":
       return { $ref: "#/$defs/Region" };
+    case "region-list":
+      return {
+        type: "array",
+        minItems: schema.min,
+        maxItems: schema.max,
+        items: { $ref: "#/$defs/Region" },
+        description: `${schema.min}–${schema.max} polymorphic region cells. Each item is a Region object with kind: kpi | chart | table | text | bullets | image | code | quote | sparkline | progress.`,
+      };
+    case "visual":
+      return {
+        $ref: "#/$defs/Visual",
+      };
     case "enum":
       return {
         enum: schema.values,
@@ -768,12 +980,97 @@ function slotSchemaFragment(slotName: string, schema: SlotSchema): Record<string
  * Mirrors the runtime examples returned by describeLayout(). Strings are
  * always accepted; some named slots accept richer object shapes too.
  */
-function bulletsItemSchema(slotName: string, schema: { itemMaxChars: number }): Record<string, unknown> {
-  // KPI tile items (stat-grid-3): { value, label, delta?, trend? }
-  if (slotName === "items" && schema.itemMaxChars <= 64) {
+function bulletsItemSchema(layoutName: string, slotName: string, schema: { itemMaxChars: number }): Record<string, unknown> {
+  const textProp = { type: "string", maxLength: schema.itemMaxChars };
+  const optionalTextFields = (fields: readonly string[]) => Object.fromEntries(fields.map((f) => [f, textProp]));
+
+  if (layoutName === "agenda") {
     return {
       oneOf: [
-        { type: "string", maxLength: schema.itemMaxChars },
+        textProp,
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: optionalTextFields(["text", "title", "label", "name", "heading", "num", "detail", "description", "body", "caption", "subtitle"]),
+          anyOf: [
+            { required: ["text"] }, { required: ["title"] }, { required: ["label"] },
+            { required: ["name"] }, { required: ["heading"] },
+          ],
+        },
+      ],
+    };
+  }
+
+  if (layoutName === "executive-summary") {
+    return {
+      oneOf: [
+        textProp,
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: optionalTextFields(["heading", "line", "text"]),
+          anyOf: [{ required: ["heading"] }, { required: ["text"] }],
+        },
+      ],
+    };
+  }
+
+  if (layoutName === "q-and-a") {
+    return {
+      oneOf: [
+        textProp,
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: optionalTextFields(["q", "question", "a", "answer"]),
+          anyOf: [{ required: ["q"] }, { required: ["question"] }],
+        },
+      ],
+    };
+  }
+
+  if (layoutName === "content-grid") {
+    return {
+      oneOf: [
+        textProp,
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            ...optionalTextFields(["title", "text", "heading", "label", "name", "body", "description", "detail", "caption"]),
+            icon: { type: "string" },
+          },
+          anyOf: [
+            { required: ["title"] }, { required: ["text"] }, { required: ["heading"] },
+            { required: ["label"] }, { required: ["name"] },
+          ],
+        },
+      ],
+    };
+  }
+
+  if (layoutName === "timeline") {
+    return {
+      oneOf: [
+        textProp,
+        {
+          type: "object",
+          additionalProperties: false,
+          properties: optionalTextFields(["when", "date", "title", "heading", "label", "text", "description", "body", "detail", "caption"]),
+          anyOf: [
+            { required: ["title"] }, { required: ["heading"] }, { required: ["label"] },
+            { required: ["text"] }, { required: ["description"] },
+          ],
+        },
+      ],
+    };
+  }
+
+  // KPI tile items (stat-grid-3): { value, label, delta?, trend? }
+  if (layoutName === "stat-grid-3") {
+    return {
+      oneOf: [
+        textProp,
         {
           type: "object",
           required: ["value", "label"],
@@ -788,7 +1085,7 @@ function bulletsItemSchema(slotName: string, schema: { itemMaxChars: number }): 
       ],
     };
   }
-  // Image grid cells (image-grid-2x2): { src OR url, alt?, caption? }
+  // Image grid cells (image-grid): { src OR url, alt?, caption? }
   if (slotName === "images") {
     return {
       oneOf: [
@@ -811,15 +1108,21 @@ function bulletsItemSchema(slotName: string, schema: { itemMaxChars: number }): 
   if (slotName === "steps") {
     return {
       oneOf: [
-        { type: "string", maxLength: schema.itemMaxChars },
+        textProp,
         {
           type: "object",
+          additionalProperties: false,
           properties: {
             title:       { type: "string" },
             label:       { type: "string" },
+            heading:     { type: "string" },
             description: { type: "string" },
+            body:        { type: "string" },
+            detail:      { type: "string" },
+            caption:     { type: "string" },
             text:        { type: "string" },
           },
+          anyOf: [{ required: ["title"] }, { required: ["label"] }, { required: ["heading"] }, { required: ["text"] }],
         },
       ],
     };
@@ -829,7 +1132,7 @@ function bulletsItemSchema(slotName: string, schema: { itemMaxChars: number }): 
   // when the bullet has no sub-points.
   return {
     oneOf: [
-      { type: "string", maxLength: schema.itemMaxChars },
+      textProp,
       {
         type: "object",
         required: ["text"],
@@ -841,6 +1144,41 @@ function bulletsItemSchema(slotName: string, schema: { itemMaxChars: number }): 
             description: "Sub-bullets — one level of nesting only. Each item is a string ≤ itemMaxChars.",
             items: { type: "string", maxLength: schema.itemMaxChars },
           },
+        },
+      },
+    ],
+  };
+}
+
+function tableSlotSchema(schema: Extract<SlotSchema, { type: "table" }>): Record<string, unknown> {
+  const colCount = schema.maxCols ?? 8;
+  const rowCount = schema.maxRows ?? 12;
+  const cellMaxChars = schema.cellMaxChars ?? 120;
+  return tableSpecSchema({
+    maxRows: rowCount,
+    maxCols: colCount,
+    cellMaxChars,
+    description: `Table: up to ${colCount} columns, ${rowCount} body rows, and about ${cellMaxChars} chars per cell.`,
+  });
+}
+
+function tableCellSchema(maxChars: number): Record<string, unknown> {
+  return {
+    oneOf: [
+      { type: "string", maxLength: maxChars },
+      { type: "number" },
+      {
+        type: "object",
+        required: ["value"],
+        additionalProperties: false,
+        properties: {
+          value: {
+            oneOf: [
+              { type: "string", maxLength: maxChars },
+              { type: "number" },
+            ],
+          },
+          emphasis: { enum: ["ok", "warn", "bad", "highlight", "up", "down", "flat"] },
         },
       },
     ],

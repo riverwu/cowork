@@ -10,10 +10,10 @@ import { parseInline } from "../render/markdown-inline.js";
  * "47% of Americans..." marketing decks.
  */
 export const slots: Record<string, SlotSchema> = {
-  value:    { type: "text",       maxChars: 20 },
-  label:    { type: "text",       maxChars: 60 },
-  caption:  { type: "text-block", maxChars: 240, optional: true },
-  eyebrow:  { type: "text",       maxChars: 32, optional: true },
+  value:    { type: "text",       maxChars: 16 },
+  label:    { type: "text",       maxChars: 42 },
+  caption:  { type: "text-block", maxChars: 168, optional: true },
+  eyebrow:  { type: "text",       maxChars: 22, optional: true },
 };
 
 const heroStat: LayoutFn = (ctx: LayoutContext): ShapeList => {
@@ -32,6 +32,7 @@ const heroStat: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: ctx.cm(2), y: ctx.cm(2.4), cx: ctx.deck.width - ctx.cm(4), cy: ctx.cm(0.9) },
       valign: "middle",
+      autoFit: "shrink",
       paragraphs: [{
         align: "center",
         runs: [{
@@ -57,6 +58,7 @@ const heroStat: LayoutFn = (ctx: LayoutContext): ShapeList => {
       cy: ctx.cm(4.2),
     },
     valign: "middle",
+    autoFit: "shrink",
     paragraphs: [{
       align: "center",
       runs: parseInline(value, {
@@ -81,6 +83,7 @@ const heroStat: LayoutFn = (ctx: LayoutContext): ShapeList => {
       cy: ctx.cm(1.4),
     },
     valign: "top",
+    autoFit: "shrink",
     paragraphs: [{
       align: "center",
       runs: parseInline(label, {

@@ -93,6 +93,21 @@ export interface TextShape {
   fill?: FillSpec;
   /** Optional border around the text box. */
   line?: LineSpec;
+  /** When set, the text shape's geometry switches from `rect` to
+   *  `roundRect` with this corner radius (fraction of the shorter side,
+   *  0..0.5). Lets a single TextShape serve as background + border +
+   *  text container — agents resizing the shape in PowerPoint move all
+   *  three together, instead of leaving the colored backing behind. */
+  cornerRadius?: number;
+  /** Auto-fit policy for the text body.
+   *  - "shrink" → emit `<a:normAutofit/>` with a moderate fontScale and
+   *    lnSpcReduction cap so renderers (esp. LibreOffice) don't shrink
+   *    text to unreadable. Right call for body slots with a soft maxChars
+   *    cap that may still spill in edge-case content.
+   *  - "resize" → emit `<a:spAutoFit/>` so the shape grows to fit content.
+   *    Avoid in laid-out slides — it breaks neighbor positioning.
+   *  - undefined → no autofit (text may overflow / be clipped). */
+  autoFit?: "shrink" | "resize";
 }
 
 export type ShapePreset =

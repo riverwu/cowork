@@ -11,14 +11,25 @@ import { INLINE_ICONS, parseInline, type InlineIconName } from "../render/markdo
  * "core principles", "what you'll learn".
  */
 export const slots: Record<string, SlotSchema> = {
-  headline: { type: "text",       maxChars: 80 },
-  points:   { type: "bullets",    min: 2, max: 4, itemMaxChars: 200 },
+  headline: { type: "text",       maxChars: 56 },
+  points:   { type: "bullets",    min: 2, max: 4, itemMaxChars: 140 },
 };
 
 interface PointRaw {
   icon?: string;          // one of INLINE_ICONS keys
+  // Title / description field names: agents reach for various spellings.
+  // Canonical pair is `title` + `description`, but accept synonyms so the
+  // points actually render regardless of which form the agent picked:
+  //   title    | text   | heading  | label   → title (top line, bold)
+  //   description | detail | body | caption → description (sub line, muted)
   title?: string;
+  text?: string;
+  heading?: string;
+  label?: string;
   description?: string;
+  detail?: string;
+  body?: string;
+  caption?: string;
 }
 
 const keyPoint: LayoutFn = (ctx: LayoutContext): ShapeList => {
@@ -60,17 +71,34 @@ const keyPoint: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const body = contentRect(ctx, { top: ctx.cm(7), bottom: ctx.cm(2) });
   const cols = gridCols(ctx, body, rawPoints.length, { gap: ctx.cm(0.8) });
 
-  rawPoints.forEach((raw, idx) => {
+  // Resolve every point's icon once. Cross-column alignment requires
+  // the icon-row to be reserved for ALL columns when ANY column has an
+  // icon — otherwise points without icons start their title higher and
+  // visually misalign with iconed siblings. Compute the uniform titleY
+  // offset before rendering any point.
+  const resolvedPoints = rawPoints.map((raw) => {
     const p: PointRaw = typeof raw === "string" ? { title: raw } : raw;
-    const col = cols[idx]!;
     const iconName = (p.icon && p.icon in INLINE_ICONS) ? p.icon as InlineIconName : undefined;
-    const glyph = iconName ? INLINE_ICONS[iconName] : "";
+    return {
+      titleText: p.title ?? p.text ?? p.heading ?? p.label ?? "",
+      descriptionText: p.description ?? p.detail ?? p.body ?? p.caption,
+      glyph: iconName ? INLINE_ICONS[iconName] : "",
+    };
+  });
+  const anyHasIcon = resolvedPoints.some((rp) => rp.glyph);
+  const iconRowH = ctx.cm(1.6);
 
-    if (glyph) {
+  resolvedPoints.forEach(({ titleText, descriptionText, glyph }, idx) => {
+    const col = cols[idx]!;
+
+    // Reserve the icon row uniformly. If this point has a glyph render
+    // it; if not, leave the same vertical space empty so the title /
+    // description below align with iconed siblings.
+    if (anyHasIcon && glyph) {
       out.push({
         type: "text",
         id: ctx.id(),
-        xfrm: { x: col.x, y: col.y, cx: col.width, cy: ctx.cm(1.6) },
+        xfrm: { x: col.x, y: col.y, cx: col.width, cy: iconRowH },
         valign: "middle",
         paragraphs: [{
           align: "center",
@@ -78,16 +106,22 @@ const keyPoint: LayoutFn = (ctx: LayoutContext): ShapeList => {
         }],
       });
     }
-    const titleY = col.y + (glyph ? ctx.cm(2.0) : ctx.cm(0.4));
+    // titleY: reserve icon row when ANY point in this slide has an
+    // icon, regardless of whether this particular column does. Past
+    // logic offset only for columns with their own glyph, producing
+    // the misalignment the user reported (lightning/target missing →
+    // those columns shifted up).
+    const titleY = col.y + (anyHasIcon ? ctx.cm(2.0) : ctx.cm(0.4));
     out.push({
       type: "text",
       id: ctx.id(),
       xfrm: { x: col.x, y: titleY, cx: col.width, cy: ctx.cm(1.0) },
       valign: "middle",
+      autoFit: "shrink",
       paragraphs: [{
         align: "center",
         runs: [{
-          text: p.title ?? "",
+          text: titleText,
           sizeHalfPt: 28,
           color: ctx.color("text-strong"),
           bold: true,
@@ -96,16 +130,17 @@ const keyPoint: LayoutFn = (ctx: LayoutContext): ShapeList => {
         }],
       }],
     });
-    if (p.description) {
+    if (descriptionText) {
       out.push({
         type: "text",
         id: ctx.id(),
         xfrm: { x: col.x, y: titleY + ctx.cm(1.1), cx: col.width, cy: col.height - (titleY + ctx.cm(1.1) - col.y) },
         valign: "top",
+        autoFit: "shrink",
         paragraphs: [{
           align: "center",
           lineSpacingHalfPt: 48,
-          runs: parseInline(p.description, {
+          runs: parseInline(descriptionText, {
             sizeHalfPt: 20,
             color: ctx.color("text-muted"),
             fontFace,

@@ -1,0 +1,454 @@
+{
+  "name": "academic-paper",
+  "version": "1.0.0",
+  "slidemlVersion": "1",
+  "displayName": "Academic Paper",
+  "description": "Scholarly research / conference theme — restrained serif typography, AAA-grade contrast, tabular numerals, conservative dataviz. Designed for thesis defenses, conference talks, peer-reviewed-paper presentations, and grant pitches that should read substance-first.",
+  "author": "SlideML",
+  "tokens": {
+    "bg-canvas": "FFFFFF",
+    "bg-card": "F7F7F5",
+    "brand-primary": "8B0000",
+    "brand-deep": "2F2F2F",
+    "text-strong": "111111",
+    "text-muted": "4A4A4A",
+    "accent": "6B5B3A",
+    "divider": "CFCFCF",
+    "font-latin": [
+      "EB Garamond",
+      "Garamond",
+      "Adobe Garamond Pro",
+      "Georgia",
+      "Times New Roman",
+      "serif"
+    ],
+    "font-cjk": [
+      "Source Han Serif SC",
+      "Songti SC",
+      "STSong",
+      "SimSun",
+      "Noto Serif CJK SC",
+      "serif"
+    ],
+    "font-mono": [
+      "Latin Modern Mono",
+      "JetBrains Mono",
+      "Menlo",
+      "Consolas",
+      "monospace"
+    ]
+  },
+  "meta": {
+    "audiences": [
+      "conference attendees",
+      "dissertation committees",
+      "peer reviewers",
+      "grant panels",
+      "academic seminars"
+    ],
+    "industries": [
+      "academia",
+      "research institutes",
+      "university faculty",
+      "public-policy think tanks",
+      "scientific publishing"
+    ],
+    "moods": [
+      "scholarly",
+      "restrained",
+      "rigorous",
+      "timeless",
+      "substance-first"
+    ],
+    "antiPatterns": [
+      "marketing pitches",
+      "startup demo days",
+      "consumer brands",
+      "sales decks"
+    ]
+  },
+  "style": {
+    "titleAccentRule": false,
+    "contrastTarget": "AAA",
+    "bullets": {
+      "glyph": "·",
+      "color": "text-strong",
+      "level1": "◦",
+      "level2": "·"
+    },
+    "fontSizes": {
+      "xs": 10,
+      "sm": 12,
+      "base": 14,
+      "lg": 17,
+      "xl": 22,
+      "display": 36,
+      "hero": 64
+    },
+    "surface": {
+      "cornerRadius": 0.0,
+      "elevation": "flat",
+      "accentStripe": {
+        "position": "none",
+        "widthCm": 0.06,
+        "color": "brand-primary"
+      },
+      "borderPolicy": "card-only"
+    },
+    "semantic": {
+      "positive": "2F6B2F",
+      "negative": "8B0000",
+      "warning": "8B6914",
+      "info": "24507A",
+      "neutral": "4A4A4A"
+    },
+    "dataviz": {
+      "categorical": [
+        "1F4E79",
+        "8B0000",
+        "2F6B2F",
+        "8B6914"
+      ],
+      "sequential": {
+        "from": "F2F2F2",
+        "to": "1F4E79"
+      },
+      "diverging": {
+        "negative": "8B0000",
+        "mid": "F0F0EE",
+        "positive": "2F6B2F"
+      }
+    },
+    "typography": {
+      "baseHalfPt": 26,
+      "ratio": 1.2,
+      "italicCjk": false,
+      "numerals": "tabular",
+      "roles": {
+        "title": {
+          "weight": "bold",
+          "transform": "none",
+          "trackingHalfPt": 0
+        },
+        "heading": {
+          "weight": "bold",
+          "transform": "none",
+          "trackingHalfPt": 0
+        },
+        "body": {
+          "weight": "regular",
+          "transform": "none",
+          "trackingHalfPt": 0
+        },
+        "caption": {
+          "weight": "regular",
+          "transform": "none",
+          "trackingHalfPt": 0
+        },
+        "label": {
+          "weight": "medium",
+          "transform": "smallCaps",
+          "trackingHalfPt": 6
+        }
+      }
+    },
+    "numbering": {
+      "style": "roman"
+    },
+    "chips": {
+      "up": {
+        "glyph": "▲"
+      },
+      "down": {
+        "glyph": "▼"
+      },
+      "flat": {
+        "glyph": "—"
+      },
+      "ok": {
+        "glyph": "✓"
+      },
+      "warn": {
+        "glyph": "!"
+      },
+      "bad": {
+        "glyph": "✗"
+      }
+    },
+    "image": {
+      "defaultClip": "rect"
+    },
+    "table": {
+      "headerFill": "brand-deep",
+      "rowStripe": false,
+      "borderStyle": "full",
+      "firstColEmphasis": "bold"
+    },
+    "imagery": {
+      "guidance": "Restrained academic figures: data visualisation, archival imagery, line drawings, monochrome photography, hand-drawn diagrams. Avoid commercial stock photography, lens flare, gradients, decorative noise. Compositions should have clear hierarchy and serve a specific argument.",
+      "palette": [
+        "#FFFFFF",
+        "#111111",
+        "#8B0000",
+        "#1F4E79",
+        "#2F6B2F"
+      ],
+      "avoid": [
+        "stock photography",
+        "gradients",
+        "color grading",
+        "lens flare",
+        "vibrant saturated colors",
+        "decorative imagery"
+      ],
+      "preferredStyles": [
+        "data visualization",
+        "line drawing",
+        "monochrome photography",
+        "archival photo",
+        "technical diagram",
+        "hand-drawn figure"
+      ]
+    },
+    "voice": {
+      "tone": "precise, evidence-led, third-person, citation-aware",
+      "avoid": [
+        "marketing language",
+        "superlatives",
+        "exclamation points",
+        "hyperbole"
+      ]
+    }
+  },
+  "layouts": [
+    {
+      "name": "agenda",
+      "module": "layouts/agenda.js",
+      "thumbnail": "thumbnails/agenda.png"
+    },
+    {
+      "name": "closing",
+      "module": "layouts/closing.js",
+      "thumbnail": "thumbnails/closing.png"
+    },
+    {
+      "name": "code-block",
+      "module": "layouts/code-block.js",
+      "thumbnail": "thumbnails/code-block.png"
+    },
+    {
+      "name": "compare-two-columns",
+      "module": "layouts/compare-two-columns.js",
+      "thumbnail": "thumbnails/compare-two-columns.png"
+    },
+    {
+      "name": "content-grid",
+      "module": "layouts/content-grid.js",
+      "thumbnail": "thumbnails/content-grid.png"
+    },
+    {
+      "name": "cover",
+      "module": "layouts/cover.js",
+      "thumbnail": "thumbnails/cover.png"
+    },
+    {
+      "name": "dashboard",
+      "module": "layouts/dashboard.js",
+      "thumbnail": "thumbnails/dashboard.png"
+    },
+    {
+      "name": "data-table",
+      "module": "layouts/data-table.js",
+      "thumbnail": "thumbnails/data-table.png"
+    },
+    {
+      "name": "definition",
+      "module": "layouts/definition.js",
+      "thumbnail": "thumbnails/definition.png"
+    },
+    {
+      "name": "executive-summary",
+      "module": "layouts/executive-summary.js",
+      "thumbnail": "thumbnails/executive-summary.png"
+    },
+    {
+      "name": "framed",
+      "module": "layouts/framed.js",
+      "thumbnail": "thumbnails/framed.png"
+    },
+    {
+      "name": "freeform",
+      "module": "layouts/freeform.js",
+      "thumbnail": "thumbnails/freeform.png"
+    },
+    {
+      "name": "funnel",
+      "module": "layouts/funnel.js",
+      "thumbnail": "thumbnails/funnel.png"
+    },
+    {
+      "name": "glossary",
+      "module": "layouts/glossary.js",
+      "thumbnail": "thumbnails/glossary.png"
+    },
+    {
+      "name": "hero-image-overlay",
+      "module": "layouts/hero-image-overlay.js",
+      "thumbnail": "thumbnails/hero-image-overlay.png"
+    },
+    {
+      "name": "hero-stat",
+      "module": "layouts/hero-stat.js",
+      "thumbnail": "thumbnails/hero-stat.png"
+    },
+    {
+      "name": "image-full-bleed",
+      "module": "layouts/image-full-bleed.js",
+      "thumbnail": "thumbnails/image-full-bleed.png"
+    },
+    {
+      "name": "image-grid",
+      "module": "layouts/image-grid.js",
+      "thumbnail": "thumbnails/image-grid.png"
+    },
+    {
+      "name": "key-point",
+      "module": "layouts/key-point.js",
+      "thumbnail": "thumbnails/key-point.png"
+    },
+    {
+      "name": "letter",
+      "module": "layouts/letter.js",
+      "thumbnail": "thumbnails/letter.png"
+    },
+    {
+      "name": "matrix-2x2",
+      "module": "layouts/matrix-2x2.js",
+      "thumbnail": "thumbnails/matrix-2x2.png"
+    },
+    {
+      "name": "outline",
+      "module": "layouts/outline.js",
+      "thumbnail": "thumbnails/outline.png"
+    },
+    {
+      "name": "pricing-table",
+      "module": "layouts/pricing-table.js",
+      "thumbnail": "thumbnails/pricing-table.png"
+    },
+    {
+      "name": "process-flow",
+      "module": "layouts/process-flow.js",
+      "thumbnail": "thumbnails/process-flow.png"
+    },
+    {
+      "name": "prose",
+      "module": "layouts/prose.js",
+      "thumbnail": "thumbnails/prose.png"
+    },
+    {
+      "name": "q-and-a",
+      "module": "layouts/q-and-a.js",
+      "thumbnail": "thumbnails/q-and-a.png"
+    },
+    {
+      "name": "quote",
+      "module": "layouts/quote.js",
+      "thumbnail": "thumbnails/quote.png"
+    },
+    {
+      "name": "roadmap",
+      "module": "layouts/roadmap.js",
+      "thumbnail": "thumbnails/roadmap.png"
+    },
+    {
+      "name": "section-divider",
+      "module": "layouts/section-divider.js",
+      "thumbnail": "thumbnails/section-divider.png"
+    },
+    {
+      "name": "split",
+      "module": "layouts/split.js",
+      "thumbnail": "thumbnails/split.png"
+    },
+    {
+      "name": "stat-grid-3",
+      "module": "layouts/stat-grid-3.js",
+      "thumbnail": "thumbnails/stat-grid-3.png"
+    },
+    {
+      "name": "swot",
+      "module": "layouts/swot.js",
+      "thumbnail": "thumbnails/swot.png"
+    },
+    {
+      "name": "team-grid",
+      "module": "layouts/team-grid.js",
+      "thumbnail": "thumbnails/team-grid.png"
+    },
+    {
+      "name": "timeline",
+      "module": "layouts/timeline.js",
+      "thumbnail": "thumbnails/timeline.png"
+    },
+    {
+      "name": "title-only",
+      "module": "layouts/title-only.js",
+      "thumbnail": "thumbnails/title-only.png"
+    },
+    {
+      "name": "visual-with-caption",
+      "module": "layouts/visual-with-caption.js",
+      "thumbnail": "thumbnails/visual-with-caption.png"
+    },
+    {
+      "name": "visual-with-text",
+      "module": "layouts/visual-with-text.js",
+      "thumbnail": "thumbnails/visual-with-text.png"
+    }
+  ],
+  "components": [
+    {
+      "name": "header",
+      "module": "components/header.js"
+    },
+    {
+      "name": "footer",
+      "module": "components/footer.js"
+    },
+    {
+      "name": "kpi-tile",
+      "module": "components/kpi-tile.js"
+    },
+    {
+      "name": "takeaway-callout",
+      "module": "components/takeaway-callout.js"
+    }
+  ],
+  "chrome": [
+    "page-header",
+    "page-footer",
+    "page-number",
+    "brand-bar"
+  ],
+  "oxml": {
+    "clrScheme": {
+      "bg1": "bg-canvas",
+      "tx1": "text-strong",
+      "bg2": "bg-card",
+      "tx2": "text-muted",
+      "accent1": "brand-primary",
+      "accent2": "brand-deep",
+      "accent3": "accent",
+      "accent4": "text-muted",
+      "accent5": "divider",
+      "accent6": "bg-card",
+      "hlink": "brand-primary",
+      "folHlink": "brand-deep"
+    },
+    "fontScheme": {
+      "majorLatin": "Inter",
+      "minorLatin": "Inter"
+    }
+  }
+}

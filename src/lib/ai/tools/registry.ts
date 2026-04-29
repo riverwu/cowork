@@ -21,12 +21,15 @@ import { describeSlideLayoutTool } from "./describe-slide-layout";
 import { validateSlidemlTool } from "./validate-slideml";
 import { renderSlidemlTool } from "./render-slideml";
 import { editSlidemlTool } from "./edit-slideml";
+import { appendSlidesTool } from "./append-slides";
+import { readSlideTool } from "./read-slide";
+import { replaceSlideTool } from "./replace-slide";
 import { auditPptxTool } from "./audit-pptx";
 import { listThemesTool } from "./list-themes";
 import { describeThemeTool } from "./describe-theme";
 
 /**
- * Built-in tool registry — 25 tools.
+ * Built-in tool registry — 28 tools.
  *
  * These are the agent's built-in capabilities, registered as LLM function-calling tools.
  * They are NOT user-installed skills (SKILL.md) — those are managed by SkillRegistry.
@@ -45,7 +48,12 @@ import { describeThemeTool } from "./describe-theme";
  *   image_gen
  * Decks (progressive disclosure: list_themes → describe_theme → list_layouts → describe_layout → validate → render → edit/audit):
  *   list_themes, describe_theme, list_slide_layouts, describe_slide_layout,
- *   validate_slideml, render_slideml, edit_slideml, audit_pptx
+ *   validate_slideml, render_slideml, append_slides, read_slide, replace_slide,
+ *   edit_slideml, audit_pptx
+ *   ↑ Build path:    write_file skeleton → append_slides batches → render_slideml.
+ *     Surgical-fix path: validate_slideml fails on slides[N] → read_slide(path,N)
+ *                        → replace_slide(path,N,fixed) → re-validate. Avoids
+ *                        re-emitting the whole deck for single-slide errors.
  */
 const tools: Record<string, Tool> = {
   // File operations
@@ -78,6 +86,9 @@ const tools: Record<string, Tool> = {
   describe_slide_layout: describeSlideLayoutTool,
   validate_slideml: validateSlidemlTool,
   render_slideml: renderSlidemlTool,
+  append_slides: appendSlidesTool,
+  read_slide: readSlideTool,
+  replace_slide: replaceSlideTool,
   edit_slideml: editSlidemlTool,
   audit_pptx: auditPptxTool,
 };

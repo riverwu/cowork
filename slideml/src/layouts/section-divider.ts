@@ -4,8 +4,8 @@ import type { SlotSchema } from "../theme/types.js";
 import { bestTextOn } from "../render/primitives.js";
 
 export const slots: Record<string, SlotSchema> = {
-  eyebrow: { type: "text", maxChars: 20, optional: true },
-  title:   { type: "text", maxChars: 50 },
+  eyebrow: { type: "text", maxChars: 16, optional: true },
+  title:   { type: "text", maxChars: 35 },
 };
 
 const sectionDivider: LayoutFn = (ctx: LayoutContext): ShapeList => {
@@ -53,6 +53,7 @@ const sectionDivider: LayoutFn = (ctx: LayoutContext): ShapeList => {
         cy: ctx.cm(1),
       },
       valign: "middle",
+      autoFit: "shrink",
       paragraphs: [{
         align: "left",
         runs: [{
@@ -76,6 +77,7 @@ const sectionDivider: LayoutFn = (ctx: LayoutContext): ShapeList => {
       cy: ctx.cm(2.5),
     },
     valign: "middle",
+    autoFit: "shrink",
     paragraphs: [{
       align: "left",
       runs: [{
