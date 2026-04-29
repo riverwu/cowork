@@ -161,8 +161,12 @@ export const browserTool: Tool = {
     try {
       const parsed = JSON.parse(raw) as Array<{ action?: string; result?: unknown }>;
       const last = parsed[parsed.length - 1];
-      const result = last?.result as { url?: string; title?: string; stats?: Record<string, unknown>; path?: string } | undefined;
-      if (result?.path) return `browser ${last?.action || ""}: screenshot ${result.path}`;
+      const result = last?.result as { url?: string; title?: string; stats?: Record<string, unknown>; path?: string; downloads?: Array<{ path?: string }> } | undefined;
+      if (result?.path) return `browser ${last?.action || ""}: file ${result.path}`;
+      if (Array.isArray(result?.downloads)) {
+        const paths = result.downloads.map((download) => download.path).filter(Boolean);
+        return paths.length > 0 ? `browser downloads: ${paths.join(", ")}` : "browser downloads: none";
+      }
       if (result?.url || result?.title) return `browser ${last?.action || ""}: ${result.title || ""} ${result.url || ""}`.trim();
       return `browser: ${parsed.map((r) => r.action).filter(Boolean).join(" -> ")}`;
     } catch {
