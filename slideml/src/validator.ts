@@ -43,19 +43,36 @@ function isCjkLanguage(lang: string | undefined): boolean {
  * Layout-level budget multiplier on top of the half-column max char
  * budget (which already includes autoFit headroom).
  *   half-column layouts (visual-with-text, …) → 1.0
- *   prose with columns: 1 (default) → 1.5 (single full-width column)
- *   prose with columns: 2            → 3.0 (full width × 2 columns)
+ *   article-flow                     → 12k chars, then it paginates
  *   letter (full-width body, generous margins, slightly narrower) → 1.3
  *
  * Layouts not in this map fall back to 1.0.
  */
-function layoutBudgetMultiplier(layout: string, slots?: Record<string, unknown>): number {
-  if (layout === "prose") {
-    const cols = slots && (slots["columns"] === "2" || slots["columns"] === 2) ? 2 : 1;
-    return cols === 2 ? 3.0 : 1.5;
-  }
+function layoutBudgetMultiplier(layout: string, slots: Record<string, unknown> | undefined, cjk: boolean): number {
+  if (layout === "article-flow") return Math.round(12000 / maxCharBudget(cjk));
   if (layout === "letter") return 1.3;
   return 1.0;
+}
+
+function textBlockCharCount(value: unknown): number {
+  if (typeof value === "string") return [...value].length;
+  if (Array.isArray(value)) {
+    return value.reduce((sum, item) => {
+      if (typeof item === "string") return sum + [...item].length;
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const text = (item as { text?: unknown }).text;
+        return sum + (typeof text === "string" ? [...text].length : 0);
+      }
+      return sum;
+    }, 0);
+  }
+  return 0;
+}
+
+function paragraphCount(value: unknown): number {
+  if (typeof value === "string") return value.split(/\n\s*\n/).filter((p) => p.trim()).length;
+  if (Array.isArray(value)) return value.length;
+  return 0;
 }
 
 function effectiveBudget(
@@ -63,7 +80,7 @@ function effectiveBudget(
   cjk: boolean,
   slots?: Record<string, unknown>,
 ): number {
-  return Math.round(maxCharBudget(cjk) * layoutBudgetMultiplier(layout, slots));
+  return Math.round(maxCharBudget(cjk) * layoutBudgetMultiplier(layout, slots, cjk));
 }
 
 function isTitleLikeTextSlot(slot: string | undefined): boolean {
@@ -74,7 +91,7 @@ function isTitleLikeTextSlot(slot: string | undefined): boolean {
 }
 
 function cjkAdjustedMax(schemaMax: number, cjk: boolean, slot?: string): number {
-  // Fixed-height titles/labels should not receive the 1.6x prose budget
+  // Fixed-height titles/labels should not receive the 1.6x long-text budget
   // boost: their render boxes do not get taller, so long CJK titles would
   // validate then clip or shrink to unreadable sizes.
   if (!cjk || isTitleLikeTextSlot(slot)) return schemaMax;
@@ -130,9 +147,8 @@ function bulletCountOverflowHint(
 
 /**
  * Build a concrete next-step hint when SLOT_OVERFLOW fires on a text-
- * block. Tries `prose` (1 column) first, then `prose` with columns: 2,
- * then recommends splitting the slide. All capacities are reported as
- * the *single* maxChars ceiling (already autoFit-aware).
+ * block. Long prose now belongs in `article-flow`, which paginates a
+ * single logical slide across multiple physical PPTX slides.
  */
 function nextLayoutForOverflow(
   currentLayout: string,
@@ -140,15 +156,11 @@ function nextLayoutForOverflow(
   cjk: boolean,
   currentMax: number,
 ): string {
-  const proseMax = effectiveBudget("prose", cjk);
-  const twoColProseMax = effectiveBudget("prose", cjk, { columns: "2" });
-  if (currentLayout !== "prose" && charCount <= proseMax) {
-    return `Switch layout to "prose" — capacity ~${proseMax} ${cjk ? "CJK" : "latin"} chars (vs current ${currentMax}).`;
+  const articleFlowMax = effectiveBudget("article-flow", cjk);
+  if (currentLayout !== "article-flow" && charCount <= articleFlowMax) {
+    return `Switch layout to "article-flow" — capacity ~${articleFlowMax} ${cjk ? "CJK" : "latin"} chars and auto-pagination (vs current ${currentMax}).`;
   }
-  if (charCount <= twoColProseMax) {
-    return `Switch layout to "prose" with columns: 2 — capacity ~${twoColProseMax} ${cjk ? "CJK" : "latin"} chars.`;
-  }
-  return `Content (${charCount} chars) exceeds even prose with columns: 2 (~${twoColProseMax}). Split this slot across multiple slides.`;
+  return `Content (${charCount} chars) exceeds article-flow max (~${articleFlowMax}). Split this source into separate logical article-flow slides or move full material to notes/appendix.`;
 }
 
 /** Validate a parsed deck against a loaded theme. Pure — no side effects. */
@@ -189,7 +201,9 @@ function validateSlide(
   out: SlidemlValidationError[],
   cjk: boolean,
 ): void {
-  const layout = theme.layouts.get(slide.layout);
+  const layoutName = canonicalLayoutName(slide.layout);
+  const slots = legacyLayoutSlots(slide.layout, slide.slots);
+  const layout = theme.layouts.get(layoutName);
   if (!layout) {
     out.push({
       code: "UNKNOWN_LAYOUT",
@@ -201,17 +215,17 @@ function validateSlide(
   }
 
   for (const [slotName, schema] of Object.entries(layout.slots)) {
-    const value = slide.slots[slotName];
-    const provided = slotName in slide.slots && value !== undefined && value !== null;
+    const value = slots[slotName];
+    const provided = slotName in slots && value !== undefined && value !== null;
 
     if (!provided) {
       if (!schema.optional) {
         out.push({
           code: "SLOT_REQUIRED",
           slideIndex: index,
-          layout: slide.layout,
+          layout: layoutName,
           slot: slotName,
-          message: `slides[${index}].slots.${slotName} is required by layout "${slide.layout}".`,
+          message: `slides[${index}].slots.${slotName} is required by layout "${layoutName}".`,
         });
       }
       continue;
@@ -220,32 +234,46 @@ function validateSlide(
     validateSlotValue(value, schema, {
       code: "",
       slideIndex: index,
-      layout: slide.layout,
+      layout: layoutName,
       slot: slotName,
       message: "",
-    }, out, theme, cjk, slide.slots);
+    }, out, theme, cjk, slots);
   }
 
   // Reject extra slots the layout doesn't declare.
-  for (const slotName of Object.keys(slide.slots)) {
+  for (const slotName of Object.keys(slots)) {
     if (!(slotName in layout.slots)) {
       out.push({
         code: "EXTRA_KEY",
         slideIndex: index,
-        layout: slide.layout,
+        layout: layoutName,
         slot: slotName,
-        message: `slides[${index}].slots.${slotName} is not declared by layout "${slide.layout}".`,
-        hint: extraKeyHint(slide.layout, slotName, Object.keys(layout.slots)),
+        message: `slides[${index}].slots.${slotName} is not declared by layout "${layoutName}".`,
+        hint: extraKeyHint(layoutName, slotName, Object.keys(layout.slots)),
       });
     }
   }
 
-  validateLayoutCrossSlotRules(slide, index, out);
+  validateLayoutCrossSlotRules({ ...slide, layout: layoutName, slots }, index, out);
 
   // (chart-with-takeaway misuse check removed: that layout was folded
   // into visual-with-caption with the polymorphic `visual` slot — agents
   // now pass any visual kind to the same layout, so the kind-mismatch
   // problem this hint guarded against no longer exists.)
+}
+
+function canonicalLayoutName(layout: string): string {
+  if (layout === "prose") return "article-flow";
+  if (layout === "q-and-a") return "question-list";
+  return layout;
+}
+
+function legacyLayoutSlots(layout: string, slots: Record<string, unknown>): Record<string, unknown> {
+  if (layout !== "prose") return slots;
+  return {
+    title: "",
+    ...slots,
+  };
 }
 
 function validateLayoutCrossSlotRules(
@@ -384,7 +412,7 @@ function validateSlotValue(
         out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} accepts string | string[] | Array<string | { kind: 'quote'|'note'|'callout'|'h2', text: string }>.` });
         return;
       }
-      // (DENSITY_OVERFLOW removed — there's no density slot anymore.
+      // (The old density-specific overflow check was removed — there's no density slot anymore.
       // The single maxChars ceiling below already accounts for autoFit
       // headroom; anything beyond that needs a layout switch / split.)
       // Visible-line ceiling — catches multi-paragraph or inline-list
@@ -396,14 +424,14 @@ function validateSlotValue(
           ...ctx,
           code: "SLOT_OVERFLOW",
           message: `${slotPath(ctx)} has ${visibleLines} visible lines, exceeds maxLines ${schema.maxLines} for layout "${ctx.layout}". Char count was ${total} (${cjk ? "CJK" : "Latin"}).`,
-          hint: `Trim to ≤${schema.maxLines} non-empty lines (collapse inline lists into prose, or split each ·/- bullet into its own paragraph and switch to a layout with a bullets slot — e.g. prose / executive-summary / key-point).`,
+          hint: `Trim to ≤${schema.maxLines} non-empty lines (collapse inline lists into prose, or split each ·/- bullet into its own paragraph and switch to a layout with a bullets slot — e.g. executive-summary / key-point).`,
         });
         return;
       }
       // Single maxChars ceiling — already includes autoFit headroom.
       // Anything past this WILL clip even after autoFit shrinks fonts,
       // so the only remedies are split-the-slide or pick a layout with
-      // more capacity (prose / prose+columns:2).
+      // more capacity (article-flow).
       const effectiveMax = schema.maxChars !== undefined
         ? Math.min(cjkAdjustedMax(schema.maxChars, cjk, ctx.slot), effectiveBudget(ctx.layout!, cjk, slideSlots))
         : undefined;
@@ -415,6 +443,11 @@ function validateSlotValue(
           hint: nextLayoutForOverflow(ctx.layout!, total, cjk, effectiveMax),
         });
       }
+      return;
+    }
+
+    case "article-blocks": {
+      validateArticleBlocks(value, schema.maxChars, ctx, out);
       return;
     }
 
@@ -813,6 +846,71 @@ function validateCellTextLength(
   }
 }
 
+function validateArticleBlocks(
+  value: unknown,
+  maxChars: number | undefined,
+  ctx: SlidemlValidationError,
+  out: SlidemlValidationError[],
+): void {
+  let total = 0;
+  const addText = (text: string, path: string): void => {
+    const len = [...text].length;
+    total += len;
+    if (len > 1800) {
+      out.push({
+        ...ctx,
+        code: "SLOT_OVERFLOW",
+        message: `${path} is ${len} chars. article-flow can split long text blocks, but very large single blocks reduce pagination quality.`,
+        hint: "Prefer splitting long article text into paragraph blocks so the renderer can paginate at natural boundaries.",
+      });
+    }
+  };
+  if (typeof value === "string") {
+    addText(value, slotPath(ctx));
+  } else if (Array.isArray(value)) {
+    value.forEach((item, i) => {
+      const path = `${slotPath(ctx)}[${i}]`;
+      if (typeof item === "string") {
+        addText(item, path);
+        return;
+      }
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${path} must be a string or ArticleBlock object.` });
+        return;
+      }
+      const o = item as Record<string, unknown>;
+      const type = o.type ?? o.kind;
+      if (type === "paragraph" || type === "heading" || type === "quote" || type === "note" || type === "code" || type === "h2" || type === "callout") {
+        if (typeof o.text !== "string") out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${path}.text must be a string.` });
+        else addText(o.text, `${path}.text`);
+      } else if (type === "list") {
+        if (!Array.isArray(o.items) || o.items.some((v) => typeof v !== "string")) {
+          out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${path}.items must be a string array.` });
+        } else {
+          o.items.forEach((v, j) => addText(v as string, `${path}.items[${j}]`));
+        }
+      } else if (type === "image") {
+        const hasImage = !!o.image || typeof o.src === "string" || typeof o.url === "string";
+        if (!hasImage) out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${path} image block requires image, src, or url.` });
+        if (o.caption !== undefined && typeof o.caption !== "string") out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${path}.caption must be a string.` });
+      } else {
+        out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${path}.type must be paragraph | heading | quote | note | code | h2 | callout | list | image.` });
+      }
+    });
+  } else {
+    out.push({ ...ctx, code: "SLOT_TYPE_MISMATCH", message: `${slotPath(ctx)} expected article-flow body (string or ArticleBlock[]), got ${typeOf(value)}.` });
+    return;
+  }
+  if (maxChars !== undefined && total > maxChars) {
+    out.push({
+      ...ctx,
+      code: "SLOT_OVERFLOW",
+      message: `${slotPath(ctx)} has ${total} text chars, exceeds article-flow maxChars ${maxChars}.`,
+      hint: "Split this article into separate logical article-flow slides or move full source material to notes/appendix.",
+    });
+  }
+}
+
 function validateRegionValue(v: Record<string, unknown>, ctx: SlidemlValidationError, out: SlidemlValidationError[]): void {
   const kind = v.kind;
   if (kind === "chart" && v.chart && typeof v.chart === "object" && !Array.isArray(v.chart)) {
@@ -827,7 +925,7 @@ function validateRegionValue(v: Record<string, unknown>, ctx: SlidemlValidationE
       ? [...body].length
       : Array.isArray(body) ? body.reduce((n, s) => n + (typeof s === "string" ? [...s].length : 0), 0) : 0;
     if (total > 420) {
-      out.push({ ...ctx, code: "SLOT_OVERFLOW", message: `${slotPath(ctx)} (kind="text").body is ${total} chars, exceeds region text capacity 420.`, hint: "Use a shorter region body, switch to prose, or split into multiple cells/slides." });
+      out.push({ ...ctx, code: "SLOT_OVERFLOW", message: `${slotPath(ctx)} (kind="text").body is ${total} chars, exceeds region text capacity 420.`, hint: "Use a shorter region body, switch to article-flow, or split into multiple cells/slides." });
     }
   }
   if (kind === "bullets" && Array.isArray(v.items)) {

@@ -15,6 +15,7 @@ import type { SlotSchema } from "../theme/types.js";
 import { PURPOSES } from "./_purposes.js";
 
 import agenda,             { slots as agendaSlots }            from "./agenda.js";
+import articleFlow,        { slots as articleFlowSlots }       from "./article-flow.js";
 import closing,            { slots as closingSlots }           from "./closing.js";
 import codeBlock,          { slots as codeBlockSlots }         from "./code-block.js";
 import compareTwoColumns,  { slots as compareTwoColumnsSlots } from "./compare-two-columns.js";
@@ -38,8 +39,7 @@ import matrix2x2,          { slots as matrix2x2Slots }         from "./matrix-2x
 import outline,            { slots as outlineSlots }           from "./outline.js";
 import pricingTable,       { slots as pricingTableSlots }      from "./pricing-table.js";
 import processFlow,        { slots as processFlowSlots }       from "./process-flow.js";
-import prose,              { slots as proseSlots }             from "./prose.js";
-import qAndA,              { slots as qAndASlots }             from "./q-and-a.js";
+import questionList,       { slots as questionListSlots }      from "./q-and-a.js";
 import quote,              { slots as quoteSlots }             from "./quote.js";
 import roadmap,            { slots as roadmapSlots }           from "./roadmap.js";
 import sectionDivider,     { slots as sectionDividerSlots }    from "./section-divider.js";
@@ -67,6 +67,7 @@ export interface RegisteredLayout {
 
 const ENTRIES: RegisteredLayout[] = [
   { name: "agenda",              slots: agendaSlots,              render: agenda },
+  { name: "article-flow",        slots: articleFlowSlots,         render: articleFlow },
   { name: "closing",             slots: closingSlots,             render: closing },
   { name: "code-block",          slots: codeBlockSlots,           render: codeBlock },
   { name: "compare-two-columns", slots: compareTwoColumnsSlots,   render: compareTwoColumns },
@@ -90,8 +91,7 @@ const ENTRIES: RegisteredLayout[] = [
   { name: "outline",             slots: outlineSlots,             render: outline },
   { name: "pricing-table",       slots: pricingTableSlots,        render: pricingTable },
   { name: "process-flow",        slots: processFlowSlots,         render: processFlow },
-  { name: "prose",               slots: proseSlots,               render: prose },
-  { name: "q-and-a",             slots: qAndASlots,               render: qAndA },
+  { name: "question-list",       slots: questionListSlots,        render: questionList },
   { name: "quote",               slots: quoteSlots,               render: quote },
   { name: "roadmap",             slots: roadmapSlots,             render: roadmap },
   { name: "section-divider",     slots: sectionDividerSlots,      render: sectionDivider },

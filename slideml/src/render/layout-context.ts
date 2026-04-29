@@ -480,5 +480,7 @@ function resolveFontFromToken(value: TokenValue | undefined, fallbackHint: FontH
   return primaryFontFace(fallbackHint);
 }
 
-/** A layout module's default export — the render function shape. */
-export type LayoutFn = (ctx: LayoutContext) => ShapeList;
+/** A layout module's default export — normal layouts return one page;
+ * flow layouts may return multiple physical pages for one logical slide. */
+export type LayoutResult = ShapeList | ShapeList[];
+export type LayoutFn = (ctx: LayoutContext) => LayoutResult;

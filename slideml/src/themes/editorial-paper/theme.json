@@ -233,6 +233,11 @@
       "thumbnail": "thumbnails/agenda.png"
     },
     {
+      "name": "article-flow",
+      "module": "layouts/article-flow.js",
+      "thumbnail": "thumbnails/prose.png"
+    },
+    {
       "name": "closing",
       "module": "layouts/closing.js",
       "thumbnail": "thumbnails/closing.png"
@@ -348,12 +353,7 @@
       "thumbnail": "thumbnails/process-flow.png"
     },
     {
-      "name": "prose",
-      "module": "layouts/prose.js",
-      "thumbnail": "thumbnails/prose.png"
-    },
-    {
-      "name": "q-and-a",
+      "name": "question-list",
       "module": "layouts/q-and-a.js",
       "thumbnail": "thumbnails/q-and-a.png"
     },

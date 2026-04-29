@@ -84,7 +84,7 @@ function paragraphXml(p: Paragraph, rels?: RunRels): string {
 
 /** `<a:pPr>` — paragraph properties (alignment, indent, bullets, spacing). */
 function paragraphPropsXml(p: Paragraph): string {
-  const algn = p.align === "center" ? "ctr" : p.align === "right" ? "r" : undefined;
+  const algn = p.align === "center" ? "ctr" : p.align === "right" ? "r" : p.align === "justify" ? "just" : undefined;
   const lvl = p.indentLevel && p.indentLevel > 0 ? p.indentLevel : undefined;
 
   const lnSpc = p.lineSpacingHalfPt

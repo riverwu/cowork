@@ -70,7 +70,7 @@ export interface Paragraph {
    *  a unicode bullet — DON'T; SlideML core uses `{ auto: true }` for
    *  layout-defined bullets. */
   bullet?: { auto: true } | { number: true };
-  align?: "left" | "center" | "right";
+  align?: "left" | "center" | "right" | "justify";
   /** Indent level (0-based). Bullets and indent both use this. */
   indentLevel?: number;
   /** Line spacing in HALF-POINTS, or undefined for layout default. */

@@ -41,6 +41,7 @@ describe("Stage 3 — theme loader", () => {
     const layoutNames = [...theme.layouts.keys()].sort();
     expect(layoutNames).toEqual([
       "agenda",
+      "article-flow",
       "closing",
       "code-block",
       "compare-two-columns",
@@ -64,8 +65,7 @@ describe("Stage 3 — theme loader", () => {
       "outline",
       "pricing-table",
       "process-flow",
-      "prose",
-      "q-and-a",
+      "question-list",
       "quote",
       "roadmap",
       "section-divider",
@@ -98,6 +98,32 @@ describe("Stage 3 — theme loader", () => {
 });
 
 describe("Stage 3 — renderDeck against technical-blue", () => {
+  it("expands article-flow logical slides into multiple physical slides", async () => {
+    const theme = await loadTheme(BUILT_THEME);
+    const paragraph = "这是一段用于测试自动分页的长篇阅读材料。".repeat(36);
+    const spec: DeckSpec = {
+      slideml: 1,
+      deck: { size: "16x9", language: "zh-CN", theme: "technical-blue" },
+      slides: [
+        {
+          layout: "article-flow",
+          slots: {
+            title: "示例文章",
+            subtitle: "阅读下面材料",
+            body: [
+              { type: "paragraph", text: paragraph },
+              { type: "quote", text: "关键句也要保留样式并参与分页。" },
+              { type: "paragraph", text: paragraph },
+            ],
+          },
+        },
+      ],
+    };
+    const ast = renderDeck(spec, theme);
+    expect(ast.slides.length).toBeGreaterThan(1);
+    expect(ast.slides[0]?.shapes.length).toBeGreaterThan(0);
+  });
+
   it("renders a 6-slide deck that exercises every layout", async () => {
     const theme = await loadTheme(BUILT_THEME);
     const spec: DeckSpec = {

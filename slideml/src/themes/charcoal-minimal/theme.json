@@ -102,7 +102,7 @@
       ]
     },
     "surface": {
-      "cornerRadius": 0.0,
+      "cornerRadius": 0,
       "elevation": "flat",
       "accentStripe": {
         "position": "none",
@@ -208,6 +208,11 @@
       "name": "agenda",
       "module": "layouts/agenda.js",
       "thumbnail": "thumbnails/agenda.png"
+    },
+    {
+      "name": "article-flow",
+      "module": "layouts/article-flow.js",
+      "thumbnail": "thumbnails/prose.png"
     },
     {
       "name": "closing",
@@ -325,12 +330,7 @@
       "thumbnail": "thumbnails/process-flow.png"
     },
     {
-      "name": "prose",
-      "module": "layouts/prose.js",
-      "thumbnail": "thumbnails/prose.png"
-    },
-    {
-      "name": "q-and-a",
+      "name": "question-list",
       "module": "layouts/q-and-a.js",
       "thumbnail": "thumbnails/q-and-a.png"
     },

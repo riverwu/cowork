@@ -10,8 +10,8 @@
  * SLOT_OVERFLOW telling it to split the slide or pick a denser layout.
  *
  * Budget numbers are calibrated for a half-slide column at 16:9 / 25.4cm
- * × 14.3cm. A full-slide single-column layout (e.g. `prose`) effectively
- * has ~1.5× the budget; `prose` with `columns: 2` has ~3×.
+ * × 14.3cm. Long-form content should use `article-flow`, which paginates
+ * a logical source article across physical slides.
  */
 
 export type Density = "loose" | "normal" | "dense" | "micro";
@@ -82,7 +82,7 @@ export const AUTOFIT_HEADROOM = 1.4;
  * Single MAX char budget for a half-slide column.
  *   half-column max = densest preset budget × autoFit headroom
  * Latin gets ~1000, CJK gets ~630 per half-column. Layouts apply their
- * own multiplier on top (prose × 1.5, prose+columns:2 × 3.0).
+ * own multiplier on top.
  */
 export function maxCharBudget(cjk: boolean): number {
   const base = cjk ? DENSITY[RENDER_DEFAULT].cjkBudget : DENSITY[RENDER_DEFAULT].latinBudget;

@@ -389,6 +389,7 @@ export interface LoadedTheme {
 export type SlotSchema =
   | { type: "text"; maxChars: number; optional?: boolean }
   | { type: "text-block"; maxChars: number; maxLines?: number; optional?: boolean }
+  | { type: "article-blocks"; maxChars?: number; optional?: boolean }
   | { type: "markdown-inline"; maxChars: number; optional?: boolean }
   | { type: "bullets"; min: number; max: number; itemMaxChars: number; optional?: boolean }
   | { type: "image-ref"; optional?: boolean }

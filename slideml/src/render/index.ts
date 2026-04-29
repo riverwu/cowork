@@ -10,7 +10,7 @@ import { applyChrome } from "./chrome.js";
 import { buildLayoutContext, type LayoutFn } from "./layout-context.js";
 import { SLIDE_SIZES } from "../units.js";
 import type { LoadedTheme } from "../theme/types.js";
-import type { DeckAst, SlideAst, SlideBackground } from "../emitter/types.js";
+import type { DeckAst, SlideAst, SlideBackground, ShapeList } from "../emitter/types.js";
 
 /** A pre-validation deck spec. The parser produces this shape. */
 export interface DeckSpec {
@@ -132,8 +132,17 @@ export function renderDeck(spec: DeckSpec, theme: LoadedTheme): DeckAst {
     sectionNames.push(currentSection);
   }
 
-  const slides: SlideAst[] = spec.slides.map((slideSpec, i) =>
-    renderSlide(slideSpec, theme, dims, i, spec.slides.length, language, deckHeader, deckFooter, deckBackground, sectionNames[i]),
+  const pending: Array<{ spec: SlideSpec; sectionName: string | undefined; shapes: ShapeList }> = [];
+  for (let i = 0; i < spec.slides.length; i++) {
+    const slideSpec = spec.slides[i]!;
+    const rendered = renderSlideLayouts(slideSpec, theme, dims, language);
+    for (const shapes of rendered) {
+      pending.push({ spec: slideSpec, sectionName: sectionNames[i], shapes });
+    }
+  }
+
+  const slides: SlideAst[] = pending.map((page, i) =>
+    applySlideChrome(page.spec, page.shapes, theme, dims, i, pending.length, language, deckHeader, deckFooter, deckBackground, page.sectionName),
   );
 
   return {
@@ -144,19 +153,15 @@ export function renderDeck(spec: DeckSpec, theme: LoadedTheme): DeckAst {
   };
 }
 
-function renderSlide(
+function renderSlideLayouts(
   spec: SlideSpec,
   theme: LoadedTheme,
   deck: { width: number; height: number },
-  index: number,
-  total: number,
   language: string,
-  deckHeader: BandSpec | undefined,
-  deckFooter: BandSpec | undefined,
-  deckBackground: BackgroundSpec | undefined,
-  sectionName: string | undefined,
-): SlideAst {
-  const loaded = theme.layouts.get(spec.layout);
+): ShapeList[] {
+  const layoutName = canonicalLayoutName(spec.layout);
+  const slots = legacyLayoutSlots(spec.layout, spec.slots);
+  const loaded = theme.layouts.get(layoutName);
   if (!loaded) {
     throw new Error(
       `renderSlide: layout "${spec.layout}" not found in theme "${theme.manifest.name}". ` +
@@ -167,14 +172,47 @@ function renderSlide(
   const ctx = buildLayoutContext({
     theme,
     deck,
-    slots: spec.slots,
+    slots,
     language,
     startId: 2,
   });
 
   const layoutFn = loaded.render as LayoutFn;
-  const layoutShapes = layoutFn(ctx);
+  const layoutResult = layoutFn(ctx);
+  return isShapePages(layoutResult) ? layoutResult : [layoutResult];
+}
 
+function canonicalLayoutName(layout: string): string {
+  if (layout === "prose") return "article-flow";
+  if (layout === "q-and-a") return "question-list";
+  return layout;
+}
+
+function legacyLayoutSlots(layout: string, slots: Record<string, unknown>): Record<string, unknown> {
+  if (layout !== "prose") return slots;
+  return {
+    title: "",
+    ...slots,
+  };
+}
+
+function isShapePages(value: ShapeList | ShapeList[]): value is ShapeList[] {
+  return Array.isArray(value[0]);
+}
+
+function applySlideChrome(
+  spec: SlideSpec,
+  layoutShapes: ShapeList,
+  theme: LoadedTheme,
+  deck: { width: number; height: number },
+  index: number,
+  total: number,
+  language: string,
+  deckHeader: BandSpec | undefined,
+  deckFooter: BandSpec | undefined,
+  deckBackground: BackgroundSpec | undefined,
+  sectionName: string | undefined,
+): SlideAst {
   // Compute the next id chrome should start from (max existing + 1).
   let maxId = 1;
   for (const s of layoutShapes) if (s.id > maxId) maxId = s.id;

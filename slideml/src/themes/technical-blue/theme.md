@@ -18,7 +18,7 @@ post-mortems, market analyses, and quarterly reviews.
 
 A 7-line decision tree. Scan top-to-bottom; first match wins.
 
-1. **Long text (>500 CJK / 800 latin chars)?** → `prose` or `two-column-prose`.
+1. **Long text (>500 CJK / 800 latin chars)?** → `article-flow`.
 2. **Image is the point?** → `visual-with-caption` (editorial) / `image-full-bleed` (cinematic) / `image-pair` (before/after).
 3. **Image + supporting text?** → `visual-with-text` (visual + sibling text column; imageStyle: card or bleed). Pick `density` matching content length.
 4. **Data?** → `chart-with-takeaway` (1 chart) / `data-table` (table) / `stat-grid-3` (3 KPIs) / `dashboard` (4 mixed).
@@ -26,7 +26,7 @@ A 7-line decision tree. Scan top-to-bottom; first match wins.
 6. **Side-by-side comparison?** → `compare-two-columns` / `split-2` (heterogeneous, with `ratio`).
 7. **Nothing fits?** → `freeform` (last resort).
 
-When text overflows the layout's density budget, the validator emits `DENSITY_OVERFLOW` with concrete next-step suggestions (try denser preset / switch to prose).
+When text exceeds a layout text budget, the validator emits `SLOT_OVERFLOW` with a concrete suggestion to switch to `article-flow` or split content.
 
 ## Layout reference
 
@@ -230,19 +230,19 @@ Escape-hatch layout — pass a `shapes` array of typed primitives with positions
 
 ![freeform](thumbnails/freeform.png)
 
-### prose
-Single-column long-form text. Title + optional subtitle + multi-paragraph
-body. Body accepts typed paragraphs `{ kind: "quote"|"note"|"callout"|"h2", text }`
-mixed with plain strings. Use for memo-style slides, white-paper internal
-pages, board minutes, essays.
+### article-flow
+Logical long article / reading passage. One SlideML logical slide expands to as many PPTX slides as needed. Use for source articles, reading materials, long essays, transcripts, or rich text that must remain editable as one unit.
 
-- `title` — `text`, ≤ 80 chars. Optional.
-- `subtitle` — `text`, ≤ 120 chars. Optional.
-- `body` — `text-block`, ≤ 1600 chars. Required.
+- `title` — `text`, ≤ 64 chars. Required.
+- `subtitle` — `text`, ≤ 96 chars. Optional.
+- `body` — `article-blocks`. Required. Accepts a string or blocks: paragraph, heading, quote, note, code, list, image. Text blocks can split across rendered pages.
+- `columns` — `auto|1|2`. Optional, default `auto`. Auto chooses 2 columns for long passages.
+- `mode` — `passage|essay|handout`. Optional, default `passage`.
+- `pageMarker` — `auto|none`. Optional, default `auto`.
 
-> **Guidance:** Keep paragraphs ≤ 4 lines each. If you have > 800 chars and want denser layout, switch to `two-column-prose`.
+> **Guidance:** Use this for full source articles or reading passages. Keep the entire article in one logical slide; the renderer paginates into multiple PPTX slides and keeps continuation markers.
 
-![prose](thumbnails/prose.png)
+![article-flow](thumbnails/prose.png)
 
 ### executive-summary
 TL;DR clipboard for report front-pages. Title + 3–6 numbered entries,
@@ -253,13 +253,14 @@ each `{ heading, line }`. Quieter than `key-point` (no icons, left-aligned).
 
 ![executive-summary](thumbnails/executive-summary.png)
 
-### q-and-a
-FAQ / Q&A list. Each pair: bold question + indented answer.
+### question-list
+Question/prompt list. 1–5 items with optional response/detail. Default labels: none. Use for exam questions, answer-choice blocks, review prompts, or FAQ entries.
 
-- `title` — `text`, ≤ 60 chars. Optional.
-- `items` — `bullets`, 1–5 entries. Each `{ q | question, a | answer? }`.
+- `title` — `text`, ≤ 42 chars. Optional.
+- `labels` — `none|qa`. Optional, default `none`; use `qa` only for FAQ pages that need Q./A. markers.
+- `items` — `bullets`, 1–5 entries. Each `{ label?, detail?, response? }` for exam items, or `{ q | question, a | answer? }` for FAQ-style pairs.
 
-![q-and-a](thumbnails/q-and-a.png)
+![question-list](thumbnails/q-and-a.png)
 
 ### definition
 Single-term dictionary page. Big term + optional pronunciation +

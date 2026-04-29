@@ -17,7 +17,7 @@ export const slots: Record<string, SlotSchema> = {
   // lines either way. Char cap and line cap are BOTH needed — the deck
   // that exposed this bug had 218 CJK chars (under the char cap) but 8
   // visible lines (over the line cap), and overflowed the page bottom.
-  // For longer bodies switch to `prose` (full single-column).
+  // For longer bodies switch to `article-flow`.
   body:       { type: "text-block", maxChars: 126, maxLines: 5 },
   example:    { type: "text-block", maxChars: 84, maxLines: 3, optional: true },
 };

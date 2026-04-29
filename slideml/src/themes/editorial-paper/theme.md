@@ -22,7 +22,7 @@ considered, literary, paced.
 
 A 7-line decision tree. Scan top-to-bottom; first match wins.
 
-1. **Long text (>500 CJK / 800 latin chars)?** → `prose` or `two-column-prose`.
+1. **Long text (>500 CJK / 800 latin chars)?** → `article-flow`.
 2. **Image is the point?** → `visual-with-caption` (editorial) / `image-full-bleed` (cinematic) / `image-pair` (before/after).
 3. **Image + supporting text?** → `visual-with-text` (visual + sibling text column; imageStyle: card or bleed). Pick `density` matching content length.
 4. **Data?** → `chart-with-takeaway` (1 chart) / `data-table` (table) / `stat-grid-3` (3 KPIs) / `dashboard` (4 mixed).
@@ -30,7 +30,7 @@ A 7-line decision tree. Scan top-to-bottom; first match wins.
 6. **Side-by-side comparison?** → `compare-two-columns` / `split-2` (heterogeneous, with `ratio`).
 7. **Nothing fits?** → `freeform` (last resort).
 
-When text overflows the layout's density budget, the validator emits `DENSITY_OVERFLOW` with concrete next-step suggestions (try denser preset / switch to prose).
+When text exceeds a layout text budget, the validator emits `SLOT_OVERFLOW` with a concrete suggestion to switch to `article-flow` or split content.
 
 ## Layout reference
 
@@ -182,14 +182,19 @@ Headline + 2–4 supporting points with icons.
 
 ![pricing-table](thumbnails/pricing-table.png)
 
-### prose
-Single-column long-form text — the *signature* layout for this theme.
+### article-flow
+Logical long article / reading passage. One SlideML logical slide expands to as many PPTX slides as needed. Use for source articles, reading materials, long essays, transcripts, or rich text that must remain editable as one unit.
 
-- `title` — `text`, ≤ 80. Optional.
-- `subtitle` — `text`, ≤ 120. Optional.
-- `body` — `text-block`, ≤ 1600. Required. Supports typed paragraphs `{ kind: "quote"|"note"|"callout"|"h2", text }`.
+- `title` — `text`, ≤ 64 chars. Required.
+- `subtitle` — `text`, ≤ 96 chars. Optional.
+- `body` — `article-blocks`. Required. Accepts a string or blocks: paragraph, heading, quote, note, code, list, image. Text blocks can split across rendered pages.
+- `columns` — `auto|1|2`. Optional, default `auto`. Auto chooses 2 columns for long passages.
+- `mode` — `passage|essay|handout`. Optional, default `passage`.
+- `pageMarker` — `auto|none`. Optional, default `auto`.
 
-![prose](thumbnails/prose.png)
+> **Guidance:** Use this for full source articles or reading passages. Keep the entire article in one logical slide; the renderer paginates into multiple PPTX slides and keeps continuation markers.
+
+![article-flow](thumbnails/prose.png)
 
 ### executive-summary
 Numbered TL;DR for essay front-pages.
@@ -199,13 +204,14 @@ Numbered TL;DR for essay front-pages.
 
 ![executive-summary](thumbnails/executive-summary.png)
 
-### q-and-a
-1–5 question + answer pairs.
+### question-list
+Question/prompt list. 1–5 items with optional response/detail. Default labels: none. Use for exam questions, answer-choice blocks, review prompts, or FAQ entries.
 
-- `title` — `text`, ≤ 60. Optional.
-- `items` — `bullets`, 1–5 entries. Each `{ q, a? }`.
+- `title` — `text`, ≤ 42 chars. Optional.
+- `labels` — `none|qa`. Optional, default `none`; use `qa` only for FAQ pages that need Q./A. markers.
+- `items` — `bullets`, 1–5 entries. Each `{ label?, detail?, response? }` for exam items, or `{ q | question, a | answer? }` for FAQ-style pairs.
 
-![q-and-a](thumbnails/q-and-a.png)
+![question-list](thumbnails/q-and-a.png)
 
 ### definition
 Single-term editorial dictionary page.

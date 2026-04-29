@@ -24,9 +24,9 @@ export const PURPOSES: Record<string, string> = {
   "outline":             "Multi-level ToC with nested sub-items (book/syllabus).",
 
   // ── Pure text ────────────────────────────────────────────────────────
-  "prose":               "Long-form body. columns: 1 (default, generous margins) | 2 (magazine flow). Density-aware budgets.",
+  "article-flow":        "Long-form prose/article/reading passage. Auto-paginates into PPTX slides; rich blocks, images, 1/2-col.",
   "executive-summary":   "TL;DR clipboard: 2–6 numbered { heading, line }. Quieter than key-point.",
-  "q-and-a":             "FAQ list. 1–5 question + answer pairs.",
+  "question-list":       "Prompt/question list. 1–5 items; accepts label/detail/response for exam items or q/a pairs; labels none|qa.",
   "definition":          "Single-term page: term + pronunciation + body + example.",
   "glossary":            "Two-column term + definition list. 3–12 entries.",
   "letter":              "Open-letter format: date, recipient, body, signoff, signature.",

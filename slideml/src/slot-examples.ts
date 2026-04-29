@@ -90,6 +90,14 @@ export function exampleForSlot(
         // Legacy untagged image-ref / chart-spec / table also work.
       };
 
+    case "article-blocks":
+      return [
+        { type: "paragraph", text: "第一段正文，支持 **bold**、*italic*、`code` 和 {highlight:重点}。" },
+        { type: "quote", text: "文中的关键句可以作为引用块。" },
+        { type: "image", src: "/absolute/path/image.png", caption: "可选图注", fit: "contain" },
+        { type: "list", items: ["第一点", "第二点"] },
+      ];
+
     case "bullets":
       // Heuristic by slot name:
       //   - "items" with small itemMaxChars → KPI tiles (stat-grid-3)
@@ -120,6 +128,16 @@ export function exampleForSlot(
           "Detect — describe the trigger",
           { title: "Triage", description: "1-line elaboration if needed" },
           "Mitigate — short verb phrase",
+        ];
+      }
+      if (slotName === "items" && schema.max === 5 && schema.itemMaxChars >= 280) {
+        return [
+          {
+            label: "Q1 Vocabulary in Context",
+            detail: "The word \"palatable\" is closest in meaning to:\nA) nutritious   B) pleasant to eat   C) easy to grow   D) high in protein",
+            response: "Correct answer: B\npalatable = pleasant to eat.",
+          },
+          { q: "What is the author's main point?", a: "A concise answer or explanation." },
         ];
       }
       return [

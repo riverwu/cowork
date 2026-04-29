@@ -25,27 +25,26 @@ interface Term {
 const glossary: LayoutFn = (ctx: LayoutContext): ShapeList => {
   const out: ShapeList = [];
   const title = ctx.slot<string>("title");
-  const terms = (ctx.slot<unknown[]>("terms") ?? []) as Array<Term | string>;
+  const terms = ((ctx.slot<unknown[]>("terms") ?? []) as Array<Term | string>)
+    .map(normalizeTerm)
+    .filter((t) => t.term || t.definition);
   const fontFace = ctx.cjk ? ctx.font("cjk") : ctx.font("latin");
   const monoFont = ctx.font("mono");
   const resolveChipColor = chipColorResolver(ctx);
 
   if (title) out.push(...slideTitle(ctx, title));
 
-  const top = title ? ctx.cm(4.4) : ctx.cm(2);
-  const body = contentRect(ctx, { top, marginX: ctx.cm(2.4), bottom: ctx.cm(1.6) });
+  const top = title ? ctx.cm(2.65) : ctx.cm(1.6);
+  const body = contentRect(ctx, { top, marginX: ctx.cm(2.4), bottom: ctx.cm(1.35) });
   // Two-column layout: 35% / 65%, narrow gutter.
   const termColW = Math.floor(body.width * 0.32);
   const defColX = body.x + termColW + ctx.cm(0.6);
   const defColW = body.width - termColW - ctx.cm(0.6);
 
-  const rowGap = ctx.cm(0.25);
+  const rowGap = ctx.cm(0.18);
   const rowH = Math.floor((body.height - rowGap * (terms.length - 1)) / Math.max(1, terms.length));
 
-  terms.forEach((raw, idx) => {
-    const t: Term = typeof raw === "string" ? { term: raw } : raw;
-    const term = t.term ?? t.word ?? "";
-    const definition = t.definition ?? t.meaning ?? "";
+  terms.forEach(({ term, definition }, idx) => {
     const y = body.y + idx * (rowH + rowGap);
 
     // Hairline divider above each row except the first.
@@ -64,11 +63,13 @@ const glossary: LayoutFn = (ctx: LayoutContext): ShapeList => {
       id: ctx.id(),
       xfrm: { x: body.x, y, cx: termColW, cy: rowH },
       valign: "middle",
+      autoFit: "shrink",
+      margin: { l: ctx.cm(0.06), t: ctx.cm(0.03), r: ctx.cm(0.06), b: ctx.cm(0.03) },
       paragraphs: [{
         align: "left",
         runs: [{
           text: term,
-          sizeHalfPt: 22,
+          sizeHalfPt: terms.length > 9 ? 19 : 20,
           color: ctx.color("brand-primary"),
           bold: true,
           cjk: ctx.cjk,
@@ -83,11 +84,12 @@ const glossary: LayoutFn = (ctx: LayoutContext): ShapeList => {
       xfrm: { x: defColX, y, cx: defColW, cy: rowH },
       valign: "middle",
       autoFit: "shrink",
+      margin: { l: ctx.cm(0.06), t: ctx.cm(0.03), r: ctx.cm(0.06), b: ctx.cm(0.03) },
       paragraphs: [{
         align: "left",
-        lineSpacingHalfPt: 44,
+        lineSpacingHalfPt: terms.length > 9 ? 34 : 38,
         runs: parseInline(definition, {
-          sizeHalfPt: 18,
+          sizeHalfPt: 16,
           color: ctx.color("text-strong"),
           fontFace,
           monoFont,
@@ -102,3 +104,21 @@ const glossary: LayoutFn = (ctx: LayoutContext): ShapeList => {
 };
 
 export default glossary;
+
+function normalizeTerm(raw: Term | string): { term: string; definition: string } {
+  if (typeof raw !== "string") {
+    return {
+      term: raw.term ?? raw.word ?? "",
+      definition: raw.definition ?? raw.meaning ?? "",
+    };
+  }
+
+  const text = raw.trim();
+  const match = text.match(/^(.+?)\s+(?:—|–|-|:)\s+(.+)$/u);
+  if (!match) return { term: text, definition: "" };
+
+  return {
+    term: match[1]?.trim() ?? text,
+    definition: match[2]?.trim() ?? "",
+  };
+}

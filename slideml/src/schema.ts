@@ -825,6 +825,50 @@ export function buildSlidemlSchema(): Record<string, unknown> {
         ],
       },
 
+      ArticleBlock: {
+        description: "Block model for article-flow. Text blocks can split across rendered pages; images are atomic blocks with optional captions.",
+        oneOf: [
+          { type: "string" },
+          {
+            type: "object",
+            required: ["text"],
+            additionalProperties: false,
+            properties: {
+              type: { enum: ["paragraph", "heading", "quote", "note", "code", "h2", "callout"] },
+              kind: { enum: ["paragraph", "heading", "quote", "note", "code", "h2", "callout"] },
+              text: { type: "string" },
+              language: { type: "string" },
+            },
+            anyOf: [{ required: ["type"] }, { required: ["kind"] }],
+          },
+          {
+            type: "object",
+            required: ["type", "items"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "list" },
+              items: { type: "array", minItems: 1, items: { type: "string" } },
+            },
+          },
+          {
+            type: "object",
+            required: ["type"],
+            additionalProperties: false,
+            properties: {
+              type: { const: "image" },
+              image: { $ref: "#/$defs/ImageRef" },
+              src: { type: "string" },
+              url: { type: "string" },
+              alt: { type: "string" },
+              caption: { type: "string" },
+              heightCm: { type: "number", minimum: 1, maximum: 10 },
+              fit: { enum: ["contain", "cover", "fill"] },
+            },
+            anyOf: [{ required: ["image"] }, { required: ["src"] }, { required: ["url"] }],
+          },
+        ],
+      },
+
       InlineMarkdown: {
         description:
           "SlideML inline-markdown vocabulary (used by every text/text-block/markdown-inline slot, every bullet, " +
@@ -917,6 +961,21 @@ function slotSchemaFragment(layoutName: string, slotName: string, schema: SlotSc
                 },
               ],
             },
+          },
+        ],
+      };
+    case "article-blocks":
+      return {
+        description:
+          `Article flow body. Accepts a string shorthand or an array of ArticleBlock objects: ` +
+          `paragraph, heading, quote, note, code, list, image. The renderer paginates this logical slide ` +
+          `into multiple PPTX slides when needed, preserving rich inline markdown in text blocks. ` +
+          PARAGRAPH_AUTHORING_RULE + " " + YAML_QUOTING_RULE,
+        oneOf: [
+          { type: "string", ...(schema.maxChars ? { maxLength: schema.maxChars } : {}) },
+          {
+            type: "array",
+            items: { $ref: "#/$defs/ArticleBlock" },
           },
         ],
       };
@@ -1015,15 +1074,18 @@ function bulletsItemSchema(layoutName: string, slotName: string, schema: { itemM
     };
   }
 
-  if (layoutName === "q-and-a") {
+  if (layoutName === "question-list") {
     return {
       oneOf: [
         textProp,
         {
           type: "object",
           additionalProperties: false,
-          properties: optionalTextFields(["q", "question", "a", "answer"]),
-          anyOf: [{ required: ["q"] }, { required: ["question"] }],
+          properties: optionalTextFields(["q", "question", "prompt", "label", "detail", "a", "answer", "response", "explanation"]),
+          anyOf: [
+            { required: ["q"] }, { required: ["question"] }, { required: ["prompt"] },
+            { required: ["label"] }, { required: ["detail"] },
+          ],
         },
       ],
     };
