@@ -5,8 +5,8 @@ import { CommandBar } from "@/components/chat/command-bar";
 import { MessageList } from "@/components/chat/message-list";
 import { ViewContainer } from "@/components/views/view-container";
 import { useSessionStore } from "@/stores/session-store";
-import { isMeaningfulProducedFilePath, outputsFromArtifacts, outputsFromSteps, outputsFromText, type ProducedOutput, type StepLike } from "@/lib/outputs";
-import { openPath } from "@/lib/tauri";
+import { isMeaningfulProducedFilePath, outputsFromArtifacts, outputsFromSteps, type ProducedOutput, type StepLike } from "@/lib/outputs";
+import { openPath, revealInFolder } from "@/lib/tauri";
 import {
   IconClock, IconChart, IconTaskList, IconMail, IconTrend,
   IconFolder, IconPlus, IconPlay, IconDocument, FileTypeIcon,
@@ -96,7 +96,6 @@ export function Home() {
             {/* Conversation history */}
             {hasConversation && (
               <div className="pb-4 space-y-4">
-                {longTask && <LongTaskPanel task={longTask} />}
                 <MessageList
                   messages={messages}
                   isStreaming={isStreaming}
@@ -130,7 +129,8 @@ export function Home() {
 
         {/* Command Bar — always at bottom */}
         <div className="px-8 lg:px-10 pb-5 pt-2">
-          <div className="max-w-3xl mx-auto">
+          <div className="max-w-3xl mx-auto space-y-2">
+            {isStreaming && longTask && <TaskProgressDock task={longTask} />}
             <CommandBar />
           </div>
         </div>
@@ -204,88 +204,67 @@ function IconCopy({ size = 14 }: { size?: number }) {
 }
 
 type LongTaskView = NonNullable<ReturnType<typeof useSessionStore.getState>["longTask"]>;
+type PhaseStatus = "pending" | "running" | "done" | "failed";
 
-function LongTaskPanel({ task }: { task: LongTaskView }) {
-  const planPhase = task.phases.find((p) => p.phase === "plan");
-  const nonPlanPhases = task.phases.filter((p) => p.phase !== "plan");
-  const current = [...nonPlanPhases].reverse().find((p) => p.status === "running")
-    || [...nonPlanPhases].reverse()[0]
-    || planPhase;
-  const allOutputs = task.phases.flatMap((p) => p.outputs);
+function TaskProgressDock({ task }: { task: LongTaskView }) {
+  const items = buildTaskItems(task);
+  if (items.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-lowest)] shadow-[var(--shadow-sm)] overflow-hidden">
-      <div className="px-3 py-2 border-b border-[var(--border)] bg-[var(--surface-low)]">
-        <div className="flex items-center gap-2">
-          <IconClock size={13} className="text-[var(--primary-accent)]" />
-          <span className="text-[12px] font-semibold text-[var(--on-surface)]">长任务执行</span>
-          <span className="ml-auto text-[10px] text-[var(--on-surface-tertiary)]">{task.runId}</span>
-        </div>
-        <div className="mt-1 text-[11px] text-[var(--on-surface-tertiary)] truncate" title={task.workspaceDir}>
-          工作目录：{task.workspaceDir}
-        </div>
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface-lowest)] shadow-[var(--shadow-sm)] px-3 py-2">
+      <div className="flex items-center gap-2 mb-1.5">
+        <IconTaskList size={13} className="text-[var(--primary-accent)]" />
+        <span className="text-[12px] font-semibold text-[var(--on-surface)]">执行进度</span>
+        <span className="ml-auto text-[10px] text-[var(--on-surface-tertiary)]">{summarizeTaskProgress(items)}</span>
       </div>
-      <div className="p-3 space-y-2.5">
-        {planPhase && (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-low)] px-3 py-2">
-            <div className="flex items-center gap-2 mb-1">
-              <StatusCheckbox status={planPhase.status} />
-              <span className="text-[12px] font-semibold text-[var(--on-surface)]">计划</span>
-            </div>
-            <PlanSummary summary={planPhase.summary} />
+      <div className="space-y-1">
+        {items.map((item) => (
+          <div key={item.key} className={`flex items-start gap-2 rounded-lg px-1.5 py-1 ${item.status === "running" ? "bg-[var(--surface-low)]" : ""}`}>
+            <span className="mt-[2px]"><StatusCheckbox status={item.status} size={13} /></span>
+            <span className={`flex-1 min-w-0 text-[12px] leading-relaxed break-words ${item.status === "done" ? "text-[var(--on-surface-tertiary)]" : "text-[var(--on-surface-secondary)]"}`}>
+              {item.title}
+            </span>
+            {item.status === "running" && <span className="mt-0.5 shrink-0 text-[10px] text-[var(--error)]">进行中</span>}
           </div>
-        )}
-        {current && current !== planPhase && (
-          <div className="rounded-lg bg-[var(--surface-low)] px-3 py-2">
-            <div className="flex items-center gap-2">
-              <StatusCheckbox status={current.status} />
-              <span className="text-[12px] font-medium text-[var(--on-surface)]">{formatPhase(current.phase)}</span>
-            </div>
-            <p className="mt-1 text-[12px] text-[var(--on-surface-secondary)] leading-relaxed whitespace-pre-wrap break-words">{current.summary}</p>
-          </div>
-        )}
-        {nonPlanPhases.length > 0 && (
-          <div className="space-y-1.5">
-            {nonPlanPhases.map((phase) => (
-              <div key={phase.phase} className="flex items-start gap-2 text-[12px] px-1 py-0.5">
-                <StatusCheckbox status={phase.status} />
-                <span className="w-24 shrink-0 truncate text-[var(--on-surface-secondary)]">{formatPhase(phase.phase)}</span>
-                <span className="flex-1 text-[var(--on-surface-tertiary)] whitespace-pre-wrap break-words leading-relaxed">{phase.summary}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {allOutputs.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {allOutputs.map((output, index) => (
-              output.path ? (
-                <button
-                  key={`${output.path}-${index}`}
-                  onClick={() => openPath(output.path!)}
-                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-container)] text-[11px] text-[var(--on-surface-secondary)] hover:text-[var(--primary-accent)] cursor-pointer"
-                >
-                  <FileTypeIcon filename={output.title} path={output.path} size={20} /> {output.title}
-                </button>
-              ) : (
-                <span key={`${output.title}-${index}`} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-container)] text-[11px] text-[var(--on-surface-secondary)]">
-                  <IconDocument size={11} /> {output.title}
-                </span>
-              )
-            ))}
-          </div>
-        )}
+        ))}
       </div>
     </div>
   );
 }
 
-type PhaseStatus = "pending" | "running" | "done" | "failed";
+function buildTaskItems(task: LongTaskView): { key: string; title: string; status: PhaseStatus }[] {
+  if (task.planSteps && task.planSteps.length > 0) {
+    return task.planSteps.map((step, index) => ({
+      key: `plan-step-${index}`,
+      title: step.title,
+      status: step.status,
+    }));
+  }
+
+  const nonPlan = task.phases.filter((phase) => phase.phase !== "plan");
+  if (nonPlan.length > 0) {
+    return nonPlan.map((phase) => ({
+      key: phase.phase,
+      title: phase.summary.trim() || formatPhase(phase.phase),
+      status: phase.status,
+    }));
+  }
+
+  const plan = task.phases.find((phase) => phase.phase === "plan");
+  return plan
+    ? [{ key: "plan", title: plan.summary.trim() || "制定执行计划", status: plan.status }]
+    : [];
+}
+
+function summarizeTaskProgress(items: { status: PhaseStatus }[]): string {
+  const done = items.filter((item) => item.status === "done").length;
+  return `${done}/${items.length}`;
+}
 
 function StatusCheckbox({ status, size = 14 }: { status: PhaseStatus; size?: number }) {
   const title = status === "done" ? "完成" : status === "failed" ? "失败" : status === "running" ? "进行中" : "等待";
   const stroke = "1.6";
   if (status === "done") {
-    // ✅ green filled box with white check
     return (
       <svg width={size} height={size} viewBox="0 0 16 16" className="shrink-0" aria-label={title}>
         <rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="var(--success)" />
@@ -294,7 +273,6 @@ function StatusCheckbox({ status, size = 14 }: { status: PhaseStatus; size?: num
     );
   }
   if (status === "running") {
-    // 红色实心 checkbox（with subtle pulse）
     return (
       <svg width={size} height={size} viewBox="0 0 16 16" className="shrink-0 animate-pulse" aria-label={title}>
         <rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="var(--error)" />
@@ -302,7 +280,6 @@ function StatusCheckbox({ status, size = 14 }: { status: PhaseStatus; size?: num
     );
   }
   if (status === "failed") {
-    // 红色 X
     return (
       <svg width={size} height={size} viewBox="0 0 16 16" className="shrink-0" aria-label={title}>
         <rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="none" stroke="var(--error)" strokeWidth={stroke} />
@@ -310,7 +287,6 @@ function StatusCheckbox({ status, size = 14 }: { status: PhaseStatus; size?: num
       </svg>
     );
   }
-  // pending — empty checkbox
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" className="shrink-0" aria-label={title}>
       <rect x="1.5" y="1.5" width="13" height="13" rx="3" fill="none" stroke="var(--on-surface-tertiary)" strokeWidth={stroke} />
@@ -320,46 +296,6 @@ function StatusCheckbox({ status, size = 14 }: { status: PhaseStatus; size?: num
 
 function formatPhase(phase: string): string {
   return phase.replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-/** Render a plan summary that may contain markdown-style checkboxes
- *  (`- [ ]` / `- [x]`). Each checkbox line becomes a styled row with the
- *  same StatusCheckbox visuals (done / pending), so the plan reads as a
- *  proper to-do list instead of raw markdown. Non-checkbox lines render
- *  as plain text. */
-function PlanSummary({ summary }: { summary: string }) {
-  const lines = summary.split("\n");
-  const items: { kind: "todo"; checked: boolean; text: string }[] | { kind: "text"; text: string }[] = [];
-  const out: ({ kind: "todo"; checked: boolean; text: string } | { kind: "text"; text: string })[] = [];
-  for (const raw of lines) {
-    const m = /^\s*[-*]\s*\[( |x|X)\]\s*(.*)$/.exec(raw);
-    if (m) {
-      out.push({ kind: "todo", checked: m[1].toLowerCase() === "x", text: m[2] });
-    } else {
-      out.push({ kind: "text", text: raw });
-    }
-    void items;
-  }
-  const hasTodo = out.some((o) => o.kind === "todo");
-  if (!hasTodo) {
-    return <p className="text-[12px] text-[var(--on-surface-secondary)] leading-relaxed whitespace-pre-wrap break-words">{summary}</p>;
-  }
-  return (
-    <div className="text-[12px] text-[var(--on-surface-secondary)] leading-relaxed space-y-1">
-      {out.map((item, i) => {
-        if (item.kind === "todo") {
-          return (
-            <div key={i} className="flex items-start gap-2">
-              <span className="mt-[2px]"><StatusCheckbox status={item.checked ? "done" : "pending"} size={13} /></span>
-              <span className={`flex-1 break-words ${item.checked ? "text-[var(--on-surface-tertiary)] line-through" : ""}`}>{item.text}</span>
-            </div>
-          );
-        }
-        if (!item.text.trim()) return <div key={i} className="h-1" />;
-        return <div key={i} className="whitespace-pre-wrap break-words">{item.text}</div>;
-      })}
-    </div>
-  );
 }
 
 function DashboardCard({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
@@ -441,28 +377,42 @@ function RecentOutputRow({ output, compact = false }: { output: ProducedOutput; 
     ? <IconDocument size={13} />
     : <FileTypeIcon filename={output.title} path={output.path} size={compact ? 22 : 26} />;
   const label = output.kind === "artifact" ? "面板" : "文件";
-  const content = (
-    <>
-      <span className="text-[var(--primary-accent)] shrink-0">{icon}</span>
-      <span className="flex-1 truncate text-[var(--on-surface)] font-medium">{output.title}</span>
-      <span className="text-[var(--on-surface-tertiary)] font-medium">{label}</span>
-    </>
-  );
-
   if (output.kind === "file" && output.path) {
     return (
-      <button
-        onClick={() => openPath(output.path!)}
-        className={`w-full flex items-center gap-2 px-2 ${compact ? "py-1" : "py-1.5"} rounded-lg text-[12px] hover:bg-[var(--surface-low)] cursor-pointer text-left`}
-      >
-        {content}
-      </button>
+      <div className={`w-full flex items-center gap-2 px-2 ${compact ? "py-1" : "py-1.5"} rounded-lg text-[12px] hover:bg-[var(--surface-low)]`}>
+        <span className="text-[var(--primary-accent)] shrink-0">{icon}</span>
+        <button
+          onClick={() => openPath(output.path!)}
+          className="flex-1 min-w-0 truncate text-left text-[var(--on-surface)] font-medium hover:text-[var(--primary-accent)] cursor-pointer"
+          title={`Open ${output.path}`}
+        >
+          {output.title}
+        </button>
+        <button
+          onClick={() => openPath(output.path!)}
+          className="p-1 rounded-md text-[var(--on-surface-tertiary)] hover:text-[var(--primary-accent)] hover:bg-[var(--surface-container)] cursor-pointer"
+          title={`Open ${output.path}`}
+          aria-label="Open file"
+        >
+          <IconDocument size={12} />
+        </button>
+        <button
+          onClick={() => revealInFolder(output.path!)}
+          className="p-1 rounded-md text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] hover:bg-[var(--surface-container)] cursor-pointer"
+          title={`Reveal ${output.path}`}
+          aria-label="Reveal in folder"
+        >
+          <IconFolder size={12} />
+        </button>
+      </div>
     );
   }
 
   return (
     <div className={`flex items-center gap-2 px-2 ${compact ? "py-1" : "py-1.5"} rounded-lg text-[12px]`}>
-      {content}
+      <span className="text-[var(--primary-accent)] shrink-0">{icon}</span>
+      <span className="flex-1 truncate text-[var(--on-surface)] font-medium">{output.title}</span>
+      <span className="text-[var(--on-surface-tertiary)] font-medium">{label}</span>
     </div>
   );
 }
@@ -489,7 +439,6 @@ function getRecentOutputs(
   ];
 
   for (const message of [...messages].reverse()) {
-    if (message.role === "assistant") outputs.push(...outputsFromText(message.content));
     const steps = (message.metadata as { steps?: StepLike[] } | null)?.steps;
     if (steps?.length) outputs.push(...outputsFromSteps(steps));
   }

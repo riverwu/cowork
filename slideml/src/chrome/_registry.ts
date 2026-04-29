@@ -8,6 +8,7 @@
 import type { ChromeFn } from "../render/chrome.js";
 
 import brandBar      from "./brand-bar.js";
+import brandMark     from "./brand-mark.js";
 import hairline      from "./hairline.js";
 import pageFooter    from "./page-footer.js";
 import pageHeader    from "./page-header.js";
@@ -18,6 +19,7 @@ import watermark     from "./watermark.js";
 
 export const CHROME_REGISTRY: ReadonlyMap<string, ChromeFn> = new Map<string, ChromeFn>([
   ["brand-bar",      brandBar      as ChromeFn],
+  ["brand-mark",     brandMark     as ChromeFn],
   ["hairline",       hairline      as ChromeFn],
   ["page-footer",    pageFooter    as ChromeFn],
   ["page-header",    pageHeader    as ChromeFn],

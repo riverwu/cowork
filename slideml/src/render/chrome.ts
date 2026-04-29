@@ -30,6 +30,12 @@ export interface ChromeContext extends LayoutContext {
   header: { left?: string; center?: string; right?: string };
   /** Resolved footer band content. Empty when no footer. */
   footer: { left?: string; center?: string; right?: string };
+  /** Optional deck-level brand identity used by chrome modules. */
+  brand?: {
+    name?: string;
+    logo?: string | { src: string; alt?: string };
+    color?: string;
+  };
   /**
    * Name of the section this slide belongs to — derived from the most
    * recent `section-divider` slide's `title`. Used by `section-marker`
@@ -87,6 +93,7 @@ export function applyChrome(opts: {
   startId: number;
   header?: { left?: string; center?: string; right?: string };
   footer?: { left?: string; center?: string; right?: string };
+  brand?: ChromeContext["brand"];
   flags: ChromeFlags;
   enable?: readonly string[];
   disable?: readonly string[];
@@ -144,6 +151,7 @@ export function applyChrome(opts: {
       slideCount: opts.slideCount,
       header,
       footer,
+      brand: opts.brand,
       sectionName: opts.sectionName,
       overrides: moduleOverride,
     });

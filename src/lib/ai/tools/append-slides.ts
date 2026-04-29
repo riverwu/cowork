@@ -78,15 +78,31 @@ Slide objects use the same schema as inline \`slides[]\` entries — see \`descr
     // before the array check so the agent's intent works either way.
     let slidesRaw: unknown = input.slides;
     if (typeof slidesRaw === "string") {
+      const slidesText = slidesRaw;
       // Use the lenient parser — auto-repairs the most common LLM failure
       // (raw newlines / tabs inside string values, e.g. multi-line `body`).
       try {
-        slidesRaw = parseJsonLenient(slidesRaw);
-      } catch (err) {
-        return `Error: slides was passed as a string but did not parse as JSON: ${err instanceof Error ? err.message : String(err)}. Pass slides as a native JSON array (preferred), or escape any newlines inside string values as \\n.`;
+        slidesRaw = parseJsonLenient(slidesText);
+      } catch (firstErr) {
+        // Second pass for a common semantic/bracketing slip: the agent
+        // puts a layout slot next to `slots` and closes the slide before
+        // `notes`, e.g. `{..., "slots": {...}, "subtitle": "..."},
+        // "notes": "..."}`. Removing that premature close makes the
+        // object parseable; normalizeSlideObjects then moves subtitle
+        // back into `slots`.
+        const repaired = repairPrematureSlideCloseBeforeMeta(slidesText);
+        if (repaired !== slidesText) {
+          try {
+            slidesRaw = parseJsonLenient(repaired);
+          } catch {
+            return `Error: slides was passed as a string but did not parse as JSON: ${firstErr instanceof Error ? firstErr.message : String(firstErr)}. Pass slides as a native JSON array (preferred), or escape any newlines inside string values as \\n.`;
+          }
+        } else {
+          return `Error: slides was passed as a string but did not parse as JSON: ${firstErr instanceof Error ? firstErr.message : String(firstErr)}. Pass slides as a native JSON array (preferred), or escape any newlines inside string values as \\n.`;
+        }
       }
     }
-    const slides = Array.isArray(slidesRaw) ? slidesRaw : null;
+    const slides = Array.isArray(slidesRaw) ? normalizeSlideObjects(slidesRaw) : null;
     if (!slides || slides.length === 0) {
       return "Error: slides must be a non-empty array of slide objects (each `{layout, slots, chrome?, notes?}`).";
     }
@@ -144,3 +160,109 @@ Slide objects use the same schema as inline \`slides[]\` entries — see \`descr
     return m ? `→ +${m[1]} slides → ${m[2]} (total ${m[3]})` : rawResult.slice(0, 120);
   },
 };
+
+const SLIDE_META_KEYS = new Set(["layout", "slots", "chrome", "notes"]);
+
+function normalizeSlideObjects(slides: unknown[]): unknown[] {
+  return slides.map((slide) => {
+    if (!slide || typeof slide !== "object" || Array.isArray(slide)) return slide;
+    const obj = { ...(slide as Record<string, unknown>) };
+    if (!obj.slots || typeof obj.slots !== "object" || Array.isArray(obj.slots)) return obj;
+    const slots = { ...(obj.slots as Record<string, unknown>) };
+    for (const key of Object.keys(obj)) {
+      if (SLIDE_META_KEYS.has(key)) continue;
+      if (slots[key] === undefined) {
+        slots[key] = obj[key];
+        delete obj[key];
+      }
+    }
+    obj.slots = slots;
+    return obj;
+  });
+}
+
+function repairPrematureSlideCloseBeforeMeta(input: string): string {
+  let out = "";
+  let inString = false;
+  let escaped = false;
+  let arrayDepth = 0;
+  let objectDepthInSlides = 0;
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i]!;
+    if (inString) {
+      out += ch;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === "\"") {
+      inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === "[") {
+      arrayDepth++;
+      out += ch;
+      continue;
+    }
+    if (ch === "]") {
+      arrayDepth = Math.max(0, arrayDepth - 1);
+      out += ch;
+      continue;
+    }
+    if (ch === "{") {
+      if (arrayDepth === 1) objectDepthInSlides++;
+      out += ch;
+      continue;
+    }
+    if (ch === "}") {
+      const closesSlideObject = arrayDepth === 1 && objectDepthInSlides === 1;
+      if (arrayDepth === 1) objectDepthInSlides = Math.max(0, objectDepthInSlides - 1);
+      if (closesSlideObject && nextKeyIsSlideMeta(input, i + 1)) {
+        // Drop the premature close. The final close for this slide still
+        // appears after the following meta field.
+        objectDepthInSlides = 1;
+        continue;
+      }
+      out += ch;
+      continue;
+    }
+    out += ch;
+  }
+
+  return out;
+}
+
+function nextKeyIsSlideMeta(input: string, start: number): boolean {
+  let i = start;
+  while (/\s/.test(input[i] ?? "")) i++;
+  if (input[i] !== ",") return false;
+  i++;
+  while (/\s/.test(input[i] ?? "")) i++;
+  if (input[i] !== "\"") return false;
+  i++;
+  let key = "";
+  let escaped = false;
+  for (; i < input.length; i++) {
+    const ch = input[i]!;
+    if (escaped) {
+      key += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === "\"") break;
+    key += ch;
+  }
+  return key === "notes" || key === "chrome";
+}

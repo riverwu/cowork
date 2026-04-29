@@ -56,8 +56,45 @@
           "type": "string"
         },
         "theme": {
-          "description": "Theme name. The agent reads the named theme's advice (palette, imagery, voice) when authoring; the renderer reads `palette`/`fonts`/`style` blocks below if present, otherwise falls back to the named theme's tokens. Built-in: technical-blue, editorial-warm, midnight-executive, forest-moss, charcoal-minimal. Custom themes can live under ~/.cowork/themes/<name>/.",
+          "description": "Theme name. The agent reads the named theme's advice (palette, imagery, voice) when authoring; the renderer reads `palette`/`fonts`/`style` blocks below if present, otherwise falls back to the named theme's tokens. Built-in: enterprise-light, technical-blue, editorial-warm, midnight-executive, forest-moss, charcoal-minimal, editorial-paper, academic-paper, vibrant-startup. Custom themes can live under ~/.cowork/themes/<name>/.",
           "type": "string"
+        },
+        "brand": {
+          "description": "Optional deck-level brand identity used by chrome modules such as brand-mark. Use `palette.brand-primary` for the brand color and `brand.logo` for the logo path.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "color": {
+              "type": "string",
+              "description": "Theme token name or 6-char hex. Defaults to text-muted."
+            },
+            "logo": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "description": "Logo path / URL / data URL."
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "src"
+                  ],
+                  "properties": {
+                    "src": {
+                      "type": "string"
+                    },
+                    "alt": {
+                      "type": "string"
+                    }
+                  }
+                }
+              ]
+            }
+          }
         },
         "palette": {
           "description": "Brand palette — token name → 6-char hex (no #). Required tokens: bg-canvas, bg-card, brand-primary, brand-deep, text-strong, text-muted, accent, divider. Custom token names are allowed but only the standard set is consumed by built-in layouts.",
@@ -253,6 +290,7 @@
               "page-footer",
               "page-number",
               "brand-bar",
+              "brand-mark",
               "hairline",
               "progress-bar",
               "section-marker",
@@ -3412,6 +3450,7 @@
                   "page-footer",
                   "page-number",
                   "brand-bar",
+                  "brand-mark",
                   "hairline",
                   "progress-bar",
                   "section-marker",
@@ -3432,7 +3471,7 @@
               "additionalProperties": {
                 "type": "object"
               },
-              "description": "Per-module parameter overrides. Keys are chrome module names; values are module-specific. Examples: page-footer: { left, center, right }; brand-bar: { color, height }; watermark: { text, color, alpha, position }; progress-bar: { color, track, height }; section-marker: { color, prefix }; hairline: { color, position, weight, insetCm }."
+              "description": "Per-module parameter overrides. Keys are chrome module names; values are module-specific. Examples: page-footer: { left, center, right }; brand-bar: { color, height }; brand-mark: { src, name, color, position, showName }; watermark: { text, color, alpha, position }; progress-bar: { color, track, height }; section-marker: { color, prefix }; hairline: { color, position, weight, insetCm }."
             }
           }
         }

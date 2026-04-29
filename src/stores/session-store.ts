@@ -49,6 +49,7 @@ interface LongTaskPhase {
   phase: string;
   status: "pending" | "running" | "done" | "failed";
   summary: string;
+  steps: { title: string; status: "pending" | "running" | "done" | "failed" }[];
   outputs: { title: string; path?: string; kind?: "file" | "artifact" | "note" }[];
   updatedAt: number;
 }
@@ -58,6 +59,7 @@ interface LongTaskState {
   workspaceDir: string;
   reason: string;
   phases: LongTaskPhase[];
+  planSteps?: { title: string; status: LongTaskPhase["status"] }[];
 }
 
 interface SessionState {
@@ -234,10 +236,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           isStreaming: false,
           streamingText: "",
           steps: [],
+          longTask: null,
           error: agentError,
         }));
       } else {
-        set({ isStreaming: false });
+        set({ isStreaming: false, longTask: null });
       }
     } catch (err) {
       // Save partial progress even on error — don't lose intermediate steps
@@ -256,6 +259,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         isStreaming: false,
         streamingText: "",
         steps: [],
+        longTask: null,
         error: String(err),
       }));
     }
@@ -424,6 +428,7 @@ function handleEvent(
           phase: event.phase,
           status: event.status,
           summary: event.summary,
+          steps: event.steps || [],
           outputs: event.outputs,
           updatedAt: event.updatedAt,
         };
@@ -431,7 +436,8 @@ function handleEvent(
         const phases = existingIndex >= 0
           ? current.phases.map((p, i) => i === existingIndex ? phase : p)
           : [...current.phases, phase];
-        return { longTask: { ...current, phases } };
+        const nextTask = { ...current, phases, planSteps: event.steps || [] };
+        return { longTask: nextTask };
       });
       break;
     case "skill-start":

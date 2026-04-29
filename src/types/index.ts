@@ -196,7 +196,7 @@ export type AgentEvent =
   | { type: "text-delta"; text: string }
   | { type: "thinking"; active: boolean }
   | { type: "long-task-start"; runId: string; workspaceDir: string; reason: string }
-  | { type: "long-task-progress"; runId: string; workspaceDir: string; phase: string; status: "pending" | "running" | "done" | "failed"; summary: string; outputs: { title: string; path?: string; kind?: "file" | "artifact" | "note" }[]; updatedAt: number }
+  | { type: "long-task-progress"; runId: string; workspaceDir: string; phase: string; status: "pending" | "running" | "done" | "failed"; summary: string; steps?: { title: string; status: "pending" | "running" | "done" | "failed" }[]; outputs: { title: string; path?: string; kind?: "file" | "artifact" | "note" }[]; updatedAt: number }
   | { type: "skill-start"; skill: string; input: unknown; toolCallId: string }
   | { type: "skill-progress"; skill: string; output: string }
   | { type: "skill-done"; skill: string; result: unknown; durationMs: number; success: boolean; toolCallId: string }

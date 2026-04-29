@@ -58,6 +58,7 @@ describe("outputsFromSteps", () => {
         skill: "write_file",
         status: "done",
         success: true,
+        input: { path: "/Users/river/Documents/Workspace/report.md" },
         result: "File written successfully: /Users/river/Documents/Workspace/report.md (1200 characters)",
       },
     ]);
@@ -78,16 +79,146 @@ describe("outputsFromSteps", () => {
         skill: "write_file",
         status: "done",
         success: true,
+        input: { path: "/Users/river/Documents/Workspace/.cowork-runs/run_1/scripts/create_deck.js" },
         result: "File written successfully: /Users/river/Documents/Workspace/.cowork-runs/run_1/scripts/create_deck.js (9000 characters)",
       },
       {
         skill: "write_file",
         status: "done",
         success: true,
+        input: { path: "/Users/river/Documents/Workspace/.cowork-runs/run_1/deck_spec.json" },
         result: "File written successfully: /Users/river/Documents/Workspace/.cowork-runs/run_1/deck_spec.json (900 characters)",
       },
     ]);
 
     expect(outputs).toEqual([]);
+  });
+
+  it("uses update_task_progress outputs as the final produced-file source", () => {
+    const outputs = outputsFromSteps([
+      {
+        skill: "update_task_progress",
+        status: "done",
+        success: true,
+        input: {
+          phase: "verify",
+          status: "done",
+          summary: "done",
+          outputs: [
+            { title: "Final deck", path: "/Users/river/Documents/Workspace/final.pptx", kind: "file" },
+            { title: "Internal source", path: "/Users/river/Documents/Workspace/.cowork-runs/run_1/deck.json", kind: "file" },
+          ],
+        },
+        result: "verify: done — done",
+      },
+    ]);
+
+    expect(outputs).toEqual([
+      {
+        id: "file:/Users/river/Documents/Workspace/final.pptx",
+        title: "Final deck",
+        kind: "file",
+        path: "/Users/river/Documents/Workspace/final.pptx",
+      },
+    ]);
+  });
+
+  it("does not infer produced files from plain run output text", () => {
+    const outputs = outputsFromSteps([
+      {
+        skill: "run_node",
+        status: "done",
+        success: true,
+        result: "Generated /Users/river/Documents/Workspace/maybe.pptx",
+      },
+    ]);
+
+    expect(outputs).toEqual([]);
+  });
+
+  it("extracts browser screenshot outputs from structured tool results", () => {
+    const outputs = outputsFromSteps([
+      {
+        skill: "browser",
+        status: "done",
+        success: true,
+        input: { actions: [{ action: "screenshot" }] },
+        result: JSON.stringify([
+          {
+            action: "screenshot",
+            result: {
+              path: "/Users/river/Library/Application Support/Cowork/browser/screenshots/screenshot.png",
+              url: "https://example.com",
+            },
+          },
+        ]),
+      },
+    ]);
+
+    expect(outputs).toEqual([
+      {
+        id: "file:/Users/river/Library/Application Support/Cowork/browser/screenshots/screenshot.png",
+        title: "screenshot.png",
+        kind: "file",
+        path: "/Users/river/Library/Application Support/Cowork/browser/screenshots/screenshot.png",
+      },
+    ]);
+  });
+
+  it("extracts browser downloads from structured tool results", () => {
+    const outputs = outputsFromSteps([
+      {
+        skill: "browser",
+        status: "done",
+        success: true,
+        input: { actions: [{ action: "downloads" }] },
+        result: JSON.stringify([
+          {
+            action: "downloads",
+            result: {
+              downloads: [
+                {
+                  path: "/Users/river/Library/Application Support/Cowork/browser/downloads/report.pdf",
+                  suggestedFilename: "report.pdf",
+                },
+              ],
+            },
+          },
+        ]),
+      },
+    ]);
+
+    expect(outputs).toEqual([
+      {
+        id: "file:/Users/river/Library/Application Support/Cowork/browser/downloads/report.pdf",
+        title: "report.pdf",
+        kind: "file",
+        path: "/Users/river/Library/Application Support/Cowork/browser/downloads/report.pdf",
+      },
+    ]);
+  });
+
+  it("extracts browser pdf outputs and ignores non-user-facing cookie JSON exports", () => {
+    const outputs = outputsFromSteps([
+      {
+        skill: "browser",
+        status: "done",
+        success: true,
+        input: { actions: [{ action: "pdf" }, { action: "cookies", operation: "export" }] },
+        result: JSON.stringify([
+          { action: "pdf", result: { path: "/Users/river/Library/Application Support/Cowork/browser/pdf/page.pdf" } },
+          { action: "cookies", result: { path: "/Users/river/Library/Application Support/Cowork/browser/cookies.json" } },
+        ]),
+      },
+    ]);
+
+    expect(outputs).toEqual([
+      {
+        id: "file:/Users/river/Library/Application Support/Cowork/browser/pdf/page.pdf",
+        title: "page.pdf",
+        kind: "file",
+        path: "/Users/river/Library/Application Support/Cowork/browser/pdf/page.pdf",
+      },
+    ]);
   });
 });

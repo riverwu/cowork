@@ -270,6 +270,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   try {
   for (let step = 0; step < MAX_STEPS; step++) {
     let doneEvent: StreamEvent | null = null;
+    let turnText = "";
 
     // Signal LLM is thinking (waiting for response)
     yield { type: "thinking", active: true };
@@ -282,7 +283,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         maxOutputTokens: budget.maxOutputTokens,
       })) {
         if (event.type === "text-delta") {
-          yield { type: "text-delta", text: event.text };
+          turnText += event.text;
         } else if (event.type === "message-done") {
           doneEvent = event;
         }
@@ -301,7 +302,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       break;
     }
 
-    fullAssistantText += doneEvent.content;
+    if (!turnText && doneEvent.content) turnText = doneEvent.content;
 
     if (doneEvent.stopReason === "max_tokens" && doneEvent.toolCalls.length === 0) {
       if (longTask && truncationRecoveries < MAX_TRUNCATION_RECOVERIES) {
@@ -335,6 +336,10 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     // tool calls NOR text we still need to break, otherwise the next request
     // would carry an empty assistant message that the API will reject.
     if (doneEvent.toolCalls.length === 0) {
+      if (turnText) {
+        yield { type: "text-delta", text: turnText };
+        fullAssistantText += turnText;
+      }
       hitStepLimit = false;
       break;
     }
@@ -627,6 +632,7 @@ function parseTaskProgressMarker(result: string) {
       phase: string;
       status: "pending" | "running" | "done" | "failed";
       summary: string;
+      steps?: { title: string; status: "pending" | "running" | "done" | "failed" }[];
       outputs?: { title: string; path?: string; kind?: "file" | "artifact" | "note" }[];
       updatedAt: number;
     };
@@ -636,6 +642,7 @@ function parseTaskProgressMarker(result: string) {
       phase: parsed.phase,
       status: parsed.status,
       summary: parsed.summary,
+      steps: Array.isArray(parsed.steps) ? parsed.steps : undefined,
       outputs: parsed.outputs || [],
       updatedAt: parsed.updatedAt,
     };

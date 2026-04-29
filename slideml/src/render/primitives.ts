@@ -18,7 +18,7 @@
 import type { LayoutContext } from "./layout-context.js";
 import type { Paragraph, ShapeList, TableCell, TextRun } from "../emitter/types.js";
 import { CHIP_KINDS, type ChipKind, parseInline } from "./markdown-inline.js";
-import { type Density, densityPreset } from "./density.js";
+import { DENSITY_VALUES, type Density, densityPreset } from "./density.js";
 import { svgToHighResDataUrl } from "./visual.js";
 
 // ---------------------------------------------------------------------------
@@ -1307,10 +1307,10 @@ function renderRichTextShape(
   // consistent across calls. Explicit `sizeHalfPt` / `lineSpacingHalfPt`
   // overrides only when a layout intentionally hard-codes them (small
   // captions, code blocks, etc.).
-  const dp = densityPreset(opts.density);
-  const baseSize = opts.sizeHalfPt ?? dp.sizeHalfPt;
-  const lineSpacing = opts.lineSpacingHalfPt ?? dp.lineSpacingHalfPt;
-  const spaceAfter = opts.spaceAfterHalfPt ?? dp.spaceAfterHalfPt;
+  const metrics = richTextMetrics(ctx, rect, paras, opts);
+  const baseSize = metrics.sizeHalfPt;
+  const lineSpacing = metrics.lineSpacingHalfPt;
+  const spaceAfter = metrics.spaceAfterHalfPt;
   const baseColor = ctx.color(opts.color ?? "text-strong");
   const resolveChipColor = chipColorResolver(ctx);
   // Theme bullet glyph for `kind: "bullet"` paragraphs (markdown-extracted
@@ -1321,7 +1321,7 @@ function renderRichTextShape(
   const bulletColor = ctx.style.bullets?.color
     ? ctx.color(ctx.style.bullets.color)
     : ctx.color("brand-primary");
-  const paragraphs: Paragraph[] = paras.map((p) => {
+  const paragraphs: Paragraph[] = paras.map((p, index) => {
     const isString = typeof p === "string";
     const text = isString ? p : p.text;
     const kind = isString ? undefined : p.kind;
@@ -1367,7 +1367,7 @@ function renderRichTextShape(
     return {
       align,
       lineSpacingHalfPt: lineSpacing,
-      spaceAfterHalfPt: spaceAfter,
+      spaceAfterHalfPt: paragraphSpaceAfterHalfPt(paras, index, spaceAfter),
       indentLevel,
       runs,
     };
@@ -1382,4 +1382,111 @@ function renderRichTextShape(
     margin: opts.margin,
     autoFit: opts.autoFit,
   };
+}
+
+function richTextMetrics(
+  ctx: LayoutContext,
+  rect: ContentRect,
+  paras: RichParagraph[],
+  opts: RichTextOptions,
+): { sizeHalfPt: number; lineSpacingHalfPt: number; spaceAfterHalfPt: number } {
+  const explicit = opts.sizeHalfPt !== undefined || opts.lineSpacingHalfPt !== undefined || opts.spaceAfterHalfPt !== undefined;
+  const initial = densityPreset(opts.density);
+  if (explicit) {
+    return {
+      sizeHalfPt: opts.sizeHalfPt ?? initial.sizeHalfPt,
+      lineSpacingHalfPt: opts.lineSpacingHalfPt ?? initial.lineSpacingHalfPt,
+      spaceAfterHalfPt: opts.spaceAfterHalfPt ?? initial.spaceAfterHalfPt,
+    };
+  }
+
+  // `richText` accepts markdown-like prose. After parsing, one source
+  // paragraph can become a heading plus many bullet paragraphs, so a raw
+  // character count is not enough to know whether the frame fits. Estimate
+  // height against the exact parsed paragraph list and pick a denser preset
+  // before relying on PowerPoint/LibreOffice autofit.
+  const startIndex = Math.max(0, DENSITY_VALUES.indexOf((opts.density as Density | undefined) ?? "dense"));
+  for (let i = startIndex; i < DENSITY_VALUES.length; i++) {
+    const preset = densityPreset(DENSITY_VALUES[i]);
+    const metrics = {
+      sizeHalfPt: preset.sizeHalfPt,
+      lineSpacingHalfPt: preset.lineSpacingHalfPt,
+      spaceAfterHalfPt: preset.spaceAfterHalfPt,
+    };
+    if (estimateRichTextHeight(ctx, rect, paras, metrics) <= rect.height * 0.96) return metrics;
+  }
+  const tight = densityPreset("micro");
+  return {
+    sizeHalfPt: tight.sizeHalfPt,
+    lineSpacingHalfPt: tight.lineSpacingHalfPt,
+    spaceAfterHalfPt: tight.spaceAfterHalfPt,
+  };
+}
+
+function paragraphSpaceAfterHalfPt(paras: RichParagraph[], index: number, base: number): number {
+  if (index >= paras.length - 1) return 0;
+  const kind = paragraphKind(paras[index]!);
+  const nextKind = paragraphKind(paras[index + 1]!);
+  if (kind === "bullet" && nextKind === "bullet") return Math.min(base, 4);
+  if (kind === "bullet") return Math.min(base, 8);
+  if (nextKind === "bullet") return Math.min(base, 6);
+  if (kind === "h2" || looksLikeSectionLabel(paragraphText(paras[index]!))) return Math.min(base, 8);
+  return base;
+}
+
+function estimateRichTextHeight(
+  ctx: LayoutContext,
+  rect: ContentRect,
+  paras: RichParagraph[],
+  metrics: { sizeHalfPt: number; lineSpacingHalfPt: number; spaceAfterHalfPt: number },
+): number {
+  const widthPt = Math.max(24, (rect.width - ctx.inch(0.2)) / ctx.pt(1));
+  let heightPt = 0;
+  for (let i = 0; i < paras.length; i++) {
+    const para = paras[i]!;
+    const kind = paragraphKind(para);
+    const text = paragraphText(para);
+    const sizeHalfPt = kind === "h2" ? Math.max(metrics.sizeHalfPt + 6, 32)
+      : kind === "note" ? Math.max(18, metrics.sizeHalfPt - 6)
+      : metrics.sizeHalfPt;
+    const lineSpacingHalfPt = kind === "h2" ? metrics.lineSpacingHalfPt + 8 : metrics.lineSpacingHalfPt;
+    const textWidthPt = estimateInlineTextWidthPt(markdownVisibleText(text), sizeHalfPt, ctx.cjk);
+    const lines = Math.max(1, Math.ceil(textWidthPt / widthPt));
+    heightPt += lines * (lineSpacingHalfPt / 2);
+    heightPt += paragraphSpaceAfterHalfPt(paras, i, metrics.spaceAfterHalfPt) / 2;
+  }
+  return ctx.pt(heightPt);
+}
+
+function paragraphKind(p: RichParagraph): "quote" | "note" | "callout" | "h2" | "bullet" | undefined {
+  return typeof p === "string" ? undefined : p.kind;
+}
+
+function paragraphText(p: RichParagraph): string {
+  return typeof p === "string" ? p : p.text;
+}
+
+function looksLikeSectionLabel(text: string): boolean {
+  return /^[【\[][^】\]]+[】\]]$/.test(text.trim());
+}
+
+function markdownVisibleText(text: string): string {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\{[^:}]+:([^}]+)\}/g, "$1");
+}
+
+function estimateInlineTextWidthPt(text: string, sizeHalfPt: number, cjk: boolean): number {
+  const fontPt = sizeHalfPt / 2;
+  let units = 0;
+  for (const ch of text) {
+    if (/\s/.test(ch)) units += 0.32;
+    else if (/[\u3000-\u9fff\uff00-\uffef]/.test(ch)) units += 1.0;
+    else if (/[A-Z0-9]/.test(ch)) units += 0.62;
+    else if (/[a-z]/.test(ch)) units += 0.5;
+    else units += cjk ? 0.55 : 0.42;
+  }
+  return units * fontPt;
 }

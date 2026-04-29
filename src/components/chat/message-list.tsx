@@ -3,7 +3,7 @@ import { FileTypeIcon, IconDocument, IconCheck, IconSettings, IconWarning, IconF
 import { isContextDivider } from "@/stores/session-store";
 import { MarkdownContent } from "./markdown-renderer";
 import { openPath, revealInFolder } from "@/lib/tauri";
-import { extractFilePaths, outputsFromSteps, outputsFromText, type ProducedOutput } from "@/lib/outputs";
+import { outputsFromSteps, type ProducedOutput } from "@/lib/outputs";
 import { t } from "@/lib/i18n";
 import type { Message } from "@/types";
 
@@ -126,7 +126,6 @@ function AssistantMessage({ message }: { message: Message }) {
   const savedSteps = (message.metadata as { steps?: Step[] })?.steps;
   const outputs = mergeOutputs([
     ...(savedSteps ? outputsFromSteps(savedSteps) : []),
-    ...outputsFromText(message.content),
   ]);
 
   return (
@@ -334,50 +333,15 @@ function LiveTimer() {
   );
 }
 
-// ---- Step result with file path detection ----
+// ---- Step result ----
 
 function StepResultContent({ result, failed }: { result: string; failed: boolean }) {
-  // Extract file paths from the result text
-  const filePaths = extractFilePaths(result);
-
   return (
     <div className="space-y-1.5 mt-0.5">
       <pre className={`text-[11px] ${failed ? "text-[var(--error)]" : "text-[var(--on-surface-tertiary)]"} bg-[var(--surface-low)] rounded px-2 py-1 overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed max-h-[120px] overflow-y-auto`}>
         {result}
       </pre>
-      {filePaths.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {filePaths.map((fp, i) => (
-            <FilePathCard key={i} path={fp} />
-          ))}
-        </div>
-      )}
     </div>
-  );
-}
-
-function FilePathCard({ path }: { path: string }) {
-  const fileName = path.split("/").pop() || path;
-  const dir = path.slice(0, path.length - fileName.length);
-
-  return (
-    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--surface-container)] border border-[var(--border)] hover:border-[var(--on-surface-tertiary)] transition-colors group">
-      <FileTypeIcon filename={fileName} size={24} />
-      <button
-        onClick={() => openPath(path)}
-        className="text-[11px] text-[var(--on-surface-secondary)] hover:text-[var(--primary-accent)] cursor-pointer truncate max-w-[200px]"
-        title={`Open ${path}`}
-      >
-        {fileName}
-      </button>
-      <button
-        onClick={() => revealInFolder(path)}
-        className="p-0.5 rounded opacity-0 group-hover:opacity-100 text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] cursor-pointer transition-all"
-        title={`Reveal in ${dir}`}
-      >
-        <IconFolder size={10} />
-      </button>
-    </span>
   );
 }
 
@@ -406,11 +370,25 @@ function ProducedOutputRow({ output }: { output: ProducedOutput }) {
         <button
           onClick={() => openPath(output.path!)}
           className="flex-1 min-w-0 text-left text-[12px] font-medium text-[var(--on-surface)] hover:text-[var(--primary-accent)] truncate cursor-pointer"
+          title={`Open ${output.path}`}
         >
           {output.title}
         </button>
-        <button onClick={() => revealInFolder(output.path!)} className="px-2 py-1 rounded-md text-[11px] text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] hover:bg-[var(--surface-container)] cursor-pointer">
-          定位
+        <button
+          onClick={() => openPath(output.path!)}
+          className="p-1 rounded-md text-[var(--on-surface-tertiary)] hover:text-[var(--primary-accent)] hover:bg-[var(--surface-container)] cursor-pointer"
+          title={`Open ${output.path}`}
+          aria-label="Open file"
+        >
+          <IconDocument size={12} />
+        </button>
+        <button
+          onClick={() => revealInFolder(output.path!)}
+          className="p-1 rounded-md text-[var(--on-surface-tertiary)] hover:text-[var(--on-surface)] hover:bg-[var(--surface-container)] cursor-pointer"
+          title={`Reveal ${output.path}`}
+          aria-label="Reveal in folder"
+        >
+          <IconFolder size={12} />
         </button>
       </div>
     );

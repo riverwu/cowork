@@ -243,6 +243,32 @@ describe("Stage 4 — public API: compile + validateDeck + listLayouts", () => {
     const visualLayout = layouts.find((l) => l.name === "visual-with-caption")!;
     expect(visualLayout.slotSchema["visual"]?.type).toBe("visual");
   });
+
+  it("compiles deck-level brand identity, palette overrides, and brand-mark chrome", async () => {
+    const yaml = `
+slideml: 1
+deck:
+  size: 16x9
+  language: zh-CN
+  theme: technical-blue
+  brand:
+    name: Acme Robotics
+    color: brand-primary
+  palette:
+    brand-primary: 0F766E
+  chrome:
+    - brand-mark
+slides:
+  - layout: title-only
+    slots:
+      title: 品牌化技术简报
+`;
+    const result = await compile(yaml, { themeDir: BUILT_THEME });
+    const zip = await JSZip.loadAsync(result.buffer);
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slideXml).toContain("Acme Robotics");
+    expect(slideXml).toContain("0F766E");
+  });
 });
 
 describe("Stage 4 — bundle smoke", () => {

@@ -25,6 +25,18 @@ export interface DeckSpec {
     header?: BandSpec | null;
     /** Default page footer for every slide; per-slide override allowed. */
     footer?: BandSpec | null;
+    /** Optional brand identity consumed by chrome modules such as brand-mark. */
+    brand?: BrandSpec;
+    /** Additional chrome modules enabled deck-wide on top of the theme defaults. */
+    chrome?: readonly string[];
+    /** Token overrides merged into the selected theme at compile time. */
+    palette?: Record<string, string>;
+    /** Font overrides merged into font-latin/font-cjk/font-mono. */
+    fonts?: { latin?: string | string[]; cjk?: string | string[]; mono?: string | string[] };
+    /** Light theme-style overrides. */
+    style?: { titleAccentRule?: boolean; contrastTarget?: "warn" | "AA" | "AAA" };
+    /** OOXML scheme overrides. */
+    oxml?: unknown;
     /** Default slide background; per-slide override allowed. */
     background?: BackgroundSpec | null;
   };
@@ -47,6 +59,12 @@ export type BandSpec =
 export type BackgroundSpec =
   | { color: string }
   | { image: { src: string; alt?: string; opacity?: number } };
+
+export interface BrandSpec {
+  name?: string;
+  logo?: string | { src: string; alt?: string };
+  color?: string;
+}
 
 /**
  * Per-slide chrome control.
@@ -117,6 +135,8 @@ export function renderDeck(spec: DeckSpec, theme: LoadedTheme): DeckAst {
   const deckHeader = spec.deck.header ?? undefined;
   const deckFooter = spec.deck.footer ?? undefined;
   const deckBackground = spec.deck.background ?? undefined;
+  const deckBrand = spec.deck.brand;
+  const deckChrome = spec.deck.chrome ?? [];
 
   // Walk slides once to compute "current section name" per slide — chrome
   // modules like `section-marker` need this. A slide is considered to start
@@ -142,7 +162,7 @@ export function renderDeck(spec: DeckSpec, theme: LoadedTheme): DeckAst {
   }
 
   const slides: SlideAst[] = pending.map((page, i) =>
-    applySlideChrome(page.spec, page.shapes, theme, dims, i, pending.length, language, deckHeader, deckFooter, deckBackground, page.sectionName),
+    applySlideChrome(page.spec, page.shapes, theme, dims, i, pending.length, language, deckHeader, deckFooter, deckBackground, page.sectionName, deckBrand, deckChrome),
   );
 
   return {
@@ -212,6 +232,8 @@ function applySlideChrome(
   deckFooter: BandSpec | undefined,
   deckBackground: BackgroundSpec | undefined,
   sectionName: string | undefined,
+  deckBrand: BrandSpec | undefined,
+  deckChrome: readonly string[],
 ): SlideAst {
   // Compute the next id chrome should start from (max existing + 1).
   let maxId = 1;
@@ -236,8 +258,9 @@ function applySlideChrome(
         startId: maxId + 1,
         header: resolveBand(effectiveHeader),
         footer: resolveBand(effectiveFooter),
+        brand: deckBrand,
         flags: chromeResolved.flags,
-        enable: chromeResolved.enable,
+        enable: [...deckChrome, ...(chromeResolved.enable ?? [])],
         disable: chromeResolved.disable,
         overrides: chromeResolved.overrides,
         sectionName,

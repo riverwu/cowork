@@ -3,9 +3,35 @@ import type { LLMProvider, StreamParams } from "./providers/types";
 
 const mocks = vi.hoisted(() => {
   const streamCalls: StreamParams[] = [];
+  const tools: Record<string, {
+    definition: { name: string; description: string; parameters: Record<string, unknown> };
+    execute: (input: Record<string, unknown>) => Promise<string>;
+  }> = {};
   const mockProvider: LLMProvider = {
     async *stream(params: StreamParams) {
       streamCalls.push(params);
+      const firstUser = params.messages.find((message) => message.role === "user")?.content ?? "";
+      if (firstUser.includes("tool-turn narration")) {
+        if (streamCalls.length === 1) {
+          yield { type: "text-delta", text: "PPT已生成完成！" };
+          yield {
+            type: "message-done",
+            content: "PPT已生成完成！",
+            toolCalls: [{ id: "call-1", name: "noop", input: {} }],
+            stopReason: "tool_use",
+          };
+          return;
+        }
+        yield { type: "text-delta", text: "最终完成。" };
+        yield {
+          type: "message-done",
+          content: "最终完成。",
+          toolCalls: [],
+          stopReason: "end",
+        };
+        return;
+      }
+
       if (streamCalls.length === 1) {
         yield {
           type: "message-done",
@@ -28,6 +54,7 @@ const mocks = vi.hoisted(() => {
   return {
     streamCalls,
     mockProvider,
+    tools,
   };
 });
 
@@ -36,7 +63,7 @@ vi.mock("./providers", () => ({
 }));
 
 vi.mock("./tools/registry", () => ({
-  getTools: vi.fn().mockReturnValue({}),
+  getTools: vi.fn().mockReturnValue(mocks.tools),
 }));
 
 vi.mock("./skill-registry", () => ({
@@ -105,5 +132,35 @@ Attached files:
     expect(lastMessage?.content).toContain("under 12,000 characters");
     expect(lastMessage?.content).toContain("write_file mode \"overwrite\"");
     expect(lastMessage?.content).toContain("run_node");
+  });
+
+  it("does not surface or save assistant narration from turns that call tools", async () => {
+    mocks.streamCalls.length = 0;
+    mocks.tools.noop = {
+      definition: {
+        name: "noop",
+        description: "No-op test tool",
+        parameters: { type: "object", properties: {} },
+      },
+      execute: vi.fn().mockResolvedValue("ok"),
+    };
+
+    const events = [];
+    for await (const event of runAgent({
+      sessionId: "session-1",
+      workingDirectory: "/Users/river/Documents/Workspace",
+      messages: [{ role: "user", content: "tool-turn narration" }],
+    })) {
+      events.push(event);
+    }
+
+    const streamedText = events
+      .filter((event): event is { type: "text-delta"; text: string } => event.type === "text-delta")
+      .map((event) => event.text)
+      .join("");
+
+    expect(streamedText).not.toContain("PPT已生成完成");
+    expect(streamedText).toContain("最终完成");
+    expect(events.some((event) => event.type === "skill-start" && event.skill === "noop")).toBe(true);
   });
 });

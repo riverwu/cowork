@@ -3,17 +3,17 @@
   "version": "1.0.0",
   "slidemlVersion": "1",
   "displayName": "Technical Blue",
-  "description": "Engineering / data deck — deep navy canvas with cyan accents and high information density.",
+  "description": "Engineering / data deck — light technical canvas with blueprint-blue accents, precise typography, strong code/table/chart readability, and high information density.",
   "author": "SlideML",
   "tokens": {
-    "bg-canvas": "0B1B2A",
-    "bg-card": "14304A",
-    "brand-primary": "38BDF8",
-    "brand-deep": "0369A1",
-    "text-strong": "F1F5F9",
-    "text-muted": "94A3B8",
-    "accent": "F472B6",
-    "divider": "1E3A5F",
+    "bg-canvas": "F3F8FC",
+    "bg-card": "FFFFFF",
+    "brand-primary": "006BBA",
+    "brand-deep": "0B3A64",
+    "text-strong": "102033",
+    "text-muted": "52677A",
+    "accent": "007D7D",
+    "divider": "C9D8E8",
     "font-latin": [
       "Inter",
       "IBM Plex Sans",
@@ -78,24 +78,24 @@
       "color": "brand-primary"
     },
     "imagery": {
-      "guidance": "Photographic or rendered, deep-tone, high-contrast. Cool blue / navy / cyan palette dominant. Subjects: server rooms, network diagrams, code on screens, geometric data visualizations, abstract circuitry, satellite/aerial views. Lighting: cinematic low-key with cyan accent highlights. Avoid: bright pastels, cartoonish illustrations, white backgrounds, hand-drawn marketing illustration styles, lifestyle photography.",
+      "guidance": "Clean technical visuals with bright lab / workspace lighting. Cool blueprint-blue and cyan accents on light or neutral backgrounds. Subjects: architecture diagrams, dashboards, developer workstations, infrastructure maps, cloud/network abstractions, instrumentation, code review, robotics, sensors. Prefer crisp geometry, readable screens, and structured compositions. Avoid dark cinematic server-room cliches, cartoon SaaS blobs, and generic lifestyle stock.",
       "palette": [
-        "#0B1B2A",
-        "#3CC2FF",
-        "#1078B5",
-        "#F5F9FC"
+        "#F3F8FC",
+        "#006BBA",
+        "#007D7D",
+        "#102033"
       ],
       "preferredStyles": [
         "photographic",
-        "cinematic",
-        "low-key lit",
-        "isometric technical illustration",
+        "clean technical illustration",
+        "blueprint-like diagram",
+        "product engineering photography",
         "data-visualization aesthetic"
       ],
       "avoid": [
         "cartoon",
         "bright pastels",
-        "white background",
+        "dark cinematic server room",
         "hand-drawn marketing illustration",
         "lifestyle / consumer photography"
       ]
@@ -119,29 +119,29 @@
       "borderPolicy": "card-only"
     },
     "semantic": {
-      "positive": "4ADE80",
-      "negative": "F87171",
-      "warning": "FBBF24",
-      "info": "60A5FA",
-      "neutral": "94A3B8"
+      "positive": "16803C",
+      "negative": "C2410C",
+      "warning": "B7791F",
+      "info": "006BBA",
+      "neutral": "52677A"
     },
     "dataviz": {
       "categorical": [
-        "38BDF8",
-        "4ADE80",
-        "F87171",
-        "FBBF24",
-        "C084FC",
-        "2DD4BF"
+        "006BBA",
+        "007D7D",
+        "7C3AED",
+        "B7791F",
+        "C2410C",
+        "52677A"
       ],
       "sequential": {
-        "from": "0F2A40",
-        "to": "38BDF8"
+        "from": "D9ECFA",
+        "to": "006BBA"
       },
       "diverging": {
-        "negative": "F87171",
-        "mid": "475569",
-        "positive": "4ADE80"
+        "negative": "C2410C",
+        "mid": "D8E3EE",
+        "positive": "16803C"
       }
     },
     "typography": {
@@ -181,7 +181,7 @@
       "style": "decimal"
     },
     "table": {
-      "headerFill": "brand-deep",
+      "headerFill": "brand-primary",
       "rowStripe": true,
       "borderStyle": "rows",
       "firstColEmphasis": "bold"
@@ -418,7 +418,8 @@
   "chrome": [
     "page-header",
     "page-footer",
+    "brand-mark",
     "page-number",
-    "brand-bar"
+    "hairline"
   ]
 }

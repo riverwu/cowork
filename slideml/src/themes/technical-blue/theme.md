@@ -1,8 +1,10 @@
 # Technical Blue
 
-A clean engineering / data-presentation theme. Deep navy canvas, cyan
-accents, high information density. Designed for technical reports,
-post-mortems, market analyses, and quarterly reviews.
+A clean engineering / data-presentation theme. Light technical canvas,
+blueprint-blue accents, crisp geometry, and high information density.
+Designed for architecture proposals, technical reports, post-mortems,
+market analyses, and quarterly reviews that need to stay readable in normal
+meeting rooms and exported PDFs.
 
 ## When to use this theme
 - Engineering reviews, architecture proposals, post-mortems.
@@ -12,7 +14,7 @@ post-mortems, market analyses, and quarterly reviews.
 ## When NOT to use
 - Sales / marketing decks (warmer palette would land better).
 - Investor pitches (less density, more whitespace).
-- Print-oriented documents.
+- Highly emotional sales decks or lifestyle brand stories.
 
 ## How to pick a layout
 
@@ -431,13 +433,13 @@ Boxed conclusion at the bottom of a content slide.
 
 This theme exposes these tokens. SlideML can reference them via theme defaults.
 
-- `bg-canvas` — deep navy slide background.
-- `bg-card` — slightly lighter card / surface fill.
-- `brand-primary` — cyan, primary accents and KPI values.
-- `brand-deep` — deeper blue, secondary accents and section dividers.
-- `text-strong` — high-contrast body and title text.
+- `bg-canvas` — light cool technical canvas.
+- `bg-card` — white card / table surface fill.
+- `brand-primary` — blueprint blue, primary accents and KPI values.
+- `brand-deep` — deep navy blue, secondary accents and section dividers.
+- `text-strong` — dark ink for body and title text.
 - `text-muted` — labels, captions, page numbers.
-- `accent` — warm orange, used sparingly for deltas / callouts.
+- `accent` — cyan-teal, used sparingly for technical highlights.
 - `divider` — hairline color for separators and outlines.
 - `font-latin` — Latin: Inter → IBM Plex Sans → Helvetica Neue → Arial. Inter is the engineering-blog default; IBM Plex is the next-best fallback when Inter is unavailable.
 - `font-cjk` — CJK: PingFang SC (macOS) → Source Han Sans CN (Linux) → Microsoft YaHei (Windows) → Noto Sans CJK SC (cross-platform). Order targets macOS first because the deck author is most likely viewing on macOS; Windows-installed Office picks YaHei.
@@ -448,7 +450,8 @@ This theme exposes these tokens. SlideML can reference them via theme defaults.
 Decorations applied to every slide unless the slide opts out with `chrome: none`.
 
 - `page-number` — bottom-right, muted; "n / N" format.
-- `brand-bar` — 2pt cyan bar along the bottom edge.
+- `hairline` — thin bottom rule inset from page edges.
+- `brand-mark` — optional logo / brand name in the upper-right edge when `deck.brand` is provided.
 
 ## Examples
 

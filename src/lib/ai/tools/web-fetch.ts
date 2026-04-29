@@ -5,7 +5,7 @@ export const webFetchSkill: Tool = {
   definition: {
     name: "web_fetch",
     description:
-      "Fetch a web page and return its text content. HTML tags are stripped automatically. Use this to read articles, documentation, blog posts, or any web page. Note: may not work well on JavaScript-heavy single-page apps — for those, use browser-use MCP if available.",
+      "Fetch a web page and return its text content. HTML tags are stripped automatically. Use this for static articles, documentation, blogs, and simple pages. For JavaScript-rendered pages, authenticated pages, visual checks, or when you need real links/buttons/page structure, use the built-in browser tool instead.",
     parameters: {
       type: "object",
       properties: {

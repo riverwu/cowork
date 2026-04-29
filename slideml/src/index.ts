@@ -63,6 +63,36 @@ function firstFontFromToken(value: unknown): string | undefined {
   return undefined;
 }
 
+function applyDeckThemeOverrides(theme: LoadedTheme, spec: DeckSpec): LoadedTheme {
+  const deck = spec.deck;
+  if (!deck.palette && !deck.fonts && !deck.style && !deck.oxml) return theme;
+
+  const manifest = structuredClone(theme.manifest);
+  if (deck.palette) {
+    manifest.tokens = { ...manifest.tokens, ...deck.palette };
+  }
+  if (deck.fonts) {
+    manifest.tokens = {
+      ...manifest.tokens,
+      ...(deck.fonts.latin ? { "font-latin": asFontList(deck.fonts.latin) } : {}),
+      ...(deck.fonts.cjk ? { "font-cjk": asFontList(deck.fonts.cjk) } : {}),
+      ...(deck.fonts.mono ? { "font-mono": asFontList(deck.fonts.mono) } : {}),
+    };
+  }
+  if (deck.style) {
+    manifest.style = { ...(manifest.style ?? {}), ...deck.style };
+  }
+  if (deck.oxml && typeof deck.oxml === "object") {
+    manifest.oxml = deck.oxml as typeof manifest.oxml;
+  }
+
+  return { ...theme, manifest };
+}
+
+function asFontList(value: string | string[]): string[] {
+  return Array.isArray(value) ? value : [value];
+}
+
 export type { Length, DeckSize } from "./units.js";
 export { toEmu, cm, inch, pt, SLIDE_SIZES } from "./units.js";
 export type { FontHint } from "./fonts.js";
@@ -80,7 +110,7 @@ export type {
   LoadedTheme,
   SlotSchema,
 } from "./theme/types.js";
-export type { DeckSpec, SlideSpec, BandSpec, BackgroundSpec, ChromeSpec } from "./render/index.js";
+export type { DeckSpec, SlideSpec, BandSpec, BackgroundSpec, BrandSpec, ChromeSpec } from "./render/index.js";
 export { editDeck, type EditOp, type EditResult } from "./edit.js";
 export { auditPptx, auditPptxBuffer, type AuditReport, type AuditIssue, type Severity } from "./audit.js";
 export { listInstalledThemes, describeInstalledTheme, type ThemeSummary, type ThemeDetail } from "./themes.js";
@@ -182,14 +212,15 @@ export async function compile(
 ): Promise<CompileResult> {
   const theme = opts.theme ?? (await loadTheme(requireThemeDir(opts)));
   const spec = parseSlideml(slidemlYaml);
+  const runtimeTheme = applyDeckThemeOverrides(theme, spec);
 
-  const validation = validateDeckSpec(spec, theme);
+  const validation = validateDeckSpec(spec, runtimeTheme);
   if (!validation.ok) {
     throw aggregateError(validation.errors);
   }
 
-  const ast = renderDeck(spec, theme);
-  const buffer = await emitPackage(ast, resolveThemeOxml(theme));
+  const ast = renderDeck(spec, runtimeTheme);
+  const buffer = await emitPackage(ast, resolveThemeOxml(runtimeTheme));
 
   if (opts.output) {
     await mkdir(dirname(opts.output), { recursive: true });
@@ -216,7 +247,8 @@ export async function validateDeck(
   } catch (err) {
     return { ok: false, errors: [parseErrorToSlideml(err)] };
   }
-  const result = validateDeckSpec(spec, theme);
+  const runtimeTheme = applyDeckThemeOverrides(theme, spec);
+  const result = validateDeckSpec(spec, runtimeTheme);
   return result.ok ? { ok: true } : { ok: false, errors: result.errors };
 }
 

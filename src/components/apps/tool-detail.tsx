@@ -332,26 +332,49 @@ export function ToolDetail({ tool, onBack, onRefresh }: ToolDetailProps) {
 
         {/* MCP actions */}
         {!isSkill && (
-          <div className="flex gap-2">
-            {tool.status === "error" && (
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              {tool.status === "error" && (
+                <button
+                  onClick={async () => { await mcpManager.reconnectServer(tool.id.replace("mcp_", "")); onRefresh(); }}
+                  className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary-accent)] text-white hover:bg-[var(--primary)] cursor-pointer"
+                >
+                  {t("connections.reconnect")}
+                </button>
+              )}
               <button
-                onClick={async () => { await mcpManager.reconnectServer(tool.id.replace("mcp_", "")); onRefresh(); }}
-                className="px-4 py-2 rounded-lg text-[13px] bg-[var(--primary-accent)] text-white hover:bg-[var(--primary)] cursor-pointer"
+                onClick={async () => {
+                  const mcpId = tool.id.replace("mcp_", "");
+                  if (tool.status === "disabled") await mcpManager.enableServer(mcpId);
+                  else await mcpManager.removeServer(mcpId);
+                  onRefresh();
+                }}
+                className={`px-4 py-2 rounded-lg text-[13px] cursor-pointer ${tool.status === "disabled" ? "bg-[var(--surface-low)] text-[var(--primary-accent)]" : "bg-red-50 text-[var(--error)]"}`}
               >
-                {t("connections.reconnect")}
+                {tool.status === "disabled" ? t("connections.enable") : t("connections.disable")}
               </button>
+              <button
+                onClick={async () => {
+                  if (!confirm(t("connections.uninstallConfirm").replace("{name}", tool.name))) return;
+                  setUninstalling(true);
+                  setUninstallError(null);
+                  try {
+                    await mcpManager.uninstallServer(tool.id.replace("mcp_", ""));
+                    onRefresh();
+                  } catch (err) {
+                    setUninstallError(String(err));
+                    setUninstalling(false);
+                  }
+                }}
+                disabled={uninstalling}
+                className="px-4 py-2 rounded-lg text-[13px] bg-red-50 text-[var(--error)] cursor-pointer disabled:opacity-50"
+              >
+                {uninstalling ? t("tools.uninstalling") : t("connections.uninstall")}
+              </button>
+            </div>
+            {uninstallError && (
+              <p className="text-[12px] text-[var(--error)]">{uninstallError}</p>
             )}
-            <button
-              onClick={async () => {
-                const mcpId = tool.id.replace("mcp_", "");
-                if (tool.status === "disabled") await mcpManager.enableServer(mcpId);
-                else await mcpManager.removeServer(mcpId);
-                onRefresh();
-              }}
-              className={`px-4 py-2 rounded-lg text-[13px] cursor-pointer ${tool.status === "disabled" ? "bg-[var(--surface-low)] text-[var(--primary-accent)]" : "bg-red-50 text-[var(--error)]"}`}
-            >
-              {tool.status === "disabled" ? t("connections.enable") : t("connections.disable")}
-            </button>
           </div>
         )}
       </div>

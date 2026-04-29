@@ -7,7 +7,7 @@
  */
 
 import yaml from "js-yaml";
-import type { BackgroundSpec, BandSpec, ChromeSpec, DeckSpec, SlideSpec } from "./render/index.js";
+import type { BackgroundSpec, BandSpec, BrandSpec, ChromeSpec, DeckSpec, SlideSpec } from "./render/index.js";
 
 export interface SlidemlParseError extends Error {
   code: "PARSE_ERROR" | "EXTRA_KEY" | "MISSING_KEY" | "TYPE_MISMATCH";
@@ -15,7 +15,7 @@ export interface SlidemlParseError extends Error {
   path?: string;
 }
 
-const ALLOWED_DECK_KEYS = new Set(["size", "language", "theme", "defaults", "header", "footer", "background"]);
+const ALLOWED_DECK_KEYS = new Set(["size", "language", "theme", "defaults", "header", "footer", "background", "brand", "chrome", "palette", "fonts", "style", "oxml"]);
 const ALLOWED_SIZES = new Set(["16x9", "16x10", "4x3", "wide"]);
 const ALLOWED_SLIDE_KEYS = new Set(["layout", "chrome", "notes", "transition", "slots", "header", "footer", "background"]);
 const ALLOWED_TRANSITIONS = new Set(["none", "fade"]);
@@ -147,6 +147,15 @@ export function parseSlideml(input: string): DeckSpec {
   const header = parseBand(deckRaw["header"], "deck.header");
   const footer = parseBand(deckRaw["footer"], "deck.footer");
   const background = parseBackground(deckRaw["background"], "deck.background");
+  const brand = parseBrand(deckRaw["brand"], "deck.brand");
+  const chrome = parseChromeNames(deckRaw["chrome"], "deck.chrome");
+  const palette = parseStringMap(deckRaw["palette"], "deck.palette");
+  const fonts = parseFonts(deckRaw["fonts"], "deck.fonts");
+  const style = parseDeckStyle(deckRaw["style"], "deck.style");
+  const oxml = deckRaw["oxml"];
+  if (oxml !== undefined && !isObject(oxml)) {
+    throw structured("TYPE_MISMATCH", "deck.oxml must be an object.");
+  }
 
   return {
     slideml: 1,
@@ -158,9 +167,94 @@ export function parseSlideml(input: string): DeckSpec {
       header,
       footer,
       background,
+      brand,
+      chrome,
+      palette,
+      fonts,
+      style,
+      oxml,
     },
     slides,
   };
+}
+
+function parseBrand(value: unknown, path: string): BrandSpec | undefined {
+  if (value === undefined) return undefined;
+  if (!isObject(value)) {
+    throw structured("TYPE_MISMATCH", `${path} must be an object with { name?, logo?, color? }.`);
+  }
+  const out: BrandSpec = {};
+  if (value["name"] !== undefined) {
+    if (typeof value["name"] !== "string") throw structured("TYPE_MISMATCH", `${path}.name must be a string.`);
+    out.name = value["name"];
+  }
+  if (value["color"] !== undefined) {
+    if (typeof value["color"] !== "string") throw structured("TYPE_MISMATCH", `${path}.color must be a token name or 6-char hex string.`);
+    out.color = value["color"];
+  }
+  if (value["logo"] !== undefined) {
+    if (typeof value["logo"] === "string") {
+      out.logo = value["logo"];
+    } else if (isObject(value["logo"])) {
+      const src = value["logo"]["src"];
+      const alt = value["logo"]["alt"];
+      if (typeof src !== "string" || !src) throw structured("TYPE_MISMATCH", `${path}.logo.src must be a non-empty string.`);
+      if (alt !== undefined && typeof alt !== "string") throw structured("TYPE_MISMATCH", `${path}.logo.alt must be a string.`);
+      out.logo = { src, ...(typeof alt === "string" ? { alt } : {}) };
+    } else {
+      throw structured("TYPE_MISMATCH", `${path}.logo must be a string or { src, alt? }.`);
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function parseChromeNames(value: unknown, path: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw structured("TYPE_MISMATCH", `${path} must be an array of chrome module name strings.`);
+  }
+  return value as string[];
+}
+
+function parseStringMap(value: unknown, path: string): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  if (!isObject(value)) throw structured("TYPE_MISMATCH", `${path} must be a mapping of string keys to string values.`);
+  const out: Record<string, string> = {};
+  for (const [key, v] of Object.entries(value)) {
+    if (typeof v !== "string") throw structured("TYPE_MISMATCH", `${path}.${key} must be a string.`);
+    out[key] = v;
+  }
+  return out;
+}
+
+function parseFonts(value: unknown, path: string): DeckSpec["deck"]["fonts"] | undefined {
+  if (value === undefined) return undefined;
+  if (!isObject(value)) throw structured("TYPE_MISMATCH", `${path} must be an object.`);
+  const out: NonNullable<DeckSpec["deck"]["fonts"]> = {};
+  for (const key of ["latin", "cjk", "mono"] as const) {
+    const v = value[key];
+    if (v === undefined) continue;
+    if (typeof v === "string") out[key] = v;
+    else if (Array.isArray(v) && v.every((item) => typeof item === "string")) out[key] = v as string[];
+    else throw structured("TYPE_MISMATCH", `${path}.${key} must be a string or string array.`);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function parseDeckStyle(value: unknown, path: string): DeckSpec["deck"]["style"] | undefined {
+  if (value === undefined) return undefined;
+  if (!isObject(value)) throw structured("TYPE_MISMATCH", `${path} must be an object.`);
+  const out: NonNullable<DeckSpec["deck"]["style"]> = {};
+  if (value["titleAccentRule"] !== undefined) {
+    if (typeof value["titleAccentRule"] !== "boolean") throw structured("TYPE_MISMATCH", `${path}.titleAccentRule must be boolean.`);
+    out.titleAccentRule = value["titleAccentRule"];
+  }
+  if (value["contrastTarget"] !== undefined) {
+    const v = value["contrastTarget"];
+    if (v !== "warn" && v !== "AA" && v !== "AAA") throw structured("TYPE_MISMATCH", `${path}.contrastTarget must be warn, AA, or AAA.`);
+    out.contrastTarget = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function parseSlide(raw: unknown, index: number): SlideSpec {

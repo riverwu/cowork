@@ -83,7 +83,7 @@ Reason: ${context.reason}
 Use the workspace as durable scratch space for plans, extracted source summaries, intermediate specs, scripts, logs, and final deliverables.
 
 Required workflow:
-1. Call \`update_task_progress\` first with phase \`plan\`, status \`running\`. The \`summary\` is shown to the user as the visible plan, so it MUST contain the full plan in multi-line markdown — numbered steps, expected deliverables (file names/paths), how many slides/pages/images, image specs, and any open assumptions. Do not collapse it to a single sentence.
+1. Call \`update_task_progress\` first with phase \`plan\`, status \`running\`. Include a concise \`summary\` and a \`steps[]\` checklist of concrete execution steps. The UI shows \`steps[]\` as the live task list, so keep it current and keep exactly one step \`running\` while work is active. Do not rely on chat prose to communicate task status.
 2. For large inputs, build an inventory before analysis. Save it as \`${context.workspaceDir}/inventory.json\` or \`${context.workspaceDir}/inventory.md\`.
 3. Summarize source files in batches. Save per-source and aggregate summaries in the workspace; do not load all raw content into chat at once.
 4. For large outputs, write a compact specification first, such as \`${context.workspaceDir}/deck_spec.json\`, \`report_outline.md\`, or \`site_spec.json\`.
@@ -91,7 +91,7 @@ Required workflow:
 6. Keep each \`write_file\` content payload under 12,000 characters. If the pptxgenjs script is large, write it in chunks with \`write_file\`: first chunk uses mode \`overwrite\`, later chunks use mode \`append\`. Keep chunks ordered as imports/helpers, content/layout sections, then final writeFile call.
 7. Execute generated Node scripts with \`run_node\` using a short loader such as \`require("${context.workspaceDir}/scripts/build_deck.js")\`. Do not use \`shell\` to run \`node\` for generated deliverables.
 8. Generate final deliverables from the saved spec using tools. Prefer templates, arrays, helper functions, and loops over repeated generated code.
-9. Call \`update_task_progress\` whenever a phase starts or finishes. Include any important output paths.
+9. Call \`update_task_progress\` whenever a step starts or finishes. Always send the full current \`steps[]\` list with updated statuses, and include any important output paths.
 10. Before final response, verify final files exist or were successfully written, then report only the useful paths and completion status.
 
 Do not put large source extracts, giant scripts, or full generated documents in assistant text. Store them in workspace files and only summarize progress to the user.`;

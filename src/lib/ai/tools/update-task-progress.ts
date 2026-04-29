@@ -8,12 +8,18 @@ interface TaskOutput {
   kind?: "file" | "artifact" | "note";
 }
 
+interface TaskStep {
+  title: string;
+  status: "pending" | "running" | "done" | "failed";
+}
+
 interface TaskProgress {
   runId: string;
   workspaceDir: string;
   phase: string;
   status: "pending" | "running" | "done" | "failed";
   summary: string;
+  steps: TaskStep[];
   outputs: TaskOutput[];
   updatedAt: number;
 }
@@ -22,7 +28,7 @@ export const updateTaskProgress: Tool = {
   definition: {
     name: "update_task_progress",
     description:
-      "Update the visible plan/progress panel for a multi-step task. Call once with phase=\"plan\" and a multi-line summary listing each step, file path, page/slide/image count, and assumptions. Call again with status=\"done\" at the end and pass every produced file path in `outputs[]` — those are what the user clicks in the result panel.",
+      "Update the visible plan/progress panel for a multi-step task. Always include `steps[]` for the execution checklist, with exactly one running step while work is active. Call once with phase=\"plan\" before work starts, call again whenever a step changes, and call with status=\"done\" at the end including every produced file path in `outputs[]`.",
     parameters: {
       type: "object",
       properties: {
@@ -38,6 +44,18 @@ export const updateTaskProgress: Tool = {
         summary: {
           type: "string",
           description: "Concise user-facing progress summary.",
+        },
+        steps: {
+          type: "array",
+          description: "Execution checklist shown above the input box. Keep it limited to concrete running steps, not general goals or expected outputs.",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              status: { type: "string", enum: ["pending", "running", "done", "failed"] },
+            },
+            required: ["title", "status"],
+          },
         },
         outputs: {
           type: "array",
@@ -69,6 +87,7 @@ export const updateTaskProgress: Tool = {
       phase: String(input.phase || "unknown"),
       status: normalizeStatus(input.status),
       summary: String(input.summary || ""),
+      steps: normalizeSteps(input.steps),
       outputs: normalizeOutputs(input.outputs),
       updatedAt: Math.floor(Date.now() / 1000),
     };
@@ -89,6 +108,18 @@ function normalizeStatus(value: unknown): TaskProgress["status"] {
   return value === "pending" || value === "running" || value === "done" || value === "failed"
     ? value
     : "running";
+}
+
+function normalizeSteps(value: unknown): TaskStep[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => !!item && typeof item === "object")
+    .map((item) => ({
+      title: String(item.title || "").trim(),
+      status: normalizeStatus(item.status),
+    }))
+    .filter((item) => item.title.length > 0)
+    .slice(0, 12);
 }
 
 function normalizeOutputs(value: unknown): TaskOutput[] {

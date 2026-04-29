@@ -12,6 +12,7 @@ import { saveMemory } from "./save-memory";
 import { createArtifactSkill } from "./create-artifact";
 import { webSearchSkill } from "./web-search";
 import { webFetchSkill } from "./web-fetch";
+import { browserTool } from "./browser";
 import { shellExecSkill } from "./shell-exec";
 import { applyPatchSkill } from "./apply-patch";
 import { updateTaskProgress } from "./update-task-progress";
@@ -29,7 +30,7 @@ import { listThemesTool } from "./list-themes";
 import { describeThemeTool } from "./describe-theme";
 
 /**
- * Built-in tool registry — 28 tools.
+ * Built-in tool registry — 29 tools.
  *
  * These are the agent's built-in capabilities, registered as LLM function-calling tools.
  * They are NOT user-installed skills (SKILL.md) — those are managed by SkillRegistry.
@@ -39,7 +40,7 @@ import { describeThemeTool } from "./describe-theme";
  * Execution:
  *   shell, run_python, run_node
  * Web:
- *   web_search, web_fetch
+ *   web_search, web_fetch, browser
  * Knowledge & Memory:
  *   list_knowledge_sources, get_source_catalog, search_knowledge, save_memory
  * Output:
@@ -69,6 +70,7 @@ const tools: Record<string, Tool> = {
   // Web
   web_search: webSearchSkill,
   web_fetch: webFetchSkill,
+  browser: browserTool,
   // Knowledge & Memory
   list_knowledge_sources: listKnowledgeSources,
   get_source_catalog: getSourceCatalog,

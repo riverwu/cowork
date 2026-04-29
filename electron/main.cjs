@@ -10,6 +10,30 @@ const path = require("node:path");
 
 let mainWindow = null;
 const mcpProcesses = new Map();
+const browserState = {
+  playwright: null,
+  context: null,
+  page: null,
+  headed: false,
+  refs: new Map(),
+  snapshotId: 0,
+  downloads: [],
+  consoleLogs: [],
+  networkLogs: [],
+};
+const BROWSER_READ_ACTIONS = new Set([
+  "snapshot",
+  "state",
+  "extract",
+  "inspect",
+  "wait_for_change",
+  "get_url",
+  "tabs",
+  "screenshot",
+  "pdf",
+  "downloads",
+  "diagnostics",
+]);
 
 const skipDirs = new Set(["node_modules", "target", ".git", "__pycache__", "dist", "build", ".next"]);
 const contentIndexableExtensions = new Set([
@@ -74,6 +98,11 @@ app.on("before-quit", () => {
   app.isQuitting = true;
   for (const [, child] of mcpProcesses) child.kill();
   mcpProcesses.clear();
+  if (browserState.context) {
+    browserState.context.close().catch(() => {});
+    browserState.context = null;
+    browserState.page = null;
+  }
 });
 
 app.on("window-all-closed", () => {
@@ -134,6 +163,7 @@ async function dispatch(command, args, sender) {
     case "ensure_uv_installed": return ensureUvInstalled();
     case "web_fetch": return webFetch(args.url);
     case "web_search": return webSearch(args.query, args.maxResults);
+    case "browser_action": return browserAction(args);
     default: throw new Error(`Unknown Electron command: ${command}`);
   }
 }
@@ -865,4 +895,1064 @@ function decodeHtml(input) {
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
+}
+
+// ---- Browser Service (Playwright) ----
+
+async function browserAction(args) {
+  const actions = Array.isArray(args.actions) ? args.actions : [];
+  if (actions.length === 0) {
+    throw new Error('browser_action requires non-empty "actions" array');
+  }
+
+  const outputs = [];
+  for (let i = 0; i < actions.length; i++) {
+    const action = actions[i] || {};
+    const name = String(action.action || "");
+    if (!name) throw new Error(`browser action ${i + 1} missing action`);
+
+    const beforeUrl = browserState.page?.url() || "about:blank";
+    const result = await executeBrowserAction(name, action);
+    outputs.push({ action: name, result });
+
+    const afterUrl = browserState.page?.url() || "";
+    const pageChanged = beforeUrl !== afterUrl && !BROWSER_READ_ACTIONS.has(name);
+    const nextActionName = String(actions[i + 1]?.action || "");
+    const unsafeAfterChange = !BROWSER_READ_ACTIONS.has(nextActionName);
+    const stateChanged = ["open", "navigate", "show", "hide", "reload", "new_tab", "switch_tab", "close_tab", "back", "cookies", "storage", "evaluate"].includes(name);
+    if ((pageChanged || stateChanged) && unsafeAfterChange && i < actions.length - 1) {
+      outputs.push({
+        action: "sequence_stop",
+        result: {
+          reason: pageChanged ? `page changed to ${afterUrl}` : `${name} changes page state`,
+          skipped: actions.length - i - 1,
+        },
+      });
+      break;
+    }
+  }
+  return outputs;
+}
+
+async function executeBrowserAction(name, action) {
+  switch (name) {
+    case "open":
+    case "navigate": {
+      if (!action.url) throw new Error(`${name} requires url`);
+      const page = await ensureBrowser({ headed: typeof action.headed === "boolean" ? !!action.headed : undefined });
+      await page.goto(String(action.url), { waitUntil: "domcontentloaded", timeout: Number(action.timeout_ms || 30000) });
+      await waitBrieflyForPage(page);
+      return await snapshotPage();
+    }
+    case "snapshot":
+      await ensureBrowser({});
+      return await snapshotPage();
+    case "state":
+      await ensureBrowser({});
+      return await snapshotPage();
+    case "extract": {
+      await ensureBrowser({});
+      const snapshot = await snapshotPage();
+      return extractFromBrowserSnapshot(snapshot, String(action.query || ""), Number(action.max_items || 24));
+    }
+    case "inspect": {
+      const ref = Number(action.ref);
+      if (!Number.isFinite(ref)) throw new Error("inspect requires numeric ref from snapshot");
+      const page = await ensureBrowser({});
+      const meta = getBrowserRef(ref);
+      const frame = page.frames()[meta.frameIndex];
+      if (!frame) throw new Error(`STALE_REF: frame ${meta.frameIndex} no longer exists; call snapshot again`);
+      if (meta.frameUrl && frame.url() !== meta.frameUrl) {
+        throw new Error(`STALE_REF: frame URL changed from ${meta.frameUrl} to ${frame.url()}; call snapshot again`);
+      }
+      return await inspectBrowserRef(frame, ref, Number(action.max_chars || 2000));
+    }
+    case "show":
+      return await setBrowserVisibility(true);
+    case "hide":
+      return await setBrowserVisibility(false);
+    case "reload": {
+      const page = await ensureBrowser({});
+      await page.reload({ waitUntil: "domcontentloaded", timeout: Number(action.timeout_ms || 30000) }).catch(() => null);
+      await waitBrieflyForPage(page);
+      return await snapshotPage();
+    }
+    case "tabs": {
+      const page = await ensureBrowser({});
+      return await browserTabs(page);
+    }
+    case "new_tab": {
+      await ensureBrowser({});
+      const page = await browserState.context.newPage();
+      browserState.page = page;
+      attachBrowserPage(page);
+      if (action.url) {
+        await page.goto(String(action.url), { waitUntil: "domcontentloaded", timeout: Number(action.timeout_ms || 30000) });
+        await waitBrieflyForPage(page);
+      }
+      return await snapshotPage();
+    }
+    case "switch_tab": {
+      const page = await switchBrowserTab(Number(action.index));
+      return { switched: true, index: browserState.context.pages().indexOf(page), url: page.url(), title: await page.title().catch(() => "") };
+    }
+    case "close_tab": {
+      const page = await ensureBrowser({});
+      const pages = browserState.context.pages();
+      const index = action.index === undefined ? pages.indexOf(page) : Number(action.index);
+      if (!Number.isInteger(index) || index < 0 || index >= pages.length) throw new Error("close_tab requires a valid tab index");
+      await pages[index].close().catch(() => {});
+      browserState.page = browserState.context.pages()[0] || await browserState.context.newPage();
+      attachBrowserPage(browserState.page);
+      return await browserTabs(browserState.page);
+    }
+    case "click": {
+      const ref = Number(action.ref);
+      if (!Number.isFinite(ref)) throw new Error("click requires numeric ref from snapshot");
+      const page = await ensureBrowser({});
+      const meta = getBrowserRef(ref);
+      const frame = page.frames()[meta.frameIndex];
+      if (!frame) throw new Error(`STALE_REF: frame ${meta.frameIndex} no longer exists; call snapshot again`);
+      if (meta.frameUrl && frame.url() !== meta.frameUrl) throw new Error(`STALE_REF: frame URL changed from ${meta.frameUrl} to ${frame.url()}; call snapshot again`);
+      const selector = `[data-cowork-ref="${ref}"]`;
+      const locator = frame.locator(selector).first();
+      try {
+        await locator.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+        await locator.click({ timeout: 10000 });
+      } catch {
+        await performDeepBrowserAction(frame, ref, "click");
+      }
+      await waitBrieflyForPage(page);
+      return { clicked: ref, url: page.url() };
+    }
+    case "hover":
+    case "dblclick":
+    case "rightclick": {
+      const ref = Number(action.ref);
+      if (!Number.isFinite(ref)) throw new Error(`${name} requires numeric ref from snapshot`);
+      const page = await ensureBrowser({});
+      const { frame } = getBrowserFrameForRef(page, ref);
+      const locator = frame.locator(`[data-cowork-ref="${ref}"]`).first();
+      try {
+        await locator.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+        if (name === "hover") await locator.hover({ timeout: 10000 });
+        if (name === "dblclick") await locator.dblclick({ timeout: 10000 });
+        if (name === "rightclick") await locator.click({ button: "right", timeout: 10000 });
+      } catch {
+        await performDeepBrowserAction(frame, ref, name);
+      }
+      await waitBrieflyForPage(page);
+      return { action: name, ref, url: page.url() };
+    }
+    case "type": {
+      const ref = Number(action.ref);
+      if (!Number.isFinite(ref)) throw new Error("type requires numeric ref from snapshot");
+      const text = String(action.text ?? "");
+      const page = await ensureBrowser({});
+      const meta = getBrowserRef(ref);
+      const frame = page.frames()[meta.frameIndex];
+      if (!frame) throw new Error(`STALE_REF: frame ${meta.frameIndex} no longer exists; call snapshot again`);
+      if (meta.frameUrl && frame.url() !== meta.frameUrl) throw new Error(`STALE_REF: frame URL changed from ${meta.frameUrl} to ${frame.url()}; call snapshot again`);
+      const locator = frame.locator(`[data-cowork-ref="${ref}"]`).first();
+      try {
+        await locator.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+        await locator.fill(text, { timeout: 10000 }).catch(async () => {
+          await locator.click({ timeout: 5000 });
+          await locator.pressSequentially(text, { timeout: 10000 });
+        });
+      } catch {
+        await performDeepBrowserAction(frame, ref, "type", text);
+      }
+      await waitBrieflyForPage(page);
+      return { typed: ref, chars: text.length, url: page.url() };
+    }
+    case "select": {
+      const ref = Number(action.ref);
+      if (!Number.isFinite(ref)) throw new Error("select requires numeric ref from snapshot");
+      const value = String(action.value ?? action.text ?? "");
+      if (!value) throw new Error("select requires value");
+      const page = await ensureBrowser({});
+      const { frame } = getBrowserFrameForRef(page, ref);
+      const selected = await frame.locator(`[data-cowork-ref="${ref}"]`).first().selectOption(value, { timeout: 10000 });
+      await waitBrieflyForPage(page);
+      return { selected, ref, url: page.url() };
+    }
+    case "upload": {
+      const ref = Number(action.ref);
+      if (!Number.isFinite(ref)) throw new Error("upload requires numeric ref from snapshot");
+      const files = Array.isArray(action.paths) ? action.paths.map(String) : action.path ? [String(action.path)] : [];
+      if (files.length === 0) throw new Error("upload requires path or paths");
+      const page = await ensureBrowser({});
+      const { frame } = getBrowserFrameForRef(page, ref);
+      await frame.locator(`[data-cowork-ref="${ref}"]`).first().setInputFiles(files, { timeout: 15000 });
+      await waitBrieflyForPage(page);
+      return { uploaded: files, ref, url: page.url() };
+    }
+    case "check":
+    case "uncheck": {
+      const ref = Number(action.ref);
+      if (!Number.isFinite(ref)) throw new Error(`${name} requires numeric ref from snapshot`);
+      const page = await ensureBrowser({});
+      const { frame } = getBrowserFrameForRef(page, ref);
+      const locator = frame.locator(`[data-cowork-ref="${ref}"]`).first();
+      if (name === "check") await locator.check({ timeout: 10000 });
+      else await locator.uncheck({ timeout: 10000 });
+      await waitBrieflyForPage(page);
+      return { action: name, ref, url: page.url() };
+    }
+    case "clear": {
+      const ref = Number(action.ref);
+      if (!Number.isFinite(ref)) throw new Error("clear requires numeric ref from snapshot");
+      const page = await ensureBrowser({});
+      const { frame } = getBrowserFrameForRef(page, ref);
+      await frame.locator(`[data-cowork-ref="${ref}"]`).first().fill("", { timeout: 10000 });
+      await waitBrieflyForPage(page);
+      return { cleared: ref, url: page.url() };
+    }
+    case "press": {
+      const key = String(action.key || action.keys || "");
+      if (!key) throw new Error("press requires key");
+      const page = await ensureBrowser({});
+      if (action.ref !== undefined) {
+        const ref = Number(action.ref);
+        const meta = getBrowserRef(ref);
+        const frame = page.frames()[meta.frameIndex];
+        if (!frame) throw new Error(`STALE_REF: frame ${meta.frameIndex} no longer exists; call snapshot again`);
+        if (meta.frameUrl && frame.url() !== meta.frameUrl) throw new Error(`STALE_REF: frame URL changed from ${meta.frameUrl} to ${frame.url()}; call snapshot again`);
+        await frame.locator(`[data-cowork-ref="${ref}"]`).first().press(key, { timeout: 10000 });
+      } else {
+        await page.keyboard.press(key);
+      }
+      await waitBrieflyForPage(page);
+      return { pressed: key, url: page.url() };
+    }
+    case "scroll": {
+      const page = await ensureBrowser({});
+      const direction = action.direction === "up" ? -1 : 1;
+      const pages = Number(action.pages || 1);
+      await page.evaluate(({ direction, pages }) => {
+        window.scrollBy(0, direction * Math.round(window.innerHeight * pages));
+      }, { direction, pages });
+      await waitBrieflyForPage(page);
+      return await snapshotPage();
+    }
+    case "back": {
+      const page = await ensureBrowser({});
+      await page.goBack({ waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => null);
+      await waitBrieflyForPage(page);
+      return await snapshotPage();
+    }
+    case "wait_for_change": {
+      const page = await ensureBrowser({});
+      return await waitForBrowserChange(page, Number(action.timeout_ms || 8000));
+    }
+    case "get_url": {
+      const page = await ensureBrowser({});
+      return { url: page.url(), title: await page.title().catch(() => "") };
+    }
+    case "screenshot": {
+      const page = await ensureBrowser({});
+      const outPath = action.path ? String(action.path) : defaultBrowserScreenshotPath();
+      await fsp.mkdir(path.dirname(outPath), { recursive: true });
+      if (action.ref !== undefined) {
+        const ref = Number(action.ref);
+        const { frame } = getBrowserFrameForRef(page, ref);
+        await frame.locator(`[data-cowork-ref="${ref}"]`).first().screenshot({ path: outPath });
+      } else {
+        await page.screenshot({ path: outPath, fullPage: !!action.full_page });
+      }
+      return { path: outPath, url: page.url(), title: await page.title().catch(() => "") };
+    }
+    case "pdf": {
+      const page = await ensureBrowser({});
+      const outPath = action.path ? String(action.path) : defaultBrowserPdfPath();
+      await fsp.mkdir(path.dirname(outPath), { recursive: true });
+      await page.pdf({ path: outPath, printBackground: action.print_background !== false, format: String(action.format || "A4") });
+      return { path: outPath, url: page.url(), title: await page.title().catch(() => "") };
+    }
+    case "downloads":
+      await ensureBrowser({});
+      return { downloads: browserState.downloads.slice(-20) };
+    case "cookies":
+      return await browserCookies(action);
+    case "storage":
+      return await browserStorage(action);
+    case "diagnostics":
+      await ensureBrowser({});
+      return {
+        console: browserState.consoleLogs.slice(-Number(action.limit || 50)),
+        network: browserState.networkLogs.slice(-Number(action.limit || 50)),
+      };
+    case "evaluate": {
+      const page = await ensureBrowser({});
+      const code = String(action.code || "");
+      if (!code.trim()) throw new Error("evaluate requires code");
+      const value = await page.evaluate(async ({ code }) => {
+        const fn = new Function(`return (async () => { ${code} })()`);
+        return await fn();
+      }, { code });
+      return {
+        url: page.url(),
+        value: truncateBrowserValue(value, Number(action.max_chars || 4000)),
+      };
+    }
+    case "close":
+      if (browserState.context) await browserState.context.close().catch(() => {});
+      browserState.context = null;
+      browserState.page = null;
+      browserState.refs.clear();
+      return { closed: true };
+    default:
+      throw new Error(`Unknown browser action: ${name}`);
+  }
+}
+
+async function loadPlaywright() {
+  if (browserState.playwright) return browserState.playwright;
+  try {
+    browserState.playwright = require("playwright");
+    return browserState.playwright;
+  } catch (err) {
+    throw new Error(
+      "Playwright is not installed. Run `pnpm install` and `pnpm exec playwright install chromium`, then retry. " +
+      `Original error: ${err && err.message ? err.message : String(err)}`,
+    );
+  }
+}
+
+async function ensureBrowser(opts) {
+  const headed = typeof opts.headed === "boolean" ? !!opts.headed : browserState.headed;
+  if (browserState.context && browserState.page && browserState.headed === headed) return browserState.page;
+  if (browserState.context) await browserState.context.close().catch(() => {});
+  browserState.refs.clear();
+
+  const { chromium } = await loadPlaywright();
+  const profileDir = path.join(app.getPath("userData"), "browser", "profiles", "default");
+  await fsp.mkdir(profileDir, { recursive: true });
+  browserState.context = await chromium.launchPersistentContext(profileDir, {
+    headless: !headed,
+    viewport: { width: 1280, height: 800 },
+    acceptDownloads: true,
+  });
+  await browserState.context.addInitScript(() => {
+    if (window.__coworkClosedShadowRoots) return;
+    const roots = new WeakMap();
+    window.__coworkClosedShadowRoots = roots;
+    const original = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function attachShadow(init) {
+      const root = original.call(this, init);
+      if (init && init.mode === "closed") roots.set(this, root);
+      return root;
+    };
+  });
+  browserState.headed = headed;
+  browserState.page = browserState.context.pages()[0] || await browserState.context.newPage();
+  attachBrowserPage(browserState.page);
+  browserState.context.on("page", (page) => {
+    browserState.page = page;
+    attachBrowserPage(page);
+  });
+  return browserState.page;
+}
+
+function attachBrowserPage(page) {
+  if (!page || page.__coworkDownloadAttached) return;
+  page.__coworkDownloadAttached = true;
+  page.on("console", (msg) => {
+    browserState.consoleLogs.push({
+      type: msg.type(),
+      text: msg.text(),
+      url: page.url(),
+      time: new Date().toISOString(),
+    });
+    if (browserState.consoleLogs.length > 200) browserState.consoleLogs.splice(0, browserState.consoleLogs.length - 200);
+  });
+  page.on("pageerror", (err) => {
+    browserState.consoleLogs.push({
+      type: "pageerror",
+      text: err && err.message ? err.message : String(err),
+      url: page.url(),
+      time: new Date().toISOString(),
+    });
+    if (browserState.consoleLogs.length > 200) browserState.consoleLogs.splice(0, browserState.consoleLogs.length - 200);
+  });
+  page.on("requestfailed", (request) => {
+    browserState.networkLogs.push({
+      type: "requestfailed",
+      method: request.method(),
+      url: request.url(),
+      failure: request.failure()?.errorText || "",
+      time: new Date().toISOString(),
+    });
+    if (browserState.networkLogs.length > 200) browserState.networkLogs.splice(0, browserState.networkLogs.length - 200);
+  });
+  page.on("response", (response) => {
+    const status = response.status();
+    if (status < 400) return;
+    browserState.networkLogs.push({
+      type: "response",
+      status,
+      url: response.url(),
+      time: new Date().toISOString(),
+    });
+    if (browserState.networkLogs.length > 200) browserState.networkLogs.splice(0, browserState.networkLogs.length - 200);
+  });
+  page.on("download", async (download) => {
+    try {
+      const suggested = sanitizeFilename(download.suggestedFilename() || "download");
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const outPath = path.join(app.getPath("userData"), "browser", "downloads", `${stamp}_${suggested}`);
+      await fsp.mkdir(path.dirname(outPath), { recursive: true });
+      await download.saveAs(outPath);
+      browserState.downloads.push({
+        path: outPath,
+        suggestedFilename: suggested,
+        url: download.url(),
+        savedAt: new Date().toISOString(),
+      });
+      if (browserState.downloads.length > 100) browserState.downloads.splice(0, browserState.downloads.length - 100);
+    } catch (err) {
+      browserState.downloads.push({
+        error: err && err.message ? err.message : String(err),
+        savedAt: new Date().toISOString(),
+      });
+    }
+  });
+}
+
+function sanitizeFilename(name) {
+  return String(name || "download").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 180) || "download";
+}
+
+function getBrowserRef(ref) {
+  const meta = browserState.refs.get(String(ref));
+  if (!meta) throw new Error(`STALE_REF: ref ${ref} is not in the latest snapshot; call snapshot again`);
+  return meta;
+}
+
+function getBrowserFrameForRef(page, ref) {
+  const meta = getBrowserRef(ref);
+  const frame = page.frames()[meta.frameIndex];
+  if (!frame) throw new Error(`STALE_REF: frame ${meta.frameIndex} no longer exists; call snapshot again`);
+  if (meta.frameUrl && frame.url() !== meta.frameUrl) {
+    throw new Error(`STALE_REF: frame URL changed from ${meta.frameUrl} to ${frame.url()}; call snapshot again`);
+  }
+  return { meta, frame };
+}
+
+async function setBrowserVisibility(headed) {
+  const currentUrl = browserState.page?.url();
+  const page = await ensureBrowser({ headed });
+  if (currentUrl && currentUrl !== "about:blank" && page.url() === "about:blank") {
+    await page.goto(currentUrl, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => null);
+    await waitBrieflyForPage(page);
+  }
+  return { headed: browserState.headed, url: page.url(), title: await page.title().catch(() => "") };
+}
+
+async function browserTabs(activePage) {
+  const pages = browserState.context.pages();
+  return {
+    activeIndex: pages.indexOf(activePage),
+    tabs: await Promise.all(pages.map(async (page, index) => ({
+      index,
+      active: page === activePage,
+      url: page.url(),
+      title: await page.title().catch(() => ""),
+    }))),
+  };
+}
+
+async function switchBrowserTab(index) {
+  const page = await ensureBrowser({});
+  const pages = browserState.context.pages();
+  if (!Number.isInteger(index) || index < 0 || index >= pages.length) {
+    throw new Error(`switch_tab requires index between 0 and ${Math.max(0, pages.length - 1)}`);
+  }
+  browserState.page = pages[index];
+  await browserState.page.bringToFront().catch(() => {});
+  return browserState.page || page;
+}
+
+async function waitBrieflyForPage(page) {
+  await page.waitForLoadState("domcontentloaded", { timeout: 5000 }).catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 1500 }).catch(() => {});
+  await page.waitForTimeout(300).catch(() => {});
+}
+
+async function waitForBrowserChange(page, timeoutMs) {
+  const timeout = Math.max(500, Math.min(Number.isFinite(timeoutMs) ? timeoutMs : 8000, 60000));
+  const before = await sampleBrowserPageState(page);
+  const deadline = Date.now() + timeout;
+  let after = before;
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(300).catch(() => {});
+    after = await sampleBrowserPageState(page);
+    if (after.url !== before.url) {
+      await waitBrieflyForPage(page);
+      return { changed: true, reason: "url", before, after: await sampleBrowserPageState(page) };
+    }
+    if (Math.abs(after.textLength - before.textLength) >= 80) {
+      return { changed: true, reason: "text", before, after };
+    }
+    if (Math.abs(after.interactiveCount - before.interactiveCount) >= 1) {
+      return { changed: true, reason: "interactive", before, after };
+    }
+    if (after.textHead !== before.textHead && after.textLength > 0) {
+      return { changed: true, reason: "text_head", before, after };
+    }
+  }
+  return { changed: false, reason: "timeout", before, after, timeout_ms: timeout };
+}
+
+async function sampleBrowserPageState(page) {
+  const frames = [];
+  for (const frame of page.frames()) {
+    try {
+      frames.push(await frame.evaluate(() => {
+        const text = (document.body?.innerText || "").replace(/\s+/g, " ").trim();
+        const interactiveCount = document.querySelectorAll([
+          "a[href]",
+          "button",
+          "input",
+          "textarea",
+          "select",
+          "[role]",
+          "[onclick]",
+          "[tabindex]:not([tabindex='-1'])",
+        ].join(",")).length;
+        return {
+          url: location.href,
+          title: document.title || "",
+          textLength: text.length,
+          textHead: text.slice(0, 300),
+          interactiveCount,
+        };
+      }));
+    } catch (err) {
+      frames.push({ url: frame.url(), error: err && err.message ? err.message : String(err), textLength: 0, textHead: "", interactiveCount: 0 });
+    }
+  }
+  return {
+    url: page.url(),
+    title: await page.title().catch(() => ""),
+    frameCount: frames.length,
+    textLength: frames.reduce((sum, f) => sum + (f.textLength || 0), 0),
+    interactiveCount: frames.reduce((sum, f) => sum + (f.interactiveCount || 0), 0),
+    textHead: frames.map((f) => f.textHead || "").filter(Boolean).join("\n").slice(0, 500),
+    frames,
+  };
+}
+
+function extractFromBrowserSnapshot(snapshot, query, maxItems) {
+  const limit = Math.max(1, Math.min(Number.isFinite(maxItems) ? maxItems : 24, 80));
+  const terms = query.toLowerCase().split(/\s+/).map((s) => s.trim()).filter(Boolean);
+  const scoreText = (value) => {
+    const lower = String(value || "").toLowerCase();
+    if (!terms.length) return 1;
+    return terms.reduce((score, term) => score + (lower.includes(term) ? 1 : 0), 0);
+  };
+  const scoreItem = (item) => scoreText([item.heading, item.text, item.name, item.href, item.absoluteUrl].filter(Boolean).join(" "));
+  const pick = (items) => items
+    .map((item) => ({ item, score: scoreItem(item) }))
+    .filter((entry) => !terms.length || entry.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((entry) => entry.item);
+
+  return {
+    url: snapshot.url,
+    title: snapshot.title,
+    query,
+    stats: snapshot.stats,
+    sections: pick(snapshot.sections || []),
+    links: pick(snapshot.links || []),
+    controls: pick(snapshot.controls || []).slice(0, Math.min(limit, 20)),
+    mainTextPreview: snapshot.mainTextPreview,
+  };
+}
+
+function defaultBrowserScreenshotPath() {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return path.join(app.getPath("userData"), "browser", "screenshots", `screenshot_${stamp}.png`);
+}
+
+function defaultBrowserPdfPath() {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return path.join(app.getPath("userData"), "browser", "pdf", `page_${stamp}.pdf`);
+}
+
+async function browserCookies(action) {
+  const page = await ensureBrowser({});
+  const operation = String(action.operation || "get");
+  if (operation === "get") {
+    const url = action.url ? String(action.url) : page.url();
+    return { cookies: await browserState.context.cookies(url) };
+  }
+  if (operation === "set") {
+    const name = String(action.name || "");
+    const value = String(action.value ?? "");
+    if (!name) throw new Error("cookies set requires name");
+    const cookie = {
+      name,
+      value,
+      url: action.url ? String(action.url) : page.url(),
+    };
+    if (action.domain) {
+      delete cookie.url;
+      cookie.domain = String(action.domain);
+      cookie.path = String(action.path || "/");
+    }
+    await browserState.context.addCookies([cookie]);
+    return { set: name };
+  }
+  if (operation === "clear") {
+    await browserState.context.clearCookies();
+    return { cleared: true };
+  }
+  if (operation === "export") {
+    const outPath = action.path ? String(action.path) : path.join(app.getPath("userData"), "browser", "cookies.json");
+    await fsp.mkdir(path.dirname(outPath), { recursive: true });
+    const cookies = await browserState.context.cookies();
+    await fsp.writeFile(outPath, JSON.stringify(cookies, null, 2), "utf8");
+    return { path: outPath, count: cookies.length };
+  }
+  if (operation === "import") {
+    if (!action.path) throw new Error("cookies import requires path");
+    const raw = await fsp.readFile(String(action.path), "utf8");
+    const cookies = JSON.parse(raw);
+    if (!Array.isArray(cookies)) throw new Error("cookies import file must contain an array");
+    await browserState.context.addCookies(cookies);
+    return { imported: cookies.length };
+  }
+  throw new Error(`Unsupported cookies operation: ${operation}`);
+}
+
+async function browserStorage(action) {
+  const page = await ensureBrowser({});
+  const operation = String(action.operation || "get");
+  const area = action.area === "session" ? "session" : "local";
+  return await page.evaluate(({ operation, area, key, value }) => {
+    const storage = area === "session" ? window.sessionStorage : window.localStorage;
+    if (operation === "get") {
+      if (key) return { area, key, value: storage.getItem(key) };
+      const entries = {};
+      for (let i = 0; i < storage.length; i++) {
+        const k = storage.key(i);
+        if (k) entries[k] = storage.getItem(k);
+      }
+      return { area, entries };
+    }
+    if (operation === "set") {
+      if (!key) throw new Error("storage set requires key");
+      storage.setItem(key, value == null ? "" : String(value));
+      return { area, set: key };
+    }
+    if (operation === "clear") {
+      if (key) storage.removeItem(key);
+      else storage.clear();
+      return { area, cleared: key || true };
+    }
+    throw new Error(`Unsupported storage operation: ${operation}`);
+  }, {
+    operation,
+    area,
+    key: action.key ? String(action.key) : "",
+    value: action.value,
+  });
+}
+
+function truncateBrowserValue(value, maxChars) {
+  const limit = Math.max(500, Math.min(Number.isFinite(maxChars) ? maxChars : 4000, 20000));
+  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  if (!text) return value;
+  if (text.length <= limit) return value;
+  return `${text.slice(0, limit - 3)}...`;
+}
+
+async function performDeepBrowserAction(frame, ref, action, text = "") {
+  return frame.evaluate(({ ref, action, text }) => {
+    function shadowRootOf(el) {
+      try {
+        return el.shadowRoot || (window.__coworkClosedShadowRoots && window.__coworkClosedShadowRoots.get(el)) || null;
+      } catch {
+        return null;
+      }
+    }
+    function find(root, depth) {
+      if (!root || depth > 10) return null;
+      let found = null;
+      try { found = root.querySelector(`[data-cowork-ref="${ref}"]`); } catch {}
+      if (found) return found;
+      let all = [];
+      try { all = Array.from(root.querySelectorAll("*")); } catch {}
+      for (const el of all) {
+        const sr = shadowRootOf(el);
+        if (sr) {
+          const inner = find(sr, depth + 1);
+          if (inner) return inner;
+        }
+      }
+      return null;
+    }
+    const el = find(document, 0);
+    if (!el) throw new Error(`STALE_REF: ref ${ref} not found in frame`);
+    try { el.scrollIntoView({ block: "center", inline: "center" }); } catch {}
+    if (action === "click") {
+      for (const type of ["mouseover", "mousedown", "mouseup", "click"]) {
+        el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, view: window }));
+      }
+      return true;
+    }
+    if (action === "hover") {
+      el.dispatchEvent(new MouseEvent("mouseover", { bubbles: true, cancelable: true, composed: true, view: window }));
+      el.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, cancelable: true, composed: true, view: window }));
+      return true;
+    }
+    if (action === "dblclick") {
+      for (const type of ["mousedown", "mouseup", "click", "mousedown", "mouseup", "click", "dblclick"]) {
+        el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, composed: true, view: window }));
+      }
+      return true;
+    }
+    if (action === "rightclick") {
+      el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, composed: true, button: 2, view: window }));
+      return true;
+    }
+    if (action === "type") {
+      el.focus && el.focus();
+      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+      if (setter) setter.call(el, text);
+      else el.value = text;
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: "insertText", data: text }));
+      el.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+      return true;
+    }
+    throw new Error(`Unsupported deep browser action: ${action}`);
+  }, { ref: String(ref), action, text });
+}
+
+async function inspectBrowserRef(frame, ref, maxChars) {
+  const limit = Math.max(200, Math.min(Number.isFinite(maxChars) ? maxChars : 2000, 12000));
+  return frame.evaluate(({ ref, limit }) => {
+    function trunc(value, max) {
+      const s = String(value || "").replace(/\s+/g, " ").trim();
+      return s.length > max ? `${s.slice(0, max - 3)}...` : s;
+    }
+    function shadowRootOf(el) {
+      try {
+        return el.shadowRoot || (window.__coworkClosedShadowRoots && window.__coworkClosedShadowRoots.get(el)) || null;
+      } catch {
+        return null;
+      }
+    }
+    function find(root, depth) {
+      if (!root || depth > 10) return null;
+      let found = null;
+      try { found = root.querySelector(`[data-cowork-ref="${ref}"]`); } catch {}
+      if (found) return found;
+      let all = [];
+      try { all = Array.from(root.querySelectorAll("*")); } catch {}
+      for (const el of all) {
+        const sr = shadowRootOf(el);
+        if (sr) {
+          const inner = find(sr, depth + 1);
+          if (inner) return inner;
+        }
+      }
+      return null;
+    }
+    function attrsOf(el) {
+      const attrs = {};
+      for (const attr of Array.from(el.attributes || [])) {
+        if (attr.name === "style" || attr.name.startsWith("data-cowork-")) continue;
+        attrs[attr.name] = trunc(attr.value, 300);
+      }
+      return attrs;
+    }
+    function brief(el) {
+      if (!el) return null;
+      return {
+        tag: el.tagName?.toLowerCase() || "",
+        role: el.getAttribute?.("role") || "",
+        text: trunc(el.innerText || el.textContent || "", 500),
+        attrs: attrsOf(el),
+      };
+    }
+
+    const el = find(document, 0);
+    if (!el) throw new Error(`STALE_REF: ref ${ref} not found in frame`);
+    const rect = el.getBoundingClientRect();
+    const children = Array.from(el.children || []).slice(0, 20).map(brief);
+    const parent = brief(el.parentElement);
+    const html = trunc(el.outerHTML || "", limit);
+    return {
+      ref: Number(ref),
+      url: location.href,
+      title: document.title || "",
+      element: {
+        ...brief(el),
+        visible: rect.width > 0 && rect.height > 0,
+        bbox: [Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height)],
+        html,
+      },
+      parent,
+      children,
+    };
+  }, { ref: String(ref), limit });
+}
+
+async function snapshotPage() {
+  const page = await ensureBrowser({});
+  browserState.refs.clear();
+  browserState.snapshotId += 1;
+  let nextRef = 1;
+  const frames = [];
+  const allLinks = [];
+  const allControls = [];
+  const allSections = [];
+
+  const pageFrames = page.frames();
+  for (let frameIndex = 0; frameIndex < pageFrames.length; frameIndex++) {
+    const frame = pageFrames[frameIndex];
+    let frameAst;
+    try {
+      frameAst = await frame.evaluate(browserExtractor, { startRef: nextRef, frameIndex });
+    } catch (err) {
+      frameAst = {
+        frameIndex,
+        url: frame.url(),
+        error: err && err.message ? err.message : String(err),
+        links: [],
+        controls: [],
+        sections: [],
+        mainTextPreview: "",
+        nextRef,
+      };
+    }
+    nextRef = frameAst.nextRef || nextRef;
+    frames.push({
+      frameIndex,
+      url: frameAst.url || frame.url(),
+      title: frameAst.title || "",
+      error: frameAst.error,
+      stats: frameAst.stats || {},
+    });
+    for (const link of frameAst.links || []) {
+      const item = { ...link, frameIndex, frameUrl: frameAst.url || frame.url(), snapshotId: browserState.snapshotId };
+      allLinks.push(item);
+      browserState.refs.set(String(item.ref), item);
+    }
+    for (const control of frameAst.controls || []) {
+      const item = { ...control, frameIndex, frameUrl: frameAst.url || frame.url(), snapshotId: browserState.snapshotId };
+      allControls.push(item);
+      browserState.refs.set(String(item.ref), item);
+    }
+    for (const section of frameAst.sections || []) {
+      allSections.push({ ...section, frameIndex });
+    }
+  }
+
+  const mainTextPreview = allSections.map((s) => [s.heading, s.text].filter(Boolean).join("\n")).filter(Boolean).join("\n\n").slice(0, 3000);
+  return {
+    snapshotId: `s_${browserState.snapshotId}`,
+    url: page.url(),
+    title: await page.title().catch(() => ""),
+    headed: browserState.headed,
+    frames,
+    stats: {
+      links: allLinks.length,
+      controls: allControls.length,
+      sections: allSections.length,
+      refs: browserState.refs.size,
+    },
+    links: allLinks.slice(0, 120),
+    controls: allControls.slice(0, 160),
+    sections: allSections.slice(0, 80),
+    downloads: browserState.downloads.slice(-10),
+    mainTextPreview,
+  };
+}
+
+function browserExtractor(input) {
+  const startRef = input.startRef || 1;
+  const frameIndex = input.frameIndex || 0;
+  let nextRef = startRef;
+  const links = [];
+  const controls = [];
+  const sections = [];
+  const seenText = new Set();
+
+  function trunc(value, max) {
+    const s = String(value || "").replace(/\s+/g, " ").trim();
+    return s.length > max ? `${s.slice(0, max - 3)}...` : s;
+  }
+  function isVisible(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+    if (el.getAttribute && el.getAttribute("aria-hidden") === "true") return false;
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+  function bbox(el) {
+    const r = el.getBoundingClientRect();
+    return [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)];
+  }
+  function nameOf(el) {
+    const labelledBy = el.getAttribute && el.getAttribute("aria-labelledby");
+    if (labelledBy) {
+      const text = labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.innerText || "").join(" ");
+      if (text.trim()) return trunc(text, 120);
+    }
+    const attrs = ["aria-label", "alt", "title", "placeholder", "value"];
+    for (const attr of attrs) {
+      const v = el.getAttribute && el.getAttribute(attr);
+      if (v && String(v).trim()) return trunc(v, 120);
+    }
+    if (el.labels && el.labels.length) {
+      const label = Array.from(el.labels).map((l) => l.innerText).join(" ");
+      if (label.trim()) return trunc(label, 120);
+    }
+    return trunc(el.innerText || el.textContent || "", 120);
+  }
+  function roleOf(el) {
+    const role = el.getAttribute && el.getAttribute("role");
+    if (role) return role;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "a") return "link";
+    if (tag === "button") return "button";
+    if (tag === "textarea") return "textbox";
+    if (tag === "select") return "combobox";
+    if (tag === "input") {
+      const type = (el.getAttribute("type") || "text").toLowerCase();
+      if (type === "checkbox") return "checkbox";
+      if (type === "radio") return "radio";
+      if (type === "submit" || type === "button") return "button";
+      if (type === "file") return "file-input";
+      return "textbox";
+    }
+    return tag;
+  }
+  function absoluteUrl(raw) {
+    try { return new URL(raw, location.href).href; } catch { return raw || ""; }
+  }
+  function addRef(el) {
+    const ref = nextRef++;
+    try { el.setAttribute("data-cowork-ref", String(ref)); } catch {}
+    return ref;
+  }
+  function addInteractive(el) {
+    if (!isVisible(el) && !((el.tagName || "").toLowerCase() === "input" && (el.type || "").toLowerCase() === "file")) return;
+    const tag = el.tagName.toLowerCase();
+    const role = roleOf(el);
+    const ref = addRef(el);
+    const item = {
+      ref,
+      frameIndex,
+      role,
+      tag,
+      name: nameOf(el),
+      visible: isVisible(el),
+      bbox: bbox(el),
+    };
+    if (tag === "a" && el.getAttribute("href") !== null) {
+      const href = el.getAttribute("href") || "";
+      const url = absoluteUrl(href);
+      let parsed = null;
+      try { parsed = new URL(url); } catch {}
+      links.push({
+        ...item,
+        kind: "link",
+        href,
+        absoluteUrl: url,
+        pathname: parsed?.pathname || "",
+        hash: parsed?.hash || "",
+      });
+    } else {
+      controls.push({
+        ...item,
+        kind: "control",
+        type: el.getAttribute("type") || "",
+        value: role === "textbox" ? trunc(el.value || "", 80) : undefined,
+        placeholder: trunc(el.getAttribute("placeholder") || "", 80),
+      });
+    }
+  }
+  function addSection(el) {
+    if (!isVisible(el)) return;
+    const heading = trunc(el.matches("h1,h2,h3,h4") ? el.innerText : (el.querySelector("h1,h2,h3,h4")?.innerText || ""), 160);
+    const text = trunc(el.innerText || "", 700);
+    if (!text || seenText.has(text)) return;
+    seenText.add(text);
+    sections.push({ heading, text });
+  }
+  function shadowRootOf(el) {
+    try {
+      return el.shadowRoot || (window.__coworkClosedShadowRoots && window.__coworkClosedShadowRoots.get(el)) || null;
+    } catch {
+      return null;
+    }
+  }
+  function deepQueryAll(selector) {
+    const out = [];
+    const seen = new Set();
+    function visit(root, depth) {
+      if (!root || depth > 10) return;
+      let matches = [];
+      try { matches = Array.from(root.querySelectorAll(selector)); } catch {}
+      for (const el of matches) {
+        if (!seen.has(el)) {
+          seen.add(el);
+          out.push(el);
+        }
+      }
+      let all = [];
+      try { all = Array.from(root.querySelectorAll("*")); } catch {}
+      for (const el of all) {
+        const sr = shadowRootOf(el);
+        if (sr) visit(sr, depth + 1);
+      }
+    }
+    visit(document, 0);
+    return out;
+  }
+
+  const interactiveSelector = [
+    "a[href]",
+    "button",
+    "input",
+    "textarea",
+    "select",
+    "[role]",
+    "[onclick]",
+    "[tabindex]:not([tabindex='-1'])",
+  ].join(",");
+  deepQueryAll(interactiveSelector).forEach(addInteractive);
+  deepQueryAll("main,article,section,form,dialog,h1,h2,h3,h4,p,li,td,th").forEach((el) => {
+    if (sections.length < 120) addSection(el);
+  });
+
+  const scrollTop = window.pageYOffset || document.documentElement.scrollTop || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 800;
+  const scrollHeight = document.documentElement.scrollHeight || document.body.scrollHeight || 0;
+  return {
+    frameIndex,
+    url: location.href,
+    title: document.title || "",
+    stats: {
+      links: links.length,
+      controls: controls.length,
+      sections: sections.length,
+      elements: deepQueryAll("*").length,
+      pagesAbove: viewportHeight ? scrollTop / viewportHeight : 0,
+      pagesBelow: viewportHeight ? Math.max(0, (scrollHeight - scrollTop - viewportHeight) / viewportHeight) : 0,
+    },
+    links,
+    controls,
+    sections,
+    mainTextPreview: sections.map((s) => s.text).join("\n").slice(0, 2000),
+    nextRef,
+  };
 }

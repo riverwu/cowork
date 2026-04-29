@@ -82,6 +82,12 @@ export const CATALOG_SKILLS: CatalogSkill[] = [
     version: "1.0.0",
     description: "Create distinctive, production-grade frontend interfaces with high design quality",
   },
+  {
+    id: "browser-use",
+    name: "Browser Use",
+    version: "1.0.0",
+    description: "Automate browser navigation, interaction, screenshots, and web page extraction through the browser-use CLI",
+  },
   // NOTE: pptx skill intentionally removed from catalog. PPT generation
   // is handled by built-in SlideML tools (render_slideml etc.) which
   // ship with the app and don't require user installation.
@@ -96,21 +102,6 @@ export const CATALOG_SKILLS: CatalogSkill[] = [
 // ---- Bundled MCPs ----
 
 export const CATALOG_MCPS: CatalogMcp[] = [
-  {
-    id: "browser-use",
-    name: "Browser Use",
-    version: "1.0.0",
-    description: "Web browsing and page automation via browser-use",
-    definition: {
-      name: "Browser Use",
-      version: "1.0.0",
-      description: "Web browsing and page automation — navigate pages, click, type, extract content",
-      command: "uvx",
-      args: ["--from", "browser-use[cli]", "browser-use", "--mcp"],
-      env: { BROWSER_USE_HEADLESS: "false" },
-      enabled: true,
-    },
-  },
   {
     id: "brave-search",
     name: "Brave Search",

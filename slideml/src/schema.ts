@@ -163,9 +163,34 @@ export function buildSlidemlSchema(): Record<string, unknown> {
             description:
               "Theme name. The agent reads the named theme's advice (palette, imagery, voice) when authoring; " +
               "the renderer reads `palette`/`fonts`/`style` blocks below if present, otherwise falls back to the " +
-              "named theme's tokens. Built-in: technical-blue, editorial-warm, midnight-executive, forest-moss, " +
-              "charcoal-minimal. Custom themes can live under ~/.cowork/themes/<name>/.",
+              "named theme's tokens. Built-in: enterprise-light, technical-blue, editorial-warm, midnight-executive, forest-moss, " +
+              "charcoal-minimal, editorial-paper, academic-paper, vibrant-startup. Custom themes can live under ~/.cowork/themes/<name>/.",
             type: "string",
+          },
+          brand: {
+            description:
+              "Optional deck-level brand identity used by chrome modules such as brand-mark. " +
+              "Use `palette.brand-primary` for the brand color and `brand.logo` for the logo path.",
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              name: { type: "string" },
+              color: { type: "string", description: "Theme token name or 6-char hex. Defaults to text-muted." },
+              logo: {
+                oneOf: [
+                  { type: "string", description: "Logo path / URL / data URL." },
+                  {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["src"],
+                    properties: {
+                      src: { type: "string" },
+                      alt: { type: "string" },
+                    },
+                  },
+                ],
+              },
+            },
           },
           // ── Phase-B fields (deck inlines its own visual identity) ─────
           // These let a deck be self-contained — renderer doesn't need
@@ -246,7 +271,7 @@ export function buildSlidemlSchema(): Record<string, unknown> {
           chrome: {
             description: "Names of chrome modules to enable for every slide unless suppressed by `slide.chrome`.",
             type: "array",
-            items: { enum: ["page-header", "page-footer", "page-number", "brand-bar", "hairline", "progress-bar", "section-marker", "watermark"] },
+            items: { enum: ["page-header", "page-footer", "page-number", "brand-bar", "brand-mark", "hairline", "progress-bar", "section-marker", "watermark"] },
           },
           // ── End Phase-B fields ────────────────────────────────────────
           defaults: {
@@ -360,7 +385,7 @@ export function buildSlidemlSchema(): Record<string, unknown> {
               pageNumber: { type: "boolean" },
               enable: {
                 type: "array",
-                items: { enum: ["page-header", "page-footer", "page-number", "brand-bar", "hairline", "progress-bar", "section-marker", "watermark"] },
+                items: { enum: ["page-header", "page-footer", "page-number", "brand-bar", "brand-mark", "hairline", "progress-bar", "section-marker", "watermark"] },
                 description: "Chrome modules to ADD on top of the theme's declared list.",
               },
               disable: {
@@ -374,6 +399,7 @@ export function buildSlidemlSchema(): Record<string, unknown> {
                 description:
                   "Per-module parameter overrides. Keys are chrome module names; values are module-specific. " +
                   "Examples: page-footer: { left, center, right }; brand-bar: { color, height }; " +
+                  "brand-mark: { src, name, color, position, showName }; " +
                   "watermark: { text, color, alpha, position }; progress-bar: { color, track, height }; " +
                   "section-marker: { color, prefix }; hairline: { color, position, weight, insetCm }.",
               },

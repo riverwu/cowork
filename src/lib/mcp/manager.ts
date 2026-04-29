@@ -23,6 +23,7 @@ import { McpClient } from "./client";
 import type { Tool } from "@/lib/ai/tools/types";
 import { loadMcpsFromFilesystem, installMcpToFilesystem, getMcpsDir, type LoadedMcp, type McpDefinition } from "./loader";
 import { ensureUvInstalled } from "@/lib/tauri";
+import { deleteDirectory } from "@/lib/tauri";
 import { getMcpEnvConfig } from "@/lib/db";
 
 /** User-facing status — no "connecting"/"connected" distinction. */
@@ -230,6 +231,19 @@ class McpManager {
       await installMcpToFilesystem(id, mcp.definition);
       this.serverInfo.set(id, { status: "disabled", toolCount: 0 });
     }
+    this.notifyChange();
+  }
+
+  /** Uninstall an MCP server by removing its installed directory. */
+  async uninstallServer(id: string): Promise<void> {
+    await this.disconnectClient(id);
+    const mcp = this.loadedMcps.find((m) => m.id === id);
+    const dirPath = mcp?.dirPath || `${await getMcpsDir()}/${id}`;
+    await deleteDirectory(dirPath);
+    this.loadedMcps = this.loadedMcps.filter((entry) => entry.id !== id);
+    this.serverInfo.delete(id);
+    this.cachedToolDefs.delete(id);
+    this.resolvedEnv.delete(id);
     this.notifyChange();
   }
 

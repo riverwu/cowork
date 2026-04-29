@@ -522,6 +522,47 @@ export async function webSearch(query: string, maxResults?: number): Promise<Web
   return invokeDesktop<WebSearchResult[]>("web_search", { query, maxResults });
 }
 
+// ---- Browser ----
+
+export type BrowserAction =
+  | { action: "open" | "navigate"; url: string; headed?: boolean; timeout_ms?: number }
+  | { action: "snapshot" | "state" }
+  | { action: "extract"; query?: string; max_items?: number }
+  | { action: "inspect"; ref: number; max_chars?: number }
+  | { action: "show" | "hide" }
+  | { action: "reload"; timeout_ms?: number }
+  | { action: "tabs" }
+  | { action: "new_tab"; url?: string; timeout_ms?: number }
+  | { action: "switch_tab" | "close_tab"; index: number }
+  | { action: "click"; ref: number }
+  | { action: "hover" | "dblclick" | "rightclick"; ref: number }
+  | { action: "type"; ref: number; text: string }
+  | { action: "select"; ref: number; value?: string; text?: string }
+  | { action: "upload"; ref: number; path?: string; paths?: string[] }
+  | { action: "check" | "uncheck" | "clear"; ref: number }
+  | { action: "press"; ref?: number; key?: string; keys?: string }
+  | { action: "scroll"; direction?: "up" | "down"; pages?: number }
+  | { action: "back" }
+  | { action: "wait_for_change"; timeout_ms?: number }
+  | { action: "get_url" }
+  | { action: "screenshot"; path?: string; full_page?: boolean; ref?: number }
+  | { action: "pdf"; path?: string; print_background?: boolean; format?: string }
+  | { action: "downloads" }
+  | { action: "cookies"; operation?: "get" | "set" | "clear" | "export" | "import"; name?: string; value?: string; url?: string; domain?: string; path?: string }
+  | { action: "storage"; operation?: "get" | "set" | "clear"; area?: "local" | "session"; key?: string; value?: string }
+  | { action: "diagnostics"; limit?: number }
+  | { action: "evaluate"; code: string; max_chars?: number }
+  | { action: "close" };
+
+export interface BrowserActionResult {
+  action: string;
+  result: unknown;
+}
+
+export async function browserAction(actions: BrowserAction[]): Promise<BrowserActionResult[]> {
+  return invokeDesktop<BrowserActionResult[]>("browser_action", { actions });
+}
+
 // ---- Shell ----
 
 export interface ShellExecResult {
