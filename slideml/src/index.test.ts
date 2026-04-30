@@ -38,37 +38,38 @@ describe("Stage 4 — parser", () => {
     expect(spec.deck.size).toBe("16x9");
     expect(spec.deck.theme).toBe("technical-blue");
     expect(spec.slides).toHaveLength(5);
-    expect(spec.slides[0]?.layout).toBe("cover");
-    expect(spec.slides[3]?.layout).toBe("visual-with-caption");
+    expect(spec.slides[0]?.pattern).toBe("single-focus");
+    expect(spec.slides[0]?.regions.main).toMatchObject({ component: "cover" });
+    expect(spec.slides[3]?.regions.main).toMatchObject({ component: "visual-with-caption" });
   });
 
   it("accepts the version key as a string ('1') as well as the number 1", () => {
     // Real LLMs occasionally emit `slideml: "1"` (YAML treats quoted scalars
     // as strings). Both forms unambiguously mean v1; reject only genuinely
     // wrong values.
-    expect(() => parseSlideml(`slideml: "1"\ndeck: { size: 16x9, theme: t }\nslides: [{ layout: cover, slots: {} }]`))
+    expect(() => parseSlideml(`slideml: "1"\ndeck: { size: 16x9, theme: t }\nslides: [{ pattern: single-focus, regions: { main: { component: cover, props: { title: x } } } }]`))
       .not.toThrow();
-    expect(() => parseSlideml(`slideml: 2\ndeck: { size: 16x9, theme: t }\nslides: [{ layout: cover, slots: {} }]`))
+    expect(() => parseSlideml(`slideml: 2\ndeck: { size: 16x9, theme: t }\nslides: [{ pattern: single-focus, regions: { main: { component: cover, props: { title: x } } } }]`))
       .toThrow(/Unsupported SlideML version/);
   });
 
   it("rejects unknown top-level keys", () => {
-    expect(() => parseSlideml(`slideml: 1\ndeck: { size: 16x9, theme: technical-blue }\nslides: [{ layout: cover, slots: {} }]\nmystery: 42\n`))
+    expect(() => parseSlideml(`slideml: 1\ndeck: { size: 16x9, theme: technical-blue }\nslides: [{ pattern: single-focus, regions: { main: { component: cover, props: { title: x } } } }]\nmystery: 42\n`))
       .toThrow(/Unknown top-level/);
   });
 
   it("rejects unknown slide-level keys", () => {
-    expect(() => parseSlideml(`slideml: 1\ndeck: { size: 16x9, theme: technical-blue }\nslides: [{ layout: cover, slots: {}, foo: 1 }]`))
+    expect(() => parseSlideml(`slideml: 1\ndeck: { size: 16x9, theme: technical-blue }\nslides: [{ pattern: single-focus, regions: { main: { component: cover, props: { title: x } } }, foo: 1 }]`))
       .toThrow(/not a recognized slide key/);
   });
 
   it("rejects invalid deck.size", () => {
-    expect(() => parseSlideml(`slideml: 1\ndeck: { size: 21x9, theme: t }\nslides: [{ layout: x, slots: {} }]`))
+    expect(() => parseSlideml(`slideml: 1\ndeck: { size: 21x9, theme: t }\nslides: [{ pattern: single-focus, regions: { main: { component: cover, props: { title: x } } } }]`))
       .toThrow(/deck\.size must be one of/);
   });
 
   it("rejects raw color values in deck.defaults", () => {
-    const yaml = `slideml: 1\ndeck: { size: 16x9, theme: technical-blue, defaults: { accent: "#FF0000" } }\nslides: [{ layout: cover, slots: { title: x } }]`;
+    const yaml = `slideml: 1\ndeck: { size: 16x9, theme: technical-blue, defaults: { accent: "#FF0000" } }\nslides: [{ pattern: single-focus, regions: { main: { component: cover, props: { title: x } } } }]`;
     // Note this is "string" so passes parser; validator catches the unknown-token reference.
     const spec = parseSlideml(yaml);
     expect(spec.deck.defaults?.["accent"]).toBe("#FF0000");
@@ -110,19 +111,22 @@ describe("Stage 4 — validator", () => {
 `slideml: 1
 deck: { size: 16x9, theme: technical-blue }
 slides:
-  - layout: visual-with-caption
-    slots:
-      title: "Bad chart"
-      style: takeaway
-      visual:
-        kind: chart
-        chartType: bar
-        data:
-          labels: ["Q1", "Q2", "Q3"]
-          series:
-            - { name: "Revenue", values: [100, 120] }
-        format: { y: "int" }
-      caption: "labels and series length differ"
+  - pattern: single-focus
+    regions:
+      main:
+        component: visual-with-caption
+        props:
+          title: "Bad chart"
+          style: takeaway
+          visual:
+            kind: chart
+            chartType: bar
+            data:
+              labels: ["Q1", "Q2", "Q3"]
+              series:
+                - { name: "Revenue", values: [100, 120] }
+            format: { y: "int" }
+          caption: "labels and series length differ"
 `;
     const result = validateDeckSpec(parseSlideml(yaml), theme);
     expect(result.ok).toBe(false);
@@ -134,7 +138,7 @@ slides:
 
   it("rejects extra unrecognized slot names", async () => {
     const theme = await loadTheme(BUILT_THEME);
-    const yaml = `slideml: 1\ndeck: { size: 16x9, theme: technical-blue }\nslides:\n  - layout: cover\n    slots:\n      title: hi\n      mystery: 42\n`;
+    const yaml = `slideml: 1\ndeck: { size: 16x9, theme: technical-blue }\nslides:\n  - pattern: single-focus\n    regions:\n      main:\n        component: cover\n        props:\n          title: hi\n          mystery: 42\n`;
     const result = validateDeckSpec(parseSlideml(yaml), theme);
     expect(result.ok).toBe(false);
     if (result.ok) return;
@@ -148,17 +152,20 @@ slides:
 `slideml: 1
 deck: { size: 16x9, theme: technical-blue }
 slides:
-  - layout: visual-with-text
-    slots:
-      textKind: bullets
-      title: "Nested bullets"
-      bullets:
-        - "Top-level point one"
-        - text: "Top-level with sub-points"
-          sub:
-            - "first sub-point"
-            - "second sub-point"
-        - "Top-level point three"
+  - pattern: single-focus
+    regions:
+      main:
+        component: visual-with-text
+        props:
+          textKind: bullets
+          title: "Nested bullets"
+          bullets:
+            - "Top-level point one"
+            - text: "Top-level with sub-points"
+              sub:
+                - "first sub-point"
+                - "second sub-point"
+            - "Top-level point three"
 `;
     const result = validateDeckSpec(parseSlideml(yaml), theme);
     if (!result.ok) throw new Error(`Unexpected validation errors: ${JSON.stringify(result.errors)}`);
@@ -171,17 +178,20 @@ slides:
 `slideml: 1
 deck: { size: 16x9, theme: technical-blue }
 slides:
-  - layout: visual-with-text
-    slots:
-      textKind: bullets
-      title: "Deep nesting"
-      bullets:
-        - "First"
-        - text: "Second"
-          sub:
-            - text: "Sub item"
-              sub: ["too-deep"]
-        - "Third"
+  - pattern: single-focus
+    regions:
+      main:
+        component: visual-with-text
+        props:
+          textKind: bullets
+          title: "Deep nesting"
+          bullets:
+            - "First"
+            - text: "Second"
+              sub:
+                - text: "Sub item"
+                  sub: ["too-deep"]
+            - "Third"
 `;
     const result = validateDeckSpec(parseSlideml(yaml), theme);
     expect(result.ok).toBe(false);
@@ -259,9 +269,12 @@ deck:
   chrome:
     - brand-mark
 slides:
-  - layout: title-only
-    slots:
-      title: 品牌化技术简报
+  - pattern: single-focus
+    regions:
+      main:
+        component: title-only
+        props:
+          title: 品牌化技术简报
 `;
     const result = await compile(yaml, { themeDir: BUILT_THEME });
     const zip = await JSZip.loadAsync(result.buffer);

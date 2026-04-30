@@ -218,7 +218,7 @@ function renderSlideLayouts(
   if (isSingleRegionPattern(spec)) {
     const layoutName = componentForPattern(spec);
     const slots = slotsForPattern(spec, layoutName);
-    return [renderComponent(layoutName, slots, theme, deck, language, 2)];
+    return renderComponentPages(layoutName, slots, theme, deck, language, 2);
   }
 
   const titlePolicy = titlePolicyForPattern(spec.pattern);
@@ -250,6 +250,17 @@ function renderComponent(
   language: string,
   startId: number,
 ): ShapeList {
+  return renderComponentPages(layoutName, slots, theme, deck, language, startId).flat();
+}
+
+function renderComponentPages(
+  layoutName: string,
+  slots: Record<string, unknown>,
+  theme: LoadedTheme,
+  deck: { width: number; height: number },
+  language: string,
+  startId: number,
+): ShapeList[] {
   const loaded = theme.layouts.get(layoutName);
   if (!loaded) {
     throw new Error(
@@ -268,7 +279,7 @@ function renderComponent(
 
   const layoutFn = loaded.render as LayoutFn;
   const layoutResult = layoutFn(ctx);
-  return isShapePages(layoutResult) ? layoutResult.flat() : layoutResult;
+  return isShapePages(layoutResult) ? layoutResult : [layoutResult];
 }
 
 function componentForPattern(spec: SlideSpec): string {

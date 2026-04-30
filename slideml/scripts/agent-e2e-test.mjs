@@ -29,6 +29,19 @@ const REPORT_PATH = join(OUT_DIR, "report.json");
 const CONCURRENCY = Number(process.env.CONCURRENCY ?? 3);
 mkdirSync(OUT_DIR, { recursive: true });
 
+const PAGE_PATTERNS = [
+  { name: "single-focus", titlePolicy: "component", regions: ["main"], purpose: "One full-slide content component. Use for cover, quote, stat-grid, charts, tables, code, closing, and legacy-style single pages." },
+  { name: "title-content", titlePolicy: "required", regions: ["main"], purpose: "Page-level title above one body component." },
+  { name: "main-plus-sidebar", titlePolicy: "optional", regions: ["main", "sidebar"], purpose: "Dominant content with a supporting text, quote, KPI, or bullets sidebar." },
+  { name: "two-column", titlePolicy: "optional", regions: ["left", "right"], purpose: "Two peer components for comparisons or paired explanations." },
+  { name: "hero-plus-supporting", titlePolicy: "optional", regions: ["main", "supporting"], purpose: "Hero component plus a smaller supporting component." },
+  { name: "top-bottom", titlePolicy: "optional", regions: ["top", "bottom"], purpose: "Vertical split for narrative progression or chart plus table." },
+  { name: "grid", titlePolicy: "optional", regions: ["top", "left", "right", "bottom"], purpose: "Four-region page for compact dashboards or grouped evidence." },
+  { name: "dashboard", titlePolicy: "optional", regions: ["main"], purpose: "Dashboard page pattern. Prefer explicit components inside main." },
+  { name: "full-bleed-visual", titlePolicy: "none", regions: ["main"], purpose: "Image-first slide with no page title." },
+  { name: "section-divider", titlePolicy: "component", regions: ["main"], purpose: "Section break; main should usually be section-divider." },
+];
+
 // ============================================================================
 // 1. Load LLM config from cowork's DB
 // ============================================================================
@@ -54,9 +67,32 @@ console.log(`Concurrency: ${CONCURRENCY}\n`);
 // ============================================================================
 const tools = [
   {
-    name: "list_slide_layouts",
+    name: "list_slide_pagepatterns",
     description:
-      "List the slide layouts a SlideML theme exposes — name + one-line purpose + slot names only (compact). Call FIRST when planning a deck. After picking 4-6 layouts, call describe_slide_layout for each. Default theme: technical-blue.",
+      "List available SlideML PagePatterns. Call FIRST to choose the page structure and understand required region names plus title policy.",
+    input_schema: {
+      type: "object",
+      properties: {
+      },
+      required: [],
+    },
+  },
+  {
+    name: "describe_slide_pagepattern",
+    description:
+      "Describe ONE PagePattern, including required regions and title policy. Use before writing slides with multi-region layouts.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "PagePattern name from list_slide_pagepatterns." },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "list_content_components",
+    description:
+      "List the content components a SlideML theme exposes — name + one-line purpose + prop names only. Call after choosing page patterns, then describe the components you will use. Default theme: technical-blue.",
     input_schema: {
       type: "object",
       properties: {
@@ -66,13 +102,13 @@ const tools = [
     },
   },
   {
-    name: "describe_slide_layout",
+    name: "describe_content_component",
     description:
-      "Fetch the full slot schema for ONE layout, with copy-pasteable example payloads attached to typed slots (chart-spec, table, image-ref, bullets). Call AFTER list_slide_layouts for each layout you'll use.",
+      "Fetch the full prop schema for ONE content component, with examples for typed props such as visual, table, image, and bullets. Call for every component you use.",
     input_schema: {
       type: "object",
       properties: {
-        name: { type: "string", description: "Layout name from list_slide_layouts." },
+        name: { type: "string", description: "Content component name from list_content_components." },
         theme: { type: "string", description: "Theme name. Defaults to 'technical-blue'." },
       },
       required: ["name"],
@@ -81,11 +117,11 @@ const tools = [
   {
     name: "validate_slideml",
     description:
-      "Dry-run validate a SlideML YAML body — no file written. Use before render_slideml on long decks to catch errors cheaply. Returns OK or a list of [CODE] messages.",
+      "Dry-run validate a SlideML JSON body — no file written. Use before render_slideml on long decks to catch errors cheaply. Returns OK or a list of [CODE] messages.",
     input_schema: {
       type: "object",
       properties: {
-        slideml: { type: "string", description: "Full SlideML YAML body." },
+        slideml: { type: "string", description: "Full SlideML JSON body." },
         theme: { type: "string", description: "Theme name. Defaults to 'technical-blue'." },
       },
       required: ["slideml"],
@@ -94,31 +130,41 @@ const tools = [
   {
     name: "render_slideml",
     description:
-      `Compile a SlideML YAML deck to a .pptx. PREFERRED over hand-rolled pptxgenjs. Writes both the .pptx AND a sibling <output_path>.slideml source file.
+      `Compile a SlideML JSON deck to a .pptx. PREFERRED over hand-rolled pptxgenjs. Writes both the .pptx AND a sibling <output_path>.slideml source file.
 
 Workflow:
-1. list_slide_layouts → pick 4-6 layouts.
-2. describe_slide_layout for each pick → study slot schemas + examples.
-3. (optional) validate_slideml to dry-run before rendering.
-4. render_slideml with absolute output_path.
-5. On validation failure, the error names the offending slot — fix and retry.
+1. list_slide_pagepatterns → choose page structures.
+2. list_content_components → choose content components.
+3. describe_slide_pagepattern + describe_content_component for every pattern/component used.
+4. (optional) validate_slideml to dry-run before rendering.
+5. render_slideml with absolute output_path.
+6. On validation failure, the error names the offending prop — fix and retry.
 
 Top-level grammar:
-slideml: 1
-deck: { size: 16x9, language: zh-CN | en-US, theme: technical-blue }
-slides:
-  - layout: <name>
-    chrome: default | none
-    notes: "..."          # 1-2 sentences of speaker notes — recommended on every content slide
-    slots: { ... }
+{
+  "slideml": 1,
+  "deck": { "size": "16x9", "language": "zh-CN|en-US", "theme": "technical-blue" },
+  "slides": [{
+    "pattern": "single-focus",
+    "title": "optional page title, only when the PagePattern titlePolicy allows/requires it",
+    "chrome": "default|none",
+    "notes": "1-2 sentences of speaker notes",
+    "regions": {
+      "main": { "component": "cover", "props": { "title": "..." } }
+    },
+    "policy": { "emphasis": "main|balanced|visual|data|takeaway", "density": "sparse|medium|dense" }
+  }]
+}
 
 Hard rules:
-- NEVER put coordinates, hex colors, or font sizes in YAML — owned by the theme.
-- Match each layout's slot schema exactly. Get the precise shape via describe_slide_layout.`,
+- Prefer "single-focus" for complete full-slide components like cover, quote, stat-grid-3, visual-with-caption, data-table, process-flow, code-block, agenda, closing.
+- Use "two-column" for comparisons instead of retired compare layouts.
+- NEVER put coordinates, hex colors, or font sizes in JSON — owned by the theme.
+- Match each component's prop schema exactly. Get the precise shape via describe_content_component.`,
     input_schema: {
       type: "object",
       properties: {
-        slideml: { type: "string", description: "Full SlideML YAML body." },
+        slideml: { type: "string", description: "Full SlideML JSON body." },
         theme: { type: "string", description: "Theme name. Defaults to 'technical-blue'." },
         output_path: { type: "string", description: "Absolute path to write the .pptx. Sibling .slideml source written automatically." },
       },
@@ -160,16 +206,20 @@ For ANY slide-deck deliverable, use the SlideML toolchain — it's typed, theme-
 
 Workflow for "make me a deck":
 1. update_task_progress with phase=plan and a multi-line plan listing each slide.
-2. list_slide_layouts to see compact summaries.
-3. describe_slide_layout for each layout you'll use — read the example field for typed slots.
-4. Ground the content. If you don't have real numbers / data / images for the slots, ASK the user before fabricating. Never invent KPIs, percentages, or quoted figures. Real numbers given in the prompt should appear verbatim in the deck.
-5. Write SlideML YAML. NEVER put coordinates, hex colors, or font sizes — owned by theme. Add notes: on every content slide. Bullets are TERSE (typically 5-12 words; never full sentences with em-dashes); long prose belongs in notes:. Chart format is always an OBJECT { y: "int" | "decimal" | "percent" | "wanyuan" | "yi" } — never a bare string.
-6. (Optional) validate_slideml on long decks before paying render cost.
-7. render_slideml with absolute output_path.
-8. On validation error, the message names the offending slot — fix and retry.
-9. update_task_progress with status=done and the produced file in outputs.
+2. list_slide_pagepatterns to choose page structure and title policy.
+3. list_content_components to see compact component summaries.
+4. describe_slide_pagepattern and describe_content_component for each pattern/component you'll use — read schemas and examples.
+5. Ground the content. If you don't have real numbers / data / images for the props, ASK the user before fabricating. Never invent KPIs, percentages, or quoted figures. Real numbers given in the prompt should appear verbatim in the deck.
+6. Write SlideML JSON, not YAML. NEVER put coordinates, hex colors, or font sizes — owned by theme. Add notes on every content slide. Bullets are TERSE (typically 5-12 words; never full sentences with em-dashes); long prose belongs in notes. Chart format is always an OBJECT { "y": "int" | "decimal" | "percent" | "wanyuan" | "yi" } — never a bare string.
+   JSON slide shape: { "pattern": "single-focus", "regions": { "main": { "component": "cover", "props": { ... } } } }.
+   Use "title" only when the PagePattern titlePolicy is required/optional. For titlePolicy="component", put title inside the component props.
+   Use "two-column" with left/right regions for comparisons; use "process-flow" for process steps; use "visual-with-caption" for charts plus takeaway caption.
+7. (Optional) validate_slideml on long decks before paying render cost.
+8. render_slideml with absolute output_path.
+9. On validation error, the message names the offending prop — fix and retry.
+10. update_task_progress with status=done and the produced file in outputs.
 
-Editing an existing deck: read the sidecar at <output_path>.slideml first, mutate the YAML, then call render_slideml again.
+Editing an existing deck: read the sidecar at <output_path>.slideml first, mutate the JSON, then call render_slideml again.
 
 Do not use raw pptxgenjs. Keep chat text concise.`;
 
@@ -177,12 +227,27 @@ Do not use raw pptxgenjs. Keep chat text concise.`;
 // 3. Tool dispatch
 // ============================================================================
 function dispatchTool(name, input) {
-  if (name === "list_slide_layouts") {
+  if (name === "list_slide_pagepatterns") {
+    return JSON.stringify(PAGE_PATTERNS.map(({ name, titlePolicy, regions, purpose }) => ({ name, titlePolicy, regions, purpose })), null, 2);
+  }
+  if (name === "describe_slide_pagepattern") {
+    const pattern = PAGE_PATTERNS.find((p) => p.name === String(input.name || ""));
+    if (!pattern) return `ERROR: unknown page pattern "${input.name}". Available: ${PAGE_PATTERNS.map((p) => p.name).join(", ")}`;
+    return JSON.stringify({
+      ...pattern,
+      example: {
+        pattern: pattern.name,
+        ...(pattern.titlePolicy === "required" || pattern.titlePolicy === "optional" ? { title: "Page title" } : {}),
+        regions: Object.fromEntries(pattern.regions.map((region) => [region, { component: region === "sidebar" ? "quote" : "visual-with-caption", props: {} }])),
+      },
+    }, null, 2);
+  }
+  if (name === "list_content_components") {
     const r = spawnSync("node", [CLI, "layouts", "--theme", THEME_DIR, "--json"], { encoding: "utf8" });
     if (r.status !== 0) return `ERROR: ${r.stderr || r.stdout}`;
     return r.stdout;
   }
-  if (name === "describe_slide_layout") {
+  if (name === "describe_content_component") {
     const layoutName = String(input.name || "");
     if (!layoutName) return "ERROR: name is required";
     const r = spawnSync("node", [CLI, "describe", layoutName, "--theme", THEME_DIR, "--json"], { encoding: "utf8" });
@@ -192,7 +257,7 @@ function dispatchTool(name, input) {
   if (name === "validate_slideml") {
     const slideml = String(input.slideml || "");
     if (!slideml) return "ERROR: slideml is required";
-    const tmp = join(OUT_DIR, `validate-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.yaml`);
+    const tmp = join(OUT_DIR, `validate-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`);
     writeFileSync(tmp, slideml);
     const r = spawnSync("node", [CLI, "validate", tmp, "--theme", THEME_DIR], { encoding: "utf8" });
     if (r.status === 0) return "OK — deck validates against theme.";
@@ -202,7 +267,7 @@ function dispatchTool(name, input) {
     const slideml = String(input.slideml || "");
     const outputPath = String(input.output_path || "");
     if (!slideml || !outputPath) return "ERROR: slideml and output_path are required";
-    const tmp = join(OUT_DIR, `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.yaml`);
+    const tmp = join(OUT_DIR, `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`);
     writeFileSync(tmp, slideml);
     const r = spawnSync("node", [CLI, "compile", tmp, "--theme", THEME_DIR, "-o", outputPath], { encoding: "utf8" });
     if (r.status !== 0) return `ERROR: ${(r.stderr || r.stdout).trim()}`;
@@ -287,8 +352,10 @@ async function runAgent(scenarioName, userPrompt, opts = {}) {
     for (const tu of toolUses) {
       const inputPreview = JSON.stringify(tu.input).slice(0, 280);
       log.push(`tool: ${tu.name}(${inputPreview}…)`);
-      if (tu.name === "list_slide_layouts") counts.list++;
-      else if (tu.name === "describe_slide_layout") counts.describe++;
+      if (tu.name === "list_slide_pagepatterns") counts.list++;
+      else if (tu.name === "describe_slide_pagepattern") counts.describe++;
+      else if (tu.name === "list_content_components") counts.list++;
+      else if (tu.name === "describe_content_component") counts.describe++;
       else if (tu.name === "validate_slideml") counts.validate++;
       else if (tu.name === "render_slideml") counts.render++;
       else if (tu.name === "read_file") counts.read++;
@@ -362,13 +429,36 @@ except Exception as e:
   return { ok: true, slides, shapes, pdfOk };
 }
 
+function collectSourceCoverage(source) {
+  try {
+    const deck = JSON.parse(source);
+    const components = [];
+    const patterns = [];
+    for (const slide of deck.slides || []) {
+      if (typeof slide?.pattern === "string") patterns.push(slide.pattern);
+      for (const region of Object.values(slide?.regions || {})) {
+        const entries = Array.isArray(region) ? region : [region];
+        for (const entry of entries) {
+          if (typeof entry?.component === "string") components.push(entry.component);
+        }
+      }
+    }
+    return { components, patterns };
+  } catch {
+    return {
+      components: [...source.matchAll(/"component"\s*:\s*"([^"]+)"/g)].map((m) => m[1]),
+      patterns: [...source.matchAll(/"pattern"\s*:\s*"([^"]+)"/g)].map((m) => m[1]),
+    };
+  }
+}
+
 // ============================================================================
-// 6. Scenarios — broader coverage of layouts and patterns
+// 6. Scenarios — broader coverage of components and patterns
 // ============================================================================
 const ALL_SCENARIOS = [
   {
     name: "zh-quarterly",
-    expect: { layouts: ["cover", "stat-grid-3", "chart-with-takeaway", "closing"] },
+    expect: { components: ["cover", "stat-grid-3", "visual-with-caption", "closing"] },
     prompt: `做一个 2026 Q1 硬件业务经营分析的 PPT，5-7 页，包含：
 - 封面
 - 核心 KPI（收入、用户、毛利率）
@@ -386,7 +476,7 @@ const ALL_SCENARIOS = [
   },
   {
     name: "en-product-update",
-    expect: { layouts: ["cover", "stat-grid-3", "chart-with-takeaway", "closing"] },
+    expect: { components: ["cover", "stat-grid-3", "visual-with-caption", "closing"] },
     prompt: `Generate a 5-slide product update for the engineering team. Cover:
 - Title slide
 - Three reliability KPIs (availability, P99 latency, SEV-1 outages)
@@ -405,7 +495,7 @@ Output to /tmp/slideml-e2e/en-product-update.pptx`,
   },
   {
     name: "zh-with-table",
-    expect: { layouts: ["cover", "data-table", "compare-two-columns", "closing"] },
+    expect: { components: ["cover", "data-table", "key-point", "closing"], patterns: ["two-column"] },
     prompt: `生成一个 4 页的 PPT 对比 AI 同传 vs 人工同传 vs 字幕生成三种服务，包括：
 - 封面
 - 一张数据表格（头部：维度/AI 同传/人工同传/字幕生成；行：延迟、单价、覆盖语种）
@@ -421,8 +511,8 @@ Output to /tmp/slideml-e2e/en-product-update.pptx`,
   },
   {
     name: "en-process-timeline",
-    expect: { layouts: ["cover", "process-timeline"] },
-    prompt: `Make a 3-slide deck explaining our incident response process. Use a process-timeline layout for the steps.
+    expect: { components: ["cover", "process-flow"] },
+    prompt: `Make a 3-slide deck explaining our incident response process. Use the process-flow content component for the steps.
 
 Steps (use these exactly):
 1. Detect — alerts fire from Prometheus / SLO burn rate
@@ -436,7 +526,7 @@ Output to /tmp/slideml-e2e/en-process-timeline.pptx`,
   {
     name: "en-long-deck",
     expect: { minSlides: 9 },
-    prompt: `Generate a comprehensive 10-slide investor update. Use a mix of layouts (cover, agenda, section-divider, stat-grid-3, chart-with-takeaway, data-table, compare-two-columns, closing).
+    prompt: `Generate a comprehensive 10-slide investor update. Use a mix of page patterns and content components (cover, agenda, section-divider, stat-grid-3, visual-with-caption, data-table, two-column comparisons, closing).
 
 Real numbers (use exactly):
 - ARR: $42.5M (+85% YoY)
@@ -457,8 +547,8 @@ Output to /tmp/slideml-e2e/en-long-deck.pptx`,
   },
   {
     name: "en-quote",
-    expect: { layouts: ["quote"] },
-    prompt: `A 3-slide deck for an internal all-hands. Open with a cover, then a single quote slide (use the quote layout) with this exact quote:
+    expect: { components: ["quote"] },
+    prompt: `A 3-slide deck for an internal all-hands. Open with a cover, then a single quote slide (use the quote content component) with this exact quote:
 
 > "We are not building a product, we are building a category."
 > — Marc, CEO, 2026 kickoff
@@ -473,7 +563,7 @@ Output to /tmp/slideml-e2e/en-quote.pptx`,
     prompt: `First, generate this 4-slide deck and write it to /tmp/slideml-e2e/en-iterate.pptx:
 - Cover: "Mid-quarter review" / subtitle "April 2026"
 - stat-grid-3 with KPIs (use placeholders if unsure): availability 99.95%, latency 150ms, MTTR 12 min
-- bullet-with-image showing 3 wins (no image needed)
+- visual-with-text showing 3 wins (no image needed)
 - closing thank-you
 
 After it succeeds, READ THE SIDECAR FILE at /tmp/slideml-e2e/en-iterate.pptx.slideml, change the cover subtitle to "May 2026 update", and re-render to the same path.
@@ -532,15 +622,20 @@ async function runScenario(sc) {
   const retries = audits.filter((a) => !a.ok).length;
   const pass = !!goodRender || validRefusal;
 
-  // Layout coverage check (when expected).
+  // Component / pattern coverage check (when expected).
   let layoutCheck = null;
-  if (goodRender && sc.expect?.layouts) {
+  if (goodRender && (sc.expect?.components || sc.expect?.patterns)) {
     const sidecarPath = `${goodRender.path}.slideml`;
     if (existsSync(sidecarPath)) {
-      const yaml = readFileSync(sidecarPath, "utf8");
-      const usedLayouts = [...yaml.matchAll(/^\s+- layout:\s*(\S+)/gm)].map((m) => m[1]);
-      const missing = sc.expect.layouts.filter((l) => !usedLayouts.includes(l));
-      layoutCheck = { used: usedLayouts, expected: sc.expect.layouts, missing };
+      const source = readFileSync(sidecarPath, "utf8");
+      const used = collectSourceCoverage(source);
+      const missingComponents = (sc.expect.components || []).filter((c) => !used.components.includes(c));
+      const missingPatterns = (sc.expect.patterns || []).filter((p) => !used.patterns.includes(p));
+      layoutCheck = {
+        used,
+        expected: { components: sc.expect.components || [], patterns: sc.expect.patterns || [] },
+        missing: [...missingComponents, ...missingPatterns],
+      };
     }
   }
 
@@ -601,7 +696,7 @@ for (const r of results) {
   if (!r.pass) findings.push(`[${r.scenario}] FAIL — stop=${r.stopReason}, last audit error: ${r.audits.find((a) => !a.ok)?.error || "no render attempt"}`);
   if (r.retries > 0) findings.push(`[${r.scenario}] ${r.retries} retry/retries before success`);
   if (r.layoutCheck && r.layoutCheck.missing.length > 0) {
-    findings.push(`[${r.scenario}] missing expected layouts: ${r.layoutCheck.missing.join(", ")}`);
+    findings.push(`[${r.scenario}] missing expected components/patterns: ${r.layoutCheck.missing.join(", ")}`);
   }
 }
 console.log(`\nFindings (${findings.length}):`);

@@ -3,10 +3,13 @@ deck:
   size: 16x9
   theme: technical-blue
 slides:
-  - layout: stat-grid-3
-    slots:
-      # `title` overflows max 40 chars; `items` has only 2 (min/max = 3).
-      title: "This title is intentionally far too long to fit the layout's 40-char ceiling."
-      items:
-        - { value: "1.0", label: "only" }
-        - { value: "2.0", label: "two" }
+  - pattern: single-focus
+    regions:
+      main:
+        component: stat-grid-3
+        props:
+          # `title` overflows max 40 chars; `items` has only 2 (min/max = 3).
+          title: "This title is intentionally far too long to fit the layout's 40-char ceiling."
+          items:
+            - { value: "1.0", label: "only" }
+            - { value: "2.0", label: "two" }

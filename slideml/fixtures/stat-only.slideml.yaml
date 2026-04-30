@@ -5,22 +5,31 @@ deck:
   theme: technical-blue
 
 slides:
-  - layout: cover
+  - pattern: single-focus
     chrome: none
-    slots:
-      title: "Engineering Review"
-      subtitle: "2026 Q1"
+    regions:
+      main:
+        component: cover
+        props:
+          title: "Engineering Review"
+          subtitle: "2026 Q1"
 
-  - layout: stat-grid-3
-    slots:
-      title: "Reliability KPIs"
-      items:
-        - { value: "99.95%", label: "Availability", delta: "+0.04%", trend: up }
-        - { value: "120ms",  label: "P99 latency",  delta: "-32%",   trend: up }
-        - { value: "0",      label: "SEV-1 outages", delta: "—",     trend: flat }
+  - pattern: single-focus
+    regions:
+      main:
+        component: stat-grid-3
+        props:
+          title: "Reliability KPIs"
+          items:
+            - { value: "99.95%", label: "Availability", delta: "+0.04%", trend: up }
+            - { value: "120ms",  label: "P99 latency",  delta: "-32%",   trend: up }
+            - { value: "0",      label: "SEV-1 outages", delta: "—",     trend: flat }
 
-  - layout: quote
+  - pattern: single-focus
     chrome: none
-    slots:
-      quote: "Reliability is shipped, not declared."
-      attribution: "Engineering team"
+    regions:
+      main:
+        component: quote
+        props:
+          quote: "Reliability is shipped, not declared."
+          attribution: "Engineering team"

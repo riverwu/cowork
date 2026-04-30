@@ -114,15 +114,20 @@ describe("Stage 3 — renderDeck against technical-blue", () => {
       deck: { size: "16x9", language: "zh-CN", theme: "technical-blue" },
       slides: [
         {
-          layout: "article-flow",
-          slots: {
-            title: "示例文章",
-            subtitle: "阅读下面材料",
-            body: [
-              { type: "paragraph", text: paragraph },
-              { type: "quote", text: "关键句也要保留样式并参与分页。" },
-              { type: "paragraph", text: paragraph },
-            ],
+          pattern: "single-focus",
+          regions: {
+            main: {
+              component: "article-flow",
+              props: {
+                title: "示例文章",
+                subtitle: "阅读下面材料",
+                body: [
+                  { type: "paragraph", text: paragraph },
+                  { type: "quote", text: "关键句也要保留样式并参与分页。" },
+                  { type: "paragraph", text: paragraph },
+                ],
+              },
+            },
           },
         },
       ],
@@ -138,17 +143,17 @@ describe("Stage 3 — renderDeck against technical-blue", () => {
       slideml: 1,
       deck: { size: "16x9", language: "zh-CN", theme: "technical-blue" },
       slides: [
-        { layout: "cover", chrome: "none", slots: { title: "同传市场格局分析", subtitle: "2026 Q1", eyebrow: "市场报告" } },
-        { layout: "section-divider", chrome: "none", slots: { eyebrow: "第一部分", title: "市场规模与增长" } },
-        { layout: "stat-grid-3", slots: {
+        { pattern: "single-focus", chrome: "none", regions: { main: { component: "cover", props: { title: "同传市场格局分析", subtitle: "2026 Q1", eyebrow: "市场报告" } } } },
+        { pattern: "section-divider", chrome: "none", regions: { main: { component: "section-divider", props: { eyebrow: "第一部分", title: "市场规模与增长" } } } },
+        { pattern: "single-focus", regions: { main: { component: "stat-grid-3", props: {
           title: "市场规模",
           items: [
             { value: "82.3亿", label: "市场规模", delta: "+12% YoY", trend: "up" },
             { value: "3,400万", label: "月活",   delta: "+8%",      trend: "up" },
             { value: "1.4×",   label: "ARPU",  delta: "—",       trend: "flat" },
           ],
-        } },
-        { layout: "visual-with-text", slots: {
+        } } } },
+        { pattern: "single-focus", regions: { main: { component: "visual-with-text", props: {
           title: "头部玩家定位",
           textKind: "bullets",
           bullets: [
@@ -157,17 +162,17 @@ describe("Stage 3 — renderDeck against technical-blue", () => {
             "传统会议同传服务向 AI 辅助过渡",
           ],
           visual: { kind: "image", src: makePngDataUrl(), alt: "competitive map" },
-        } },
-        { layout: "visual-with-text", slots: {
+        } } } },
+        { pattern: "single-focus", regions: { main: { component: "visual-with-text", props: {
           title: "技术演进",
           text: "AI 同传在 2025 年走完了从可用到优秀的关键一年。\n\n端到端模型把延迟从 800ms 降到 120ms，词错率下降 40%，已具备进入企业关键场景的能力。",
           visual: { kind: "image", src: makePngDataUrl(), alt: "tech timeline" },
           position: "left",
-        } },
-        { layout: "quote", chrome: "none", slots: {
+        } } } },
+        { pattern: "single-focus", chrome: "none", regions: { main: { component: "quote", props: {
           quote: "AI 同传不是替代人类——它把同传服务带到此前根本买不起的场景里。",
           attribution: "某字节跳动产品负责人",
-        } },
+        } } } },
       ],
     };
 
@@ -206,12 +211,17 @@ describe("Stage 3 — renderDeck against technical-blue", () => {
       slideml: 1,
       deck: { size: "16x9", language: "zh-CN", theme: "technical-blue" },
       slides: [{
-        layout: "visual-with-text",
-        slots: {
-          title: "市场概览",
-          visual: { kind: "image", src: makePngDataUrl(), position: "right", imageStyle: "card" },
-          textKind: "prose",
-          text: "【全球市场规模】\n• 2024年全球AI穿戴设备市场达268.8亿美元\n• 预计2030年突破3593.2亿美元，CAGR=29.8%\n• 端侧AI穿戴设备2024年营收156.6亿美元\n\n【中国市场规模】\n• 2024年中国市场规模达615亿元人民币\n• 2019-2024年复合增长率14.7%\n• 2025年AI硬件（不含手机/汽车）突破万亿",
+        pattern: "single-focus",
+        regions: {
+          main: {
+            component: "visual-with-text",
+            props: {
+              title: "市场概览",
+              visual: { kind: "image", src: makePngDataUrl(), position: "right", imageStyle: "card" },
+              textKind: "prose",
+              text: "【全球市场规模】\n• 2024年全球AI穿戴设备市场达268.8亿美元\n• 预计2030年突破3593.2亿美元，CAGR=29.8%\n• 端侧AI穿戴设备2024年营收156.6亿美元\n\n【中国市场规模】\n• 2024年中国市场规模达615亿元人民币\n• 2019-2024年复合增长率14.7%\n• 2025年AI硬件（不含手机/汽车）突破万亿",
+            },
+          },
         },
       }],
     };
@@ -235,7 +245,7 @@ describe("Stage 3 — renderDeck against technical-blue", () => {
     const bad: DeckSpec = {
       slideml: 1,
       deck: { size: "16x9", theme: "technical-blue" },
-      slides: [{ layout: "moonshot-dashboard", slots: { title: "x" } }],
+      slides: [{ pattern: "single-focus", regions: { main: { component: "moonshot-dashboard", props: { title: "x" } } } }],
     };
     expect(() => renderDeck(bad, theme)).toThrow(/not found/);
   });

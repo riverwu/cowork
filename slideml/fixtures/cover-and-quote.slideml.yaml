@@ -5,13 +5,19 @@ deck:
   theme: technical-blue
 
 slides:
-  - layout: cover
+  - pattern: single-focus
     chrome: none
-    slots:
-      title: "极简两页演示"
+    regions:
+      main:
+        component: cover
+        props:
+          title: "极简两页演示"
 
-  - layout: quote
+  - pattern: single-focus
     chrome: none
-    slots:
-      quote: "做对的事，把它做对。"
-      attribution: "团队信条"
+    regions:
+      main:
+        component: quote
+        props:
+          quote: "做对的事，把它做对。"
+          attribution: "团队信条"
