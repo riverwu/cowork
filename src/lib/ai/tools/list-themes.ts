@@ -7,8 +7,10 @@ export const listThemesTool: Tool = {
     description:
       `List the SlideML themes installed on this machine (built-in + user-installed). Use this when the user asks for a deck and you want to pick a theme that fits the topic, or when the user mentions a deck mood ("warm", "minimal", "executive", "sustainability") that suggests a non-default theme.
 
+Themes are editable packages. Built-ins are read-only references; user themes live under \`~/.cowork/themes/<name>/theme.json\`. To create or customize a theme, call \`describe_theme\` on a close built-in, then use \`write_file\` to write a new user theme package and set \`deck.theme\` to that new name.
+
 Returns an array of theme summaries:
-- \`name\`: id to pass to other deck tools (\`render_slideml({ theme: ... })\`)
+- \`name\`: id to use in \`deck.theme\` or pass to deck tools
 - \`displayName\`: human-friendly name
 - \`description\`: one-line summary of the theme's character
 - \`whenToUse\`: short note on when this theme is appropriate

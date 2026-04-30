@@ -11,7 +11,7 @@ describe("append_slides — JSON-string slides arg", () => {
   it("parses slides when passed as a JSON-encoded string", async () => {
     const out = await appendSlidesTool.execute({
       path: "/fake.json",
-      slides: '[{"layout":"cover","slots":{"title":"hi"}}]',
+      slides: '[{"pattern":"single-focus","regions":{"main":{"component":"cover","props":{"title":"hi"}}}}]',
     });
     expect(out).toMatch(/Appended 1 slide/);
   });
@@ -19,28 +19,24 @@ describe("append_slides — JSON-string slides arg", () => {
     fakeFiles["/fake.json"] = '{"slideml":1,"deck":{"size":"16x9","theme":"x"},"slides":[]}';
     const out = await appendSlidesTool.execute({
       path: "/fake.json",
-      slides: [{ layout: "cover", slots: { title: "hi" } }],
+      slides: [{ pattern: "single-focus", regions: { main: { component: "cover", props: { title: "hi" } } } }],
     });
     expect(out).toMatch(/Appended 1 slide/);
   });
   it("rejects malformed JSON-string with clear hint", async () => {
     const out = await appendSlidesTool.execute({
       path: "/fake.json",
-      slides: '[{"layout": "cover"',
+      slides: '[{"pattern": "single-focus"',
     });
     expect(out).toMatch(/did not parse as JSON/);
   });
 
-  it("repairs a slot accidentally placed outside slots before notes", async () => {
+  it("rejects old layout/slots slide objects", async () => {
     fakeFiles["/fake.json"] = '{"slideml":1,"deck":{"size":"16x9","theme":"x"},"slides":[]}';
     const out = await appendSlidesTool.execute({
       path: "/fake.json",
-      slides: '[{"layout":"prose","slots":{"title":"示例","body":"正文"}, "subtitle":"阅读下面的文章"}, "notes":"speaker notes"}]',
+      slides: [{ layout: "cover", slots: { title: "hi" } }],
     });
-    expect(out).toMatch(/Appended 1 slide/);
-    const deck = JSON.parse(fakeFiles["/fake.json"]!);
-    expect(deck.slides[0].slots.subtitle).toBe("阅读下面的文章");
-    expect(deck.slides[0].notes).toBe("speaker notes");
-    expect(deck.slides[0].subtitle).toBeUndefined();
+    expect(out).toMatch(/old `layout\/slots` fields/);
   });
 });

@@ -19,10 +19,10 @@ export const editSlidemlTool: Tool = {
 
 Use after a previous \`render_slideml\` produced a deck and the user (or you) want to mutate it. Reads the sidecar at \`sidecar_path\` (typically \`<output>.pptx.slideml\`), applies the ops in order, then writes BOTH the new .pptx at \`output_path\` AND a refreshed sidecar at \`<output_path>.slideml\`.
 
-Op grammar (paths use dot-bracket notation: \`slides[3].slots.title\`, \`deck.header.left\`, \`slides[0].slots.items[2]\`):
-- \`{ kind: "set", path: "slides[3].slots.title", value: "..." }\`
+Op grammar (paths use dot-bracket notation: \`slides[3].regions.main.props.title\`, \`deck.header.left\`, \`slides[0].regions.main.props.items[2]\`):
+- \`{ kind: "set", path: "slides[3].regions.main.props.title", value: "..." }\`
 - \`{ kind: "delete", path: "slides[2].notes" }\`
-- \`{ kind: "insertSlide", at: 4, slide: { layout: "...", slots: {...} } }\`
+- \`{ kind: "insertSlide", at: 4, slide: { pattern: "...", regions: {...} } }\`
 - \`{ kind: "deleteSlide", at: 3 }\`
 - \`{ kind: "moveSlide", from: 4, to: 1 }\`
 

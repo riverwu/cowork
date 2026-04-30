@@ -109,7 +109,7 @@ export type Region =
   | RegionSparkline
   | RegionProgress;
 
-/** Discriminator values agents see in `describe_slide_layout` examples. */
+/** Discriminator values agents see in `describe_content_component` examples. */
 export const REGION_KINDS = ["kpi", "chart", "table", "text", "bullets", "image", "code", "quote", "sparkline", "progress"] as const;
 
 // ---------------------------------------------------------------------------

@@ -1,12 +1,19 @@
 /**
- * Layout registry — single source of truth for all SlideML layouts.
+ * Content component registry — single source of truth for SlideML's
+ * reusable content renderers.
+ *
+ * vNext composition model: old page layouts have been promoted to
+ * ContentComponents. PagePattern lives in the slide source and determines
+ * region topology; this registry owns the content renderer and its props
+ * schema. For now, component names intentionally match the old layout names
+ * so every existing rendering capability remains covered.
  *
  * Phase A re-architecture: layouts are no longer per-theme TS modules
  * dynamically imported by the loader. They are global, theme-independent
  * implementations registered here. The renderer looks up by name; themes
  * declare which layouts they recommend (separate concern).
  *
- * Adding a new layout: implement the LayoutFn module, then add an
+ * Adding a new content component: implement the LayoutFn module, then add an
  * import + entry below.
  */
 
@@ -52,11 +59,13 @@ import titleOnly,          { slots as titleOnlySlots }         from "./title-onl
 import visualWithCaption,  { slots as visualWithCaptionSlots } from "./visual-with-caption.js";
 import visualWithText,     { slots as visualWithTextSlots }    from "./visual-with-text.js";
 
-/** A registered layout — slot schema + render function + agent-facing purpose. */
+/** A registered content component — prop schema + render function + agent-facing purpose. */
 export interface RegisteredLayout {
   name: string;
   slots: Record<string, SlotSchema>;
   render: LayoutFn;
+  /** Whether this component should be offered to agents as a ContentComponent. */
+  agentVisible?: boolean;
   /**
    * One-line agent-facing purpose. Surfaced by `summarizeLayouts` and
    * `describeLayout`. Convention: ≤ 100 chars, says what the layout is
@@ -70,15 +79,15 @@ const ENTRIES: RegisteredLayout[] = [
   { name: "article-flow",        slots: articleFlowSlots,         render: articleFlow },
   { name: "closing",             slots: closingSlots,             render: closing },
   { name: "code-block",          slots: codeBlockSlots,           render: codeBlock },
-  { name: "compare-two-columns", slots: compareTwoColumnsSlots,   render: compareTwoColumns },
+  { name: "compare-two-columns", slots: compareTwoColumnsSlots,   render: compareTwoColumns, agentVisible: false },
   { name: "content-grid",        slots: contentGridSlots,         render: contentGrid },
   { name: "cover",               slots: coverSlots,               render: cover },
-  { name: "dashboard",           slots: dashboardSlots,           render: dashboard },
+  { name: "dashboard",           slots: dashboardSlots,           render: dashboard, agentVisible: false },
   { name: "data-table",          slots: dataTableSlots,           render: dataTable },
   { name: "definition",          slots: definitionSlots,          render: definition },
   { name: "executive-summary",   slots: executiveSummarySlots,    render: executiveSummary },
-  { name: "framed",              slots: framedSlots,              render: framed },
-  { name: "freeform",            slots: freeformSlots,            render: freeform },
+  { name: "framed",              slots: framedSlots,              render: framed, agentVisible: false },
+  { name: "freeform",            slots: freeformSlots,            render: freeform, agentVisible: false },
   { name: "funnel",              slots: funnelSlots,              render: funnel },
   { name: "glossary",            slots: glossarySlots,            render: glossary },
   { name: "hero-image-overlay",  slots: heroImageOverlaySlots,    render: heroImageOverlay },
@@ -95,7 +104,7 @@ const ENTRIES: RegisteredLayout[] = [
   { name: "quote",               slots: quoteSlots,               render: quote },
   { name: "roadmap",             slots: roadmapSlots,             render: roadmap },
   { name: "section-divider",     slots: sectionDividerSlots,      render: sectionDivider },
-  { name: "split",               slots: splitSlots,               render: split },
+  { name: "split",               slots: splitSlots,               render: split, agentVisible: false },
   { name: "stat-grid-3",         slots: statGrid3Slots,           render: statGrid3 },
   { name: "swot",                slots: swotSlots,                render: swot },
   { name: "team-grid",           slots: teamGridSlots,            render: teamGrid },
@@ -121,4 +130,12 @@ export function getLayout(name: string): RegisteredLayout | undefined {
 
 export function listLayoutNames(): string[] {
   return [...LAYOUT_REGISTRY.keys()];
+}
+
+export function isAgentVisibleLayoutName(name: string): boolean {
+  return LAYOUT_REGISTRY.get(name)?.agentVisible !== false;
+}
+
+export function listAgentVisibleLayoutNames(): string[] {
+  return [...LAYOUT_REGISTRY.values()].filter((entry) => entry.agentVisible !== false).map((entry) => entry.name);
 }

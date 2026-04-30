@@ -8,9 +8,9 @@
 
 import { applyChrome } from "./chrome.js";
 import { buildLayoutContext, type LayoutFn } from "./layout-context.js";
-import { SLIDE_SIZES } from "../units.js";
+import { cm, SLIDE_SIZES } from "../units.js";
 import type { LoadedTheme } from "../theme/types.js";
-import type { DeckAst, SlideAst, SlideBackground, ShapeList } from "../emitter/types.js";
+import type { DeckAst, Shape, SlideAst, SlideBackground, ShapeList, Xfrm } from "../emitter/types.js";
 
 /** A pre-validation deck spec. The parser produces this shape. */
 export interface DeckSpec {
@@ -98,12 +98,47 @@ export type ChromeSpec =
       override?: Record<string, Record<string, unknown>>;
     };
 
+export type PagePattern =
+  | "single-focus"
+  | "title-content"
+  | "main-plus-sidebar"
+  | "two-column"
+  | "hero-plus-supporting"
+  | "top-bottom"
+  | "grid"
+  | "dashboard"
+  | "full-bleed-visual"
+  | "section-divider";
+
+export type TitlePolicy = "none" | "optional" | "required" | "component";
+
+export type LayoutDensity = "sparse" | "medium" | "dense";
+export type LayoutEmphasis = "main" | "balanced" | "visual" | "data" | "takeaway";
+export type OverflowPolicy = "shrink" | "condense" | "split" | "fail";
+
+export interface LayoutPolicy {
+  emphasis?: LayoutEmphasis;
+  density?: LayoutDensity;
+  overflow?: OverflowPolicy;
+}
+
+export interface ContentComponentSpec {
+  component: string;
+  props?: Record<string, unknown>;
+}
+
+export type RegionContent =
+  | ContentComponentSpec
+  | ContentComponentSpec[];
+
 export interface SlideSpec {
-  layout: string;
+  pattern: PagePattern;
   chrome?: ChromeSpec;
   notes?: string;
   transition?: "none" | "fade";
-  slots: Record<string, unknown>;
+  title?: string;
+  regions: Record<string, RegionContent>;
+  policy?: LayoutPolicy;
   /** Per-slide override of the deck-level header (pass `null` to clear). */
   header?: BandSpec | null;
   /** Per-slide override of the deck-level footer (pass `null` to clear). */
@@ -140,13 +175,14 @@ export function renderDeck(spec: DeckSpec, theme: LoadedTheme): DeckAst {
 
   // Walk slides once to compute "current section name" per slide — chrome
   // modules like `section-marker` need this. A slide is considered to start
-  // a section when its layout is "section-divider"; the divider's `title`
-  // slot (or `eyebrow`) sticks until the next divider.
+  // a section when its pattern is "section-divider"; the slide title (or
+  // the main section-divider component title) sticks until the next divider.
   const sectionNames: Array<string | undefined> = [];
   let currentSection: string | undefined;
   for (const s of spec.slides) {
-    if (s.layout === "section-divider") {
-      const t = (s.slots["title"] ?? s.slots["eyebrow"]) as unknown;
+    if (s.pattern === "section-divider") {
+      const main = firstRegionComponent(s.regions.main);
+      const t = s.title ?? main?.props?.["title"] ?? main?.props?.["eyebrow"];
       if (typeof t === "string") currentSection = t;
     }
     sectionNames.push(currentSection);
@@ -179,12 +215,45 @@ function renderSlideLayouts(
   deck: { width: number; height: number },
   language: string,
 ): ShapeList[] {
-  const layoutName = canonicalLayoutName(spec.layout);
-  const slots = legacyLayoutSlots(spec.layout, spec.slots);
+  if (isSingleRegionPattern(spec)) {
+    const layoutName = componentForPattern(spec);
+    const slots = slotsForPattern(spec, layoutName);
+    return [renderComponent(layoutName, slots, theme, deck, language, 2)];
+  }
+
+  const titlePolicy = titlePolicyForPattern(spec.pattern);
+  const hasPageTitle = !!spec.title && (titlePolicy === "optional" || titlePolicy === "required");
+  const regions = regionRects(spec.pattern, deck, hasPageTitle);
+  const out: ShapeList = hasPageTitle ? [renderPageTitle(spec.title!, theme, deck, language, 2)] : [];
+  let nextId = maxShapeId(out) + 1;
+  for (const [regionName, rect] of Object.entries(regions)) {
+    const region = spec.regions[regionName];
+    if (!region) continue;
+    const components = Array.isArray(region) ? region : [region];
+    components.forEach((component, componentIndex) => {
+      const componentName = canonicalComponentName(component.component);
+      const slots = componentPropsForRegion(spec, component, regionName, componentIndex === 0);
+      const rendered = renderComponent(componentName, slots, theme, deck, language, nextId);
+      const transformed = rendered.map((shape) => transformShape(shape, fullRect(deck), rect));
+      out.push(...transformed);
+      nextId = maxShapeId(out) + 1;
+    });
+  }
+  return [out];
+}
+
+function renderComponent(
+  layoutName: string,
+  slots: Record<string, unknown>,
+  theme: LoadedTheme,
+  deck: { width: number; height: number },
+  language: string,
+  startId: number,
+): ShapeList {
   const loaded = theme.layouts.get(layoutName);
   if (!loaded) {
     throw new Error(
-      `renderSlide: layout "${spec.layout}" not found in theme "${theme.manifest.name}". ` +
+      `renderSlide: content component "${layoutName}" not found in theme "${theme.manifest.name}". ` +
       `Available: ${[...theme.layouts.keys()].join(", ")}`,
     );
   }
@@ -194,26 +263,224 @@ function renderSlideLayouts(
     deck,
     slots,
     language,
-    startId: 2,
+    startId,
   });
 
   const layoutFn = loaded.render as LayoutFn;
   const layoutResult = layoutFn(ctx);
-  return isShapePages(layoutResult) ? layoutResult : [layoutResult];
+  return isShapePages(layoutResult) ? layoutResult.flat() : layoutResult;
 }
 
-function canonicalLayoutName(layout: string): string {
-  if (layout === "prose") return "article-flow";
-  if (layout === "q-and-a") return "question-list";
-  return layout;
+function componentForPattern(spec: SlideSpec): string {
+  const main = firstRegionComponent(spec.regions.main);
+  if (main) return canonicalComponentName(main.component);
+  if (spec.pattern === "section-divider") return "section-divider";
+  if (spec.pattern === "full-bleed-visual") return "image-full-bleed";
+  return "title-only";
 }
 
-function legacyLayoutSlots(layout: string, slots: Record<string, unknown>): Record<string, unknown> {
-  if (layout !== "prose") return slots;
+function slotsForPattern(spec: SlideSpec, componentName: string): Record<string, unknown> {
+  const main = firstRegionComponent(spec.regions.main);
+  const base = { ...(main?.props ?? {}) };
+  if (spec.title && titlePolicyForPattern(spec.pattern) === "component" && base.title === undefined) base.title = spec.title;
+
+  const sidebar = firstRegionComponent(spec.regions.sidebar);
+  if (sidebar) {
+    // Direct mappings preserve old layout coverage while giving the new
+    // source model flexible page composition. Region-aware renderers can
+    // later consume these richer fields without changing the public schema.
+    if (componentName === "timeline" && sidebar.component === "text" && base.description === undefined) {
+      base.description = sidebar.props?.["text"] ?? sidebar.props?.["body"];
+    } else if (componentName === "visual-with-text") {
+      if (sidebar.component === "text" && base.text === undefined) base.text = sidebar.props?.["text"] ?? sidebar.props?.["body"];
+      if (sidebar.component === "bullets" && base.bullets === undefined) {
+        base.textKind = "bullets";
+        base.bullets = sidebar.props?.["items"] ?? sidebar.props?.["bullets"];
+      }
+    }
+  }
+
+  const supporting = firstRegionComponent(spec.regions.supporting);
+  if (supporting && componentName === "hero-stat" && base.caption === undefined) {
+    base.caption = supporting.props?.["text"] ?? supporting.props?.["body"];
+  }
+
+  return base;
+}
+
+function componentPropsForRegion(spec: SlideSpec, component: ContentComponentSpec, regionName: string, firstInRegion: boolean): Record<string, unknown> {
+  const props = { ...(component.props ?? {}) };
+  if (regionName === "main" && firstInRegion && spec.title && titlePolicyForPattern(spec.pattern) === "component" && props.title === undefined) props.title = spec.title;
+  return props;
+}
+
+function isSingleRegionPattern(spec: SlideSpec): boolean {
+  const keys = Object.keys(spec.regions);
+  return keys.length === 1 && keys[0] === "main" &&
+    (spec.pattern === "single-focus" || spec.pattern === "section-divider" || spec.pattern === "full-bleed-visual");
+}
+
+export function titlePolicyForPattern(pattern: PagePattern): TitlePolicy {
+  switch (pattern) {
+    case "title-content":
+      return "required";
+    case "single-focus":
+    case "section-divider":
+      return "component";
+    case "full-bleed-visual":
+      return "none";
+    default:
+      return "optional";
+  }
+}
+
+export function requiredRegionsForPattern(pattern: PagePattern): readonly string[] {
+  switch (pattern) {
+    case "two-column":
+      return ["left", "right"];
+    case "top-bottom":
+      return ["top", "bottom"];
+    case "grid":
+      return ["top", "left", "right", "bottom"];
+    case "hero-plus-supporting":
+      return ["main", "supporting"];
+    case "main-plus-sidebar":
+      return ["main", "sidebar"];
+    default:
+      return ["main"];
+  }
+}
+
+function renderPageTitle(title: string, theme: LoadedTheme, deck: { width: number; height: number }, language: string, id: number): Shape {
+  const fontKey = /^(zh|ja|ko)/i.test(language) ? "font-cjk" : "font-latin";
+  const fontToken = theme.manifest.tokens[fontKey];
+  const fontFace = Array.isArray(fontToken) ? fontToken[0] : undefined;
+  const color = tokenColor(theme, "text-strong", "111111");
   return {
-    title: "",
-    ...slots,
+    type: "text",
+    id,
+    name: "Page Title",
+    xfrm: { x: cm(1.2), y: cm(0.55), cx: deck.width - cm(2.4), cy: cm(0.9) },
+    valign: "middle",
+    autoFit: "shrink",
+    margin: { l: 0, r: 0, t: 0, b: 0 },
+    paragraphs: [{
+      runs: [{
+        text: title,
+        sizeHalfPt: 42,
+        color,
+        bold: true,
+        cjk: /^(zh|ja|ko)/i.test(language),
+        fontFace,
+      }],
+    }],
   };
+}
+
+function tokenColor(theme: LoadedTheme, name: string, fallback: string): string {
+  const value = theme.manifest.tokens[name];
+  return typeof value === "string" ? value : fallback;
+}
+
+function regionRects(pattern: PagePattern, deck: { width: number; height: number }, hasPageTitle = false): Record<string, Xfrm> {
+  const m = Math.round(deck.width * 0.08);
+  const top = hasPageTitle ? Math.round(deck.height * 0.17) : Math.round(deck.height * 0.11);
+  const bottom = Math.round(deck.height * 0.1);
+  const gap = Math.round(deck.width * 0.035);
+  const body: Xfrm = { x: m, y: top, cx: deck.width - m * 2, cy: deck.height - top - bottom };
+  if (pattern === "main-plus-sidebar") {
+    const side = Math.round(body.cx * 0.3);
+    return {
+      main: { x: body.x, y: body.y, cx: body.cx - side - gap, cy: body.cy },
+      sidebar: { x: body.x + body.cx - side, y: body.y, cx: side, cy: body.cy },
+    };
+  }
+  if (pattern === "two-column") {
+    const w = Math.floor((body.cx - gap) / 2);
+    return {
+      left: { x: body.x, y: body.y, cx: w, cy: body.cy },
+      right: { x: body.x + w + gap, y: body.y, cx: w, cy: body.cy },
+      main: { x: body.x, y: body.y, cx: w, cy: body.cy },
+      sidebar: { x: body.x + w + gap, y: body.y, cx: w, cy: body.cy },
+    };
+  }
+  if (pattern === "hero-plus-supporting") {
+    const supportH = Math.round(body.cy * 0.3);
+    return {
+      main: { x: body.x, y: body.y, cx: body.cx, cy: body.cy - supportH - gap },
+      supporting: { x: body.x, y: body.y + body.cy - supportH, cx: body.cx, cy: supportH },
+    };
+  }
+  if (pattern === "top-bottom") {
+    const h = Math.floor((body.cy - gap) / 2);
+    return {
+      top: { x: body.x, y: body.y, cx: body.cx, cy: h },
+      bottom: { x: body.x, y: body.y + h + gap, cx: body.cx, cy: h },
+      main: { x: body.x, y: body.y, cx: body.cx, cy: h },
+      supporting: { x: body.x, y: body.y + h + gap, cx: body.cx, cy: h },
+    };
+  }
+  if (pattern === "grid") {
+    const w = Math.floor((body.cx - gap) / 2);
+    const h = Math.floor((body.cy - gap) / 2);
+    return {
+      top: { x: body.x, y: body.y, cx: w, cy: h },
+      left: { x: body.x, y: body.y + h + gap, cx: w, cy: h },
+      right: { x: body.x + w + gap, y: body.y + h + gap, cx: w, cy: h },
+      bottom: { x: body.x + w + gap, y: body.y, cx: w, cy: h },
+    };
+  }
+  if (pattern === "dashboard") {
+    const w = Math.floor((body.cx - gap) / 2);
+    const h = Math.floor((body.cy - gap) / 2);
+    return {
+      main: { x: body.x, y: body.y, cx: w, cy: h },
+      top: { x: body.x + w + gap, y: body.y, cx: w, cy: h },
+      left: { x: body.x, y: body.y + h + gap, cx: w, cy: h },
+      right: { x: body.x + w + gap, y: body.y + h + gap, cx: w, cy: h },
+    };
+  }
+  return { main: body };
+}
+
+function fullRect(deck: { width: number; height: number }): Xfrm {
+  return { x: 0, y: 0, cx: deck.width, cy: deck.height };
+}
+
+function transformShape(shape: Shape, from: Xfrm, to: Xfrm): Shape {
+  const scaleX = to.cx / from.cx;
+  const scaleY = to.cy / from.cy;
+  return {
+    ...shape,
+    xfrm: transformXfrm(shape.xfrm, from, to, scaleX, scaleY),
+  } as Shape;
+}
+
+function transformXfrm(xfrm: Xfrm, from: Xfrm, to: Xfrm, scaleX: number, scaleY: number): Xfrm {
+  return {
+    ...xfrm,
+    x: Math.round(to.x + (xfrm.x - from.x) * scaleX),
+    y: Math.round(to.y + (xfrm.y - from.y) * scaleY),
+    cx: Math.round(xfrm.cx * scaleX),
+    cy: Math.round(xfrm.cy * scaleY),
+  };
+}
+
+function maxShapeId(shapes: ShapeList): number {
+  return shapes.reduce((max, shape) => Math.max(max, shape.id), 1);
+}
+
+function firstRegionComponent(region: RegionContent | undefined): ContentComponentSpec | undefined {
+  if (!region) return undefined;
+  return Array.isArray(region) ? region[0] : region;
+}
+
+function canonicalComponentName(component: string): string {
+  if (component === "prose") return "article-flow";
+  if (component === "q-and-a") return "question-list";
+  if (component === "text" || component === "bullets") return "visual-with-text";
+  if (component === "image") return "image-full-bleed";
+  return component;
 }
 
 function isShapePages(value: ShapeList | ShapeList[]): value is ShapeList[] {

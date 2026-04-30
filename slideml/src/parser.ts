@@ -7,7 +7,8 @@
  */
 
 import yaml from "js-yaml";
-import type { BackgroundSpec, BandSpec, BrandSpec, ChromeSpec, DeckSpec, SlideSpec } from "./render/index.js";
+import { requiredRegionsForPattern } from "./render/index.js";
+import type { BackgroundSpec, BandSpec, BrandSpec, ChromeSpec, ContentComponentSpec, DeckSpec, LayoutPolicy, PagePattern, RegionContent, SlideSpec } from "./render/index.js";
 
 export interface SlidemlParseError extends Error {
   code: "PARSE_ERROR" | "EXTRA_KEY" | "MISSING_KEY" | "TYPE_MISMATCH";
@@ -17,11 +18,24 @@ export interface SlidemlParseError extends Error {
 
 const ALLOWED_DECK_KEYS = new Set(["size", "language", "theme", "defaults", "header", "footer", "background", "brand", "chrome", "palette", "fonts", "style", "oxml"]);
 const ALLOWED_SIZES = new Set(["16x9", "16x10", "4x3", "wide"]);
-const ALLOWED_SLIDE_KEYS = new Set(["layout", "chrome", "notes", "transition", "slots", "header", "footer", "background"]);
+const ALLOWED_SLIDE_KEYS = new Set(["pattern", "regions", "policy", "title", "chrome", "notes", "transition", "header", "footer", "background"]);
 const ALLOWED_TRANSITIONS = new Set(["none", "fade"]);
 const ALLOWED_CHROME_OBJECT_KEYS = new Set(["header", "footer", "brandBar", "pageNumber", "enable", "disable", "override"]);
 const CHROME_BOOLEAN_KEYS = new Set(["header", "footer", "brandBar", "pageNumber"]);
 const ALLOWED_BAND_KEYS = new Set(["left", "center", "right"]);
+const ALLOWED_PATTERNS = new Set([
+  "single-focus",
+  "title-content",
+  "main-plus-sidebar",
+  "two-column",
+  "hero-plus-supporting",
+  "top-bottom",
+  "grid",
+  "dashboard",
+  "full-bleed-visual",
+  "section-divider",
+]);
+const ALLOWED_POLICY_KEYS = new Set(["emphasis", "density", "overflow"]);
 
 /**
  * Parse a SlideML document — accepts BOTH YAML and JSON.
@@ -272,9 +286,14 @@ function parseSlide(raw: unknown, index: number): SlideSpec {
     }
   }
 
-  const layout = raw["layout"];
-  if (typeof layout !== "string" || !layout) {
-    throw structured("MISSING_KEY", `slides[${index}].layout (string) is required.`, undefined, `slides[${index}].layout`);
+  const pattern = raw["pattern"];
+  if (typeof pattern !== "string" || !ALLOWED_PATTERNS.has(pattern)) {
+    throw structured(
+      "MISSING_KEY",
+      `slides[${index}].pattern is required and must be one of ${[...ALLOWED_PATTERNS].join(", ")}.`,
+      undefined,
+      `slides[${index}].pattern`,
+    );
   }
 
   const chrome = parseChrome(raw["chrome"], `slides[${index}].chrome`);
@@ -289,10 +308,13 @@ function parseSlide(raw: unknown, index: number): SlideSpec {
     throw structured("TYPE_MISMATCH", `slides[${index}].transition must be "none" or "fade".`);
   }
 
-  const slots = raw["slots"];
-  if (!isObject(slots)) {
-    throw structured("MISSING_KEY", `slides[${index}].slots mapping is required.`, undefined, `slides[${index}].slots`);
+  const title = raw["title"];
+  if (title !== undefined && typeof title !== "string") {
+    throw structured("TYPE_MISMATCH", `slides[${index}].title must be a string.`);
   }
+
+  const regions = parseRegions(raw["regions"], `slides[${index}].regions`, pattern as PagePattern);
+  const policy = parsePolicy(raw["policy"], `slides[${index}].policy`);
 
   // Per-slide overrides — `null` is the explicit "clear deck default" sentinel.
   const header = "header" in raw
@@ -306,15 +328,77 @@ function parseSlide(raw: unknown, index: number): SlideSpec {
     : undefined;
 
   return {
-    layout,
+    pattern: pattern as PagePattern,
     chrome,
     notes: notes as string | undefined,
     transition: transition as SlideSpec["transition"],
-    slots: slots as Record<string, unknown>,
+    title: title as string | undefined,
+    regions,
+    policy,
     header,
     footer,
     background,
   };
+}
+
+function parseRegions(value: unknown, path: string, pattern: PagePattern): Record<string, RegionContent> {
+  if (!isObject(value)) throw structured("MISSING_KEY", `${path} mapping is required.`);
+  const out: Record<string, RegionContent> = {};
+  for (const [name, raw] of Object.entries(value)) {
+    if (Array.isArray(raw)) {
+      if (raw.length === 0) throw structured("TYPE_MISMATCH", `${path}.${name} must not be an empty array.`);
+      out[name] = raw.map((item, index) => parseContentComponent(item, `${path}.${name}[${index}]`));
+    } else {
+      out[name] = parseContentComponent(raw, `${path}.${name}`);
+    }
+  }
+  for (const required of requiredRegionsForPattern(pattern)) {
+    if (!out[required]) throw structured("MISSING_KEY", `${path}.${required} is required for pattern "${pattern}".`);
+  }
+  return out;
+}
+
+function parseContentComponent(value: unknown, path: string): ContentComponentSpec {
+  if (!isObject(value)) throw structured("TYPE_MISMATCH", `${path} must be a content component object.`);
+  const component = value["component"];
+  if (typeof component !== "string" || !component) {
+    throw structured("MISSING_KEY", `${path}.component is required.`);
+  }
+  const props = value["props"];
+  if (props !== undefined && !isObject(props)) {
+    throw structured("TYPE_MISMATCH", `${path}.props must be an object.`);
+  }
+  for (const key of Object.keys(value)) {
+    if (key !== "component" && key !== "props") {
+      throw structured("EXTRA_KEY", `${path}.${key} is not allowed. Use ${path}.props.${key} for component fields.`);
+    }
+  }
+  return { component, props: (props as Record<string, unknown>) ?? {} };
+}
+
+function parsePolicy(value: unknown, path: string): LayoutPolicy | undefined {
+  if (value === undefined) return undefined;
+  if (!isObject(value)) throw structured("TYPE_MISMATCH", `${path} must be an object.`);
+  for (const key of Object.keys(value)) {
+    if (!ALLOWED_POLICY_KEYS.has(key)) throw structured("EXTRA_KEY", `${path}.${key} is not a recognized policy key.`);
+  }
+  const out: LayoutPolicy = {};
+  const emphasis = value["emphasis"];
+  if (emphasis !== undefined) {
+    if (!["main", "balanced", "visual", "data", "takeaway"].includes(String(emphasis))) throw structured("TYPE_MISMATCH", `${path}.emphasis is invalid.`);
+    out.emphasis = emphasis as LayoutPolicy["emphasis"];
+  }
+  const density = value["density"];
+  if (density !== undefined) {
+    if (!["sparse", "medium", "dense"].includes(String(density))) throw structured("TYPE_MISMATCH", `${path}.density is invalid.`);
+    out.density = density as LayoutPolicy["density"];
+  }
+  const overflow = value["overflow"];
+  if (overflow !== undefined) {
+    if (!["shrink", "condense", "split", "fail"].includes(String(overflow))) throw structured("TYPE_MISMATCH", `${path}.overflow is invalid.`);
+    out.overflow = overflow as LayoutPolicy["overflow"];
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function parseChrome(value: unknown, path: string): ChromeSpec | undefined {

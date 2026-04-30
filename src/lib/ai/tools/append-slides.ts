@@ -40,7 +40,7 @@ Workflow:
 2. \`append_slides\` with 2-4 slides per call. Repeat until all slides added.
 3. \`render_slideml\` (using \`path:\` arg) to produce the .pptx.
 
-Slide objects use the same schema as inline \`slides[]\` entries — see \`describe_slide_layout\` for per-layout slot shapes.`,
+Slide objects use the same schema as inline \`slides[]\` entries: \`{ pattern, title?, regions, policy?, chrome?, notes? }\`. Regions contain ContentComponents: \`{ component, props }\`. See \`list_slide_pagepatterns\` for valid regions and \`describe_content_component\` for per-component props shapes.`,
     parameters: {
       type: "object",
       properties: {
@@ -50,16 +50,18 @@ Slide objects use the same schema as inline \`slides[]\` entries — see \`descr
         },
         slides: {
           type: "array",
-          description: "One or more slide objects to append (in order). Each slide is `{ layout: \"...\", slots: { ... } }` matching the layout's schema. Recommended batch size: 2-4 slides per call to keep stream short.",
+          description: "One or more slide objects to append (in order). Each slide is `{ pattern: \"...\", regions: { main: { component: \"...\", props: { ... } } } }`. Recommended batch size: 2-4 slides per call to keep stream short.",
           items: {
             type: "object",
             properties: {
-              layout: { type: "string", description: "Layout name from list_slide_layouts." },
-              slots: { type: "object", description: "Per-layout slot map." },
+              pattern: { type: "string", description: "PagePattern, e.g. single-focus, main-plus-sidebar, two-column, dashboard." },
+              title: { type: "string", description: "Optional slide title." },
+              regions: { type: "object", description: "Named regions containing ContentComponents `{ component, props }`." },
+              policy: { type: "object", description: "Optional layout policy `{ emphasis?, density?, overflow? }`." },
               chrome: { type: "string", description: "Optional. \"default\" | \"none\"." },
               notes: { type: "string", description: "Optional speaker notes." },
             },
-            required: ["layout", "slots"],
+            required: ["pattern", "regions"],
           },
           minItems: 1,
         },
@@ -102,10 +104,12 @@ Slide objects use the same schema as inline \`slides[]\` entries — see \`descr
         }
       }
     }
-    const slides = Array.isArray(slidesRaw) ? normalizeSlideObjects(slidesRaw) : null;
+    const slides = Array.isArray(slidesRaw) ? slidesRaw : null;
     if (!slides || slides.length === 0) {
-      return "Error: slides must be a non-empty array of slide objects (each `{layout, slots, chrome?, notes?}`).";
+      return "Error: slides must be a non-empty array of slide objects (each `{pattern, regions, policy?, chrome?, notes?}`).";
     }
+    const shapeError = validateNewSlideObjects(slides);
+    if (shapeError) return shapeError;
 
     let body: string;
     try {
@@ -161,24 +165,24 @@ Slide objects use the same schema as inline \`slides[]\` entries — see \`descr
   },
 };
 
-const SLIDE_META_KEYS = new Set(["layout", "slots", "chrome", "notes"]);
-
-function normalizeSlideObjects(slides: unknown[]): unknown[] {
-  return slides.map((slide) => {
-    if (!slide || typeof slide !== "object" || Array.isArray(slide)) return slide;
-    const obj = { ...(slide as Record<string, unknown>) };
-    if (!obj.slots || typeof obj.slots !== "object" || Array.isArray(obj.slots)) return obj;
-    const slots = { ...(obj.slots as Record<string, unknown>) };
-    for (const key of Object.keys(obj)) {
-      if (SLIDE_META_KEYS.has(key)) continue;
-      if (slots[key] === undefined) {
-        slots[key] = obj[key];
-        delete obj[key];
-      }
+function validateNewSlideObjects(slides: unknown[]): string | null {
+  for (let i = 0; i < slides.length; i++) {
+    const slide = slides[i];
+    if (!slide || typeof slide !== "object" || Array.isArray(slide)) {
+      return `Error: slides[${i}] must be an object.`;
     }
-    obj.slots = slots;
-    return obj;
-  });
+    const obj = slide as Record<string, unknown>;
+    if ("layout" in obj || "slots" in obj) {
+      return `Error: slides[${i}] uses old \`layout/slots\` fields. Use \`pattern\` and \`regions\` instead.`;
+    }
+    if (typeof obj.pattern !== "string" || !obj.pattern.trim()) {
+      return `Error: slides[${i}].pattern must be a non-empty string. See list_slide_pagepatterns.`;
+    }
+    if (!obj.regions || typeof obj.regions !== "object" || Array.isArray(obj.regions)) {
+      return `Error: slides[${i}].regions must be an object. Fill regions with ContentComponents from list_content_components.`;
+    }
+  }
+  return null;
 }
 
 function repairPrematureSlideCloseBeforeMeta(input: string): string {

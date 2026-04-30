@@ -4,7 +4,7 @@ import { readFileText } from "@/lib/tauri";
 /**
  * Read a single slide from a SlideML deck file by index. Designed for
  * the surgical-fix workflow: when `validate_slideml` reports
- * `slides[5].slots.body has X chars, exceeds...`, the agent should
+ * `slides[5].regions.main.props.body has X chars, exceeds...`, the agent should
  * read just slide 5, fix it, and write it back via `replace_slide` —
  * NOT re-emit the entire deck.
  *
@@ -70,14 +70,14 @@ Index is 0-based and MUST match the validator's \`slides[N]\` error format.`,
     return `Slide ${index} of ${deck.slides.length}:\n${JSON.stringify(slide, null, 2)}`;
   },
 
-  // History compression: keep just the slide layout + index identifier.
+  // History compression: keep just the slide pattern + index identifier.
   // Failures stay full.
   historySummarizer(rawResult, status) {
     if (status === "fail") return rawResult;
-    const layoutMatch = /"layout"\s*:\s*"([^"]+)"/.exec(rawResult);
+    const patternMatch = /"pattern"\s*:\s*"([^"]+)"/.exec(rawResult);
     const indexMatch = /^Slide (\d+) of (\d+)/.exec(rawResult);
-    if (layoutMatch && indexMatch) {
-      return `→ slide ${indexMatch[1]}/${indexMatch[2]} (layout: ${layoutMatch[1]})`;
+    if (patternMatch && indexMatch) {
+      return `→ slide ${indexMatch[1]}/${indexMatch[2]} (pattern: ${patternMatch[1]})`;
     }
     return rawResult.slice(0, 120);
   },

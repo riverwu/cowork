@@ -23,7 +23,7 @@ export const renderSlidemlTool: Tool = {
   definition: {
     name: "render_slideml",
     description:
-      `Compile a SlideML deck to a .pptx file using a theme's typed layouts. PREFERRED over hand-rolled pptxgenjs.
+      `Compile a SlideML deck to a .pptx file using a theme's typed PagePatterns and ContentComponents. PREFERRED over hand-rolled pptxgenjs.
 
 **JSON ONLY for inline input.** Pass the deck as JSON via \`slideml:\`, or pass a file path via \`path:\` (file may be JSON or YAML — back-compat for existing sidecars). YAML inline is rejected at the tool layer because agents reproducibly trip on YAML pitfalls (indentation drift, nested-quote conflicts in CJK content like \`"罢黜百家"\`, \`{...}\` flow-mapping ambiguity, multi-line scalar markers \`|\`/\`>\`, implicit type coercion).
 
@@ -33,11 +33,12 @@ export const renderSlidemlTool: Tool = {
 3. \`render_slideml(path: ...)\` — render the assembled file
 
 Workflow:
-1. \`list_slide_layouts\` → pick 4–6 layouts you'll use.
-2. \`describe_slide_layout(name)\` for each pick → read the slot schema and the inline example payloads.
-3. (Optional) \`validate_slideml\` to dry-run before paying the render cost.
-4. \`render_slideml\` writes BOTH the .pptx AND a sibling \`<output_path>.slideml\` (YAML) source-of-truth file. The sidecar lets you (or a future call) edit slides without re-emitting from scratch.
-5. On a validation failure, the error names the offending slot — fix it and retry.
+1. \`list_slide_pagepatterns\` → pick page geometry, region names, and \`titlePolicy\`.
+2. \`list_content_components\` → pick the ContentComponents you'll use.
+3. \`describe_slide_pagepattern(name)\` and \`describe_content_component(name)\` for each pick → read region and props schemas plus example payloads.
+4. (Optional) \`validate_slideml\` to dry-run before paying the render cost.
+5. \`render_slideml\` writes BOTH the .pptx AND a sibling \`<output_path>.slideml\` (YAML) source-of-truth file. The sidecar lets you (or a future call) edit slides without re-emitting from scratch.
+6. On a validation failure, fix the named \`slides[N].regions.<region>.props.<prop>\` field and retry.
 
 Top-level grammar (JSON form, recommended):
 \`\`\`json
@@ -50,18 +51,37 @@ Top-level grammar (JSON form, recommended):
   },
   "slides": [
     {
-      "layout": "cover",
-      "slots": {
-        "title": "中国历史",
-        "subtitle": "汉武帝采纳\\"罢黜百家\\"的政策"
+      "pattern": "single-focus",
+      "title": "中国历史",
+      "regions": {
+        "main": {
+          "component": "cover",
+          "props": {
+            "subtitle": "汉武帝采纳\\"罢黜百家\\"的政策"
+          }
+        }
       }
     },
     {
-      "layout": "prose",
-      "slots": {
-        "title": "第一章",
-        "body": "段落一文本。\\n\\n段落二文本，可以含\\"嵌套引号\\"无需转外层。"
-      }
+      "pattern": "main-plus-sidebar",
+      "title": "产品路线演进",
+      "regions": {
+        "main": {
+          "component": "timeline",
+          "props": {
+            "direction": "vertical",
+            "items": [
+              { "when": "2024", "title": "基础模型接入", "description": "模型能力进入学习场景" },
+              { "when": "2025", "title": "多端融合", "description": "学习硬件与服务协同" }
+            ]
+          }
+        },
+        "sidebar": {
+          "component": "quote",
+          "props": { "quote": "AI 从工具型能力走向场景型能力。", "attribution": "Strategy team" }
+        }
+      },
+      "policy": { "emphasis": "main", "density": "medium", "overflow": "split" }
     }
   ]
 }
@@ -69,7 +89,9 @@ Top-level grammar (JSON form, recommended):
 
 Hard rules (apply to BOTH JSON and YAML):
 - NEVER put coordinates, hex colors, or font sizes in the deck — those belong to the theme.
-- Match each layout's slot schema exactly. Get the precise shape via \`describe_slide_layout\`.
+- Match each component's props schema exactly. Get the precise shape via \`describe_content_component\`.
+- Use \`pattern + regions + component + props\`; do not use old \`layout + slots\`.
+- Use \`slide.title\` only when the PagePattern's \`titlePolicy\` is \`required\` or \`optional\`. For \`component\`, put titles in the main component's \`props.title\` or let \`slide.title\` be passed through. For \`none\`, omit \`slide.title\`.
 - For Chinese decks, set \`deck.language: "zh-CN"\` so the CJK font stack kicks in.
 - **Within a single paragraph (a text-block value), do NOT insert \`\\n\` mid-sentence for cosmetic line wrapping.** The renderer turns each \`\\n\` into a hard line break and wastes vertical space. Use \`\\n\\n\` (a blank line) ONLY between distinct paragraphs. The renderer wraps long sentences automatically.
 

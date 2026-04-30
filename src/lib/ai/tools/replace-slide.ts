@@ -6,7 +6,7 @@ import { parseJsonLenient } from "./_json-repair";
  * Replace one slide in a SlideML JSON deck file by 0-based index.
  * Companion to `read_slide` for the surgical-fix workflow:
  *
- *   1. validate_slideml → "slides[5].slots.body too long"
+ *   1. validate_slideml → "slides[5].regions.main.props.body too long"
  *   2. read_slide(path, 5) → see current state
  *   3. replace_slide(path, 5, fixed_slide_object) → write back
  *   4. validate_slideml → confirm fixed
@@ -23,7 +23,7 @@ export const replaceSlideTool: Tool = {
 
 Use this for surgical fixes — when validate_slideml flags a single slide, read it with \`read_slide\`, edit, then call this. Far cheaper and more reliable than rewriting the whole deck.
 
-The new slide object uses the same schema as inline \`slides[]\` entries (\`{ layout, slots, chrome?, notes? }\`).`,
+The new slide object uses the same schema as inline \`slides[]\` entries (\`{ pattern, title?, regions, policy?, chrome?, notes? }\`).`,
     parameters: {
       type: "object",
       properties: {
@@ -37,14 +37,16 @@ The new slide object uses the same schema as inline \`slides[]\` entries (\`{ la
         },
         slide: {
           type: "object",
-          description: "New slide object: `{ layout, slots, chrome?, notes? }`. See `describe_slide_layout` for the layout's slot schema.",
+          description: "New slide object: `{ pattern, title?, regions, policy?, chrome?, notes? }`. See `list_slide_pagepatterns` for regions and `describe_content_component` for component props.",
           properties: {
-            layout: { type: "string" },
-            slots: { type: "object" },
+            pattern: { type: "string" },
+            title: { type: "string" },
+            regions: { type: "object" },
+            policy: { type: "object" },
             chrome: { type: "string" },
             notes: { type: "string" },
           },
-          required: ["layout", "slots"],
+          required: ["pattern", "regions"],
         },
       },
       required: ["path", "index", "slide"],
@@ -70,10 +72,13 @@ The new slide object uses the same schema as inline \`slides[]\` entries (\`{ la
     }
     const slide = slideRaw as Record<string, unknown> | undefined;
     if (!slide || typeof slide !== "object" || Array.isArray(slide)) {
-      return "Error: slide must be an object with at least `layout` and `slots` fields.";
+      return "Error: slide must be an object with at least `pattern` and `regions` fields.";
     }
-    if (typeof slide.layout !== "string" || !slide.layout) {
-      return "Error: slide.layout must be a non-empty string. See list_slide_layouts.";
+    if (typeof slide.pattern !== "string" || !slide.pattern) {
+      return "Error: slide.pattern must be a non-empty string. See list_slide_pagepatterns.";
+    }
+    if (!slide.regions || typeof slide.regions !== "object" || Array.isArray(slide.regions)) {
+      return "Error: slide.regions must be an object. Fill it with ContentComponents from list_content_components.";
     }
 
     let body: string;
@@ -99,7 +104,7 @@ The new slide object uses the same schema as inline \`slides[]\` entries (\`{ la
       return `Error: index ${index} is out of range. Deck has ${deck.slides.length} slide${deck.slides.length === 1 ? "" : "s"} (valid indices 0..${deck.slides.length - 1}). Use \`append_slides\` to add new slides at the end.`;
     }
 
-    const old = deck.slides[index] as { layout?: string } | undefined;
+    const old = deck.slides[index] as { pattern?: string } | undefined;
     deck.slides[index] = slide;
 
     try {
@@ -108,11 +113,11 @@ The new slide object uses the same schema as inline \`slides[]\` entries (\`{ la
       return `Error: failed to write deck file ${path}: ${err instanceof Error ? err.message : String(err)}.`;
     }
 
-    const oldLayout = old && typeof old.layout === "string" ? old.layout : "?";
-    return `Replaced slide ${index} (${oldLayout} → ${slide.layout}) in ${path}.`;
+    const oldPattern = old && typeof old.pattern === "string" ? old.pattern : "?";
+    return `Replaced slide ${index} (${oldPattern} → ${slide.pattern}) in ${path}.`;
   },
 
-  // History compression: keep index + before/after layout names.
+  // History compression: keep index + before/after pattern names.
   historySummarizer(rawResult, status) {
     if (status === "fail") return rawResult;
     const m = /Replaced slide (\d+) \(([^)]+)\) in (\S+)/.exec(rawResult);

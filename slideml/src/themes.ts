@@ -16,6 +16,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isAgentVisibleLayoutName } from "./layouts/_registry.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -163,7 +164,7 @@ async function readThemeDeep(themeDir: string, source: "builtin" | "user"): Prom
     voice: m.style?.voice
       ? { tone: m.style.voice.tone, avoid: m.style.voice.avoid ? [...m.style.voice.avoid] : undefined }
       : undefined,
-    layouts: (m.layouts ?? []).map((l) => l.name).filter((n): n is string => !!n),
+    layouts: (m.layouts ?? []).map((l) => l.name).filter((n): n is string => !!n && isAgentVisibleLayoutName(n)),
     style: {
       titleAccentRule: m.style?.titleAccentRule ?? true,
       contrastTarget:  m.style?.contrastTarget ?? "warn",

@@ -55,15 +55,15 @@ themes:
 notes:
   - \`compile\` writes a sidecar \`<out.pptx>.slideml\` next to the .pptx
     so later edits can mutate the source. Pass --no-sidecar to disable.
-  - \`layouts\` returns compact summaries (name + purpose + slot names);
+  - \`layouts\` returns compact ContentComponent summaries (name + purpose + prop names);
     use --full for the complete schema.
-  - \`describe <name>\` returns the full schema with example payloads
-    for typed slots (chart-spec/table/image-ref/bullets).
+  - \`describe <name>\` returns the full ContentComponent schema with example payloads
+    for typed props (chart-spec/table/image-ref/bullets).
   - \`edit\` applies a JSON ops array to a sidecar and recompiles.
     Ops:
-      { "kind": "set", "path": "slides[3].slots.title", "value": "..." }
+      { "kind": "set", "path": "slides[3].regions.main.props.title", "value": "..." }
       { "kind": "delete", "path": "slides[2].notes" }
-      { "kind": "insertSlide", "at": 4, "slide": { "layout": "...", "slots": {...} } }
+      { "kind": "insertSlide", "at": 4, "slide": { "pattern": "single-focus", "regions": {...} } }
       { "kind": "deleteSlide", "at": 3 }
       { "kind": "moveSlide", "from": 4, "to": 1 }
 `;
@@ -155,7 +155,7 @@ async function main(): Promise<void> {
         for (const s of summaries) {
           const slots = [...s.requiredSlots, ...s.optionalSlots.map((n) => `${n}?`)].join(", ");
           process.stdout.write(`${s.name.padEnd(28)} ${s.purpose}\n`);
-          process.stdout.write(`${" ".repeat(28)} slots: ${slots}\n`);
+          process.stdout.write(`${" ".repeat(28)} props: ${slots}\n`);
         }
       }
     }

@@ -1,14 +1,17 @@
 /**
  * SlideML validator.
  *
- * Validates each slide's `slots` block against the layout's `slots` schema
- * and produces structured `SlidemlError`s. Errors point at
- * `slides[N].slots.<slot>` so callers can wire them into the agent loop.
+ * Validates each slide region's content component `props` against the
+ * component's slot schema and produces structured `SlidemlError`s. Errors
+ * point at `slides[N].regions.<region>.props.<slot>` so callers can wire
+ * them into the agent loop.
  */
 
+import { requiredRegionsForPattern, titlePolicyForPattern } from "./render/index.js";
 import type { DeckSpec, SlideSpec } from "./render/index.js";
 import type { LoadedTheme, SlotSchema } from "./theme/types.js";
 import { maxCharBudget } from "./render/density.js";
+import { isAgentVisibleLayoutName } from "./layouts/_registry.js";
 
 export interface SlidemlValidationError {
   code: string;
@@ -201,60 +204,127 @@ function validateSlide(
   out: SlidemlValidationError[],
   cjk: boolean,
 ): void {
-  const layoutName = canonicalLayoutName(slide.layout);
-  const slots = legacyLayoutSlots(slide.layout, slide.slots);
-  const layout = theme.layouts.get(layoutName);
-  if (!layout) {
+  if (!slide.regions || typeof slide.regions !== "object") {
     out.push({
-      code: "UNKNOWN_LAYOUT",
+      code: "REGIONS_REQUIRED",
       slideIndex: index,
-      layout: slide.layout,
-      message: `Layout "${slide.layout}" not in theme "${theme.manifest.name}". Available: ${[...theme.layouts.keys()].join(", ")}.`,
+      message: `slides[${index}].regions is required.`,
     });
     return;
   }
-
-  for (const [slotName, schema] of Object.entries(layout.slots)) {
-    const value = slots[slotName];
-    const provided = slotName in slots && value !== undefined && value !== null;
-
-    if (!provided) {
-      if (!schema.optional) {
-        out.push({
-          code: "SLOT_REQUIRED",
-          slideIndex: index,
-          layout: layoutName,
-          slot: slotName,
-          message: `slides[${index}].slots.${slotName} is required by layout "${layoutName}".`,
-        });
-      }
-      continue;
-    }
-
-    validateSlotValue(value, schema, {
-      code: "",
-      slideIndex: index,
-      layout: layoutName,
-      slot: slotName,
-      message: "",
-    }, out, theme, cjk, slots);
-  }
-
-  // Reject extra slots the layout doesn't declare.
-  for (const slotName of Object.keys(slots)) {
-    if (!(slotName in layout.slots)) {
+  for (const required of requiredRegionsForPattern(slide.pattern)) {
+    if (!slide.regions[required]) {
       out.push({
-        code: "EXTRA_KEY",
+        code: "REGION_REQUIRED",
         slideIndex: index,
-        layout: layoutName,
-        slot: slotName,
-        message: `slides[${index}].slots.${slotName} is not declared by layout "${layoutName}".`,
-        hint: extraKeyHint(layoutName, slotName, Object.keys(layout.slots)),
+        message: `slides[${index}].regions.${required} is required for pattern "${slide.pattern}".`,
       });
     }
   }
 
-  validateLayoutCrossSlotRules({ ...slide, layout: layoutName, slots }, index, out);
+  const titlePolicy = titlePolicyForPattern(slide.pattern);
+  if (titlePolicy === "required" && !slide.title?.trim()) {
+    out.push({
+      code: "TITLE_REQUIRED",
+      slideIndex: index,
+      message: `slides[${index}].title is required for pattern "${slide.pattern}".`,
+      hint: "Use slide.title for the page-level title. Component-internal titles stay in regions.*.props.title.",
+    });
+  }
+  if (titlePolicy === "none" && slide.title?.trim()) {
+    out.push({
+      code: "TITLE_NOT_ALLOWED",
+      slideIndex: index,
+      message: `slides[${index}].title is not used by pattern "${slide.pattern}".`,
+      hint: "Put visual overlay text inside the ContentComponent props, or switch to a PagePattern whose titlePolicy is optional/required.",
+    });
+  }
+  if (slide.title && [...slide.title].length > 72) {
+    out.push({
+      code: "TITLE_OVERFLOW",
+      slideIndex: index,
+      message: `slides[${index}].title has ${[...slide.title].length} chars, exceeds max 72.`,
+      hint: "Shorten the page title; move explanation into a component prop or speaker notes.",
+    });
+  }
+
+  for (const [regionName, content] of Object.entries(slide.regions)) {
+    const components = Array.isArray(content) ? content : [content];
+    components.forEach((component, componentIndex) => {
+      const componentName = canonicalComponentName(component.component);
+      const props = componentProps(slide, component, regionName === "main" && componentIndex === 0);
+      const loaded = theme.layouts.get(componentName);
+      const slotPrefix = `regions.${regionName}${Array.isArray(content) ? `[${componentIndex}]` : ""}.props`;
+      if (!loaded) {
+        out.push({
+          code: "UNKNOWN_COMPONENT",
+          slideIndex: index,
+          layout: componentName,
+          message: `Content component "${component.component}" not in theme "${theme.manifest.name}". Available: ${[...theme.layouts.keys()].join(", ")}.`,
+        });
+        return;
+      }
+      if (!isAgentVisibleLayoutName(componentName)) {
+        out.push({
+          code: "COMPONENT_NOT_PUBLIC",
+          slideIndex: index,
+          layout: componentName,
+          message: `Content component "${componentName}" is internal/retired and should not be used in SlideML source.`,
+          hint: `Use a PagePattern for page geometry, then fill regions with public ContentComponents from list_content_components.`,
+        });
+        return;
+      }
+      validateComponentProps(props, loaded.slots, componentName, slotPrefix, index, theme, out, cjk);
+      validateLayoutCrossSlotRules({ layout: componentName, slots: props }, index, out);
+    });
+  }
+}
+
+function validateComponentProps(
+  props: Record<string, unknown>,
+  schema: Record<string, SlotSchema>,
+  componentName: string,
+  path: string,
+  slideIndex: number,
+  theme: LoadedTheme,
+  out: SlidemlValidationError[],
+  cjk: boolean,
+): void {
+  for (const [slotName, slotSchema] of Object.entries(schema)) {
+    const value = props[slotName];
+    const provided = slotName in props && value !== undefined && value !== null;
+    if (!provided) {
+      if (!slotSchema.optional) {
+        out.push({
+          code: "PROP_REQUIRED",
+          slideIndex,
+          layout: componentName,
+          slot: slotName,
+          message: `slides[${slideIndex}].${path}.${slotName} is required by component "${componentName}".`,
+        });
+      }
+      continue;
+    }
+    validateSlotValue(value, slotSchema, {
+      code: "",
+      slideIndex,
+      layout: componentName,
+      slot: slotName,
+      message: "",
+    }, out, theme, cjk, props);
+  }
+  for (const slotName of Object.keys(props)) {
+    if (!(slotName in schema)) {
+      out.push({
+        code: "EXTRA_KEY",
+        slideIndex,
+        layout: componentName,
+        slot: slotName,
+        message: `slides[${slideIndex}].${path}.${slotName} is not declared by component "${componentName}".`,
+        hint: extraKeyHint(componentName, slotName, Object.keys(schema)),
+      });
+    }
+  }
 
   // (chart-with-takeaway misuse check removed: that layout was folded
   // into visual-with-caption with the polymorphic `visual` slot — agents
@@ -262,22 +332,22 @@ function validateSlide(
   // problem this hint guarded against no longer exists.)
 }
 
-function canonicalLayoutName(layout: string): string {
-  if (layout === "prose") return "article-flow";
-  if (layout === "q-and-a") return "question-list";
-  return layout;
+function canonicalComponentName(component: string): string {
+  if (component === "prose") return "article-flow";
+  if (component === "q-and-a") return "question-list";
+  if (component === "text" || component === "bullets") return "visual-with-text";
+  if (component === "image") return "image-full-bleed";
+  return component;
 }
 
-function legacyLayoutSlots(layout: string, slots: Record<string, unknown>): Record<string, unknown> {
-  if (layout !== "prose") return slots;
-  return {
-    title: "",
-    ...slots,
-  };
+function componentProps(slide: SlideSpec, component: { props?: Record<string, unknown> }, inheritTitle: boolean): Record<string, unknown> {
+  const props = { ...(component.props ?? {}) };
+  if (inheritTitle && slide.title && titlePolicyForPattern(slide.pattern) === "component" && props.title === undefined) props.title = slide.title;
+  return props;
 }
 
 function validateLayoutCrossSlotRules(
-  slide: SlideSpec,
+  slide: { layout: string; slots: Record<string, unknown> },
   index: number,
   out: SlidemlValidationError[],
 ): void {
@@ -1096,7 +1166,7 @@ function validateChartSpec(value: Record<string, unknown>, ctx: SlidemlValidatio
 }
 
 function slotPath(ctx: SlidemlValidationError): string {
-  return `slides[${ctx.slideIndex}].slots.${ctx.slot}`;
+  return `slides[${ctx.slideIndex}].regions.*.props.${ctx.slot}`;
 }
 
 function typeOf(v: unknown): string {

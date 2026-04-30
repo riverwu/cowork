@@ -387,16 +387,16 @@ export async function runNodeScript(script: string, cwd?: string, timeoutSecs?: 
 // the cowork frontend and the slideml runtime never drift. The IPC
 // layer returns objects matching these shapes.
 import type {
-  LayoutSummary as SlidemlLayoutSummary,
-  LayoutDetail as SlidemlLayoutDetail,
+  LayoutSummary as SlidemlContentComponentSummary,
+  LayoutDetail as SlidemlContentComponentDetail,
   EditOp as SlidemlEditOp,
   AuditReport as SlidemlAuditReport,
   ThemeSummary as SlidemlThemeSummary,
   ThemeDetail as SlidemlThemeDetail,
 } from "slideml";
 export type {
-  SlidemlLayoutSummary,
-  SlidemlLayoutDetail,
+  SlidemlContentComponentSummary,
+  SlidemlContentComponentDetail,
   SlidemlEditOp,
   SlidemlAuditReport,
   SlidemlThemeSummary,
@@ -434,18 +434,18 @@ export async function slidemlCompile(
   });
 }
 
-/** List layout summaries (compact: name + purpose + slot names). */
-export async function slidemlListLayouts(theme?: string): Promise<SlidemlLayoutSummary[]> {
-  return invokeDesktop<SlidemlLayoutSummary[]>("slideml_list_layouts", { theme });
+/** List ContentComponent summaries (compact: name + purpose + prop names). */
+export async function slidemlListContentComponents(theme?: string): Promise<SlidemlContentComponentSummary[]> {
+  return invokeDesktop<SlidemlContentComponentSummary[]>("slideml_list_layouts", { theme });
 }
 
-/** Fetch full schema + per-slot examples for a single layout. */
-export async function slidemlDescribeLayout(
-  layoutName: string,
+/** Fetch full schema + per-prop examples for a single ContentComponent. */
+export async function slidemlDescribeContentComponent(
+  componentName: string,
   theme?: string,
-): Promise<SlidemlLayoutDetail> {
-  return invokeDesktop<SlidemlLayoutDetail>("slideml_describe_layout", {
-    layoutName,
+): Promise<SlidemlContentComponentDetail> {
+  return invokeDesktop<SlidemlContentComponentDetail>("slideml_describe_layout", {
+    layoutName: componentName,
     theme,
   });
 }

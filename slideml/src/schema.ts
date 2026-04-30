@@ -13,7 +13,7 @@
  * regenerate the on-disk copy after layout changes.
  */
 
-import { LAYOUT_REGISTRY, type RegisteredLayout } from "./layouts/_registry.js";
+import { LAYOUT_REGISTRY, listAgentVisibleLayoutNames, type RegisteredLayout } from "./layouts/_registry.js";
 import type { SlotSchema } from "./theme/types.js";
 
 const HEX6_PATTERN = "^[0-9A-Fa-f]{6}$";
@@ -29,8 +29,8 @@ const HEX6_PATTERN = "^[0-9A-Fa-f]{6}$";
  *   - `[备注]` → YAML parses `[...]` as a flow sequence
  *   - multi-line strings without `|` / `>` → "implicit key may not be multiline"
  *
- * Surface the rule in the slot's own description so it shows up in
- * `describe_slide_layout` output and the JSON Schema description text.
+ * Surface the rule in the prop's own description so it shows up in
+ * `describe_content_component` output and the JSON Schema description text.
  */
 const YAML_QUOTING_RULE =
   "YAML SAFETY: when the value contains any of `{`, `}`, `[`, `]`, ASCII `:`, `#`, " +
@@ -104,32 +104,61 @@ function tableSpecSchema(cap: TableSchemaCapacity): Record<string, unknown> {
   };
 }
 
-export function buildSlidemlSchema(): Record<string, unknown> {
-  const allLayoutNames = [...LAYOUT_REGISTRY.keys()].sort();
-
-  // For each layout, build an `if/then` clause that constrains `slots`
-  // when `layout` equals that name.
-  const layoutBranches = allLayoutNames.map((name) => {
-    const layout = LAYOUT_REGISTRY.get(name)!;
-    return {
-      if: { properties: { layout: { const: name } } },
-      then: {
-        properties: {
-          slots: slotsObjectSchema(layout),
-        },
+function regionsSchema(componentNames: string[]): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: { $ref: "#/$defs/RegionContent" },
+    properties: {
+      main: { $ref: "#/$defs/RegionContent" },
+      sidebar: { $ref: "#/$defs/RegionContent" },
+      supporting: { $ref: "#/$defs/RegionContent" },
+      header: { $ref: "#/$defs/RegionContent" },
+      footer: { $ref: "#/$defs/RegionContent" },
+      left: { $ref: "#/$defs/RegionContent" },
+      right: { $ref: "#/$defs/RegionContent" },
+      top: { $ref: "#/$defs/RegionContent" },
+      bottom: { $ref: "#/$defs/RegionContent" },
+      items: {
+        type: "array",
+        minItems: 1,
+        items: { $ref: "#/$defs/ContentComponent" },
       },
-    };
-  });
+    },
+    description: `Named PagePattern regions. ContentComponent names: ${componentNames.join(", ")}.`,
+  };
+}
+
+function contentComponentSchema(componentNames: string[]): Record<string, unknown> {
+  return {
+    type: "object",
+    required: ["component"],
+    additionalProperties: false,
+    properties: {
+      component: {
+        enum: componentNames,
+        description: "ContentComponent name. These replace old page layouts as reusable content blocks.",
+      },
+      props: {
+        type: "object",
+        additionalProperties: true,
+        description: "Component props. Validated against the selected ContentComponent schema at compile time.",
+      },
+    },
+  };
+}
+
+export function buildSlidemlSchema(): Record<string, unknown> {
+  const allLayoutNames = listAgentVisibleLayoutNames().sort();
 
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: "https://slideml.dev/slideml.schema.json",
     title: "SlideML",
     description:
-      "SlideML — typed YAML language that compiles to .pptx. " +
-      "A document declares a deck (palette/fonts/chrome) and a list of slides; " +
-      "each slide picks a layout from the SlideML core registry and fills its slots. " +
-      "Generated from the live layout registry; do not hand-edit.",
+      "SlideML — typed JSON/YAML language that compiles to .pptx. " +
+      "A document declares a deck (theme/fonts/chrome) and a list of slides; " +
+      "each slide picks a PagePattern and fills named regions with ContentComponents. " +
+      "Generated from the live component registry; do not hand-edit.",
     type: "object",
     required: ["slideml", "deck", "slides"],
     additionalProperties: false,
@@ -286,19 +315,25 @@ export function buildSlidemlSchema(): Record<string, unknown> {
       },
 
       Slide: {
-        description: "One slide. `layout` selects the renderer; `slots` carries content.",
+        description: "One composed slide. `pattern` selects the page topology; `regions` carry content components.",
         type: "object",
-        required: ["layout", "slots"],
+        required: ["pattern", "regions"],
         additionalProperties: false,
         properties: {
-          layout: {
-            description:
-              "Layout name from the SlideML core registry. The enum is closed by design — themes do NOT add layouts. " +
-              "Extension contract: if you need a layout that doesn't exist here, do NOT invent a name (the renderer " +
-              "will reject unknown layouts). Instead pick the closest existing layout and embed bespoke content via " +
-              "a `component-ref` slot. New layouts are added to the SlideML core after community review, then become " +
-              "available everywhere.",
-            enum: allLayoutNames,
+          pattern: {
+            description: "PagePattern: high-level region topology, separate from the content component.",
+            enum: ["single-focus", "title-content", "main-plus-sidebar", "two-column", "hero-plus-supporting", "top-bottom", "grid", "dashboard", "full-bleed-visual", "section-divider"],
+          },
+          title: { type: "string", description: "Page-level title. Handling depends on the selected PagePattern titlePolicy: required/optional patterns render it as a separate page title, component patterns pass it to the main component when props.title is omitted, and none patterns reject it." },
+          regions: regionsSchema(allLayoutNames),
+          policy: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              emphasis: { enum: ["main", "balanced", "visual", "data", "takeaway"] },
+              density: { enum: ["sparse", "medium", "dense"] },
+              overflow: { enum: ["shrink", "condense", "split", "fail"] },
+            },
           },
           chrome: { $ref: "#/$defs/ChromeSpec" },
           notes: {
@@ -309,15 +344,19 @@ export function buildSlidemlSchema(): Record<string, unknown> {
             description: "Slide transition (currently informational; not emitted to OOXML).",
             enum: ["none", "fade"],
           },
-          slots: {
-            type: "object",
-            description: "Per-layout slot map. Constraints below depend on the chosen `layout`.",
-          },
           header:     { oneOf: [{ $ref: "#/$defs/BandSpec" },       { type: "null" }] },
           footer:     { oneOf: [{ $ref: "#/$defs/BandSpec" },       { type: "null" }] },
           background: { oneOf: [{ $ref: "#/$defs/BackgroundSpec" }, { type: "null" }] },
         },
-        allOf: layoutBranches,
+      },
+
+      ContentComponent: contentComponentSchema(allLayoutNames),
+
+      RegionContent: {
+        oneOf: [
+          { $ref: "#/$defs/ContentComponent" },
+          { type: "array", minItems: 1, items: { $ref: "#/$defs/ContentComponent" } },
+        ],
       },
 
       BandSpec: {

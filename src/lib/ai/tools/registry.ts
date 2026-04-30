@@ -17,8 +17,10 @@ import { shellExecSkill } from "./shell-exec";
 import { applyPatchSkill } from "./apply-patch";
 import { updateTaskProgress } from "./update-task-progress";
 import { imageGen } from "./image-gen";
-import { listSlideLayoutsTool } from "./list-slide-layouts";
-import { describeSlideLayoutTool } from "./describe-slide-layout";
+import { listSlidePagePatternsTool } from "./list-slide-pagepatterns";
+import { describeSlidePagePatternTool } from "./describe-slide-pagepattern";
+import { listContentComponentsTool } from "./list-content-components";
+import { describeContentComponentTool } from "./describe-content-component";
 import { validateSlidemlTool } from "./validate-slideml";
 import { renderSlidemlTool } from "./render-slideml";
 import { editSlidemlTool } from "./edit-slideml";
@@ -30,7 +32,7 @@ import { listThemesTool } from "./list-themes";
 import { describeThemeTool } from "./describe-theme";
 
 /**
- * Built-in tool registry — 29 tools.
+ * Built-in tool registry — 31 tools.
  *
  * These are the agent's built-in capabilities, registered as LLM function-calling tools.
  * They are NOT user-installed skills (SKILL.md) — those are managed by SkillRegistry.
@@ -47,8 +49,9 @@ import { describeThemeTool } from "./describe-theme";
  *   create_artifact, update_task_progress
  * Media:
  *   image_gen
- * Decks (progressive disclosure: list_themes → describe_theme → list_layouts → describe_layout → validate → render → edit/audit):
- *   list_themes, describe_theme, list_slide_layouts, describe_slide_layout,
+ * Decks (progressive disclosure: list_themes → describe_theme → PagePatterns → ContentComponents → validate → render → edit/audit):
+ *   list_themes, describe_theme, list_slide_pagepatterns, describe_slide_pagepattern,
+ *   list_content_components, describe_content_component,
  *   validate_slideml, render_slideml, append_slides, read_slide, replace_slide,
  *   edit_slideml, audit_pptx
  *   ↑ Build path:    write_file skeleton → append_slides batches → render_slideml.
@@ -84,8 +87,10 @@ const tools: Record<string, Tool> = {
   // Decks
   list_themes: listThemesTool,
   describe_theme: describeThemeTool,
-  list_slide_layouts: listSlideLayoutsTool,
-  describe_slide_layout: describeSlideLayoutTool,
+  list_slide_pagepatterns: listSlidePagePatternsTool,
+  describe_slide_pagepattern: describeSlidePagePatternTool,
+  list_content_components: listContentComponentsTool,
+  describe_content_component: describeContentComponentTool,
   validate_slideml: validateSlidemlTool,
   render_slideml: renderSlidemlTool,
   append_slides: appendSlidesTool,

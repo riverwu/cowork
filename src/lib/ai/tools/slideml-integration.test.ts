@@ -53,18 +53,32 @@ describe("SlideML cowork integration — tool↔IPC contract", () => {
     expect(JSON.parse(out)).toHaveLength(1);
   });
 
-  it("list_slide_layouts — passes theme arg through", async () => {
+  it("list_slide_pagepatterns — returns built-in pattern catalog without IPC", async () => {
+    const tool = getTool("list_slide_pagepatterns")!;
+    const out = await tool.execute({});
+    expect(ipcCalls).toEqual([]);
+    expect(JSON.parse(out).some((p: { name?: string }) => p.name === "main-plus-sidebar")).toBe(true);
+  });
+
+  it("describe_slide_pagepattern — returns one pattern detail without IPC", async () => {
+    const tool = getTool("describe_slide_pagepattern")!;
+    const out = await tool.execute({ name: "two-column" });
+    expect(ipcCalls).toEqual([]);
+    expect(JSON.parse(out)).toMatchObject({ name: "two-column", regions: ["left", "right"] });
+  });
+
+  it("list_content_components — passes theme arg through", async () => {
     ipcReturns["slideml_list_layouts"] = [
       { name: "cover", purpose: "Title slide", requiredSlots: ["title"], optionalSlots: ["subtitle"] },
     ];
-    const tool = getTool("list_slide_layouts")!;
+    const tool = getTool("list_content_components")!;
     await tool.execute({ theme: "editorial-warm" });
     expect(ipcCalls[0]).toEqual({ command: "slideml_list_layouts", args: { theme: "editorial-warm" } });
   });
 
-  it("describe_slide_layout — passes name + theme", async () => {
+  it("describe_content_component — passes name + theme", async () => {
     ipcReturns["slideml_describe_layout"] = { name: "cover", description: "...", slotSchema: {}, thumbnailPath: "/x" };
-    const tool = getTool("describe_slide_layout")!;
+    const tool = getTool("describe_content_component")!;
     await tool.execute({ name: "cover", theme: "midnight-executive" });
     expect(ipcCalls[0]).toEqual({
       command: "slideml_describe_layout",
@@ -87,7 +101,7 @@ describe("SlideML cowork integration — tool↔IPC contract", () => {
       slideml: JSON.stringify({
         slideml: 1,
         deck: { size: "16x9", theme: "technical-blue" },
-        slides: [{ layout: "cover", slots: { title: "hi" } }],
+        slides: [{ pattern: "single-focus", regions: { main: { component: "cover", props: { title: "hi" } } } }],
       }),
       output_path: "/tmp/x.pptx",
     });
@@ -126,7 +140,7 @@ describe("SlideML cowork integration — tool↔IPC contract", () => {
     ipcReturns["slideml_edit"] = { outputPath: "/tmp/z.pptx", sidecar: "/tmp/z.pptx.slideml" };
     const tool = getTool("edit_slideml")!;
     const opsStr = JSON.stringify([
-      { kind: "set", path: "slides[0].slots.title", value: "from-string" },
+      { kind: "set", path: "slides[0].regions.main.props.title", value: "from-string" },
     ]);
     const result = await tool.execute({ sidecar_path: "/tmp/z.pptx.slideml", ops: opsStr, output_path: "/tmp/z.pptx" });
     expect(result).not.toContain("Error");
@@ -147,7 +161,7 @@ describe("SlideML cowork integration — tool↔IPC contract", () => {
     });
     ipcReturns["slideml_edit"] = { outputPath: "/tmp/y.pptx", sidecar: "/tmp/y.pptx.slideml" };
     const tool = getTool("edit_slideml")!;
-    const ops = [{ kind: "set", path: "slides[0].slots.title", value: "new" }];
+    const ops = [{ kind: "set", path: "slides[0].regions.main.props.title", value: "new" }];
     await tool.execute({ sidecar_path: "/tmp/y.pptx.slideml", ops, output_path: "/tmp/y.pptx" });
     expect(ipcCalls[0]).toEqual({
       command: "read_file_text",

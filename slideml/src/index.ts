@@ -14,6 +14,7 @@ import { loadTheme as internalLoadTheme } from "./theme/loader.js";
 import { validateDeckSpec, type SlidemlValidationError } from "./validator.js";
 import type { LoadedTheme, SlotSchema } from "./theme/types.js";
 import { exampleForSlot } from "./slot-examples.js";
+import { isAgentVisibleLayoutName } from "./layouts/_registry.js";
 
 /**
  * Resolve a theme's OOXML overrides (token references) into concrete
@@ -110,7 +111,7 @@ export type {
   LoadedTheme,
   SlotSchema,
 } from "./theme/types.js";
-export type { DeckSpec, SlideSpec, BandSpec, BackgroundSpec, BrandSpec, ChromeSpec } from "./render/index.js";
+export type { DeckSpec, SlideSpec, PagePattern, TitlePolicy, LayoutPolicy, BandSpec, BackgroundSpec, BrandSpec, ChromeSpec } from "./render/index.js";
 export { editDeck, type EditOp, type EditResult } from "./edit.js";
 export { auditPptx, auditPptxBuffer, type AuditReport, type AuditIssue, type Severity } from "./audit.js";
 export { listInstalledThemes, describeInstalledTheme, type ThemeSummary, type ThemeDetail } from "./themes.js";
@@ -268,6 +269,7 @@ export async function loadTheme(themeDir: string): Promise<LoadedTheme> {
 export function listLayouts(theme: LoadedTheme): LayoutInfo[] {
   const out: LayoutInfo[] = [];
   for (const [name, loaded] of theme.layouts) {
+    if (!isAgentVisibleLayoutName(name)) continue;
     out.push({
       name,
       description: loaded.description,
@@ -287,6 +289,7 @@ export function listLayouts(theme: LoadedTheme): LayoutInfo[] {
 export function summarizeLayouts(theme: LoadedTheme): LayoutSummary[] {
   const out: LayoutSummary[] = [];
   for (const [name, loaded] of theme.layouts) {
+    if (!isAgentVisibleLayoutName(name)) continue;
     const required: string[] = [];
     const optional: string[] = [];
     for (const [slotName, schema] of Object.entries(loaded.slots)) {
@@ -316,6 +319,7 @@ export function describeLayout(
 ): LayoutDetail | null {
   const loaded = theme.layouts.get(layoutName);
   if (!loaded) return null;
+  if (!isAgentVisibleLayoutName(layoutName)) return null;
   const enriched: Record<string, SlotSchema & { example?: unknown }> = {};
   for (const [slotName, schema] of Object.entries(loaded.slots)) {
     const example = exampleForSlot(slotName, schema);

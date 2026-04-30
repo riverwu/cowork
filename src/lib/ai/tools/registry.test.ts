@@ -23,8 +23,10 @@ describe("Tool Registry", () => {
     "image_gen",
     "list_themes",
     "describe_theme",
-    "list_slide_layouts",
-    "describe_slide_layout",
+    "list_slide_pagepatterns",
+    "describe_slide_pagepattern",
+    "list_content_components",
+    "describe_content_component",
     "validate_slideml",
     "render_slideml",
     "append_slides",
@@ -34,9 +36,9 @@ describe("Tool Registry", () => {
     "audit_pptx",
   ];
 
-  it("has exactly 29 built-in tools", () => {
+  it("has exactly 31 built-in tools", () => {
     const skills = getTools();
-    expect(Object.keys(skills)).toHaveLength(29);
+    expect(Object.keys(skills)).toHaveLength(31);
   });
 
   it("has all expected skills registered", () => {
@@ -58,7 +60,7 @@ describe("Tool Registry", () => {
 
   it("generates valid tool definitions for all skills", () => {
     const defs = getToolDefinitions();
-    expect(defs).toHaveLength(29);
+    expect(defs).toHaveLength(31);
 
     for (const def of defs) {
       expect(def.name).toBeTruthy();
@@ -72,15 +74,16 @@ describe("Tool Registry", () => {
 
   it("all skills declare a required array (may be empty for purely-optional tools)", () => {
     const defs = getToolDefinitions();
-    // A few tools (e.g. list_slide_layouts) take only optional parameters
+    // A few tools (e.g. list_content_components) take only optional parameters
     // because their behavior is fully defaulted. Declaring `required: []`
     // is still mandatory so the JSON schema is well-formed.
     // Tools whose runtime requires "at-least-one-of" semantics that
     // JSON Schema can't express directly — runtime checks in execute()
     // enforce the constraint, so `required: []` is intentional.
     const ALLOW_EMPTY_REQUIRED = new Set([
-      "list_slide_layouts",
       "list_themes",
+      "list_slide_pagepatterns",
+      "list_content_components",
       "validate_slideml",  // accepts `path` OR `slideml`; runtime requires one
     ]);
     for (const def of defs) {
