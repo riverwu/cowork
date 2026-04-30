@@ -11,22 +11,42 @@ function extractDeckTheme(body: string): string | undefined {
   return m?.[1];
 }
 
+function themeFromOps(ops: SlidemlEditOp[]): string | undefined {
+  for (const op of ops) {
+    if (op.kind === "set" && op.path === "deck.theme" && typeof op.value === "string" && op.value.trim()) {
+      return op.value.trim();
+    }
+  }
+  return undefined;
+}
+
 export const editSlidemlTool: Tool = {
   definition: {
     name: "edit_slideml",
     description:
-      `Apply structured edits to an existing deck's sidecar source (.slideml) and recompile to .pptx. Cheaper than re-emitting the whole YAML.
+      `Apply structured edits to an existing deck's sidecar source (.slideml) and recompile to .pptx. Use this for follow-up edits to an already-rendered SlideML deck, especially theme/style/chrome changes. Cheaper and more reliable than re-emitting the whole deck.
 
 Use after a previous \`render_slideml\` produced a deck and the user (or you) want to mutate it. Reads the sidecar at \`sidecar_path\` (typically \`<output>.pptx.slideml\`), applies the ops in order, then writes BOTH the new .pptx at \`output_path\` AND a refreshed sidecar at \`<output_path>.slideml\`.
 
+Natural-language routing:
+- "把 PPT 主题换成红色/商务/极简/暖色" → use this tool on the existing \`<pptx>.slideml\`, not raw pptx editing.
+- "换主题" → \`list_themes\` if a built-in theme fits, or set \`deck.palette.*\` / create a user theme when the request is a color variant.
+- "改页眉/页脚/logo/chrome/字体/颜色" → set \`deck.header\`, \`deck.footer\`, \`deck.brand\`, \`deck.chrome\`, \`deck.fonts\`, \`deck.palette\`, then recompile.
+
 Op grammar (paths use dot-bracket notation: \`slides[3].regions.main.props.title\`, \`deck.header.left\`, \`slides[0].regions.main.props.items[2]\`):
 - \`{ kind: "set", path: "slides[3].regions.main.props.title", value: "..." }\`
+- \`{ kind: "set", path: "deck.theme", value: "vibrant-startup" }\`
+- \`{ kind: "set", path: "deck.palette.brand-primary", value: "B91C1C" }\`
+- \`{ kind: "set", path: "deck.palette.accent", value: "DC2626" }\`
+- \`{ kind: "set", path: "deck.chrome", value: ["page-header", "page-footer", "brand-mark"] }\`
 - \`{ kind: "delete", path: "slides[2].notes" }\`
 - \`{ kind: "insertSlide", at: 4, slide: { pattern: "...", regions: {...} } }\`
 - \`{ kind: "deleteSlide", at: 3 }\`
 - \`{ kind: "moveSlide", from: 4, to: 1 }\`
 
-Indexes are 0-based. \`output_path\` may be the same as the original (overwrites in place).`,
+Indexes are 0-based. \`output_path\` may be the same as the original (overwrites in place).
+
+Important for theme changes: when you set \`deck.theme\` to a different theme, also pass the same theme name in this tool's \`theme\` argument so validation/rendering uses the new theme immediately. For palette-only color changes, leave \`deck.theme\` unchanged and set \`deck.palette.*\` tokens.`,
     parameters: {
       type: "object",
       properties: {
@@ -39,7 +59,7 @@ Indexes are 0-based. \`output_path\` may be the same as the original (overwrites
         output_path: { type: "string", description: "Absolute path where the recompiled .pptx is written." },
         theme: {
           type: "string",
-          description: "OPTIONAL. Theme name or absolute path to a theme directory. Leave unset and the tool auto-detects from the sidecar's own `deck.theme` field.",
+          description: "OPTIONAL. Theme name or absolute path to a theme directory. Leave unset and the tool auto-detects from the sidecar's own `deck.theme` field. If ops change `deck.theme`, pass the NEW theme here too.",
         },
       },
       required: ["sidecar_path", "ops", "output_path"],
@@ -75,12 +95,13 @@ Indexes are 0-based. \`output_path\` may be the same as the original (overwrites
     if (!outputPath) return "Error: output_path is required.";
     if (!Array.isArray(ops) || ops.length === 0) return "Error: ops must be a non-empty array.";
 
-    let theme = explicitTheme || "technical-blue";
-    let themeSource = explicitTheme ? "explicit" : "default";
+    const opTheme = themeFromOps(ops);
+    let theme = explicitTheme || opTheme || "technical-blue";
+    let themeSource = explicitTheme ? "explicit" : opTheme ? "ops" : "default";
     if (!explicitTheme) {
       try {
         const declared = extractDeckTheme(await readFileText(sidecarPath));
-        if (declared) {
+        if (declared && !opTheme) {
           theme = declared;
           themeSource = "sidecar";
         }
@@ -94,7 +115,9 @@ Indexes are 0-based. \`output_path\` may be the same as the original (overwrites
       await slidemlEdit(sidecarPath, ops, outputPath, theme);
       const themeNote = themeSource === "sidecar"
         ? ` Theme: ${theme} (auto-detected from sidecar).`
-        : ` Theme: ${theme}.`;
+        : themeSource === "ops"
+          ? ` Theme: ${theme} (auto-detected from deck.theme edit op).`
+          : ` Theme: ${theme}.`;
       return `Edited ${sidecarPath} (${ops.length} op(s)) → ${outputPath} (sidecar: ${outputPath}.slideml).${themeNote}`;
     } catch (err) {
       return `Error: edit_slideml failed.\n${err instanceof Error ? err.message : String(err)}`;

@@ -176,6 +176,23 @@ describe("SlideML cowork integration — tool↔IPC contract", () => {
     });
   });
 
+  it("edit_slideml — uses the new theme from a deck.theme edit op", async () => {
+    ipcReturns["read_file_text"] = JSON.stringify({
+      slideml: 1,
+      deck: { size: "16x9", theme: "technical-blue" },
+      slides: [],
+    });
+    ipcReturns["slideml_edit"] = { outputPath: "/tmp/red.pptx", sidecar: "/tmp/red.pptx.slideml" };
+    const tool = getTool("edit_slideml")!;
+    const ops = [{ kind: "set", path: "deck.theme", value: "vibrant-startup" }];
+    const out = await tool.execute({ sidecar_path: "/tmp/red.pptx.slideml", ops, output_path: "/tmp/red.pptx" });
+    expect(ipcCalls[1]?.args).toMatchObject({
+      theme: "vibrant-startup",
+      ops,
+    });
+    expect(out).toContain("auto-detected from deck.theme edit op");
+  });
+
   it("audit_pptx — text format gives one-liner; json format gives raw report", async () => {
     const report = {
       ok: true,
