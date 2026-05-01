@@ -145,14 +145,12 @@ async function dispatch(command, args, sender) {
     case "install_node_package": return installNodePackage(args.package);
     case "get_node_path": return getNodePath();
     case "run_node_script": return runNodeScript(args.script, args.cwd, args.timeoutSecs);
-    case "slideml_compile": return slidemlCompile(args.slideml, args.theme, args.outputPath, args.path);
-    case "slideml_list_layouts": return slidemlListLayouts(args.theme);
-    case "slideml_describe_layout": return slidemlDescribeLayout(args.theme, args.layoutName);
-    case "slideml_validate": return slidemlValidate(args.slideml, args.theme, args.path);
-    case "slideml_edit": return slidemlEdit(args.sidecarPath, args.ops, args.theme, args.outputPath);
-    case "slideml_audit": return slidemlAudit(args.path);
-    case "slideml_list_themes": return slidemlListThemes();
-    case "slideml_describe_theme": return slidemlDescribeTheme(args.name);
+    case "slideml2_describe_schema": return slideml2DescribeSchema(args.components);
+    case "slideml2_create_deck": return slideml2CreateDeck(args.deckPath, args.title, args.theme, args.brand, args.themeOverride);
+    case "slideml2_read_deck": return slideml2ReadDeck(args.deckPath);
+    case "slideml2_replace_slide": return slideml2ReplaceSlide(args.deckPath, args.slideId, args.slide);
+    case "slideml2_patch_deck": return slideml2PatchDeck(args.deckPath, args.patch);
+    case "slideml2_validate_render": return slideml2ValidateRender(args.deckPath, args.outputPath, args.render);
     case "get_env": return process.env[args.key] || null;
     case "http_post": return httpPost(args.request);
     case "http_stream_post": return httpStreamPost(sender, args.request);
@@ -468,217 +466,212 @@ async function runNodeScript(script, cwd, timeoutSecs = 30) {
   return runScript("node", ["-e", script], cwd || process.cwd(), timeoutSecs, { NODE_PATH: await getNodePath() });
 }
 
-// Path to slideml's compiled CLI (workspace-linked into cowork's node_modules).
-function slidemlCliPath() {
-  return path.resolve(__dirname, "..", "node_modules", "slideml", "dist", "bin", "slideml.js");
+// slideml2 lives in node_modules as an ESM workspace package. Electron main is
+// CJS, so we lazy-load via dynamic import and cache the module promise.
+let _slideml2Promise = null;
+function slideml2() {
+  if (!_slideml2Promise) _slideml2Promise = import("slideml2");
+  return _slideml2Promise;
 }
 
-// Resolve a theme name to its directory. Built-in themes ship in
-// node_modules/slideml/dist/themes/<name>; user-installed themes live in
-// ~/.cowork/themes/<name>.
-function slidemlThemePath(theme) {
-  if (!theme) theme = "technical-blue";
-  if (theme.startsWith("/") || theme.startsWith("~")) {
-    return theme.replace(/^~/, os.homedir());
-  }
-  const builtin = path.resolve(__dirname, "..", "node_modules", "slideml", "dist", "themes", theme);
-  if (fs.existsSync(builtin)) return builtin;
-  const user = path.join(os.homedir(), ".cowork", "themes", theme);
-  if (fs.existsSync(user)) return user;
-  throw new Error(`Theme "${theme}" not found in built-ins or ~/.cowork/themes/`);
+async function slideml2DescribeSchema(componentNames) {
+  const m = await slideml2();
+  const components = Array.isArray(componentNames) ? componentNames.map(String) : [];
+  return {
+    deck: m.describeDeck(),
+    components: {
+      index: m.listComponents(),
+      details: components.length ? m.describeComponents(components) : undefined,
+    },
+    nodeTypes: m.listNodeTypes().map((node) => ({ type: node.type, use: node.use })),
+    textKinds: m.listTextKinds(),
+    themes: m.listThemes(),
+    palette: m.listPaletteColors(),
+    defaultTheme: m.buildTheme(),
+  };
 }
 
-function extractDeckTheme(slidemlYaml) {
-  const match = /(?:^|[\s,{])"?theme"?\s*:\s*["']?([A-Za-z0-9_./-]+)["']?/.exec(slidemlYaml || "");
-  return match && match[1];
+async function slideml2CreateDeck(deckPath, title, theme, brand, themeOverride) {
+  if (!deckPath) throw new Error("slideml2_create_deck: deckPath is required");
+  const m = await slideml2();
+  const result = await m.createDeck(deckPath, {
+    title: typeof title === "string" ? title : undefined,
+    theme: typeof theme === "string" ? theme : "default",
+    brand: brand && typeof brand === "object" ? brand : undefined,
+  });
+  if (themeOverride && typeof themeOverride === "object") {
+    const deck = await m.readDeck(deckPath);
+    deck.deck.themeOverride = themeOverride;
+    await m.writeDeck(deckPath, deck);
+  }
+  return { deckPath, ...result };
 }
 
-async function slidemlCompile(slidemlYaml, theme, outputPath, srcPath) {
-  // Resolve the YAML body from either an inline string or a file path.
-  // The renderer can't import node:fs (Vite browser bundle), so the
-  // file read happens here in the main process.
-  if (srcPath && !slidemlYaml) {
-    slidemlYaml = await fsp.readFile(srcPath, "utf8");
-  }
-  if (!slidemlYaml) throw new Error("slideml_compile: provide either `slideml` (inline YAML) or `path` (file)");
-  if (!outputPath) throw new Error("slideml_compile: outputPath is required");
+async function slideml2ReadDeck(deckPath) {
+  if (!deckPath) throw new Error("slideml2_read_deck: deckPath is required");
+  const m = await slideml2();
+  return m.readDeck(deckPath);
+}
 
-  const cli = slidemlCliPath();
-  if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
+async function slideml2ReplaceSlide(deckPath, slideId, slide) {
+  if (!deckPath) throw new Error("slideml2_replace_slide: deckPath is required");
+  if (slide == null || typeof slide !== "object") throw new Error("slideml2_replace_slide: slide must be an object");
+  const m = await slideml2();
+  const deck = await m.readDeck(deckPath);
+  const slideValidation = m.validateSlide(slide, deck);
+  if (!slideValidation.ok) {
+    return { ok: false, error: `Slide validation failed with ${slideValidation.errors.length} error(s).`, validation: slideValidation };
   }
-  const themeDir = slidemlThemePath(theme || extractDeckTheme(slidemlYaml));
-  const tmpYaml = path.join(os.tmpdir(), `slideml-${crypto.randomUUID()}.yaml`);
-  await fsp.writeFile(tmpYaml, slidemlYaml, "utf8");
-  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+  const id = normalizeSlideId(slideId);
+  if (typeof id === "number" && id === deck.slides.length) {
+    deck.slides.push(slide);
+    await m.writeDeck(deckPath, deck);
+    return { ok: true, insertedAt: deck.slides.length - 1, slideCount: deck.slides.length };
+  }
+  return m.replaceSlide(deckPath, id, slide);
+}
 
-  try {
-    const result = await runScript(
-      "node",
-      [cli, "compile", tmpYaml, "--theme", themeDir, "-o", outputPath],
-      undefined,
-      120,
-    );
-    if (result.exit_code !== 0) {
-      const msg = (result.stderr || result.stdout || "").trim() || `slideml compile exited ${result.exit_code}`;
-      throw new Error(msg);
+async function slideml2PatchDeck(deckPath, patch) {
+  if (!deckPath) throw new Error("slideml2_patch_deck: deckPath is required");
+  if (!Array.isArray(patch)) throw new Error("slideml2_patch_deck: patch must be an array");
+  const m = await slideml2();
+  const original = await m.readDeck(deckPath);
+  const deck = JSON.parse(JSON.stringify(original));
+  applyJsonPatch(deck, patch);
+  const validation = m.validateDeck(deck);
+  if (validation.ok) await m.writeDeck(deckPath, deck);
+  return {
+    ok: validation.ok,
+    error: validation.ok ? undefined : `Deck validation failed with ${validation.errors.length} error(s).`,
+    summary: { slideCount: deck.slides.length, slides: deck.slides.map((s, i) => ({ index: i, id: s.id, title: s.title })) },
+    validation,
+  };
+}
+
+async function slideml2ValidateRender(deckPath, outputPath, render) {
+  if (!deckPath) throw new Error("slideml2_validate_render: deckPath is required");
+  const m = await slideml2();
+  const shouldRender = render !== false;
+  const deck = await m.readDeck(deckPath);
+  const validation = m.validateDeck(deck);
+  if (!validation.ok || !shouldRender) {
+    return {
+      ok: validation.ok,
+      error: validation.ok ? undefined : `Deck validation failed with ${validation.errors.length} error(s).`,
+      validation,
+    };
+  }
+  const out = (typeof outputPath === "string" && outputPath) || `${deckPath.replace(/\.json$/, "")}.pptx`;
+  await fsp.mkdir(path.dirname(out), { recursive: true });
+  m.clearRenderDiagnostics();
+  const result = await m.renderToPptx(m.sourceToRenderedDeck(deck), out);
+  const diagnostics = m.getRenderDiagnostics();
+  const blocking = blockingSlideml2Diagnostics(diagnostics);
+  const counts = {};
+  for (const d of diagnostics) counts[d.code] = (counts[d.code] || 0) + 1;
+  return {
+    ok: blocking.length === 0,
+    error: blocking.length ? `${blocking.length} blocking render diagnostic(s) remain.` : undefined,
+    outputPath: result.outputPath,
+    domPath: result.domPath,
+    validation,
+    diagnostics: {
+      count: diagnostics.length,
+      summary: counts,
+      blockingCount: blocking.length,
+      blocking: blocking.slice(0, 60),
+    },
+  };
+}
+
+function blockingSlideml2Diagnostics(items) {
+  const codes = new Set(["DROP", "COLLISION", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "SQUASHED", "FALLBACK_FAILED", "LOW_CONTRAST"]);
+  return items.filter((d) => d.severity === "error" || codes.has(d.code));
+}
+
+function normalizeSlideId(value) {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) return Number(value.trim());
+  return String(value || "");
+}
+
+function applyJsonPatch(document, patch) {
+  for (const raw of patch) {
+    const op = raw && typeof raw === "object" ? raw : {};
+    const kind = String(op.op || "");
+    const ptr = String(op.path || "");
+    if (!ptr.startsWith("/")) throw new Error(`Invalid JSON Pointer path: ${ptr}`);
+    if (kind === "add") jsonPointerSet(document, ptr, op.value, "add");
+    else if (kind === "replace") jsonPointerSet(document, ptr, op.value, "replace");
+    else if (kind === "remove") jsonPointerRemove(document, ptr);
+    else if (kind === "move") {
+      const from = String(op.from || "");
+      const value = JSON.parse(JSON.stringify(jsonPointerGet(document, from)));
+      jsonPointerRemove(document, from);
+      jsonPointerSet(document, ptr, value, "add");
+    } else if (kind === "copy") {
+      const from = String(op.from || "");
+      jsonPointerSet(document, ptr, JSON.parse(JSON.stringify(jsonPointerGet(document, from))), "add");
+    } else if (kind === "test") {
+      const actual = jsonPointerGet(document, ptr);
+      if (JSON.stringify(actual) !== JSON.stringify(op.value)) throw new Error(`JSON Patch test failed at ${ptr}`);
+    } else {
+      throw new Error(`Unsupported JSON Patch op: ${kind}`);
     }
-    // Both runtimes (Electron + Tauri) return the same shape so the
-    // cowork tool can rely on it without runtime type checks.
-    return { outputPath, sidecar: `${outputPath}.slideml` };
-  } finally {
-    fsp.rm(tmpYaml, { force: true }).catch(() => {});
   }
 }
 
-async function slidemlListLayouts(theme) {
-  // Returns compact summaries (`slideml layouts` default mode). Use
-  // slideml_describe_layout to fetch the full schema for a chosen layout.
-  const cli = slidemlCliPath();
-  if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
-  }
-  const themeDir = slidemlThemePath(theme);
-  const result = await runScript("node", [cli, "layouts", "--theme", themeDir, "--json"], undefined, 30);
-  if (result.exit_code !== 0) {
-    throw new Error((result.stderr || result.stdout || "").trim() || `slideml layouts exited ${result.exit_code}`);
-  }
-  try {
-    return JSON.parse(result.stdout);
-  } catch (err) {
-    throw new Error(`slideml_list_layouts: failed to parse JSON output: ${err}`);
-  }
+function jsonPointerParts(ptr) {
+  if (ptr === "") return [];
+  return ptr.split("/").slice(1).map((p) => p.replace(/~1/g, "/").replace(/~0/g, "~"));
 }
 
-async function slidemlDescribeLayout(theme, layoutName) {
-  if (!layoutName) throw new Error("slideml_describe_layout: layoutName is required");
-  const cli = slidemlCliPath();
-  if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
+function jsonPointerGet(doc, ptr) {
+  let cur = doc;
+  for (const p of jsonPointerParts(ptr)) {
+    if (Array.isArray(cur)) cur = cur[p === "-" ? cur.length : Number(p)];
+    else cur = cur == null ? undefined : cur[p];
   }
-  const themeDir = slidemlThemePath(theme);
-  const result = await runScript("node", [cli, "describe", layoutName, "--theme", themeDir, "--json"], undefined, 30);
-  if (result.exit_code !== 0) {
-    throw new Error((result.stderr || result.stdout || "").trim() || `slideml describe exited ${result.exit_code}`);
-  }
-  try {
-    return JSON.parse(result.stdout);
-  } catch (err) {
-    throw new Error(`slideml_describe_layout: failed to parse JSON output: ${err}`);
-  }
+  return cur;
 }
 
-async function slidemlEdit(sidecarPath, ops, theme, outputPath) {
-  if (!sidecarPath) throw new Error("slideml_edit: sidecarPath is required");
-  if (!Array.isArray(ops)) throw new Error("slideml_edit: ops must be an array");
-  if (!outputPath) throw new Error("slideml_edit: outputPath is required");
-  const cli = slidemlCliPath();
-  if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
-  }
-  let sourceTheme = "";
-  if (!theme) {
-    try {
-      sourceTheme = extractDeckTheme(await fsp.readFile(sidecarPath, "utf8")) || "";
-    } catch {
-      sourceTheme = "";
+function jsonPointerSet(doc, ptr, value, mode) {
+  const parts = jsonPointerParts(ptr);
+  if (parts.length === 0) throw new Error("Replacing the whole document is not supported");
+  const key = parts.pop();
+  const parent = jsonPointerGet(doc, parts.length === 0 ? "" : `/${parts.map(jsonPointerEscape).join("/")}`);
+  if (parent == null) throw new Error(`Path parent not found: ${ptr}`);
+  if (Array.isArray(parent)) {
+    if (key === "-") parent.push(value);
+    else {
+      const idx = Number(key);
+      if (!Number.isInteger(idx)) throw new Error(`Invalid array index in path: ${ptr}`);
+      if (mode === "add") parent.splice(idx, 0, value);
+      else {
+        if (idx < 0 || idx >= parent.length) throw new Error(`Array index out of range: ${ptr}`);
+        parent[idx] = value;
+      }
     }
-  }
-  const themeDir = slidemlThemePath(theme || sourceTheme);
-  const tmpOps = path.join(os.tmpdir(), `slideml-ops-${crypto.randomUUID()}.json`);
-  await fsp.writeFile(tmpOps, JSON.stringify(ops), "utf8");
-  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
-  try {
-    const result = await runScript(
-      "node",
-      [cli, "edit", sidecarPath, "--ops", tmpOps, "--theme", themeDir, "-o", outputPath],
-      undefined,
-      120,
-    );
-    if (result.exit_code !== 0) {
-      throw new Error((result.stderr || result.stdout || "").trim() || `slideml edit exited ${result.exit_code}`);
-    }
-    return { outputPath, sidecar: `${outputPath}.slideml` };
-  } finally {
-    fsp.rm(tmpOps, { force: true }).catch(() => {});
+  } else {
+    if (mode === "replace" && !(key in parent)) throw new Error(`Replace path does not exist: ${ptr}`);
+    parent[key] = value;
   }
 }
 
-async function slidemlListThemes() {
-  const cli = slidemlCliPath();
-  if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
-  }
-  const result = await runScript("node", [cli, "themes", "--json"], undefined, 30);
-  if (result.exit_code !== 0) {
-    throw new Error((result.stderr || result.stdout || "").trim() || `slideml themes exited ${result.exit_code}`);
-  }
-  try {
-    return JSON.parse(result.stdout);
-  } catch (err) {
-    throw new Error(`slideml_list_themes: failed to parse JSON output: ${err}`);
-  }
+function jsonPointerRemove(doc, ptr) {
+  const parts = jsonPointerParts(ptr);
+  if (parts.length === 0) throw new Error("Removing the whole document is not supported");
+  const key = parts.pop();
+  const parent = jsonPointerGet(doc, parts.length === 0 ? "" : `/${parts.map(jsonPointerEscape).join("/")}`);
+  if (Array.isArray(parent)) parent.splice(Number(key), 1);
+  else if (parent && typeof parent === "object") delete parent[key];
+  else throw new Error(`Path parent not found: ${ptr}`);
 }
 
-async function slidemlDescribeTheme(themeName) {
-  if (!themeName) throw new Error("slideml_describe_theme: name is required");
-  const cli = slidemlCliPath();
-  if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
-  }
-  const result = await runScript("node", [cli, "describe-theme", themeName, "--json"], undefined, 30);
-  if (result.exit_code !== 0) {
-    throw new Error((result.stderr || result.stdout || "").trim() || `slideml describe-theme exited ${result.exit_code}`);
-  }
-  try {
-    return JSON.parse(result.stdout);
-  } catch (err) {
-    throw new Error(`slideml_describe_theme: failed to parse JSON output: ${err}`);
-  }
+function jsonPointerEscape(part) {
+  return part.replace(/~/g, "~0").replace(/\//g, "~1");
 }
 
-async function slidemlAudit(targetPath) {
-  if (!targetPath) throw new Error("slideml_audit: path is required");
-  const cli = slidemlCliPath();
-  if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
-  }
-  const result = await runScript("node", [cli, "audit", targetPath, "--json"], undefined, 30);
-  // audit returns exit code 2 on failure (with JSON on stdout), 0 on pass
-  if (result.exit_code !== 0 && result.exit_code !== 2) {
-    throw new Error((result.stderr || result.stdout || "").trim() || `slideml audit exited ${result.exit_code}`);
-  }
-  try {
-    return JSON.parse(result.stdout);
-  } catch (err) {
-    throw new Error(`slideml_audit: failed to parse JSON output: ${err}`);
-  }
-}
-
-async function slidemlValidate(slidemlYaml, theme, srcPath) {
-  // Resolve YAML body from inline string or file path. Renderer can't
-  // import node:fs (Vite browser bundle); the read happens here.
-  if (srcPath && !slidemlYaml) {
-    slidemlYaml = await fsp.readFile(srcPath, "utf8");
-  }
-  if (!slidemlYaml) throw new Error("slideml_validate: provide either `slideml` (inline YAML) or `path` (file)");
-  const cli = slidemlCliPath();
-  if (!fs.existsSync(cli)) {
-    throw new Error(`slideml CLI not found at ${cli}. The slideml package needs to be built. Run \`pnpm install\` (the prepare script auto-builds) or \`pnpm -F slideml build\` at the workspace root.`);
-  }
-  const themeDir = slidemlThemePath(theme || extractDeckTheme(slidemlYaml));
-  const tmpYaml = path.join(os.tmpdir(), `slideml-validate-${crypto.randomUUID()}.yaml`);
-  await fsp.writeFile(tmpYaml, slidemlYaml, "utf8");
-  try {
-    const result = await runScript("node", [cli, "validate", tmpYaml, "--theme", themeDir], undefined, 30);
-    if (result.exit_code === 0) {
-      return { ok: true };
-    }
-    return { ok: false, errors: (result.stderr || result.stdout || "").trim() };
-  } finally {
-    fsp.rm(tmpYaml, { force: true }).catch(() => {});
-  }
-}
 
 async function shellExec(params) {
   return runScript(params.command[0], params.command.slice(1), params.cwd, (params.timeout_ms || 30000) / 1000, params.env);

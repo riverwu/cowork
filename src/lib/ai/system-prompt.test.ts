@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildSystemPrompt } from "./system-prompt";
 
 describe("buildSystemPrompt", () => {
-  it("includes core sections", () => {
+  it("includes core sections from SYSTEM.md", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("Cowork");
     expect(prompt).toContain("Personality");
@@ -14,19 +14,47 @@ describe("buildSystemPrompt", () => {
 
   it("includes cowork-specific tool routing rules", () => {
     const prompt = buildSystemPrompt();
-    // We document the non-obvious cross-tool patterns; per-tool basics live
-    // in each tool's own description (sent via the tools API param).
     expect(prompt).toContain("isolated envs"); // run_python / run_node sandboxes
-    expect(prompt).toContain("install_package"); // package install routing
-    expect(prompt).toContain("image_gen"); // image vs chart routing
+    expect(prompt).toContain("install_package");
+    expect(prompt).toContain("image_gen");
     expect(prompt).toContain("matplotlib");
-    expect(prompt).toContain("SlideML"); // deck toolchain
+    expect(prompt).toContain("SlideML2");
+  });
+
+  it("requires reading SLIDEML.md before deck work", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain("SLIDEML.md");
+    expect(prompt).toContain("read `SLIDEML.md`");
+  });
+
+  it("documents the SlideML2 6-tool surface in workflow order", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain("describe_schema");
+    expect(prompt).toContain("create_deck");
+    expect(prompt).toContain("replace_slide");
+    expect(prompt).toContain("patch_deck");
+    expect(prompt).toContain("read_deck");
+    expect(prompt).toContain("validate_render");
+  });
+
+  it("flags blocking diagnostic codes for SlideML2 deck QA", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain("FALLBACK_FAILED");
+    expect(prompt).toContain("COLLISION");
+    expect(prompt).toContain("LOW_CONTRAST");
+    expect(prompt).toContain("blocking count is 0");
+  });
+
+  it("forbids hand-rolled pptxgenjs and post-render .pptx mutation", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain("do not roll your own");
+    expect(prompt).toContain("pptxgenjs");
+    expect(prompt).toContain("Never inject images or XML into the .pptx ZIP");
   });
 
   it("includes autonomy instructions", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("Current request has priority");
-    // Persistence/autonomy is now folded into Personality as one sentence.
     expect(prompt).toContain("end-to-end");
   });
 
@@ -56,15 +84,13 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("If a patch fails");
   });
 
-  it("does NOT re-list tools (they are sent in the API tools array and covered by TOOL_RULES)", () => {
+  it("does NOT re-list tools (they are sent in the API tools array and covered by Tool usage)", () => {
     const prompt = buildSystemPrompt({
       tools: [
         { name: "shell", description: "Execute shell command", parameters: {} },
         { name: "read_file", description: "Read a file", parameters: {} },
       ],
     });
-    // Auto-generated `## Available tools (N)` was ~600 wasted tokens that
-    // duplicated the curated TOOL_RULES + the native tools API parameter.
     expect(prompt).not.toContain("Available tools (");
   });
 
@@ -111,7 +137,13 @@ describe("buildSystemPrompt", () => {
   it("includes safety and output style guidelines", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("destructive operations");
-    expect(prompt).toContain("ASCII"); // covers emoji + decorative-punct guidance
+    expect(prompt).toContain("ASCII");
     expect(prompt).toContain("concise");
+  });
+
+  it("appends current time section with timezone", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain("## Current time");
+    expect(prompt).toContain("Today is");
   });
 });

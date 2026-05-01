@@ -381,120 +381,127 @@ export async function runNodeScript(script: string, cwd?: string, timeoutSecs?: 
   return invokeDesktop<PythonResult>("run_node_script", { script, cwd, timeoutSecs });
 }
 
-// ---- SlideML ----
+// ---- SlideML2 ----
 
-// Re-export the canonical types directly from the slideml package so
-// the cowork frontend and the slideml runtime never drift. The IPC
-// layer returns objects matching these shapes.
-import type {
-  LayoutSummary as SlidemlContentComponentSummary,
-  LayoutDetail as SlidemlContentComponentDetail,
-  EditOp as SlidemlEditOp,
-  AuditReport as SlidemlAuditReport,
-  ThemeSummary as SlidemlThemeSummary,
-  ThemeDetail as SlidemlThemeDetail,
-} from "slideml";
-export type {
-  SlidemlContentComponentSummary,
-  SlidemlContentComponentDetail,
-  SlidemlEditOp,
-  SlidemlAuditReport,
-  SlidemlThemeSummary,
-  SlidemlThemeDetail,
-};
-
-export type SlidemlValidateResult =
-  | { ok: true }
-  | { ok: false; errors: string };
-
-export interface SlidemlCompileResult {
-  outputPath: string;
-  sidecar?: string;
+export interface Slideml2DescribeSchemaResult {
+  deck: unknown;
+  components: { index: unknown; details?: unknown };
+  nodeTypes: { type: string; use?: string }[];
+  textKinds: unknown;
+  themes: unknown;
+  palette: unknown;
+  defaultTheme: unknown;
 }
 
-/**
- * Compile a SlideML YAML body to a .pptx file at `outputPath`.
- *
- * `slidemlYaml` accepts either an inline YAML body OR `null` when `path`
- * is supplied — the main-process handler reads the file in that case.
- * Renderer code can NOT use node:fs (Vite browser bundle); push the file
- * read through the IPC bridge.
- */
-export async function slidemlCompile(
-  slidemlYaml: string | null,
-  theme: string | undefined,
-  outputPath: string,
-  path?: string,
-): Promise<SlidemlCompileResult> {
-  return invokeDesktop<SlidemlCompileResult>("slideml_compile", {
-    slideml: slidemlYaml,
-    theme,
-    outputPath,
-    path,
+export interface Slideml2BrandSpec {
+  name?: string;
+  primary?: string;
+  logo?: string;
+}
+
+export interface Slideml2CreateDeckResult {
+  deckPath: string;
+  [key: string]: unknown;
+}
+
+export interface Slideml2ValidationReport {
+  ok: boolean;
+  errors?: { path?: string; message: string }[];
+}
+
+export interface Slideml2Diagnostic {
+  code: string;
+  severity: string;
+  message?: string;
+  suggestion?: string;
+  [key: string]: unknown;
+}
+
+export interface Slideml2ReplaceSlideResult {
+  ok: boolean;
+  error?: string;
+  validation?: Slideml2ValidationReport;
+  insertedAt?: number;
+  slideCount?: number;
+  [key: string]: unknown;
+}
+
+export interface Slideml2PatchDeckResult {
+  ok: boolean;
+  error?: string;
+  summary: { slideCount: number; slides: { index: number; id: string; title?: string }[] };
+  validation: Slideml2ValidationReport;
+}
+
+export interface Slideml2ValidateRenderResult {
+  ok: boolean;
+  error?: string;
+  validation: Slideml2ValidationReport;
+  outputPath?: string;
+  domPath?: string;
+  diagnostics?: {
+    count: number;
+    summary: Record<string, number>;
+    blockingCount: number;
+    blocking: Slideml2Diagnostic[];
+  };
+}
+
+export interface Slideml2JsonPatchOp {
+  op: "add" | "replace" | "remove" | "move" | "copy" | "test";
+  path: string;
+  value?: unknown;
+  from?: string;
+}
+
+/** Return the SlideML2 authoring schema, deck rules, component index, etc. */
+export async function slideml2DescribeSchema(components?: string[]): Promise<Slideml2DescribeSchemaResult> {
+  return invokeDesktop<Slideml2DescribeSchemaResult>("slideml2_describe_schema", { components });
+}
+
+/** Create a fresh SlideML2 source deck JSON file. */
+export async function slideml2CreateDeck(
+  deckPath: string,
+  options: { title?: string; theme?: string; brand?: Slideml2BrandSpec; themeOverride?: unknown },
+): Promise<Slideml2CreateDeckResult> {
+  return invokeDesktop<Slideml2CreateDeckResult>("slideml2_create_deck", {
+    deckPath,
+    title: options.title,
+    theme: options.theme,
+    brand: options.brand,
+    themeOverride: options.themeOverride,
   });
 }
 
-/** List ContentComponent summaries (compact: name + purpose + prop names). */
-export async function slidemlListContentComponents(theme?: string): Promise<SlidemlContentComponentSummary[]> {
-  return invokeDesktop<SlidemlContentComponentSummary[]>("slideml_list_layouts", { theme });
+/** Read the SlideML2 deck JSON. */
+export async function slideml2ReadDeck(deckPath: string): Promise<unknown> {
+  return invokeDesktop<unknown>("slideml2_read_deck", { deckPath });
 }
 
-/** Fetch full schema + per-prop examples for a single ContentComponent. */
-export async function slidemlDescribeContentComponent(
-  componentName: string,
-  theme?: string,
-): Promise<SlidemlContentComponentDetail> {
-  return invokeDesktop<SlidemlContentComponentDetail>("slideml_describe_layout", {
-    layoutName: componentName,
-    theme,
-  });
+/** Replace a slide by id or index; appends if slideId === slideCount. */
+export async function slideml2ReplaceSlide(
+  deckPath: string,
+  slideId: string | number,
+  slide: unknown,
+): Promise<Slideml2ReplaceSlideResult> {
+  return invokeDesktop<Slideml2ReplaceSlideResult>("slideml2_replace_slide", { deckPath, slideId, slide });
 }
 
-/**
- * Dry-run validate a SlideML YAML body without compiling/writing.
- * Pass `path` to read from disk in the main process; renderer must not
- * import node:fs (Vite/Electron renderer bundle is browser-only).
- */
-export async function slidemlValidate(
-  slidemlYaml: string | null,
-  theme?: string,
-  path?: string,
-): Promise<SlidemlValidateResult> {
-  return invokeDesktop<SlidemlValidateResult>("slideml_validate", {
-    slideml: slidemlYaml,
-    theme,
-    path,
-  });
+/** Apply RFC6902-style JSON Patch ops to the deck. */
+export async function slideml2PatchDeck(
+  deckPath: string,
+  patch: Slideml2JsonPatchOp[],
+): Promise<Slideml2PatchDeckResult> {
+  return invokeDesktop<Slideml2PatchDeckResult>("slideml2_patch_deck", { deckPath, patch });
 }
 
-/** Apply structured ops to a sidecar .slideml and recompile. */
-export async function slidemlEdit(
-  sidecarPath: string,
-  ops: SlidemlEditOp[],
-  outputPath: string,
-  theme?: string,
-): Promise<SlidemlCompileResult> {
-  return invokeDesktop<SlidemlCompileResult>("slideml_edit", {
-    sidecarPath,
-    ops,
-    outputPath,
-    theme,
-  });
-}
-
-/** Audit a .pptx for OOXML conformance issues. */
-export async function slidemlAudit(path: string): Promise<SlidemlAuditReport> {
-  return invokeDesktop<SlidemlAuditReport>("slideml_audit", { path });
-}
-
-/** List all themes installed on this machine (built-in + user). */
-export async function slidemlListThemes(): Promise<SlidemlThemeSummary[]> {
-  return invokeDesktop<SlidemlThemeSummary[]>("slideml_list_themes");
-}
-
-/** Full detail of one theme: imagery guidance, palette, layouts, voice. */
-export async function slidemlDescribeTheme(name: string): Promise<SlidemlThemeDetail> {
-  return invokeDesktop<SlidemlThemeDetail>("slideml_describe_theme", { name });
+/** Validate the deck and (optionally) render to PPTX. */
+export async function slideml2ValidateRender(
+  deckPath: string,
+  outputPath?: string,
+  render: boolean = true,
+): Promise<Slideml2ValidateRenderResult> {
+  return invokeDesktop<Slideml2ValidateRenderResult>("slideml2_validate_render", { deckPath, outputPath, render });
 }
 
 // ---- Web ----

@@ -1,0 +1,64 @@
+export { auditDeck } from "./audit.js";
+export {
+  clearRenderDiagnostics,
+  getDiagnosticsByCode,
+  getDiagnosticsBySeverity,
+  getRenderDiagnostics,
+} from "./diagnostics.js";
+export type { LayoutDiagnostic } from "./diagnostics.js";
+export { applyEdits } from "./edit.js";
+export { inspectDeck } from "./inspect.js";
+export { inspectLayout } from "./layout-inspect.js";
+export type { InspectedLayoutNode, InspectedSlideLayout } from "./layout-inspect.js";
+export { buildDom, getSlide } from "./layouts.js";
+export { renderToAst, renderToPptx } from "./render.js";
+export { buildTheme } from "./theme.js";
+export type { ThemeOverride } from "./types.js";
+export { runSimpleAgentLoop } from "./agent/loop.js";
+export { deckFromPlan, generateFromMarkdown, planPagesFromMarkdown, planPagesFromMarkdownWithLlm } from "./agent/markdown-pipeline.js";
+export { deckFromComponentPlan, generateWithComponentAgent, planWithComponentAgent } from "./agent/component-agent.js";
+export { generateDeckWithBatchAgent, generateOneSlideWithLlm } from "./agent/batch-agent.js";
+export { buildAgentPromptPack, getAgentSystemPrompt } from "./agent-disclosure.js";
+export { designComparisonSlide, designComplexDeck, designDashboardSlide, designDeckFromBrief, designSlideFromBrief, designTimelineSlide } from "./agent/page-designer.js";
+export {
+  badge, barList, bulletList, checklist, companyOverviewLayout, comparisonCard, ctaButton,
+  featureCard, flowArrow, heroStat, iconText, imageBlock, imageWithCaptionPanel, insightCallout,
+  keyTakeaway, kpiGrid, legend, logoStrip, metricCard, numberedGrid, numberedList, paragraphText,
+  pricingCard, processFlow, profileCard, progressBar, prosCons, quoteBlock, sectionBreak,
+  statComparison, statStrip, stepCard, swotMatrix, tagList, timelineBlock, titleText,
+} from "./components.js";
+export { listComponents, describeComponents } from "./component-registry.js";
+export type { DescribeComponentsResult } from "./component-registry.js";
+export { describeDeck } from "./deck-disclosure.js";
+export type { DeckDescription, DeckFieldDescription } from "./deck-disclosure.js";
+export { listTextKinds, describeTextKind } from "./text-kinds.js";
+export { describeNodeType, listNodeTypes } from "./node-types.js";
+export { listPaletteColors, listSizeNames, listThemes } from "./theme.js";
+export type { PaletteColorName, SizeName } from "./theme.js";
+export { createDeck, setDeckProps, appendSlide, insertSlide, replaceSlide, deleteSlide, validateDeckPath, renderDeck, readDeck, writeDeck } from "./deck-ops.js";
+export { createSourceDeck, sourceToRenderedDeck } from "./source-deck.js";
+export { validateDeck, validateSlide } from "./validate.js";
+export { generateBriefLayoutDemo, generateComplexLayoutDemo, generateComponentLayoutDemo, generateMarkdownPipelineDemo } from "./demo.js";
+export type {
+  AgentTask,
+  AuditIssue,
+  AuditReport,
+  BrandSpec,
+  DeckSpec,
+  DomNode,
+  EditOp,
+  InsertPosition,
+  LayoutName,
+  NodeType,
+  RenderedDeck,
+  RenderedSlide,
+  SlideSize,
+  SlideSpec,
+  Slideml2Deck,
+} from "./types.js";
+export type { MarkdownPlan, MarkdownPipelineResult, PlannedPage } from "./agent/markdown-pipeline.js";
+export type { AgentComponentNode, AgentNode, AgentPrimitiveNode, ComponentAgentPlan, ComponentAgentResult, ComponentAgentSlidePlan } from "./agent/component-agent.js";
+export type { BatchAgentResult } from "./agent/batch-agent.js";
+export type { AgentPromptPackOptions } from "./agent-disclosure.js";
+export type { ComponentDefinition, ComponentDescription, ComponentSummary } from "./component-registry.js";
+export type { ValidationReport, ValidationIssue } from "./validate.js";

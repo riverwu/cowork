@@ -1,126 +1,48 @@
 import type { Tool } from "./types";
-import { readFileText, writeFile } from "@/lib/tauri";
-import { parseJsonLenient } from "./_json-repair";
+import { slideml2ReplaceSlide } from "@/lib/tauri";
 
-/**
- * Replace one slide in a SlideML JSON deck file by 0-based index.
- * Companion to `read_slide` for the surgical-fix workflow:
- *
- *   1. validate_slideml → "slides[5].regions.main.props.body too long"
- *   2. read_slide(path, 5) → see current state
- *   3. replace_slide(path, 5, fixed_slide_object) → write back
- *   4. validate_slideml → confirm fixed
- *
- * Cheaper than re-emitting the entire deck (avoids the big-tool-call
- * stream-terminated failure mode) and more atomic than apply_patch on
- * deeply-nested JSON.
- */
 export const replaceSlideTool: Tool = {
   definition: {
     name: "replace_slide",
     description:
-      `Replace one slide at a 0-based index in a SlideML deck JSON file. Index uses the same numbering as validator error messages (\`slides[N]\`).
+      `Replace one full slide by id or index. **This is the primary edit primitive for authoring AND repair.**
 
-Use this for surgical fixes — when validate_slideml flags a single slide, read it with \`read_slide\`, edit, then call this. Far cheaper and more reliable than rewriting the whole deck.
+- To **append** a new slide, pass \`slideId\` equal to the current slide count (a number).
+- To **replace** an existing slide, pass either its id (string) or its 0-based index (number).
 
-The new slide object uses the same schema as inline \`slides[]\` entries (\`{ pattern, title?, regions, policy?, chrome?, notes? }\`).`,
+The \`slide\` field is a SlideML2 SlideV2 JSON object: \`{id, title?, background?, children, notes?, metadata?}\`. Each child node uses the component name directly in \`type\`; fields are flat, never wrapped in \`props\`. Compose freely with \`stack\` / \`grid\` / \`split\` / \`panel\` / \`card\` / \`band\`. Read SLIDEML.md for component philosophy and composition patterns.
+
+The tool validates the slide against the deck's schema. On failure it returns a structured validation error pointing at the offending field; fix and retry.`,
     parameters: {
       type: "object",
       properties: {
-        path: {
-          type: "string",
-          description: "Absolute path to a JSON SlideML deck file.",
-        },
-        index: {
-          type: "number",
-          description: "0-based slide index to replace (same numbering as validator's `slides[N]` errors).",
-        },
-        slide: {
-          type: "object",
-          description: "New slide object: `{ pattern, title?, regions, policy?, chrome?, notes? }`. See `list_slide_pagepatterns` for regions and `describe_content_component` for component props.",
-          properties: {
-            pattern: { type: "string" },
-            title: { type: "string" },
-            regions: { type: "object" },
-            policy: { type: "object" },
-            chrome: { type: "string" },
-            notes: { type: "string" },
-          },
-          required: ["pattern", "regions"],
-        },
+        deckPath: { type: "string" },
+        slideId: { description: "Existing slide id, existing index, or append index equal to slideCount." },
+        slide: { type: "object", description: "SlideML2 SlideV2 JSON: {id,title?,background?,children,notes?,metadata?}." },
       },
-      required: ["path", "index", "slide"],
+      required: ["deckPath", "slideId", "slide"],
     },
   },
 
   async execute(input) {
-    const path = String(input.path || "").trim();
-    const index = typeof input.index === "number" ? Math.floor(input.index) : NaN;
-    if (!path) return "Error: path (absolute) is required.";
-    if (!Number.isFinite(index) || index < 0) {
-      return "Error: index must be a non-negative integer (0-based).";
-    }
-    // Tolerate JSON-string form of `slide` (same agent quirk handled in
-    // append_slides — large complex args sometimes arrive serialized).
-    let slideRaw: unknown = input.slide;
-    if (typeof slideRaw === "string") {
-      try {
-        slideRaw = parseJsonLenient(slideRaw);
-      } catch (err) {
-        return `Error: slide was passed as a string but did not parse as JSON: ${err instanceof Error ? err.message : String(err)}. Pass slide as a native JSON object (preferred), or escape any newlines inside string values as \\n.`;
+    const deckPath = String(input.deckPath || "").trim();
+    if (!deckPath) return "Error: deckPath is required.";
+    if (input.slideId == null) return "Error: slideId is required.";
+    if (input.slide == null || typeof input.slide !== "object") return "Error: slide must be a JSON object.";
+    try {
+      const result = await slideml2ReplaceSlide(deckPath, input.slideId as string | number, input.slide);
+      if (!result.ok) {
+        return `Slide validation failed: ${result.error}\n${JSON.stringify(result.validation, null, 2)}`;
       }
-    }
-    const slide = slideRaw as Record<string, unknown> | undefined;
-    if (!slide || typeof slide !== "object" || Array.isArray(slide)) {
-      return "Error: slide must be an object with at least `pattern` and `regions` fields.";
-    }
-    if (typeof slide.pattern !== "string" || !slide.pattern) {
-      return "Error: slide.pattern must be a non-empty string. See list_slide_pagepatterns.";
-    }
-    if (!slide.regions || typeof slide.regions !== "object" || Array.isArray(slide.regions)) {
-      return "Error: slide.regions must be an object. Fill it with ContentComponents from list_content_components.";
-    }
-
-    let body: string;
-    try {
-      body = await readFileText(path);
+      const at = typeof result.insertedAt === "number" ? `inserted at index ${result.insertedAt}` : "replaced";
+      return `Slide ${at}. slideCount=${result.slideCount ?? "?"}.`;
     } catch (err) {
-      return `Error: failed to read deck file ${path}: ${err instanceof Error ? err.message : String(err)}.`;
+      return `Error: replace_slide failed.\n${err instanceof Error ? err.message : String(err)}`;
     }
-    const trimmed = body.replace(/^\uFEFF/, "").trimStart();
-    if (!trimmed.startsWith("{")) {
-      return `Error: deck file at ${path} is not JSON. replace_slide operates on JSON deck files only.`;
-    }
-    let deck: { slides?: unknown[] };
-    try {
-      deck = JSON.parse(body);
-    } catch (err) {
-      return `Error: invalid JSON at ${path}: ${err instanceof Error ? err.message : String(err)}.`;
-    }
-    if (!Array.isArray(deck.slides)) {
-      return `Error: deck file is missing top-level \`slides\` array.`;
-    }
-    if (index >= deck.slides.length) {
-      return `Error: index ${index} is out of range. Deck has ${deck.slides.length} slide${deck.slides.length === 1 ? "" : "s"} (valid indices 0..${deck.slides.length - 1}). Use \`append_slides\` to add new slides at the end.`;
-    }
-
-    const old = deck.slides[index] as { pattern?: string } | undefined;
-    deck.slides[index] = slide;
-
-    try {
-      await writeFile(path, JSON.stringify(deck, null, 2) + "\n");
-    } catch (err) {
-      return `Error: failed to write deck file ${path}: ${err instanceof Error ? err.message : String(err)}.`;
-    }
-
-    const oldPattern = old && typeof old.pattern === "string" ? old.pattern : "?";
-    return `Replaced slide ${index} (${oldPattern} → ${slide.pattern}) in ${path}.`;
   },
 
-  // History compression: keep index + before/after pattern names.
   historySummarizer(rawResult, status) {
     if (status === "fail") return rawResult;
-    const m = /Replaced slide (\d+) \(([^)]+)\) in (\S+)/.exec(rawResult);
-    return m ? `→ slide ${m[1]} replaced (${m[2]}) in ${m[3]}` : rawResult.slice(0, 120);
+    return rawResult.slice(0, 200);
   },
 };

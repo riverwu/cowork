@@ -60,11 +60,12 @@ import { mcpManager } from "@/lib/mcp";
 describe("Agent Tool Chain Diagnostics", () => {
 
   describe("Step 1: Built-in skills", () => {
-    it("has exactly 31 built-in tools", () => {
+    it("has the expected built-in tool count", () => {
       const skills = getTools();
       const names = Object.keys(skills);
       console.log("[Diagnostic] Built-in skills:", names);
-      expect(names).toHaveLength(31);
+      // 18 generic tools + 6 SlideML2 deck tools.
+      expect(names).toHaveLength(24);
     });
 
     it("all built-in tools have valid tool definitions", () => {
@@ -111,7 +112,7 @@ describe("Agent Tool Chain Diagnostics", () => {
       for (const tool of tools) {
         expect(prompt).not.toContain(`- ${tool.name}:`);
       }
-      expect(prompt).toContain("SlideML toolchain");
+      expect(prompt).toContain("SlideML2 toolchain");
     });
 
     it("system prompt includes tool guidance", () => {

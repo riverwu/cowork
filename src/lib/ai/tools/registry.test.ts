@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { getTools, getTool, getToolDefinitions } from "./registry";
 
 describe("Tool Registry", () => {
-  const EXPECTED_SKILLS = [
+  const EXPECTED_TOOLS = [
     "list_knowledge_sources",
     "get_source_catalog",
     "search_knowledge",
@@ -21,70 +21,54 @@ describe("Tool Registry", () => {
     "apply_patch",
     "update_task_progress",
     "image_gen",
-    "list_themes",
-    "describe_theme",
-    "list_slide_pagepatterns",
-    "describe_slide_pagepattern",
-    "list_content_components",
-    "describe_content_component",
-    "validate_slideml",
-    "render_slideml",
-    "append_slides",
-    "read_slide",
+    "describe_schema",
+    "create_deck",
+    "read_deck",
     "replace_slide",
-    "edit_slideml",
-    "audit_pptx",
+    "patch_deck",
+    "validate_render",
   ];
 
-  it("has exactly 31 built-in tools", () => {
-    const skills = getTools();
-    expect(Object.keys(skills)).toHaveLength(31);
+  it(`has exactly ${EXPECTED_TOOLS.length} built-in tools`, () => {
+    const tools = getTools();
+    expect(Object.keys(tools)).toHaveLength(EXPECTED_TOOLS.length);
   });
 
-  it("has all expected skills registered", () => {
-    const skills = getTools();
-    for (const name of EXPECTED_SKILLS) {
-      expect(skills[name]).toBeDefined();
+  it("has all expected tools registered", () => {
+    const tools = getTools();
+    for (const name of EXPECTED_TOOLS) {
+      expect(tools[name]).toBeDefined();
     }
   });
 
-  it("returns skill by name", () => {
-    const skill = getTool("search_knowledge");
-    expect(skill).toBeDefined();
-    expect(skill?.definition.name).toBe("search_knowledge");
+  it("returns tool by name", () => {
+    const tool = getTool("search_knowledge");
+    expect(tool).toBeDefined();
+    expect(tool?.definition.name).toBe("search_knowledge");
   });
 
-  it("returns undefined for unknown skill", () => {
+  it("returns undefined for unknown tool", () => {
     expect(getTool("nonexistent")).toBeUndefined();
   });
 
-  it("generates valid tool definitions for all skills", () => {
+  it("generates valid tool definitions for all tools", () => {
     const defs = getToolDefinitions();
-    expect(defs).toHaveLength(31);
+    expect(defs).toHaveLength(EXPECTED_TOOLS.length);
 
     for (const def of defs) {
       expect(def.name).toBeTruthy();
       expect(def.description).toBeTruthy();
-      expect(def.description.length).toBeGreaterThan(20); // Meaningful description
+      expect(def.description.length).toBeGreaterThan(20);
       expect(def.parameters).toBeDefined();
       expect(def.parameters.type).toBe("object");
       expect(def.parameters.properties).toBeDefined();
     }
   });
 
-  it("all skills declare a required array (may be empty for purely-optional tools)", () => {
+  it("all tools declare a required array (may be empty for purely-optional tools)", () => {
     const defs = getToolDefinitions();
-    // A few tools (e.g. list_content_components) take only optional parameters
-    // because their behavior is fully defaulted. Declaring `required: []`
-    // is still mandatory so the JSON schema is well-formed.
-    // Tools whose runtime requires "at-least-one-of" semantics that
-    // JSON Schema can't express directly — runtime checks in execute()
-    // enforce the constraint, so `required: []` is intentional.
-    const ALLOW_EMPTY_REQUIRED = new Set([
-      "list_themes",
-      "list_slide_pagepatterns",
-      "list_content_components",
-      "validate_slideml",  // accepts `path` OR `slideml`; runtime requires one
+    const ALLOW_EMPTY_REQUIRED = new Set<string>([
+      "describe_schema",
     ]);
     for (const def of defs) {
       const params = def.parameters as { required?: string[] };
@@ -95,7 +79,7 @@ describe("Tool Registry", () => {
     }
   });
 
-  it("no duplicate skill names", () => {
+  it("no duplicate tool names", () => {
     const defs = getToolDefinitions();
     const names = defs.map((d) => d.name);
     expect(new Set(names).size).toBe(names.length);
