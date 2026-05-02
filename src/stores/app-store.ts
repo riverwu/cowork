@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { listSources, getSettings } from "@/lib/db";
+import { listSources, getSettings, saveSettings } from "@/lib/db";
 import { mcpManager } from "@/lib/mcp";
 import type { Source, Settings } from "@/types";
 
@@ -21,6 +21,7 @@ interface AppState {
   load: () => Promise<void>;
   refreshSources: () => Promise<void>;
   refreshMcp: () => void;
+  setDebugLogEnabled: (enabled: boolean) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -57,5 +58,12 @@ export const useAppStore = create<AppState>((set) => ({
       id: s.id, name: s.name, status: s.status, toolCount: s.toolCount,
     }));
     set({ mcpServers });
+  },
+
+  setDebugLogEnabled: async (enabled: boolean) => {
+    await saveSettings({ debugLogEnabled: enabled });
+    set((s) => ({
+      settings: s.settings ? { ...s.settings, debugLogEnabled: enabled } : { debugLogEnabled: enabled, llmProvider: "anthropic" },
+    }));
   },
 }));

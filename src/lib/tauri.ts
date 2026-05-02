@@ -381,6 +381,39 @@ export async function runNodeScript(script: string, cwd?: string, timeoutSecs?: 
   return invokeDesktop<PythonResult>("run_node_script", { script, cwd, timeoutSecs });
 }
 
+// ---- Debug log ----
+
+export interface DebugLogInitResult {
+  requestDir: string;
+  logPath: string;
+}
+
+export interface DebugLogCopyResult {
+  copiedAs: string;
+  absPath: string;
+  byteLength: number;
+}
+
+export async function debugLogInit(requestId: string, header: Record<string, unknown>): Promise<DebugLogInitResult> {
+  return invokeDesktop<DebugLogInitResult>("debug_log_init", { requestId, header });
+}
+
+export async function debugLogAppend(logPath: string, line: string): Promise<void> {
+  return invokeDesktop<void>("debug_log_append", { logPath, line });
+}
+
+export async function debugLogCopyArtifact(
+  requestDir: string,
+  srcPath: string,
+  label?: string,
+): Promise<DebugLogCopyResult | null> {
+  return invokeDesktop<DebugLogCopyResult | null>("debug_log_copy_artifact", { requestDir, srcPath, label });
+}
+
+export async function debugLogOpenRoot(): Promise<string> {
+  return invokeDesktop<string>("debug_log_open_root");
+}
+
 // ---- SlideML2 ----
 
 export interface Slideml2DescribeSchemaResult {

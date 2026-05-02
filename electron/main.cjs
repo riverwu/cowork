@@ -164,6 +164,10 @@ async function dispatch(command, args, sender) {
     case "web_fetch": return webFetch(args.url);
     case "web_search": return webSearch(args.query, args.maxResults);
     case "browser_action": return browserAction(args);
+    case "debug_log_init": return debugLogInit(args.requestId, args.header);
+    case "debug_log_append": return debugLogAppend(args.logPath, args.line);
+    case "debug_log_copy_artifact": return debugLogCopyArtifact(args.requestDir, args.srcPath, args.label);
+    case "debug_log_open_root": return debugLogOpenRoot();
     default: throw new Error(`Unknown Electron command: ${command}`);
   }
 }
@@ -670,6 +674,85 @@ function jsonPointerRemove(doc, ptr) {
 
 function jsonPointerEscape(part) {
   return part.replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
+// ---- Debug log ----
+//
+// Layout:
+//   ~/.cowork/debug-logs/<requestId>/
+//     request-<requestId>.log         JSONL, one event per line
+//     <copied artifact files...>
+//
+// All write paths are derived from requestId on the main side; renderer
+// only supplies the id + payloads, never raw filesystem paths. This keeps
+// the IPC surface small and prevents writes outside the debug-logs root.
+
+function debugLogRoot() {
+  return path.join(os.homedir(), ".cowork", "debug-logs");
+}
+
+function debugLogPaths(requestId) {
+  const safeId = String(requestId || "").replace(/[^A-Za-z0-9._-]/g, "_");
+  if (!safeId) throw new Error("debug_log: requestId required");
+  const dir = path.join(debugLogRoot(), safeId);
+  const log = path.join(dir, `request-${safeId}.log`);
+  return { dir, log };
+}
+
+async function debugLogInit(requestId, header) {
+  const { dir, log } = debugLogPaths(requestId);
+  await fsp.mkdir(dir, { recursive: true });
+  // Truncate / create the file with the header line.
+  const headerLine = JSON.stringify({ ...(header || {}), event: "init", at: Date.now() }) + "\n";
+  await fsp.writeFile(log, headerLine, "utf8");
+  return { requestDir: dir, logPath: log };
+}
+
+async function debugLogAppend(logPath, line) {
+  if (!logPath) throw new Error("debug_log_append: logPath required");
+  if (typeof line !== "string") throw new Error("debug_log_append: line must be string");
+  // Caller is expected to JSON.stringify; we just guarantee newline termination.
+  const payload = line.endsWith("\n") ? line : `${line}\n`;
+  await fsp.appendFile(logPath, payload, "utf8");
+}
+
+async function debugLogCopyArtifact(requestDir, srcPath, label) {
+  if (!requestDir) throw new Error("debug_log_copy_artifact: requestDir required");
+  if (!srcPath) throw new Error("debug_log_copy_artifact: srcPath required");
+  // Refuse to copy out-of-root or non-existent files; silently skip with null
+  // so the agent loop never crashes because a tool result string mentioned a
+  // path that's already been cleaned up.
+  if (!fs.existsSync(srcPath)) return null;
+  const stat = await fsp.stat(srcPath).catch(() => null);
+  if (!stat || !stat.isFile()) return null;
+  const root = debugLogRoot();
+  if (!requestDir.startsWith(root)) throw new Error("debug_log_copy_artifact: requestDir must live under the debug-log root");
+  await fsp.mkdir(requestDir, { recursive: true });
+  const base = path.basename(srcPath);
+  const safeLabel = label ? String(label).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 40) : "";
+  const filename = await debugLogAllocFilename(requestDir, safeLabel, base);
+  const dst = path.join(requestDir, filename);
+  await fsp.copyFile(srcPath, dst);
+  return { copiedAs: filename, absPath: dst, byteLength: stat.size };
+}
+
+async function debugLogAllocFilename(requestDir, label, base) {
+  const candidate = label ? `${label}__${base}` : base;
+  if (!fs.existsSync(path.join(requestDir, candidate))) return candidate;
+  // Collision — suffix with -1, -2, ... until free. Bounded retries.
+  const ext = path.extname(candidate);
+  const stem = candidate.slice(0, candidate.length - ext.length);
+  for (let i = 1; i < 1000; i++) {
+    const next = `${stem}-${i}${ext}`;
+    if (!fs.existsSync(path.join(requestDir, next))) return next;
+  }
+  return `${stem}-${Date.now()}${ext}`;
+}
+
+async function debugLogOpenRoot() {
+  const root = debugLogRoot();
+  await fsp.mkdir(root, { recursive: true });
+  return shell.openPath(root);
 }
 
 

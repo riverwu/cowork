@@ -52,6 +52,8 @@ export async function getSettings(): Promise<Settings> {
   const imageApiKey = (await getSetting("image_api_key")) || undefined;
   const imageBaseUrl = (await getSetting("image_base_url")) || undefined;
   const imageModel = (await getSetting("image_model")) || undefined;
+  const debugLogRaw = await getSetting("debug_log_enabled");
+  const debugLogEnabled = debugLogRaw === "1" || debugLogRaw === "true";
   return {
     llmProvider: provider as Settings["llmProvider"],
     anthropicApiKey,
@@ -65,6 +67,7 @@ export async function getSettings(): Promise<Settings> {
     imageApiKey,
     imageBaseUrl,
     imageModel,
+    debugLogEnabled,
   };
 }
 
@@ -81,6 +84,7 @@ export async function saveSettings(settings: Partial<Settings>): Promise<void> {
   if (settings.imageApiKey !== undefined) await setSetting("image_api_key", settings.imageApiKey);
   if (settings.imageBaseUrl !== undefined) await setSetting("image_base_url", settings.imageBaseUrl);
   if (settings.imageModel !== undefined) await setSetting("image_model", settings.imageModel);
+  if (settings.debugLogEnabled !== undefined) await setSetting("debug_log_enabled", settings.debugLogEnabled ? "1" : "0");
 }
 
 // ---- Sources ----

@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { useSessionStore } from "@/stores/session-store";
+import { useAppStore } from "@/stores/app-store";
 import { FileTypeIcon, IconSend, IconClose, IconPlus, IconFolder } from "@/components/icons";
-import { pickFiles, pickFolder } from "@/lib/tauri";
+import { pickFiles, pickFolder, debugLogOpenRoot } from "@/lib/tauri";
 import { t } from "@/lib/i18n";
 
 interface AttachedFile {
@@ -57,6 +58,30 @@ function IconReset({ size = 18 }: { size?: number }) {
   );
 }
 
+function IconBug({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 3.5C7.34 3.5 6 4.84 6 6.5V8H12V6.5C12 4.84 10.66 3.5 9 3.5Z" />
+      <path d="M5 8H13V12C13 14.21 11.21 16 9 16C6.79 16 5 14.21 5 12V8Z" />
+      <path d="M3 9.5L5 10" />
+      <path d="M15 9.5L13 10" />
+      <path d="M3 13L5 12.5" />
+      <path d="M15 13L13 12.5" />
+      <path d="M9 8V16" />
+    </svg>
+  );
+}
+
+function IconOpen({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10 3H15V8" />
+      <path d="M15 3L9 9" />
+      <path d="M13 11V14C13 14.55 12.55 15 12 15H4C3.45 15 3 14.55 3 14V6C3 5.45 3.45 5 4 5H7" />
+    </svg>
+  );
+}
+
 export function CommandBar() {
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<AttachedFile[]>([]);
@@ -68,6 +93,8 @@ export function CommandBar() {
     workingDirectory, setWorkingDirectory, isStreaming, pendingMessages,
     dumpContext, resetAll,
   } = useSessionStore();
+  const debugLogEnabled = useAppStore((s) => s.settings?.debugLogEnabled === true);
+  const setDebugLogEnabled = useAppStore((s) => s.setDebugLogEnabled);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -203,6 +230,23 @@ export function CommandBar() {
                 <button onClick={handleDumpContext} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors text-left">
                   <IconDump size={15} />
                   Dump Context
+                </button>
+                <div className="my-1 border-t border-[var(--border)]" />
+                <button
+                  onClick={() => setDebugLogEnabled(!debugLogEnabled)}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors text-left"
+                  title="Record every LLM message, tool call, and produced file under ~/.cowork/debug-logs"
+                >
+                  <IconBug size={15} />
+                  <span className="flex-1">Debug Log</span>
+                  {debugLogEnabled && <span className="text-[var(--primary-accent)] text-[11px]">ON</span>}
+                </button>
+                <button
+                  onClick={async () => { setShowMenu(false); try { await debugLogOpenRoot(); } catch (e) { console.warn("[CommandBar] open log folder failed:", e); } }}
+                  className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--on-surface-secondary)] hover:bg-[var(--surface-low)] cursor-pointer transition-colors text-left"
+                >
+                  <IconOpen size={15} />
+                  Open log folder
                 </button>
                 <div className="my-1 border-t border-[var(--border)]" />
                 <button onClick={handleResetAll} className="w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-[var(--error)] hover:bg-[var(--error-light)] cursor-pointer transition-colors text-left">

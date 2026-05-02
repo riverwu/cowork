@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { runAgent } from "@/lib/ai/agent";
+import { DebugLogger } from "@/lib/ai/debug-log";
+import { useAppStore } from "@/stores/app-store";
 import { skillRegistry } from "@/lib/ai/skill-registry";
 import { getTool } from "@/lib/ai/tools/registry";
 import type { LLMMessage, ToolCall } from "@/lib/ai/providers/types";
@@ -210,7 +212,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           ),
         }));
       };
-      for await (const event of runAgent({ messages: llmMessages, sessionId, planMode, workingDirectory, onProgress })) {
+      // Per-request debug logger — only created when the toggle in the
+      // `+` menu is on. Init failures are swallowed by DebugLogger itself.
+      let debugLog: DebugLogger | undefined;
+      const debugEnabled = useAppStore.getState().settings?.debugLogEnabled === true;
+      if (debugEnabled) {
+        debugLog = new DebugLogger(DebugLogger.newRequestId());
+        await debugLog.init({
+          sessionId,
+          query: content.slice(0, 4000),
+          planMode,
+          workingDirectory,
+        });
+      }
+
+      for await (const event of runAgent({ messages: llmMessages, sessionId, planMode, workingDirectory, onProgress, debugLog })) {
         handleEvent(event, set);
         if (event.type === "text-delta") {
           fullText += event.text;

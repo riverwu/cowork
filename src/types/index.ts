@@ -22,6 +22,13 @@ export interface Settings {
   imageApiKey?: string;
   imageBaseUrl?: string;
   imageModel?: string;
+
+  /** When true, the agent loop writes a per-request JSONL log under
+   *  `~/.cowork/debug-logs/<request-id>/` containing every LLM
+   *  send/receive, every tool call's input/output, and a copy of every
+   *  file the tools produced. Off by default — toggle from the chat
+   *  composer's `+` menu. */
+  debugLogEnabled?: boolean;
 }
 
 // ---- Knowledge ----
