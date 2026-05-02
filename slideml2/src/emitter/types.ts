@@ -56,6 +56,18 @@ export interface TextRun {
   mono?: boolean;
   /** Underline. Auto-applied when `hyperlink` is set; explicit `false` opts out. */
   underline?: boolean;
+  /** Strikethrough. Emits `<a:rPr strike="sngStrike">`. */
+  strike?: boolean;
+  /** Baseline shift in per-cent of the run's font size. Negative = subscript,
+   *  positive = superscript. Typical: -25 for sub, +30 for sup. Maps to
+   *  `<a:rPr baseline="N">` where N is per-mille (the spec's units). We
+   *  accept percent and the emitter scales to per-mille. */
+  baseline?: number;
+  /** Letter spacing in 1/100 pt. Negative tightens, positive opens; usually
+   *  -50..+200. Maps to `<a:rPr spc="N">`. */
+  letterSpacing?: number;
+  /** Highlight (background) color. Maps to `<a:highlight>` inside `<a:rPr>`. */
+  highlight?: HexColor;
   /** Hyperlink target. HTTPS URL → external link. The slide emitter
    *  registers a slide-level rel of type `/hyperlink` with
    *  `TargetMode="External"` and stamps the rId onto `<a:hlinkClick>`. */

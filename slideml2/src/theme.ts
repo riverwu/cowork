@@ -14,9 +14,16 @@ export interface SimpleTheme {
   component: Record<string, ComponentStyle>;
   tone: Record<string, { fg: string; bg: string; line: string }>;
   fontFace: string;
+  /**
+   * Per-script font chains. `latin` and `cjk` carry an optional `display`
+   * chain (covers, hero quotes, oversized titles) alongside `text` (body,
+   * captions). `mono` is a single chain — code is code. Backwards-compat:
+   * if `latin` / `cjk` is supplied as a `string[]`, it's interpreted as the
+   * `text` chain and reused for `display`.
+   */
   fonts: {
-    latin: string[];
-    cjk: string[];
+    latin: { display: string[]; text: string[] };
+    cjk: { display: string[]; text: string[] };
     mono: string[];
   };
   layout: {
@@ -53,12 +60,38 @@ export interface SimpleTheme {
   imageGrowWeight: number;
 }
 
+/**
+ * Numeric font weight axis (CSS-style: 100..900). Numeric weights resolve
+ * to typeface name suffixes when the theme's font chain has named variants
+ * available (e.g. "Inter Light" / "Inter SemiBold" / "Inter Black"). For
+ * the OOXML `b` attribute we treat anything ≥ 600 as bold so renderers
+ * without the named variant still get visible emphasis.
+ */
+export type FontWeight = "normal" | "bold" | number;
+
 export interface TextStyle {
   fontSize: number;
-  weight?: "normal" | "bold";
+  weight?: FontWeight;
   color: string;
   lineHeight: number;
   margin?: { l?: number; r?: number; t?: number; b?: number };
+  /** Letter spacing in 1/100 pt. Negative tightens, positive opens. */
+  letterSpacing?: number;
+  /**
+   * Which font role this text style draws from. `display` (large headlines,
+   * quote heroes), `text` (default body / labels / captions), or `mono`
+   * (code, identifiers). Defaults to `text`.
+   */
+  fontFamily?: "display" | "text" | "mono";
+  /** OpenType feature flags emitted on every run rendered with this style.
+   *  Common: ['tnum'] for tabular numerals on data tables, ['smcp'] for
+   *  small-caps on eyebrows. Renderer support varies; PowerPoint honors
+   *  `tnum` and `smcp` reliably on installed OpenType fonts. */
+  fontFeatures?: string[];
+  /** Uppercase transform applied at render time (CSS text-transform). */
+  uppercase?: boolean;
+  /** Italic by default for this style (e.g. quote, citation). */
+  italic?: boolean;
 }
 
 export interface ComponentStyle {
@@ -111,11 +144,7 @@ function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOve
     component: mergeComponentStyles(base.component, override?.component),
     tone: { ...base.tone, ...(override?.tone || {}) },
     layout: { ...base.layout, ...(override?.layout || {}) },
-    fonts: {
-      latin: override?.fonts?.latin ?? base.fonts.latin,
-      cjk: override?.fonts?.cjk ?? base.fonts.cjk,
-      mono: override?.fonts?.mono ?? base.fonts.mono,
-    },
+    fonts: mergeFonts(base.fonts, override?.fonts),
     chart: { series: override?.chart?.series ?? base.chart.series },
     guidance: {
       scenario: override?.guidance?.scenario ?? base.guidance.scenario,
@@ -144,9 +173,46 @@ function mergeTextStyles(base: Record<string, TextStyle>, override?: Record<stri
       color: typeof value.color === "string" ? value.color : existing.color,
       lineHeight: typeof value.lineHeight === "number" ? value.lineHeight : existing.lineHeight,
       margin: value.margin ?? existing.margin,
+      letterSpacing: value.letterSpacing ?? existing.letterSpacing,
+      fontFamily: value.fontFamily ?? existing.fontFamily,
+      fontFeatures: value.fontFeatures ?? existing.fontFeatures,
+      uppercase: value.uppercase ?? existing.uppercase,
+      italic: value.italic ?? existing.italic,
     };
   }
   return out;
+}
+
+/** Accept either the legacy `string[]` form or the new `{ display, text }`
+ *  shape for `latin` and `cjk`. The legacy array becomes both `text` and
+ *  `display` so old themeOverrides still render identically. */
+function mergeFonts(
+  base: SimpleTheme["fonts"],
+  override?: { latin?: string[] | { display?: string[]; text?: string[] }; cjk?: string[] | { display?: string[]; text?: string[] }; mono?: string[] },
+): SimpleTheme["fonts"] {
+  if (!override) {
+    return { latin: { ...base.latin }, cjk: { ...base.cjk }, mono: [...base.mono] };
+  }
+  return {
+    latin: mergeScriptFonts(base.latin, override.latin),
+    cjk: mergeScriptFonts(base.cjk, override.cjk),
+    mono: override.mono ?? [...base.mono],
+  };
+}
+
+function mergeScriptFonts(
+  base: { display: string[]; text: string[] },
+  override?: string[] | { display?: string[]; text?: string[] },
+): { display: string[]; text: string[] } {
+  if (!override) return { display: [...base.display], text: [...base.text] };
+  if (Array.isArray(override)) {
+    // Legacy: a single chain doubles as text + display.
+    return { display: override, text: override };
+  }
+  return {
+    display: override.display ?? [...base.display],
+    text: override.text ?? [...base.text],
+  };
 }
 
 function mergeComponentStyles(base: Record<string, ComponentStyle>, override?: Record<string, ComponentStyle>): Record<string, ComponentStyle> {
@@ -373,8 +439,14 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       brand: { fg: "brand.primary", bg: "brand.tint", line: "brand.primary" },
     },
     fonts: {
-      latin: ["Aptos", "Calibri", "Arial"],
-      cjk: ["PingFang SC", "Microsoft YaHei", "SimHei"],
+      latin: {
+        display: ["Aptos Display", "Aptos", "Calibri", "Arial"],
+        text: ["Aptos", "Calibri", "Arial"],
+      },
+      cjk: {
+        display: ["PingFang SC", "Microsoft YaHei", "SimHei"],
+        text: ["PingFang SC", "Microsoft YaHei", "SimHei"],
+      },
       mono: ["Menlo", "Consolas", "Courier New"],
     },
     fontFace: "Aptos",
@@ -456,10 +528,69 @@ function mixHex(a: string, b: string, weight: number): string {
   return `${toHex(blend(ar, br))}${toHex(blend(ag, bg))}${toHex(blend(ab, bb))}`;
 }
 
-export function fontFamilyChain(theme: SimpleTheme, kind: "latin" | "cjk" | "mono"): string {
-  return theme.fonts[kind].join(", ");
+export type FontRole = "display" | "text" | "mono";
+
+function chainFor(theme: SimpleTheme, script: "latin" | "cjk" | "mono", role: FontRole): string[] {
+  if (script === "mono") return theme.fonts.mono;
+  const branch = theme.fonts[script];
+  if (role === "display") return branch.display.length ? branch.display : branch.text;
+  return branch.text.length ? branch.text : branch.display;
 }
 
-export function preferredFont(theme: SimpleTheme, kind: "latin" | "cjk" | "mono"): string {
-  return theme.fonts[kind][0] || theme.fontFace;
+export function fontFamilyChain(theme: SimpleTheme, script: "latin" | "cjk" | "mono", role: FontRole = "text"): string {
+  return chainFor(theme, script, role).join(", ");
+}
+
+/**
+ * Pick the head-of-chain font for the requested script + role. OOXML's
+ * `typeface` attribute takes ONE name, so SlideML resolves the chain to a
+ * single face here. If a numeric `weight` is supplied and the chosen face
+ * has a known weight-suffix variant ("Inter Bold", "Inter Light"), we
+ * prefer the suffix so renderers with the variant installed pick the
+ * correct outline. Renderers without the variant fall back to the base
+ * face's weight scaling.
+ */
+export function preferredFont(
+  theme: SimpleTheme,
+  script: "latin" | "cjk" | "mono",
+  role: FontRole = "text",
+  weight?: FontWeight,
+): string {
+  const chain = chainFor(theme, script, role);
+  const head = chain[0] || theme.fontFace;
+  const numericWeight = resolveNumericWeight(weight);
+  if (script === "mono" || numericWeight === undefined || numericWeight === 400) return head;
+  // Suffixes only apply when the face name doesn't already carry one.
+  if (/\b(thin|light|medium|semibold|bold|black)\b/i.test(head)) return head;
+  const suffix = WEIGHT_SUFFIX[numericWeight];
+  return suffix ? `${head} ${suffix}` : head;
+}
+
+const WEIGHT_SUFFIX: Record<number, string> = {
+  100: "Thin",
+  200: "ExtraLight",
+  300: "Light",
+  500: "Medium",
+  600: "SemiBold",
+  700: "Bold",
+  800: "ExtraBold",
+  900: "Black",
+};
+
+/** Convert a TextStyle/RichTextRun weight into (numeric, isBold) for the
+ *  emitter. Numeric weights >= 600 emit `b="1"` so renderers without the
+ *  named typeface variant still get visible emphasis. */
+export function resolveFontWeight(weight: FontWeight | undefined): { numeric: number; bold: boolean } {
+  const numeric = resolveNumericWeight(weight) ?? 400;
+  return { numeric, bold: numeric >= 600 };
+}
+
+function resolveNumericWeight(weight: FontWeight | undefined): number | undefined {
+  if (typeof weight === "number") {
+    if (weight < 100 || weight > 900) return undefined;
+    return Math.round(weight / 100) * 100;
+  }
+  if (weight === "bold") return 700;
+  if (weight === "normal") return 400;
+  return undefined;
 }

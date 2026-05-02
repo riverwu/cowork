@@ -24,11 +24,34 @@ export interface DeckSpec {
 
 export interface ThemeOverride {
   colors?: Record<string, string>;
-  text?: Record<string, { fontSize?: number; weight?: "normal" | "bold"; color?: string; lineHeight?: number; margin?: { l?: number; r?: number; t?: number; b?: number } }>;
+  text?: Record<string, {
+    fontSize?: number;
+    /** "normal" | "bold" | numeric 100..900. Numeric weights resolve to
+     *  typeface-name suffixes ("Inter Light", "Inter SemiBold") and emit
+     *  b="1" for >=600. */
+    weight?: "normal" | "bold" | number;
+    color?: string;
+    lineHeight?: number;
+    margin?: { l?: number; r?: number; t?: number; b?: number };
+    letterSpacing?: number;
+    /** Pull from the theme's display, text, or mono font role. */
+    fontFamily?: "display" | "text" | "mono";
+    /** OpenType feature flags ('tnum', 'smcp', ...) emitted on every run. */
+    fontFeatures?: string[];
+    uppercase?: boolean;
+    italic?: boolean;
+  }>;
   component?: Record<string, { fill?: string; line?: string; accent?: string; padding?: number; radius?: number }>;
   tone?: Record<string, { fg: string; bg: string; line: string }>;
   layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number }>;
-  fonts?: { latin?: string[]; cjk?: string[]; mono?: string[] };
+  /** Per-script font chains. `latin` and `cjk` accept either a single
+   *  string[] (legacy: doubles as text + display) or `{ display?, text? }`
+   *  for separate display + text faces. `mono` is always a single chain. */
+  fonts?: {
+    latin?: string[] | { display?: string[]; text?: string[] };
+    cjk?: string[] | { display?: string[]; text?: string[] };
+    mono?: string[];
+  };
   chart?: { series?: string[] };
   chrome?: { brandMark?: "none" | "top-right" | "bottom-right"; pageNumber?: boolean; footerLine?: boolean; footerHeight?: number; footerPadding?: number };
   imageGrowWeight?: number;
@@ -94,10 +117,35 @@ export type TextContent = string | RichTextRun[];
 
 export interface RichTextRun {
   text: string;
-  marks?: Array<"bold" | "italic" | "underline" | "code" | "emphasis">;
+  /** Inline marks. `code` swaps to the mono font role; `emphasis` is a
+   *  semantic alias for italic; `strikethrough` / `superscript` /
+   *  `subscript` map to `<a:rPr strike|baseline>`. `highlight` requires
+   *  pairing with the `highlight` field. */
+  marks?: Array<"bold" | "italic" | "underline" | "code" | "emphasis" | "strikethrough" | "superscript" | "subscript" | "highlight">;
   color?: string;
   link?: string;
   breakLine?: boolean;
+  /** Per-run size override using the theme's semantic dial. Lets a single
+   *  paragraph mix a hero number with normal copy without splitting into
+   *  multiple text nodes. */
+  size?: "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
+  /** Per-run weight override. Accepts the same values as TextStyle.weight
+   *  ("normal" | "bold" | 100..900). */
+  weight?: "normal" | "bold" | number;
+  italic?: boolean;
+  underline?: boolean;
+  /** Force this run to draw from a specific font role rather than letting
+   *  the parent style decide. */
+  font?: "display" | "text" | "mono" | "cjk";
+  /** Letter spacing in 1/100 pt; passes through to `<a:rPr spc>`. */
+  letterSpacing?: number;
+  /** Background highlight color (theme token or 6-char hex). Pair with
+   *  the `highlight` mark to keep the renderer from emitting it without
+   *  intent. */
+  highlight?: string;
+  /** Baseline shift in per-cent of the run size. -25 = subscript, +30 =
+   *  superscript. Set automatically when marks include sub/sup. */
+  baseline?: number;
 }
 
 export interface RichParagraph {

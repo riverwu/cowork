@@ -128,15 +128,27 @@ function runXml(run: TextRun, isLast: boolean, rels?: RunRels): string {
   // Hyperlinks default to underlined unless the caller explicitly opts out.
   const underlined = run.underline ?? !!run.hyperlink;
 
+  // OOXML `baseline` is per-mille (30000 = +30%). We accept per-cent in the
+  // run (closer to CSS authoring intent) and scale at emit time.
+  const baselineValue = typeof run.baseline === "number" && run.baseline !== 0
+    ? Math.round(run.baseline * 1000)
+    : undefined;
+
   const rPrAttrs =
     attr("lang", "en-US") +
     attr("sz", szValue) +
     attr("b", run.bold) +
     attr("i", run.italic) +
     (underlined ? ` u="sng"` : "") +
+    (run.strike ? ` strike="sngStrike"` : "") +
+    attr("baseline", baselineValue) +
+    attr("spc", typeof run.letterSpacing === "number" ? Math.round(run.letterSpacing) : undefined) +
     attr("dirty", "0");
 
   const fillXml = run.color ? `<a:solidFill><a:srgbClr val="${run.color.toUpperCase()}"/></a:solidFill>` : "";
+  const highlightXml = run.highlight
+    ? (assertHex(run.highlight, "TextRun.highlight"), `<a:highlight><a:srgbClr val="${run.highlight.toUpperCase()}"/></a:highlight>`)
+    : "";
 
   // DrawingML (used in PowerPoint slides) requires SEPARATE child elements
   // `<a:latin>`, `<a:ea>`, `<a:cs>` inside `<a:rPr>` — NOT the
@@ -162,7 +174,9 @@ function runXml(run: TextRun, isLast: boolean, rels?: RunRels): string {
     hlinkXml = `<a:hlinkClick xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${rId}"/>`;
   }
 
-  const rPr = `<a:rPr${rPrAttrs}>${fillXml}${fontsXml}${hlinkXml}</a:rPr>`;
+  // OOXML CT_TextCharacterProperties order:
+  //   ln → fill → effects → highlight → uLnTx/uFillTx → uFill → latin → ea → cs → sym → hlinkClick
+  const rPr = `<a:rPr${rPrAttrs}>${fillXml}${highlightXml}${fontsXml}${hlinkXml}</a:rPr>`;
 
   // breakLine semantics: PptxGenJS emits a `<a:br/>` element after the run.
   // We emit `</a:p><a:p>` boundaries via the higher-level paragraph splitter,

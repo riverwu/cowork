@@ -8,7 +8,41 @@ import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
 import type { Slideml2SourceDeck } from "./types.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
-import { buildTheme, color, preferredFont, sizeMultiplier, textStyle, type SimpleTheme } from "./theme.js";
+import { buildTheme, color, preferredFont, resolveFontWeight, sizeMultiplier, textStyle, type FontRole, type FontWeight, type SimpleTheme, type TextStyle } from "./theme.js";
+
+/** Resolve a TextStyle's weight (string or numeric) into the boolean
+ *  emitter flag. Anything ≥ 600 reads as bold so the OOXML `b` attribute
+ *  fires even when the named-weight typeface variant is missing. */
+function isStyleBold(weight: FontWeight | undefined): boolean {
+  return resolveFontWeight(weight).bold;
+}
+
+/** Pick the OOXML typeface for a text run.
+ *
+ * Resolution order:
+ *  1. Explicit run.font (display | text | mono | cjk) wins.
+ *  2. mark `code` in the run forces mono.
+ *  3. Otherwise pick the script (cjk vs latin via containsCjk(text)) and
+ *     the role (style.fontFamily, default 'text').
+ *  4. Numeric weight on the run/style triggers a typeface-suffix variant
+ *     when the head font name doesn't already encode a weight.
+ */
+function pickRunFontFace(theme: SimpleTheme, text: string, style: TextStyle, options: {
+  marks?: string[];
+  weight?: FontWeight;
+  font?: "display" | "text" | "mono" | "cjk";
+} = {}): { fontFace: string; cjk: boolean; mono: boolean } {
+  const marks = options.marks || [];
+  const weight = options.weight ?? style.weight;
+  if (options.font === "mono" || marks.includes("code")) {
+    return { fontFace: preferredFont(theme, "mono", "text", weight), cjk: false, mono: true };
+  }
+  const script: "latin" | "cjk" = options.font === "cjk" || (options.font !== "display" && options.font !== "text" && containsCjk(text))
+    ? "cjk"
+    : "latin";
+  const role: FontRole = options.font === "display" ? "display" : style.fontFamily || "text";
+  return { fontFace: preferredFont(theme, script, role, weight), cjk: true, mono: false };
+}
 
 export interface LayoutDecision {
   intrinsic?: { mainAxis: "vertical" | "horizontal"; basis: number; min: number; max: number; weight: number };
@@ -784,15 +818,22 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
       const paraStyleKey = typeof rec.style === "string" ? rec.style : undefined;
       const paraStyle = paraStyleKey ? textStyle(theme, paraStyleKey, "paragraph") : style;
       const runs: TextRun[] = Array.isArray(rec.runs)
-        ? rec.runs.map((r) => richRunToTextRun(theme, r, paraStyle, paraStyle.weight === "bold"))
-        : [{
-            text: typeof rec.text === "string" ? rec.text : "",
-            sizeHalfPt: paraStyle.fontSize * 2,
-            bold: paraStyle.weight === "bold",
-            color: color(theme, typeof rec.color === "string" ? rec.color : undefined, paraStyle.color),
-            fontFace: containsCjk(typeof rec.text === "string" ? rec.text : "") ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"),
-            cjk: true,
-          }];
+        ? rec.runs.map((r) => richRunToTextRun(theme, r, paraStyle, isStyleBold(paraStyle.weight)))
+        : (() => {
+            const text = typeof rec.text === "string" ? rec.text : "";
+            const face = pickRunFontFace(theme, text, paraStyle);
+            return [{
+              text,
+              sizeHalfPt: paraStyle.fontSize * 2,
+              bold: isStyleBold(paraStyle.weight),
+              italic: paraStyle.italic === true,
+              letterSpacing: paraStyle.letterSpacing,
+              color: color(theme, typeof rec.color === "string" ? rec.color : undefined, paraStyle.color),
+              fontFace: face.fontFace,
+              cjk: face.cjk,
+              mono: face.mono,
+            }];
+          })();
       const para: Paragraph = {
         runs,
         align: paragraphAlign(rec.align ?? node.align),
@@ -835,7 +876,7 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
     const itemRec = isObject ? rawItem as Record<string, unknown> : { text: String(rawItem ?? "") };
     const text = typeof itemRec.text === "string" ? itemRec.text : "";
     const indent = typeof itemRec.indentLevel === "number" ? itemRec.indentLevel : defaultIndent;
-    const bold = itemRec.bold === true || (style.weight === "bold");
+    const bold = itemRec.bold === true || (isStyleBold(style.weight));
     const colorToken = typeof itemRec.color === "string" ? itemRec.color : (typeof node.color === "string" ? node.color : undefined);
     const customRuns = Array.isArray(itemRec.runs) ? itemRec.runs : null;
     const runs: TextRun[] = customRuns
@@ -1040,7 +1081,7 @@ function makeTableCell(theme: SimpleTheme, raw: unknown, isHeader: boolean, defa
     const valign = cell.valign === "top" || cell.valign === "bottom" || cell.valign === "middle" ? cell.valign : "middle";
     const fillToken = typeof cell.fill === "string" ? cell.fill : isHeader ? "surface.subtle" : undefined;
     const colorToken = typeof cell.color === "string" ? cell.color : undefined;
-    const bold = cell.bold === true || (style.weight === "bold");
+    const bold = cell.bold === true || (isStyleBold(style.weight));
     const runs: TextRun[] = customRuns
       ? customRuns.map((r) => richRunToTextRun(theme, r, style, bold))
       : [{ text, sizeHalfPt: style.fontSize * 2, bold, color: color(theme, colorToken, style.color), fontFace: containsCjk(text) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"), cjk: true }];
@@ -1053,7 +1094,7 @@ function makeTableCell(theme: SimpleTheme, raw: unknown, isHeader: boolean, defa
   }
   const text = String(raw ?? "");
   return {
-    runs: [{ text, sizeHalfPt: style.fontSize * 2, bold: style.weight === "bold", color: color(theme, undefined, style.color), fontFace: containsCjk(text) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"), cjk: true }],
+    runs: [{ text, sizeHalfPt: style.fontSize * 2, bold: isStyleBold(style.weight), color: color(theme, undefined, style.color), fontFace: containsCjk(text) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"), cjk: true }],
     fill: isHeader ? { type: "solid", color: color(theme, "surface.subtle") } : undefined,
     align: isHeader ? "center" : defaultAlign,
     valign: "middle",
@@ -1064,16 +1105,43 @@ function richRunToTextRun(theme: SimpleTheme, raw: unknown, style: ReturnType<ty
   const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
   const text = typeof rec.text === "string" ? rec.text : "";
   const marks = Array.isArray(rec.marks) ? rec.marks.map(String) : [];
+  // Per-run weight override falls back to bold mark, then to the style.
+  const runWeight: FontWeight | undefined =
+    typeof rec.weight === "number" || rec.weight === "bold" || rec.weight === "normal"
+      ? rec.weight as FontWeight
+      : (marks.includes("bold") || marks.includes("emphasis") || rec.bold === true ? "bold" : style.weight);
+  const resolvedWeight = resolveFontWeight(runWeight);
+  // Per-run size override (xs..2xl) re-scales relative to the style's base.
+  const sizeMul = typeof rec.size === "string" ? sizeMultiplier(theme, rec.size) : 1;
+  const fontFace = pickRunFontFace(theme, text, style, {
+    marks,
+    weight: runWeight,
+    font: rec.font === "display" || rec.font === "text" || rec.font === "mono" || rec.font === "cjk" ? rec.font : undefined,
+  });
+  // Baseline auto-set from sub/sup marks; explicit numeric overrides.
+  let baseline: number | undefined;
+  if (marks.includes("superscript")) baseline = 30;
+  if (marks.includes("subscript")) baseline = -25;
+  if (typeof rec.baseline === "number") baseline = rec.baseline;
+  // Highlight requires the explicit color field; the mark alone is a no-op.
+  const highlightToken = typeof rec.highlight === "string" ? rec.highlight : undefined;
+  const highlight = highlightToken && marks.includes("highlight")
+    ? color(theme, highlightToken, "warning.tint")
+    : undefined;
   return {
     text,
-    sizeHalfPt: style.fontSize * 2,
-    bold: defaultBold || marks.includes("bold") || marks.includes("emphasis") || rec.bold === true,
-    italic: marks.includes("italic"),
-    underline: marks.includes("underline"),
+    sizeHalfPt: style.fontSize * 2 * sizeMul,
+    bold: defaultBold || resolvedWeight.bold,
+    italic: rec.italic === true || marks.includes("italic"),
+    underline: rec.underline === true || marks.includes("underline"),
+    strike: marks.includes("strikethrough"),
+    baseline,
+    letterSpacing: typeof rec.letterSpacing === "number" ? rec.letterSpacing : style.letterSpacing,
+    highlight,
     color: color(theme, typeof rec.color === "string" ? rec.color : undefined, style.color),
-    fontFace: marks.includes("code") ? preferredFont(theme, "mono") : containsCjk(text) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"),
-    cjk: true,
-    mono: marks.includes("code"),
+    fontFace: fontFace.fontFace,
+    cjk: fontFace.cjk,
+    mono: fontFace.mono,
     hyperlink: typeof rec.link === "string" ? rec.link : undefined,
     breakLine: rec.breakLine === true,
   };
@@ -1271,36 +1339,37 @@ function nodeBold(node: DomNode, styleBold: boolean): boolean {
 function textRuns(theme: SimpleTheme, node: DomNode, style: ReturnType<typeof textStyle>): TextRun[] {
   const content = node.content;
   if (Array.isArray(content)) {
+    // Route every rich-text run through the canonical builder so size /
+    // weight / font / strike / sub / sup / highlight stay honored. The
+    // node-level uppercase/italic/bold still apply as a baseline.
     return content.map((raw) => {
       const record = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-      const text = maybeUppercase(typeof record.text === "string" ? record.text : "", node);
-      const marks = Array.isArray(record.marks) ? record.marks.map(String) : [];
-      return {
-        text,
-        sizeHalfPt: style.fontSize * 2,
-        bold: nodeBold(node, style.weight === "bold") || marks.includes("bold") || marks.includes("emphasis"),
-        italic: node.italic === true || marks.includes("italic"),
-        underline: node.underline === true || marks.includes("underline"),
-        color: color(theme, record.color, style.color),
-        fontFace: marks.includes("code") ? preferredFont(theme, "mono") : containsCjk(text) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"),
-        cjk: true,
-        mono: marks.includes("code"),
-        hyperlink: typeof record.link === "string" ? record.link : undefined,
-        breakLine: record.breakLine === true,
-      };
+      const upperRaw = typeof record.text === "string" ? maybeUppercase(record.text, node) : record.text;
+      const merged = { ...record, text: upperRaw };
+      const baseBold = nodeBold(node, isStyleBold(style.weight));
+      const run = richRunToTextRun(theme, merged, style, baseBold);
+      // Node-level italic / underline still propagate when the run has none.
+      if (run.italic === false && node.italic === true) run.italic = true;
+      if (run.underline === false && node.underline === true) run.underline = true;
+      return run;
     });
   }
   const text = maybeUppercase(stringProp(node, "text", typeof content === "string" ? content : ""), node);
+  const styleKey = textStyleKey(node);
+  const face = pickRunFontFace(theme, text, style, {
+    font: styleKey === "code" ? "mono" : undefined,
+  });
   return [{
     text,
     sizeHalfPt: style.fontSize * 2,
-    bold: nodeBold(node, style.weight === "bold"),
-    italic: node.italic === true,
+    bold: nodeBold(node, isStyleBold(style.weight)),
+    italic: node.italic === true || style.italic === true,
     underline: node.underline === true,
+    letterSpacing: style.letterSpacing,
     color: color(theme, node.color, style.color),
-    fontFace: containsCjk(text) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"),
-    cjk: true,
-    mono: textStyleKey(node) === "code",
+    fontFace: face.fontFace,
+    cjk: face.cjk,
+    mono: face.mono,
   }];
 }
 
@@ -1922,7 +1991,7 @@ function tableCellIntrinsicHeight(theme: SimpleTheme, raw: unknown, widthCm: num
   const contentWidth = Math.max(0.8, widthCm - 0.28);
   const fontPt = style.fontSize;
   const isMostlyCjk = text.length > 0 && cjkRatio(text) > 0.5;
-  const charWidthCm = isMostlyCjk ? fontPt * 0.0353 * 1.02 : avgCharWidthCm(theme, fontPt, style.weight === "bold");
+  const charWidthCm = isMostlyCjk ? fontPt * 0.0353 * 1.02 : avgCharWidthCm(theme, fontPt, isStyleBold(style.weight));
   const charsPerLine = Math.max(6, Math.floor(contentWidth / charWidthCm));
   const lines = Math.max(1, Math.ceil(weightedTextLength(text) / charsPerLine));
   return lines * fontPt * 0.0353 * style.lineHeight + 0.24;
@@ -2051,7 +2120,7 @@ function textIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number)
   const isMostlyCjk = text.length > 0 && cjkRatio(text) > 0.5;
   // CJK glyphs are roughly square at the font's pt size, so a CJK line packs
   // fewer characters per cm than the latin estimate.
-  const charWidthCm = isMostlyCjk ? fontPt * 0.0353 * 1.02 : avgCharWidthCm(theme, fontPt, style.weight === "bold");
+  const charWidthCm = isMostlyCjk ? fontPt * 0.0353 * 1.02 : avgCharWidthCm(theme, fontPt, isStyleBold(style.weight));
   const charsPerLine = Math.max(8, Math.floor(widthCm / charWidthCm));
   const lines = Math.max(1, Math.ceil(weightedTextLength(text) / charsPerLine));
   const boxPadding = typeof node.fill === "string" || typeof node.line === "string" ? 0.28 : 0.18;
@@ -2099,7 +2168,7 @@ function textIntrinsicWidth(theme: SimpleTheme, node: DomNode): number {
   // metrics; mixed-script strings need per-glyph estimation, not the latin-
   // only avg charWidth × weighted-count formula (which underestimates by
   // ~30% on pages with currency-prefixed CJK like "$500亿+" or "500亿美元+").
-  const latinChars = avgCharWidthCm(theme, style.fontSize, style.weight === "bold");
+  const latinChars = avgCharWidthCm(theme, style.fontSize, isStyleBold(style.weight));
   const cjkChars = style.fontSize * 0.0353 * 1.02;
   let width = 0;
   for (const ch of text) {
@@ -2149,7 +2218,7 @@ function bulletsIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: numb
   const baseStyle = textStyle(theme, node.density === "compact" ? "bullet-compact" : "bullet", "paragraph");
   const mult = sizeMultiplier(theme, node.size);
   const style = mult === 1 ? baseStyle : { ...baseStyle, fontSize: baseStyle.fontSize * mult };
-  const charWidthCm = avgCharWidthCm(theme, style.fontSize, style.weight === "bold");
+  const charWidthCm = avgCharWidthCm(theme, style.fontSize, isStyleBold(style.weight));
   const charsPerLine = Math.max(8, Math.floor(widthCm / charWidthCm));
   const lineCount = items.reduce((sum, item) => sum + Math.max(1, Math.ceil(weightedTextLength(item) / charsPerLine)), 0);
   const lineHeight = style.fontSize * 0.0353 * style.lineHeight;
@@ -2185,7 +2254,7 @@ function autoShrinkStyle(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
     // Bold display text in LibreOffice consistently rendered ~12-15% wider
     // than the cm/pt × char-count estimate; bake that in here so autoShrink
     // errs toward smaller-but-fits rather than estimated-fits-but-wraps.
-    const boldFactor = style.weight === "bold" ? (fontPt >= 22 ? 1.32 : 1.22) : 1;
+    const boldFactor = isStyleBold(style.weight) ? (fontPt >= 22 ? 1.32 : 1.22) : 1;
     const latinW = fontPt * 0.019 * boldFactor;
     const cjkW = fontPt * 0.0353 * 1.05;
     if (isMostlyCjk) return text.length * cjkW;
