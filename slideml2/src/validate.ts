@@ -345,6 +345,21 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       suggestedFix: `Add child components inside ${definition.name}, or replace this slide with meaningful content.`,
     }));
   }
+  // Recursively validate nested DomNodes that components carry in
+  // documented item-array fields (timeline.items[].content, etc.). Without
+  // this, an agent passing {type:"timeline", items:[{content:{type:"...",
+  // ...}}]} silently slips an unvalidated nested component past the gate
+  // and only fails at render time with a non-actionable error.
+  if (name === "timeline" && Array.isArray(node.items)) {
+    for (let i = 0; i < node.items.length; i++) {
+      const it = node.items[i];
+      if (!it || typeof it !== "object") continue;
+      const content = (it as Record<string, unknown>).content;
+      if (content && typeof content === "object" && !Array.isArray(content)) {
+        validateNode(content as DomNode, `${path}.items[${i}].content`, slideId, issues, node);
+      }
+    }
+  }
 }
 
 const REQUIRED_FIELD_ALIASES: Record<string, Record<string, string[]>> = {

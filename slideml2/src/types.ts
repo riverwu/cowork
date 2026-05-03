@@ -136,9 +136,15 @@ export interface RichTextRun {
    *  paragraph mix a hero number with normal copy without splitting into
    *  multiple text nodes. */
   size?: "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
-  /** Per-run weight override. Accepts the same values as TextStyle.weight
-   *  ("normal" | "bold" | 100..900). */
-  weight?: "normal" | "bold" | number;
+  /** Per-run weight override. Accepts named CSS weights (light/regular/
+   *  medium/semibold/bold/extrabold/black) or numeric 100..900. */
+  weight?:
+    | "thin" | "extralight" | "light"
+    | "normal" | "regular" | "book"
+    | "medium" | "semibold" | "demibold"
+    | "bold" | "extrabold" | "ultrabold" | "heavy"
+    | "black" | "super"
+    | number;
   italic?: boolean;
   underline?: boolean;
   /** Force this run to draw from a specific font role rather than letting
@@ -146,9 +152,18 @@ export interface RichTextRun {
   font?: "display" | "text" | "mono" | "cjk";
   /** Letter spacing in 1/100 pt; passes through to `<a:rPr spc>`. */
   letterSpacing?: number;
-  /** Background highlight color (theme token or 6-char hex). Pair with
-   *  the `highlight` mark to keep the renderer from emitting it without
-   *  intent. */
+  /** Friendly tracking word: `tight | snug | normal | wide | wider | widest`.
+   *  Resolves to letter-spacing in 1/100 pt so agents can reach for "tight"
+   *  on a hero or "wide" on an eyebrow without remembering point math. */
+  tracking?: "tighter" | "tight" | "snug" | "normal" | "wide" | "wider" | "widest";
+  /** Semantic emphasis word resolved by the theme into a (color, weight,
+   *  italic, letter-spacing) hint. Lets agents say `emphasis:"key"` to
+   *  bold an important phrase without having to pick a hex color or a
+   *  numeric weight. Explicit per-run color/weight still win. */
+  emphasis?: "lead" | "key" | "strong" | "muted" | "subtle" | "accent" | "danger" | "warning" | "success" | "info";
+  /** Background highlight color (theme token or 6-char hex). Either form
+   *  applies the highlight; pair with the `highlight` mark only if you
+   *  want the theme's default warning tint and no explicit color. */
   highlight?: string;
   /** Baseline shift in per-cent of the run size. -25 = subscript, +30 =
    *  superscript. Set automatically when marks include sub/sup. */

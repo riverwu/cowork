@@ -129,7 +129,44 @@ function isOverlayChildAtSource(node: DomNode): boolean {
   return false;
 }
 
+function aliasDimensionFields(node: DomNode): DomNode {
+  if (!node || typeof node !== "object") return node;
+  // umzrkm fix: agents reach for `height` / `width` on shape / band /
+  // frame / panel nodes when they want a fixed dimension. Renderer reads
+  // `fixedHeight` / `fixedWidth` for layout-container types, so the
+  // agent's `height` was silently ignored, leaving (e.g.) a thin band
+  // rendered at default size.
+  //
+  // Caveats:
+  //   - `image` / `chart` / `table` with anchor/position read `width` /
+  //     `height` directly via numberProp() — do not strip those.
+  //   - Other container types: copy `height`→`fixedHeight` (canonical
+  //     field) but keep both available so any code reading either form
+  //     still works.
+  const skipAlias = node.type === "image" || node.type === "chart" || node.type === "table"
+    || typeof node.anchor === "string" || typeof node.position === "string";
+  let mutated = node;
+  if (!skipAlias) {
+    if (typeof node.height === "number" && node.fixedHeight === undefined) {
+      mutated = { ...mutated };
+      mutated.fixedHeight = node.height;
+    }
+    if (typeof node.width === "number" && node.fixedWidth === undefined) {
+      if (mutated === node) mutated = { ...mutated };
+      mutated.fixedWidth = node.width;
+    }
+  }
+  if (Array.isArray(node.children)) {
+    const aliasedChildren = node.children.map((c) => aliasDimensionFields(c));
+    if (mutated === node) mutated = { ...mutated };
+    mutated.children = aliasedChildren;
+  }
+  return mutated;
+}
+
 function ensureContentArea(slideId: string, children: DomNode[]): DomNode[] {
+  // Run dimension-field aliasing on every child before content-area wrap.
+  children = children.map((c) => aliasDimensionFields(c));
   if (children.some((node) => node.area === "content")) return children;
   // yajush regression: agents put a footer/corner decoration (image with
   // position:"bottom-right" or anchor:"...") at slide-level expecting it to
@@ -158,7 +195,7 @@ function normalizeNode(slideId: string, node: DomNode, fallbackId: string): DomN
   void raw;
   const id = typeof node.id === "string" && node.id ? node.id : fallbackId;
   return {
-    ...node,
+    ...aliasDimensionFields(node),
     id,
     children: Array.isArray(node.children) ? node.children.map((child, index) => normalizeNode(slideId, child, `${id}.${index + 1}`)) : node.children,
   };

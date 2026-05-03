@@ -67,7 +67,23 @@ export interface SimpleTheme {
  * the OOXML `b` attribute we treat anything ≥ 600 as bold so renderers
  * without the named variant still get visible emphasis.
  */
-export type FontWeight = "normal" | "bold" | number;
+/**
+ * Named CSS-style weights agents may use:
+ *   thin (100) | extralight (200) | light (300) | regular/normal (400) |
+ *   medium (500) | semibold (600) | bold (700) | extrabold (800) | black (900)
+ * Numeric values 100..900 are also accepted directly.
+ */
+export type FontWeight =
+  | "thin" | "hairline"
+  | "extralight" | "ultralight"
+  | "light"
+  | "normal" | "regular" | "book"
+  | "medium"
+  | "semibold" | "demibold"
+  | "bold"
+  | "extrabold" | "ultrabold" | "heavy"
+  | "black" | "super"
+  | number;
 
 export interface TextStyle {
   fontSize: number;
@@ -937,12 +953,94 @@ export function resolveFontWeight(weight: FontWeight | undefined): { numeric: nu
   return { numeric, bold: numeric >= 600 };
 }
 
+/**
+ * Semantic emphasis vocabulary. Agents pick a word ("key", "muted",
+ * "danger") and the theme resolves it to the right combination of color +
+ * weight + letter-spacing. The same word stays meaningful across themes
+ * (e.g. "danger" picks the theme's danger token, not a hardcoded red).
+ *
+ * Resolution rules:
+ *   - color hint may be a token name or undefined (caller falls back to style.color)
+ *   - weight hint is numeric/named; only applied when caller's weight is unset
+ *   - letterSpacing is in 1/100 pt — small negative values tighten kerning
+ *     for hero / display roles
+ */
+export type EmphasisName =
+  | "lead"     // soft heading-of-paragraph emphasis
+  | "key"      // important keyword inside body text
+  | "strong"   // hard emphasis, like CSS <strong>
+  | "muted"    // de-emphasized supporting copy
+  | "subtle"   // even softer than muted
+  | "accent"   // brand accent color
+  | "danger"   // semantic warning / negative
+  | "warning"  // semantic caution
+  | "success"  // semantic positive
+  | "info";    // semantic info / neutral-blue
+
+export interface EmphasisStyle {
+  color?: string;
+  weight?: FontWeight;
+  italic?: boolean;
+  letterSpacing?: number;
+}
+
+const EMPHASIS_TABLE: Record<EmphasisName, EmphasisStyle> = {
+  lead: { weight: "medium", color: "text.primary" },
+  key: { weight: "semibold", color: "text.primary" },
+  strong: { weight: "bold", color: "text.primary" },
+  muted: { color: "text.muted" },
+  subtle: { color: "text.muted", weight: "light" },
+  accent: { color: "brand.primary", weight: "semibold" },
+  danger: { color: "danger", weight: "semibold" },
+  warning: { color: "warning", weight: "semibold" },
+  success: { color: "success", weight: "semibold" },
+  info: { color: "info", weight: "semibold" },
+};
+
+export function listEmphasisNames(): EmphasisName[] {
+  return Object.keys(EMPHASIS_TABLE) as EmphasisName[];
+}
+
+export function resolveEmphasis(emphasis: unknown): EmphasisStyle | undefined {
+  if (typeof emphasis !== "string") return undefined;
+  const key = emphasis.trim().toLowerCase() as EmphasisName;
+  if (key in EMPHASIS_TABLE) return EMPHASIS_TABLE[key];
+  return undefined;
+}
+
+// CSS-style named weight axis. Agents reach for these words ("medium",
+// "semibold") instead of remembering the numeric scale; we resolve them to
+// numeric so downstream logic — typeface variant naming, OOXML `b`
+// attribute — has a single source of truth. `regular` is an alias for
+// `normal` because both wordings are common.
+const NAMED_WEIGHTS: Record<string, number> = {
+  thin: 100,
+  hairline: 100,
+  extralight: 200,
+  ultralight: 200,
+  light: 300,
+  normal: 400,
+  regular: 400,
+  book: 400,
+  medium: 500,
+  semibold: 600,
+  demibold: 600,
+  bold: 700,
+  extrabold: 800,
+  ultrabold: 800,
+  heavy: 800,
+  black: 900,
+  super: 900,
+};
+
 function resolveNumericWeight(weight: FontWeight | undefined): number | undefined {
   if (typeof weight === "number") {
     if (weight < 100 || weight > 900) return undefined;
     return Math.round(weight / 100) * 100;
   }
-  if (weight === "bold") return 700;
-  if (weight === "normal") return 400;
+  if (typeof weight === "string") {
+    const named = NAMED_WEIGHTS[weight.trim().toLowerCase()];
+    if (typeof named === "number") return named;
+  }
   return undefined;
 }

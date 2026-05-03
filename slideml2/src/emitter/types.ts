@@ -162,6 +162,13 @@ export interface PresetShape {
   line?: LineSpec;
   /** For `roundRect`: corner radius as a fraction of the shorter side, 0..1. */
   cornerRadius?: number;
+  /**
+   * Drop shadow under the shape. Maps to `<a:outerShdw>` inside
+   * `<a:effectLst>`. `blur`, `dx`, `dy` are in EMU. Used by elevation
+   * tokens on cards / panels — agents typically pass elevation:"raised"
+   * rather than constructing the shadow object directly.
+   */
+  shadow?: { color: HexColor; alpha?: number; blur?: number; dx?: number; dy?: number };
 }
 
 export interface ImageShape {

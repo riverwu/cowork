@@ -25,6 +25,8 @@ describe("Tool Registry", () => {
     "create_deck",
     "read_deck",
     "replace_slide",
+    "insert_slide",
+    "delete_slide",
     "patch_deck",
     "validate_render",
   ];

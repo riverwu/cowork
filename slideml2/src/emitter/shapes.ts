@@ -88,7 +88,7 @@ function presetShapeXml(shape: PresetShape): string {
   const adjustments = shape.preset === "roundRect" && shape.cornerRadius !== undefined
     ? `<a:avLst><a:gd name="adj" fmla="val ${Math.round(Math.max(0, Math.min(0.5, shape.cornerRadius)) * 50000)}"/></a:avLst>`
     : `<a:avLst/>`;
-  const spPr = spPrXml(shape.xfrm, geom, adjustments, shape.fill, shape.line);
+  const spPr = spPrXml(shape.xfrm, geom, adjustments, shape.fill, shape.line, shape.shadow);
   // PowerPoint requires a `<p:txBody>` even on shapes with no text — emit empty.
   const emptyTxBody =
     `<p:txBody>` +
@@ -314,11 +314,31 @@ function spPrXml(
   adjustments: string | undefined,
   fill: FillSpec | undefined,
   line: LineSpec | undefined,
+  shadow?: { color: string; alpha?: number; blur?: number; dx?: number; dy?: number },
 ): string {
   const fillXml = fillXmlOf(fill);
   const lineXml = lineXmlOf(line);
   const geomXml = `<a:prstGeom prst="${geom}">${adjustments ?? `<a:avLst/>`}</a:prstGeom>`;
-  return `<p:spPr>${xfrmXml(xfrm)}${geomXml}${fillXml}${lineXml}</p:spPr>`;
+  const effectLstXml = shadow ? buildShadowEffectLst(shadow) : "";
+  return `<p:spPr>${xfrmXml(xfrm)}${geomXml}${fillXml}${lineXml}${effectLstXml}</p:spPr>`;
+}
+
+function buildShadowEffectLst(sh: { color: string; alpha?: number; blur?: number; dx?: number; dy?: number }): string {
+  const blurEmu = Math.round(sh.blur ?? 76200);
+  const dx = Math.round(sh.dx ?? 0);
+  const dy = Math.round(sh.dy ?? 38100);
+  const dist = Math.round(Math.sqrt(dx * dx + dy * dy));
+  const dirDeg = dist === 0 ? 0 : Math.round((Math.atan2(dy, dx) * 180 / Math.PI) * 60000);
+  const alphaXml = sh.alpha !== undefined && sh.alpha < 1
+    ? `<a:alpha val="${Math.round(sh.alpha * 100000)}"/>`
+    : "";
+  return (
+    `<a:effectLst>` +
+    `<a:outerShdw blurRad="${blurEmu}" dist="${dist}" dir="${dirDeg}" algn="tl" rotWithShape="0">` +
+    `<a:srgbClr val="${sh.color.toUpperCase()}">${alphaXml}</a:srgbClr>` +
+    `</a:outerShdw>` +
+    `</a:effectLst>`
+  );
 }
 
 function xfrmXml(xfrm: Xfrm): string {

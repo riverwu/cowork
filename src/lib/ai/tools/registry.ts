@@ -21,6 +21,8 @@ import { describeSchemaTool } from "./describe-schema";
 import { createDeckTool } from "./create-deck";
 import { readDeckTool } from "./read-deck";
 import { replaceSlideTool } from "./replace-slide";
+import { insertSlideTool } from "./insert-slide";
+import { deleteSlideTool } from "./delete-slide";
 import { patchDeckTool } from "./patch-deck";
 import { validateRenderTool } from "./validate-render";
 
@@ -33,11 +35,11 @@ import { validateRenderTool } from "./validate-render";
  * Knowledge & memory:      list_knowledge_sources, get_source_catalog, search_knowledge, save_memory
  * Output / progress:       create_artifact, update_task_progress
  * Media:                   image_gen
- * Decks (SlideML2):        describe_schema, create_deck, read_deck, replace_slide, patch_deck, validate_render
+ * Decks (SlideML2):        describe_schema, create_deck, read_deck, replace_slide, insert_slide, delete_slide, patch_deck, validate_render
  *   Skill:                 read the slideml2 SKILL.md once per deck task
  *   Discovery:             describe_schema({ components }) for focused prop schemas
  *   Authoring:             create_deck → replace_slide (append by passing slideId == slideCount)
- *   Editing:               replace_slide (slide content) | patch_deck (deck-level fields, slide reorder/delete)
+ *   Editing:               replace_slide (slide content) | insert_slide (new at index) | delete_slide (by id/index) | patch_deck (deck-level fields, reorder)
  *   Render & QA:           validate_render (schema + render + diagnostics; iterate on blocking codes)
  *
  * The agent must activate the slideml2 skill once at the start of any deck
@@ -68,6 +70,8 @@ const tools: Record<string, Tool> = {
   create_deck: createDeckTool,
   read_deck: readDeckTool,
   replace_slide: replaceSlideTool,
+  insert_slide: insertSlideTool,
+  delete_slide: deleteSlideTool,
   patch_deck: patchDeckTool,
   validate_render: validateRenderTool,
 };

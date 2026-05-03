@@ -8,7 +8,8 @@ import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
 import type { Slideml2SourceDeck } from "./types.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
-import { buildTheme, color, preferredFont, resolveFill, resolveFontWeight, sizeMultiplier, textStyle, type FontRole, type FontWeight, type SimpleTheme, type TextStyle } from "./theme.js";
+import { buildTheme, color, preferredFont, resolveEmphasis, resolveFill, resolveFontWeight, sizeMultiplier, textStyle, type FontRole, type FontWeight, type SimpleTheme, type TextStyle } from "./theme.js";
+import { parseMarkdownInline, splitNumericRun } from "./markdown-inline.js";
 
 /** Resolve a TextStyle's weight (string or numeric) into the boolean
  *  emitter flag. Anything ≥ 600 reads as bold so the OOXML `b` attribute
@@ -115,6 +116,13 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
   const theme = buildTheme(deck.deck.brand, deck.deck.theme, deck.deck.themeOverride);
   layoutDecisionsBySlide.clear();
   squashedWarnings.clear();
+  // umzrkm fix: pass the active theme's resolved palette into the contrast
+  // check so an agent's brand.primary / accent / success / warning / danger
+  // hex values count as "theme-resolved" — auto-fix can then rewrite them
+  // when contrast fails. Without this, agents who rebrand to a mid-saturation
+  // teal (5B8A8A) leak that color into text.color="brand.primary" callsites
+  // and the contrast check refuses to repair, treating it as user intent.
+  themeAccentHexesForContrast = collectThemeAccentHexes(theme);
   const slides: SlideAst[] = deck.slides.map((slide, index) => {
     const dom = materializeAndCompactify(slide.dom, slide.id);
     const ids = { nextId: 2 };
@@ -130,6 +138,7 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
     runContrastCheck(slide.id, slideAst);
     return slideAst;
   });
+  themeAccentHexesForContrast = null;
   return {
     size: "16x9",
     language: "zh-CN",
@@ -265,7 +274,30 @@ const SEMANTIC_ACCENT_HEXES = new Set([
   "2563EB", "1D4ED8", "0F4C81", "8B6914", "B8860B", "C0392B", "C41E3A", "8B0000", "4F46E5", "7C3AED",
 ]);
 function isLikelySemanticAccent(hex: string): boolean {
-  return SEMANTIC_ACCENT_HEXES.has(hex.toUpperCase());
+  if (SEMANTIC_ACCENT_HEXES.has(hex.toUpperCase())) return true;
+  // Active theme tokens (brand/accent/success/warning/danger). When the
+  // deck's themeOverride supplies a custom palette we treat those hexes
+  // the same as the engine defaults: theme-resolved, eligible for
+  // auto-fix when contrast fails.
+  if (themeAccentHexesForContrast && themeAccentHexesForContrast.has(hex.toUpperCase())) return true;
+  return false;
+}
+
+let themeAccentHexesForContrast: Set<string> | null = null;
+
+function collectThemeAccentHexes(theme: SimpleTheme): Set<string> {
+  const out = new Set<string>();
+  const tokens = [
+    "brand.primary", "brand.tint",
+    "accent",
+    "success", "warning", "danger", "info",
+    "neutral",
+  ];
+  for (const tok of tokens) {
+    const hex = theme.colors[tok];
+    if (typeof hex === "string" && /^[0-9A-Fa-f]{6}$/.test(hex)) out.add(hex.toUpperCase());
+  }
+  return out;
 }
 
 /**
@@ -655,11 +687,17 @@ function findConstrainingAncestor(direction: "horizontal" | "vertical", failingC
   const propsForVertical = ["fixedHeight", "minHeight", "height", "maxHeight"] as const;
   const propsForHorizontal = ["fixedWidth", "minWidth", "width", "maxWidth"] as const;
   const axisProps = direction === "vertical" ? propsForVertical : propsForHorizontal;
+  // 761q1u: walk past trivial decorative fixedHeights (< 0.4cm). These are
+  // accent rules / dividers / chip ornaments — they're visually small and
+  // never the actual bottleneck. Reporting them as the constraint sends
+  // agents on a wild goose chase ("relax accent.fixedHeight = 0.18cm" —
+  // doing so frees 0.18cm out of a 4cm shortfall).
+  const isMeaningfulConstraint = (value: number) => value >= 0.4;
   for (let i = ancestorStack.length - 1; i >= 0; i--) {
     const node = ancestorStack[i]!;
     for (const prop of axisProps) {
       const value = (node as Record<string, unknown>)[prop];
-      if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      if (typeof value === "number" && Number.isFinite(value) && isMeaningfulConstraint(value)) {
         return { ancestorId: typeof node.id === "string" ? node.id : "?", prop, value };
       }
     }
@@ -669,16 +707,23 @@ function findConstrainingAncestor(direction: "horizontal" | "vertical", failingC
   // surfaces e.g. "the image-card sibling has fixedHeight:2.8 and that's
   // what's eating your slot" — a recurring inmuai-log pinch where timeline
   // and image-card competed for one ~10cm content area.
+  //
+  // 761q1u fix: prior code did `ancestorStack[length - 1]` then walked
+  // `parent.children` — but the ancestor stack TOP is the failing node
+  // itself (just pushed by withAncestor), so we ended up scanning the
+  // failing node's own decorative children (e.g. sm.kt.accent inside
+  // sm.kt) and reporting them as the constraint. The grandparent is at
+  // length - 2.
   if (!failingChild) return undefined;
-  const parent = ancestorStack[ancestorStack.length - 1];
-  const siblings = (parent && Array.isArray(parent.children)) ? parent.children : undefined;
+  const grandparent = ancestorStack[ancestorStack.length - 2];
+  const siblings = (grandparent && Array.isArray(grandparent.children)) ? grandparent.children : undefined;
   if (!siblings || siblings.length < 2) return undefined;
   let biggest: { id: string; prop: typeof axisProps[number]; value: number } | null = null;
   for (const sibling of siblings) {
     if (sibling === failingChild) continue;
     for (const prop of axisProps) {
       const value = (sibling as Record<string, unknown>)[prop];
-      if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      if (typeof value === "number" && Number.isFinite(value) && isMeaningfulConstraint(value)) {
         if (!biggest || value > biggest.value) {
           biggest = { id: typeof sibling.id === "string" ? sibling.id : "?", prop, value };
         }
@@ -889,7 +934,15 @@ function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   if (node.type === "spacer") return [];
   // Dividers and spacers are intentionally thin/empty along one axis; only
   // gate on tiny rect for nodes that need a meaningful 2D area.
-  const tinyThreshold = node.type === "divider" || node.type === "spacer" || node.type === "shape" ? 0.02 : 0.18;
+  // umzrkm + 761q1u fix: a `band` or `frame` with no children and a small
+  // fixedHeight is the agent's way of drawing a thin colored divider line
+  // (`{type:"band", tone:"brand", fixedHeight:0.05}` or
+  // `{type:"frame", line:"FFFFFF", fixedHeight:0.08}`). Treat like a
+  // shape for tinyThreshold so it isn't TINY_RECT-dropped.
+  const isDividerLikeBand = (node.type === "band" || node.type === "frame")
+    && (!Array.isArray(node.children) || node.children.length === 0)
+    && typeof node.fixedHeight === "number" && node.fixedHeight < 0.6;
+  const tinyThreshold = node.type === "divider" || node.type === "spacer" || node.type === "shape" || isDividerLikeBand ? 0.02 : 0.18;
   if (rect.h < tinyThreshold || rect.w < tinyThreshold) {
     layoutDropWarnings.add(`${slideId}/${node.id}:${rect.w.toFixed(2)}x${rect.h.toFixed(2)}`);
     pushDiagnostic({
@@ -972,14 +1025,56 @@ function decorativeChild(node: DomNode): DomNode | null {
   };
 }
 
-function toneTokens(tone: unknown): { fill?: string; line?: string; fg?: string } {
-  if (tone === "brand") return { fill: "brand.tint", line: "brand.primary", fg: "brand.primary" };
-  if (tone === "tinted") return { fill: "brand.tint", line: "divider", fg: "brand.primary" };
-  if (tone === "positive") return { fill: "success.tint", line: "success", fg: "success" };
-  if (tone === "warning") return { fill: "warning.tint", line: "warning", fg: "warning" };
-  if (tone === "danger") return { fill: "danger.tint", line: "danger", fg: "danger" };
-  if (tone === "neutral") return { fill: "surface", line: "divider", fg: "text.primary" };
+function toneTokens(tone: unknown): { fill?: string; line?: string; fg?: string; accent?: string } {
+  if (tone === "brand") return { fill: "brand.tint", line: "brand.primary", fg: "brand.primary", accent: "brand.primary" };
+  if (tone === "tinted") return { fill: "brand.tint", line: "divider", fg: "brand.primary", accent: "brand.primary" };
+  if (tone === "positive") return { fill: "success.tint", line: "success", fg: "success", accent: "success" };
+  if (tone === "success") return { fill: "success.tint", line: "success", fg: "success", accent: "success" };
+  if (tone === "warning") return { fill: "warning.tint", line: "warning", fg: "warning", accent: "warning" };
+  if (tone === "danger") return { fill: "danger.tint", line: "danger", fg: "danger", accent: "danger" };
+  if (tone === "info") return { fill: "info.tint", line: "info", fg: "info", accent: "info" };
+  if (tone === "neutral") return { fill: "surface", line: "divider", fg: "text.primary", accent: "brand.primary" };
+  if (tone === "muted") return { fill: "surface.subtle", line: "divider", fg: "text.muted", accent: "text.muted" };
   return {};
+}
+
+/**
+ * Elevation → outerShdw parameters in EMU.
+ *   - flat:     no shadow, full border (the renderer's prior default)
+ *   - raised:   thin border + soft shadow (~3pt offset, ~6pt blur, 25% alpha)
+ *   - floating: no border + deeper shadow (~6pt offset, ~14pt blur, 30% alpha)
+ *
+ * Default `null` means "agent didn't pick" — caller chooses the safe default
+ * for its component (cards default to "raised", panels stay "flat").
+ */
+type ElevationName = "flat" | "raised" | "floating" | "outlined";
+
+function resolveElevation(value: unknown): ElevationName | null {
+  if (value === "flat" || value === "raised" || value === "floating" || value === "outlined") return value;
+  return null;
+}
+
+interface ShadowSpec { color: string; alpha?: number; blur?: number; dx?: number; dy?: number }
+
+function shadowForElevation(theme: SimpleTheme, elevation: ElevationName, accentToken?: string): ShadowSpec | undefined {
+  if (elevation === "flat" || elevation === "outlined") return undefined;
+  if (elevation === "raised") {
+    return {
+      color: color(theme, accentToken || "text.primary", "text.primary"),
+      alpha: 0.18,
+      blur: 76200,    // ~6pt
+      dx: 0,
+      dy: 38100,      // ~3pt
+    };
+  }
+  // floating
+  return {
+    color: color(theme, accentToken || "text.primary", "text.primary"),
+    alpha: 0.28,
+    blur: 177800,     // ~14pt
+    dx: 0,
+    dy: 76200,        // ~6pt
+  };
 }
 
 function renderPanel(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
@@ -988,8 +1083,15 @@ function renderPanel(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
   const fillToken = stringProp(node, "fill", tone.fill || style.fill || "surface");
   const lineToken = stringProp(node, "line", tone.line || style.line || "divider");
   const cornerRadius = optionalNumberProp(node, "cornerRadius") ?? style.radius ?? 0.12;
-  const elevation = node.elevation === "raised" || node.elevation === "outlined" || node.elevation === "flat" ? node.elevation : "flat";
+  // Panels default to "flat" — they're surface containers, not raised
+  // cards. Agents who want elevation pass elevation:"raised".
+  const elevation = resolveElevation(node.elevation) ?? "flat";
+  const shadow = shadowForElevation(theme, elevation, tone.accent);
   const padding = optionalNumberProp(node, "padding") ?? style.padding ?? 0.45;
+  // Per-component border width override: agents reach for `borderWidth` /
+  // `lineWidth` to make a strong frame. Numbers are in cm to stay
+  // consistent with the rest of the layout vocabulary.
+  const lineWidth = optionalNumberProp(node, "lineWidth") ?? optionalNumberProp(node, "borderWidth") ?? (elevation === "outlined" ? 0.04 : 0.02);
   const innerRect: Rect = { x: rect.x + padding, y: rect.y + padding, w: Math.max(0, rect.w - padding * 2), h: Math.max(0, rect.h - padding * 2) };
   const shapes: ShapeList = [{
     type: "shape",
@@ -998,8 +1100,11 @@ function renderPanel(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
     preset: "roundRect",
     xfrm: xfrm(rect),
     fill: resolveFill(theme, fillToken, "surface"),
-    line: elevation === "raised" ? undefined : { color: color(theme, lineToken), width: cm(elevation === "outlined" ? 0.04 : 0.02) },
+    line: elevation === "raised" || elevation === "floating"
+      ? undefined
+      : { color: color(theme, lineToken), width: cm(lineWidth), ...(node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? { dash: node.dash } : {}) },
     cornerRadius,
+    shadow,
   }];
   const child = decorativeChild(node);
   if (child) {
@@ -1016,8 +1121,21 @@ function renderCard(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const lineToken = stringProp(node, "line", tone.line || style.line || "divider");
   const cornerRadius = optionalNumberProp(node, "cornerRadius") ?? style.radius ?? 0.12;
   const padding = optionalNumberProp(node, "padding") ?? style.padding ?? 0.5;
+  // Cards default to subtle elevation so they stand off the page; agents who
+  // want a flat card pass elevation:"flat". The shadow inherits the tone's
+  // accent color so brand-toned cards cast a faint colored shadow.
+  const elevation = resolveElevation(node.elevation) ?? "flat";
+  const shadow = shadowForElevation(theme, elevation, tone.accent);
+  // Per-card border width / dash override.
+  const lineWidth = optionalNumberProp(node, "lineWidth") ?? optionalNumberProp(node, "borderWidth") ?? 0.02;
+  const dashToken = node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : undefined;
   const accent = node.accent === "left" || node.accent === "top" ? node.accent : "none";
-  const accentColor = stringProp(node, "accentColor", "brand.primary");
+  // Accent color follows the tone when the agent didn't override it
+  // explicitly. brand-toned cards get a brand accent bar; danger-toned
+  // cards get a red one — without the agent having to spell it out.
+  const accentColor = stringProp(node, "accentColor", tone.accent || "brand.primary");
+  // Accent bar width — agents can thicken it with `accentWidth: 0.18`.
+  const accentSize = optionalNumberProp(node, "accentWidth") ?? 0.12;
   const headerText = typeof node.header === "string" && node.header.trim() ? node.header.trim() : "";
   const footerText = typeof node.footer === "string" && node.footer.trim() ? node.footer.trim() : "";
   const shapes: ShapeList = [{
@@ -1027,32 +1145,33 @@ function renderCard(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
     preset: "roundRect",
     xfrm: xfrm(rect),
     fill: resolveFill(theme, fillToken, "surface"),
-    line: { color: color(theme, lineToken), width: cm(0.02) },
+    line: elevation === "floating"
+      ? undefined
+      : { color: color(theme, lineToken), width: cm(lineWidth), ...(dashToken ? { dash: dashToken } : {}) },
     cornerRadius,
+    shadow,
   }];
   let inner: Rect = { x: rect.x + padding, y: rect.y + padding, w: Math.max(0, rect.w - padding * 2), h: Math.max(0, rect.h - padding * 2) };
   if (accent === "left") {
-    const accentWidth = 0.12;
     shapes.push({
       type: "shape",
       id: ids.nextId++,
       name: `${nodeLabel(node)}-accent`,
       preset: "rect",
-      xfrm: xfrm({ x: rect.x, y: rect.y + cornerRadius * 0.5, w: accentWidth, h: Math.max(0.2, rect.h - cornerRadius) }),
+      xfrm: xfrm({ x: rect.x, y: rect.y + cornerRadius * 0.5, w: accentSize, h: Math.max(0.2, rect.h - cornerRadius) }),
       fill: { type: "solid", color: color(theme, accentColor) },
     });
-    inner = { x: inner.x + accentWidth, y: inner.y, w: Math.max(0, inner.w - accentWidth), h: inner.h };
+    inner = { x: inner.x + accentSize, y: inner.y, w: Math.max(0, inner.w - accentSize), h: inner.h };
   } else if (accent === "top") {
-    const accentHeight = 0.12;
     shapes.push({
       type: "shape",
       id: ids.nextId++,
       name: `${nodeLabel(node)}-accent`,
       preset: "rect",
-      xfrm: xfrm({ x: rect.x + cornerRadius * 0.5, y: rect.y, w: Math.max(0.2, rect.w - cornerRadius), h: accentHeight }),
+      xfrm: xfrm({ x: rect.x + cornerRadius * 0.5, y: rect.y, w: Math.max(0.2, rect.w - cornerRadius), h: accentSize }),
       fill: { type: "solid", color: color(theme, accentColor) },
     });
-    inner = { x: inner.x, y: inner.y + accentHeight, w: inner.w, h: Math.max(0, inner.h - accentHeight) };
+    inner = { x: inner.x, y: inner.y + accentSize, w: inner.w, h: Math.max(0, inner.h - accentSize) };
   }
   const headerHeight = headerText ? 0.7 : 0;
   const footerHeight = footerText ? 0.5 : 0;
@@ -1092,7 +1211,23 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const style = theme.component.band || {};
   const fillToken = stringProp(node, "fill", tone.fill || style.fill || "surface.subtle");
   const cornerRadius = optionalNumberProp(node, "cornerRadius") ?? style.radius ?? 0;
-  const padding = optionalNumberProp(node, "padding") ?? style.padding ?? 0.6;
+  // umzrkm fix: agents reach for `band` when they want a thin colored
+  // divider line ({ type:"band", tone:"brand", height:0.05 }) — `height`
+  // gets aliased to `fixedHeight` upstream, but the band still applied
+  // the default 0.6cm padding which made a 0.05cm-tall band invisible.
+  // When the band has no children AND a small fixedHeight (< 0.6cm), we
+  // treat it as a divider and zero out padding so the color shows.
+  const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+  const fixedH = optionalNumberProp(node, "fixedHeight");
+  const isDividerBand = !hasChildren && typeof fixedH === "number" && fixedH < 0.6;
+  const defaultPadding = isDividerBand ? 0 : (style.padding ?? 0.6);
+  const padding = optionalNumberProp(node, "padding") ?? defaultPadding;
+  // Optional agent overrides on bands.
+  const lineToken = typeof node.line === "string" ? node.line : null;
+  const lineWidth = optionalNumberProp(node, "lineWidth") ?? optionalNumberProp(node, "borderWidth") ?? 0;
+  const dashToken = node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : undefined;
+  const elevation = resolveElevation(node.elevation) ?? "flat";
+  const shadow = shadowForElevation(theme, elevation, tone.accent);
   const innerRect: Rect = { x: rect.x + padding, y: rect.y + padding, w: Math.max(0, rect.w - padding * 2), h: Math.max(0, rect.h - padding * 2) };
   const shapes: ShapeList = [{
     type: "shape",
@@ -1102,6 +1237,8 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
     xfrm: xfrm(rect),
     fill: resolveFill(theme, fillToken, "surface.subtle"),
     cornerRadius: cornerRadius > 0 ? cornerRadius : undefined,
+    line: lineToken ? { color: color(theme, lineToken), width: cm(lineWidth || 0.02), ...(dashToken ? { dash: dashToken } : {}) } : undefined,
+    shadow,
   }];
   const child = decorativeChild(node);
   if (child) {
@@ -1116,17 +1253,34 @@ function renderFrame(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
   const lineToken = stringProp(node, "line", style.line || "divider");
   const lineWidth = optionalNumberProp(node, "lineWidth") ?? 0.025;
   const dash = node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : undefined;
-  const cornerRadius = optionalNumberProp(node, "cornerRadius") ?? style.radius ?? 0.12;
-  const padding = optionalNumberProp(node, "padding") ?? style.padding ?? 0.4;
+  // 761q1u fix: agents reach for `frame` with a tiny fixedHeight as a
+  // horizontal accent rule (`{type:"frame", line:"FFFFFF", fixedHeight:0.08}`).
+  // The default frame radius (0.12) on a 0.08cm-tall rect produces a
+  // capsule that visually disappears, and frame's default padding of
+  // 0.4cm consumes the whole rect. Treat as divider when no children +
+  // small fixedHeight: zero radius, no padding so the line stretches edge
+  // to edge. Tony tinyThreshold bypass is wired in renderNode.
+  const fixedH = optionalNumberProp(node, "fixedHeight");
+  const isDividerLikeFrame = (!Array.isArray(node.children) || node.children.length === 0)
+    && typeof fixedH === "number" && fixedH < 0.6;
+  const cornerRadius = optionalNumberProp(node, "cornerRadius") ?? (isDividerLikeFrame ? 0 : (style.radius ?? 0.12));
+  const padding = optionalNumberProp(node, "padding") ?? (isDividerLikeFrame ? 0 : (style.padding ?? 0.4));
   const innerRect: Rect = { x: rect.x + padding, y: rect.y + padding, w: Math.max(0, rect.w - padding * 2), h: Math.max(0, rect.h - padding * 2) };
   const shapes: ShapeList = [{
     type: "shape",
     id: ids.nextId++,
     name: `${nodeLabel(node)}-frame`,
-    preset: "roundRect",
+    // Divider-like frame draws a SOLID filled bar (the agent gave us an
+    // explicit `line` color, but they actually want a visible rule, not a
+    // hollow outline). Use the line color as fill so it shows up.
+    preset: "rect",
     xfrm: xfrm(rect),
-    fill: { type: "none" },
-    line: { color: color(theme, lineToken), width: cm(lineWidth), ...(dash ? { dash } : {}) },
+    fill: isDividerLikeFrame
+      ? { type: "solid", color: color(theme, lineToken) }
+      : { type: "none" },
+    line: isDividerLikeFrame
+      ? undefined
+      : { color: color(theme, lineToken), width: cm(lineWidth), ...(dash ? { dash } : {}) },
     cornerRadius,
   }];
   const child = decorativeChild(node);
@@ -1243,15 +1397,16 @@ function pickChromeFgColor(theme: SimpleTheme, slideBgHex?: string): string {
 function textShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }): ShapeList[number] {
   const kind = textStyleKey(node);
   const baseStyle = effectiveTextStyle(theme, node, "paragraph");
-  // Layout-aware autoFit: when the rendered rect is narrower than the text's
-  // intrinsic single-line width AND the agent opted into autoFit:"shrink",
-  // we *pre-shrink* the fontSize so it fits in one line. This is robust
-  // across viewers (LibreOffice, Keynote, ...) which otherwise ignore the
-  // bare <a:normAutofit/> hint. Layout already determined the rect — we
-  // know exactly how much we have.
-  const style = node.autoFit === "shrink" ? autoShrinkStyle(theme, node, baseStyle, rect) : baseStyle;
+  // Auto-enable autoFit:"shrink" for display-tier styles when the agent
+  // hasn't set anything explicit. Headlines / hero stats / CTA labels are
+  // the most common overflow source — pre-shrinking is a safer default
+  // than clipping. Body / paragraph / article styles do NOT auto-enable
+  // because shrinking body text usually means the layout is wrong, not the
+  // text being too long.
+  const effectiveAutoFit = node.autoFit ?? defaultAutoFitForStyle(kind);
+  const style = effectiveAutoFit === "shrink" ? autoShrinkStyle(theme, node, baseStyle, rect) : baseStyle;
   const paragraphs = buildParagraphs(theme, node, style);
-  const autoFit = node.autoFit === "shrink" || node.autoFit === "resize" ? node.autoFit : undefined;
+  const autoFit = effectiveAutoFit === "shrink" || effectiveAutoFit === "resize" ? effectiveAutoFit : undefined;
   const cornerRadius = typeof node.cornerRadius === "number"
     ? node.cornerRadius
     : (typeof node.fill === "string" || typeof node.line === "string" ? 0.08 : undefined);
@@ -1280,6 +1435,16 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
         ? rec.runs.map((r) => richRunToTextRun(theme, r, paraStyle, isStyleBold(paraStyle.weight)))
         : (() => {
             const text = typeof rec.text === "string" ? rec.text : "";
+            // Markdown expansion at the paragraph-text level too — keeps
+            // {paragraphs:[{text:"**重点**"}]} working without forcing the
+            // agent to construct runs[] manually.
+            if (rec.markdown !== false) {
+              const parsed = parseMarkdownInline(text);
+              if (parsed.matched) {
+                const styleColor = typeof rec.color === "string" ? { ...paraStyle, color: rec.color } : paraStyle;
+                return parsed.runs.map((r) => richRunToTextRun(theme, r, styleColor, isStyleBold(paraStyle.weight)));
+              }
+            }
             const face = pickRunFontFace(theme, text, paraStyle);
             return [{
               text,
@@ -1338,9 +1503,13 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
     const bold = itemRec.bold === true || (isStyleBold(style.weight));
     const colorToken = typeof itemRec.color === "string" ? itemRec.color : (typeof node.color === "string" ? node.color : undefined);
     const customRuns = Array.isArray(itemRec.runs) ? itemRec.runs : null;
+    const styleForItem = colorToken ? { ...style, color: colorToken } : style;
+    const parsedRuns = (!customRuns && itemRec.markdown !== false) ? parseMarkdownInline(text) : null;
     const runs: TextRun[] = customRuns
       ? customRuns.map((r) => richRunToTextRun(theme, r, style, bold))
-      : [{ text, sizeHalfPt: style.fontSize * 2, bold, color: color(theme, colorToken, style.color), fontFace: containsCjk(text) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"), cjk: true }];
+      : (parsedRuns && parsedRuns.matched
+          ? parsedRuns.runs.map((r) => richRunToTextRun(theme, r, styleForItem, bold))
+          : [{ text, sizeHalfPt: style.fontSize * 2, bold, color: color(theme, colorToken, style.color), fontFace: containsCjk(text) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"), cjk: true }]);
     const para: Paragraph = {
       bullet: numbered ? { number: true as const } : { auto: true as const },
       runs,
@@ -1564,11 +1733,22 @@ function richRunToTextRun(theme: SimpleTheme, raw: unknown, style: ReturnType<ty
   const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
   const text = typeof rec.text === "string" ? rec.text : "";
   const marks = Array.isArray(rec.marks) ? rec.marks.map(String) : [];
+  // Resolve a semantic emphasis word ("key", "muted", "danger", ...) into
+  // a (color, weight, italic, letterSpacing) hint. Per-run explicit fields
+  // still win — emphasis is the convenience layer, not the override layer.
+  const emphasis = resolveEmphasis(rec.emphasis);
   // Per-run weight override falls back to bold mark, then to the style.
-  const runWeight: FontWeight | undefined =
-    typeof rec.weight === "number" || rec.weight === "bold" || rec.weight === "normal"
+  // Strings now include the full named CSS axis (medium, semibold, etc.) —
+  // resolveFontWeight handles all of them through resolveNumericWeight.
+  const explicitWeight =
+    typeof rec.weight === "number" || typeof rec.weight === "string"
       ? rec.weight as FontWeight
-      : (marks.includes("bold") || marks.includes("emphasis") || rec.bold === true ? "bold" : style.weight);
+      : undefined;
+  const runWeight: FontWeight | undefined =
+    explicitWeight ??
+    (marks.includes("bold") || marks.includes("emphasis") || rec.bold === true ? "bold" : undefined) ??
+    emphasis?.weight ??
+    style.weight;
   const resolvedWeight = resolveFontWeight(runWeight);
   // Per-run size override (xs..2xl) re-scales relative to the style's base.
   const sizeMul = typeof rec.size === "string" ? sizeMultiplier(theme, rec.size) : 1;
@@ -1582,28 +1762,60 @@ function richRunToTextRun(theme: SimpleTheme, raw: unknown, style: ReturnType<ty
   if (marks.includes("superscript")) baseline = 30;
   if (marks.includes("subscript")) baseline = -25;
   if (typeof rec.baseline === "number") baseline = rec.baseline;
-  // Highlight requires the explicit color field; the mark alone is a no-op.
+  // Highlight: agents reach for `highlight:"yellow"` as a one-word inline
+  // marker. Accept it as a sufficient signal — no separate `marks:["highlight"]`
+  // is required. The mark form still works; this just removes a footgun
+  // where the color field looked applied but silently did nothing.
   const highlightToken = typeof rec.highlight === "string" ? rec.highlight : undefined;
-  const highlight = highlightToken && marks.includes("highlight")
+  const highlight = highlightToken
     ? color(theme, highlightToken, "warning.tint")
-    : undefined;
+    : (marks.includes("highlight") ? color(theme, undefined, "warning.tint") : undefined);
+  // Letter-spacing accepts a tracking word ("tight" | "normal" | "wide")
+  // alongside the existing 1/100-pt numeric form. Tracking words let agents
+  // reach for `tracking:"tight"` on a hero without remembering point math.
+  const trackingPt = trackingToLetterSpacing(rec.tracking ?? rec.letterSpacing);
+  // Color resolution priority: explicit per-run color → emphasis hint → style default.
+  const colorToken = typeof rec.color === "string" ? rec.color : emphasis?.color;
   return {
     text,
     sizeHalfPt: style.fontSize * 2 * sizeMul,
     bold: defaultBold || resolvedWeight.bold,
-    italic: rec.italic === true || marks.includes("italic"),
+    italic: rec.italic === true || marks.includes("italic") || emphasis?.italic === true,
     underline: rec.underline === true || marks.includes("underline"),
     strike: marks.includes("strikethrough"),
     baseline,
-    letterSpacing: typeof rec.letterSpacing === "number" ? rec.letterSpacing : style.letterSpacing,
+    letterSpacing: trackingPt ?? emphasis?.letterSpacing ?? style.letterSpacing,
     highlight,
-    color: color(theme, typeof rec.color === "string" ? rec.color : undefined, style.color),
+    color: color(theme, colorToken, style.color),
     fontFace: fontFace.fontFace,
     cjk: fontFace.cjk,
     mono: fontFace.mono,
     hyperlink: typeof rec.link === "string" ? rec.link : undefined,
     breakLine: rec.breakLine === true,
   };
+}
+
+/**
+ * Map agent-friendly tracking words to letter-spacing in 1/100 pt.
+ *   "tight"  → -50  (good for display headlines)
+ *   "normal" →   0
+ *   "wide"   → +75  (good for eyebrows / labels)
+ *   "wider"  → +150
+ * Numeric values pass through unchanged.
+ */
+function trackingToLetterSpacing(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return undefined;
+  switch (value.trim().toLowerCase()) {
+    case "tighter": return -75;
+    case "tight": return -50;
+    case "snug": return -25;
+    case "normal": return 0;
+    case "wide": return 75;
+    case "wider": return 150;
+    case "widest": return 250;
+    default: return undefined;
+  }
 }
 
 function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }): ShapeList[number] {
@@ -1789,10 +2001,18 @@ function maybeUppercase(text: string, node: DomNode): string {
 }
 
 function nodeBold(node: DomNode, styleBold: boolean): boolean {
-  if (node.weight === "bold") return true;
-  if (node.weight === "medium") return true;
-  if (node.weight === "normal") return false;
-  return styleBold;
+  // Defer all weight resolution to resolveFontWeight so named ("medium",
+  // "semibold", "light") and numeric (100..900) values share one semantic
+  // — bold ⇔ numeric >= 600. The previous hand-rolled comparisons treated
+  // "medium" as bold, which contradicts CSS (medium=500, semibold=600).
+  if (node.weight === undefined || node.weight === null) return styleBold;
+  const resolved = resolveFontWeight(node.weight as FontWeight | undefined);
+  // If we couldn't resolve the value, fall back to the style's bold-ness so
+  // typos don't silently flip emphasis on or off.
+  if (typeof node.weight === "string" && !["thin","hairline","extralight","ultralight","light","normal","regular","book","medium","semibold","demibold","bold","extrabold","ultrabold","heavy","black","super"].includes(node.weight as string)) {
+    return styleBold;
+  }
+  return resolved.bold;
 }
 
 function textRuns(theme: SimpleTheme, node: DomNode, style: ReturnType<typeof textStyle>): TextRun[] {
@@ -1822,17 +2042,56 @@ function textRuns(theme: SimpleTheme, node: DomNode, style: ReturnType<typeof te
   }
   const text = maybeUppercase(stringProp(node, "text", typeof content === "string" ? content : ""), node);
   const styleKey = textStyleKey(node);
+  // Markdown-inline expansion: if the agent embeds **bold** / *italic* /
+  // ==highlight== / `code` / {{key:foo}} markers in `text`, expand them into
+  // proper RichTextRuns. Disabled when the node opts out via `markdown:false`
+  // (intentional literal text). Code-style nodes also opt out — backticks
+  // there are content, not markup.
+  if (styleKey !== "code" && node.markdown !== false) {
+    const parsed = parseMarkdownInline(text);
+    if (parsed.matched) {
+      const baseBold = nodeBold(node, isStyleBold(effectiveStyle.weight));
+      return parsed.runs.map((raw) => {
+        const merged = { ...raw, text: maybeUppercase(raw.text, node) };
+        const run = richRunToTextRun(theme, merged, effectiveStyle, baseBold);
+        if (run.italic === false && node.italic === true) run.italic = true;
+        if (run.underline === false && node.underline === true) run.underline = true;
+        return run;
+      });
+    }
+  }
   const face = pickRunFontFace(theme, text, style, {
     font: styleKey === "code" ? "mono" : undefined,
   });
+  // Node-level emphasis applies to the whole text shape when `node.emphasis`
+  // is set — agents reach for it on labels / hero stats / kickers without
+  // having to nest a runs[] array.
+  const nodeEmphasis = resolveEmphasis(node.emphasis);
+  const emphasisBold = nodeEmphasis?.weight ? resolveFontWeight(nodeEmphasis.weight).bold : false;
+  const trackingPt = trackingToLetterSpacing(node.tracking);
+  // Number-aware metric weight: hero / metric-value styles get a numeric
+  // portion bolded automatically when the agent writes "25% increase" or
+  // "¥1,250 GMV" without any explicit runs[]. The text stays semantic.
+  if ((styleKey === "metric-value" || styleKey === "hero") && !nodeEmphasis && node.numericEmphasis !== false) {
+    const split = splitNumericRun(text);
+    if (split) {
+      const baseBold = nodeBold(node, isStyleBold(effectiveStyle.weight));
+      return split.map((raw) => {
+        const merged = { ...raw, text: maybeUppercase(raw.text, node) };
+        const run = richRunToTextRun(theme, merged, effectiveStyle, baseBold);
+        if (run.italic === false && node.italic === true) run.italic = true;
+        return run;
+      });
+    }
+  }
   return [{
     text,
     sizeHalfPt: style.fontSize * 2,
-    bold: nodeBold(node, isStyleBold(style.weight)),
-    italic: node.italic === true || style.italic === true,
+    bold: nodeBold(node, isStyleBold(style.weight)) || emphasisBold,
+    italic: node.italic === true || style.italic === true || nodeEmphasis?.italic === true,
     underline: node.underline === true,
-    letterSpacing: style.letterSpacing,
-    color: color(theme, node.color, style.color),
+    letterSpacing: trackingPt ?? nodeEmphasis?.letterSpacing ?? style.letterSpacing,
+    color: color(theme, node.color ?? nodeEmphasis?.color, style.color),
     fontFace: face.fontFace,
     cjk: face.cjk,
     mono: face.mono,
@@ -2726,6 +2985,21 @@ function singleLineTextHeight(theme: SimpleTheme, node: DomNode): number {
 function textStyleKey(node: DomNode): string {
   if (typeof node.style === "string" && node.style.trim()) return node.style;
   return inferTextKind(node).kind;
+}
+
+/**
+ * Display-tier styles default autoFit:"shrink" so headline overflow is
+ * gracefully shrunk instead of clipped. Body styles do NOT — shrinking
+ * body usually masks a layout error.
+ */
+const AUTOFIT_DEFAULT_SHRINK_STYLES: Set<string> = new Set([
+  "deck-title", "slide-title", "section-title", "card-title",
+  "hero", "title", "lead",
+  "metric-value", "callout", "badge", "tag",
+]);
+
+function defaultAutoFitForStyle(styleKey: string): "shrink" | undefined {
+  return AUTOFIT_DEFAULT_SHRINK_STYLES.has(styleKey) ? "shrink" : undefined;
 }
 
 /**

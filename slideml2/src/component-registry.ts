@@ -1,9 +1,9 @@
 import {
-  badge, barList, bulletList, checklist, comparisonCard, ctaButton, featureCard, flowArrow,
-  heroStat, iconText, insightCallout, keyTakeaway, kpiGrid, legend, logoStrip, metricCard,
-  numberedGrid, numberedList, pricingCard, processFlow, profileCard, prosCons, progressBar,
-  quoteBlock, sectionBreak, statComparison, statStrip, stepCard, swotMatrix, tagList,
-  timelineBlock,
+  badge, barList, bulletList, checklist, comparisonCard, comparisonTable, ctaButton, featureCard,
+  flowArrow, glossary, heroStat, iconText, insightCallout, keyTakeaway, kpiGrid, legend,
+  logoStrip, metricCard, numberedGrid, numberedList, outline, pricingCard, processFlow,
+  profileCard, prosCons, progressBar, qAndA, quizCard, quoteBlock, sectionBreak, statComparison,
+  statStrip, stepCard, swotMatrix, tagList, takeawayList, timelineBlock,
 } from "./components.js";
 import { listNodeTypes } from "./node-types.js";
 import type { DomNode, NodeType } from "./types.js";
@@ -60,6 +60,12 @@ export type ComponentName =
   | "chart-card"
   | "table-card"
   | "insight-card"
+  | "quiz-card"
+  | "q-and-a"
+  | "takeaway-list"
+  | "outline"
+  | "glossary"
+  | "comparison-table"
   | "two-column";
 
 export interface PropDefinition {
@@ -188,9 +194,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     iconBackground: { type: "string", description: "Icon background fill token." },
     tone: { type: "string", description: "Optional text color token." },
   }, "stack.horizontal(shape, text)", "stack"),
-  component("timeline", "Chronological sequence with dates, eras, milestones, or releases. Use when time is the organizing meaning.", {
-    items: { type: "array", required: true, description: "Array of { time? or date?, title/label, body?/description? } steps." },
-    direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Layout direction. Defaults to horizontal — that's the safe choice for any slide where the timeline shares space with other content. Pass 'vertical' only when the timeline owns the whole slide." },
+  component("timeline", "Chronological sequence with dates, eras, milestones, or releases. Use when time is the organizing meaning. Each item supports rich content: a sub-headline (title), simple body text (body), OR a full embedded DomNode (content) such as a metric-card, image, insight-card, quote, or a stack of multiple blocks. Pass `content` when the moment deserves more than text — a launch screenshot, a fundraising metric, a key quote.", {
+    items: { type: "array", required: true, description: "Array of { time? or date?, title?/label?, body?/description? (text), content? (any DomNode — metric-card, image, insight-card, etc.) }. content takes priority over body when both are supplied. Use vertical direction when items have rich content." },
+    direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Layout direction. Defaults to horizontal — safe for short text items. Pass 'vertical' when items have rich content (each row gets ~12cm width vs ~4cm in horizontal)." },
     orientation: { type: "enum", enum: ["horizontal", "vertical"], description: "Alias for direction." },
   }, "grid|stack of timeline-step cards", "stack"),
   component("profile-card", "Person or role profile with photo, name, title, and short bio. Use when identity/ownership is the content.", {
@@ -398,6 +404,38 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ratio: { type: "array", description: "Two numeric weights, default [0.5, 0.5]." },
     gap: { type: "number", description: "Column gap in cm." },
   }, "split.horizontal(left,right)", "stack"),
+  component("quiz-card", "Question card: prompt + optional multi-line trailing content + optional correctness highlight + optional explanation. Use for MCQ, short-answer hints, T/F, classroom prompts, or any deck where one question anchors the card. When `correct` is supplied items render with letter chips A..; otherwise items render with bullet dots so the same component works for non-MCQ lists.", {
+    question: { type: "string", required: true, description: "The question prompt." },
+    items: { type: "array", description: "Optional trailing lines (answer choices, hints, sub-prompts). Each renders as its own row, max 6. Aliases: `options`, `choices`." },
+    correct: { type: "string", description: "Optional. Letter (\"A\"|\"B\"|...) or 0-based index of the correct item. Highlights that item in success tone and switches markers to letter chips." },
+    explanation: { type: "string", description: "Optional rationale / answer text rendered as a soft paragraph below items." },
+    number: { type: "string", description: "Optional question number prefix (e.g. \"Q1\")." },
+    questionType: { type: "string", description: "Optional question-type kicker (e.g. \"Inference\", \"Vocabulary\")." },
+    tone: { type: "enum", enum: ["brand", "neutral", "tinted"], description: "Card surface tone." },
+  }, "card(stack(stem, items:Array<marker+text>?, divider?, explanation?))", "stack"),
+  component("takeaway-list", "Multi-item Key Takeaways: 3-5 short conclusions, each with a colored accent bar + bold headline + optional 1-line detail. Right component for a wrap-up / summary slide.", {
+    items: { type: "array", required: true, description: "Array of {headline, detail?, tone?}." },
+    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Default accent tone for items that don't supply one." },
+  }, "stack(items:Array<bar+stack(headline,detail)>)", "stack"),
+  component("outline", "Table of contents / agenda. Vertical list of N chapters, each with optional number + title + optional 1-line body + optional page reference. Use for cover-following TOC slides, talk agendas, chapter indexes. Distinct from numbered-grid (parallel modules in a grid) and timeline (date-ordered events) — outline is for linear reading-order chapters with editorial spacing. Density adapts: 1-5 items show body, 6-9 are compact, 10-12 hide body. Numbering is NEVER auto-generated — pass `number` explicitly per item if you want chapter labels (e.g. \"01\", \"I\", \"Ch 1\"). When at least one item supplies number, a number column is reserved across all rows (blank cells for un-numbered items, so titles stay aligned).", {
+    items: { type: "array", required: true, description: "Array of {title:string, number?:string (e.g. \"01\", \"I\", \"Ch 1\"; not auto-generated), body?:string, page?:string|number, tone?:enum[brand|positive|warning|danger]}." },
+    showPages: { type: "boolean", description: "Right-align item.page as a page reference (default false)." },
+    density: { type: "enum", enum: ["comfortable", "compact", "auto"], description: "Force a density; default auto by item count." },
+    tone: { type: "enum", enum: ["brand", "neutral"], description: "Default number color: brand (default) or neutral." },
+  }, "stack(items:Array<row(number?, title-stack(title, body?), page?)>)", "stack"),
+  component("glossary", "Term + definition list for 6-15 terms in a single coherent layout. Different from definition-card (one card per term) — glossary aligns terms uniformly without competing card chrome. Use for technical glossaries, vocabulary lists, framework concept indexes. Layout: list (single column, default) or two-column.", {
+    items: { type: "array", required: true, description: "Array of {term:string, definition:string}." },
+    layout: { type: "enum", enum: ["list", "two-column"], description: "Single column (default) or two-column grid." },
+  }, "stack-or-grid(items:Array<stack(term, definition)>)", "stack"),
+  component("q-and-a", "FAQ / answer-page block. Multiple {question, answer} pairs stacked vertically with Q/A chips. Use for FAQs, interview transcripts, classroom answer pages. Distinct from quiz-card (which is for testing readers with multiple-choice options) — q-and-a is read-only, no options expected.", {
+    items: { type: "array", required: true, description: "Array of {q:string, a:string} pairs (max 6 per slide; split into two slides for 7+)." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Force a density; default auto by item count." },
+  }, "stack(items:Array<row(Q chip, q-text), row(A chip, a-text)>)", "stack"),
+  component("comparison-table", "Multi-option comparison matrix: features as rows, options as columns, with one option highlighted as RECOMMENDED. Distinct from table-card (no per-column emphasis) and comparison-card (single-option card). Cell values that look like ✓/✗/yes/no auto-render in success/danger color.", {
+    features: { type: "array", required: true, description: "Array of feature names (one per row, max 8)." },
+    options: { type: "array", required: true, description: "Array of {name:string, values:string[], recommended?:boolean} (max 4 options). values length should match features length." },
+    title: { type: "string", description: "Optional heading rendered above the table." },
+  }, "grid(headerRow + featureRows)", "stack"),
 ];
 
 export function listComponents(): ComponentSummary[] {
@@ -499,10 +537,21 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
   if (componentName === "timeline") {
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      // `content` accepts any DomNode (registered component or
+      // primitive). It runs through the same materialize/expand path as
+      // any other slide child, so nested components are handled by the
+      // renderer recursively.
+      const contentRaw = rec.content;
+      const content: DomNode | undefined = contentRaw && typeof contentRaw === "object" && !Array.isArray(contentRaw)
+        ? contentRaw as DomNode
+        : undefined;
       return {
         time: stringValue(rec.time, stringValue(rec.date, "")),
+        // title is now optional; when content is present, agents often
+        // omit it because the content carries its own headline.
         title: stringValue(rec.title, stringValue(rec.label, "")),
         body: stringValue(rec.body, stringValue(rec.description, "")),
+        content,
       };
     }) : [];
     // Timeline defaults to horizontal regardless of item count; vertical
@@ -766,6 +815,112 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       children: [left, right],
     });
   }
+  if (componentName === "quiz-card") {
+    const itemsRaw = Array.isArray(node.items) ? node.items
+      : Array.isArray(node.options) ? node.options
+      : Array.isArray(node.choices) ? node.choices
+      : [];
+    const items = itemsRaw.map((it) => typeof it === "string" ? it : (it && typeof it === "object" && "text" in it ? String((it as { text: unknown }).text) : String(it ?? "")));
+    const toneRaw = node.tone;
+    const tone = toneRaw === "brand" || toneRaw === "neutral" || toneRaw === "tinted" ? toneRaw : undefined;
+    // `correct` accepts a letter ("A"|"B"|...), a 0-based index, or a
+    // numeric string. Pass through whichever the agent supplied.
+    const correctRaw = node.correct ?? node.answer;
+    const correct: string | number | undefined = typeof correctRaw === "number" || typeof correctRaw === "string"
+      ? correctRaw
+      : undefined;
+    return withComponentRoot(node, quizCard(slideId, name, {
+      question: stringValue(node.question, stringValue(node.stem, stringValue(node.prompt, stringValue(node.text, "")))),
+      items,
+      correct,
+      explanation: stringValue(node.explanation, stringValue(node.rationale, stringValue(node.answer_text, ""))) || undefined,
+      number: stringValue(node.number, stringValue(node.label, "")) || undefined,
+      questionType: stringValue(node.questionType, stringValue(node.type_, "")) || undefined,
+      tone,
+    }));
+  }
+  if (componentName === "outline") {
+    type OutlineTone = "brand" | "positive" | "warning" | "danger";
+    const items: Array<{ number?: string; title: string; body?: string; page?: string | number; tone?: OutlineTone }> = Array.isArray(node.items) ? node.items.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { title: String(raw ?? "") };
+      const toneRaw = rec.tone;
+      const tone: OutlineTone | undefined = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" ? toneRaw : undefined;
+      const pageRaw = rec.page ?? rec.pageNumber;
+      const page: string | number | undefined = typeof pageRaw === "number" || typeof pageRaw === "string" ? pageRaw : undefined;
+      return {
+        number: stringValue(rec.number, stringValue(rec.num, "")) || undefined,
+        title: stringValue(rec.title, stringValue(rec.label, stringValue(rec.name, ""))),
+        body: stringValue(rec.body, stringValue(rec.description, stringValue(rec.text, ""))) || undefined,
+        page,
+        tone,
+      };
+    }).filter((item) => item.title) : [];
+    const tone = node.tone === "brand" || node.tone === "neutral" ? node.tone : undefined;
+    const density = node.density === "comfortable" || node.density === "compact" || node.density === "auto" ? node.density : undefined;
+    return withComponentRoot(node, outline(slideId, name, {
+      items,
+      showPages: node.showPages === true,
+      density,
+      tone,
+    }));
+  }
+  if (componentName === "glossary") {
+    const items = Array.isArray(node.items) ? node.items.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { term: String(raw ?? "") };
+      return {
+        term: stringValue(rec.term, stringValue(rec.name, stringValue(rec.label, ""))),
+        definition: stringValue(rec.definition, stringValue(rec.body, stringValue(rec.description, ""))),
+      };
+    }).filter((item) => item.term) : [];
+    const layout = node.layout === "two-column" ? "two-column" : "list";
+    return withComponentRoot(node, glossary(slideId, name, { items, layout }));
+  }
+  if (componentName === "q-and-a") {
+    const items = Array.isArray(node.items) ? node.items.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { q: "", a: String(raw ?? "") };
+      return {
+        q: stringValue(rec.q, stringValue(rec.question, stringValue(rec.prompt, ""))),
+        a: stringValue(rec.a, stringValue(rec.answer, stringValue(rec.response, ""))),
+      };
+    }).filter((item) => item.q && item.a) : [];
+    const density = node.density === "comfortable" || node.density === "compact" ? node.density : undefined;
+    return withComponentRoot(node, qAndA(slideId, name, { items, density }));
+  }
+  if (componentName === "comparison-table") {
+    const features = Array.isArray(node.features) ? node.features.map(String) : [];
+    const opts = Array.isArray(node.options) ? node.options.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { name: String(raw ?? "") };
+      const values = Array.isArray(rec.values) ? rec.values.map((v) => v === undefined || v === null ? "" : String(v))
+        : Array.isArray(rec.row) ? rec.row.map((v) => v === undefined || v === null ? "" : String(v))
+        : [];
+      return {
+        name: stringValue(rec.name, stringValue(rec.label, stringValue(rec.title, ""))),
+        values,
+        recommended: rec.recommended === true,
+      };
+    }).filter((opt) => opt.name) : [];
+    return withComponentRoot(node, comparisonTable(slideId, name, {
+      features,
+      options: opts,
+      title: stringValue(node.title, "") || undefined,
+    }));
+  }
+  if (componentName === "takeaway-list") {
+    type TakeawayTone = "brand" | "positive" | "warning" | "danger";
+    const items: Array<{ headline: string; detail?: string; tone?: TakeawayTone }> = Array.isArray(node.items) ? node.items.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { headline: String(raw ?? "") };
+      const toneRaw = rec.tone;
+      const tone: TakeawayTone | undefined = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" ? toneRaw : undefined;
+      return {
+        headline: stringValue(rec.headline, stringValue(rec.title, stringValue(rec.text, ""))),
+        detail: stringValue(rec.detail, stringValue(rec.body, stringValue(rec.description, ""))) || undefined,
+        tone,
+      };
+    }).filter((item) => item.headline) : [];
+    const toneRaw = node.tone;
+    const tone = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" ? toneRaw : undefined;
+    return withComponentRoot(node, takeawayList(slideId, name, { items, tone }));
+  }
   return withComponentRoot(node, { id: node.id, type: "stack", direction: "vertical", children: [] });
 }
 
@@ -989,10 +1144,17 @@ function insightCardNode(slideId: string, name: string, node: DomNode): DomNode 
   const tone = node.tone === "positive" || node.tone === "warning" || node.tone === "danger" || node.tone === "brand" ? node.tone : "neutral";
   const children: DomNode[] = [];
   const badgeText = stringValue(node.badge, "");
-  if (badgeText) children.push(badge(slideId, `${name}.badge`, { text: badgeText, tone: tone === "neutral" ? "brand" : tone }));
+  if (badgeText) {
+    // 761q1u fix: when 4 insight-cards are packed into a 2x2 grid, each
+    // cell is allocated ~1.5cm — far less than badge(0.7) + headline(0.55)
+    // + detail(~1cm). Marking the badge optional lets the fallback ladder
+    // drop it when space is tight, instead of FALLBACK_FAILED.
+    const b = badge(slideId, `${name}.badge`, { text: badgeText, tone: tone === "neutral" ? "brand" : tone });
+    children.push({ ...b, optional: true } as DomNode);
+  }
   children.push({ id: `${slideId}.${name}.headline`, type: "text", text: stringValue(node.headline, stringValue(node.title, "")), style: "card-title", color: tone === "neutral" ? "text.primary" : toneToColors(tone).fg, minHeight: 0.55, autoFit: "shrink" });
   const detail = stringValue(node.detail, stringValue(node.body, stringValue(node.description, "")));
-  if (detail) children.push({ id: `${slideId}.${name}.detail`, type: "text", text: detail, style: "paragraph", color: "text.primary" });
+  if (detail) children.push({ id: `${slideId}.${name}.detail`, type: "text", text: detail, style: "paragraph", color: "text.primary", autoFit: "shrink", optional: true });
   const bullets = stringArray(node.bullets).length ? stringArray(node.bullets) : stringArray(node.items).length ? stringArray(node.items) : stringArray(node.points);
   if (bullets.length > 0) children.push(bulletList(slideId, `${name}.bullets`, bullets, "compact"));
   return {
@@ -1480,11 +1642,15 @@ function axisRulerItem(slideId: string, name: string, item: { label: string; bod
     preset: "ellipse",
     fill: markerColor,
     line: markerColor,
-    fixedWidth: 0.28,
-    fixedHeight: 0.28,
+    fixedWidth: 0.32,
+    fixedHeight: 0.32,
     align: direction === "horizontal" ? "center" : "start",
   };
-  const label: DomNode = { id: `${slideId}.${name}.${index}.label`, type: "text", text: item.label, style: "label", color: markerColor, align: direction === "horizontal" ? "center" : "left", fixedHeight: 0.45 };
+  // umzrkm fix: label color was markerColor (= brand.primary by default).
+  // Mid-saturation brand themes failed 4.5:1 contrast on light surfaces.
+  // The marker shape carries the brand color visually; the label reads
+  // at body weight against the slide bg, so it must use text.primary.
+  const label: DomNode = { id: `${slideId}.${name}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: direction === "horizontal" ? "center" : "left", fixedHeight: 0.45 };
   const body = item.body ? [{ id: `${slideId}.${name}.${index}.body`, type: "text" as const, text: item.body, style: "caption", color: "text.muted", align: direction === "horizontal" ? "center" as const : "left" as const, valign: "top" as const }] : [];
   return {
     id: `${slideId}.${name}.${index}`,
