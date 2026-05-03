@@ -30,7 +30,11 @@ export interface LayoutDiagnostic {
     | "TRUNCATED"
     | "DEMOTED"
     | "FALLBACK_FAILED"
-    | "LOW_CONTRAST";
+    | "LOW_CONTRAST"
+    /** LOW_CONTRAST that the renderer auto-rewrote to a contrasting hex. The
+     *  rendered PPTX is readable; the diagnostic remains so the agent can
+     *  decide to fix the underlying theme token, but it doesn't block. */
+    | "LOW_CONTRAST_FIXED";
   slideId?: string;
   nodeId?: string;
   message: string;
@@ -42,11 +46,66 @@ export interface LayoutDiagnostic {
     rect?: { x: number; y: number; w: number; h: number };
     other?: { x: number; y: number; w: number; h: number; nodeId?: string };
   };
+  /**
+   * For LOW_CONTRAST: ordered chain of surfaces that determined the comparison
+   * background, e.g. ["slide.bg:FAF0E6", "band(s1.b).fill:2C1810",
+   * "text(s1.t).color:FFFFFF"]. Lets agents see *why* the diagnostic picked
+   * the surface it did, instead of guessing.
+   */
+  surfaceTrail?: string[];
+  /**
+   * Set when this diagnostic represents a cluster (e.g. all texts of the same
+   * color on the same surface). The representative diagnostic carries the
+   * cluster size and the affected nodes; per-node duplicates are suppressed.
+   */
+  aggregated?: {
+    affectedNodes: Array<{ nodeId: string; sample?: string }>;
+    count: number;
+  };
+  /**
+   * For FALLBACK_FAILED / SQUASHED on flow content: the nearest ancestor that
+   * imposed a hard size on the failing axis. Lets agents read the diagnostic
+   * and know exactly which fixedHeight/fixedWidth to relax — without it, the
+   * suggestion "increase the parent's allotted height" is ambiguous.
+   */
+  constrainedBy?: {
+    ancestorId: string;
+    prop: "fixedHeight" | "fixedWidth" | "height" | "width" | "minHeight" | "minWidth" | "maxHeight" | "maxWidth";
+    value: number;
+  };
 }
 
 let diagnostics: LayoutDiagnostic[] = [];
+let diagnosticDedupKeys: Set<string> = new Set();
+
+/**
+ * Build a stable deduplication key for a diagnostic. The renderer's measure
+ * pass and render pass both call applyFallbackLadder/SQUASHED logic, which
+ * historically caused the same FALLBACK_FAILED to fire twice (once with the
+ * slide context set, once without — the rm8s07 log showed pairs of identical
+ * diagnostics confusing the agent). The key is intentionally narrow: code +
+ * nodeId + slideId + the rounded delta — so distinct issues on the same node
+ * still surface, but exact duplicates from a second measure pass are dropped.
+ */
+function diagnosticDedupKey(d: LayoutDiagnostic): string {
+  const slide = d.slideId || "";
+  const node = d.nodeId || "";
+  const delta = d.measured?.deltaCm !== undefined ? Math.round(d.measured.deltaCm * 100) : "";
+  // Cluster diagnostics encode the affected count; without that, identical
+  // first-of-cluster messages from two passes would dedupe each other.
+  const clusterCount = d.aggregated?.count !== undefined ? d.aggregated.count : "";
+  return `${d.code}|${slide}|${node}|${delta}|${clusterCount}`;
+}
 
 export function pushDiagnostic(d: LayoutDiagnostic): void {
+  const key = diagnosticDedupKey(d);
+  // Dedupe across (slide,node,code) AND across (any-slide,node,code) — the
+  // second emission from the render pass often has slideId="" while the first
+  // has the real slideId. We treat them as the same issue.
+  const sansSlide = `${d.code}||${d.nodeId || ""}|${d.measured?.deltaCm !== undefined ? Math.round(d.measured.deltaCm * 100) : ""}|${d.aggregated?.count !== undefined ? d.aggregated.count : ""}`;
+  if (diagnosticDedupKeys.has(key) || diagnosticDedupKeys.has(sansSlide)) return;
+  diagnosticDedupKeys.add(key);
+  diagnosticDedupKeys.add(sansSlide);
   diagnostics.push(d);
 }
 
@@ -56,6 +115,7 @@ export function getRenderDiagnostics(): LayoutDiagnostic[] {
 
 export function clearRenderDiagnostics(): void {
   diagnostics = [];
+  diagnosticDedupKeys = new Set();
 }
 
 /** Filter helpers for agents and tests. */

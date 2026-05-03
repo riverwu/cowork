@@ -48,7 +48,7 @@ export function sourceSlideToRendered(slide: SlideV2): RenderedSlide {
     dom: {
       id: `${slide.id}.root`,
       type: "slide",
-      background: slide.background || "background",
+      background: resolveSlideBackground(slide),
       notes: slide.notes,
       children: [
         ...(slide.title ? [{
@@ -56,11 +56,51 @@ export function sourceSlideToRendered(slide: SlideV2): RenderedSlide {
           type: "slide-title" as const,
           text: slide.title,
           align: "left",
+          // Long Chinese / English titles routinely overflow the 1.45cm
+          // title rect. autoFit:"shrink" lets the renderer scale the title
+          // down to fit instead of clipping, preserving the agent's text.
+          autoFit: "shrink" as const,
         }] : []),
         ...ensureContentArea(slide.id, slide.children),
       ],
     },
   };
+}
+
+/**
+ * Normalize the agent-supplied slide background into the shape the renderer's
+ * resolveSlideBackground understands. Accepts:
+ *   - `slide.background: "brand.primary"` (token/hex/gradient string)
+ *   - `slide.background: { fill: "..." }` or `{ src: "..." }`
+ *   - `slide.backgroundImage: "/abs/path/img.png"` (alias for {src})
+ *   - `slide.backgroundImage: { src: "..." }`
+ *   - `slide.background.image` / `slide.background.src` (image fields)
+ *
+ * 6gl008 log: agents reach for `backgroundImage` and image-typed children
+ * when they want a cover photo. Without normalization both paths silently
+ * fail. This helper makes either form work.
+ */
+function resolveSlideBackground(slide: SlideV2): unknown {
+  const explicit = slide.background;
+  const bgImage = (slide as unknown as { backgroundImage?: unknown }).backgroundImage;
+  // backgroundImage convenience alias takes priority when explicit is just a
+  // token/hex (the agent typically wants the image to override the color).
+  if (bgImage) {
+    if (typeof bgImage === "string" && bgImage.trim()) {
+      return { type: "image", src: bgImage };
+    }
+    if (typeof bgImage === "object" && bgImage !== null) {
+      const rec = bgImage as Record<string, unknown>;
+      const src = typeof rec.src === "string" ? rec.src : typeof rec.image === "string" ? rec.image : undefined;
+      if (src) return { type: "image", src };
+    }
+  }
+  if (explicit && typeof explicit === "object") {
+    const rec = explicit as Record<string, unknown>;
+    const src = typeof rec.src === "string" ? rec.src : typeof rec.image === "string" ? rec.image : undefined;
+    if (src) return { type: "image", src };
+  }
+  return explicit || "background";
 }
 
 export function normalizeSlide(slide: SlideV2): SlideV2 {
@@ -73,16 +113,43 @@ export function normalizeSlide(slide: SlideV2): SlideV2 {
   };
 }
 
+// Anchor / position values that the renderer treats as slide-level overlays
+// (they get a fixed rect from rectForSlideChild instead of flowing inside the
+// content stack). Mirrored from render.ts ANCHOR_POINTS / isOverlayChild.
+const OVERLAY_ANCHOR_POINTS = new Set([
+  "top-left", "top-center", "top-right",
+  "middle-left", "middle-center", "middle-right",
+  "bottom-left", "bottom-center", "bottom-right",
+]);
+
+function isOverlayChildAtSource(node: DomNode): boolean {
+  if (!node || typeof node !== "object") return false;
+  if (typeof node.anchor === "string" && OVERLAY_ANCHOR_POINTS.has(node.anchor)) return true;
+  if (node.type === "image" && (node.position === "bottom-right" || node.position === "top-right" || node.position === "center")) return true;
+  return false;
+}
+
 function ensureContentArea(slideId: string, children: DomNode[]): DomNode[] {
   if (children.some((node) => node.area === "content")) return children;
-  return [{
-    id: `${slideId}.content`,
-    type: "stack",
-    area: "content",
-    direction: "vertical",
-    gap: 0.35,
-    children,
-  }];
+  // yajush regression: agents put a footer/corner decoration (image with
+  // position:"bottom-right" or anchor:"...") at slide-level expecting it to
+  // float over the slide. ensureContentArea used to wrap EVERY child inside
+  // the content stack, so the seal got flowed and stretched to fill the
+  // content rect. Now we split overlay-style children out: they stay at
+  // slide level so rectForSlideChild gives them a proper anchored rect.
+  const overlays = children.filter(isOverlayChildAtSource);
+  const flow = children.filter((c) => !isOverlayChildAtSource(c));
+  return [
+    {
+      id: `${slideId}.content`,
+      type: "stack",
+      area: "content",
+      direction: "vertical",
+      gap: 0.35,
+      children: flow,
+    },
+    ...overlays,
+  ];
 }
 
 function normalizeNode(slideId: string, node: DomNode, fallbackId: string): DomNode {

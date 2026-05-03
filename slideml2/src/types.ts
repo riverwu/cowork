@@ -22,8 +22,15 @@ export interface DeckSpec {
   metadata?: Record<string, unknown>;
 }
 
+/** themeOverride.colors accepts BOTH the canonical flat shape
+ *    {"brand.primary":"...", "text.primary":"..."}
+ *  and the nested object shape LLMs gravitate toward
+ *    {brand:{primary:"..."}, text:{primary:"..."}}.
+ *  Nested forms are flattened by `flattenColorOverrides()` before the renderer
+ *  ever sees them. */
+type ColorOverrideValue = string | { [k: string]: ColorOverrideValue };
 export interface ThemeOverride {
-  colors?: Record<string, string>;
+  colors?: Record<string, ColorOverrideValue>;
   text?: Record<string, {
     fontSize?: number;
     /** "normal" | "bold" | numeric 100..900. Numeric weights resolve to

@@ -381,11 +381,36 @@ function containFill(srcW: number, srcH: number, tgtW: number, tgtH: number):
 
 function fillXmlOf(fill: FillSpec | undefined): string {
   if (!fill || fill.type === "none") return `<a:noFill/>`;
+  if (fill.type === "gradient") return gradientFillXml(fill, "Shape.fill");
   assertHex(fill.color, "Shape.fill.color");
   const alphaXml = fill.alpha !== undefined && fill.alpha < 1
     ? `<a:alpha val="${Math.round(fill.alpha * 100000)}"/>`
     : "";
   return `<a:solidFill><a:srgbClr val="${fill.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:solidFill>`;
+}
+
+export function gradientFillXml(fill: Extract<FillSpec, { type: "gradient" }>, ownerLabel: string): string {
+  const stops = (fill.stops && fill.stops.length >= 2 ? fill.stops : null);
+  if (!stops) return `<a:noFill/>`;
+  const stopXml = stops
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((stop) => {
+      assertHex(stop.color, `${ownerLabel}.stop.color`);
+      const alphaXml = stop.alpha !== undefined && stop.alpha < 1 ? `<a:alpha val="${Math.round(stop.alpha * 100000)}"/>` : "";
+      const pos = Math.max(0, Math.min(100, stop.position));
+      return `<a:gs pos="${Math.round(pos * 1000)}"><a:srgbClr val="${stop.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:gs>`;
+    })
+    .join("");
+  if (fill.kind === "radial") {
+    return `<a:gradFill flip="none" rotWithShape="1"><a:gsLst>${stopXml}</a:gsLst><a:path path="circle"><a:fillToRect l="50000" t="50000" r="50000" b="50000"/></a:path></a:gradFill>`;
+  }
+  // OOXML lin angle uses 60000ths of a degree, with 0 = pointing right.
+  // Our angle convention (0 = top→bottom) maps to OOXML by adding 90 deg.
+  const cssAngle = typeof fill.angle === "number" ? fill.angle : 180;
+  const ooxmlAngle = ((cssAngle - 90) % 360 + 360) % 360;
+  const angleAttr = Math.round(ooxmlAngle * 60000);
+  return `<a:gradFill flip="none" rotWithShape="1"><a:gsLst>${stopXml}</a:gsLst><a:lin ang="${angleAttr}" scaled="0"/></a:gradFill>`;
 }
 
 function lineXmlOf(line: LineSpec | undefined): string {

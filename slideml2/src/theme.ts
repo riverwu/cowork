@@ -131,15 +131,55 @@ const colorWarnings = new Set<string>();
  */
 export function buildTheme(brand: BrandSpec = {}, themeName = "default", themeOverride?: ThemeOverride): SimpleTheme {
   void themeName;
-  const brandPrimary = normalizeHex(brand.primary || themeOverride?.colors?.["brand.primary"] || "2563EB");
+  const flatColors = flattenColorOverrides(themeOverride?.colors);
+  const brandPrimary = normalizeHex(brand.primary || flatColors["brand.primary"] || "2563EB");
   const base = defaultBase(brandPrimary);
-  return mergeTheme(base, brandPrimary, themeOverride);
+  return mergeTheme(base, brandPrimary, themeOverride, flatColors);
 }
 
-function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOverride): SimpleTheme {
+/**
+ * Normalize agent-supplied themeOverride.colors into the flat dot-notation
+ * shape the renderer expects. Both forms are accepted:
+ *   {brand:{primary:"..."}, text:{primary:"..."}}    (nested)
+ *   {"brand.primary":"...", "text.primary":"..."}    (flat)
+ * Mixed forms are merged. Hex values are normalized (strip "#",
+ * uppercase). Non-string leaves are dropped silently — strict checks live in
+ * validateThemeOverride.
+ */
+export function flattenColorOverrides(input: unknown): Record<string, string> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value === "string") {
+      out[key] = stripHexPrefix(value);
+      continue;
+    }
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const nested = flattenColorOverrides(value);
+      for (const [subKey, subValue] of Object.entries(nested)) {
+        out[`${key}.${subKey}`] = subValue;
+      }
+    }
+  }
+  return out;
+}
+
+function stripHexPrefix(value: string): string {
+  const trimmed = value.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(trimmed)) return trimmed.slice(1).toUpperCase();
+  if (/^#[0-9A-Fa-f]{3}$/.test(trimmed)) {
+    const c = trimmed.slice(1);
+    return (c[0]! + c[0]! + c[1]! + c[1]! + c[2]! + c[2]!).toUpperCase();
+  }
+  if (/^[0-9A-Fa-f]{6}$/.test(trimmed)) return trimmed.toUpperCase();
+  return trimmed;
+}
+
+function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOverride, prebuiltColors?: Record<string, string>): SimpleTheme {
+  const flatColors = prebuiltColors ?? flattenColorOverrides(override?.colors);
   const merged: SimpleTheme = {
     ...base,
-    colors: { ...base.colors, ...derivedBrandPalette(brandPrimary), ...(override?.colors || {}) },
+    colors: { ...base.colors, ...derivedBrandPalette(brandPrimary), ...flatColors },
     text: mergeTextStyles(base.text, override?.text),
     component: mergeComponentStyles(base.component, override?.component),
     tone: { ...base.tone, ...(override?.tone || {}) },
@@ -243,16 +283,182 @@ const COLOR_ALIASES: Record<string, string> = {
   fg: "text.primary",
   accent: "brand.primary",
   highlight: "brand.primary",
+  // Common token names agents reach for that aren't in the default theme
+  // but exist in many themeOverrides. Fall back to a safe approximation so
+  // the renderer doesn't drop through to a style default like brand.primary.
+  "text.secondary": "text.muted",
+  "text.tertiary": "text.muted",
+  "text.subtle": "text.muted",
+  "text.body": "text.primary",
+  "text.heading": "text.primary",
 };
 
+// Common CSS named colors agents reach for. We map to safe hex equivalents so
+// `iconColor:"white"` or `color:"black"` doesn't trip UNKNOWN_COLOR. The list is
+// deliberately short — anything more exotic should still go through tokens.
+const CSS_NAMED_COLORS: Record<string, string> = {
+  white: "FFFFFF",
+  black: "000000",
+  silver: "C0C0C0",
+  gray: "808080",
+  grey: "808080",
+  lightgray: "D3D3D3",
+  lightgrey: "D3D3D3",
+  darkgray: "A9A9A9",
+  darkgrey: "A9A9A9",
+  red: "DC2626",
+  crimson: "DC143C",
+  orange: "EA580C",
+  yellow: "FACC15",
+  gold: "D4A017",
+  lime: "65A30D",
+  green: "16A34A",
+  teal: "0D9488",
+  cyan: "06B6D4",
+  blue: "2563EB",
+  navy: "1E3A8A",
+  indigo: "4F46E5",
+  purple: "7C3AED",
+  violet: "8B5CF6",
+  magenta: "C026D3",
+  pink: "DB2777",
+  brown: "92400E",
+  beige: "F5F0E1",
+  cream: "FFF8E7",
+  ivory: "FFFFF0",
+  transparent: "FFFFFF",
+};
+
+/**
+ * Parse a CSS rgb()/rgba()/hsl()/hsla() expression into a 6-char hex. Returns
+ * null when the input doesn't match a known CSS color function. Alpha values
+ * are returned alongside so callers that paint shapes can honor partial
+ * transparency; downstream code that only takes a hex (e.g. text color) can
+ * discard alpha — the perceived color stays close.
+ */
+export function parseCssColor(expression: string): { hex: string; alpha: number } | null {
+  const text = expression.trim().toLowerCase();
+  const rgbMatch = text.match(/^rgba?\s*\(\s*([^)]+)\s*\)$/);
+  if (rgbMatch) {
+    const parts = rgbMatch[1]!.split(/[ ,/]+/).filter(Boolean);
+    if (parts.length < 3) return null;
+    const r = parseChannel(parts[0]!);
+    const g = parseChannel(parts[1]!);
+    const b = parseChannel(parts[2]!);
+    if (r === null || g === null || b === null) return null;
+    const alpha = parts.length >= 4 ? parseAlpha(parts[3]!) : 1;
+    return { hex: rgbToHex(r, g, b), alpha };
+  }
+  const hslMatch = text.match(/^hsla?\s*\(\s*([^)]+)\s*\)$/);
+  if (hslMatch) {
+    const parts = hslMatch[1]!.split(/[ ,/]+/).filter(Boolean);
+    if (parts.length < 3) return null;
+    const h = parseFloat(parts[0]!.replace(/deg$/, ""));
+    const s = parseFloat(parts[1]!.replace(/%$/, "")) / 100;
+    const l = parseFloat(parts[2]!.replace(/%$/, "")) / 100;
+    if (!Number.isFinite(h) || !Number.isFinite(s) || !Number.isFinite(l)) return null;
+    const alpha = parts.length >= 4 ? parseAlpha(parts[3]!) : 1;
+    return { hex: hslToHex(h, s, l), alpha };
+  }
+  return null;
+}
+
+function parseChannel(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed.endsWith("%")) {
+    const pct = parseFloat(trimmed.slice(0, -1));
+    if (!Number.isFinite(pct)) return null;
+    return Math.round(Math.max(0, Math.min(100, pct)) * 2.55);
+  }
+  const n = parseFloat(trimmed);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(Math.max(0, Math.min(255, n)));
+}
+
+function parseAlpha(raw: string): number {
+  const trimmed = raw.trim();
+  if (trimmed.endsWith("%")) {
+    const pct = parseFloat(trimmed.slice(0, -1));
+    return Math.max(0, Math.min(1, Number.isFinite(pct) ? pct / 100 : 1));
+  }
+  const n = parseFloat(trimmed);
+  return Math.max(0, Math.min(1, Number.isFinite(n) ? n : 1));
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return [r, g, b].map((n) => n.toString(16).padStart(2, "0").toUpperCase()).join("");
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  // Standard HSL→RGB conversion.
+  const hue = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (hue < 60) [r, g, b] = [c, x, 0];
+  else if (hue < 120) [r, g, b] = [x, c, 0];
+  else if (hue < 180) [r, g, b] = [0, c, x];
+  else if (hue < 240) [r, g, b] = [0, x, c];
+  else if (hue < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return rgbToHex(Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255));
+}
+
+/**
+ * Resolve any agent-supplied color expression to a 6-char hex.
+ *
+ * Accepts:
+ *   - "#RRGGBB" / "#RGB" / "RRGGBB"      — raw hex, # is optional
+ *   - "rgb(...)" / "rgba(...)"           — CSS color functions (alpha discarded)
+ *   - "hsl(...)" / "hsla(...)"
+ *   - "brand.primary" / "text.muted"    — theme tokens
+ *   - "brand" / "primary" / "fg"         — short aliases
+ *   - "white" / "blue" / ...             — common CSS named colors
+ *   - "<token>.bg" / "<token>.fg"        — suffix shorthand
+ *
+ * Defensive: never throws on non-string input. The renderer relies on this
+ * being total — an exception here would crash validate_render and leave the
+ * agent without a recoverable diagnostic.
+ */
 export function color(theme: SimpleTheme, value: unknown, fallback = "text.primary"): string {
-  const raw = typeof value === "string" && value.trim() ? value.trim() : fallback;
-  if (/^[0-9A-Fa-f]{6}$/.test(raw)) return raw.toUpperCase();
+  const fallbackHex = theme.colors[fallback] || "111827";
+  if (typeof value !== "string") {
+    if (value !== undefined && value !== null) {
+      colorWarnings.add(`<non-string:${typeof value}>`);
+      pushDiagnostic({
+        severity: "warn",
+        code: "UNKNOWN_COLOR",
+        message: `Color value must be a string token or hex; got ${typeof value}. Falling back to '${fallback}'.`,
+        suggestion: "Use a flat token (e.g. \"brand.primary\", \"text.inverse\") or a hex string. themeOverride.colors should be flat keys, not nested objects.",
+      });
+    }
+    return fallbackHex;
+  }
+  const raw = value.trim();
+  if (!raw) return fallbackHex;
+  // Strip a leading "#" so "#B8860B" works the same as "B8860B".
+  const stripped = raw.startsWith("#") ? raw.slice(1) : raw;
+  if (/^[0-9A-Fa-f]{6}$/.test(stripped)) return stripped.toUpperCase();
+  if (/^[0-9A-Fa-f]{3}$/.test(stripped)) {
+    const c = stripped;
+    return (c[0]! + c[0]! + c[1]! + c[1]! + c[2]! + c[2]!).toUpperCase();
+  }
+  // CSS color functions: rgb(), rgba(), hsl(), hsla() — agents reach for
+  // these when they want a quick translucency or color expression. We accept
+  // them everywhere `color()` is called and discard alpha in this hex-only
+  // path (paint code uses `parseCssColor` directly to honor alpha).
+  if (/^(rgba?|hsla?)\s*\(/i.test(raw)) {
+    const parsed = parseCssColor(raw);
+    if (parsed) return parsed.hex;
+  }
   if (theme.colors[raw]) return theme.colors[raw]!;
-  // Try aliases before warning.
+  // Aliases before the warning.
   const aliased = COLOR_ALIASES[raw];
   if (aliased && theme.colors[aliased]) return theme.colors[aliased]!;
-  // Try simple suffix expansion: "red.tint" already exists; "red.bg" → "red.tint", etc.
+  const cssNamed = CSS_NAMED_COLORS[raw.toLowerCase()];
+  if (cssNamed) return cssNamed;
+  // Simple suffix expansion: "red.tint" already exists; "red.bg" → "red.tint".
   if (raw.endsWith(".bg") && theme.colors[raw.replace(/\.bg$/, ".tint")]) return theme.colors[raw.replace(/\.bg$/, ".tint")]!;
   if (raw.endsWith(".fg") && theme.colors[raw.replace(/\.fg$/, "")]) return theme.colors[raw.replace(/\.fg$/, "")]!;
   if (raw !== fallback) {
@@ -261,10 +467,10 @@ export function color(theme: SimpleTheme, value: unknown, fallback = "text.prima
       severity: "warn",
       code: "UNKNOWN_COLOR",
       message: `Unknown color token '${raw}'; falling back to '${fallback}'.`,
-      suggestion: `Use a token from describeDeck().colorTokens (e.g. brand.primary, surface, text.primary, success, or palette colors red/orange/yellow/lime/green/teal/blue/purple/pink) or a 6-char hex.`,
+      suggestion: `Use a token from describeDeck().colorTokens (e.g. brand.primary, surface, text.primary, success, palette colors red/orange/yellow/lime/green/teal/blue/purple/pink, or CSS names white/black) or a 6-char hex (with or without "#").`,
     });
   }
-  return theme.colors[fallback] || "111827";
+  return fallbackHex;
 }
 
 function commonText(): Record<string, TextStyle> {
@@ -273,7 +479,10 @@ function commonText(): Record<string, TextStyle> {
   // component roles. The default theme should already feel designed before
   // an agent adds a subject-specific themeOverride.
   return {
-    "deck-title": { fontSize: 48, weight: "bold", color: "text.inverse", lineHeight: 1.04 },
+    // deck-title defaults to text.primary so a bare {type:"deck-title", text}
+    // renders against any deck background. Components that need an inverse hero
+    // (e.g. dark cover) override color explicitly via the surface.
+    "deck-title": { fontSize: 48, weight: "bold", color: "text.primary", lineHeight: 1.04 },
     "slide-title": { fontSize: 29, weight: "bold", color: "text.primary", lineHeight: 1.08 },
     "section-title": { fontSize: 21, weight: "bold", color: "text.primary", lineHeight: 1.14 },
     "card-title": { fontSize: 13.8, weight: "bold", color: "text.primary", lineHeight: 1.16 },
@@ -302,7 +511,7 @@ function commonText(): Record<string, TextStyle> {
     tag: { fontSize: 8.8, color: "text.muted", lineHeight: 1.0 },
     code: { fontSize: 10, color: "text.primary", lineHeight: 1.28 },
     "code-caption": { fontSize: 9, color: "text.muted", lineHeight: 1.22 },
-    hero: { fontSize: 44, weight: "bold", color: "text.inverse", lineHeight: 1.06 },
+    hero: { fontSize: 44, weight: "bold", color: "text.primary", lineHeight: 1.06 },
     title: { fontSize: 30, weight: "bold", color: "text.primary", lineHeight: 1.12 },
     body: { fontSize: 14.5, color: "text.primary", lineHeight: 1.36 },
   };
@@ -406,7 +615,13 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       "step-card": { fill: "surface", line: "divider", padding: 0.55, radius: 0.06 },
       "definition-card": { fill: "surface", line: "divider", padding: 0.6, radius: 0.08 },
       quote: { fill: "surface.subtle", line: "divider", padding: 0.7, radius: 0.08 },
-      "timeline-step": { fill: "surface", line: "divider", padding: 0.5, radius: 0.06 },
+      // timeline-step is a flow group, not a card. Earlier the entry declared
+      // {fill:"surface", line:"divider", padding:0.5}, which made the stack
+      // paint a card frame around every step (via containerBackgroundShape)
+      // AND steal 0.5cm of inner height on each side. Vertical timelines with
+      // ≥3 items collapsed under FALLBACK_FAILED. Strip chrome + padding so
+      // the timeline reads as a connected sequence, not a column of cards.
+      "timeline-step": { padding: 0 },
       "profile-card": { fill: "surface", line: "divider", padding: 0.5, radius: 0.08 },
       "swot-quadrant": { fill: "surface", line: "divider", padding: 0.55, radius: 0.06 },
       cta: { fill: "brand.primary", padding: 0.4, radius: 0.3 },
@@ -506,7 +721,144 @@ function defaultBase(brandPrimary: string): SimpleTheme {
 
 function normalizeHex(value: string): string {
   const cleaned = value.replace(/^#/, "");
-  return /^[0-9A-Fa-f]{6}$/.test(cleaned) ? cleaned.toUpperCase() : "2563EB";
+  if (/^[0-9A-Fa-f]{6}$/.test(cleaned)) return cleaned.toUpperCase();
+  if (/^[0-9A-Fa-f]{3}$/.test(cleaned)) {
+    return (cleaned[0]! + cleaned[0]! + cleaned[1]! + cleaned[1]! + cleaned[2]! + cleaned[2]!).toUpperCase();
+  }
+  return "2563EB";
+}
+
+export interface ParsedGradient {
+  kind: "linear" | "radial";
+  angle?: number;
+  stops: Array<{ position: number; color: string; alpha?: number }>;
+}
+
+/**
+ * Parse a CSS-like gradient expression into a normalized form. Supported:
+ *   linear-gradient(135deg, #1A1A1A 0%, #2C3E50 50%, #1E4D6B 100%)
+ *   linear-gradient(to right, brand.primary, brand.primary.tint)
+ *   radial-gradient(circle at center, FFFFFF 0%, 000000 100%)
+ *
+ * Each color stop may use hex (with/without #), 3-char hex shorthand, theme
+ * tokens, or CSS named colors. Stops without explicit positions get
+ * evenly spaced. Returns null if the expression is malformed; callers can
+ * surface a typed validation error pointing to the offending text.
+ */
+export function parseGradientExpression(theme: SimpleTheme, expression: string): ParsedGradient | null {
+  if (typeof expression !== "string") return null;
+  const text = expression.trim();
+  const linearMatch = text.match(/^linear-gradient\s*\(([\s\S]*)\)\s*$/i);
+  const radialMatch = text.match(/^radial-gradient\s*\(([\s\S]*)\)\s*$/i);
+  const kind: "linear" | "radial" | null = linearMatch ? "linear" : radialMatch ? "radial" : null;
+  if (!kind) return null;
+  const inside = (linearMatch || radialMatch)![1]!.trim();
+  if (!inside) return null;
+  const parts = splitTopLevelCommas(inside);
+  if (parts.length < 2) return null;
+  let angle: number | undefined;
+  let stopParts: string[] = parts;
+  const first = parts[0]!.trim();
+  if (kind === "linear") {
+    const angleDeg = first.match(/^(-?\d+(?:\.\d+)?)\s*deg$/i);
+    const toMatch = first.match(/^to\s+(top|bottom|left|right|top\s+left|top\s+right|bottom\s+left|bottom\s+right)\s*$/i);
+    if (angleDeg) {
+      angle = parseFloat(angleDeg[1]!);
+      stopParts = parts.slice(1);
+    } else if (toMatch) {
+      angle = directionToAngle(toMatch[1]!);
+      stopParts = parts.slice(1);
+    }
+  } else {
+    // For radial, first segment may describe shape ("circle", "ellipse at center"); we ignore details and just consume.
+    if (/(circle|ellipse|at\s|closest|farthest)/i.test(first)) stopParts = parts.slice(1);
+  }
+  if (stopParts.length < 2) return null;
+  const stops = stopParts.map((segment, index) => parseGradientStop(theme, segment, index, stopParts.length));
+  if (stops.some((s) => s === null)) return null;
+  return { kind, angle, stops: stops as ParsedGradient["stops"] };
+}
+
+function splitTopLevelCommas(input: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of input) {
+    if (char === "(") depth += 1;
+    else if (char === ")") depth = Math.max(0, depth - 1);
+    if (char === "," && depth === 0) {
+      out.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  if (current.trim()) out.push(current);
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+
+function directionToAngle(dir: string): number {
+  const normalized = dir.toLowerCase().replace(/\s+/g, " ").trim();
+  switch (normalized) {
+    case "top": return 0;
+    case "right": return 90;
+    case "bottom": return 180;
+    case "left": return 270;
+    case "top right": return 45;
+    case "bottom right": return 135;
+    case "bottom left": return 225;
+    case "top left": return 315;
+    default: return 180;
+  }
+}
+
+function parseGradientStop(theme: SimpleTheme, segment: string, index: number, total: number): { position: number; color: string } | null {
+  const trimmed = segment.trim();
+  if (!trimmed) return null;
+  // Accept "color [position%]" or "color [position]" with optional whitespace.
+  const tokens = trimmed.split(/\s+/);
+  if (tokens.length === 0) return null;
+  const last = tokens[tokens.length - 1]!;
+  let position: number | undefined;
+  let colorTokens = tokens;
+  const positionMatch = last.match(/^(-?\d+(?:\.\d+)?)%?$/);
+  if (positionMatch && tokens.length > 1) {
+    position = parseFloat(positionMatch[1]!);
+    colorTokens = tokens.slice(0, -1);
+  }
+  const colorExpr = colorTokens.join(" ");
+  const resolvedHex = color(theme, colorExpr, "text.primary");
+  if (!/^[0-9A-Fa-f]{6}$/.test(resolvedHex)) return null;
+  const finalPosition = position !== undefined ? Math.max(0, Math.min(100, position)) : (total === 1 ? 0 : (index / (total - 1)) * 100);
+  return { position: finalPosition, color: resolvedHex.toUpperCase() };
+}
+
+/**
+ * Resolve any agent-supplied fill expression to a FillSpec. Unlike `color()`
+ * (which always returns a hex), this preserves gradients so the OOXML emitter
+ * can produce <a:gradFill>.
+ */
+export function resolveFill(theme: SimpleTheme, value: unknown, fallback = "background"):
+  | { type: "solid"; color: string; alpha?: number }
+  | { type: "gradient"; kind: "linear" | "radial"; angle?: number; stops: Array<{ position: number; color: string }> } {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^(linear|radial)-gradient\s*\(/i.test(trimmed)) {
+      const parsed = parseGradientExpression(theme, trimmed);
+      if (parsed) return { type: "gradient", kind: parsed.kind, angle: parsed.angle, stops: parsed.stops };
+      pushDiagnostic({
+        severity: "warn",
+        code: "UNKNOWN_COLOR",
+        message: `Could not parse gradient expression "${trimmed.slice(0, 80)}"; falling back to solid '${fallback}'.`,
+        suggestion: "Use the form linear-gradient(135deg, #HEX 0%, #HEX 100%) or linear-gradient(to right, token1, token2). Stops accept hex (with or without #), theme tokens, or CSS named colors.",
+      });
+    }
+    if (/^(rgba?|hsla?)\s*\(/i.test(trimmed)) {
+      const parsed = parseCssColor(trimmed);
+      if (parsed) return { type: "solid", color: parsed.hex, alpha: parsed.alpha };
+    }
+  }
+  return { type: "solid", color: color(theme, value, fallback) };
 }
 
 function derivedBrandPalette(primary: string): Record<string, string> {

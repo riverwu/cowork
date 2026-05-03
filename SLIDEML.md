@@ -89,9 +89,19 @@ fails. The single most important quality bar:
 > **Design each slide's structure from its message; do not route pages
 > through one repeated template.**
 
-Use SlideML2 components as semantic vocabulary, then compose them freely
-with `stack`, `grid`, `split`, `panel`, `card`, `band`, `frame`, `inset`,
-and anchored overlays. Layout diversity should come from your own page
+Think of a slide as a composition of semantic modules, not as text blocks
+placed on a canvas. Each module should answer "what kind of meaning is this?"
+before it answers "where does it go?" Use SlideML2 components as the semantic
+vocabulary: choose the module with the strongest descriptive fit, then compose
+those modules with `stack`, `grid`, `split`, `panel`, `card`, `band`, `frame`,
+`inset`, and anchored overlays.
+
+Do not reduce source material to generic `text`, `bullets`, and `card`
+wrappers when a more meaningful component exists. A process should become
+`process-flow`, a ranked numeric comparison should become `bar-list`, a
+before/after change should become `stat-comparison`, a conclusion should
+become `key-takeaway`, and an evidence object should become `chart-card`,
+`table-card`, or `image-card`. Layout diversity should come from page
 composition decisions: hero metric plus detail rail, evidence image plus
 commentary, dense table plus takeaway band, process flow plus risks,
 asymmetric split, editorial side rail, full-slide title lockup.
@@ -207,10 +217,27 @@ later to refine theme fields after you've laid out a few slides.
 
 ## Component philosophy
 
-Reach for the **most semantic component first**. A `kpi-grid` is better
-than a hand-rolled grid of `metric-card`s; `stat-comparison` is better
-than two `metric-card`s side-by-side. The point of SlideML2 is to encode
-meaning, not to recreate hand-positioned PowerPoint.
+Reach for the **most semantic component first**. A slide should be built from
+rich modules whose type names describe the content's role: evidence, contrast,
+sequence, status, quote, decision, metric, action, or takeaway. A `kpi-grid`
+is better than a hand-rolled grid of `metric-card`s; `stat-comparison` is
+better than two `metric-card`s side-by-side; `process-flow` is better than a
+stack of numbered cards when the relationship is a pipeline. The point of
+SlideML2 is to encode meaning, not to recreate hand-positioned PowerPoint.
+
+Choose components by semantic intent:
+
+- If the viewer should compare values, choose a comparison/data component
+  (`bar-list`, `stat-comparison`, `chart-card`, `table-card`) before cards.
+- If the viewer should understand order, dependency, or motion, choose a
+  sequence component (`process-flow`, `timeline`, `axis-ruler`,
+  `numbered-grid`) before a stack of paragraphs.
+- If the viewer should remember one conclusion, choose `key-takeaway`,
+  `callout`, `quote`, or `hero-stat` before generic body text.
+- If the viewer should inspect a concrete artifact, choose `image-card`,
+  `chart-card`, `table-card`, `profile-card`, or `logo-strip`.
+- Use `card`, `panel`, `band`, `frame`, and `inset` as wrappers or surfaces,
+  not as substitutes for semantic content modules.
 
 Compose multiple components per slide when the message benefits: a lead
 sentence above a kpi-grid; a callout next to a checklist; a feature-card

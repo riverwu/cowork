@@ -18,38 +18,22 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("install_package");
     expect(prompt).toContain("image_gen");
     expect(prompt).toContain("matplotlib");
-    expect(prompt).toContain("SlideML2");
   });
 
-  it("requires reading SLIDEML.md before deck work", () => {
+  it("does not include SlideML2 skill details in the base system prompt", () => {
     const prompt = buildSystemPrompt();
-    expect(prompt).toContain("SLIDEML.md");
-    expect(prompt).toContain("read `SLIDEML.md`");
+    expect(prompt).not.toContain("slideml2");
+    expect(prompt).not.toContain("SlideML2");
+    expect(prompt).not.toContain("validate_render");
+    expect(prompt).not.toContain("create_deck");
   });
 
-  it("documents the SlideML2 6-tool surface in workflow order", () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("describe_schema");
-    expect(prompt).toContain("create_deck");
-    expect(prompt).toContain("replace_slide");
-    expect(prompt).toContain("patch_deck");
-    expect(prompt).toContain("read_deck");
-    expect(prompt).toContain("validate_render");
-  });
-
-  it("flags blocking diagnostic codes for SlideML2 deck QA", () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("FALLBACK_FAILED");
-    expect(prompt).toContain("COLLISION");
-    expect(prompt).toContain("LOW_CONTRAST");
-    expect(prompt).toContain("blocking count is 0");
-  });
-
-  it("forbids hand-rolled pptxgenjs and post-render .pptx mutation", () => {
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("do not roll your own");
-    expect(prompt).toContain("pptxgenjs");
-    expect(prompt).toContain("Never inject images or XML into the .pptx ZIP");
+  it("can include SlideML2 only through the skills section", () => {
+    const prompt = buildSystemPrompt({
+      availableSkillsPrompt: "## Skills\n- **slideml2**: Create slide decks — `/Users/river/.cowork/skills/slideml2/SKILL.md`",
+    });
+    expect(prompt).toContain("slideml2");
+    expect(prompt).toContain("/Users/river/.cowork/skills/slideml2/SKILL.md");
   });
 
   it("includes autonomy instructions", () => {

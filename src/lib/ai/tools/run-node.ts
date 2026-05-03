@@ -13,7 +13,7 @@ Use this for:
 - Custom data-shaping scripts that other tools don't cover
 - Any task that benefits from a one-off Node.js library
 
-DO NOT use this to generate .pptx files. Use the dedicated SlideML tools (\`list_slide_pagepatterns\` → \`list_content_components\` → \`describe_content_component\` → \`render_slideml\`) instead — they ship typed PagePatterns, ContentComponents, theme support, and produce decks that open cleanly in PowerPoint. \`run_node\` + \`pptxgenjs\` is a fallback ONLY when SlideML cannot express a truly custom geometry (rare).
+DO NOT use this to generate .pptx files. Activate the slideml2 skill, then use the dedicated SlideML2 tools (\`create_deck\` → \`replace_slide\` / \`patch_deck\` → \`validate_render\`) instead. \`run_node\` + \`pptxgenjs\` is a fallback ONLY when SlideML2 cannot express a truly custom geometry (rare).
 
 The script runs with a 60-second timeout by default. Use console.log() for output.
 If you need packages, use the install_package parameter — it installs to the isolated environment. You may pass one package or a comma/space-separated list.

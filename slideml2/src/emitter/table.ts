@@ -135,6 +135,18 @@ function tcPrXml(fill: FillSpec | undefined, shape: TableShape, isHeader: boolea
 function fillXmlOf(fill: FillSpec | undefined, isHeader: boolean): string {
   if (!fill && !isHeader) return "";
   if (!fill || fill.type === "none") return "";
+  if (fill.type === "gradient") {
+    // Table cells don't carry full <a:gradFill>; collapse to the average stop
+    // color so we still emit a useful solid fill.
+    const stops = fill.stops || [];
+    if (stops.length === 0) return "";
+    const avg = stops.map((s) => s.color);
+    const r = Math.round(avg.reduce((acc, c) => acc + parseInt(c.slice(0, 2), 16), 0) / avg.length);
+    const g = Math.round(avg.reduce((acc, c) => acc + parseInt(c.slice(2, 4), 16), 0) / avg.length);
+    const b = Math.round(avg.reduce((acc, c) => acc + parseInt(c.slice(4, 6), 16), 0) / avg.length);
+    const hex = [r, g, b].map((n) => n.toString(16).padStart(2, "0").toUpperCase()).join("");
+    return `<a:solidFill><a:srgbClr val="${hex}"/></a:solidFill>`;
+  }
   assertHex(fill.color, "TableCell.fill.color");
   const alphaXml = fill.alpha !== undefined && fill.alpha < 1
     ? `<a:alpha val="${Math.round(fill.alpha * 100000)}"/>`

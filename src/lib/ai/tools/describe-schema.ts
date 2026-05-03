@@ -5,11 +5,11 @@ export const describeSchemaTool: Tool = {
   definition: {
     name: "describe_schema",
     description:
-      `Return the SlideML2 authoring schema, deck rules, component index, optional detailed component schemas, text kinds, node types, theme tokens, and default theme scaffold. Call once before authoring slides.
+      `Return focused SlideML2 schema details for deck authoring. Use this after reading the slideml2 SKILL.md when you need exact prop schemas for selected components.
 
 Pass a \`components\` array to get full per-prop schemas for the components you plan to use, e.g. \`{components:["kpi-grid","timeline","callout"]}\`.
 
-This is the single discovery tool — it replaces a separate list/describe split for themes, page patterns, and content components. Pair with \`SLIDEML.md\` (read it once at the start of any deck task).`,
+The slideml2 skill is the primary component-selection guide. Avoid broad schema calls as a substitute for reading the skill because large generic tool results may be compressed.`,
     parameters: {
       type: "object",
       properties: {

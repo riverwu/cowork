@@ -112,7 +112,7 @@ describe("Agent Tool Chain Diagnostics", () => {
       for (const tool of tools) {
         expect(prompt).not.toContain(`- ${tool.name}:`);
       }
-      expect(prompt).toContain("SlideML2 toolchain");
+      expect(prompt).not.toContain("SlideML2 toolchain");
     });
 
     it("system prompt includes tool guidance", () => {

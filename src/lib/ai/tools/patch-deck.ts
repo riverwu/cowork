@@ -47,7 +47,9 @@ The tool validates the patched deck before writing. If the patch breaks schema i
       }
       return `Patch applied. slideCount=${result.summary.slideCount}.`;
     } catch (err) {
-      return `Error: patch_deck failed.\n${err instanceof Error ? err.message : String(err)}`;
+      const message = err instanceof Error ? err.message : String(err);
+      const hint = patchPathHint(input.patch as Slideml2JsonPatchOp[]);
+      return `Error: patch_deck failed.\n${message}${hint ? `\n${hint}` : ""}`;
     }
   },
 
@@ -56,3 +58,38 @@ The tool validates the patched deck before writing. If the patch breaks schema i
     return rawResult.slice(0, 200);
   },
 };
+
+function patchPathHint(patch: Slideml2JsonPatchOp[]): string {
+  const suggestions: string[] = [];
+  for (const op of patch) {
+    const path = typeof op.path === "string" ? op.path : "";
+    const from = typeof op.from === "string" ? op.from : "";
+    const candidates = [path, from].filter(Boolean);
+    for (const candidate of candidates) {
+      const suggestion = suggestDeckPath(candidate);
+      if (suggestion && !suggestions.includes(suggestion)) suggestions.push(suggestion);
+    }
+  }
+  if (suggestions.length === 0) return "";
+  return `Path hint: JSON Patch paths for deck-level fields start at /deck. Did you mean ${suggestions.join(" or ")}?`;
+}
+
+function suggestDeckPath(path: string): string | null {
+  if (path.startsWith("/deck/") || path.startsWith("/slides/")) return null;
+  if (path.startsWith("/themeOverride/colors/")) return normalizeColorTokenPath(`/deck${path}`);
+  if (path.startsWith("/themeOverride/")) return `/deck${path}`;
+  if (path.startsWith("/brand/")) return `/deck${path}`;
+  if (path.startsWith("/colors/")) return normalizeColorTokenPath(`/deck/themeOverride${path}`);
+  if (path.startsWith("/text/")) return `/deck/themeOverride${path}`;
+  if (path.startsWith("/component/")) return `/deck/themeOverride${path}`;
+  if (path.startsWith("/layout/")) return `/deck/themeOverride${path}`;
+  if (path.startsWith("/chrome/")) return `/deck/themeOverride${path}`;
+  return null;
+}
+
+function normalizeColorTokenPath(path: string): string {
+  return path.replace(
+    /^\/deck\/themeOverride\/colors\/([A-Za-z]+)\/([A-Za-z]+)$/,
+    "/deck/themeOverride/colors/$1.$2",
+  );
+}

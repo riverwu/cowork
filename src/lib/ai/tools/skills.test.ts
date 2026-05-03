@@ -16,6 +16,7 @@ vi.mock("@/lib/tauri", () => ({
   webSearch: vi.fn(),
   webFetch: vi.fn(),
   shellExec: vi.fn(),
+  getEnv: vi.fn(),
 }));
 
 // Mock DB
@@ -90,6 +91,14 @@ describe("read_file skill", () => {
     mockReadFileText.mockResolvedValue("0123456789".repeat(1000));
     const result = await readFile.execute({ path: "/test/big.txt", offset: 10, max_chars: 1000 });
     expect(result).toContain("Returned range: 10-1010");
+  });
+
+  it("returns full SKILL.md content for task-scoped skill activation", async () => {
+    mockReadFileText.mockResolvedValue("x".repeat(25000));
+    const result = await readFile.execute({ path: "/Users/river/.cowork/skills/slideml2/SKILL.md" });
+    expect(result).toContain("Returned range: 0-25000");
+    expect(result).not.toContain("More content available");
+    expect(result.length).toBeGreaterThan(25000);
   });
 
   it("handles empty files", async () => {

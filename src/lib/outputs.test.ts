@@ -136,6 +136,48 @@ describe("outputsFromSteps", () => {
     expect(outputs).toEqual([]);
   });
 
+  it("does not expose failed validate_render pptx as a produced output", () => {
+    const outputs = outputsFromSteps([
+      {
+        skill: "validate_render",
+        status: "done",
+        success: false,
+        input: { outputPath: "/Users/river/Documents/Workspace/draft.pptx" },
+        result: JSON.stringify({
+          ok: false,
+          error: "21 blocking render diagnostic(s) remain.",
+          outputPath: "/Users/river/Documents/Workspace/draft.pptx",
+        }),
+      },
+    ]);
+
+    expect(outputs).toEqual([]);
+  });
+
+  it("exposes successful validate_render pptx as a produced output", () => {
+    const outputs = outputsFromSteps([
+      {
+        skill: "validate_render",
+        status: "done",
+        success: true,
+        input: { outputPath: "/Users/river/Documents/Workspace/final.pptx" },
+        result: JSON.stringify({
+          ok: true,
+          outputPath: "/Users/river/Documents/Workspace/final.pptx",
+        }),
+      },
+    ]);
+
+    expect(outputs).toEqual([
+      {
+        id: "file:/Users/river/Documents/Workspace/final.pptx",
+        title: "final.pptx",
+        kind: "file",
+        path: "/Users/river/Documents/Workspace/final.pptx",
+      },
+    ]);
+  });
+
   it("extracts browser screenshot outputs from structured tool results", () => {
     const outputs = outputsFromSteps([
       {

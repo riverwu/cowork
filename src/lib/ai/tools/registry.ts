@@ -34,14 +34,16 @@ import { validateRenderTool } from "./validate-render";
  * Output / progress:       create_artifact, update_task_progress
  * Media:                   image_gen
  * Decks (SlideML2):        describe_schema, create_deck, read_deck, replace_slide, patch_deck, validate_render
- *   Discovery:             describe_schema (single tool — deck rules + components + theme tokens)
+ *   Skill:                 read the slideml2 SKILL.md once per deck task
+ *   Discovery:             describe_schema({ components }) for focused prop schemas
  *   Authoring:             create_deck → replace_slide (append by passing slideId == slideCount)
  *   Editing:               replace_slide (slide content) | patch_deck (deck-level fields, slide reorder/delete)
  *   Render & QA:           validate_render (schema + render + diagnostics; iterate on blocking codes)
  *
- * The agent must read SLIDEML.md once at the start of any deck task — it
- * carries the design taste, component philosophy, composition patterns, and
- * diagnostic playbook that the tool descriptions intentionally do not.
+ * The agent must activate the slideml2 skill once at the start of any deck
+ * task. Its SKILL.md carries the design taste, component philosophy,
+ * component purpose index, composition patterns, and diagnostic playbook
+ * that the tool descriptions intentionally do not.
  */
 const tools: Record<string, Tool> = {
   read_file: readFile,

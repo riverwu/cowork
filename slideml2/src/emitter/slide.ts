@@ -5,7 +5,7 @@
  * shape tree (`<p:spTree>`) and an optional background fill.
  */
 
-import { shapeXml, type SlideRels } from "./shapes.js";
+import { gradientFillXml, shapeXml, type SlideRels } from "./shapes.js";
 import { assertHex } from "./xml.js";
 import type { SlideAst } from "./types.js";
 
@@ -70,6 +70,16 @@ function backgroundXml(slide: SlideAst, rels: SlideRels): string {
       `<p:bg>` +
       `<p:bgPr>` +
       `<a:solidFill><a:srgbClr val="${slide.background.color.toUpperCase()}"/></a:solidFill>` +
+      `<a:effectLst/>` +
+      `</p:bgPr>` +
+      `</p:bg>`
+    );
+  }
+  if (slide.background.type === "gradient") {
+    return (
+      `<p:bg>` +
+      `<p:bgPr>` +
+      gradientFillXml(slide.background, "Slide.background") +
       `<a:effectLst/>` +
       `</p:bgPr>` +
       `</p:bg>`

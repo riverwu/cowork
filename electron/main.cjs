@@ -643,7 +643,32 @@ function jsonPointerSet(doc, ptr, value, mode) {
   const parts = jsonPointerParts(ptr);
   if (parts.length === 0) throw new Error("Replacing the whole document is not supported");
   const key = parts.pop();
-  const parent = jsonPointerGet(doc, parts.length === 0 ? "" : `/${parts.map(jsonPointerEscape).join("/")}`);
+  // Auto-create intermediate parents when the agent issues an `add` or
+  // `replace` deeper than what currently exists. Strict RFC 6902 fails fast,
+  // but agents almost always intend "set this nested key" — creating empty
+  // objects along the way is an acceptable convenience that matches set_path
+  // semantics in many JSON-patch libraries.
+  let parent = parts.length === 0 ? doc : null;
+  if (parts.length > 0) {
+    let cursor = doc;
+    for (let i = 0; i < parts.length; i++) {
+      const segment = parts[i];
+      if (cursor == null || typeof cursor !== "object") throw new Error(`Path parent not found: ${ptr}`);
+      let next = Array.isArray(cursor) ? cursor[Number(segment)] : cursor[segment];
+      if (next === undefined) {
+        // Create an object for the missing intermediate. Skip if cursor is an
+        // array (autocreate doesn't make sense for array slots).
+        if (!Array.isArray(cursor)) {
+          next = {};
+          cursor[segment] = next;
+        } else {
+          throw new Error(`Path parent not found: ${ptr}`);
+        }
+      }
+      cursor = next;
+    }
+    parent = cursor;
+  }
   if (parent == null) throw new Error(`Path parent not found: ${ptr}`);
   if (Array.isArray(parent)) {
     if (key === "-") parent.push(value);
@@ -657,7 +682,10 @@ function jsonPointerSet(doc, ptr, value, mode) {
       }
     }
   } else {
-    if (mode === "replace" && !(key in parent)) throw new Error(`Replace path does not exist: ${ptr}`);
+    // Soft-replace: when `replace` targets a missing key but the parent
+    // exists, treat as `add`. Strict RFC 6902 would fail, but agents almost
+    // always meant "set this key", and the only failure mode of this
+    // looseness is over-creating themeOverride keys — which is harmless.
     parent[key] = value;
   }
 }

@@ -82,8 +82,8 @@ export function stepCard(slideId: string, id: string, step: string, title: strin
     gap: 0.25,
     role: "step-card",
     children: [
-      { id: `${slideId}.${id}.step`, type: "text", text: step, style: "numbered-step", color: "brand.primary", fixedHeight: 0.55 },
-      { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", fixedHeight: 0.9 },
+      { id: `${slideId}.${id}.step`, type: "text", text: step, style: "numbered-step", color: "brand.primary", minHeight: 0.42, autoFit: "shrink" },
+      { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", minHeight: 0.65, autoFit: "shrink" },
       { id: `${slideId}.${id}.body`, type: "text", text: body, style: "caption", valign: "top" },
     ],
   };
@@ -97,14 +97,17 @@ export function comparisonCard(slideId: string, id: string, title: string, point
     gap: 0.25,
     role: "comparison-card",
     children: [
-      { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", color: "brand.primary", fixedHeight: 0.85 },
+      { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", color: "brand.primary", minHeight: 0.6, autoFit: "shrink" },
       bulletList(slideId, `${id}-points`, points, "compact"),
     ],
   };
 }
 
 export function insightCallout(slideId: string, id: string, text: string): DomNode {
-  return { id: `${slideId}.${id}`, type: "text", text, style: "callout", role: "callout", fixedHeight: 1.45 };
+  // minHeight + autoFit: long callout text (a sentence or two) was being
+  // clipped at 1.45cm. The 1.45 floor still yields a tall callout block when
+  // text is short.
+  return { id: `${slideId}.${id}`, type: "text", text, style: "callout", role: "callout", minHeight: 1.0, autoFit: "shrink" };
 }
 
 export function numberedList(slideId: string, id: string, items: string[], density: "comfortable" | "compact" = "comfortable"): DomNode {
@@ -116,7 +119,7 @@ export function quoteBlock(slideId: string, id: string, text: string, source?: s
     { id: `${slideId}.${id}.text`, type: "text", text: `\u201C${text}\u201D`, style: "quote", align: "left", valign: "middle" },
   ];
   if (source && source.trim()) {
-    children.push({ id: `${slideId}.${id}.source`, type: "text", text: `\u2014 ${source.trim()}`, style: "quote-source", align: "left", fixedHeight: 0.6 });
+    children.push({ id: `${slideId}.${id}.source`, type: "text", text: `\u2014 ${source.trim()}`, style: "quote-source", align: "left", minHeight: 0.4, autoFit: "shrink" });
   }
   return {
     id: `${slideId}.${id}`,
@@ -164,8 +167,8 @@ export function timelineBlock(slideId: string, id: string, options: {
     return {
       id: `${slideId}.${id}`,
       type: "grid",
-      columns: Math.max(1, options.items.length),
-      gap: 0.4,
+      columns: Math.max(1, Math.min(5, options.items.length)),
+      gap: options.items.length >= 5 ? 0.24 : 0.32,
       role: "timeline",
       children: options.items.map((item, index) => timelineStep(slideId, id, index, item, "horizontal")),
     };
@@ -174,27 +177,38 @@ export function timelineBlock(slideId: string, id: string, options: {
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.35,
+    gap: 0.22,
     role: "timeline",
     children: options.items.map((item, index) => timelineStep(slideId, id, index, item, "vertical")),
   };
 }
 
 function timelineStep(slideId: string, id: string, index: number, item: { time?: string; title: string; body?: string }, direction: "horizontal" | "vertical"): DomNode {
-  const headerStyle = direction === "horizontal" ? "card-title" : "card-title";
+  const dense = direction === "horizontal";
+  // 2pmnxh fix: previous defaults (color:"brand.primary" on the time label,
+  // style:"caption" on the body — caption resolves to text.muted) repeatedly
+  // failed contrast on dark deck themes the agent provided. brand.primary is
+  // an accent color, not guaranteed to pass 4.5:1 against either light or
+  // dark surfaces; text.muted is by definition a low-contrast gray. Use
+  // text.primary for both — that's the one token guaranteed to read against
+  // the deck's actual surface (light theme picks dark, dark theme picks
+  // light — that's exactly what text.primary is for). The time line keeps
+  // its label style for typography but uses text.secondary (mid-contrast)
+  // as a softer accent that still passes 4.5:1 on the default themes.
+  const titleStyle = "card-title";
   const children: DomNode[] = [];
   if (item.time && item.time.trim()) {
-    children.push({ id: `${slideId}.${id}.${index}.time`, type: "text", text: item.time.trim(), style: "label", color: "brand.primary", fixedHeight: 0.55 });
+    children.push({ id: `${slideId}.${id}.${index}.time`, type: "text", text: item.time.trim(), style: "label", color: "text.primary", minHeight: dense ? 0.32 : 0.4, autoFit: "shrink" });
   }
-  children.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title, style: headerStyle, fixedHeight: 0.85 });
+  children.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title, style: titleStyle, color: "text.primary", minHeight: dense ? 0.42 : 0.5, autoFit: "shrink" });
   if (item.body && item.body.trim()) {
-    children.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "caption", valign: "top" });
+    children.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "caption", color: "text.primary", valign: "top", minHeight: 0.4, autoFit: "shrink", optional: true });
   }
   return {
     id: `${slideId}.${id}.${index}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.18,
+    gap: dense ? 0.08 : 0.1,
     role: "timeline-step",
     children,
   };
@@ -203,10 +217,10 @@ function timelineStep(slideId: string, id: string, index: number, item: { time?:
 export function profileCard(slideId: string, id: string, options: { image: string; name: string; role?: string; bio?: string }): DomNode {
   const children: DomNode[] = [
     { id: `${slideId}.${id}.photo`, type: "image", src: options.image, alt: options.name, clip: "circle", fit: "cover", fixedWidth: 2.8, fixedHeight: 2.8 },
-    { id: `${slideId}.${id}.name`, type: "text", text: options.name, style: "card-title", align: "center", fixedHeight: 0.85 },
+    { id: `${slideId}.${id}.name`, type: "text", text: options.name, style: "card-title", align: "center", minHeight: 0.6, autoFit: "shrink" },
   ];
   if (options.role && options.role.trim()) {
-    children.push({ id: `${slideId}.${id}.role`, type: "text", text: options.role.trim(), style: "label", color: "brand.primary", align: "center", fixedHeight: 0.55 });
+    children.push({ id: `${slideId}.${id}.role`, type: "text", text: options.role.trim(), style: "label", color: "brand.primary", align: "center", minHeight: 0.42, autoFit: "shrink" });
   }
   if (options.bio && options.bio.trim()) {
     children.push({ id: `${slideId}.${id}.bio`, type: "text", text: options.bio.trim(), style: "caption", align: "center", valign: "top" });
@@ -237,7 +251,7 @@ export function kpiGrid(slideId: string, id: string, metrics: Array<{ name?: str
 export function sectionBreak(slideId: string, id: string, options: { title: string; subtitle?: string; accent?: string }): DomNode {
   const children: DomNode[] = [];
   if (options.accent && options.accent.trim()) {
-    children.push({ id: `${slideId}.${id}.accent`, type: "text", text: options.accent.trim(), style: "label", color: "brand.primary", align: "left", fixedHeight: 0.6 });
+    children.push({ id: `${slideId}.${id}.accent`, type: "text", text: options.accent.trim(), style: "label", color: "brand.primary", align: "left", minHeight: 0.42, autoFit: "shrink" });
   }
   children.push({ id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "deck-title", align: "left", color: "text.primary" });
   if (options.subtitle && options.subtitle.trim()) {
@@ -264,7 +278,7 @@ export function swotMatrix(slideId: string, id: string, options: { strengths: st
     gap: 0.22,
     role: "swot-quadrant",
     children: [
-      { id: `${slideId}.${id}.${qid}.title`, type: "text" as const, text: title, style: "card-title", color, fixedHeight: 0.7 },
+      { id: `${slideId}.${id}.${qid}.title`, type: "text" as const, text: title, style: "card-title", color, minHeight: 0.55, autoFit: "shrink" as const },
       bulletList(slideId, `${id}-${qid}`, points, "compact"),
     ],
   });
@@ -324,7 +338,7 @@ export function featureCard(slideId: string, id: string, options: { icon: string
       // of a square glyph. Pin to start so fixedWidth is honored.
       align: "start",
     },
-    { id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "card-title", align: "left", color: options.tone || "text.primary", fixedHeight: 0.78 },
+    { id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "card-title", align: "left", color: options.tone || "text.primary", minHeight: 0.6, autoFit: "shrink" },
   ];
   if (options.body && options.body.trim()) {
     children.push({ id: `${slideId}.${id}.body`, type: "text", text: options.body.trim(), style: "caption", align: "left", valign: "top" });
@@ -339,12 +353,13 @@ export function featureCard(slideId: string, id: string, options: { icon: string
   };
 }
 
-export function checklist(slideId: string, id: string, items: Array<{ text: string; status?: "checked" | "unchecked" | "warning" }>): DomNode {
+export function checklist(slideId: string, id: string, items: Array<{ text: string; status?: "checked" | "unchecked" | "warning" }>, density: "comfortable" | "compact" = "comfortable"): DomNode {
+  const compact = density === "compact";
   return {
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.18,
+    gap: compact ? 0.1 : 0.18,
     role: "checklist",
     children: items.map((item, index) => {
       const status = item.status === "warning" ? "warning" : item.status === "unchecked" ? "unchecked" : "checked";
@@ -358,9 +373,10 @@ export function checklist(slideId: string, id: string, items: Array<{ text: stri
         role: "checklist-item",
         align: "start",
         valign: "middle",
+        fixedHeight: compact ? 0.5 : undefined,
         children: [
-          { id: `${slideId}.${id}.${index}.mark`, type: "text", text: mark, style: "card-title", color: markColor, align: "center", valign: "middle", fixedWidth: 0.7 },
-          { id: `${slideId}.${id}.${index}.text`, type: "text", text: item.text, style: "paragraph", align: "left", valign: "middle", layoutWeight: 1 },
+          { id: `${slideId}.${id}.${index}.mark`, type: "text", text: mark, style: compact ? "label" : "card-title", color: markColor, align: "center", valign: "middle", fixedWidth: compact ? 0.5 : 0.7 },
+          { id: `${slideId}.${id}.${index}.text`, type: "text", text: item.text, style: compact ? "caption" : "paragraph", align: "left", valign: "middle", layoutWeight: 1, autoFit: compact ? "shrink" : undefined },
         ],
       };
     }),
@@ -421,7 +437,7 @@ export function prosCons(slideId: string, id: string, options: { pros: string[];
         gap: 0.25,
         role: "pros-column",
         children: [
-          { id: `${slideId}.${id}.pros.title`, type: "text", text: options.prosTitle || "Pros", style: "card-title", color: "success", fixedHeight: 0.7 },
+          { id: `${slideId}.${id}.pros.title`, type: "text", text: options.prosTitle || "Pros", style: "card-title", color: "success", minHeight: 0.55, autoFit: "shrink" },
           checklist(slideId, `${id}-pros`, options.pros.map((text) => ({ text, status: "checked" }))),
         ],
       },
@@ -432,7 +448,7 @@ export function prosCons(slideId: string, id: string, options: { pros: string[];
         gap: 0.25,
         role: "cons-column",
         children: [
-          { id: `${slideId}.${id}.cons.title`, type: "text", text: options.consTitle || "Cons", style: "card-title", color: "danger", fixedHeight: 0.7 },
+          { id: `${slideId}.${id}.cons.title`, type: "text", text: options.consTitle || "Cons", style: "card-title", color: "danger", minHeight: 0.55, autoFit: "shrink" },
           checklist(slideId, `${id}-cons`, options.cons.map((text) => ({ text, status: "unchecked" }))),
         ],
       },
@@ -441,22 +457,41 @@ export function prosCons(slideId: string, id: string, options: { pros: string[];
 }
 
 export function processFlow(slideId: string, id: string, options: { steps: Array<{ title: string; body?: string }>; direction?: "horizontal" | "vertical" }): DomNode {
+  // direction "auto" or undefined defers to layout: a hint we read at
+  // measure time and flip to vertical when the flow is squeezed into a
+  // narrow column.
   const direction = options.direction === "vertical" ? "vertical" : "horizontal";
   const arrow = direction === "horizontal" ? "arrow-right" : "arrow-down";
+  const dense = options.steps.length >= 5;
   const items: DomNode[] = [];
+  // Vertical process-flow stacks step + arrow + step + arrow ... in one column
+  // and competes with the slide's slide-title placeholder for the ~10cm content
+  // area. Density adapts to step count so 4-6 vertical steps fit without
+  // FALLBACK_FAILED on a default deck.
+  const verticalDense = direction === "vertical" && options.steps.length >= 4;
   options.steps.forEach((step, index) => {
+    const stepMinHeight = direction === "horizontal"
+      ? (dense ? 1.85 : 2.0)
+      : (verticalDense ? 1.0 : 1.4);
     items.push({
       id: `${slideId}.${id}.step${index + 1}`,
       type: "stack",
       direction: "vertical",
-      gap: 0.2,
+      gap: dense || verticalDense ? 0.08 : 0.18,
       role: "process-step",
+      // For a vertical stack the cross axis is horizontal; align="center"
+      // centers the title/body horizontally inside the step. justify="center"
+      // centers the WHOLE step content vertically inside its assigned slot —
+      // without it, steps top-align in the slide content rect (~10cm) while
+      // the arrows are vertically centered, creating disconnected layouts
+      // (t25mft tang slide: steps at y=2.95, arrows at y=7.87).
       align: "center",
       valign: "middle",
-      fixedHeight: 2.4,
+      justify: "center",
+      minHeight: stepMinHeight,
       children: [
-        { id: `${slideId}.${id}.step${index + 1}.title`, type: "text", text: step.title, style: "card-title", color: "brand.primary", align: "center", fixedHeight: 0.85 },
-        ...(step.body && step.body.trim() ? [{ id: `${slideId}.${id}.step${index + 1}.body`, type: "text" as const, text: step.body.trim(), style: "caption", align: "center" as const, valign: "top" as const }] : []),
+        { id: `${slideId}.${id}.step${index + 1}.title`, type: "text", text: step.title, style: "card-title", color: "brand.primary", align: "center", minHeight: dense || verticalDense ? 0.42 : 0.6, autoFit: "shrink" },
+        ...(step.body && step.body.trim() ? [{ id: `${slideId}.${id}.step${index + 1}.body`, type: "text" as const, text: step.body.trim(), style: "caption", align: "center" as const, valign: "top" as const, minHeight: 0.4, autoFit: "shrink" as const, optional: true }] : []),
       ],
       layoutWeight: 4,
     });
@@ -467,8 +502,8 @@ export function processFlow(slideId: string, id: string, options: { steps: Array
         preset: arrow,
         fill: "brand.primary",
         line: "brand.primary",
-        fixedWidth: direction === "horizontal" ? 0.8 : 1,
-        fixedHeight: direction === "horizontal" ? 0.5 : 0.7,
+        fixedWidth: direction === "horizontal" ? (dense ? 0.48 : 0.7) : 0.5,
+        fixedHeight: direction === "horizontal" ? (dense ? 0.36 : 0.5) : (verticalDense ? 0.3 : 0.4),
         layoutWeight: 1,
       });
     }
@@ -477,12 +512,14 @@ export function processFlow(slideId: string, id: string, options: { steps: Array
     id: `${slideId}.${id}`,
     type: "stack",
     direction,
-    gap: 0.4,
+    gap: dense || verticalDense ? 0.18 : 0.4,
     role: "process-flow",
     align: "center",
     valign: "middle",
     children: items,
-    fixedHeight: direction === "horizontal" ? 2.6 : undefined,
+    // No outer fixedHeight: process-flow lets the container above decide.
+    // Layout falls back to vertical orientation when the cross-axis cell is
+    // too narrow (see autoOrientFlow in render.ts).
   };
 }
 
@@ -512,7 +549,7 @@ export function logoStrip(slideId: string, id: string, logos: Array<{ src: strin
     role: "logo-strip",
     children: [
       grid,
-      { id: `${slideId}.${id}.caption`, type: "text", text: options.caption, style: "caption", align: "center", color: "text.muted", fixedHeight: 0.5 },
+      { id: `${slideId}.${id}.caption`, type: "text", text: options.caption, style: "caption", align: "center", color: "text.muted", minHeight: 0.4, autoFit: "shrink" },
     ],
   };
 }
@@ -532,7 +569,7 @@ export function pricingCard(slideId: string, id: string, options: { plan: string
     padding: 0.55,
     cornerRadius: 0.12,
     children: [
-      { id: `${slideId}.${id}.plan`, type: "text", text: options.plan, style: "card-title", color: accent, fixedHeight: 0.75 },
+      { id: `${slideId}.${id}.plan`, type: "text", text: options.plan, style: "card-title", color: accent, minHeight: 0.6, autoFit: "shrink" },
       {
         id: `${slideId}.${id}.priceRow`,
         type: "stack",
@@ -542,7 +579,7 @@ export function pricingCard(slideId: string, id: string, options: { plan: string
         valign: "bottom",
         children: [
           { id: `${slideId}.${id}.price`, type: "text", text: options.price, style: "metric-value", color: accent, align: "left", valign: "bottom", layoutWeight: 5 },
-          ...(options.period ? [{ id: `${slideId}.${id}.period`, type: "text" as const, text: options.period, style: "label", color: "text.muted", align: "left" as const, valign: "bottom" as const, fixedHeight: 0.6, layoutWeight: 2 }] : []),
+          ...(options.period ? [{ id: `${slideId}.${id}.period`, type: "text" as const, text: options.period, style: "label", color: "text.muted", align: "left" as const, valign: "bottom" as const, minHeight: 0.45, autoFit: "shrink" as const, layoutWeight: 2 }] : []),
         ],
         fixedHeight: 1.4,
       },
@@ -553,7 +590,7 @@ export function pricingCard(slideId: string, id: string, options: { plan: string
         line: tone === "brand" ? "brand.primary" : "divider",
         fixedHeight: 0.05,
       },
-      checklist(slideId, `${id}-features`, options.features.map((text) => ({ text, status: "checked" }))),
+      checklist(slideId, `${id}-features`, options.features.map((text) => ({ text, status: "checked" })), "compact"),
       ...(options.ctaText ? [{ id: `${slideId}.${id}.cta`, type: "text" as const, text: options.ctaText, style: "card-title" as const, align: "center" as const, valign: "middle" as const, fill: tone === "brand" ? "brand.primary" : "surface.subtle", color: tone === "brand" ? "text.inverse" : "text.primary", cornerRadius: 0.3, fixedHeight: 1, role: "cta" }] : []),
     ],
   };
@@ -573,7 +610,7 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
       align: "center",
       valign: "middle",
       autoFit: "shrink",
-      fixedHeight: 1.7,
+      minHeight: 1.3,
     },
     {
       id: `${slideId}.${id}.label`,
@@ -584,7 +621,8 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
       color: "text.primary",
       align: "center",
       valign: "top",
-      fixedHeight: 0.7,
+      minHeight: 0.55,
+      autoFit: "shrink",
     },
   ];
   if (options.caption && options.caption.trim()) {
@@ -596,7 +634,9 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
       align: "center",
       valign: "top",
       color: "text.muted",
-      fixedHeight: 0.55,
+      minHeight: 0.45,
+      autoFit: "shrink",
+      optional: true,
     });
   }
   return {
@@ -714,18 +754,25 @@ export function keyTakeaway(slideId: string, id: string, options: { headline: st
 export function numberedGrid(slideId: string, id: string, options: { items: Array<{ title: string; body?: string }>; columns?: number; tone?: "brand" | "neutral" }): DomNode {
   const tone = options.tone || "brand";
   const accentColor = tone === "brand" ? "brand.primary" : "text.primary";
-  const cols = options.columns && options.columns > 0 ? options.columns : Math.min(4, options.items.length);
+  const cols = options.columns && options.columns > 0
+    ? options.columns
+    : options.items.length <= 4
+      ? options.items.length
+      : options.items.length <= 6
+        ? 3
+        : 4;
+  const dense = options.items.length >= 5;
   return {
     id: `${slideId}.${id}`,
     type: "grid",
     columns: cols,
-    gap: 0.55,
+    gap: dense ? 0.32 : 0.55,
     role: "numbered-grid",
     children: options.items.map((item, index) => ({
       id: `${slideId}.${id}.${index}`,
       type: "stack",
       direction: "vertical",
-      gap: 0.25,
+      gap: dense ? 0.14 : 0.25,
       role: "numbered-step",
       children: [
         {
@@ -736,7 +783,8 @@ export function numberedGrid(slideId: string, id: string, options: { items: Arra
           color: accentColor,
           align: "left",
           valign: "bottom",
-          fixedHeight: 1.1,
+          minHeight: dense ? 0.6 : 0.9,
+          autoFit: "shrink",
         },
         {
           id: `${slideId}.${id}.${index}.title`,
@@ -745,9 +793,10 @@ export function numberedGrid(slideId: string, id: string, options: { items: Arra
           style: "card-title",
           color: "text.primary",
           align: "left",
-          fixedHeight: 0.7,
+          minHeight: dense ? 0.42 : 0.55,
+          autoFit: "shrink",
         },
-        ...(item.body && item.body.trim() ? [{ id: `${slideId}.${id}.${index}.body`, type: "text" as const, text: item.body.trim(), style: "caption", align: "left" as const, valign: "top" as const, color: "text.muted" }] : []),
+        ...(item.body && item.body.trim() ? [{ id: `${slideId}.${id}.${index}.body`, type: "text" as const, text: item.body.trim(), style: "caption", align: "left" as const, valign: "top" as const, color: "text.muted", minHeight: dense ? 0.5 : 0.7, autoFit: "shrink" as const, optional: true }] : []),
       ],
     })),
   };
@@ -782,7 +831,7 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
       valign: "middle",
       layoutWeight: 4,
       children: [
-        { id: `${slideId}.${id}.${index}.value`, type: "text", text: item.value, style: "metric-value", color: valueColor, align: "center", valign: "bottom", autoFit: "shrink", fixedHeight: 1.0 },
+        { id: `${slideId}.${id}.${index}.value`, type: "text", text: item.value, style: "metric-value", color: valueColor, align: "center", valign: "bottom", autoFit: "shrink", minHeight: 0.85 },
         { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "metric-label", color: "text.muted", align: "center", valign: "top", uppercase: true, letterSpacing: 60 },
       ],
     });
@@ -862,6 +911,10 @@ export function flowArrow(slideId: string, id: string, options: { label?: string
   const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
   const direction = options.direction === "down" ? "down" : "right";
   const preset = direction === "down" ? "arrow-down" : "arrow-right";
+  // t25mft modern slide: a tiny flow-arrow above two cards looked like a
+  // disconnected icon. Larger arrow + label that visually reads as a
+  // "connector with caption". Keep right-direction arrow horizontal so it
+  // sits inline next to a label.
   const children: DomNode[] = [
     {
       id: `${slideId}.${id}.arrow`,
@@ -869,8 +922,9 @@ export function flowArrow(slideId: string, id: string, options: { label?: string
       preset,
       fill: fillToken,
       line: fillToken,
-      fixedWidth: direction === "right" ? 1.6 : 0.9,
-      fixedHeight: direction === "right" ? 0.7 : 1.2,
+      fixedWidth: direction === "right" ? 2.2 : 1.4,
+      fixedHeight: direction === "right" ? 0.9 : 1.6,
+      align: "center",
     },
   ];
   if (options.label && options.label.trim()) {
@@ -884,16 +938,32 @@ export function flowArrow(slideId: string, id: string, options: { label?: string
       valign: "middle",
       uppercase: true,
       letterSpacing: 80,
+      minHeight: 0.5,
     });
   }
+  // Snug cluster width: a flow-arrow with a label should read as ONE compact
+  // unit (arrow + caption) centered in the parent's cross-axis, not as a
+  // 22cm-wide caption row stretched across the slide. Without an explicit
+  // width, the outer stack inherits the parent's full cross-axis size and
+  // the label spans the slide. The label color is high-contrast and the
+  // arrow shape is visible — but the layout looks like an orphan icon with
+  // a banner caption. Constrain to the maximum of the arrow width and a
+  // reasonable label allowance, then center within the parent.
+  const labelWidth = options.label && options.label.trim() ? Math.max(3.5, Math.min(8, options.label.trim().length * 0.6)) : 0;
+  const arrowWidth = direction === "right" ? 2.2 : 1.4;
+  const clusterWidth = direction === "right"
+    ? arrowWidth + 0.4 + labelWidth
+    : Math.max(arrowWidth, labelWidth);
   return {
     id: `${slideId}.${id}`,
     type: "stack",
     direction: direction === "right" ? "horizontal" : "vertical",
-    gap: 0.25,
+    gap: 0.18,
     role: "flow-arrow",
     align: "center",
     valign: "middle",
+    justify: "center",
+    fixedWidth: clusterWidth,
     children,
   };
 }
@@ -932,7 +1002,8 @@ export function tagList(slideId: string, id: string, options: { items: Array<str
         align: "center",
         valign: "middle",
         cornerRadius: 0.4,
-        fixedHeight: 0.7,
+        minHeight: 0.55,
+        autoFit: "shrink",
       };
     }),
   };
@@ -958,7 +1029,7 @@ export function statComparison(slideId: string, id: string, options: { beforeLab
         align: "center",
         valign: "middle",
         children: [
-          { id: `${slideId}.${id}.before.label`, type: "text", text: options.beforeLabel, style: "label", color: "text.muted", align: "center", fixedHeight: 0.55 },
+          { id: `${slideId}.${id}.before.label`, type: "text", text: options.beforeLabel, style: "label", color: "text.muted", align: "center", minHeight: 0.42, autoFit: "shrink" },
           { id: `${slideId}.${id}.before.value`, type: "text", text: options.beforeValue, style: "metric-value", color: "text.primary", align: "center", valign: "middle" },
         ],
       },
@@ -971,7 +1042,7 @@ export function statComparison(slideId: string, id: string, options: { beforeLab
         valign: "middle",
         children: [
           { id: `${slideId}.${id}.delta.arrow`, type: "shape", preset: arrow, fill: trendColor, line: trendColor, fixedHeight: 0.7, fixedWidth: 1.2 },
-          ...(options.deltaLabel ? [{ id: `${slideId}.${id}.delta.label`, type: "text" as const, text: options.deltaLabel, style: "label", color: trendColor, align: "center" as const, fixedHeight: 0.5 }] : []),
+          ...(options.deltaLabel ? [{ id: `${slideId}.${id}.delta.label`, type: "text" as const, text: options.deltaLabel, style: "label", color: trendColor, align: "center" as const, minHeight: 0.42, autoFit: "shrink" as const }] : []),
         ],
       },
       {
@@ -982,7 +1053,7 @@ export function statComparison(slideId: string, id: string, options: { beforeLab
         align: "center",
         valign: "middle",
         children: [
-          { id: `${slideId}.${id}.after.label`, type: "text", text: options.afterLabel, style: "label", color: trendColor, align: "center", fixedHeight: 0.55 },
+          { id: `${slideId}.${id}.after.label`, type: "text", text: options.afterLabel, style: "label", color: trendColor, align: "center", minHeight: 0.42, autoFit: "shrink" },
           { id: `${slideId}.${id}.after.value`, type: "text", text: options.afterValue, style: "metric-value", color: trendColor, align: "center", valign: "middle" },
         ],
       },

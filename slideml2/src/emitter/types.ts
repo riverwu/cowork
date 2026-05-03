@@ -21,10 +21,22 @@ export interface Xfrm {
 /** Hex color, 6 chars, no `#` prefix. Validated at emit time. */
 export type HexColor = string;
 
-/** A solid fill or no fill. We deliberately don't support gradients here —
- *  PptxGenJS doesn't either; gradients ship as background images instead. */
+/** A solid fill, gradient fill, or no fill. Gradient stops use 0..100 percent
+ *  along the gradient axis; angle is in degrees clockwise from the 12 o'clock
+ *  position (0=top→bottom, 90=left→right) for linear, ignored for radial. */
+export interface GradientStop {
+  position: number;
+  color: HexColor;
+  alpha?: number;
+}
 export type FillSpec =
   | { type: "solid"; color: HexColor; alpha?: number }
+  | {
+      type: "gradient";
+      kind: "linear" | "radial";
+      angle?: number;
+      stops: GradientStop[];
+    }
   | { type: "none" };
 
 export interface LineSpec {
@@ -379,7 +391,13 @@ export type ShapeList = Shape[];
 /** Per-slide background — set by chrome compositor in Stage 3. */
 export type SlideBackground =
   | { type: "solid"; color: HexColor }
-  | { type: "image"; src: string };
+  | { type: "image"; src: string }
+  | {
+      type: "gradient";
+      kind: "linear" | "radial";
+      angle?: number;
+      stops: GradientStop[];
+    };
 
 export interface SlideAst {
   shapes: ShapeList;

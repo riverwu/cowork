@@ -31,9 +31,10 @@ export interface Tool {
   execute(input: Record<string, unknown>, onProgress?: ProgressCallback): Promise<string>;
   /**
    * Compress this tool's recorded result for older-turn history injection.
-   * Live-turn results are NOT compressed — only the bytes that get
-   * re-shipped to the LLM in subsequent turns as native role:tool messages
-   * (see `assembleLlmMessages` in stores/session-store.ts).
+   * Live-turn results are formatted by the agent loop before they are sent
+   * back to the LLM. Some task-scoped instruction reads, such as SKILL.md,
+   * are intentionally kept in full for the current run; older-turn history
+   * still uses this summarizer.
    */
   historySummarizer?: HistorySummarizer;
 }

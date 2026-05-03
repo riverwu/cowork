@@ -849,7 +849,9 @@ describe("slideml2 MVP", () => {
     expect(duplicateContent.ok).toBe(true);
     expect(promptPack).toContain("metric-card");
     expect(promptPack).toContain("callout");
-    expect(promptPack).toContain("type:'stack'");
+    expect(promptPack).toContain("type='stack'");
+    expect(promptPack).toContain("required={");
+    expect(promptPack).toContain("optional={");
     expect(promptPack).toContain("children=required");
     expect(promptPack).toContain("example=");
     expect(promptPack).not.toContain("code-card");
@@ -1176,7 +1178,7 @@ describe("slideml2 MVP", () => {
     const validation = validateDeck(deck);
     expect(validation.ok).toBe(false);
     expect(validation.errors[0]?.code).toBe("UNKNOWN_COMPONENT");
-    expect(validation.errors[0]?.suggestedFix).toContain("listComponents");
+    expect(validation.errors[0]?.suggestedFix).toContain("active SKILL.md");
   });
 
   it("renders the same component source deck with three themes", async () => {
@@ -1442,6 +1444,117 @@ describe("slideml2 MVP", () => {
     expect(ids.has("newcomps.stat.delta.arrow")).toBe(true);
   });
 
+  it("renders dense expressive components without fallback failures or squashed shapes", () => {
+    clearRenderDiagnostics();
+    const deck: ReturnType<typeof buildDom> = {
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [
+        {
+          id: "dense-timeline",
+          layout: "title-and-content",
+          dom: {
+            id: "dense-timeline.root",
+            type: "slide",
+            background: "background",
+            children: [{
+              id: "dense-timeline.content",
+              type: "timeline",
+              area: "content",
+              // Omitted direction should still choose a renderable layout for common short timelines.
+              items: [
+                { date: "2019", title: "Pilot", body: "Validate the first internal workflow." },
+                { date: "2020", title: "Launch", body: "Release the customer-facing experience." },
+                { time: "2021", title: "Scale", body: "Expand to three priority regions." },
+                { time: "2022", title: "Automate", body: "Reduce manual operating steps." },
+                { time: "2023", title: "Platform", body: "Unify reporting and governance." },
+              ],
+            }],
+          },
+        },
+        {
+          id: "dense-numbered-grid",
+          layout: "title-and-content",
+          dom: {
+            id: "dense-numbered-grid.root",
+            type: "slide",
+            background: "background",
+            children: [{
+              id: "dense-numbered-grid.content",
+              type: "numbered-grid",
+              area: "content",
+              items: [
+                { title: "Signal", body: "Capture demand, risk, and adoption indicators." },
+                { title: "Model", body: "Translate indicators into prioritized scenarios." },
+                { title: "Plan", body: "Allocate teams against the highest leverage work." },
+                { title: "Execute", body: "Ship increments with clear accountable owners." },
+                { title: "Review", body: "Compare outcomes against the operating thesis." },
+              ],
+            }],
+          },
+        },
+        {
+          id: "dense-process-flow",
+          layout: "title-and-content",
+          dom: {
+            id: "dense-process-flow.root",
+            type: "slide",
+            background: "background",
+            children: [{
+              id: "dense-process-flow.content",
+              type: "process-flow",
+              area: "content",
+              direction: "horizontal",
+              steps: [
+                { title: "Collect", body: "Gather source evidence." },
+                { title: "Cluster", body: "Group related themes." },
+                { title: "Decide", body: "Select the core argument." },
+                { title: "Draft", body: "Compose slide-ready points." },
+                { title: "Verify", body: "Check render and layout." },
+              ],
+            }],
+          },
+        },
+      ],
+    };
+
+    const ast = renderToAst(deck);
+    assertShapeBounds(ast);
+    expect(getDiagnosticsByCode("FALLBACK_FAILED")).toHaveLength(0);
+    expect(getDiagnosticsByCode("SQUASHED")).toHaveLength(0);
+    expect(getDiagnosticsByCode("TINY_RECT")).toHaveLength(0);
+  });
+
+  it("accepts common aliases and safe defaults for expressive components", () => {
+    const deck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [
+        { id: "alias-kpis", children: [{ id: "content", type: "kpi-grid", items: [{ value: "42%", name: "Adoption" }, { value: "8", title: "Markets" }] }] },
+        { id: "alias-flow", children: [{ id: "content", type: "process-flow", items: [{ title: "Collect" }, { title: "Decide" }, { title: "Ship" }] }] },
+        { id: "alias-logos", children: [{ id: "content", type: "logo-strip", images: [{ src: "/tmp/a.png", alt: "A" }, { src: "/tmp/b.png", alt: "B" }] }] },
+        { id: "alias-chart", children: [{ id: "content", type: "chart-card", chart: "bar", data: { labels: ["A", "B"], series: [{ name: "X", values: [1, 2] }] }, title: "Chart" }] },
+        { id: "alias-table", children: [{ id: "content", type: "table-card", title: "Table", data: { headers: ["A", "B"], rows: [["1", "2"]] } }] },
+        { id: "alias-takeaway", children: [{ id: "content", type: "key-takeaway", title: "Main conclusion", body: "Support sentence." }] },
+        { id: "alias-insight", children: [{ id: "content", type: "insight-card", title: "Finding", body: "Support.", items: ["Proof A", "Proof B"] }] },
+        { id: "alias-scale", children: [{ id: "content", type: "axis-ruler", items: [{ title: "Low", description: "Basic" }, { title: "High", description: "Advanced" }] }] },
+        { id: "alias-bars", children: [{ id: "content", type: "bar-list", items: [{ label: "A", score: "75%" }, { label: "B", value: "40" }] }] },
+        { id: "alias-progress", children: [{ id: "content", type: "progress-bar", label: "Done", value: "75%" }] },
+        { id: "pricing-compact", children: [{ id: "content", type: "pricing-card", plan: "Pro", price: "$29", features: ["A", "B", "C", "D"], ctaText: "Start" }] },
+      ],
+    } as const;
+
+    const validation = validateDeck(deck);
+    expect(validation.errors).toHaveLength(0);
+    clearRenderDiagnostics();
+    const rendered = sourceToRenderedDeck(deck);
+    expect(JSON.stringify(rendered)).toContain("Adoption");
+    expect(JSON.stringify(rendered)).toContain("Main conclusion");
+    expect(JSON.stringify(rendered)).toContain("75%");
+    expect(getDiagnosticsByCode("FALLBACK_FAILED")).toHaveLength(0);
+    expect(getDiagnosticsByCode("SQUASHED")).toHaveLength(0);
+    expect(getDiagnosticsByCode("TINY_RECT")).toHaveLength(0);
+  });
+
   it("describeDeck exposes the full prompt rule set the agent should follow", () => {
     const deck = describeDeck();
     expect(deck.colorUsageRules.length).toBeGreaterThan(0);
@@ -1593,7 +1706,14 @@ describe("slideml2 MVP", () => {
       }],
     };
     renderToAst(deck);
-    const lowContrast = getDiagnosticsByCode("LOW_CONTRAST");
+    // Either LOW_CONTRAST (when auto-fix didn't fire / cluster wasn't fully
+    // covered) or LOW_CONTRAST_FIXED (when the renderer auto-rewrote a
+    // theme-resolved color) is acceptable — both report the issue. fg=FFFFFF
+    // is in the muted/inverse-default set, so this case fires the auto-fix.
+    const lowContrast = [
+      ...getDiagnosticsByCode("LOW_CONTRAST"),
+      ...getDiagnosticsByCode("LOW_CONTRAST_FIXED"),
+    ];
     expect(lowContrast.length).toBeGreaterThan(0);
     expect(lowContrast[0]!.message).toContain("contrast");
     expect(lowContrast[0]!.suggestion).toBeTruthy();

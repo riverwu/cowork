@@ -31,7 +31,6 @@ export const readFile: Tool = {
     try {
       const offset = Math.max(0, Math.floor((input.offset as number) || 0));
       const requestedMax = Math.floor((input.max_chars as number) || 6000);
-      const maxChars = Math.min(Math.max(requestedMax, 1000), 20000);
       const ext = path.split(".").pop()?.toLowerCase() || "";
       const docExtensions = ["pdf", "doc", "docx", "xlsx", "xls"];
 
@@ -43,6 +42,10 @@ export const readFile: Tool = {
         return `File "${path}" is empty or could not be parsed.`;
       }
 
+      const isSkillMd = isSkillMarkdownPath(path);
+      const maxChars = isSkillMd
+        ? text.length
+        : Math.min(Math.max(requestedMax, 1000), 20000);
       const start = Math.min(offset, text.length);
       const end = Math.min(start + maxChars, text.length);
       const segment = text.slice(start, end);
@@ -60,3 +63,7 @@ export const readFile: Tool = {
     }
   },
 };
+
+function isSkillMarkdownPath(path: string): boolean {
+  return /(^|\/)SKILL\.md$/i.test(path);
+}

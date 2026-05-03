@@ -63,7 +63,7 @@ export function validateSlide(slide: SlideV2, deck?: Pick<Slideml2SourceDeck, "d
   } catch (error) {
     issues.push(issue("error", "LAYOUT_VALIDATION_CRASH", `Layout validator crashed: ${error instanceof Error ? error.message : String(error)}`, {
       slideId: slide.id,
-      suggestedFix: "Re-author the slide with explicit ids and a registered component type for every node.",
+      suggestedFix: "Re-author the slide with explicit ids and documented SlideML2 node types selected from the active SKILL.md.",
     }));
   }
   return report(issues);
@@ -99,15 +99,46 @@ export function validateDeck(deck: Slideml2SourceDeck): ValidationReport {
   return report(dedupeIssues(issues));
 }
 
+// Style tokens an LLM may write as a node `type` even though the canonical
+// shape is {type:"text", style:"<token>"}. Components h1/h2/lead/label/quote
+// already exist as distinct components, so they are NOT in this set.
+const STYLE_TOKENS_OFTEN_USED_AS_TYPE = new Set([
+  "h3", "h4", "h5", "h6",
+  "body", "caption", "footnote",
+  "metric-value", "metric-label", "card-title", "section-title",
+  "paragraph", "bullet", "bullet-compact", "quote-source",
+  "title",
+]);
+
+const TOKEN_SHAPED_RE = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9.-]*)+$/;
+
 function validateNode(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], parent?: DomNode): void {
   if (!node || typeof node !== "object") {
     issues.push(issue("error", "INVALID_NODE", `${path} must be a node object.`, { slideId, path }));
     return;
   }
   if (!node.id) issues.push(issue("error", "MISSING_NODE_ID", `${path}.id is required.`, { slideId, path, suggestedFix: "Give the node a stable semantic id." }));
-  if (!node.type) issues.push(issue("error", "MISSING_NODE_TYPE", `${path}.type is required.`, { slideId, path }));
-  if ("name" in node) issues.push(issue("error", "LEGACY_NODE_NAME", `${path}.name is not supported; use id as the stable node identity.`, { slideId, path, nodeName: node.id, suggestedFix: "Remove name and put the stable identifier in id." }));
-  if ("props" in node) issues.push(issue("error", "LEGACY_NODE_PROPS", `${path}.props is not supported; node fields must be flat.`, { slideId, path, nodeName: node.id, suggestedFix: "Move every props field onto the node itself." }));
+  if (!node.type) {
+    issues.push(issue("error", "MISSING_NODE_TYPE", `${path}.type is required.`, {
+      slideId,
+      path,
+      nodeName: typeof node.id === "string" ? node.id : undefined,
+      suggestedFix: "Add a type field — e.g. {type:\"text\", text:\"...\"} for body copy, {type:\"stack\"} for a flow group.",
+    }));
+    // Skip the rest of validation for this node — without a type the
+    // downstream branches all fall through to UNKNOWN_NODE_TYPE on
+    // String(undefined), which the rm8s07 log showed as a confusing pair of
+    // errors per node. Children are still walked.
+    node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node));
+    return;
+  }
+  // `name` and `props` are reserved on raw primitives, but components frequently
+  // use `name` as a documented schema field (profile-card.name). Only flag the
+  // legacy shape on non-component nodes.
+  if (!isComponentTypedNode(node)) {
+    if ("name" in node) issues.push(issue("error", "LEGACY_NODE_NAME", `${path}.name is not supported; use id as the stable node identity.`, { slideId, path, nodeName: node.id, suggestedFix: "Remove name and put the stable identifier in id." }));
+    if ("props" in node) issues.push(issue("error", "LEGACY_NODE_PROPS", `${path}.props is not supported; node fields must be flat.`, { slideId, path, nodeName: node.id, suggestedFix: "Move every props field onto the node itself." }));
+  }
   if ("fontSize" in node || "fontFace" in node) {
     issues.push(issue("error", "RAW_TEXT_FORMATTING", `${path} uses raw text formatting; use semantic style/size/theme tokens instead.`, {
       slideId,
@@ -117,11 +148,11 @@ function validateNode(node: DomNode, path: string, slideId: string, issues: Vali
     }));
   }
   if (node.type === "text" && typeof node.color === "string" && RAW_HEX_RE.test(node.color)) {
-    issues.push(issue("error", "RAW_TEXT_HEX_COLOR", `${path}.color uses a raw hex value; text nodes must use theme color tokens.`, {
+    issues.push(issue("error", "RAW_TEXT_HEX_COLOR", `${path}.color uses a raw hex value. This rule applies ONLY to text nodes' color; band/card/shape fill may still use raw hex. Use a token such as text.primary, text.inverse, brand.primary, or a themeOverride.colors key for text colors.`, {
       slideId,
       path,
       nodeName: node.id,
-      suggestedFix: "Replace the raw hex with a token such as text.primary, text.inverse, brand.primary, or a themeOverride color key.",
+      suggestedFix: "Replace text.color hex with a theme color token. Hex on band/card/shape.fill is allowed — do not move the hex value to fill if the intent is to color text.",
     }));
   }
   if (isComponentTypedNode(node)) validateComponentNode(node, path, slideId, issues);
@@ -148,12 +179,61 @@ function validateNode(node: DomNode, path: string, slideId: string, issues: Vali
   } else if (node.type === "chart") {
     if (!Array.isArray(node.labels) || !Array.isArray(node.series)) issues.push(issue("error", "INVALID_CHART_DATA", `${path} chart needs labels and series.`, { slideId, path, nodeName: node.id }));
   } else if (node.type !== "shape") {
-    issues.push(issue("error", "UNKNOWN_NODE_TYPE", `${path}.type "${node.type}" is not supported.`, { slideId, path, nodeName: node.id, suggestedFix: "Use a primitive (stack, grid, spacer, divider, text, bullets, image, table, chart, shape) or a registered component name (slide-title, h1, callout, metric-card, ...)." }));
+    if (typeof node.type === "string" && STYLE_TOKENS_OFTEN_USED_AS_TYPE.has(node.type)) {
+      issues.push(issue("error", "STYLE_AS_TYPE", `${path}.type "${node.type}" is a text style token, not a node type. Use {type:"text", style:"${node.type}", text:"..."} instead.`, {
+        slideId,
+        path,
+        nodeName: node.id,
+        suggestedFix: `Replace ${path}.type with "text" and add style:"${node.type}".`,
+      }));
+    } else {
+      const nodeType = String(node.type);
+      const customSuggestion = unknownTypeSuggestion(nodeType);
+      issues.push(issue("error", "UNKNOWN_NODE_TYPE", `${path}.type "${nodeType}" is not supported.`, {
+        slideId,
+        path,
+        nodeName: node.id,
+        suggestedFix: customSuggestion || "Use a documented SlideML2 node type selected from the active SKILL.md; keep node fields flat.",
+      }));
+    }
   }
   node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node));
 }
 
+/**
+ * Map common typos / not-yet-implemented type names that LLMs reach for to
+ * the canonical replacement. Returns a guidance string the agent can act on
+ * directly, or null when no suggestion is known.
+ */
+function unknownTypeSuggestion(nodeType: string): string | null {
+  switch (nodeType) {
+    case "overlay":
+    case "scrim":
+      return "There is no \"overlay\" node type. For a translucent layer over a background image use a band with a fill+alpha color (e.g. fill:\"rgba(0,0,0,0.55)\"). To set a slide-level background image use slide.background:{src:\"/path/to/image.png\"} or slide.backgroundImage:\"/path\".";
+    case "background":
+    case "bg":
+      return "Set the slide background via slide.background (a token like \"brand.primary\", a hex, a gradient string, or {src:\"/path\"} for a background image), not as a child node.";
+    case "container":
+    case "div":
+    case "box":
+      return "Use \"stack\" (vertical/horizontal flow), \"grid\" (matrix), \"card\" (chrome-bearing surface), \"panel\", or \"band\" depending on the visual intent.";
+    case "row":
+      return "Use {type:\"stack\", direction:\"horizontal\"} for a row.";
+    case "column":
+    case "col":
+      return "Use {type:\"stack\", direction:\"vertical\"} for a column, or {type:\"grid\", columns:N} for a multi-column matrix.";
+    case "spacer-flex":
+    case "flex":
+      return "Use {type:\"spacer\"} for empty space. Children with layoutWeight already participate in flex distribution.";
+    case "section":
+      return "Use \"section-break\" for a chapter divider, or \"band\"+\"text\" for a colored section header.";
+    default:
+      return null;
+  }
+}
+
 function validateThemeOverride(deck: Slideml2SourceDeck, issues: ValidationIssue[]): void {
+  validateThemeColorsShape(deck, issues);
   const text = deck.deck?.themeOverride?.text;
   if (!text || typeof text !== "object") return;
   for (const [styleName, style] of Object.entries(text)) {
@@ -174,6 +254,39 @@ function validateThemeOverride(deck: Slideml2SourceDeck, issues: ValidationIssue
   }
 }
 
+function validateThemeColorsShape(deck: Slideml2SourceDeck, issues: ValidationIssue[]): void {
+  const colors = deck.deck?.themeOverride?.colors;
+  if (!colors || typeof colors !== "object" || Array.isArray(colors)) return;
+  let hasNested = false;
+  for (const [key, value] of Object.entries(colors as Record<string, unknown>)) {
+    const path = `deck.themeOverride.colors.${key}`;
+    if (typeof value === "string") continue;
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      hasNested = true;
+      // Drill once to check leaves are strings — diagnose anything else.
+      for (const [subKey, subValue] of Object.entries(value as Record<string, unknown>)) {
+        if (typeof subValue === "string") continue;
+        if (subValue && typeof subValue === "object" && !Array.isArray(subValue)) continue;
+        issues.push(issue("error", "INVALID_COLOR_VALUE", `${path}.${subKey} must be a hex string or theme token, got ${typeof subValue}.`, {
+          path: `${path}.${subKey}`,
+          suggestedFix: "Use a 6-char hex (with or without '#') or a theme token like 'brand.primary'.",
+        }));
+      }
+      continue;
+    }
+    issues.push(issue("error", "INVALID_COLOR_VALUE", `${path} must be a hex string, theme token, or a nested object of colors; got ${typeof value}.`, {
+      path,
+      suggestedFix: "Use either flat keys like \"brand.primary\":\"8B6914\" or a nested object like brand:{primary:\"8B6914\"}.",
+    }));
+  }
+  if (hasNested) {
+    issues.push(issue("info", "THEME_COLORS_NESTED_FLATTENED", "themeOverride.colors uses nested object form; the renderer auto-flattens it.", {
+      path: "deck.themeOverride.colors",
+      suggestedFix: "Both shapes are accepted: nested {brand:{primary}} and flat {\"brand.primary\":...}. Pick whichever is more readable.",
+    }));
+  }
+}
+
 function validateComponentNode(node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
   const name = getComponentName(node) || node.component;
   if (!isComponentName(name)) {
@@ -181,7 +294,7 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       slideId,
       path,
       nodeName: node.id,
-      suggestedFix: "Call listComponents/describeComponents and replace this slide with a registered component.",
+      suggestedFix: "Use a documented component name from the active SKILL.md; keep the node fields flat.",
     }));
     return;
   }
@@ -192,25 +305,36 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       slideId,
       path,
       nodeName: node.id,
-      suggestedFix: "Replace this slide with article including text or paragraphs.",
+      suggestedFix: "Keep article semantics and provide text or paragraphs.",
     }));
   }
   for (const [propName, prop] of Object.entries(definition.fields)) {
-    if (prop.required && (node[propName] === undefined || node[propName] === null || node[propName] === "")) {
+    if (prop.required && !hasRequiredComponentField(String(name), propName, node)) {
       issues.push(issue("error", "MISSING_REQUIRED_FIELD", `${definition.name} requires ${propName}.`, {
         slideId,
         path,
         nodeName: node.id,
-        suggestedFix: `Replace this slide with ${definition.name} including ${propName}.`,
+        suggestedFix: `Keep ${definition.name} semantics and provide ${propName}.`,
       }));
     }
+  }
+  // section-break.accent is a *label string* (renders above the title), NOT a
+  // color. LLMs frequently misuse it as a color token; flag that so the agent
+  // doesn't see "brand.primary" rendered as visible text.
+  if (name === "section-break" && typeof node.accent === "string" && TOKEN_SHAPED_RE.test(node.accent)) {
+    issues.push(issue("error", "INVALID_FIELD_USAGE", `section-break.accent is a label string rendered above the title, not a color token. The value "${node.accent}" looks like a theme token.`, {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "If you wanted an accent color, drop accent and use the title's tone or surface to convey color. If you wanted a small kicker label (e.g. \"PART 01\" or \"前言\"), set accent to the literal text.",
+    }));
   }
   if (node.children?.length && !definition.children.allowed) {
     issues.push(issue("error", "COMPONENT_CHILDREN_NOT_ALLOWED", `${definition.name} does not accept children.`, {
       slideId,
       path,
       nodeName: node.id,
-      suggestedFix: "Move the child nodes to a stack/grid sibling, or replace the whole slide.",
+      suggestedFix: "Remove child nodes from this component and express the extra content as documented fields or a separate sibling.",
     }));
   }
   if (definition.children.required && (!Array.isArray(node.children) || node.children.length === 0)) {
@@ -223,12 +347,39 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
   }
 }
 
+const REQUIRED_FIELD_ALIASES: Record<string, Record<string, string[]>> = {
+  "kpi-grid": { metrics: ["items"] },
+  "process-flow": { steps: ["items"] },
+  "logo-strip": { logos: ["items", "images"] },
+  "chart-card": {
+    chartType: ["chart"],
+    labels: ["data.labels"],
+    series: ["data.series"],
+  },
+  "table-card": { rows: ["data.rows", "items"] },
+  "key-takeaway": { headline: ["title"] },
+  "insight-card": { headline: ["title"] },
+};
+
+function hasRequiredComponentField(componentName: string, propName: string, node: DomNode): boolean {
+  const values = [node[propName], ...(REQUIRED_FIELD_ALIASES[componentName]?.[propName] || []).map((path) => valueAtPath(node, path))];
+  return values.some((value) => value !== undefined && value !== null && value !== "");
+}
+
+function valueAtPath(value: unknown, path: string): unknown {
+  return path.split(".").reduce<unknown>((current, key) => {
+    if (!current || typeof current !== "object") return undefined;
+    return (current as Record<string, unknown>)[key];
+  }, value);
+}
+
 function containsTitleNode(nodes: DomNode[]): boolean {
   for (const node of nodes) {
     if (!node || typeof node !== "object") continue;
     if (node.type === "section-break" || (node.type === "component" && node.component === "section-break")) return true;
-    if (node.type === "deck-title" || node.type === "slide-title") return true;
-    if (node.type === "text" && (node.style === "deck-title" || node.style === "slide-title")) return true;
+    if (node.type === "title-lockup" || (node.type === "component" && node.component === "title-lockup")) return true;
+    if (node.type === "deck-title" || node.type === "slide-title" || node.type === "h1") return true;
+    if (node.type === "text" && (node.style === "deck-title" || node.style === "slide-title" || node.style === "section-title")) return true;
     const inner = (node.children as DomNode[] | undefined) || [];
     if (inner.length && containsTitleNode(inner)) return true;
   }
@@ -245,7 +396,7 @@ function validateLayout(deck: RenderedDeck, issues: ValidationIssue[]): void {
   for (const slide of measureDeck(deck)) {
     for (const node of slide.nodes) {
       if (node.rect.x < -0.01 || node.rect.y < -0.01 || node.rect.x + node.rect.w > theme.layout.slideWidthCm + 0.01 || node.rect.y + node.rect.h > theme.layout.slideHeightCm + 0.01) {
-        issues.push(issue("error", "NODE_OUT_OF_BOUNDS", `${node.id} is outside the slide bounds.`, { slideId: slide.slideId, nodeName: node.id, details: { rect: node.rect }, suggestedFix: "Replace this slide with wider margins or fewer regions." }));
+        issues.push(issue("error", "NODE_OUT_OF_BOUNDS", `${node.id} is outside the slide bounds.`, { slideId: slide.slideId, nodeName: node.id, details: { rect: node.rect }, suggestedFix: "Keep the slide semantics but use wider margins, fewer regions, or split dense content into another slide." }));
       }
       if ((node.type === "text" || node.type === "bullets") && node.rect.h < 0.25) {
         issues.push(issue("warning", "TEXT_BOX_TOO_SHORT", `${node.id} has very little vertical space.`, { slideId: slide.slideId, nodeName: node.id, details: { rect: node.rect }, suggestedFix: "Increase parent grid/stack height or reduce sibling count." }));

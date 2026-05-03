@@ -121,6 +121,14 @@ function structuredOutputsFromStep(step: StepLike): ProducedOutput[] {
     return path ? fileOutput(path) : [];
   }
 
+  if (step.skill === "validate_render") {
+    const result = typeof step.result === "string" ? parseJson(step.result) : step.result;
+    const record = asRecord(result);
+    if (record?.ok === false) return [];
+    const path = stringValue(asRecord(result)?.outputPath) || stringValue(input.outputPath);
+    return path ? fileOutput(path) : [];
+  }
+
   if (step.skill === "write_file") {
     const path = stringValue(input.path);
     return path ? fileOutput(path) : [];

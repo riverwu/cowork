@@ -8,7 +8,7 @@ import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
 import type { Slideml2SourceDeck } from "./types.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
-import { buildTheme, color, preferredFont, resolveFontWeight, sizeMultiplier, textStyle, type FontRole, type FontWeight, type SimpleTheme, type TextStyle } from "./theme.js";
+import { buildTheme, color, preferredFont, resolveFill, resolveFontWeight, sizeMultiplier, textStyle, type FontRole, type FontWeight, type SimpleTheme, type TextStyle } from "./theme.js";
 
 /** Resolve a TextStyle's weight (string or numeric) into the boolean
  *  emitter flag. Anything ≥ 600 reads as bold so the OOXML `b` attribute
@@ -119,10 +119,12 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
     const dom = materializeAndCompactify(slide.dom, slide.id);
     const ids = { nextId: 2 };
     const shapes = renderSlide(theme, dom, ids, slide.id);
-    shapes.push(...renderChrome(theme, deck, index, ids));
+    const resolvedBackground = resolveSlideBackground(theme, dom.background);
+    const slideBgHex = pickContrastBackgroundColor(resolvedBackground);
+    shapes.push(...renderChrome(theme, deck, index, ids, slideBgHex));
     const slideAst = {
       shapes,
-      background: { type: "solid", color: color(theme, dom.background, "background") } as { type: "solid"; color: string },
+      background: resolvedBackground,
       notes: typeof dom.notes === "string" ? dom.notes : undefined,
     };
     runContrastCheck(slide.id, slideAst);
@@ -138,39 +140,192 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
 }
 
 /**
- * Walk the rendered shapes once and emit LOW_CONTRAST diagnostics for any
- * text whose color sits on top of a too-similar fill. The "background" of
- * a text shape is the topmost preceding solid-fill rectangle that contains
- * the text's bounding rect; the slide background is the fallback.
- *
- * This is a generic visual check — works regardless of theme, component,
- * or layout choice — and surfaces exactly the class of bug agents make
- * most often when they freestyle colors (white on light tint, brand on
- * brand.tint, ...).
+ * Resolve a slide background expression. Accepts a token string, a hex (with or
+ * without `#`), or `{fill: "linear-gradient(...)"}`/`{fill: "<token>"}`. Falls
+ * back to the deck's `background` token. Gradients are preserved as-is so the
+ * OOXML emitter can produce <a:gradFill>.
  */
-function runContrastCheck(slideId: string, slide: { shapes: ShapeList; background: { color: string } }): void {
-  const slideBg = slide.background.color;
-  const fillShapes: Array<{ x: number; y: number; w: number; h: number; color: string }> = [];
-  const epsilon = 1; // EMU
+function resolveSlideBackground(theme: SimpleTheme, raw: unknown):
+  | { type: "solid"; color: string }
+  | { type: "gradient"; kind: "linear" | "radial"; angle?: number; stops: Array<{ position: number; color: string }> }
+  | { type: "image"; src: string } {
+  if (raw && typeof raw === "object") {
+    const rec = raw as Record<string, unknown>;
+    if (typeof rec.src === "string" && rec.src.trim()) return { type: "image", src: rec.src };
+    if (typeof rec.fill === "string") return resolveFill(theme, rec.fill, "background");
+  }
+  return resolveFill(theme, raw, "background");
+}
+
+/**
+ * Walk the rendered shapes once and emit LOW_CONTRAST diagnostics for any
+ * text whose color sits on top of a too-similar fill. The picked surface is
+ * the topmost preceding solid-fill rectangle that *mostly* contains the
+ * text's bounding rect; the slide background is the fallback. Strict
+ * containment used to misfire when a text shape's computed rect dipped a
+ * hair outside its parent band/card due to text autofit and rounding —
+ * "≥ 70% area overlap" matches what a human reader would call "the text
+ * sits on this surface".
+ */
+function fillCoversText(fill: { x: number; y: number; w: number; h: number }, t: { x: number; y: number; w: number; h: number }): boolean {
+  const ix = Math.max(0, Math.min(t.x + t.w, fill.x + fill.w) - Math.max(t.x, fill.x));
+  const iy = Math.max(0, Math.min(t.y + t.h, fill.y + fill.h) - Math.max(t.y, fill.y));
+  if (ix <= 0 || iy <= 0) return false;
+  const overlap = ix * iy;
+  const textArea = Math.max(1, t.w * t.h);
+  return overlap / textArea >= 0.7;
+}
+
+/**
+ * Cluster key for LOW_CONTRAST: same fg color on same bg color at the same
+ * font-size bucket usually has a single root cause (deck theme token or
+ * surface-tone misuse); collapsing them into one representative diagnostic
+ * stops agents from chasing 6 identical issues across slides.
+ */
+function lowContrastClusterKey(fg: string, bg: string, fontPt: number, bold: boolean): string {
+  const bucket = fontPt >= 18 ? "large" : fontPt >= 14 && bold ? "large-bold" : "small";
+  return `${fg.toUpperCase()}>${bg.toUpperCase()}@${bucket}`;
+}
+
+function pickContrastBackgroundColor(bg: { type: string; color?: string; stops?: Array<{ color: string }> } | undefined): string {
+  if (!bg) return "FFFFFF";
+  if (bg.type === "solid" && typeof bg.color === "string") return bg.color;
+  if (bg.type === "gradient" && Array.isArray(bg.stops) && bg.stops.length > 0) {
+    // Average luminance across stops gives the closest single value for the
+    // contrast check. Per-stop nuance isn't worth the complexity.
+    const avg = bg.stops.map((stop) => stop.color).filter((c) => /^[0-9A-Fa-f]{6}$/.test(c));
+    if (avg.length === 0) return "FFFFFF";
+    const r = Math.round(avg.reduce((acc, c) => acc + parseInt(c.slice(0, 2), 16), 0) / avg.length);
+    const g = Math.round(avg.reduce((acc, c) => acc + parseInt(c.slice(2, 4), 16), 0) / avg.length);
+    const b = Math.round(avg.reduce((acc, c) => acc + parseInt(c.slice(4, 6), 16), 0) / avg.length);
+    return [r, g, b].map((n) => n.toString(16).padStart(2, "0").toUpperCase()).join("");
+  }
+  return "FFFFFF";
+}
+
+function buildSurfaceTrail(slideBg: string, picked: { color: string; nodeId?: string } | null, fg: string, textNodeId: string): string[] {
+  const trail: string[] = [`slide.bg:${slideBg.toUpperCase()}`];
+  if (picked) {
+    const tag = picked.nodeId ? ` (${picked.nodeId})` : "";
+    trail.push(`surface${tag}.fill:${picked.color.toUpperCase()}`);
+  }
+  trail.push(`text(${textNodeId}).color:${fg.toUpperCase()}`);
+  return trail;
+}
+
+/**
+ * Hex values that match common "muted" theme tokens (text.muted, text.secondary,
+ * default body grays). When body text resolves to one of these and the surface
+ * makes it unreadable, the agent didn't pick the color directly — the theme
+ * token resolved poorly. Auto-fix to a high-contrast neutral lets the deck
+ * render readably until the agent overrides the deck-level token.
+ */
+const MUTED_TOKEN_HEXES = new Set([
+  // Default theme.text.muted variants
+  "8B949E", "8C959F", "5B6478", "484F58", "9CA3AF", "6B7280",
+  "94A3B8", "64748B", "A0A4AB", "78808A",
+  // Common light-theme muted picks (agent themeOverride.text.muted variants)
+  "888888", "777777", "999999", "AAAAAA", "555555", "666666",
+  // Common dark-theme muted picks
+  "BBBBBB", "CCCCCC", "DDDDDD",
+  // text.inverse defaults across themes — when these resolve onto a
+  // mid-tone surface (warning.tint, success.tint) they often hit ~3.5:1
+  // which is below WCAG body text. They're theme-resolved, not custom user
+  // picks, so safe to auto-fix.
+  "FFFFFF", "0D1117", "0F172A", "111827", "1A1A1A", "2C2C2C", "1E293B",
+]);
+function isLikelyMutedToken(hex: string): boolean {
+  if (MUTED_TOKEN_HEXES.has(hex.toUpperCase())) return true;
+  // Near-white or near-black hexes are almost always theme-resolved
+  // (text.primary/inverse defaults), not custom user accent picks. Auto-fix
+  // them when contrast fails — agents reach for brand-colored accents, not
+  // F0F6FC, when they want a "custom" accent that should be preserved.
+  const r = parseInt(hex.slice(0, 2), 16);
+  const g = parseInt(hex.slice(2, 4), 16);
+  const b = parseInt(hex.slice(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) return false;
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return lum >= 0.92 || lum <= 0.08;
+}
+
+/**
+ * Theme-resolved semantic accent hexes that frequently fail contrast on
+ * non-neutral surfaces. These are template choices (success/warning/danger/
+ * brand defaults across light + dark theme variants), not custom user picks,
+ * so rewriting them preserves agent intent.
+ */
+const SEMANTIC_ACCENT_HEXES = new Set([
+  // success across dark + light + tinted themes
+  "0E7C3A", "16A34A", "22C55E", "10B981", "047857", "2E7D32", "166534",
+  // warning
+  "F59E0B", "EAB308", "B45309", "92400E", "E65100",
+  // danger
+  "DC2626", "EF4444", "B42318", "B71C1C", "991B1B",
+  // brand defaults shipped with the engine + common agent picks
+  "2563EB", "1D4ED8", "0F4C81", "8B6914", "B8860B", "C0392B", "C41E3A", "8B0000", "4F46E5", "7C3AED",
+]);
+function isLikelySemanticAccent(hex: string): boolean {
+  return SEMANTIC_ACCENT_HEXES.has(hex.toUpperCase());
+}
+
+/**
+ * Auto-fix LOW_CONTRAST when the agent's text color (or its style default)
+ * collides with the surface luminance. We rewrite the run color in-place to a
+ * safe black/white pick — the diagnostic still fires so the agent learns about
+ * it, but the rendered PPTX is readable instead of invisible.
+ */
+function autoFixLowContrast(slide: { shapes: ShapeList }, head: { fg: string; bg: string; nodeId: string }): string | null {
+  for (const shape of slide.shapes) {
+    if (shape.type !== "text") continue;
+    if (shape.name !== head.nodeId) continue;
+    const replacement = pickContrastingHex(head.bg);
+    let touched = false;
+    for (const para of shape.paragraphs || []) {
+      for (const run of para.runs || []) {
+        if (typeof run.color === "string" && run.color.toUpperCase() === head.fg.toUpperCase()) {
+          run.color = replacement;
+          touched = true;
+        }
+      }
+    }
+    if (touched) return replacement;
+  }
+  return null;
+}
+
+function runContrastCheck(slideId: string, slide: { shapes: ShapeList; background?: { type: string; color?: string; stops?: Array<{ color: string }> } }): void {
+  const slideBg = pickContrastBackgroundColor(slide.background);
+  const fillShapes: Array<{ x: number; y: number; w: number; h: number; color: string; nodeId?: string }> = [];
+  type Hit = {
+    fg: string;
+    bg: string;
+    ratio: number;
+    threshold: number;
+    fontPt: number;
+    bold: boolean;
+    nodeId: string;
+    sample: string;
+    rect: { x: number; y: number; w: number; h: number };
+    surfaceTrail: string[];
+  };
+  const hits: Hit[] = [];
   for (const shape of slide.shapes) {
     if (shape.type === "shape" && shape.fill && shape.fill.type === "solid" && typeof shape.fill.color === "string") {
-      fillShapes.push({ x: shape.xfrm.x, y: shape.xfrm.y, w: shape.xfrm.cx, h: shape.xfrm.cy, color: shape.fill.color });
+      fillShapes.push({ x: shape.xfrm.x, y: shape.xfrm.y, w: shape.xfrm.cx, h: shape.xfrm.cy, color: shape.fill.color, nodeId: shape.name });
     }
     if (shape.type === "text") {
-      const tx = shape.xfrm.x;
-      const ty = shape.xfrm.y;
-      const tw = shape.xfrm.cx;
-      const th = shape.xfrm.cy;
-      // Find the topmost preceding fill that fully contains the text rect.
+      const trect = { x: shape.xfrm.x, y: shape.xfrm.y, w: shape.xfrm.cx, h: shape.xfrm.cy };
       let bg = slideBg;
-      // textShape itself may have a fill (for text-on-color blocks).
+      let picked: { color: string; nodeId?: string } | null = null;
       if (shape.fill && shape.fill.type === "solid" && typeof shape.fill.color === "string") {
         bg = shape.fill.color;
+        picked = { color: shape.fill.color, nodeId: shape.name };
       } else {
         for (let i = fillShapes.length - 1; i >= 0; i--) {
           const f = fillShapes[i]!;
-          if (tx + epsilon >= f.x && ty + epsilon >= f.y && tx + tw <= f.x + f.w + epsilon && ty + th <= f.y + f.h + epsilon) {
+          if (fillCoversText(f, trect)) {
             bg = f.color;
+            picked = { color: f.color, nodeId: f.nodeId };
             break;
           }
         }
@@ -185,21 +340,108 @@ function runContrastCheck(slideId: string, slide: { shapes: ShapeList; backgroun
           const fg = typeof run.color === "string" ? run.color : slideBg;
           const ratio = contrastRatio(fg, bg);
           const fontPt = (run.sizeHalfPt || 0) / 2;
-          const threshold = contrastThreshold(fontPt, run.bold === true);
+          const bold = run.bold === true;
+          const threshold = contrastThreshold(fontPt, bold);
           if (ratio < threshold) {
-            pushDiagnostic({
-              severity: "warn",
-              code: "LOW_CONTRAST",
-              slideId,
+            hits.push({
+              fg,
+              bg,
+              ratio,
+              threshold,
+              fontPt,
+              bold,
               nodeId: shape.name || `slide-${slideId}.text`,
-              message: `Text "${run.text.slice(0, 40)}" has contrast ${ratio.toFixed(2)}:1 against ${bg} (need ≥ ${threshold.toFixed(1)}:1${fontPt >= 18 ? " for large" : ""}).`,
-              suggestion: `Pick a darker or lighter text color. On a ${bg.toUpperCase()} background, use #${pickContrastingHex(bg)} or any color with luminance ≥ 4.5:1 contrast against the background.`,
-              measured: { rect: { x: tx, y: ty, w: tw, h: th } },
+              sample: run.text.slice(0, 40),
+              rect: trect,
+              surfaceTrail: buildSurfaceTrail(slideBg, picked, fg, shape.name || "text"),
             });
           }
         }
       }
     }
+  }
+  if (hits.length === 0) return;
+  // Cluster: emit one representative per (fg,bg,fontBucket) and roll the rest
+  // into aggregated.affectedNodes. The representative is the first occurrence,
+  // so its message + trail describe the cause unambiguously.
+  const clusters = new Map<string, Hit[]>();
+  for (const hit of hits) {
+    const key = lowContrastClusterKey(hit.fg, hit.bg, hit.fontPt, hit.bold);
+    const list = clusters.get(key) || [];
+    list.push(hit);
+    clusters.set(key, list);
+  }
+  for (const [, group] of clusters) {
+    const head = group[0]!;
+    const others = group.slice(1);
+    const isLarge = head.fontPt >= 18;
+    const surfaceLabel = head.bg.toUpperCase();
+    const fgLabel = head.fg.toUpperCase();
+    // Auto-fix tiers, ordered by confidence:
+    //   1. fg ≡ bg (text is literally invisible — always rewrite)
+    //   2. small body text < 3.0 AND fg is a known muted token hex
+    //      (text.muted defaults across themes) — token resolved poorly,
+    //      rewriting preserves agent intent for explicit colors.
+    //   3. medium text (13 ≤ fontPt < 18) at < 2.5:1 — clearly unreadable.
+    //   4. medium text < 3.0:1 AND fg is a known muted token hex.
+    //   5. large text < 3.0 AND fg is a known semantic accent (success/
+    //      warning/danger/brand defaults) that fails on the picked surface.
+    //      These are theme-resolved colors, not user picks; rewriting them
+    //      avoids invisible KPI values on dark themes.
+    //   6. large text < 2.5:1 unconditionally (egregiously unreadable
+    //      headline — even a custom accent should be fixed).
+    const repairs: string[] = [];
+    const isBodyText = head.fontPt < 13;
+    const isMediumText = head.fontPt >= 13 && head.fontPt < 18;
+    const isLargeText = head.fontPt >= 18;
+    const fgEqualsBg = head.fg.toUpperCase() === head.bg.toUpperCase();
+    const fgIsMutedDefault = isLikelyMutedToken(head.fg);
+    const fgIsSemanticAccent = isLikelySemanticAccent(head.fg);
+    const fgIsThemeResolved = fgIsMutedDefault || fgIsSemanticAccent;
+    const shouldAutoFix = fgEqualsBg
+      // Body text (caption, label, footnote, metric-label, quote-source)
+      // below WCAG: rewrite when fg is a theme-resolved default (muted token
+      // or semantic accent). User accent colors that happen to fall short
+      // are NOT touched here — they're agent intent.
+      || (isBodyText && head.ratio < 4.5 && fgIsThemeResolved)
+      || (isMediumText && head.ratio < 2.5)
+      || (isMediumText && head.ratio < 4.5 && fgIsThemeResolved)
+      || (isLargeText && head.ratio < 3.0 && fgIsThemeResolved)
+      || (isLargeText && head.ratio < 2.5);
+    if (shouldAutoFix) {
+      for (const hit of group) {
+        const fixed = autoFixLowContrast(slide, hit);
+        if (fixed) repairs.push(`${hit.nodeId}→#${fixed}`);
+      }
+    }
+    const repairTrail = repairs.length > 0 ? ` Renderer auto-fixed (text invisible against same-color surface): ${repairs.slice(0, 5).join(", ")}${repairs.length > 5 ? ` and ${repairs.length - 5} more` : ""}.` : "";
+    const baseMessage = `Text "${head.sample}" has contrast ${head.ratio.toFixed(2)}:1 (fg ${fgLabel} on ${surfaceLabel}; need ≥ ${head.threshold.toFixed(1)}:1${isLarge ? " for large" : ""}).`;
+    const message = others.length > 0
+      ? `${baseMessage} Same root cause affects ${others.length + 1} text nodes.${repairTrail}`
+      : `${baseMessage}${repairTrail}`;
+    const suggestion = `Surface trail: ${head.surfaceTrail.join(" → ")}. Pick a fg token with sufficient contrast against ${surfaceLabel} (e.g. text.primary on light fills, text.inverse on dark fills). If the mismatch is systemic, fix the deck theme token rather than each slide.`;
+    // When auto-fix actually rewrote every distinct text node in the cluster,
+    // demote the diagnostic to LOW_CONTRAST_FIXED — the rendered PPTX is now
+    // readable so this should not block the agent. The diagnostic is still
+    // emitted so the agent can fix the deck theme token if the mismatch is
+    // systemic. We compare repaired-count against UNIQUE nodeIds in the
+    // group (multiple paragraph runs share one shape; one rewrite covers
+    // them all).
+    const uniqueNodeIds = new Set(group.map((h) => h.nodeId));
+    const fullyFixed = repairs.length >= uniqueNodeIds.size;
+    pushDiagnostic({
+      severity: "warn",
+      code: fullyFixed ? "LOW_CONTRAST_FIXED" : "LOW_CONTRAST",
+      slideId,
+      nodeId: head.nodeId,
+      message,
+      suggestion,
+      measured: { rect: head.rect },
+      surfaceTrail: head.surfaceTrail,
+      ...(others.length > 0
+        ? { aggregated: { count: group.length, affectedNodes: group.map((h) => ({ nodeId: h.nodeId, sample: h.sample })) } }
+        : {}),
+    });
   }
 }
 
@@ -311,6 +553,141 @@ interface LayoutResult {
 }
 
 let currentSlideId = "";
+/**
+ * Stack of ancestor nodes maintained by the layout walk. Each layout
+ * recursion pushes the current node before descending and pops it after, so
+ * fallback diagnostics can walk back up the chain to find the constraint that
+ * forced the failure (typically a fixedHeight on a panel/card/grid cell).
+ */
+const ancestorStack: DomNode[] = [];
+
+function withAncestor<T>(node: DomNode, fn: () => T): T {
+  ancestorStack.push(node);
+  try {
+    return fn();
+  } finally {
+    ancestorStack.pop();
+  }
+}
+
+/**
+ * Process-flow / similar role-tagged horizontal flows produce SQUASHED step
+ * cards when an LLM drops them into a narrow column. We detect the pinch at
+ * layout time and flip the local stack to a vertical orientation, keeping
+ * the children otherwise intact. This is a layout decision, NOT a DOM
+ * mutation: we return a shallow clone so the original tree (and any external
+ * references) are unchanged.
+ *
+ * Same logic kicks in for `role:"timeline"`:
+ *   - vertical timeline allotted height < (steps × min step height) → flip
+ *     to a horizontal grid layout instead of stacking N tall cards.
+ *   - horizontal timeline allotted width < (steps × min step width) → flip
+ *     back to vertical (the symmetric case for narrow content cells).
+ */
+function autoOrientFlow(node: DomNode, rect: { w: number; h: number }): DomNode {
+  if (node.role === "process-flow") return autoOrientProcessFlow(node, rect);
+  if (node.role === "timeline") return autoOrientTimeline(node, rect);
+  return node;
+}
+
+function autoOrientProcessFlow(node: DomNode, rect: { w: number; h: number }): DomNode {
+  if (node.direction !== "horizontal") return node;
+  const stepCount = (node.children || []).filter((child) => child.role === "process-step").length;
+  if (stepCount < 2) return node;
+  const minPerStep = 2.6;
+  if (rect.w / stepCount >= minPerStep) return node;
+  const swappedChildren = (node.children || []).map((child) => {
+    if (child.type === "shape" && (child.preset === "arrow-right" || child.preset === "arrow-down")) {
+      return { ...child, preset: "arrow-down" as const, fixedWidth: 0.6, fixedHeight: 0.42 };
+    }
+    return child;
+  });
+  return { ...node, direction: "vertical" as const, children: swappedChildren };
+}
+
+function autoOrientTimeline(node: DomNode, rect: { w: number; h: number }): DomNode {
+  const children = node.children || [];
+  if (children.length < 2) return node;
+  // Vertical timeline that has less than ~1.4 cm per step needs to become a
+  // horizontal grid: stacking N tall cards is impossible in such tight slots.
+  if (node.type === "stack" && node.direction === "vertical") {
+    const minPerStep = 1.4;
+    if (rect.h / children.length < minPerStep && rect.w / children.length >= 2.6) {
+      // Re-pack as horizontal grid; children stay the same.
+      return {
+        ...node,
+        type: "grid" as const,
+        columns: Math.min(children.length, 6),
+        direction: undefined as never,
+        gap: children.length >= 5 ? 0.24 : 0.32,
+      };
+    }
+  }
+  // Horizontal timeline that has less than 2.6 cm per step → flip to vertical
+  // stack so the items have at least one column to fall down.
+  if (node.type === "grid") {
+    const cols = typeof node.columns === "number" ? node.columns : children.length;
+    if (cols >= 2 && rect.w / cols < 2.6 && rect.h / cols >= 1.4) {
+      return {
+        ...node,
+        type: "stack" as const,
+        direction: "vertical" as const,
+        columns: undefined as never,
+        gap: 0.18,
+      };
+    }
+  }
+  return node;
+}
+
+interface FallbackConstraint {
+  ancestorId: string;
+  prop: "fixedHeight" | "fixedWidth" | "height" | "width" | "minHeight" | "minWidth" | "maxHeight" | "maxWidth";
+  value: number;
+}
+
+function findConstrainingAncestor(direction: "horizontal" | "vertical", failingChild?: DomNode): FallbackConstraint | undefined {
+  // Walk newest → oldest. The most recent fixedHeight/fixedWidth on the axis
+  // that mattered is the one the agent should release.
+  // direction === "vertical" means the stack lays children top-to-bottom; the
+  // constraint they ran out of is on the height axis. Likewise, horizontal
+  // stacks bottom out on width.
+  const propsForVertical = ["fixedHeight", "minHeight", "height", "maxHeight"] as const;
+  const propsForHorizontal = ["fixedWidth", "minWidth", "width", "maxWidth"] as const;
+  const axisProps = direction === "vertical" ? propsForVertical : propsForHorizontal;
+  for (let i = ancestorStack.length - 1; i >= 0; i--) {
+    const node = ancestorStack[i]!;
+    for (const prop of axisProps) {
+      const value = (node as Record<string, unknown>)[prop];
+      if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+        return { ancestorId: typeof node.id === "string" ? node.id : "?", prop, value };
+      }
+    }
+  }
+  // No fixedHeight ancestor: scan the failing node's siblings (children of
+  // the immediate parent) for the largest fixedHeight contributor. This
+  // surfaces e.g. "the image-card sibling has fixedHeight:2.8 and that's
+  // what's eating your slot" — a recurring inmuai-log pinch where timeline
+  // and image-card competed for one ~10cm content area.
+  if (!failingChild) return undefined;
+  const parent = ancestorStack[ancestorStack.length - 1];
+  const siblings = (parent && Array.isArray(parent.children)) ? parent.children : undefined;
+  if (!siblings || siblings.length < 2) return undefined;
+  let biggest: { id: string; prop: typeof axisProps[number]; value: number } | null = null;
+  for (const sibling of siblings) {
+    if (sibling === failingChild) continue;
+    for (const prop of axisProps) {
+      const value = (sibling as Record<string, unknown>)[prop];
+      if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+        if (!biggest || value > biggest.value) {
+          biggest = { id: typeof sibling.id === "string" ? sibling.id : "?", prop, value };
+        }
+      }
+    }
+  }
+  if (biggest) return { ancestorId: biggest.id, prop: biggest.prop, value: biggest.value };
+  return undefined;
+}
 
 function layoutSlide(theme: SimpleTheme, slideDom: DomNode): LayoutResult {
   const measured: MeasuredNode[] = [];
@@ -321,6 +698,7 @@ function layoutSlide(theme: SimpleTheme, slideDom: DomNode): LayoutResult {
   // Derive slideId from the root node (e.g. "cover.root" -> "cover")
   const previous = currentSlideId;
   currentSlideId = slideDom.id.replace(/\.root$/, "") || slideDom.id;
+  ancestorStack.length = 0;
   try {
     for (const child of slideDom.children || []) {
       const childRect = rectForSlideChild(theme, child);
@@ -328,6 +706,7 @@ function layoutSlide(theme: SimpleTheme, slideDom: DomNode): LayoutResult {
     }
   } finally {
     currentSlideId = previous;
+    ancestorStack.length = 0;
   }
   return { measured, rectsById };
 }
@@ -359,17 +738,36 @@ function measureSubtree(theme: SimpleTheme, node: DomNode, rect: Rect, output: M
   output.push({ id: node.id, type: node.type, rect });
   rectsById.set(node.id, rect);
   if (node.type === "stack") {
-    layoutStackChildren(theme, node, contentRect(theme, node, rect)).forEach(({ node: child, rect: childRect }) => measureSubtree(theme, child, childRect, output, rectsById));
+    const oriented = autoOrientFlow(node, rect);
+    if (oriented.type === "grid") {
+      // Auto-orient flipped a vertical-stack timeline to a horizontal grid.
+      withAncestor(oriented, () => {
+        layoutGridChildren(theme, oriented, contentRect(theme, oriented, rect)).forEach(({ node: child, rect: childRect }) => measureSubtree(theme, child, childRect, output, rectsById));
+      });
+      return;
+    }
+    withAncestor(oriented, () => {
+      layoutStackChildren(theme, oriented, contentRect(theme, oriented, rect)).forEach(({ node: child, rect: childRect }) => measureSubtree(theme, child, childRect, output, rectsById));
+    });
     return;
   }
   if (node.type === "grid") {
-    layoutGridChildren(theme, node, contentRect(theme, node, rect)).forEach(({ node: child, rect: childRect }) => measureSubtree(theme, child, childRect, output, rectsById));
+    const oriented = autoOrientFlow(node, rect);
+    if (oriented.type === "stack") {
+      withAncestor(oriented, () => {
+        layoutStackChildren(theme, oriented, contentRect(theme, oriented, rect)).forEach(({ node: child, rect: childRect }) => measureSubtree(theme, child, childRect, output, rectsById));
+      });
+      return;
+    }
+    withAncestor(oriented, () => {
+      layoutGridChildren(theme, oriented, contentRect(theme, oriented, rect)).forEach(({ node: child, rect: childRect }) => measureSubtree(theme, child, childRect, output, rectsById));
+    });
     return;
   }
   if (node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset") {
     const inner = decorativeInnerRect(theme, node, rect);
     const child = decorativeChild(node);
-    if (child) measureSubtree(theme, child, inner, output, rectsById);
+    if (child) withAncestor(node, () => measureSubtree(theme, child, inner, output, rectsById));
   }
 }
 
@@ -399,14 +797,19 @@ function rectForSlideChild(theme: SimpleTheme, node: DomNode): Rect {
     // chrome that the slide-title rect already accounts for. Only flag titles
     // that would clearly take 2 lines (height grows by a full line).
     const lineHeight = textStyle(theme, "slide-title", "paragraph").fontSize * 0.0353;
-    if (intrinsic > titleRect.h + lineHeight * 0.6) {
+    // Suppress OVERFLOW when the title carries autoFit:"shrink" — the
+    // renderer pre-shrinks the title's font size in textShape to fit the
+    // rect, so a long title is no longer broken visually. Without this gate
+    // the diagnostic was a false alarm whenever sourceSlideToRendered
+    // installed the auto-fit hint on slide.title.
+    if (intrinsic > titleRect.h + lineHeight * 0.6 && node.autoFit !== "shrink") {
       pushDiagnostic({
         severity: "warn",
         code: "OVERFLOW",
         slideId: currentSlideId || undefined,
         nodeId: node.id,
         message: `Slide title is taller than the title rect (${intrinsic.toFixed(2)}cm vs ${titleRect.h.toFixed(2)}cm).`,
-        suggestion: "Shorten the title (≤ 18 CJK chars / 60 latin chars) or split into two slides; do not rely on autofit.",
+        suggestion: "Shorten the title (≤ 18 CJK chars / 60 latin chars) or split into two slides; the renderer will autoFit shrink as a fallback.",
         measured: { available: titleRect.h, needed: intrinsic, deltaCm: intrinsic - titleRect.h },
       });
     }
@@ -524,6 +927,12 @@ function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, s
   const meaningfulContainer = node.type === "stack" || node.type === "grid" || node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset";
   const key = `${slideId}/${node.id}`;
   if (squashedWarnings.has(key)) return;
+  // An explicit fixedWidth/fixedHeight is an authoring choice — the agent has
+  // told us this is the intended size. The renderer respects it and shouldn't
+  // flag SQUASHED on images/icons that are deliberately small.
+  const hasFixedWidth = typeof node.fixedWidth === "number" && Number.isFinite(node.fixedWidth);
+  const hasFixedHeight = typeof node.fixedHeight === "number" && Number.isFinite(node.fixedHeight);
+  if ((node.type === "image" || node.type === "shape") && (hasFixedWidth || hasFixedHeight)) return;
   const minWidth = node.type === "text" ? 1.4 : node.type === "image" || node.type === "chart" || node.type === "table" ? 3.0 : meaningfulContainer ? 2.2 : 1.8;
   const minHeight = node.type === "text" ? textSquashMinHeight(theme, node) : node.type === "bullets" ? 1.0 : meaningfulContainer ? 0.75 : 0.5;
   const narrowContainer = meaningfulContainer && rect.w < minWidth && rect.h > 1.2;
@@ -588,7 +997,7 @@ function renderPanel(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
     name: `${nodeLabel(node)}-panel`,
     preset: "roundRect",
     xfrm: xfrm(rect),
-    fill: { type: "solid", color: color(theme, fillToken) },
+    fill: resolveFill(theme, fillToken, "surface"),
     line: elevation === "raised" ? undefined : { color: color(theme, lineToken), width: cm(elevation === "outlined" ? 0.04 : 0.02) },
     cornerRadius,
   }];
@@ -617,7 +1026,7 @@ function renderCard(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
     name: `${nodeLabel(node)}-card`,
     preset: "roundRect",
     xfrm: xfrm(rect),
-    fill: { type: "solid", color: color(theme, fillToken) },
+    fill: resolveFill(theme, fillToken, "surface"),
     line: { color: color(theme, lineToken), width: cm(0.02) },
     cornerRadius,
   }];
@@ -663,7 +1072,23 @@ function renderCard(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
 }
 
 function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
-  const tone = toneTokens(node.tone);
+  // Bands are full-bleed/section dividers, NOT card-tinted surfaces. When an
+  // agent writes `tone:"brand"` on a band they expect the brand color to
+  // fill it (covers, section headers, end slides). The shared `toneTokens`
+  // helper maps brand → brand.tint (a soft pastel) which is correct for
+  // metric-card / insight-card chrome but wrong for bands. Override here so
+  // the band always paints with the strong tone color, and text inside
+  // resolves against text.inverse.
+  const toneRaw = node.tone;
+  const tone = toneRaw === "brand"
+    ? { fill: "brand.primary", line: "brand.primary", fg: "text.inverse" }
+    : toneRaw === "positive"
+      ? { fill: "success", line: "success", fg: "text.inverse" }
+      : toneRaw === "warning"
+        ? { fill: "warning", line: "warning", fg: "text.inverse" }
+        : toneRaw === "danger"
+          ? { fill: "danger", line: "danger", fg: "text.inverse" }
+          : toneTokens(toneRaw);
   const style = theme.component.band || {};
   const fillToken = stringProp(node, "fill", tone.fill || style.fill || "surface.subtle");
   const cornerRadius = optionalNumberProp(node, "cornerRadius") ?? style.radius ?? 0;
@@ -675,7 +1100,7 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
     name: `${nodeLabel(node)}-band`,
     preset: cornerRadius > 0 ? "roundRect" : "rect",
     xfrm: xfrm(rect),
-    fill: { type: "solid", color: color(theme, fillToken) },
+    fill: resolveFill(theme, fillToken, "surface.subtle"),
     cornerRadius: cornerRadius > 0 ? cornerRadius : undefined,
   }];
   const child = decorativeChild(node);
@@ -732,9 +1157,16 @@ export function clearLayoutDropWarnings(): void {
 function renderStack(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
   const children = node.children || [];
   if (children.length === 0) return [];
+  // Mirror the auto-orient applied during measureSubtree so the rendered
+  // shapes match the measured layout. Without this, the renderer would lay
+  // out a vertical stack of 6 cards when the measurer flipped it to a
+  // horizontal grid — which both renders incorrectly AND emits a
+  // FALLBACK_FAILED on the stale stack path.
+  const oriented = autoOrientFlow(node, rect);
+  if (oriented.type === "grid") return renderGrid(theme, oriented, rect, rectsById, ids, slideId);
   return [
-    ...containerBackgroundShape(theme, node, rect, ids),
-    ...layoutStackChildren(theme, node, contentRect(theme, node, rect)).flatMap(({ node: child, rect: childRect }) => {
+    ...containerBackgroundShape(theme, oriented, rect, ids),
+    ...layoutStackChildren(theme, oriented, contentRect(theme, oriented, rect)).flatMap(({ node: child, rect: childRect }) => {
       rectsById.set(child.id, childRect);
       return renderNode(theme, child, childRect, rectsById, ids, slideId);
     }),
@@ -744,16 +1176,18 @@ function renderStack(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
 function renderGrid(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
   const children = node.children || [];
   if (children.length === 0) return [];
+  const oriented = autoOrientFlow(node, rect);
+  if (oriented.type === "stack") return renderStack(theme, oriented, rect, rectsById, ids, slideId);
   return [
-    ...containerBackgroundShape(theme, node, rect, ids),
-    ...layoutGridChildren(theme, node, contentRect(theme, node, rect)).flatMap(({ node: child, rect: childRect }) => {
+    ...containerBackgroundShape(theme, oriented, rect, ids),
+    ...layoutGridChildren(theme, oriented, contentRect(theme, oriented, rect)).flatMap(({ node: child, rect: childRect }) => {
       rectsById.set(child.id, childRect);
       return renderNode(theme, child, childRect, rectsById, ids, slideId);
     }),
   ];
 }
 
-function renderChrome(theme: SimpleTheme, deck: RenderedDeck, slideIndex: number, ids: { nextId: number }): ShapeList {
+function renderChrome(theme: SimpleTheme, deck: RenderedDeck, slideIndex: number, ids: { nextId: number }, slideBgHex?: string): ShapeList {
   const out: ShapeList = [];
   const layout = theme.layout;
   const chrome = theme.chrome;
@@ -770,15 +1204,40 @@ function renderChrome(theme: SimpleTheme, deck: RenderedDeck, slideIndex: number
     });
   }
   if (chrome.pageNumber) {
+    // Chrome is added by the renderer regardless of slide background, so we
+    // pick a contrasting color against the rendered slide bg. Without this,
+    // a brand-fill cover slide would show 1.82:1 page-number text — a
+    // problem the agent cannot fix from slide JSON.
+    const pageColor = pickChromeFgColor(theme, slideBgHex);
     out.push(textShape(theme, {
       id: `chrome.page-${slideIndex + 1}`,
       type: "text",
       text: `${slideIndex + 1} / ${deck.slides.length}`,
       style: "footnote",
       align: "right",
+      color: pageColor,
     }, { x: layout.slideWidthCm - chrome.footerPadding - 2, y: footerY + 0.05, w: 2, h: chrome.footerHeight - 0.05 }, ids));
   }
   return out;
+}
+
+/**
+ * Pick a chrome (page-number / footer text) fg that has at least 4.5:1
+ * contrast against the slide bg. Default theme uses text.muted (gray) which
+ * fails on brand-fill covers; we pick from a small set of safe candidates so
+ * the chrome is always readable.
+ */
+function pickChromeFgColor(theme: SimpleTheme, slideBgHex?: string): string {
+  if (!slideBgHex || !/^[0-9A-Fa-f]{6}$/.test(slideBgHex)) return "text.muted";
+  const candidates = ["text.muted", "text.primary", "text.inverse"];
+  let best: { token: string; ratio: number } | null = null;
+  for (const token of candidates) {
+    const hex = theme.colors[token] || color(theme, token, "text.primary");
+    const ratio = contrastRatio(hex, slideBgHex);
+    if (!best || ratio > best.ratio) best = { token, ratio };
+    if (ratio >= 4.5) return token;
+  }
+  return best?.token || "text.primary";
 }
 
 function textShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }): ShapeList[number] {
@@ -1338,6 +1797,13 @@ function nodeBold(node: DomNode, styleBold: boolean): boolean {
 
 function textRuns(theme: SimpleTheme, node: DomNode, style: ReturnType<typeof textStyle>): TextRun[] {
   const content = node.content;
+  // node.color is the authored intent for the whole text shape; when content
+  // runs don't override individually, they should inherit it (not the bare
+  // style default). Without this, components that set node-level color via
+  // ctaButton/featureCard end up rendering text.primary against the surface.
+  const effectiveStyle = typeof node.color === "string" && node.color.trim()
+    ? { ...style, color: node.color }
+    : style;
   if (Array.isArray(content)) {
     // Route every rich-text run through the canonical builder so size /
     // weight / font / strike / sub / sup / highlight stay honored. The
@@ -1346,8 +1812,8 @@ function textRuns(theme: SimpleTheme, node: DomNode, style: ReturnType<typeof te
       const record = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
       const upperRaw = typeof record.text === "string" ? maybeUppercase(record.text, node) : record.text;
       const merged = { ...record, text: upperRaw };
-      const baseBold = nodeBold(node, isStyleBold(style.weight));
-      const run = richRunToTextRun(theme, merged, style, baseBold);
+      const baseBold = nodeBold(node, isStyleBold(effectiveStyle.weight));
+      const run = richRunToTextRun(theme, merged, effectiveStyle, baseBold);
       // Node-level italic / underline still propagate when the run has none.
       if (run.italic === false && node.italic === true) run.italic = true;
       if (run.underline === false && node.underline === true) run.underline = true;
@@ -1581,16 +2047,41 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
   }
   if (truncated > 0 && sumMin() <= availableMain + 0.001) return;
 
-  // Stage 5: hard fail.
+  // Stage 5: hard fail — but with a tolerance band. When `needed` exceeds
+  // `available` by < 5% (or < 0.1cm absolute), the renderer's autoFit shrink
+  // and inter-line slack absorb the difference; emitting a blocking
+  // FALLBACK_FAILED for what the eye reads as "fits fine" forces agents
+  // into wasteful retry loops on no-op deltas (see qzwkqg/inmuai logs).
   const needed = sumIntrinsic();
+  const delta = needed - availableMain;
+  const tolerance = Math.max(0.1, availableMain * 0.05);
+  if (delta < tolerance) {
+    pushDiagnostic({
+      severity: "warn",
+      code: "OVERFLOW",
+      slideId: currentSlideId || undefined,
+      nodeId: parent.id,
+      message: `Container '${parent.id}' is ${delta.toFixed(2)}cm over its available height (${availableMain.toFixed(2)}cm); within tolerance, autoFit will absorb it.`,
+      suggestion: "No fix required unless the rendered output looks crowded; the small delta is absorbed by autoFit shrink.",
+      measured: { available: availableMain, needed, deltaCm: delta },
+    });
+    return;
+  }
+  const constraint = findConstrainingAncestor(direction, parent);
+  const constraintHint = constraint
+    ? ` Constrained by ${constraint.ancestorId}.${constraint.prop} = ${constraint.value}cm; relax or remove that to give children room.`
+    : "";
   pushDiagnostic({
     severity: "error",
     code: "FALLBACK_FAILED",
     slideId: currentSlideId || undefined,
     nodeId: parent.id,
-    message: `Container '${parent.id}' cannot fit its children even after demote/drop/truncate (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm).`,
-    suggestion: "Split content across slides, remove a child, or increase the parent's allotted height.",
-    measured: { available: availableMain, needed, deltaCm: needed - availableMain },
+    message: `Container '${parent.id}' cannot fit its children even after demote/drop/truncate (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm).${constraintHint}`,
+    suggestion: constraint
+      ? `Drop or raise ${constraint.ancestorId}.${constraint.prop} (currently ${constraint.value}cm) so the children have ≥${needed.toFixed(2)}cm. Alternatively, split content across slides or remove a child.`
+      : "Split content across slides, remove a child, or increase the parent's allotted height.",
+    measured: { available: availableMain, needed, deltaCm: delta },
+    ...(constraint ? { constrainedBy: constraint } : {}),
   });
 }
 

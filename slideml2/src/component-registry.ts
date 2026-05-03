@@ -128,40 +128,40 @@ const PRIMITIVE_COMPONENT_TYPES = ["stack", "grid", "split", "spacer", "divider"
 type PrimitiveComponentType = typeof PRIMITIVE_COMPONENT_TYPES[number];
 
 export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
-  textComponent("deck-title", "Whole-deck title text.", "deck-title"),
-  textComponent("slide-title", "Slide title slot text, usually generated from slide.title.", "slide-title"),
-  textComponent("h1", "Primary heading inside the slide content area.", "section-title"),
-  textComponent("h2", "Secondary heading inside a group, panel, or card.", "card-title"),
-  textComponent("lead", "Lead sentence or thesis.", "lead"),
-  textComponent("text", "Normal single-slide body text.", "paragraph"),
+  textComponent("deck-title", "Deck-level title for covers and section openers. Use when the title itself is the dominant semantic object, not for normal slide headings.", "deck-title"),
+  textComponent("slide-title", "Canonical title slot for ordinary content slides. It names the slide's one job and is usually generated from slide.title.", "slide-title"),
+  textComponent("h1", "Primary in-content heading for a major module or section inside the slide body.", "section-title"),
+  textComponent("h2", "Secondary heading for a local group, card, panel, or evidence module.", "card-title"),
+  textComponent("lead", "Short thesis, framing sentence, or transition line that tells the viewer how to read the slide.", "lead"),
+  textComponent("text", "Plain body copy for residual explanation when no stronger semantic component fits. Prefer callout, quote, key-takeaway, bullets, or data components when possible.", "paragraph"),
   articleComponent(),
-  textComponent("source-note", "Data source, citation, or disclaimer note.", "footnote"),
-  textComponent("label", "Short label, badge, or tag text.", "label", {
+  textComponent("source-note", "Quiet source, citation, caveat, or disclaimer. Use for provenance and constraints, not for live-read content.", "footnote"),
+  textComponent("label", "Short metadata label, tag, axis marker, or local caption. Use for naming parts of a visual, not for body prose.", "label", {
     variant: { type: "enum", enum: ["plain", "badge", "tag"], description: "Optional visual variant." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Optional semantic tone." },
   }),
-  textComponent("code", "Code snippet text.", "code", {
+  textComponent("code", "Preformatted code or command excerpt where syntax and monospace alignment are the content.", "code", {
     title: { type: "string", description: "Optional code block title." },
     language: { type: "string", description: "Optional language label." },
     caption: { type: "string", description: "Optional code caption." },
   }),
-  component("metric-card", "Show one headline metric.", {
+  component("metric-card", "Single compact KPI: one short numeric value plus label, usually as part of a grid or comparison. Do not use for prose, product names, or step text.", {
     value: { type: "string", required: true, semantic: "metric-value", description: "Short numeric or ranked value." },
     label: { type: "string", required: true, semantic: "metric-label", description: "Short metric label." },
     unit: { type: "string", description: "Optional unit appended to value." },
     trend: { type: "enum", enum: ["up", "down", "flat"], description: "Optional trend intent." },
   }, "stack(text.metric-value, text.metric-label)", "grid"),
-  component("callout", "Highlight one key message.", {
+  component("callout", "One highlighted insight, warning, recommendation, or rule of thumb. Use when a sentence needs emphasis but is not the final conclusion.", {
     text: { type: "string", required: true, semantic: "callout", description: "One concise insight." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Semantic tone." },
   }, "text.callout with styled surface", "stack"),
-  component("comparison-card", "Summarize one compared object.", {
+  component("comparison-card", "One peer item in a comparison set: option, product, persona, scenario, or competitor with parallel points.", {
     title: { type: "string", required: true, semantic: "card-title", description: "Object title." },
     subtitle: { type: "string", semantic: "label", description: "Optional subtitle." },
     points: { type: "array", semantic: "bullet", max: 6, description: "Short supporting points (max 6)." },
     items: { type: "array", semantic: "bullet", max: 6, description: "Alias for points (max 6)." },
   }, "stack(text.card-title, bullets)", "grid"),
-  component("step-card", "Represent one stage or step.", {
+  component("step-card", "One discrete step or stage with a title and short detail. Use inside a larger sequence only when each step needs card-level detail; prefer process-flow for connected pipelines.", {
     step: { type: "string", semantic: "numbered-step", description: "Optional step label." },
     number: { type: "string", semantic: "numbered-step", description: "Alias for step when the source uses a numeric stage marker." },
     title: { type: "string", required: true, semantic: "card-title", description: "Step title." },
@@ -169,56 +169,58 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     description: { type: "string", semantic: "paragraph", description: "Alias for body when the source uses description copy." },
     steps: { type: "array", semantic: "bullet", description: "Alias used when a step has multiple short details." },
   }, "stack(text.numbered-step, text.card-title, text.paragraph)", "grid"),
-  component("definition-card", "Define a term.", {
+  component("definition-card", "Term plus definition. Use for glossary, concept introduction, vocabulary, or clarifying a named framework element.", {
     term: { type: "string", required: true, semantic: "card-title", description: "Term." },
     definition: { type: "string", required: true, semantic: "paragraph", description: "Definition." },
   }, "stack(text.card-title, text.paragraph)", "grid"),
-  component("numbered-list", "Render an ordered (1., 2., 3., ...) list.", {
+  component("numbered-list", "Ordered text list where sequence or priority matters but each item is still brief prose. Use numbered-grid when each item should become a designed module.", {
     items: { type: "array", required: true, semantic: "bullet", description: "Ordered list items (string[])." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Bullet density." },
   }, "bullets with numbered:true", "stack"),
-  component("quote", "Pull-quote with optional source attribution.", {
+  component("quote", "Verbatim or voice-like statement with optional attribution. Use when authority, emotion, or wording is the evidence.", {
     text: { type: "string", required: true, semantic: "quote", description: "Quote text (without enclosing quotes; component adds them)." },
     source: { type: "string", description: "Optional source / attribution." },
   }, "stack(text.quote, text.quote-source)", "stack"),
-  component("icon-text", "Icon next to a short label/title.", {
+  component("icon-text", "Icon plus short label for compact feature/status/category cues. Use as a small semantic marker, not as a substitute for rich explanation.", {
     icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], required: true, description: "OOXML preset icon shape." },
     text: { type: "string", required: true, semantic: "card-title", description: "Label text." },
     iconColor: { type: "string", description: "Icon line/glyph color token." },
     iconBackground: { type: "string", description: "Icon background fill token." },
     tone: { type: "string", description: "Optional text color token." },
   }, "stack.horizontal(shape, text)", "stack"),
-  component("timeline", "Sequence of dated steps shown horizontally or vertically.", {
-    items: { type: "array", required: true, description: "Array of { time?, title, body? } steps." },
-    direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Layout direction (default vertical)." },
+  component("timeline", "Chronological sequence with dates, eras, milestones, or releases. Use when time is the organizing meaning.", {
+    items: { type: "array", required: true, description: "Array of { time? or date?, title/label, body?/description? } steps." },
+    direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Layout direction. Defaults to horizontal — that's the safe choice for any slide where the timeline shares space with other content. Pass 'vertical' only when the timeline owns the whole slide." },
+    orientation: { type: "enum", enum: ["horizontal", "vertical"], description: "Alias for direction." },
   }, "grid|stack of timeline-step cards", "stack"),
-  component("profile-card", "Person profile with circular photo, name, role, bio.", {
+  component("profile-card", "Person or role profile with photo, name, title, and short bio. Use when identity/ownership is the content.", {
     image: { type: "image-ref", required: true, description: "Photo source path or URL." },
     name: { type: "string", required: true, semantic: "card-title", description: "Person name." },
     role: { type: "string", semantic: "label", description: "Role / title." },
     bio: { type: "string", semantic: "caption", description: "Short biography." },
   }, "stack(image.clip:circle, text.card-title, text.label, text.caption)", "grid"),
-  component("kpi-grid", "Auto-laid grid of metric cards.", {
+  component("kpi-grid", "Set of related headline metrics that should be scanned together. Use for 2-4 KPI peers; prefer chart/bar-list when the relationship is ranking or trend.", {
     metrics: { type: "array", required: true, description: "Array of { value, label, unit?, trend? } objects." },
+    items: { type: "array", description: "Alias for metrics. Metric label may also be name/title." },
     columns: { type: "number", description: "Number of columns (default min(4, metrics.length))." },
   }, "grid of metric-card", "stack"),
-  component("section-break", "Full-slide section heading.", {
+  component("section-break", "Full-slide chapter marker or cover-like transition. Use to reset the audience's mental context, not for ordinary content slides.", {
     title: { type: "string", required: true, semantic: "deck-title", description: "Section title (large)." },
     subtitle: { type: "string", semantic: "lead", description: "Optional subtitle." },
     accent: { type: "string", semantic: "label", description: "Optional small uppercase label above the title." },
   }, "stack.area:content with hero text", "stack"),
-  component("swot-matrix", "2x2 matrix: Strengths / Weaknesses / Opportunities / Threats.", {
+  component("swot-matrix", "Four-quadrant strategic diagnosis: strengths, weaknesses, opportunities, threats. Use only when this exact SWOT semantic frame fits.", {
     strengths: { type: "array", required: true, semantic: "bullet", description: "Strengths bullets." },
     weaknesses: { type: "array", required: true, semantic: "bullet", description: "Weaknesses bullets." },
     opportunities: { type: "array", required: true, semantic: "bullet", description: "Opportunities bullets." },
     threats: { type: "array", required: true, semantic: "bullet", description: "Threats bullets." },
   }, "grid 2x2 of titled bullet quadrants", "stack"),
-  component("cta", "Call-to-action button-like text block.", {
+  component("cta", "Explicit next action, request, or decision button. Use when the slide asks the viewer to do something.", {
     text: { type: "string", required: true, description: "Button label." },
     tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger"], description: "Button color tone." },
     link: { type: "string", description: "Optional hyperlink target." },
   }, "text on roundRect surface", "stack"),
-  component("feature-card", "Vertical icon + title + body card; one product feature, capability, or benefit.", {
+  component("feature-card", "One feature, capability, benefit, or ingredient of an offer. Use for modular value propositions, not for arbitrary bullet paragraphs.", {
     icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], required: true, description: "Icon shape preset." },
     title: { type: "string", required: true, semantic: "card-title", description: "Feature title." },
     body: { type: "string", semantic: "caption", description: "Optional supporting copy." },
@@ -226,32 +228,35 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     iconBackground: { type: "string", description: "Icon fill (theme token)." },
     tone: { type: "string", description: "Title color token." },
   }, "stack(shape, text.card-title, text.caption)", "grid"),
-  component("checklist", "List of done/not-done/at-risk items. Use for requirements, audit items, or feature parity.", {
+  component("checklist", "Status list with checked/unchecked/warning states. Use for requirements, audit, readiness, QA, or feature parity where completion state matters.", {
     items: { type: "array", required: true, description: "Array of { text, status?: 'checked'|'unchecked'|'warning' }." },
   }, "stack of horizontal text rows with check/cross marks", "stack"),
-  component("progress-bar", "Single labeled progress meter. Use for completion %, target attainment, or quota.", {
+  component("progress-bar", "Single progress-to-target measure. Use for completion, quota, adoption, or capacity where the percent/ratio is the semantic point.", {
     label: { type: "string", required: true, semantic: "label", description: "Metric label." },
-    value: { type: "number", required: true, description: "Value 0..max (default max=100)." },
-    max: { type: "number", description: "Upper bound (default 100)." },
+    value: { type: "number", required: true, description: "Value 0..max; numeric strings like '75%' are accepted." },
+    max: { type: "number", description: "Upper bound (default 100); numeric strings are accepted." },
     valueLabel: { type: "string", description: "Optional override for the displayed value (default: 'NN%')." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Bar color tone." },
   }, "stack(label-row, horizontal track of two shapes)", "stack"),
-  component("pros-cons", "Two-column pros vs cons list. Use for option evaluation or trade-off summaries.", {
+  component("pros-cons", "Two-sided trade-off frame. Use when the meaning is explicitly benefits vs drawbacks, not for any two-column layout.", {
     pros: { type: "array", required: true, description: "Pro statements (string[])." },
     cons: { type: "array", required: true, description: "Con statements (string[])." },
     prosTitle: { type: "string", description: "Override 'Pros' label." },
     consTitle: { type: "string", description: "Override 'Cons' label." },
   }, "grid 2 columns of titled checklist", "stack"),
-  component("process-flow", "Horizontal or vertical sequence of steps with arrows. Use for short pipelines (3-5 stages).", {
+  component("process-flow", "Connected process, workflow, recipe, pipeline, or causal sequence. Use when steps depend on each other or movement through stages is the main idea.", {
     steps: { type: "array", required: true, description: "Array of { title, body? } steps." },
+    items: { type: "array", description: "Alias for steps." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Flow direction (default horizontal)." },
   }, "stack of step blocks separated by arrow shapes", "stack"),
-  component("logo-strip", "Row of partner / customer / tooling logos.", {
+  component("logo-strip", "Set of logos representing customers, partners, integrations, sponsors, or tools. Use when recognition and affiliation are the evidence.", {
     logos: { type: "array", required: true, description: "Array of { src, alt? }." },
+    items: { type: "array", description: "Alias for logos." },
+    images: { type: "array", description: "Alias for logos." },
     columns: { type: "number", description: "Logos per row (default min(6, count))." },
     caption: { type: "string", description: "Optional caption below the strip." },
   }, "grid of contained images, optional caption below", "stack"),
-  component("pricing-card", "Single pricing tier with plan name, price, and feature checklist.", {
+  component("pricing-card", "One commercial/package tier with price and included features. Use inside a pricing comparison; mark the recommended tier semantically.", {
     plan: { type: "string", required: true, semantic: "card-title", description: "Plan name." },
     price: { type: "string", required: true, semantic: "metric-value", description: "Price (e.g. '$29')." },
     period: { type: "string", description: "Optional billing period (e.g. '/mo')." },
@@ -259,30 +264,30 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     tone: { type: "enum", enum: ["neutral", "brand"], description: "Use 'brand' for the highlighted tier." },
     ctaText: { type: "string", description: "Optional CTA label rendered as a button." },
   }, "stack(card-title, price-row, divider, checklist, optional cta)", "grid"),
-  component("hero-stat", "Single very-large headline number + label + optional caption. Use for the slide-defining metric (cover stat, opening 'big number'). One per slide max.", {
+  component("hero-stat", "Slide-defining number: one very large metric that carries the main message. Use for cover stats, market size, landmark deltas, or decisive proof; one per slide max.", {
     value: { type: "string", required: true, semantic: "metric-value", description: "Short number+unit, e.g. '$12.4M' or '500亿+'." },
     label: { type: "string", required: true, semantic: "card-title", description: "What the number measures." },
     caption: { type: "string", semantic: "caption", description: "Optional supporting context (e.g. '+38% YoY')." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Color tone for the value." },
   }, "stack of metric-value(2xl) + card-title + caption", "stack"),
-  component("bar-list", "Horizontal bar list — each item has a label, a numeric value, and a proportionate bar. Use for rankings, share-of-X, or any sortable categorical numeric comparison (4-8 items).", {
-    items: { type: "array", required: true, description: "Array of { label, value, max?, valueLabel? }." },
+  component("bar-list", "Ranked or sortable categorical numeric comparison. Use when the viewer should see who is bigger/smaller across 4-8 items.", {
+    items: { type: "array", required: true, description: "Array of { label/name/title, value/score/percent, max?, valueLabel? }. Numeric strings like '75%' are accepted." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Bar fill color." },
     sort: { type: "enum", enum: ["desc", "asc", "none"], description: "Sort items by value (default 'none' — keep input order)." },
   }, "stack of (label-row + horizontal-track) per item", "stack"),
-  component("stat-strip", "Inline KPI row — minimal chrome (no card backgrounds), separated by thin vertical accent rules. Use for the 'headline numbers in one row' pattern when card frames would feel heavy. 3-6 items.", {
+  component("stat-strip", "Inline row of headline metrics with minimal chrome. Use when 3-6 numbers support one read and card frames would be too heavy.", {
     items: { type: "array", required: true, description: "Array of { value, label } items." },
     tone: { type: "enum", enum: ["brand", "positive", "neutral"], description: "Value color tone." },
   }, "horizontal stack of (value+label) cells with thin divider rules", "stack"),
-  component("legend", "Colored-dot label list — semantic chart legend or category key. Inline horizontal or stacked vertical.", {
+  component("legend", "Color/category key for a chart, diagram, map, or coded table. Use when colors or symbols need semantic decoding.", {
     items: { type: "array", required: true, description: "Array of { label, color } items. color is a theme token (palette name, brand.primary, etc.)." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Orientation." },
   }, "stack of (color-dot + label) pairs", "stack"),
-  component("badge", "Small bold colored pill carrying a single short label. Use for STATUS / CATEGORY annotation on a card or before a heading. One badge per card max; use tag-list when you need multiple chips.", {
+  component("badge", "Single short status/category marker such as NEW, RISK, BETA, or DRAFT. Use as metadata on another module; use tag-list for multiple chips.", {
     text: { type: "string", required: true, description: "Short label (≤ 12 chars). Auto uppercased." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Fill color tone." },
   }, "filled rounded text pill", "stack"),
-  component("title-lockup", "Typographic title group: optional eyebrow, dominant title, subtitle, and accent rule. Use for covers, section openers, and editorial slide openings instead of loose text nodes.", {
+  component("title-lockup", "Integrated editorial title group: eyebrow, dominant title, subtitle, and optional rule. Use for covers, section openers, and poster-like slide openings instead of loose text nodes.", {
     title: { type: "string", required: true, semantic: "deck-title", description: "Dominant title." },
     eyebrow: { type: "string", semantic: "label", description: "Optional short kicker above the title." },
     subtitle: { type: "string", semantic: "lead", description: "Optional supporting subtitle." },
@@ -290,53 +295,55 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     tone: { type: "enum", enum: ["inverse", "brand", "neutral"], description: "Color treatment. Use inverse on dark/full-bleed color fields." },
     rule: { type: "boolean", description: "If true, include a short accent rule below the title." },
   }, "stack(eyebrow?, deck-title, accent-rule?, lead?)", "stack"),
-  component("eyebrow", "Small uppercase/labeled kicker above a headline. Use to create editorial hierarchy without a full badge or card.", {
+  component("eyebrow", "Small kicker that classifies the next headline by topic, chapter, or frame. Use to create editorial hierarchy without badge/card chrome.", {
     text: { type: "string", required: true, semantic: "label", description: "Short section/category label." },
     tone: { type: "enum", enum: ["brand", "neutral", "inverse", "positive", "warning", "danger"], description: "Text color tone. Use inverse on dark color fields." },
     rule: { type: "boolean", description: "If true, append a short accent rule after the label." },
   }, "label text + optional accent rule", "stack"),
-  component("accent-rule", "Thin graphic rule used as an intentional visual anchor under a headline, beside a rail, or between regions. Prefer this over ad-hoc shape lines.", {
+  component("accent-rule", "Purposeful visual spine, underline, or separator that anchors a hierarchy. Use when the rule carries structure or pacing, not decoration.", {
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Rule orientation." },
     tone: { type: "enum", enum: ["brand", "neutral", "inverse", "positive", "warning", "danger"], description: "Rule color tone. Use inverse on dark color fields." },
     length: { type: "number", description: "Rule length in cm (width for horizontal, height for vertical)." },
     thickness: { type: "number", description: "Rule thickness in cm." },
   }, "shape.rect rule with semantic sizing", "stack"),
-  component("annotation", "Compact label + explanatory note for diagrams, charts, and hero visuals. Use as a small callout, not as body copy.", {
+  component("annotation", "Compact label plus note attached to a chart, image, diagram, or hero object. Use for local explanation of a visual feature, not body copy.", {
     label: { type: "string", required: true, semantic: "label", description: "Short annotation label." },
     text: { type: "string", semantic: "caption", description: "Optional one-sentence note." },
     tone: { type: "enum", enum: ["brand", "neutral", "inverse", "positive", "warning", "danger"], description: "Accent tone. Use inverse on dark color fields." },
   }, "stack(label, accent-rule, caption)", "stack"),
-  containerComponent("side-rail", "Narrow editorial side rail with accent rule plus optional title/body/children. Use inside split/grid to create asymmetry and slide identity; not a full-page template.", {
+  containerComponent("side-rail", "Narrow contextual rail for chapter label, lens, constraints, or interpretation beside the main content. Use inside split/grid to create asymmetry and reading frame.", {
     title: { type: "string", semantic: "card-title", description: "Optional rail heading." },
     body: { type: "string", semantic: "caption", description: "Optional rail note." },
     tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger", "tinted"], description: "Rail accent tone." },
     accent: { type: "enum", enum: ["left", "top"], description: "Accent rule placement." },
   }, "card/panel side rail containing a stack of title/body/children", "grid"),
-  component("axis-ruler", "Visual axis/ruler for eras, maturity stages, or ordered concepts. Use when a timeline should feel like a designed scale rather than a set of cards.", {
-    items: { type: "array", required: true, description: "Array of { label, body?, tone? } items, usually 3-7." },
+  component("axis-ruler", "Ordered conceptual scale: eras, maturity stages, spectrum, or progression. Use when position along an axis is the meaning, not just a dated timeline.", {
+    items: { type: "array", required: true, description: "Array of { label/title/name, body/text/description?, tone? } items, usually 3-7." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Axis orientation (default horizontal)." },
     tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger"], description: "Default marker color." },
   }, "axis line + marker labels", "stack"),
-  component("flow-arrow", "Standalone directional arrow (sometimes with a labeled action). Use as a connector between two regions or as a 'next step' annotation. Not for replacing process-flow's internal arrows.", {
+  component("flow-arrow", "Connector showing direction, transition, or causality between two modules. Use for one explicit relationship; use process-flow for multi-step sequences.", {
     label: { type: "string", description: "Optional short label rendered next to the arrow." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Arrow color tone." },
     direction: { type: "enum", enum: ["right", "down"], description: "Arrow direction." },
   }, "arrow shape + optional label", "stack"),
-  component("key-takeaway", "Bordered tinted box that holds the slide's central conclusion (a sentence + optional supporting line). Use as the closing bottom-row 'so what?' on insight slides. One per slide.", {
+  component("key-takeaway", "The slide's central conclusion or 'so what'. Use when the viewer should leave with one decision, implication, or verdict; one per slide.", {
     headline: { type: "string", required: true, semantic: "section-title", description: "The conclusion in one short sentence." },
+    title: { type: "string", semantic: "section-title", description: "Alias for headline." },
     detail: { type: "string", semantic: "lead", description: "Optional supporting sentence." },
+    body: { type: "string", semantic: "lead", description: "Alias for detail." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Tone color (default brand)." },
   }, "tinted+bordered panel with accent bar + headline + detail", "stack"),
-  component("numbered-grid", "Grid of numbered steps/items where the digit (01, 02, ...) reads as part of the design. Use for ranked priorities, sequential principles, or 3-6 framework points where ordering matters.", {
-    items: { type: "array", required: true, description: "Array of { title, body? } items." },
+  component("numbered-grid", "Designed set of ordered priorities, principles, or framework points. Use when each item is a peer module and the number itself communicates order.", {
+    items: { type: "array", required: true, description: "Array of { title/label/name, body/description/text? } items." },
     columns: { type: "number", description: "Columns (default min(4, items.length))." },
     tone: { type: "enum", enum: ["brand", "neutral"], description: "Number color tone." },
   }, "grid of (big-number, card-title, caption) cells", "stack"),
-  component("tag-list", "Inline pill/chip tags. Use for keyword sets, feature flags, or category badges (3-10 tags). Items can be strings or { text, tone } for per-tag color.", {
+  component("tag-list", "Set of short keywords, categories, feature flags, or filters. Use for compact classification; not for sentences or long labels.", {
     items: { type: "array", required: true, description: "Array of strings or { text, tone? } objects." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Default tone for tags that don't override." },
   }, "horizontal stack of small filled rounded rects with labels", "stack"),
-  component("stat-comparison", "Before/after numeric comparison with a delta arrow.", {
+  component("stat-comparison", "Before/after or current/target numeric change with delta. Use when the transformation is the point and two values must be read together.", {
     beforeLabel: { type: "string", required: true, description: "Label for the before column." },
     beforeValue: { type: "string", required: true, semantic: "metric-value", description: "Before value." },
     afterLabel: { type: "string", required: true, description: "Label for the after column." },
@@ -344,7 +351,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     trend: { type: "enum", enum: ["up", "down", "flat"], description: "Direction of change." },
     deltaLabel: { type: "string", description: "Optional delta annotation (e.g. '+38%')." },
   }, "grid 3-col (before / arrow / after) with metric-value typography", "stack"),
-  component("image-card", "Framed image with optional title and caption. Use for product shots, screenshots, diagrams, or evidence panels.", {
+  component("image-card", "Image as evidence or subject: product shot, screenshot, diagram, photo, or artifact with optional title/caption. Use when the visual must be inspected.", {
     src: { type: "image-ref", required: true, description: "Image source path, URL, or data URL." },
     alt: { type: "string", description: "Accessible image description." },
     title: { type: "string", description: "Optional title above the image." },
@@ -352,10 +359,12 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     fit: { type: "enum", enum: ["cover", "contain", "fill"], description: "Image fit mode." },
     tone: { type: "enum", enum: ["neutral", "brand", "tinted"], description: "Card surface tone." },
   }, "card(stack(title?, image, caption?))", "grid"),
-  component("chart-card", "Chart with title, optional source note, and card chrome. Use when the chart needs to read as one dashboard module.", {
+  component("chart-card", "Titled quantitative evidence module. Use when the chart is a self-contained proof object with interpretation/source, not just a raw plot.", {
     chartType: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], required: true, description: "Chart type." },
+    chart: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], description: "Alias for chartType." },
     labels: { type: "array", required: true, description: "Category labels." },
     series: { type: "array", required: true, description: "Chart series." },
+    data: { type: "object", description: "Optional { labels, series } alias bundle." },
     title: { type: "string", description: "Optional card/chart title." },
     caption: { type: "string", description: "Optional source or interpretation note." },
     showLegend: { type: "boolean", description: "Show chart legend." },
@@ -363,22 +372,27 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     yFormat: { type: "enum", enum: ["int", "decimal", "percent", "wanyuan", "yi"], description: "Y-axis number format." },
     tone: { type: "enum", enum: ["neutral", "brand", "tinted"], description: "Card surface tone." },
   }, "card(stack(title?, chart, caption?))", "grid"),
-  component("table-card", "Table with title, optional source note, and card chrome. Use for financials, feature matrices, and compact data summaries.", {
+  component("table-card", "Titled structured comparison or lookup table. Use for financials, feature matrices, risks, guidance, and compact data summaries.", {
     title: { type: "string", description: "Optional table title." },
     headers: { type: "array", description: "Header row labels." },
     columns: { type: "array", description: "Alternative column definitions { header, width? }." },
     rows: { type: "array", required: true, description: "Table rows. Supports cell objects with text/runs/fill/color/bold/align/valign/colspan/rowspan." },
+    data: { type: "object", description: "Optional { headers, rows } alias bundle." },
     caption: { type: "string", description: "Optional source note below the table." },
     tone: { type: "enum", enum: ["neutral", "brand", "tinted"], description: "Card surface tone." },
   }, "card(stack(title?, table, caption?))", "stack"),
-  component("insight-card", "Reusable insight card with optional badge, headline, detail, and supporting bullets.", {
+  component("insight-card", "One modular insight with badge/headline/detail/proof bullets. Use for a curated finding or recommendation, not generic paragraph storage.", {
     badge: { type: "string", description: "Optional short status/category badge." },
     headline: { type: "string", required: true, semantic: "card-title", description: "Main insight." },
+    title: { type: "string", semantic: "card-title", description: "Alias for headline." },
     detail: { type: "string", semantic: "paragraph", description: "Supporting sentence." },
+    body: { type: "string", semantic: "paragraph", description: "Alias for detail." },
     bullets: { type: "array", semantic: "bullet", description: "Optional supporting bullets." },
+    items: { type: "array", semantic: "bullet", description: "Alias for bullets." },
+    points: { type: "array", semantic: "bullet", description: "Alias for bullets." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Card tone." },
   }, "card(stack(badge?, title, detail?, bullets?))", "grid"),
-  component("two-column", "Semantic two-column layout with configurable ratio. Use for narrative + visual, chart + commentary, or before/after content.", {
+  component("two-column", "Semantic two-region layout for narrative + visual, evidence + commentary, or before + after. Use when both sides have named roles, not as a generic equal split.", {
     left: { type: "object", required: true, description: "Left DomNode." },
     right: { type: "object", required: true, description: "Right DomNode." },
     ratio: { type: "array", description: "Two numeric weights, default [0.5, 0.5]." },
@@ -486,12 +500,18 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
       return {
-        time: stringValue(rec.time, ""),
+        time: stringValue(rec.time, stringValue(rec.date, "")),
         title: stringValue(rec.title, stringValue(rec.label, "")),
         body: stringValue(rec.body, stringValue(rec.description, "")),
       };
     }) : [];
-    const direction = node.direction === "horizontal" ? "horizontal" : "vertical";
+    // Timeline defaults to horizontal regardless of item count; vertical
+    // timelines pack densely and frequently collide with sibling content
+    // (image-cards, leads). Horizontal is the safer default that consistently
+    // fits within a slide's content area, and the renderer's autoOrientFlow
+    // can flip it back to vertical when the cell is genuinely too narrow.
+    const rawDirection = node.direction || node.orientation;
+    const direction = rawDirection === "vertical" ? "vertical" : "horizontal";
     return withComponentRoot(node, timelineBlock(slideId, name, { items, direction }));
   }
   if (componentName === "profile-card") {
@@ -503,18 +523,18 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     }));
   }
   if (componentName === "kpi-grid") {
-    const metrics = Array.isArray(node.metrics) ? node.metrics.map((raw) => {
+    const metrics = arrayValue(node.metrics, node.items).map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
       const trendRaw = rec.trend;
       const trend: "up" | "down" | "flat" | undefined = trendRaw === "up" || trendRaw === "down" || trendRaw === "flat" ? trendRaw : undefined;
       return {
         name: stringValue(rec.name, ""),
         value: stringValue(rec.value, ""),
-        label: stringValue(rec.label, ""),
+        label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))),
         unit: stringValue(rec.unit, ""),
         trend,
       };
-    }) : [];
+    });
     const columns = typeof node.columns === "number" ? node.columns : undefined;
     return withComponentRoot(node, kpiGrid(slideId, name, metrics, columns));
   }
@@ -567,8 +587,8 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     const tone = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" ? toneRaw : undefined;
     return withComponentRoot(node, progressBar(slideId, name, {
       label: stringValue(node.label, ""),
-      value: typeof node.value === "number" ? node.value : 0,
-      max: typeof node.max === "number" ? node.max : undefined,
+      value: numberValue(node.value, 0),
+      max: node.max === undefined ? undefined : numberValue(node.max, undefined),
       valueLabel: stringValue(node.valueLabel, ""),
       tone,
     }));
@@ -582,18 +602,18 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     }));
   }
   if (componentName === "process-flow") {
-    const steps = Array.isArray(node.steps) ? node.steps.map((raw) => {
+    const steps = arrayValue(node.steps, node.items).map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
       return { title: stringValue(rec.title, stringValue(rec.label, "")), body: stringValue(rec.body, stringValue(rec.description, "")) };
-    }).filter((step) => step.title) : [];
+    }).filter((step) => step.title);
     const direction = node.direction === "vertical" ? "vertical" : "horizontal";
     return withComponentRoot(node, processFlow(slideId, name, { steps, direction }));
   }
   if (componentName === "logo-strip") {
-    const logos = Array.isArray(node.logos) ? node.logos.map((raw) => {
+    const logos = arrayValue(node.logos, node.items, node.images).map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { src: String(raw ?? "") };
       return { src: stringValue(rec.src, ""), alt: stringValue(rec.alt, "") };
-    }).filter((logo) => logo.src) : [];
+    }).filter((logo) => logo.src);
     const columns = typeof node.columns === "number" ? node.columns : undefined;
     return withComponentRoot(node, logoStrip(slideId, name, logos, { columns, caption: stringValue(node.caption, "") }));
   }
@@ -625,9 +645,9 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
       return {
-        label: stringValue(rec.label, ""),
-        value: typeof rec.value === "number" ? rec.value : 0,
-        max: typeof rec.max === "number" ? rec.max : undefined,
+        label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))),
+        value: numberValue(rec.value, numberValue(rec.score, numberValue(rec.percent, 0))),
+        max: rec.max === undefined ? undefined : numberValue(rec.max, undefined),
         valueLabel: stringValue(rec.valueLabel, ""),
       };
     }).filter((item) => item.label) : [];
@@ -638,7 +658,7 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
   if (componentName === "stat-strip") {
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-      return { value: stringValue(rec.value, ""), label: stringValue(rec.label, "") };
+      return { value: stringValue(rec.value, stringValue(rec.metric, "")), label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))) };
     }).filter((item) => item.value || item.label) : [];
     const toneRaw = node.tone;
     const tone = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "neutral" ? toneRaw : undefined;
@@ -685,15 +705,15 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     const toneRaw = node.tone;
     const tone = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" ? toneRaw : undefined;
     return withComponentRoot(node, keyTakeaway(slideId, name, {
-      headline: stringValue(node.headline, ""),
-      detail: stringValue(node.detail, ""),
+      headline: stringValue(node.headline, stringValue(node.title, "")),
+      detail: stringValue(node.detail, stringValue(node.body, stringValue(node.description, ""))),
       tone,
     }));
   }
   if (componentName === "numbered-grid") {
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { title: String(raw ?? "") };
-      return { title: stringValue(rec.title, ""), body: stringValue(rec.body, stringValue(rec.description, "")) };
+      return { title: stringValue(rec.title, stringValue(rec.label, stringValue(rec.name, ""))), body: stringValue(rec.body, stringValue(rec.description, stringValue(rec.text, ""))) };
     }).filter((item) => item.title) : [];
     const cols = typeof node.columns === "number" ? node.columns : undefined;
     const toneRaw = node.tone;
@@ -834,6 +854,14 @@ function layoutProps(node: DomNode): Record<string, unknown> {
     "rotation",
     "flipH",
     "flipV",
+    // autoFit / size dial / typography hints flow through component expansion
+    // so an agent can set autoFit:"shrink" on slide.title and have it reach
+    // the rendered text shape.
+    "autoFit",
+    "size",
+    "weight",
+    "letterSpacing",
+    "uppercase",
   ]) {
     if (node[key] !== undefined) output[key] = node[key];
   }
@@ -876,7 +904,10 @@ function imageCardNode(slideId: string, name: string, node: DomNode): DomNode {
           fit: node.fit === "cover" || node.fit === "fill" ? node.fit : "contain",
           layoutWeight: 1,
         },
-        ...(caption ? [{ id: `${slideId}.${name}.caption`, type: "text" as const, text: caption, style: "figure-caption", align: "center" as const, fixedHeight: 0.5 }] : []),
+        // Caption is optional+autoFit so when the image-card sits in a tight
+        // fixedHeight slot the layout solver drops/shrinks the caption rather
+        // than triggering FALLBACK_FAILED on the parent.
+        ...(caption ? [{ id: `${slideId}.${name}.caption`, type: "text" as const, text: caption, style: "figure-caption", align: "center" as const, minHeight: 0.4, autoFit: "shrink" as const, optional: true }] : []),
       ],
     }],
   };
@@ -885,6 +916,7 @@ function imageCardNode(slideId: string, name: string, node: DomNode): DomNode {
 function chartCardNode(slideId: string, name: string, node: DomNode): DomNode {
   const title = stringValue(node.title, "");
   const caption = stringValue(node.caption, "");
+  const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
   return {
     id: `${slideId}.${name}`,
     type: "card",
@@ -901,9 +933,9 @@ function chartCardNode(slideId: string, name: string, node: DomNode): DomNode {
         {
           id: `${slideId}.${name}.chart`,
           type: "chart",
-          chartType: node.chartType,
-          labels: Array.isArray(node.labels) ? node.labels : [],
-          series: Array.isArray(node.series) ? node.series : [],
+          chartType: node.chartType || node.chart,
+          labels: arrayValue(node.labels, data.labels),
+          series: arrayValue(node.series, data.series),
           showLegend: node.showLegend,
           showValues: node.showValues,
           yFormat: node.yFormat,
@@ -920,6 +952,7 @@ function chartCardNode(slideId: string, name: string, node: DomNode): DomNode {
 function tableCardNode(slideId: string, name: string, node: DomNode): DomNode {
   const title = stringValue(node.title, "");
   const caption = stringValue(node.caption, "");
+  const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
   return {
     id: `${slideId}.${name}`,
     type: "card",
@@ -936,9 +969,9 @@ function tableCardNode(slideId: string, name: string, node: DomNode): DomNode {
         {
           id: `${slideId}.${name}.table`,
           type: "table",
-          headers: node.headers,
+          headers: node.headers || data.headers,
           columns: node.columns,
-          rows: node.rows,
+          rows: node.rows || data.rows || node.items,
           firstRowHeader: node.firstRowHeader,
           colWidths: node.colWidths,
           rowHeights: node.rowHeights,
@@ -957,10 +990,10 @@ function insightCardNode(slideId: string, name: string, node: DomNode): DomNode 
   const children: DomNode[] = [];
   const badgeText = stringValue(node.badge, "");
   if (badgeText) children.push(badge(slideId, `${name}.badge`, { text: badgeText, tone: tone === "neutral" ? "brand" : tone }));
-  children.push({ id: `${slideId}.${name}.headline`, type: "text", text: stringValue(node.headline, ""), style: "card-title", color: tone === "neutral" ? "text.primary" : toneToColors(tone).fg, fixedHeight: 0.72 });
-  const detail = stringValue(node.detail, "");
+  children.push({ id: `${slideId}.${name}.headline`, type: "text", text: stringValue(node.headline, stringValue(node.title, "")), style: "card-title", color: tone === "neutral" ? "text.primary" : toneToColors(tone).fg, minHeight: 0.55, autoFit: "shrink" });
+  const detail = stringValue(node.detail, stringValue(node.body, stringValue(node.description, "")));
   if (detail) children.push({ id: `${slideId}.${name}.detail`, type: "text", text: detail, style: "paragraph", color: "text.primary" });
-  const bullets = stringArray(node.bullets);
+  const bullets = stringArray(node.bullets).length ? stringArray(node.bullets) : stringArray(node.items).length ? stringArray(node.items) : stringArray(node.points);
   if (bullets.length > 0) children.push(bulletList(slideId, `${name}.bullets`, bullets, "compact"));
   return {
     id: `${slideId}.${name}`,
@@ -1146,6 +1179,7 @@ function textComponentNode(slideId: string, name: string, text: string, style: s
   const caption = stringValue(fields.caption, "");
   const title = style === "code" ? stringValue(fields.title, stringValue(fields.language, "")) : "";
   const visualStyle = style === "label" && (fields.variant === "badge" || fields.variant === "tag") ? String(fields.variant) : style;
+  const resolvedColor = resolveTextColor(fields.color, fields.tone);
   if (!caption && !title) {
     return {
       id: `${slideId}.${name}`,
@@ -1153,7 +1187,7 @@ function textComponentNode(slideId: string, name: string, text: string, style: s
       text,
       style: visualStyle,
       align: fields.align,
-      color: fields.color || fields.tone,
+      color: resolvedColor,
       fixedHeight: fields.fixedHeight,
       layoutWeight: fields.layoutWeight,
     };
@@ -1179,7 +1213,7 @@ function textComponentNode(slideId: string, name: string, text: string, style: s
         text,
         style: visualStyle,
         align: fields.align,
-        color: fields.color || fields.tone,
+        color: resolvedColor,
         layoutWeight: caption ? 1 : fields.layoutWeight,
       },
       ...(caption ? [{
@@ -1280,8 +1314,8 @@ function titleLockupNode(slideId: string, name: string, node: DomNode): DomNode 
       fixedHeight: 0.9,
     });
   }
-  return {
-    id: `${slideId}.${name}`,
+  const lockup: DomNode = {
+    id: `${slideId}.${name}.inner`,
     type: "stack",
     direction: "vertical",
     gap: 0.28,
@@ -1290,6 +1324,20 @@ function titleLockupNode(slideId: string, name: string, node: DomNode): DomNode 
     justify: "center",
     children,
   };
+  // tone:"inverse" promises white text. Wrap in a brand-fill band so the
+  // promise holds independent of the slide background. Otherwise an
+  // {tone:"inverse"} on a default light deck silently produces unreadable text.
+  if (tone === "inverse") {
+    return {
+      id: `${slideId}.${name}`,
+      type: "band",
+      fill: "brand.primary",
+      padding: 0.6,
+      role: "title-lockup",
+      children: [lockup],
+    };
+  }
+  return { ...lockup, id: `${slideId}.${name}` };
 }
 
 function eyebrowNode(slideId: string, name: string, node: DomNode): DomNode {
@@ -1360,7 +1408,7 @@ function sideRailNode(slideId: string, name: string, node: DomNode): DomNode {
   const title = stringValue(node.title, "");
   const body = stringValue(node.body, "");
   const children: DomNode[] = [
-    ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", color: tone.fg || "text.primary", fixedHeight: 0.72 }] : []),
+    ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", color: tone.fg || "text.primary", minHeight: 0.55, autoFit: "shrink" as const }] : []),
     ...(body ? [{ id: `${slideId}.${name}.body`, type: "text" as const, text: body, style: "caption", color: "text.primary", valign: "top" as const }] : []),
     ...((node.children || []) as DomNode[]),
   ];
@@ -1389,8 +1437,8 @@ function axisRulerNode(slideId: string, name: string, node: DomNode): DomNode {
   const items = Array.isArray(node.items) ? node.items.map((raw) => {
     const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { label: String(raw ?? "") };
     return {
-      label: stringValue(rec.label, ""),
-      body: stringValue(rec.body, stringValue(rec.text, "")),
+      label: stringValue(rec.label, stringValue(rec.title, stringValue(rec.name, ""))),
+      body: stringValue(rec.body, stringValue(rec.text, stringValue(rec.description, ""))),
       tone: stringValue(rec.tone, stringValue(node.tone, "brand")),
     };
   }).filter((item) => item.label) : [];
@@ -1459,6 +1507,19 @@ function comparisonPoints(fields: Record<string, unknown>): string[] {
   return [stringValue(fields.subtitle, ""), stringValue(fields.body, "")].filter(Boolean);
 }
 
+/**
+ * Resolve a text node color by preferring an explicit color, then mapping a
+ * semantic tone to its fg token, and finally falling back to text.primary so a
+ * caller passing only `tone:"neutral"` doesn't leak the literal "neutral" string
+ * into the renderer (which produces UNKNOWN_COLOR).
+ */
+export function resolveTextColor(rawColor: unknown, rawTone: unknown): string {
+  if (typeof rawColor === "string" && rawColor.trim()) return rawColor;
+  const fg = toneToColors(rawTone).fg;
+  if (fg) return fg;
+  return "text.primary";
+}
+
 export function toneToColors(tone: unknown): { fg?: string; bg?: string; line?: string } {
   if (tone === "inverse") return { fg: "text.inverse", line: "text.inverse" };
   if (tone === "positive") return { fg: "success", bg: "success.tint", line: "success" };
@@ -1480,6 +1541,24 @@ function tonePropsFrom(tone: unknown): Record<string, unknown> {
 
 function stringValue(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function numberValue(value: unknown, fallback: number): number;
+function numberValue(value: unknown, fallback: undefined): number | undefined;
+function numberValue(value: unknown, fallback: number | undefined): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim().replace(/,/g, "");
+  if (!normalized) return fallback;
+  const parsed = Number.parseFloat(normalized.endsWith("%") ? normalized.slice(0, -1) : normalized);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function arrayValue(...values: unknown[]): unknown[] {
+  for (const value of values) {
+    if (Array.isArray(value)) return value;
+  }
+  return [];
 }
 
 function stringArray(value: unknown): string[] {

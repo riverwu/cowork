@@ -25,11 +25,11 @@ import {
 import { runInlineCompaction } from "./compact";
 import type { DebugLogger } from "./debug-log";
 
-// Slide-deck builds easily run 30-40 tool calls (list_themes → describe_theme
+// Slide-deck builds easily run many tool calls (list_themes → describe_theme
 // → list_layouts → describe_layout × N picks → image_gen × N → validate →
 // render → audit → edit follow-ups). Keep the ceiling generous enough that
-// a 20-slide deck doesn't trip it before the agent finishes verification.
-const MAX_STEPS = 60;
+// a long deck doesn't trip it before the agent finishes verification.
+const MAX_STEPS = 120;
 const MAX_TRUNCATION_RECOVERIES = 3;
 const MAX_TOOL_RESULT_CHARS_FOR_LLM = 12000;
 
@@ -387,7 +387,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       const tool = allTools[toolCall.name];
       if (!tool) {
         const errResult = `Unknown tool: ${toolCall.name}`;
-        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, errResult, false) });
+        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: formatToolResultForLlm(toolCall.name, errResult, false, toolCall.input) });
         yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0, success: false, toolCallId: toolCall.id };
         continue;
       }
@@ -398,7 +398,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       const rawInput = toolCall.input as { _error?: string; _raw?: string } | undefined;
       if (rawInput && typeof rawInput === "object" && rawInput._error === "Truncated tool call input") {
         const errResult = `Tool call to "${toolCall.name}" was truncated by the model output token limit before its arguments finished streaming, so the tool was not run. Re-issue the call with smaller, complete arguments.`;
-        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, errResult, false) });
+        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: formatToolResultForLlm(toolCall.name, errResult, false, toolCall.input) });
         yield { type: "skill-done", skill: toolCall.name, result: errResult, durationMs: 0, success: false, toolCallId: toolCall.id };
         continue;
       }
@@ -463,7 +463,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
           }
         }
 
-        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, llmResult, success) });
+        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: formatToolResultForLlm(toolCall.name, llmResult, success, toolCall.input) });
         await params.debugLog?.recordToolDone({
           step,
           name: toolCall.name,
@@ -476,7 +476,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       } catch (err) {
         const durationMs = Date.now() - startTime;
         const errResult = `Tool execution error in ${toolCall.name}: ${err instanceof Error ? err.message : String(err)}`;
-        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: truncateToolResultForLlm(toolCall.name, errResult, false) });
+        currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: formatToolResultForLlm(toolCall.name, errResult, false, toolCall.input) });
         params.debugLog?.recordToolDone({
           step,
           name: toolCall.name,
@@ -585,6 +585,32 @@ function summarizeResult(result: string): unknown {
  *     live), instead of the default head-heavy window. This kills the
  *     pattern where an agent reads "Validation failed: Validation failed:"
  *     once at the top of a long error and then writes "渲染成功" anyway. */
+function formatToolResultForLlm(toolName: string, result: string, success: boolean, input?: unknown): string {
+  if (success && isSkillMarkdownRead(toolName, input)) {
+    return formatFullToolResult(toolName, result, [
+      "This SKILL.md is pinned for the current task run.",
+      "Do not truncate, omit, or replace it with a summary while this task is running.",
+      "It will not be re-pinned automatically in later user tasks unless the skill is read again.",
+    ]);
+  }
+  return truncateToolResultForLlm(toolName, result, success);
+}
+
+function formatFullToolResult(toolName: string, result: string, notes: string[]): string {
+  return [
+    `[TOOL OK] ${toolName}`,
+    ...notes.map((note) => `Note: ${note}`),
+    "---",
+    result,
+  ].join("\n");
+}
+
+function isSkillMarkdownRead(toolName: string, input: unknown): boolean {
+  if (toolName !== "read_file" || !input || typeof input !== "object") return false;
+  const path = (input as { path?: unknown }).path;
+  return typeof path === "string" && /(^|\/)SKILL\.md$/i.test(path);
+}
+
 function truncateToolResultForLlm(toolName: string, result: string, success: boolean): string {
   const verdict = success ? "[TOOL OK]" : "[TOOL FAILED]";
   const failureSnippet = success ? null : extractFailureSnippet(result);

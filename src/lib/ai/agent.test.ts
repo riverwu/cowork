@@ -32,6 +32,25 @@ const mocks = vi.hoisted(() => {
         return;
       }
 
+      if (firstUser.includes("skill read retention")) {
+        if (streamCalls.length === 1) {
+          yield {
+            type: "message-done",
+            content: "",
+            toolCalls: [{ id: "call-skill", name: "read_file", input: { path: "/Users/river/.cowork/skills/slideml2/SKILL.md" } }],
+            stopReason: "tool_use",
+          };
+          return;
+        }
+        yield {
+          type: "message-done",
+          content: "Skill retained.",
+          toolCalls: [],
+          stopReason: "end",
+        };
+        return;
+      }
+
       if (streamCalls.length === 1) {
         yield {
           type: "message-done",
@@ -56,6 +75,32 @@ const mocks = vi.hoisted(() => {
     mockProvider,
     tools,
   };
+});
+
+describe("runAgent skill read retention", () => {
+  it("keeps SKILL.md read results intact for the current task run", async () => {
+    mocks.streamCalls.length = 0;
+    const largeSkill = "SlideML2 skill\n" + "component-purpose ".repeat(1200);
+    mocks.tools.read_file = {
+      definition: { name: "read_file", description: "Read a file", parameters: { type: "object", properties: {}, required: ["path"] } },
+      execute: vi.fn().mockResolvedValue(largeSkill),
+    };
+
+    for await (const _event of runAgent({
+      sessionId: "session-1",
+      workingDirectory: "/Users/river/Documents/Workspace",
+      messages: [{ role: "user", content: "skill read retention" }],
+    })) {
+      // drain
+    }
+
+    expect(mocks.streamCalls).toHaveLength(2);
+    const secondCallToolResult = mocks.streamCalls[1].messages.find((message) => message.role === "tool");
+    expect(secondCallToolResult?.content).toContain("SlideML2 skill");
+    expect(secondCallToolResult?.content).toContain("component-purpose");
+    expect(secondCallToolResult?.content).not.toContain("result truncated for the LLM");
+    delete mocks.tools.read_file;
+  });
 });
 
 vi.mock("./providers", () => ({

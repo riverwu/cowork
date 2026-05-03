@@ -88,9 +88,12 @@ export const CATALOG_SKILLS: CatalogSkill[] = [
     version: "1.0.0",
     description: "Automate browser navigation, interaction, screenshots, and web page extraction through the browser-use CLI",
   },
-  // NOTE: pptx skill intentionally removed from catalog. PPT generation
-  // is handled by built-in SlideML tools (render_slideml etc.) which
-  // ship with the app and don't require user installation.
+  {
+    id: "slideml2",
+    name: "SlideML2 Deck Authoring",
+    version: "1.0.0",
+    description: "Create, edit, render, and validate presentations with Cowork's SlideML2 deck tools",
+  },
   {
     id: "xlsx",
     name: "Excel Spreadsheet (XLSX)",

@@ -447,6 +447,16 @@ export interface Slideml2Diagnostic {
   severity: string;
   message?: string;
   suggestion?: string;
+  surfaceTrail?: string[];
+  aggregated?: {
+    count: number;
+    affectedNodes: Array<{ nodeId: string; sample?: string }>;
+  };
+  constrainedBy?: {
+    ancestorId: string;
+    prop: string;
+    value: number;
+  };
   [key: string]: unknown;
 }
 

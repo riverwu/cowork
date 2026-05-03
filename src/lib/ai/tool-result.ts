@@ -7,7 +7,8 @@
 const FAILURE_PATTERNS = [
   /^Error\b/i,
   /\nError\b/i,
-  /\bfailed\b/i,
+  /^(?:Package installation|Browser|MCP tool|Tool call)\s+failed\b/i,
+  /\bnpm install failed\b/i,
   /\berror code\b/i,
   /\bnpm error\b/i,
   /\bNode execution error\b/i,
@@ -40,6 +41,8 @@ const FAILURE_PATTERNS = [
 
 export function isToolResultFailure(result: string): boolean {
   if (!result) return false;
+  const structuredFailure = parseStructuredFailure(result);
+  if (structuredFailure) return true;
   return FAILURE_PATTERNS.some((pattern) => pattern.test(result));
 }
 
@@ -49,11 +52,33 @@ export function isToolResultFailure(result: string): boolean {
  *  the failure cause. */
 export function extractFailureSnippet(result: string): string | null {
   if (!result) return null;
+  const structuredFailure = parseStructuredFailure(result);
+  if (structuredFailure) return structuredFailure;
   const lines = result.split("\n");
   for (const line of lines) {
     if (FAILURE_PATTERNS.some((p) => p.test(line))) {
       return line.trim().slice(0, 240);
     }
+  }
+  return null;
+}
+
+function parseStructuredFailure(result: string): string | null {
+  const trimmed = result.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const record = parsed as Record<string, unknown>;
+      if (record.ok === false) {
+        const message = typeof record.error === "string" && record.error.trim()
+          ? record.error.trim()
+          : "Structured tool result returned ok:false";
+        return message.slice(0, 240);
+      }
+    }
+  } catch {
+    return null;
   }
   return null;
 }

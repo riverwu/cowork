@@ -73,28 +73,14 @@ export function buildAgentPromptPack(options: AgentPromptPackOptions = {}): stri
     "- All distance fields (gap, padding, fixedHeight, fixedWidth, ...) are in cm.",
     "- Avoid page-level components: cover, section, dashboard, product-matrix, risk-list.",
     "- For each slide, reach for the *most semantic* component first. Only fall back to plain `callout` when no specific component fits.",
-    "- Pick from this menu, in roughly this order of preference:",
-    "    KPIs/quantitative outcomes → kpi-grid (3-4 metric-card)",
-    "    Before/after numeric shift → stat-comparison",
-    "    Done/not-done audit list → checklist",
-    "    Pros vs cons trade-offs → pros-cons",
-    "    Pipeline / multi-stage process → process-flow (3-5 stages)",
-    "    Long dated sequence → timeline",
-    "    Product/feature highlights → grid of feature-card (icon+title+body)",
-    "    Pricing tiers → grid of pricing-card (mark one with tone:'brand')",
-    "    Framed evidence image → image-card",
-    "    Dashboard chart module → chart-card",
-    "    Financial/feature matrix module → table-card",
-    "    Reusable insight with badge/detail/bullets → insight-card",
-    "    Narrative + visual/chart split → two-column",
-    "    Partner/customer logos → logo-strip",
-    "    Strategic 2x2 → swot-matrix",
-    "    Compare 2-4 things with parallel points → comparison-card grid",
-    "    Define a term → definition-card",
-    "    % completion / quota → progress-bar",
-    "    Single hero insight → callout (use sparingly — once per slide max)",
-    "    Pull-quote → quote",
-    "    Long article body → article",
+    "- Pick components by semantic job first, then layout. Component menu:",
+    "    Quantitative proof → hero-stat (one dominant number), kpi-grid (2-4 KPIs), stat-strip (3-6 light metrics), metric-card (one KPI inside grid), stat-comparison (before/after), bar-list (4-8 ranked values), progress-bar (completion/quota)",
+    "    Comparison / decision → comparison-card grid (2-4 peers), pros-cons (trade-off), swot-matrix (exact SWOT), pricing-card grid (tiers), table-card (feature/financial matrix)",
+    "    Sequence / causality → process-flow (connected pipeline), timeline (dated sequence), numbered-grid (ordered principles), numbered-list (ordered prose), step-card grid (stage cards), flow-arrow (single transition)",
+    "    Evidence / media → image-card (inspectable visual), chart-card (self-contained chart), table-card (structured evidence), quote (voice/evidence), source-note (provenance)",
+    "    Insight / narrative → key-takeaway (final verdict), insight-card (finding + proof), callout (one emphasized sentence), lead (framing thesis), article/text (residual prose only)",
+    "    Product / identity → feature-card grid (capability/benefit), logo-strip (partners/customers), profile-card (person/role), tag-list (categories), badge (single status)",
+    "    Layout / surface → two-column (named narrative+visual regions), stack (sequence), grid (peer scan), split (region split), panel/card/band/frame/inset (visual grouping)",
     "- Decorative containers (NOT layout): panel (tinted surface), card (panel + header/footer/accent), band (full-width strip), frame (border-only), inset (padding only). Wrap a stack/grid inside one when grouping needs visual separation. Never set fill/line/cornerRadius on stack/grid — wrap in panel/card instead.",
     `- Color tokens: brand.primary, surface, surface.subtle, text.primary, text.muted, text.inverse, divider, success/warning/danger (+ .tint), brand.tint. Semantic palette for *categorical* meaning: ${palette.join(", ")} (each with .tint and .shade). DO NOT invent tokens like text-secondary, primary-color.`,
     "- Use `optional: true` on captions/source-notes/secondary callouts so the layout can drop them when space is tight.",
@@ -127,10 +113,13 @@ export function buildAgentPromptPack(options: AgentPromptPackOptions = {}): stri
     lines.push("", "Do NOT:");
     for (const r of deck.doNot) lines.push(`- ${r}`);
   }
-  lines.push("", "Component schemas:");
-  for (const name of components) {
-    const line = compactComponentSchema(descriptions[name], Boolean(options.includeExamples));
-    if (line) lines.push(line);
+  lines.push("", "Component schemas (choose from the earlier semantic menu before reading fields):");
+  for (const group of componentSchemaGroups(components)) {
+    lines.push(`\n${group.title}:`);
+    for (const name of group.names) {
+      const line = compactComponentSchema(descriptions[name], Boolean(options.includeExamples));
+      if (line) lines.push(line);
+    }
   }
   return lines.join("\n");
 }
@@ -149,14 +138,52 @@ export function getAgentSystemPrompt(): string {
 
 function compactComponentSchema(definition: import("./component-registry.js").ComponentDescription | undefined, includeExample: boolean): string {
   if (!definition) return "";
-  const fields = Object.entries(definition.fields).slice(0, 8).map(([key, prop]) => `${key}${prop.required ? "*" : ""}:${prop.type}`).join(", ");
+  const entries = Object.entries(definition.fields).filter(([key]) => key !== "type").slice(0, 9);
+  const required = entries.filter(([, prop]) => prop.required).map(([key, prop]) => fieldSummary(key, prop));
+  const optional = entries.filter(([, prop]) => !prop.required).map(([key, prop]) => fieldSummary(key, prop));
+  const fieldParts = [
+    required.length ? `required={${required.join(", ")}}` : "",
+    optional.length ? `optional={${optional.slice(0, 7).join(", ")}}` : "",
+  ].filter(Boolean).join(" ");
   const shouldIncludeExample = includeExample || definition.children.required;
   const example = shouldIncludeExample && definition.examples[0] ? ` example=${JSON.stringify(definition.examples[0])}` : "";
   const parent = definition.layoutBehavior?.preferredParent || "any";
   const children = definition.children.allowed
     ? ` children=${definition.children.required ? "required" : "optional"}`
     : " children=none";
-  return `- ${definition.name}: ${definition.purpose} parent=${parent}${children} fields={type:'${definition.name}', ${fields}}${example}`;
+  const kind = definition.children.allowed ? "container" : "semantic";
+  return `- ${definition.name}: ${definition.purpose} kind=${kind} parent=${parent}${children} type='${definition.name}' ${fieldParts}${example}`;
+}
+
+function fieldSummary(key: string, prop: { type: string; enum?: string[]; values?: string[] }): string {
+  const values = prop.enum || prop.values;
+  return values?.length ? `${key}:${prop.type}[${values.slice(0, 6).join("|")}]` : `${key}:${prop.type}`;
+}
+
+function componentSchemaGroups(components: readonly string[]): { title: string; names: string[] }[] {
+  const order = [
+    { title: "Layout containers", names: ["stack", "grid", "split", "panel", "card", "band", "frame", "inset", "spacer", "divider"] },
+    { title: "Quantitative proof", names: ["hero-stat", "kpi-grid", "metric-card", "stat-strip", "stat-comparison", "bar-list", "progress-bar", "chart-card"] },
+    { title: "Comparison and decisions", names: ["comparison-card", "pros-cons", "swot-matrix", "pricing-card", "table-card"] },
+    { title: "Sequence and causality", names: ["process-flow", "timeline", "numbered-grid", "numbered-list", "step-card", "flow-arrow", "axis-ruler"] },
+    { title: "Evidence and media", names: ["image", "image-card", "chart", "table", "quote", "source-note", "legend"] },
+    { title: "Insight and narrative", names: ["key-takeaway", "insight-card", "callout", "lead", "h1", "h2", "text", "article", "label", "code"] },
+    { title: "Product, identity, and markers", names: ["feature-card", "logo-strip", "profile-card", "tag-list", "badge", "icon-text", "cta", "section-break"] },
+    { title: "Style primitives", names: ["title-lockup", "eyebrow", "accent-rule", "annotation", "side-rail", "shape"] },
+  ];
+  const available = new Set(components);
+  const used = new Set<string>();
+  const groups = order.map((group) => {
+    const names = group.names.filter((name) => {
+      if (!available.has(name)) return false;
+      used.add(name);
+      return true;
+    });
+    return { title: group.title, names };
+  }).filter((group) => group.names.length > 0);
+  const other = components.filter((name) => !used.has(name));
+  if (other.length) groups.push({ title: "Other available components", names: other });
+  return groups;
 }
 
 function intentTerms(text: string): string[] {
