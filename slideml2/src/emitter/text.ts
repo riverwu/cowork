@@ -100,6 +100,20 @@ function paragraphPropsXml(p: Paragraph): string {
     bullet = `<a:buChar char="\u2022"/>`;
   } else if (p.bullet && "number" in p.bullet && p.bullet.number) {
     bullet = `<a:buAutoNum type="arabicPeriod"/>`;
+  } else if (p.bullet && "char" in p.bullet && typeof p.bullet.char === "string" && p.bullet.char.length > 0) {
+    // Explicit shape-glyph bullet: paint a colored, sized character before
+    // each item. Order in OOXML CT_TextParagraphProperties is
+    // buClr → buSzPct → buFont → buChar (xsd choice in that sequence).
+    const buClr = typeof p.bullet.color === "string"
+      ? `<a:buClr><a:srgbClr val="${p.bullet.color.toUpperCase()}"/></a:buClr>`
+      : "";
+    const sizeRaw = typeof p.bullet.sizePct === "number" ? p.bullet.sizePct : 0;
+    const sizeClamped = sizeRaw > 0 ? Math.max(0.25, Math.min(4, sizeRaw)) : 0;
+    const buSz = sizeClamped > 0 ? `<a:buSzPct val="${Math.round(sizeClamped * 100000)}"/>` : "";
+    const buFont = typeof p.bullet.font === "string" && p.bullet.font.length > 0
+      ? `<a:buFont typeface="${xmlEscape(p.bullet.font)}"/>`
+      : "";
+    bullet = `${buClr}${buSz}${buFont}<a:buChar char="${xmlEscape(p.bullet.char)}"/>`;
   } else if (!p.bullet) {
     // Explicit `buNone` so we don't inherit a stray bullet from the master.
     bullet = `<a:buNone/>`;

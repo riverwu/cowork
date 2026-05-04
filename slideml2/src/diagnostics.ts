@@ -34,7 +34,16 @@ export interface LayoutDiagnostic {
     /** LOW_CONTRAST that the renderer auto-rewrote to a contrasting hex. The
      *  rendered PPTX is readable; the diagnostic remains so the agent can
      *  decide to fix the underlying theme token, but it doesn't block. */
-    | "LOW_CONTRAST_FIXED";
+    | "LOW_CONTRAST_FIXED"
+    /** A non-text shape (decorative rule, divider, accent stripe, dot) whose
+     *  fill matches its surface (slide bg or parent fill) is visually
+     *  invisible. Severity warn; it doesn't block render but hides the
+     *  agent's intended visual. */
+    | "SHAPE_INVISIBLE"
+    /** SHAPE_INVISIBLE that was small/decorative enough for the renderer to
+     *  auto-promote to a contrasting accent color. The rendered PPTX shows
+     *  the decoration; agent can override by setting an explicit fill. */
+    | "SHAPE_INVISIBLE_FIXED";
   slideId?: string;
   nodeId?: string;
   message: string;

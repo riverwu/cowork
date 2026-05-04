@@ -117,6 +117,16 @@ export function metricCard(
   const content: Array<Record<string, unknown>> = unit
     ? [{ text: value, color: valueColor }, { text: ` ${unit}`, color: "text.muted" }]
     : [];
+  // Cap the value's vertical demand. With 3-col KPI rows on tall content
+  // areas (96vi8n slide 8/15/18/20) the metric-value's autoFit:"shrink"
+  // would let the digits fill ~3.6cm — single short numbers ("23:1",
+  // "78%") at 100pt+ look bloated and leave the rest of the card empty.
+  //
+  // maxHeight on a flex (layoutWeight) child is unreliable in this
+  // solver — the same pattern silently failed in `outline.num` (96vi8n
+  // slide 3 review). We use a wrapping container with fixedHeight: 2.4
+  // so the cap is actually enforced by layout, not just intent. The
+  // value text inside still autoFit-shrinks to fit short strings.
   const valueNode: DomNode = {
     id: `${slideId}.${id}.value`,
     type: "text",
@@ -125,9 +135,24 @@ export function metricCard(
     color: valueColor,
     align: "center",
     valign: "bottom",
-    layoutWeight: 2,
     autoFit: "shrink",
     ...(content.length > 0 ? { content } : {}),
+  };
+  // maxHeight on the wrap stack flexes downward — tight rows (timeline
+  // cells with metric-card content, 5-up KPI grids) get the cell's
+  // actual height; tall 3-up cells stop at 2.4cm so the digit doesn't
+  // balloon to 3.6cm. fixedHeight here would force a hard 2.4cm demand
+  // and break dense layouts (timeline-content tests caught this).
+  const valueWrap: DomNode = {
+    id: `${slideId}.${id}.value-wrap`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0,
+    align: "center",
+    valign: "bottom",
+    maxHeight: 2.4,
+    layoutWeight: 2,
+    children: [valueNode],
   };
   return {
     id: `${slideId}.${id}`,
@@ -135,8 +160,9 @@ export function metricCard(
     direction: "vertical",
     gap: 0.18,
     role: "metric-card",
+    valign: "middle",
     children: [
-      valueNode,
+      valueWrap,
       // 761q1u: 5 metric-cards in one row only get ~1cm height each;
       // making the label optional lets the layout drop it instead of
       // SQUASHED+FALLBACK_FAILED. Agents can still read the value (the
@@ -376,7 +402,7 @@ function timelineStep(
       style: "label",
       weight: "bold",
       color: "text.primary",
-      align: "left",
+      align: "right",
       valign: "top",
       // Fixed width keeps time labels aligned across rows. 2.5cm fits
       // most date strings ("2024 Q3", "March 2024", "公元前 221 年").
@@ -385,6 +411,40 @@ function timelineStep(
       autoFit: "shrink",
     });
   }
+  // Visual spine: a brand-colored vertical line running through the row
+  // with a dot at the top marking the event. Each row contributes its
+  // own segment; stacked rows form a continuous spine — no overlay
+  // primitives needed. Without this, vertical timelines read as plain
+  // tables of {time, title, body}. (96vi8n slide 7 regression.)
+  rowChildren.push({
+    id: `${slideId}.${id}.${index}.spine`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0,
+    align: "center",
+    valign: "top",
+    fixedWidth: 0.4,
+    children: [
+      {
+        id: `${slideId}.${id}.${index}.dot`,
+        type: "shape",
+        preset: "ellipse",
+        fill: "brand.primary",
+        line: "brand.primary",
+        fixedWidth: 0.32,
+        fixedHeight: 0.32,
+      },
+      {
+        id: `${slideId}.${id}.${index}.line`,
+        type: "shape",
+        preset: "rect",
+        fill: "brand.primary",
+        line: "brand.primary",
+        fixedWidth: 0.04,
+        layoutWeight: 1,
+      },
+    ],
+  });
   rowChildren.push({
     id: `${slideId}.${id}.${index}.col`,
     type: "stack",
@@ -398,7 +458,7 @@ function timelineStep(
     id: `${slideId}.${id}.${index}`,
     type: "stack",
     direction: "horizontal",
-    gap: 0.4,
+    gap: 0.35,
     role: "timeline-step",
     align: "start",
     valign: "top",
@@ -444,8 +504,15 @@ export function kpiGrid(slideId: string, id: string, metrics: Array<{ name?: str
   };
 }
 
-export function sectionBreak(slideId: string, id: string, options: { title: string; subtitle?: string; accent?: string }): DomNode {
+export function sectionBreak(
+  slideId: string,
+  id: string,
+  options: { title: string; subtitle?: string; accent?: string; tone?: "brand" | "neutral" | "inverse" },
+): DomNode {
   const children: DomNode[] = [];
+  // Resolve the rule + eyebrow colors from `tone`. Default = "brand".
+  const tone = options.tone || "brand";
+  const ruleColor = tone === "neutral" ? "divider" : tone === "inverse" ? "text.inverse" : "brand.primary";
   // Always emit a brand-color accent rule above the title so section
   // dividers feel like a real visual break, not just centered text. The
   // rule sits above the eyebrow accent string when both are present.
@@ -453,13 +520,22 @@ export function sectionBreak(slideId: string, id: string, options: { title: stri
     id: `${slideId}.${id}.rule`,
     type: "shape",
     preset: "rect",
-    fill: "brand.primary",
-    line: "brand.primary",
+    fill: ruleColor,
+    line: ruleColor,
     fixedHeight: 0.08,
     fixedWidth: 4.0,
     align: "start",
   });
-  if (options.accent && options.accent.trim()) {
+  // Defensive: agents commonly mistype the `accent` field as a tone token
+  // (e.g. `accent:"brand"`, `"primary"`, `"neutral"`) thinking it sets a
+  // color. The renderer treats the field as a kicker label string, so the
+  // word "brand" would otherwise appear as the eyebrow. (96vi8n log: 5
+  // section-break slides each rendered the literal text "brand".)
+  // Drop tone-keyword values silently — the agent meant a color, not a
+  // string, and there's no useful eyebrow they intended.
+  const accentText = (options.accent || "").trim();
+  const isToneKeyword = /^(brand|primary|secondary|tertiary|neutral|positive|negative|warning|danger|caution|success|error|muted|subtle|info|inverse|tone|color)$/i.test(accentText);
+  if (accentText && !isToneKeyword) {
     // The eyebrow stays brand-colored: it sits ABOVE the bold rule shape
     // which already establishes the brand-color claim. The eyebrow label
     // is short (a kicker word) so it can carry color without legibility
@@ -467,7 +543,7 @@ export function sectionBreak(slideId: string, id: string, options: { title: stri
     // the agent's brand color is muted. Agents who want a vivid eyebrow
     // can pass `color:` on the sectionBreak — but the surface here keeps
     // the safer default.
-    children.push({ id: `${slideId}.${id}.accent`, type: "text", text: options.accent.trim(), style: "label", color: "text.primary", align: "left", minHeight: 0.42, autoFit: "shrink", tracking: "wide" } as DomNode);
+    children.push({ id: `${slideId}.${id}.accent`, type: "text", text: accentText, style: "label", color: "text.primary", align: "left", minHeight: 0.42, autoFit: "shrink", tracking: "wide" } as DomNode);
   }
   children.push({ id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "deck-title", align: "left", color: "text.primary" });
   if (options.subtitle && options.subtitle.trim()) {
@@ -480,6 +556,12 @@ export function sectionBreak(slideId: string, id: string, options: { title: stri
     gap: 0.32,
     role: "section-break",
     area: "content",
+    // valign+justify both centered: section-break content was previously
+    // top-aligned at y=3 leaving 5.5cm empty at the bottom (96vi8n slides
+    // 4/9/13/17/21). justify:"center" centers the stack in the content
+    // rect along its own main axis, valign:"middle" was effectively
+    // unused for vertical stacks and stays for cross-axis alignment.
+    justify: "center",
     valign: "middle",
     align: "start",
     children,
@@ -637,7 +719,13 @@ export function progressBar(slideId: string, id: string, options: { label: strin
   const ratio = Math.max(0, Math.min(1, options.value / max));
   const tone = options.tone || "brand";
   const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const trackToken = "surface.subtle";
   const valueLabel = options.valueLabel || `${Math.round(ratio * 100)}%`;
+  // Same continuous-track + safe value color treatment as bar-list
+  // (96vi8n consolidation): single rounded backing + single rounded
+  // fill (no seam); value uses text.primary so LOW_CONTRAST auto-fix
+  // doesn't rewrite a tone-colored value to a sibling accent and
+  // disconnect the number from its bar.
   return {
     id: `${slideId}.${id}`,
     type: "stack",
@@ -652,7 +740,7 @@ export function progressBar(slideId: string, id: string, options: { label: strin
         gap: 0.3,
         children: [
           { id: `${slideId}.${id}.label`, type: "text", text: options.label, style: "label", align: "left", layoutWeight: 5 },
-          { id: `${slideId}.${id}.value`, type: "text", text: valueLabel, style: "label", color: fillToken, align: "right", layoutWeight: 1 },
+          { id: `${slideId}.${id}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", layoutWeight: 1, bold: true },
         ],
         fixedHeight: 0.5,
       },
@@ -662,9 +750,12 @@ export function progressBar(slideId: string, id: string, options: { label: strin
         direction: "horizontal",
         gap: 0,
         fixedHeight: 0.4,
+        fill: trackToken,
+        cornerRadius: 0.5,
+        padding: 0,
         children: [
           { id: `${slideId}.${id}.fill`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, layoutWeight: Math.max(0.001, ratio) },
-          { id: `${slideId}.${id}.empty`, type: "shape", preset: "roundRect", fill: "surface.subtle", cornerRadius: 0.5, layoutWeight: Math.max(0.001, 1 - ratio) },
+          { id: `${slideId}.${id}.spacer`, type: "spacer", layoutWeight: Math.max(0.001, 1 - ratio) },
         ],
       },
     ],
@@ -745,19 +836,26 @@ export function processFlow(slideId: string, id: string, options: { steps: Array
         // timeline-step to text.primary. The arrow shape between steps
         // still carries brand.primary so the visual claim is preserved.
         { id: `${slideId}.${id}.step${index + 1}.title`, type: "text", text: step.title, style: "card-title", color: "text.primary", align: "center", minHeight: dense || verticalDense ? 0.42 : 0.6, autoFit: "shrink" },
-        ...(step.body && step.body.trim() ? [{ id: `${slideId}.${id}.step${index + 1}.body`, type: "text" as const, text: step.body.trim(), style: "caption", align: "center" as const, valign: "top" as const, minHeight: 0.4, autoFit: "shrink" as const, optional: true }] : []),
+        // 96vi8n slide 20: body minHeight 0.4 → 0.7 fits 2 lines instead
+        // of 1, matching typical step-description sentences. Body still
+        // optional so dense rows can drop it.
+        ...(step.body && step.body.trim() ? [{ id: `${slideId}.${id}.step${index + 1}.body`, type: "text" as const, text: step.body.trim(), style: "caption", align: "center" as const, valign: "top" as const, minHeight: dense || verticalDense ? 0.5 : 0.9, autoFit: "shrink" as const, optional: true }] : []),
       ],
       layoutWeight: 4,
     });
     if (index < options.steps.length - 1) {
+      // 96vi8n slide 20: 0.7×0.5cm chevrons were nearly invisible. Bumped
+      // to 1.1×0.7cm (h-flow) / 0.7×0.55cm (v-flow). Arrow keeps its
+      // brand.primary fill — the agent's chromatic claim is here, not on
+      // the title text (which uses text.primary for contrast safety).
       items.push({
         id: `${slideId}.${id}.arrow${index + 1}`,
         type: "shape",
         preset: arrow,
         fill: "brand.primary",
         line: "brand.primary",
-        fixedWidth: direction === "horizontal" ? (dense ? 0.48 : 0.7) : 0.5,
-        fixedHeight: direction === "horizontal" ? (dense ? 0.36 : 0.5) : (verticalDense ? 0.3 : 0.4),
+        fixedWidth: direction === "horizontal" ? (dense ? 0.7 : 1.1) : (verticalDense ? 0.55 : 0.7),
+        fixedHeight: direction === "horizontal" ? (dense ? 0.5 : 0.7) : (verticalDense ? 0.4 : 0.55),
         layoutWeight: 1,
       });
     }
@@ -850,9 +948,29 @@ export function pricingCard(slideId: string, id: string, options: { plan: string
   };
 }
 
+function parsePercentValue(raw: string): number | null {
+  // Only emit a progress bar when the value is a clean percent in
+  // [0, 100]. Negative or >100% values are likely typos or growth/
+  // delta metrics where a 0..100 ratio bar would be misleading; we
+  // suppress the bar instead of clamping silently. The number text
+  // still renders normally — only the optional progress affordance
+  // is skipped.
+  const m = raw.match(/^\s*(-?\d+(?:\.\d+)?)\s*%\s*$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n)) return null;
+  if (n < 0 || n > 100) return null;
+  return n;
+}
+
 export function heroStat(slideId: string, id: string, options: { value: string; label: string; caption?: string; tone?: "brand" | "positive" | "warning" | "danger" | "neutral" }): DomNode {
   const tone = options.tone || "brand";
   const valueColor = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : tone === "neutral" ? "text.primary" : "brand.primary";
+  // 96vi8n slide 19: a single "66%" big-stat had no visual context for
+  // the percentage. When the value parses as a percent (e.g. "66%",
+  // "66.4%", "66 %"), append a thin progress bar below the label so
+  // readers immediately see "this is 66 out of 100".
+  const percent = parsePercentValue(options.value);
   const inner: DomNode[] = [
     {
       id: `${slideId}.${id}.value`,
@@ -879,6 +997,25 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
       autoFit: "shrink",
     },
   ];
+  if (percent !== null) {
+    const ratio = Math.max(0.001, Math.min(1, percent / 100));
+    inner.push({
+      id: `${slideId}.${id}.progress`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0,
+      fixedHeight: 0.28,
+      fill: "surface.subtle",
+      cornerRadius: 0.5,
+      padding: 0,
+      role: "hero-stat-progress",
+      children: [
+        { id: `${slideId}.${id}.progress.fill`, type: "shape", preset: "roundRect", fill: valueColor, cornerRadius: 0.5, layoutWeight: ratio },
+        { id: `${slideId}.${id}.progress.spacer`, type: "spacer", layoutWeight: Math.max(0.001, 1 - ratio) },
+      ],
+      optional: true,
+    } as DomNode);
+  }
   if (options.caption && options.caption.trim()) {
     inner.push({
       id: `${slideId}.${id}.caption`,
@@ -922,32 +1059,53 @@ export function barList(slideId: string, id: string, options: { items: Array<{ l
     children: sorted.map((item, index) => {
       const ratio = Math.max(0.001, Math.min(1, item.value / max));
       const valueLabel = item.valueLabel || `${item.value}`;
+      // Estimate value-label width: ~0.34cm per CJK glyph, ~0.18cm per
+      // ASCII char, +0.3cm padding. Bounded 1.0..3.6cm — short numeric
+      // values like "100" no longer waste 1.6cm of bar space, while
+      // long strings like "1,234,567" still get adequate room.
+      const valueWidthCm = Math.max(1.0, Math.min(3.6, 0.3 + Array.from(valueLabel).reduce((w, ch) => w + (/[\u4e00-\u9fff]/.test(ch) ? 0.34 : 0.18), 0)));
       return {
         id: `${slideId}.${id}.${index}`,
         type: "stack",
         direction: "vertical",
         gap: 0.1,
         children: [
+          // Label sits on its own row: full-width, left-aligned, no
+          // floating value to compete for attention.
+          { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle", fixedHeight: 0.5, size: "md" },
+          // Bar row: [track | value]. The value is a fixed-width column
+          // *immediately after* the track, so it visually anchors to the
+          // bar's right end zone — no longer floating at the slide's far
+          // right disconnected from the actual fill end (96vi8n slide
+          // 8/16/18). Value uses text.primary so it stays readable on
+          // light surfaces (LOW_CONTRAST auto-fix would otherwise rewrite
+          // a tone-colored value, breaking the bar↔number visual link).
           {
-            id: `${slideId}.${id}.${index}.header`,
+            id: `${slideId}.${id}.${index}.row`,
             type: "stack",
             direction: "horizontal",
-            gap: 0.2,
+            gap: 0.4,
             fixedHeight: 0.5,
+            valign: "middle",
             children: [
-              { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle", layoutWeight: 5, size: "md" },
-              { id: `${slideId}.${id}.${index}.value`, type: "text", text: valueLabel, style: "label", color: fillToken, align: "right", valign: "middle", layoutWeight: 1, size: "md" },
-            ],
-          },
-          {
-            id: `${slideId}.${id}.${index}.track`,
-            type: "stack",
-            direction: "horizontal",
-            gap: 0,
-            fixedHeight: 0.32,
-            children: [
-              { id: `${slideId}.${id}.${index}.fill`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, layoutWeight: ratio },
-              { id: `${slideId}.${id}.${index}.empty`, type: "shape", preset: "roundRect", fill: trackToken, cornerRadius: 0.5, layoutWeight: 1 - ratio + 0.001 },
+              // Continuous-track progress bar (qtt7dd slide 11): single
+              // rounded backing + single rounded fill inside; no seam.
+              {
+                id: `${slideId}.${id}.${index}.track`,
+                type: "stack",
+                direction: "horizontal",
+                gap: 0,
+                fixedHeight: 0.32,
+                fill: trackToken,
+                cornerRadius: 0.5,
+                padding: 0,
+                layoutWeight: 1,
+                children: [
+                  { id: `${slideId}.${id}.${index}.fill`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, layoutWeight: Math.max(0.001, ratio) },
+                  { id: `${slideId}.${id}.${index}.spacer`, type: "spacer", layoutWeight: Math.max(0.001, 1 - ratio) },
+                ],
+              },
+              { id: `${slideId}.${id}.${index}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", valign: "middle", fixedWidth: valueWidthCm, size: "md", bold: true },
             ],
           },
         ],
@@ -1047,25 +1205,42 @@ export function numberedGrid(
       direction: "vertical",
       gap: dense ? 0.14 : 0.25,
       role: "numbered-step",
+      // 96vi8n slide 23: chip was visually centered above a left-aligned
+      // title because the chip's own align:"center" (text-internal) was
+      // also being read as the cross-axis positional alignment. Wrap
+      // the chip in a left-anchored horizontal stack so the chip box
+      // sits at cell-x and the digit inside the chip stays centered.
+      align: "start" as const,
       children: [
         chipStyle
           ? {
-              id: `${slideId}.${id}.${index}.num`,
-              type: "text" as const,
-              text: String(index + 1),
-              // 761q1u: dense (5+ items) shrinks chip to 0.7cm so body has
-              // headroom in tight 2-col layouts where each row is only
-              // ~2cm tall after gaps. Non-dense stays 1.15cm for visual
-              // weight on hero-style 3-up layouts.
-              style: dense ? "label" : "card-title",
-              weight: "bold" as const,
-              color: "text.inverse",
-              fill: accentColor,
-              align: "center" as const,
-              valign: "middle" as const,
-              cornerRadius: 0.5,
-              fixedWidth: dense ? 0.7 : 1.15,
-              fixedHeight: dense ? 0.7 : 1.15,
+              id: `${slideId}.${id}.${index}.num.wrap`,
+              type: "stack" as const,
+              direction: "horizontal" as const,
+              gap: 0,
+              align: "start" as const,
+              valign: "top" as const,
+              children: [
+                {
+                  id: `${slideId}.${id}.${index}.num`,
+                  type: "text" as const,
+                  text: String(index + 1),
+                  // 761q1u: dense (5+ items) shrinks chip to 0.7cm so body has
+                  // headroom in tight 2-col layouts where each row is only
+                  // ~2cm tall after gaps. Non-dense stays 1.15cm for visual
+                  // weight on hero-style 3-up layouts.
+                  style: dense ? "label" : "card-title",
+                  weight: "bold" as const,
+                  color: "text.inverse",
+                  fill: accentColor,
+                  align: "center" as const,
+                  valign: "middle" as const,
+                  cornerRadius: 0.5,
+                  fixedWidth: dense ? 0.7 : 1.15,
+                  fixedHeight: dense ? 0.7 : 1.15,
+                },
+                { id: `${slideId}.${id}.${index}.num.flex`, type: "spacer" as const, layoutWeight: 1 },
+              ],
             }
           : {
               id: `${slideId}.${id}.${index}.num`,
@@ -1094,15 +1269,21 @@ export function numberedGrid(
   } as DomNode, options);
 }
 
-export function statStrip(slideId: string, id: string, options: { items: Array<{ value: string; label: string }>; tone?: "brand" | "positive" | "neutral" }): DomNode {
-  const tone = options.tone || "brand";
-  const valueColor = tone === "positive" ? "success" : tone === "neutral" ? "text.primary" : "brand.primary";
+export function statStrip(slideId: string, id: string, options: { items: Array<{ value: string; label: string; tone?: StatStripTone }>; tone?: StatStripTone }): DomNode {
+  const stripTone: StatStripTone = options.tone || "brand";
   // Inline KPI row — no card chrome, just bold values + small labels separated
   // by thin vertical accent rules. Reads as a tighter alternative to kpi-grid
   // for the "headline numbers in one row" pattern (OOXML / consulting-deck
   // common shape).
+  //
+  // Per-item tone wins over the strip default — agents commonly mix
+  // "78% positive / 65% warning / 43% danger" across one row to encode
+  // a story arc, and silently coercing all three to brand.primary kills
+  // that signal. (Bug seen in the bg.kpi log, May 2026.)
   const items: DomNode[] = [];
   options.items.forEach((item, index) => {
+    const itemTone: StatStripTone = item.tone || stripTone;
+    const valueColor = statStripToneColor(itemTone);
     if (index > 0) {
       items.push({
         id: `${slideId}.${id}.sep${index}`,
@@ -1138,6 +1319,19 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
     valign: "middle",
     children: items,
   };
+}
+
+export type StatStripTone = "brand" | "positive" | "neutral" | "warning" | "danger";
+
+function statStripToneColor(tone: StatStripTone): string {
+  switch (tone) {
+    case "positive": return "success";
+    case "warning":  return "warning";
+    case "danger":   return "danger";
+    case "neutral":  return "text.primary";
+    case "brand":
+    default:         return "brand.primary";
+  }
 }
 
 export function legend(slideId: string, id: string, options: { items: Array<{ label: string; color: string }>; direction?: "horizontal" | "vertical"; marker?: "dot" | "square" | "bar" }): DomNode {
@@ -1570,29 +1764,46 @@ export function quizCard(
  *   { id, type:"takeaway-list",
  *     items:[{ headline, detail?, tone? }, ...] }
  */
+export type TakeawayTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+
 export function takeawayList(
   slideId: string,
   id: string,
-  options: { items: Array<{ headline: string; detail?: string; tone?: "brand" | "positive" | "warning" | "danger" }>; tone?: "brand" | "positive" | "warning" | "danger" } & { surface?: AgentSurface } & AgentSurface,
+  options: { items: Array<{ headline: string; detail?: string; tone?: TakeawayTone }>; tone?: TakeawayTone } & { surface?: AgentSurface } & AgentSurface,
 ): DomNode {
-  const baseTone = options.tone || "brand";
+  const baseTone: TakeawayTone = options.tone || "brand";
   const items = (options.items || []).slice(0, 6);
   // Density adapts gap + accent thickness to item count so 5 takeaways
   // still fit in a typical 8cm content area.
   const dense = items.length >= 4;
   const itemNodes: DomNode[] = items.map((item, idx) => {
-    const tone = item.tone || baseTone;
-    const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+    const tone: TakeawayTone = item.tone || baseTone;
+    // Neutral lets the agent de-emphasize a less-load-bearing takeaway
+    // alongside chromatic ones (e.g. "三个核心 finding + 一个 caveat" —
+    // the caveat shouldn't compete with green/orange/brand). Maps to a
+    // muted divider gray, not silently coerced to brand. (qyectb log,
+    // slide 13: tone='neutral' was rendering as brand.primary.)
+    const accent =
+      tone === "brand" ? "brand.primary" :
+      tone === "positive" ? "success" :
+      tone === "warning" ? "warning" :
+      tone === "danger" ? "danger" :
+      tone === "neutral" ? "divider" :
+      "brand.primary";
     const children: DomNode[] = [
       // Accent bar uses fixedWidth only — its height is decided by the
       // row's allocated cross-axis. Setting fixedHeight made every row
       // demand at least that much, blocking dense (5+) layouts.
+      // 96vi8n slides 2/22: dense=0.14cm read as a hairline at slide
+      // distance. Both modes bumped to 0.18cm — visible without
+      // dominating, and dense rows can absorb the extra 0.04cm with
+      // no FALLBACK_FAILED.
       {
         id: `${slideId}.${id}.${idx}.bar`,
         type: "shape",
         preset: "rect",
         fill: accent,
-        fixedWidth: dense ? 0.14 : 0.18,
+        fixedWidth: 0.18,
         align: "start",
       },
       {
@@ -1695,18 +1906,31 @@ export function outline(
     const rowChildren: DomNode[] = [];
     if (anyNumbered) {
       // Reserve the number column on every row (even blank ones) so
-      // titles stay aligned across items.
+      // titles stay aligned across items. 96vi8n slide 3: without a
+      // height cap the number text inherited the row's full ~1.7cm and
+      // the digits looked vertically stretched. We wrap the number in a
+      // valign:"top" container with bounded fixedHeight so the digit
+      // stays a label, not a metric, regardless of row height.
       rowChildren.push({
-        id: `${slideId}.${id}.${idx}.num`,
-        type: "text",
-        text: numberText,
-        style: veryCompact ? "label" : "metric-label",
-        weight: "bold",
-        color: numberColor,
-        align: "left",
+        id: `${slideId}.${id}.${idx}.num.wrap`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0,
         valign: "top",
+        align: "start",
         fixedWidth: veryCompact ? 0.8 : compact ? 1.0 : 1.4,
-        autoFit: "shrink",
+        children: [{
+          id: `${slideId}.${id}.${idx}.num`,
+          type: "text",
+          text: numberText,
+          style: veryCompact ? "label" : "metric-label",
+          weight: "bold",
+          color: numberColor,
+          align: "left",
+          valign: "top",
+          fixedHeight: veryCompact ? 0.6 : compact ? 0.8 : 1.0,
+          autoFit: "shrink",
+        }],
       });
     }
     const titleStack: DomNode = {
@@ -2078,6 +2302,1235 @@ export function comparisonTable(
     gap: 0.04,
     role: "comparison-table",
     children: [...headerRow, ...featureRows],
+  } as DomNode, options);
+}
+
+/* ============================================================
+   DATA-EXPRESSION COMPONENTS
+   ============================================================ */
+
+/**
+ * scorecard — status-coded metric grid. Each item has value + label +
+ * status (good/warning/danger/neutral) + optional delta. Use for
+ * dashboards, project status, quarterly reviews. Different from
+ * metric-card / kpi-grid (which have no health/status semantics) and
+ * stat-strip (no per-item color coding).
+ */
+export function scorecard(
+  slideId: string,
+  id: string,
+  options: {
+    items: Array<{
+      label: string;
+      value: string;
+      status?: "good" | "warning" | "danger" | "neutral";
+      delta?: string;
+      trend?: "up" | "down" | "flat";
+    }>;
+    columns?: number;
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const items = (options.items || []).slice(0, 8);
+  const cols = options.columns && options.columns > 0 ? options.columns : Math.min(4, Math.max(2, items.length));
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: cols,
+    gap: 0.4,
+    role: "scorecard",
+    children: items.map((item, idx) => {
+      const status = item.status || "neutral";
+      const accent = status === "good" ? "success" : status === "warning" ? "warning" : status === "danger" ? "danger" : "text.muted";
+      const valueColor = status === "good" ? "success" : status === "warning" ? "warning" : status === "danger" ? "danger" : "text.primary";
+      const deltaColor = item.trend === "up" ? "success" : item.trend === "down" ? "danger" : "text.muted";
+      return {
+        id: `${slideId}.${id}.${idx}`,
+        type: "card",
+        role: "scorecard-item",
+        accent: "left",
+        accentColor: accent,
+        padding: 0.4,
+        elevation: "raised",
+        children: [{
+          id: `${slideId}.${id}.${idx}.stack`,
+          type: "stack",
+          direction: "vertical",
+          gap: 0.12,
+          children: [
+            { id: `${slideId}.${id}.${idx}.label`, type: "text", text: item.label, style: "metric-label", color: "text.muted", align: "left", minHeight: 0.4, autoFit: "shrink" },
+            { id: `${slideId}.${id}.${idx}.value`, type: "text", text: item.value, style: "metric-value", color: valueColor, align: "left", autoFit: "shrink", minHeight: 0.85 },
+            ...(item.delta && item.delta.trim() ? [{
+              id: `${slideId}.${id}.${idx}.delta`,
+              type: "text" as const,
+              text: (item.trend === "up" ? "▲ " : item.trend === "down" ? "▼ " : "") + item.delta.trim(),
+              style: "label",
+              color: deltaColor,
+              align: "left" as const,
+              minHeight: 0.32,
+              autoFit: "shrink" as const,
+              optional: true,
+            }] : []),
+          ],
+        }],
+      } as unknown as DomNode;
+    }),
+  } as DomNode, options);
+}
+
+/**
+ * funnel — conversion funnel, sales pipeline, traffic stages. Each
+ * stage is a chevron whose width reflects relative magnitude. Drop %
+ * vs the previous stage is shown to the right.
+ */
+export function funnel(
+  slideId: string,
+  id: string,
+  options: {
+    stages: Array<{ label: string; value: number; valueLabel?: string; tone?: "brand" | "positive" | "warning" | "danger" }>;
+    showDrop?: boolean;
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const stages = (options.stages || []).slice(0, 6);
+  const max = stages.reduce((m, s) => Math.max(m, s.value || 0), 1);
+  const showDrop = options.showDrop !== false;
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.15,
+    role: "funnel",
+    children: stages.map((stage, idx) => {
+      const ratio = max > 0 ? Math.max(0.18, (stage.value || 0) / max) : 0.18;
+      const tone = stage.tone || "brand";
+      const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+      const drop = showDrop && idx > 0 && stages[idx - 1]!.value
+        ? `${Math.round(((stages[idx - 1]!.value - stage.value) / stages[idx - 1]!.value) * 100)}% drop`
+        : "";
+      const valueLabel = stage.valueLabel || String(stage.value);
+      return {
+        id: `${slideId}.${id}.${idx}`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0.4,
+        align: "start",
+        valign: "middle",
+        role: "funnel-stage",
+        children: [
+          {
+            id: `${slideId}.${id}.${idx}.bar`,
+            type: "stack",
+            direction: "horizontal",
+            gap: 0,
+            align: "start",
+            valign: "middle",
+            layoutWeight: 4,
+            children: [
+              {
+                id: `${slideId}.${id}.${idx}.fill`,
+                type: "shape",
+                preset: "chevron",
+                fill: fillToken,
+                line: fillToken,
+                fixedHeight: 0.85,
+                layoutWeight: Math.max(1, Math.round(ratio * 100)),
+              },
+              {
+                id: `${slideId}.${id}.${idx}.empty`,
+                type: "spacer",
+                layoutWeight: Math.max(1, Math.round((1 - ratio) * 100)),
+              },
+            ],
+          },
+          {
+            id: `${slideId}.${id}.${idx}.text`,
+            type: "stack",
+            direction: "vertical",
+            gap: 0.04,
+            valign: "middle",
+            layoutWeight: 2,
+            children: [
+              { id: `${slideId}.${id}.${idx}.label`, type: "text", text: stage.label, style: "card-title", color: "text.primary", align: "left", minHeight: 0.45, autoFit: "shrink" },
+              { id: `${slideId}.${id}.${idx}.value`, type: "text", text: drop ? `${valueLabel} · ${drop}` : valueLabel, style: "caption", color: "text.muted", align: "left", minHeight: 0.32, autoFit: "shrink", optional: true },
+            ],
+          },
+        ],
+      };
+    }),
+  } as DomNode, options);
+}
+
+/**
+ * gauge — single-value progress dial. Renders as a horizontal track
+ * with threshold zones (color-banded background + value indicator).
+ * For agent-friendly gauge semantics without OOXML arc complexity.
+ */
+export function gauge(
+  slideId: string,
+  id: string,
+  options: {
+    value: number;
+    max?: number;
+    label: string;
+    unit?: string;
+    thresholds?: Array<{ upTo: number; tone: "danger" | "warning" | "positive" | "brand"; label?: string }>;
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const max = options.max && options.max > 0 ? options.max : 100;
+  const value = Math.max(0, Math.min(max, options.value || 0));
+  const ratio = value / max;
+  const thresholds = options.thresholds && options.thresholds.length > 0
+    ? options.thresholds.slice().sort((a, b) => a.upTo - b.upTo)
+    : [{ upTo: max, tone: "brand" as const }];
+  // Find which threshold the current value falls into → that's the value color.
+  const activeThreshold = thresholds.find((t) => value <= t.upTo) || thresholds[thresholds.length - 1]!;
+  const valueTone = activeThreshold.tone;
+  const valueColor = valueTone === "danger" ? "danger" : valueTone === "warning" ? "warning" : valueTone === "positive" ? "success" : "brand.primary";
+  // Build the threshold-banded track: each threshold is a colored segment
+  // proportional to its width along the 0..max range. Each band carries an
+  // explicit fixedHeight so the parent horizontal-stack's height is pinned
+  // (relying on the parent's fixedHeight alone wasn't reliable when sibling
+  // children of the gauge container claim leftover layout space).
+  const TRACK_HEIGHT = 0.45;
+  let prevUpTo = 0;
+  const trackChildren: DomNode[] = thresholds.map((t, idx) => {
+    const widthRatio = Math.max(0.001, (t.upTo - prevUpTo) / max);
+    const tToken = t.tone === "danger" ? "danger.tint" : t.tone === "warning" ? "warning.tint" : t.tone === "positive" ? "success.tint" : "brand.tint";
+    prevUpTo = t.upTo;
+    return {
+      id: `${slideId}.${id}.t${idx}`,
+      type: "shape",
+      preset: "rect",
+      fill: tToken,
+      layoutWeight: Math.max(1, Math.round(widthRatio * 100)),
+      fixedHeight: TRACK_HEIGHT,
+    };
+  });
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.2,
+    role: "gauge",
+    children: [
+      {
+        id: `${slideId}.${id}.value`,
+        type: "text",
+        text: `${value}${options.unit || ""}`,
+        style: "metric-value",
+        color: valueColor,
+        align: "center",
+        autoFit: "shrink",
+        fixedHeight: 1.4,
+      },
+      {
+        id: `${slideId}.${id}.label`,
+        type: "text",
+        text: options.label,
+        style: "metric-label",
+        color: "text.muted",
+        align: "center",
+        autoFit: "shrink",
+        fixedHeight: 0.5,
+      },
+      {
+        id: `${slideId}.${id}.track`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0.04,
+        fixedHeight: TRACK_HEIGHT,
+        children: trackChildren,
+      },
+      // Pointer / marker showing where the value falls on the track. The
+      // triangle is positioned via flanking spacers whose layoutWeights sum
+      // to 100. Integer weights are honored more precisely than fractional
+      // values by the layout solver.
+      {
+        id: `${slideId}.${id}.pointer-row`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0,
+        fixedHeight: 0.4,
+        children: [
+          // No fixedHeight on the spacers — they need to be pure flex for
+          // layoutWeight to act as the sole sizing signal. With fixedHeight,
+          // the layout solver was capping the weight contribution.
+          { id: `${slideId}.${id}.pointer.l`, type: "spacer", layoutWeight: Math.max(1, Math.round(ratio * 100)) },
+          { id: `${slideId}.${id}.pointer.tick`, type: "shape", preset: "triangle", fill: valueColor, line: valueColor, fixedWidth: 0.4, fixedHeight: 0.4 },
+          { id: `${slideId}.${id}.pointer.r`, type: "spacer", layoutWeight: Math.max(1, Math.round((1 - ratio) * 100)) },
+        ],
+      },
+    ],
+  } as DomNode, options);
+}
+
+/**
+ * heatmap — NxM grid of cells colored by value. Linear interpolation
+ * on a color scale. Use for time × category, A/B matrices, activity
+ * patterns. Not suitable for >12×12 (cells become unreadable).
+ */
+export function heatmap(
+  slideId: string,
+  id: string,
+  options: {
+    xLabels: string[];
+    yLabels: string[];
+    values: number[][]; // [row][col] = values[y][x]
+    palette?: "warm" | "cool" | "diverging";
+    showValues?: boolean;
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const xLabels = (options.xLabels || []).slice(0, 12);
+  const yLabels = (options.yLabels || []).slice(0, 12);
+  const palette = options.palette === "warm" ? "warm" : options.palette === "diverging" ? "diverging" : "cool";
+  const values = options.values || [];
+  const flat = values.flat().filter((v) => typeof v === "number");
+  const min = flat.length ? Math.min(...flat) : 0;
+  const max = flat.length ? Math.max(...flat) : 1;
+  const range = max - min || 1;
+  const showValues = options.showValues !== false && xLabels.length <= 8 && yLabels.length <= 8;
+  // Header row: empty corner + xLabels
+  const cellGap = 0.04;
+  const headerRow: DomNode[] = [
+    { id: `${slideId}.${id}.h0`, type: "spacer", fixedHeight: 0.45 },
+    ...xLabels.map((lbl, x) => ({
+      id: `${slideId}.${id}.hx${x}`,
+      type: "text" as const,
+      text: lbl,
+      style: "label",
+      color: "text.muted",
+      align: "center" as const,
+      valign: "middle" as const,
+      autoFit: "shrink" as const,
+      minHeight: 0.4,
+    })),
+  ];
+  const dataRows: DomNode[] = [];
+  for (let y = 0; y < yLabels.length; y++) {
+    dataRows.push({
+      id: `${slideId}.${id}.r${y}.lbl`,
+      type: "text",
+      text: yLabels[y]!,
+      style: "label",
+      color: "text.muted",
+      align: "right",
+      valign: "middle",
+      autoFit: "shrink",
+      minHeight: 0.4,
+    });
+    for (let x = 0; x < xLabels.length; x++) {
+      const v = values[y]?.[x] ?? 0;
+      const t = (v - min) / range;
+      const fill = heatmapColor(palette, t);
+      dataRows.push(showValues ? {
+        id: `${slideId}.${id}.c${y}.${x}`,
+        type: "text",
+        text: String(v),
+        style: "caption",
+        color: t > 0.6 ? "text.inverse" : "text.primary",
+        fill,
+        align: "center",
+        valign: "middle",
+        cornerRadius: 0.05,
+        minHeight: 0.5,
+        autoFit: "shrink",
+      } : {
+        id: `${slideId}.${id}.c${y}.${x}`,
+        type: "shape",
+        preset: "rect",
+        fill,
+        line: fill,
+        cornerRadius: 0.05,
+      });
+    }
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: xLabels.length + 1,
+    gap: cellGap,
+    role: "heatmap",
+    children: [...headerRow, ...dataRows],
+  } as DomNode, options);
+}
+
+function heatmapColor(palette: "warm" | "cool" | "diverging", t: number): string {
+  // t ∈ [0..1]. Returns 6-char hex.
+  t = Math.max(0, Math.min(1, t));
+  const lerp = (a: number, b: number) => Math.round(a + (b - a) * t);
+  const hex = (r: number, g: number, b: number) => [r, g, b].map((n) => n.toString(16).padStart(2, "0").toUpperCase()).join("");
+  if (palette === "warm") {
+    // pale yellow → orange → red
+    return hex(lerp(255, 178), lerp(247, 24), lerp(220, 43));
+  }
+  if (palette === "diverging") {
+    // blue → white → red
+    if (t < 0.5) {
+      const u = t * 2;
+      const lerp2 = (a: number, b: number) => Math.round(a + (b - a) * u);
+      return hex(lerp2(33, 247), lerp2(102, 247), lerp2(172, 247));
+    }
+    const u = (t - 0.5) * 2;
+    const lerp2 = (a: number, b: number) => Math.round(a + (b - a) * u);
+    return hex(lerp2(247, 178), lerp2(247, 24), lerp2(247, 43));
+  }
+  // cool (default): pale cyan → deep blue
+  return hex(lerp(247, 33), lerp(252, 102), lerp(253, 172));
+}
+
+/**
+ * matrix-2x2 — 2×2 quadrant matrix with labeled axes and item bubbles
+ * placed in quadrants. Use for risk-matrix (impact×probability),
+ * priority (effort×value), Boston matrix, etc. Different from
+ * swot-matrix which is fixed S/W/O/T semantics.
+ */
+export function matrix2x2(
+  slideId: string,
+  id: string,
+  options: {
+    xAxis: { low: string; high: string };
+    yAxis: { low: string; high: string };
+    items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: "brand" | "positive" | "warning" | "danger" }>;
+    quadrantLabels?: { tl?: string; tr?: string; bl?: string; br?: string };
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const items = options.items || [];
+  // Group items by quadrant — stack item labels inside each quadrant.
+  const quadrants: Record<"tl" | "tr" | "bl" | "br", Array<{ label: string; tone: string }>> = { tl: [], tr: [], bl: [], br: [] };
+  for (const it of items) {
+    const key = `${it.y === "high" ? "t" : "b"}${it.x === "low" ? "l" : "r"}` as "tl" | "tr" | "bl" | "br";
+    const tone = it.tone || "brand";
+    quadrants[key]!.push({ label: it.label, tone });
+  }
+  const renderQuadrant = (key: "tl" | "tr" | "bl" | "br", qLabel?: string): DomNode => ({
+    id: `${slideId}.${id}.${key}`,
+    type: "card",
+    fill: "surface.subtle",
+    line: "divider",
+    padding: 0.35,
+    elevation: "flat",
+    children: [{
+      id: `${slideId}.${id}.${key}.stack`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.15,
+      children: [
+        ...(qLabel ? [{
+          id: `${slideId}.${id}.${key}.qlabel`,
+          type: "text" as const,
+          text: qLabel,
+          style: "label",
+          color: "text.muted",
+          tracking: "wide" as const,
+          align: "left" as const,
+          minHeight: 0.32,
+          autoFit: "shrink" as const,
+        }] : []),
+        ...quadrants[key]!.map((it, idx) => {
+          const tone = it.tone;
+          const fill = tone === "positive" ? "success.tint" : tone === "warning" ? "warning.tint" : tone === "danger" ? "danger.tint" : "brand.tint";
+          const color = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "brand.primary";
+          return {
+            id: `${slideId}.${id}.${key}.${idx}`,
+            type: "text" as const,
+            text: it.label,
+            style: "label",
+            weight: "semibold" as const,
+            color,
+            fill,
+            align: "left" as const,
+            cornerRadius: 0.08,
+            minHeight: 0.45,
+            autoFit: "shrink" as const,
+          };
+        }),
+      ],
+    }],
+  } as unknown as DomNode);
+  // 3×3 grid: top has y-high label + tl + tr cells (skip first), middle row
+  // has yLow/yHigh axis label, then quadrants + xAxis labels at bottom.
+  // Simpler: 2×2 grid of quadrants with axis labels stacked above and
+  // beside.
+  const ql = options.quadrantLabels || {};
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.18,
+    role: "matrix-2x2",
+    children: [
+      // y-axis high label (top)
+      { id: `${slideId}.${id}.yhi`, type: "text", text: options.yAxis.high, style: "label", color: "text.muted", align: "center", tracking: "wide", minHeight: 0.32, autoFit: "shrink" },
+      // 2×2 grid
+      {
+        id: `${slideId}.${id}.grid`,
+        type: "grid",
+        columns: 2,
+        gap: 0.25,
+        layoutWeight: 1,
+        children: [
+          renderQuadrant("tl", ql.tl),
+          renderQuadrant("tr", ql.tr),
+          renderQuadrant("bl", ql.bl),
+          renderQuadrant("br", ql.br),
+        ],
+      },
+      // y-axis low label (bottom)
+      { id: `${slideId}.${id}.ylo`, type: "text", text: options.yAxis.low, style: "label", color: "text.muted", align: "center", tracking: "wide", minHeight: 0.32, autoFit: "shrink" },
+      // x-axis labels row
+      {
+        id: `${slideId}.${id}.x-axis`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0.4,
+        children: [
+          { id: `${slideId}.${id}.xlo`, type: "text", text: options.xAxis.low, style: "label", color: "text.muted", align: "left", tracking: "wide", layoutWeight: 1, minHeight: 0.32, autoFit: "shrink" },
+          { id: `${slideId}.${id}.xhi`, type: "text", text: options.xAxis.high, style: "label", color: "text.muted", align: "right", tracking: "wide", layoutWeight: 1, minHeight: 0.32, autoFit: "shrink" },
+        ],
+      },
+    ],
+  } as DomNode, options);
+}
+
+/**
+ * trend-line — minimal sparkline visualization. A horizontal sequence
+ * of bars whose height reflects the values, used as decoration next
+ * to a metric or beneath a heading.
+ */
+export function trendLine(
+  slideId: string,
+  id: string,
+  options: {
+    values: number[];
+    tone?: "brand" | "positive" | "warning" | "danger";
+    height?: number;
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const values = (options.values || []).slice(0, 24);
+  const max = values.length ? Math.max(...values) : 1;
+  const min = values.length ? Math.min(...values) : 0;
+  const range = max - min || 1;
+  const tone = options.tone || "brand";
+  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const height = typeof options.height === "number" && options.height > 0 ? options.height : 1.0;
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: 0.05,
+    role: "trend-line",
+    fixedHeight: height,
+    align: "stretch",
+    valign: "bottom",
+    children: values.map((v, idx) => {
+      const ratio = Math.max(0.05, (v - min) / range);
+      return {
+        id: `${slideId}.${id}.${idx}`,
+        type: "shape",
+        preset: "rect",
+        fill: fillToken,
+        line: fillToken,
+        layoutWeight: 1,
+        fixedHeight: Math.max(0.1, height * ratio),
+      };
+    }),
+  } as DomNode, options);
+}
+
+/**
+ * stat-flow — horizontal sequence of stat blocks connected by
+ * operator/connector text. Use for unit-economics derivation, formula
+ * walkthroughs, KPI cause-effect chains.
+ */
+export function statFlow(
+  slideId: string,
+  id: string,
+  options: {
+    steps: Array<
+      | { value: string; label: string; tone?: "brand" | "positive" | "warning" | "danger" | "neutral" }
+      | { connector: string }
+    >;
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const steps = (options.steps || []).slice(0, 10);
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: 0.3,
+    role: "stat-flow",
+    align: "center",
+    valign: "middle",
+    children: steps.map((step, idx) => {
+      if ("connector" in step) {
+        return {
+          id: `${slideId}.${id}.${idx}.connector`,
+          type: "text",
+          text: step.connector,
+          style: "card-title",
+          color: "text.muted",
+          align: "center",
+          valign: "middle",
+          fixedWidth: Math.max(1.2, step.connector.length * 0.4),
+          autoFit: "shrink",
+        };
+      }
+      const tone = step.tone || "neutral";
+      const valueColor = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : tone === "brand" ? "brand.primary" : "text.primary";
+      return {
+        id: `${slideId}.${id}.${idx}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.08,
+        align: "center",
+        valign: "middle",
+        layoutWeight: 1,
+        children: [
+          { id: `${slideId}.${id}.${idx}.value`, type: "text", text: step.value, style: "metric-value", color: valueColor, align: "center", autoFit: "shrink", minHeight: 0.85 },
+          { id: `${slideId}.${id}.${idx}.label`, type: "text", text: step.label, style: "metric-label", color: "text.muted", align: "center", minHeight: 0.32, autoFit: "shrink", optional: true },
+        ],
+      };
+    }),
+  } as DomNode, options);
+}
+
+/**
+ * donut-summary — primary share + remainder legend. Use for "X% from Y"
+ * stories where one slice dominates and 2-4 minor slices form a
+ * legend. Different from chart-card pie which renders all slices
+ * equally.
+ */
+export function donutSummary(
+  slideId: string,
+  id: string,
+  options: {
+    primary: { label: string; value: number };
+    others?: Array<{ label: string; value: number }>;
+    unit?: string;
+    tone?: "brand" | "positive" | "warning" | "danger";
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const primary = options.primary;
+  const others = (options.others || []).slice(0, 5);
+  const unit = options.unit || "";
+  const tone = options.tone || "brand";
+  const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const allValues = [primary.value, ...others.map((o) => o.value)];
+  const total = allValues.reduce((a, b) => a + b, 0) || 1;
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: 2,
+    gap: 0.5,
+    role: "donut-summary",
+    children: [
+      // Left: ring with center number
+      {
+        id: `${slideId}.${id}.ring`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.15,
+        align: "center",
+        valign: "middle",
+        children: [
+          { id: `${slideId}.${id}.value`, type: "text", text: `${Math.round((primary.value / total) * 100)}%${unit ? ` ${unit}` : ""}`, style: "hero", color: accent, align: "center", autoFit: "shrink", minHeight: 1.4 },
+          { id: `${slideId}.${id}.label`, type: "text", text: primary.label, style: "card-title", color: "text.primary", align: "center", autoFit: "shrink", minHeight: 0.55 },
+        ],
+      },
+      // Right: legend of primary + others
+      {
+        id: `${slideId}.${id}.legend`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.18,
+        valign: "middle",
+        children: [primary, ...others].map((entry, idx) => {
+          const isPrimary = idx === 0;
+          const dotColor = isPrimary ? accent : ["text.muted", "brand.tint", "warning.tint", "success.tint"][idx % 4];
+          const pct = Math.round((entry.value / total) * 100);
+          return {
+            id: `${slideId}.${id}.legend.${idx}`,
+            type: "stack",
+            direction: "horizontal",
+            gap: 0.25,
+            align: "start",
+            valign: "middle",
+            children: [
+              { id: `${slideId}.${id}.legend.${idx}.dot`, type: "shape", preset: "ellipse", fill: dotColor, line: dotColor, fixedWidth: 0.4, fixedHeight: 0.4 },
+              { id: `${slideId}.${id}.legend.${idx}.label`, type: "text", text: `${entry.label} · ${pct}%`, style: "label", color: "text.primary", align: "left", layoutWeight: 1, valign: "middle", autoFit: "shrink" },
+            ],
+          };
+        }),
+      },
+    ],
+  } as DomNode, options);
+}
+
+/**
+ * range-plot — horizontal range bars showing min..max (and optional
+ * mid-point) per category. Use for salary bands, confidence intervals,
+ * price ranges.
+ */
+export function rangePlot(
+  slideId: string,
+  id: string,
+  options: {
+    items: Array<{ label: string; min: number; max: number; point?: number; unit?: string }>;
+    tone?: "brand" | "positive" | "warning" | "danger";
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const items = (options.items || []).slice(0, 8);
+  const globalMin = items.length ? Math.min(...items.map((i) => i.min)) : 0;
+  const globalMax = items.length ? Math.max(...items.map((i) => i.max)) : 1;
+  const range = globalMax - globalMin || 1;
+  const tone = options.tone || "brand";
+  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.35,
+    role: "range-plot",
+    children: items.map((item, idx) => {
+      const startRatio = (item.min - globalMin) / range;
+      const widthRatio = (item.max - item.min) / range;
+      const beforeRatio = startRatio;
+      const afterRatio = Math.max(0.001, 1 - startRatio - widthRatio);
+      const pointRatio = typeof item.point === "number" ? (item.point - globalMin) / range : -1;
+      return {
+        id: `${slideId}.${id}.${idx}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.08,
+        children: [
+          { id: `${slideId}.${id}.${idx}.label`, type: "text", text: `${item.label}: ${item.min}–${item.max}${item.unit || ""}${typeof item.point === "number" ? ` (mid ${item.point}${item.unit || ""})` : ""}`, style: "label", color: "text.primary", align: "left", minHeight: 0.4, autoFit: "shrink" },
+          {
+            id: `${slideId}.${id}.${idx}.bar`,
+            type: "stack",
+            direction: "horizontal",
+            gap: 0,
+            fixedHeight: 0.3,
+            children: [
+              { id: `${slideId}.${id}.${idx}.b.before`, type: "spacer", layoutWeight: Math.max(1, Math.round(beforeRatio * 100)) },
+              { id: `${slideId}.${id}.${idx}.b.range`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, layoutWeight: Math.max(5, Math.round(widthRatio * 100)), fixedHeight: 0.3 },
+              { id: `${slideId}.${id}.${idx}.b.after`, type: "spacer", layoutWeight: Math.max(1, Math.round(afterRatio * 100)) },
+            ],
+          },
+          ...(pointRatio >= 0 ? [{
+            id: `${slideId}.${id}.${idx}.pointer-row`,
+            type: "stack",
+            direction: "horizontal",
+            gap: 0,
+            fixedHeight: 0.18,
+            children: [
+              { id: `${slideId}.${id}.${idx}.p.l`, type: "spacer", layoutWeight: Math.max(1, Math.round(pointRatio * 100)) },
+              { id: `${slideId}.${id}.${idx}.p.dot`, type: "shape", preset: "ellipse", fill: "text.primary", line: "text.primary", fixedWidth: 0.18, fixedHeight: 0.18 },
+              { id: `${slideId}.${id}.${idx}.p.r`, type: "spacer", layoutWeight: Math.max(1, Math.round((1 - pointRatio) * 100)) },
+            ],
+          }] : []),
+        ],
+      };
+    }),
+  } as DomNode, options);
+}
+
+/* ============================================================
+   DECORATION COMPONENTS
+   ============================================================ */
+
+/**
+ * callout-marker — anchored bubble with text. Floats over slide content
+ * (positioned via anchor). Use to point at a specific region of an
+ * image, chart, or hero element.
+ */
+export function calloutMarker(
+  slideId: string,
+  id: string,
+  options: {
+    text: string;
+    anchor?: "top-left" | "top-center" | "top-right" | "middle-left" | "middle-center" | "middle-right" | "bottom-left" | "bottom-center" | "bottom-right";
+    tone?: "brand" | "positive" | "warning" | "danger" | "neutral";
+    width?: number;
+    height?: number;
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const tone = options.tone || "brand";
+  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "surface";
+  const fgToken = tone === "neutral" ? "text.primary" : "text.inverse";
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "text",
+    text: options.text,
+    style: "label",
+    weight: "bold",
+    color: fgToken,
+    fill: fillToken,
+    align: "center",
+    valign: "middle",
+    cornerRadius: 0.15,
+    role: "callout-marker",
+    anchor: options.anchor || "top-right",
+    width: options.width || 4,
+    height: options.height || 1.2,
+  } as unknown as DomNode, options);
+}
+
+/**
+ * decoration-grid — geometric pattern background (dots, diagonals,
+ * grid lines). Use as cover slide texture or section-break decoration.
+ */
+export function decorationGrid(
+  slideId: string,
+  id: string,
+  options: {
+    pattern?: "dots" | "diagonal-lines" | "grid";
+    density?: "sparse" | "normal" | "dense";
+    tone?: "muted" | "brand";
+    rows?: number;
+    columns?: number;
+    /** When true (default), the grid is rendered as a slide-anchored
+     *  background overlay (zIndex < 0) that sits behind content rather
+     *  than competing for content space. Pass false to embed inline. */
+    asBackground?: boolean;
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const pattern = options.pattern === "diagonal-lines" || options.pattern === "grid" ? options.pattern : "dots";
+  const density = options.density === "sparse" ? "sparse" : options.density === "dense" ? "dense" : "normal";
+  const rows = options.rows && options.rows > 0 ? options.rows : (density === "sparse" ? 5 : density === "dense" ? 12 : 8);
+  const cols = options.columns && options.columns > 0 ? options.columns : (density === "sparse" ? 8 : density === "dense" ? 18 : 12);
+  const tone = options.tone === "brand" ? "brand.primary" : "text.muted";
+  // 96vi8n cover regression: 0.18cm dots at sparse 4×6 looked like a
+  // printer test pattern. Bumped default sizes (dots 0.30cm, grid 0.16cm)
+  // and added asBackground:true so the grid no longer occupies content
+  // flow on covers — it sits as an overlay behind title text.
+  const dotSize = pattern === "dots" ? 0.30 : pattern === "diagonal-lines" ? 0.06 : 0.16;
+  const dotPreset: "ellipse" | "line" | "rect" = pattern === "dots" ? "ellipse" : pattern === "diagonal-lines" ? "line" : "rect";
+  const cells: DomNode[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      cells.push({
+        id: `${slideId}.${id}.${r}.${c}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0,
+        align: "center",
+        valign: "middle",
+        children: [{
+          id: `${slideId}.${id}.${r}.${c}.dot`,
+          type: "shape",
+          preset: dotPreset,
+          fill: tone,
+          line: tone,
+          fixedWidth: pattern === "diagonal-lines" ? 0.6 : dotSize,
+          fixedHeight: pattern === "diagonal-lines" ? 0.04 : dotSize,
+        }],
+      });
+    }
+  }
+  const grid: DomNode = {
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: cols,
+    gap: density === "sparse" ? 0.5 : density === "dense" ? 0.2 : 0.32,
+    role: "decoration-grid",
+    children: cells,
+  };
+  // Default to background overlay so the decoration doesn't eat content
+  // space. Agents can opt out with asBackground:false to embed inline
+  // (e.g. as a designed band between content blocks). The fillSlide
+  // sentinel lets the renderer expand the overlay to the actual canvas
+  // dimensions (16:9, 4:3, or wide), instead of hardcoded 25.4×14.29.
+  const isBackground = options.asBackground !== false;
+  if (isBackground) {
+    grid.anchor = "top-left";
+    grid.offsetX = 0;
+    grid.offsetY = 0;
+    grid.fillSlide = true;
+    grid.zIndex = -1;
+  }
+  return applyAgentSurface(grid, options);
+}
+
+/**
+ * corner-mark — small ribbon/stamp/tag in a slide corner. Use for
+ * draft markers, version labels, status badges that should not
+ * compete with main content.
+ */
+export function cornerMark(
+  slideId: string,
+  id: string,
+  options: {
+    text: string;
+    corner?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+    tone?: "brand" | "warning" | "danger" | "neutral";
+    style?: "ribbon" | "stamp" | "tag";
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const tone = options.tone || "warning";
+  const fillToken = tone === "brand" ? "brand.primary" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "text.muted";
+  const corner = options.corner || "top-right";
+  const style = options.style || "tag";
+  // Estimate width per char
+  let width = 0.7;
+  for (const ch of options.text) width += /[\u4e00-\u9fff]/.test(ch) ? 0.5 : 0.18;
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "text",
+    text: options.text,
+    style: "label",
+    weight: "bold",
+    uppercase: style !== "ribbon",
+    letterSpacing: 80,
+    color: "text.inverse",
+    fill: fillToken,
+    align: "center",
+    valign: "middle",
+    cornerRadius: style === "ribbon" ? 0 : style === "stamp" ? 0.2 : 0.08,
+    fixedHeight: 0.7,
+    fixedWidth: Math.max(2, Math.min(6, width)),
+    role: "corner-mark",
+    anchor: corner,
+  } as unknown as DomNode, options);
+}
+
+/**
+ * bracket — geometric brace/bracket emphasizing a group of elements.
+ * Renders a thin shape on one side; agents pair it with content via
+ * sibling layout.
+ */
+export function bracket(
+  slideId: string,
+  id: string,
+  options: {
+    direction?: "left" | "right" | "top" | "bottom";
+    label?: string;
+    tone?: "brand" | "positive" | "warning" | "danger";
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const direction = options.direction === "right" || options.direction === "top" || options.direction === "bottom" ? options.direction : "left";
+  const tone = options.tone || "brand";
+  const lineColor = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const isHorizontal = direction === "top" || direction === "bottom";
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: isHorizontal ? "vertical" : "horizontal",
+    gap: 0.25,
+    role: "bracket",
+    align: "center",
+    valign: "middle",
+    children: [
+      {
+        id: `${slideId}.${id}.line`,
+        type: "shape",
+        preset: "rect",
+        fill: lineColor,
+        line: lineColor,
+        cornerRadius: 0.5,
+        ...(isHorizontal ? { fixedHeight: 0.06, fixedWidth: 5 } : { fixedWidth: 0.06, fixedHeight: 5 }),
+      },
+      ...(options.label && options.label.trim() ? [{
+        id: `${slideId}.${id}.label`,
+        type: "text" as const,
+        text: options.label.trim(),
+        style: "label",
+        // The bracket LINE carries the tone; the label stays
+        // text.primary so it always reads on light surfaces. Tone-
+        // colored labels (success/warning/brand on light bg) repeatedly
+        // failed 4.5:1 and got LOW_CONTRAST'd to a sibling accent,
+        // disconnecting the label from the bracket. Same pattern as
+        // bar-list / progressBar value fix.
+        color: "text.primary",
+        align: isHorizontal ? "center" as const : "left" as const,
+        valign: "middle" as const,
+        minHeight: 0.4,
+        autoFit: "shrink" as const,
+      }] : []),
+    ],
+  } as DomNode, options);
+}
+
+/**
+ * arrow-link — single directional connector between two entities.
+ * MVP: inline horizontal arrow with optional label. Cross-element
+ * absolute positioning is not yet supported.
+ */
+export function arrowLink(
+  slideId: string,
+  id: string,
+  options: {
+    fromLabel?: string;
+    toLabel?: string;
+    label?: string;
+    direction?: "right" | "down";
+    tone?: "brand" | "positive" | "warning" | "danger";
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const tone = options.tone || "brand";
+  const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const direction = options.direction === "down" ? "down" : "right";
+  const arrowPreset = direction === "down" ? "arrow-down" : "arrow-right";
+  const children: DomNode[] = [];
+  if (options.fromLabel) {
+    children.push({
+      id: `${slideId}.${id}.from`,
+      type: "text",
+      text: options.fromLabel,
+      style: "card-title",
+      color: "text.primary",
+      align: direction === "right" ? "right" : "center",
+      valign: "middle",
+      autoFit: "shrink",
+      minHeight: 0.5,
+      layoutWeight: 1,
+    });
+  }
+  children.push({
+    id: `${slideId}.${id}.arrow`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.04,
+    align: "center",
+    valign: "middle",
+    children: [
+      ...(options.label ? [{
+        id: `${slideId}.${id}.label`,
+        type: "text" as const,
+        text: options.label,
+        style: "label",
+        color: accent,
+        align: "center" as const,
+        autoFit: "shrink" as const,
+        minHeight: 0.32,
+      }] : []),
+      {
+        id: `${slideId}.${id}.shape`,
+        type: "shape",
+        preset: arrowPreset,
+        fill: accent,
+        line: accent,
+        fixedWidth: direction === "right" ? 2.0 : 0.8,
+        fixedHeight: direction === "right" ? 0.6 : 1.2,
+      },
+    ],
+  });
+  if (options.toLabel) {
+    children.push({
+      id: `${slideId}.${id}.to`,
+      type: "text",
+      text: options.toLabel,
+      style: "card-title",
+      color: "text.primary",
+      align: direction === "right" ? "left" : "center",
+      valign: "middle",
+      autoFit: "shrink",
+      minHeight: 0.5,
+      layoutWeight: 1,
+    });
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: direction === "right" ? "horizontal" : "vertical",
+    gap: 0.3,
+    role: "arrow-link",
+    align: "center",
+    valign: "middle",
+    children,
+  } as DomNode, options);
+}
+
+/**
+ * watermark — large semi-transparent text overlay. Use for DRAFT,
+ * CONFIDENTIAL, sample marks. Anchored to slide center.
+ */
+export function watermark(
+  slideId: string,
+  id: string,
+  options: {
+    text: string;
+    rotation?: number;
+    tone?: "muted" | "danger" | "warning" | "brand";
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const tone = options.tone || "muted";
+  const colorToken = tone === "danger" ? "danger" : tone === "warning" ? "warning" : tone === "brand" ? "brand.primary" : "text.muted";
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "text",
+    text: options.text,
+    style: "hero",
+    weight: "bold",
+    uppercase: true,
+    letterSpacing: 200,
+    color: colorToken,
+    align: "center",
+    valign: "middle",
+    role: "watermark",
+    anchor: "middle-center",
+    width: 18,
+    height: 4,
+    autoFit: "shrink",
+  } as unknown as DomNode, options);
+}
+
+/**
+ * big-page-number — large decorative page number for cover/section
+ * slides. Different from the chrome.pageNumber footer.
+ */
+export function bigPageNumber(
+  slideId: string,
+  id: string,
+  options: {
+    current: number | string;
+    total?: number | string;
+    position?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+    tone?: "brand" | "muted";
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const position = options.position || "top-right";
+  const tone = options.tone || "brand";
+  const colorToken = tone === "brand" ? "brand.primary" : "text.muted";
+  const text = options.total !== undefined && options.total !== null && options.total !== ""
+    ? `${String(options.current).padStart(2, "0")} / ${String(options.total).padStart(2, "0")}`
+    : String(options.current).padStart(2, "0");
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "text",
+    text,
+    style: "hero",
+    weight: "bold",
+    color: colorToken,
+    align: "center",
+    valign: "middle",
+    role: "big-page-number",
+    anchor: position,
+    width: 4.5,
+    height: 1.6,
+    autoFit: "shrink",
+  } as unknown as DomNode, options);
+}
+
+/**
+ * timeline-axis-bar — section navigation bar. Shows N section dots
+ * with current section highlighted; goes at top/bottom of section
+ * break slides to communicate progress through deck.
+ */
+export function timelineAxisBar(
+  slideId: string,
+  id: string,
+  options: {
+    sections: string[];
+    current: number;
+    tone?: "brand" | "neutral";
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const sections = (options.sections || []).slice(0, 8);
+  const current = Math.max(0, Math.min(sections.length - 1, options.current || 0));
+  const tone = options.tone || "brand";
+  const accent = tone === "brand" ? "brand.primary" : "text.primary";
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: 0.3,
+    role: "timeline-axis-bar",
+    align: "stretch",
+    valign: "middle",
+    fixedHeight: 0.85,
+    children: sections.map((label, idx) => {
+      const isActive = idx === current;
+      const isPast = idx < current;
+      const dotColor = isActive ? accent : isPast ? accent : "divider";
+      const labelColor = isActive ? accent : "text.muted";
+      return {
+        id: `${slideId}.${id}.${idx}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.1,
+        align: "center",
+        valign: "middle",
+        layoutWeight: 1,
+        children: [
+          { id: `${slideId}.${id}.${idx}.dot`, type: "shape", preset: "ellipse", fill: dotColor, line: dotColor, fixedWidth: isActive ? 0.4 : 0.25, fixedHeight: isActive ? 0.4 : 0.25 },
+          { id: `${slideId}.${id}.${idx}.lbl`, type: "text", text: label, style: "label", weight: isActive ? "bold" : "normal", color: labelColor, align: "center", autoFit: "shrink", minHeight: 0.32 },
+        ],
+      };
+    }),
+  } as DomNode, options);
+}
+
+/**
+ * scale-bar — horizontal numeric scale with tick marks. Use as
+ * companion to images/charts/diagrams for measurement context.
+ */
+export function scaleBar(
+  slideId: string,
+  id: string,
+  options: {
+    min?: number;
+    max: number;
+    unit?: string;
+    ticks?: number;
+    tone?: "brand" | "neutral";
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const min = options.min || 0;
+  const max = options.max;
+  const tickCount = options.ticks && options.ticks >= 2 ? options.ticks : 5;
+  const tone = options.tone || "neutral";
+  const lineColor = tone === "brand" ? "brand.primary" : "text.muted";
+  const labels: string[] = [];
+  for (let i = 0; i < tickCount; i++) {
+    const v = min + ((max - min) * i) / (tickCount - 1);
+    labels.push(`${Math.round(v * 100) / 100}${options.unit || ""}`);
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.08,
+    role: "scale-bar",
+    children: [
+      // tick row: short vertical bars
+      {
+        id: `${slideId}.${id}.ticks`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0,
+        fixedHeight: 0.3,
+        children: Array.from({ length: tickCount }, (_, i) => ({
+          id: `${slideId}.${id}.tick${i}`,
+          type: "stack" as const,
+          direction: "vertical" as const,
+          gap: 0,
+          layoutWeight: 1,
+          align: "center" as const,
+          children: [
+            { id: `${slideId}.${id}.tick${i}.bar`, type: "shape" as const, preset: "rect", fill: lineColor, line: lineColor, fixedWidth: 0.04, fixedHeight: 0.3 },
+          ],
+        })),
+      },
+      // base line
+      { id: `${slideId}.${id}.line`, type: "shape", preset: "rect", fill: lineColor, line: lineColor, fixedHeight: 0.04 },
+      // labels
+      {
+        id: `${slideId}.${id}.labels`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0,
+        children: labels.map((lbl, i) => ({
+          id: `${slideId}.${id}.lbl${i}`,
+          type: "text" as const,
+          text: lbl,
+          style: "caption",
+          color: "text.muted",
+          align: i === 0 ? "left" as const : i === labels.length - 1 ? "right" as const : "center" as const,
+          autoFit: "shrink" as const,
+          minHeight: 0.32,
+          layoutWeight: 1,
+        })),
+      },
+    ],
   } as DomNode, options);
 }
 

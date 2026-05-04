@@ -147,7 +147,10 @@ describe("PR4: numberedGrid number chip", () => {
       items: [{ title: "第一项" }, { title: "第二项" }],
     }) as DomNode;
     const firstItem = (node.children || [])[0]!;
-    const num = (firstItem.children || []).find((c) => c.id === "s.ng.0.num")!;
+    // Chip is wrapped in a left-anchored .num.wrap container so positioning
+    // doesn't conflict with the chip's own text-align (96vi8n slide 23 fix).
+    const wrap = (firstItem.children || []).find((c) => c.id === "s.ng.0.num.wrap")!;
+    const num = (wrap.children || []).find((c) => c.id === "s.ng.0.num")!;
     expect(num.fill).toBe("brand.primary");
     expect(num.color).toBe("text.inverse");
     expect(num.cornerRadius).toBe(0.5);

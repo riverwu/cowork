@@ -35,6 +35,7 @@ const ANCHOR_FIELDS: Record<string, NodeFieldInfo> = {
   width: { valueType: "number", description: "Anchored node width in cm." },
   height: { valueType: "number", description: "Anchored node height in cm." },
   zIndex: { valueType: "number", description: "Render order: higher = on top. Negative = behind flow content." },
+  fillSlide: { valueType: "boolean", description: "Slide-spanning overlay sentinel: width/height auto-expand to (slideWidthCm - 2*offsetX) / (slideHeightCm - 2*offsetY). Use for decoration-grid backgrounds, full-bleed watermarks. Works across deck sizes (16x9 / 4x3 / wide)." },
 };
 
 const TRANSFORM_FIELDS: Record<string, NodeFieldInfo> = {
@@ -157,6 +158,13 @@ const BULLETS_DETAILED: Record<string, NodeFieldInfo> = {
   align: { valueType: "enum", values: ["left", "center", "right"], description: "horizontal alignment" },
   title: { valueType: "string", description: "optional bullet group title" },
   indentLevel: { valueType: "number", description: "default indent level for items without explicit level" },
+  marker: {
+    valueType: "string",
+    description:
+      "Shape glyph for the bullet marker. String shorthand: 'disc' (●), 'circle' (○), 'square' (■), 'square-outline' (□), 'triangle' (▶), 'diamond' (◆), 'arrow' (→), 'check' (✓), 'star' (★), 'dash' (–), 'chevron' (›). Object form: { shape: <preset>, color?, size? }. Ignored when numbered:true.",
+  },
+  markerColor: { valueType: "string", description: "Theme token or hex; colors the marker glyph independent of the run text color." },
+  markerSize: { valueType: "number", description: "Marker size as fraction of text size (0.5..2.0). 1.0 = same as text." },
 };
 
 const IMAGE_DETAILED: Record<string, NodeFieldInfo> = {
@@ -240,7 +248,7 @@ const SHAPE_DETAILED: Record<string, NodeFieldInfo> = {
 };
 
 const PANEL_DETAILED: Record<string, NodeFieldInfo> = {
-  tone: { valueType: "enum", values: ["neutral", "brand", "positive", "warning", "danger", "tinted"], description: "Pre-mapped color set for fill/line/text. 'tinted' uses brand.tint." },
+  tone: { valueType: "enum", values: ["neutral", "brand", "positive", "warning", "danger", "tinted"], description: "Pre-mapped color set for fill/line/text. 'tinted' uses brand.tint. Aliases also accepted: success↔positive, error↔danger, caution↔warning, info↔brand, muted↔neutral." },
   fill: { valueType: "string", description: "Override fill: theme token or hex." },
   line: { valueType: "string", description: "Override line: theme token or hex." },
   padding: { valueType: "number", description: "Inner padding in cm. Defaults to theme.component.panel.padding." },
@@ -260,7 +268,7 @@ const CARD_DETAILED: Record<string, NodeFieldInfo> = {
 };
 
 const BAND_DETAILED: Record<string, NodeFieldInfo> = {
-  tone: { valueType: "enum", values: ["neutral", "brand", "positive", "warning", "danger", "tinted"], description: "Pre-mapped color set." },
+  tone: { valueType: "enum", values: ["neutral", "brand", "positive", "warning", "danger", "tinted"], description: "Pre-mapped color set. Aliases also accepted: success↔positive, error↔danger, caution↔warning, info↔brand, muted↔neutral." },
   fill: { valueType: "string", description: "Override fill." },
   height: { valueType: "number", description: "Band height in cm. Default 1.6cm." },
   fixedHeight: { valueType: "number", description: "Alias of height." },

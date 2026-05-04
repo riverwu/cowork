@@ -122,10 +122,21 @@ const OVERLAY_ANCHOR_POINTS = new Set([
   "bottom-left", "bottom-center", "bottom-right",
 ]);
 
+// Component types that are *inherently* slide-level overlays. Their
+// factories set `anchor` internally during expansion, but expansion
+// happens AFTER source-deck normalization — so here we recognize them
+// by name and pull them out of the content stack so the renderer's
+// anchor logic later places them correctly. Without this, the anchor
+// metadata gets buried inside the content stack and is ignored.
+const OVERLAY_COMPONENT_TYPES = new Set([
+  "watermark", "corner-mark", "callout-marker", "big-page-number",
+]);
+
 function isOverlayChildAtSource(node: DomNode): boolean {
   if (!node || typeof node !== "object") return false;
   if (typeof node.anchor === "string" && OVERLAY_ANCHOR_POINTS.has(node.anchor)) return true;
   if (node.type === "image" && (node.position === "bottom-right" || node.position === "top-right" || node.position === "center")) return true;
+  if (typeof node.type === "string" && OVERLAY_COMPONENT_TYPES.has(node.type)) return true;
   return false;
 }
 

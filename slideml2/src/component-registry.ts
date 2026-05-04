@@ -1,9 +1,12 @@
 import {
-  badge, barList, bulletList, checklist, comparisonCard, comparisonTable, ctaButton, featureCard,
-  flowArrow, glossary, heroStat, iconText, insightCallout, keyTakeaway, kpiGrid, legend,
-  logoStrip, metricCard, numberedGrid, numberedList, outline, pricingCard, processFlow,
-  profileCard, prosCons, progressBar, qAndA, quizCard, quoteBlock, sectionBreak, statComparison,
-  statStrip, stepCard, swotMatrix, tagList, takeawayList, timelineBlock,
+  arrowLink, badge, barList, bigPageNumber, bracket, bulletList, calloutMarker, checklist,
+  comparisonCard, comparisonTable, cornerMark, ctaButton, decorationGrid, donutSummary,
+  featureCard, flowArrow, funnel, gauge, glossary, heatmap, heroStat, iconText, insightCallout,
+  keyTakeaway, kpiGrid, legend, logoStrip, matrix2x2, metricCard, numberedGrid, numberedList,
+  outline, pricingCard, processFlow, profileCard, prosCons, progressBar, qAndA, quizCard,
+  quoteBlock, rangePlot, scaleBar, scorecard, sectionBreak, statComparison, statFlow, statStrip,
+  stepCard, swotMatrix, tagList, takeawayList, timelineAxisBar, timelineBlock, trendLine,
+  watermark,
 } from "./components.js";
 import { listNodeTypes } from "./node-types.js";
 import type { DomNode, NodeType } from "./types.js";
@@ -66,6 +69,26 @@ export type ComponentName =
   | "outline"
   | "glossary"
   | "comparison-table"
+  // Data-expression components
+  | "scorecard"
+  | "funnel"
+  | "gauge"
+  | "heatmap"
+  | "matrix-2x2"
+  | "trend-line"
+  | "stat-flow"
+  | "donut-summary"
+  | "range-plot"
+  // Decoration components
+  | "callout-marker"
+  | "decoration-grid"
+  | "corner-mark"
+  | "bracket"
+  | "arrow-link"
+  | "watermark"
+  | "big-page-number"
+  | "timeline-axis-bar"
+  | "scale-bar"
   | "two-column";
 
 export interface PropDefinition {
@@ -213,7 +236,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   component("section-break", "Full-slide chapter marker or cover-like transition. Use to reset the audience's mental context, not for ordinary content slides.", {
     title: { type: "string", required: true, semantic: "deck-title", description: "Section title (large)." },
     subtitle: { type: "string", semantic: "lead", description: "Optional subtitle." },
-    accent: { type: "string", semantic: "label", description: "Optional small uppercase label above the title." },
+    accent: { type: "string", semantic: "label", description: "Optional small uppercase eyebrow LABEL TEXT above the title (e.g. \"PART ONE\"). NOT a color/tone — pass `tone` for color. Tone-keyword strings (brand/primary/neutral/etc.) are ignored to avoid agents writing accent:\"brand\" thinking it sets the color." },
+    tone: { type: "enum", enum: ["brand", "neutral", "inverse"], description: "Color tone for the rule + eyebrow accent. Default brand. Use inverse on dark/full-bleed color fields." },
   }, "stack.area:content with hero text", "stack"),
   component("swot-matrix", "Four-quadrant strategic diagnosis: strengths, weaknesses, opportunities, threats. Use only when this exact SWOT semantic frame fits.", {
     strengths: { type: "array", required: true, semantic: "bullet", description: "Strengths bullets." },
@@ -282,12 +306,13 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     sort: { type: "enum", enum: ["desc", "asc", "none"], description: "Sort items by value (default 'none' — keep input order)." },
   }, "stack of (label-row + horizontal-track) per item", "stack"),
   component("stat-strip", "Inline row of headline metrics with minimal chrome. Use when 3-6 numbers support one read and card frames would be too heavy.", {
-    items: { type: "array", required: true, description: "Array of { value, label } items." },
-    tone: { type: "enum", enum: ["brand", "positive", "neutral"], description: "Value color tone." },
+    items: { type: "array", required: true, description: "Array of { value, label, tone? } items. Per-item tone (brand|positive|neutral|warning|danger) sets that cell's value color and overrides the strip default — useful for mixed signals (good/risk/bad in one row)." },
+    tone: { type: "enum", enum: ["brand", "positive", "neutral", "warning", "danger"], description: "Default value color tone for cells without their own tone." },
   }, "horizontal stack of (value+label) cells with thin divider rules", "stack"),
   component("legend", "Color/category key for a chart, diagram, map, or coded table. Use when colors or symbols need semantic decoding.", {
     items: { type: "array", required: true, description: "Array of { label, color } items. color is a theme token (palette name, brand.primary, etc.)." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Orientation." },
+    marker: { type: "enum", enum: ["dot", "square", "bar"], description: "Marker shape per item: dot (default), square, or short horizontal bar." },
   }, "stack of (color-dot + label) pairs", "stack"),
   component("badge", "Single short status/category marker such as NEW, RISK, BETA, or DRAFT. Use as metadata on another module; use tag-list for multiple chips.", {
     text: { type: "string", required: true, description: "Short label (≤ 12 chars). Auto uppercased." },
@@ -414,8 +439,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     tone: { type: "enum", enum: ["brand", "neutral", "tinted"], description: "Card surface tone." },
   }, "card(stack(stem, items:Array<marker+text>?, divider?, explanation?))", "stack"),
   component("takeaway-list", "Multi-item Key Takeaways: 3-5 short conclusions, each with a colored accent bar + bold headline + optional 1-line detail. Right component for a wrap-up / summary slide.", {
-    items: { type: "array", required: true, description: "Array of {headline, detail?, tone?}." },
-    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Default accent tone for items that don't supply one." },
+    items: { type: "array", required: true, description: "Array of {headline, detail?, tone?}. Per-item tone (brand|positive|warning|danger|neutral) overrides the list default — useful for a 'three findings + one caveat' shape where the caveat is muted (neutral) and the findings are chromatic." },
+    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Default accent tone for items that don't supply one. 'neutral' renders a divider-gray bar (de-emphasized)." },
   }, "stack(items:Array<bar+stack(headline,detail)>)", "stack"),
   component("outline", "Table of contents / agenda. Vertical list of N chapters, each with optional number + title + optional 1-line body + optional page reference. Use for cover-following TOC slides, talk agendas, chapter indexes. Distinct from numbered-grid (parallel modules in a grid) and timeline (date-ordered events) — outline is for linear reading-order chapters with editorial spacing. Density adapts: 1-5 items show body, 6-9 are compact, 10-12 hide body. Numbering is NEVER auto-generated — pass `number` explicitly per item if you want chapter labels (e.g. \"01\", \"I\", \"Ch 1\"). When at least one item supplies number, a number column is reserved across all rows (blank cells for un-numbered items, so titles stay aligned).", {
     items: { type: "array", required: true, description: "Array of {title:string, number?:string (e.g. \"01\", \"I\", \"Ch 1\"; not auto-generated), body?:string, page?:string|number, tone?:enum[brand|positive|warning|danger]}." },
@@ -436,6 +461,110 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     options: { type: "array", required: true, description: "Array of {name:string, values:string[], recommended?:boolean} (max 4 options). values length should match features length." },
     title: { type: "string", description: "Optional heading rendered above the table." },
   }, "grid(headerRow + featureRows)", "stack"),
+  // ---------- DATA components ----------
+  component("scorecard", "Status-coded metric grid. Each item carries a label, value, status color (good/warning/danger/neutral), and optional delta with trend arrow. Use for project status, health checks, dashboards. Different from metric-card / kpi-grid which have no health/status semantics.", {
+    items: { type: "array", required: true, description: "Array of {label:string, value:string, status?:enum[good|warning|danger|neutral], delta?:string, trend?:enum[up|down|flat]}." },
+    columns: { type: "number", description: "Optional column count (default auto)." },
+  }, "grid of status-accented metric cards", "stack"),
+  component("funnel", "Conversion funnel — sales pipeline, signup → activation → paid funnel, traffic stages. Each stage is a chevron sized by value; drop% vs previous stage shown.", {
+    stages: { type: "array", required: true, description: "Array of {label:string, value:number, valueLabel?:string, tone?:enum[brand|positive|warning|danger]} (max 6)." },
+    showDrop: { type: "boolean", description: "Show drop% between consecutive stages (default true)." },
+  }, "stack of chevron stages with labels", "stack"),
+  component("gauge", "Single-value progress dial with threshold-banded track. Use for NPS, CSAT, target completion. Different from progress-bar (no threshold zones) and metric-card (no progress visualization).", {
+    value: { type: "number", required: true, description: "Current value." },
+    label: { type: "string", required: true, description: "Metric label (e.g. \"NPS\")." },
+    max: { type: "number", description: "Max value (default 100)." },
+    unit: { type: "string", description: "Optional unit suffix (\"%\", \"pts\")." },
+    thresholds: { type: "array", description: "Array of {upTo:number, tone:enum[danger|warning|positive|brand], label?:string} sorted by upTo. Defines the colored zones along the track." },
+  }, "stack(value, label, threshold-banded track, pointer)", "stack"),
+  component("heatmap", "NxM heatmap (matrix of cells colored by value). Use for time × category, A/B test matrices, activity patterns. Linear color interpolation on a palette. Max 12×12.", {
+    xLabels: { type: "array", required: true, description: "Column labels." },
+    yLabels: { type: "array", required: true, description: "Row labels." },
+    values: { type: "array", required: true, description: "Number matrix [yLabels.length][xLabels.length]." },
+    palette: { type: "enum", enum: ["warm", "cool", "diverging"], description: "Color palette (default cool)." },
+    showValues: { type: "boolean", description: "Render numeric values inside cells (default auto by size)." },
+  }, "grid of colored cells with axis labels", "stack"),
+  component("matrix-2x2", "2x2 quadrant matrix with labeled axes and items placed in quadrants. Use for risk-matrix (impact × probability), priority (effort × value), Boston matrix. Different from swot-matrix which has fixed S/W/O/T semantics.", {
+    xAxis: { type: "object", required: true, description: "{low:string, high:string} — x-axis labels." },
+    yAxis: { type: "object", required: true, description: "{low:string, high:string} — y-axis labels." },
+    items: { type: "array", required: true, description: "Array of {label:string, x:enum[low|high], y:enum[low|high], tone?}." },
+    quadrantLabels: { type: "object", description: "Optional {tl?:string, tr?:string, bl?:string, br?:string} corner names (e.g. \"Quick Wins\")." },
+  }, "stack(yhi-label, 2x2 grid of quadrant cards, ylo-label, x-axis labels)", "stack"),
+  component("trend-line", "Mini sparkline / trend visualization (bars whose height reflects values). Use as decoration next to a metric or under a heading. Different from chart-card (full chart with axes/legend) — trend-line is just the shape.", {
+    values: { type: "array", required: true, description: "Array of numbers (max 24)." },
+    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Bar color tone." },
+    height: { type: "number", description: "Height in cm (default 1.0)." },
+  }, "horizontal stack of bars", "stack"),
+  component("stat-flow", "Horizontal sequence of stat blocks connected by operator/connector text. Use for unit economics derivation (CAC × LTV → margin), formula walkthroughs, KPI cause-effect chains.", {
+    steps: { type: "array", required: true, description: "Array of {value:string, label:string, tone?:enum[brand|positive|warning|danger|neutral]} OR {connector:string} entries (max 10). Connectors are operator strings like \"×\", \"÷ 24m\", \"→\"." },
+  }, "horizontal stack of value/label blocks + connector text", "stack"),
+  component("donut-summary", "Primary-share + remainder legend. Use for \"X% from Y\" stories where one share dominates. Different from chart-card pie (no primary emphasis).", {
+    primary: { type: "object", required: true, description: "{label:string, value:number} for the dominant share." },
+    others: { type: "array", description: "Array of {label, value} for remaining shares." },
+    unit: { type: "string", description: "Optional suffix shown after percentage (\"of revenue\")." },
+    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Accent color tone." },
+  }, "grid(ring+center-number, legend list)", "stack"),
+  component("range-plot", "Horizontal range bars showing min..max (and optional point) per category. Use for salary bands, confidence intervals, price ranges.", {
+    items: { type: "array", required: true, description: "Array of {label:string, min:number, max:number, point?:number, unit?:string}." },
+    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Bar color tone." },
+  }, "stack of label + range-bar + optional pointer", "stack"),
+  // ---------- DECORATION components ----------
+  component("callout-marker", "Anchored bubble with text — floats over slide content via anchor positioning. Use to point at a region of an image, chart, or hero element. Different from annotation (inline label, no anchor).", {
+    text: { type: "string", required: true, description: "The bubble text." },
+    anchor: { type: "enum", enum: ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"], description: "Slide-relative anchor position." },
+    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Bubble color tone." },
+    width: { type: "number", description: "Bubble width in cm (default 4)." },
+    height: { type: "number", description: "Bubble height in cm (default 1.2)." },
+  }, "anchored text shape with rounded corners", "stack"),
+  component("decoration-grid", "Geometric pattern background (dots, diagonals, grid lines). Use for cover slide texture, section-break decoration, empty-area visual interest.", {
+    pattern: { type: "enum", enum: ["dots", "diagonal-lines", "grid"], description: "Pattern type (default dots)." },
+    density: { type: "enum", enum: ["sparse", "normal", "dense"], description: "Pattern density." },
+    tone: { type: "enum", enum: ["muted", "brand"], description: "Color tone — muted (default) or brand-tint." },
+    rows: { type: "number", description: "Override row count." },
+    columns: { type: "number", description: "Override column count." },
+    asBackground: { type: "boolean", description: "Default true: anchors the grid as a slide-spanning overlay (zIndex<0) so it sits behind content without occupying flow. Set false to embed inline (e.g. as a designed band between content blocks)." },
+  }, "grid of small shape primitives in a repeating pattern", "stack"),
+  component("corner-mark", "Small ribbon/stamp/tag in a slide corner — DRAFT, CONFIDENTIAL, V2.0 style markers. Anchored to corner, doesn't compete with main content.", {
+    text: { type: "string", required: true, description: "The marker text." },
+    corner: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right"], description: "Corner position (default top-right)." },
+    tone: { type: "enum", enum: ["brand", "warning", "danger", "neutral"], description: "Color tone (default warning)." },
+    style: { type: "enum", enum: ["ribbon", "stamp", "tag"], description: "Visual style (default tag)." },
+  }, "anchored corner-positioned label shape", "stack"),
+  component("bracket", "Geometric brace/bracket emphasizing a group of elements. Renders a thin shape on one side with optional label.", {
+    direction: { type: "enum", enum: ["left", "right", "top", "bottom"], description: "Bracket side (default left)." },
+    label: { type: "string", description: "Optional label rendered next to the bracket." },
+    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Color tone." },
+  }, "stack(line shape + optional label)", "stack"),
+  component("arrow-link", "Single directional connector with optional from/to labels and middle text. MVP is inline horizontal/vertical only.", {
+    fromLabel: { type: "string", description: "Optional left/top label." },
+    toLabel: { type: "string", description: "Optional right/bottom label." },
+    label: { type: "string", description: "Optional connector label rendered above the arrow." },
+    direction: { type: "enum", enum: ["right", "down"], description: "Arrow direction (default right)." },
+    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Arrow color tone." },
+  }, "stack of from-label, arrow, to-label", "stack"),
+  component("watermark", "Large semi-transparent decorative text overlay (DRAFT, CONFIDENTIAL, SAMPLE). Anchored to slide center.", {
+    text: { type: "string", required: true, description: "The watermark text." },
+    rotation: { type: "number", description: "Rotation in degrees (default 0)." },
+    tone: { type: "enum", enum: ["muted", "danger", "warning", "brand"], description: "Color tone (default muted)." },
+  }, "center-anchored uppercase hero text", "stack"),
+  component("big-page-number", "Large decorative page number for cover/section slides. Different from chrome.pageNumber (small footer). Use as visual marker on chapter openers.", {
+    current: { type: "string", required: true, description: "Current page number (e.g. 5 or \"Ch 5\")." },
+    total: { type: "string", description: "Optional total (renders as \"05 / 22\")." },
+    position: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right"], description: "Corner anchor (default top-right)." },
+    tone: { type: "enum", enum: ["brand", "muted"], description: "Color tone." },
+  }, "anchored hero-style number", "stack"),
+  component("timeline-axis-bar", "Section navigation bar — N section dots with current section highlighted. Use at top of section break slides to communicate progress through deck.", {
+    sections: { type: "array", required: true, description: "Array of section name strings (max 8)." },
+    current: { type: "number", required: true, description: "0-based index of the active section." },
+    tone: { type: "enum", enum: ["brand", "neutral"], description: "Active dot color tone." },
+  }, "horizontal stack of dot + label per section", "stack"),
+  component("scale-bar", "Horizontal numeric scale with tick marks. Companion to images/charts/diagrams when measurement context matters.", {
+    max: { type: "number", required: true, description: "Maximum scale value." },
+    min: { type: "number", description: "Minimum (default 0)." },
+    unit: { type: "string", description: "Optional unit suffix on labels." },
+    ticks: { type: "number", description: "Number of tick marks (default 5, min 2)." },
+    tone: { type: "enum", enum: ["brand", "neutral"], description: "Line color tone." },
+  }, "stack(ticks, baseline, labels)", "stack"),
 ];
 
 export function listComponents(): ComponentSummary[] {
@@ -588,10 +717,13 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     return withComponentRoot(node, kpiGrid(slideId, name, metrics, columns));
   }
   if (componentName === "section-break") {
+    const rawTone = node.tone;
+    const tone = rawTone === "brand" || rawTone === "neutral" || rawTone === "inverse" ? rawTone : undefined;
     return withComponentRoot(node, sectionBreak(slideId, name, {
       title: stringValue(node.title, ""),
       subtitle: stringValue(node.subtitle, ""),
       accent: stringValue(node.accent, ""),
+      tone,
     }));
   }
   if (componentName === "swot-matrix") {
@@ -705,12 +837,20 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     return withComponentRoot(node, barList(slideId, name, { items, tone, sort }));
   }
   if (componentName === "stat-strip") {
+    const allowedTones = new Set(["brand", "positive", "neutral", "warning", "danger"]);
+    const coerceTone = (v: unknown): "brand" | "positive" | "neutral" | "warning" | "danger" | undefined => {
+      const norm = normalizeToneAlias(v);
+      return norm && allowedTones.has(norm) ? norm as "brand" | "positive" | "neutral" | "warning" | "danger" : undefined;
+    };
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-      return { value: stringValue(rec.value, stringValue(rec.metric, "")), label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))) };
+      return {
+        value: stringValue(rec.value, stringValue(rec.metric, "")),
+        label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))),
+        tone: coerceTone(rec.tone),
+      };
     }).filter((item) => item.value || item.label) : [];
-    const toneRaw = node.tone;
-    const tone = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "neutral" ? toneRaw : undefined;
+    const tone = coerceTone(node.tone);
     return withComponentRoot(node, statStrip(slideId, name, { items, tone }));
   }
   if (componentName === "legend") {
@@ -719,7 +859,8 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       return { label: stringValue(rec.label, ""), color: stringValue(rec.color, "brand.primary") };
     }).filter((item) => item.label) : [];
     const direction = node.direction === "vertical" ? "vertical" : "horizontal";
-    return withComponentRoot(node, legend(slideId, name, { items, direction }));
+    const marker = node.marker === "square" || node.marker === "bar" || node.marker === "dot" ? node.marker : undefined;
+    return withComponentRoot(node, legend(slideId, name, { items, direction, marker }));
   }
   if (componentName === "badge") {
     const toneRaw = node.tone;
@@ -802,6 +943,245 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
   }
   if (componentName === "insight-card") {
     return withComponentRoot(node, insightCardNode(slideId, name, node));
+  }
+  if (componentName === "scorecard") {
+    type ScoreStatus = "good" | "warning" | "danger" | "neutral";
+    type ScoreTrend = "up" | "down" | "flat";
+    const items: Array<{ label: string; value: string; status?: ScoreStatus; delta?: string; trend?: ScoreTrend }> = Array.isArray(node.items) ? node.items.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      const sRaw = rec.status;
+      const status: ScoreStatus | undefined = sRaw === "good" || sRaw === "warning" || sRaw === "danger" || sRaw === "neutral" ? sRaw : undefined;
+      const tRaw = rec.trend;
+      const trend: ScoreTrend | undefined = tRaw === "up" || tRaw === "down" || tRaw === "flat" ? tRaw : undefined;
+      return {
+        label: stringValue(rec.label, stringValue(rec.name, "")),
+        value: stringValue(rec.value, ""),
+        status,
+        delta: stringValue(rec.delta, "") || undefined,
+        trend,
+      };
+    }).filter((it) => it.label && it.value) : [];
+    const cols = typeof node.columns === "number" ? node.columns : undefined;
+    return withComponentRoot(node, scorecard(slideId, name, { items, columns: cols }));
+  }
+  if (componentName === "funnel") {
+    type FunnelTone = "brand" | "positive" | "warning" | "danger";
+    const stages: Array<{ label: string; value: number; valueLabel?: string; tone?: FunnelTone }> = Array.isArray(node.stages) ? node.stages.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      const tRaw = rec.tone;
+      const tone: FunnelTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : undefined;
+      return {
+        label: stringValue(rec.label, stringValue(rec.name, "")),
+        value: typeof rec.value === "number" ? rec.value : Number(rec.value) || 0,
+        valueLabel: stringValue(rec.valueLabel, "") || undefined,
+        tone,
+      };
+    }).filter((s) => s.label) : [];
+    return withComponentRoot(node, funnel(slideId, name, { stages, showDrop: node.showDrop !== false }));
+  }
+  if (componentName === "gauge") {
+    type GaugeTone = "danger" | "warning" | "positive" | "brand";
+    const thresholdsRaw = Array.isArray(node.thresholds) ? node.thresholds : [];
+    const thresholds = thresholdsRaw.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      const tRaw = rec.tone;
+      const tone: GaugeTone = tRaw === "danger" || tRaw === "warning" || tRaw === "positive" || tRaw === "brand" ? tRaw : "brand";
+      return {
+        upTo: typeof rec.upTo === "number" ? rec.upTo : Number(rec.upTo) || 0,
+        tone,
+        label: stringValue(rec.label, "") || undefined,
+      };
+    });
+    return withComponentRoot(node, gauge(slideId, name, {
+      value: typeof node.value === "number" ? node.value : Number(node.value) || 0,
+      max: typeof node.max === "number" ? node.max : undefined,
+      label: stringValue(node.label, ""),
+      unit: stringValue(node.unit, "") || undefined,
+      thresholds: thresholds.length > 0 ? thresholds : undefined,
+    }));
+  }
+  if (componentName === "heatmap") {
+    const xLabels = Array.isArray(node.xLabels) ? node.xLabels.map(String) : [];
+    const yLabels = Array.isArray(node.yLabels) ? node.yLabels.map(String) : [];
+    const valuesRaw = Array.isArray(node.values) ? node.values : [];
+    const values: number[][] = valuesRaw.map((row) => Array.isArray(row) ? row.map((v) => typeof v === "number" ? v : Number(v) || 0) : []);
+    const palette = node.palette === "warm" || node.palette === "diverging" || node.palette === "cool" ? node.palette : undefined;
+    return withComponentRoot(node, heatmap(slideId, name, {
+      xLabels, yLabels, values,
+      palette,
+      showValues: node.showValues === true ? true : node.showValues === false ? false : undefined,
+    }));
+  }
+  if (componentName === "matrix-2x2") {
+    type MatTone = "brand" | "positive" | "warning" | "danger";
+    const xAxis = node.xAxis && typeof node.xAxis === "object" ? node.xAxis as { low: string; high: string } : { low: "Low", high: "High" };
+    const yAxis = node.yAxis && typeof node.yAxis === "object" ? node.yAxis as { low: string; high: string } : { low: "Low", high: "High" };
+    const items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: MatTone }> = Array.isArray(node.items) ? node.items.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      const tRaw = rec.tone;
+      const tone: MatTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : undefined;
+      const x: "low" | "high" = rec.x === "high" ? "high" : "low";
+      const y: "low" | "high" = rec.y === "high" ? "high" : "low";
+      return { label: stringValue(rec.label, ""), x, y, tone };
+    }).filter((it) => it.label) : [];
+    const ql = node.quadrantLabels && typeof node.quadrantLabels === "object" ? node.quadrantLabels as Record<string, unknown> : {};
+    return withComponentRoot(node, matrix2x2(slideId, name, {
+      xAxis: { low: stringValue(xAxis.low, "Low"), high: stringValue(xAxis.high, "High") },
+      yAxis: { low: stringValue(yAxis.low, "Low"), high: stringValue(yAxis.high, "High") },
+      items,
+      quadrantLabels: {
+        tl: stringValue(ql.tl, "") || undefined,
+        tr: stringValue(ql.tr, "") || undefined,
+        bl: stringValue(ql.bl, "") || undefined,
+        br: stringValue(ql.br, "") || undefined,
+      },
+    }));
+  }
+  if (componentName === "trend-line") {
+    type TLTone = "brand" | "positive" | "warning" | "danger";
+    const tRaw = node.tone;
+    const tone: TLTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : undefined;
+    const values = Array.isArray(node.values) ? node.values.map((v) => typeof v === "number" ? v : Number(v) || 0) : [];
+    return withComponentRoot(node, trendLine(slideId, name, {
+      values, tone,
+      height: typeof node.height === "number" ? node.height : undefined,
+    }));
+  }
+  if (componentName === "stat-flow") {
+    type SFTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+    const steps = Array.isArray(node.steps) ? node.steps.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      if (typeof rec.connector === "string" && rec.connector.trim()) return { connector: rec.connector };
+      const tRaw = rec.tone;
+      const tone: SFTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" || tRaw === "neutral" ? tRaw : undefined;
+      return {
+        value: stringValue(rec.value, ""),
+        label: stringValue(rec.label, ""),
+        tone,
+      };
+    }).filter((s) => "connector" in s ? !!s.connector : !!s.value) : [];
+    return withComponentRoot(node, statFlow(slideId, name, { steps: steps as Array<{ value: string; label: string; tone?: SFTone } | { connector: string }> }));
+  }
+  if (componentName === "donut-summary") {
+    type DSTone = "brand" | "positive" | "warning" | "danger";
+    const tRaw = node.tone;
+    const tone: DSTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : undefined;
+    const primaryRaw = node.primary && typeof node.primary === "object" ? node.primary as Record<string, unknown> : { label: "", value: 0 };
+    const others = Array.isArray(node.others) ? node.others.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      return { label: stringValue(rec.label, ""), value: typeof rec.value === "number" ? rec.value : Number(rec.value) || 0 };
+    }).filter((o) => o.label) : [];
+    return withComponentRoot(node, donutSummary(slideId, name, {
+      primary: { label: stringValue(primaryRaw.label, ""), value: typeof primaryRaw.value === "number" ? primaryRaw.value : Number(primaryRaw.value) || 0 },
+      others,
+      unit: stringValue(node.unit, "") || undefined,
+      tone,
+    }));
+  }
+  if (componentName === "range-plot") {
+    type RPTone = "brand" | "positive" | "warning" | "danger";
+    const tRaw = node.tone;
+    const tone: RPTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : undefined;
+    const items = Array.isArray(node.items) ? node.items.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      return {
+        label: stringValue(rec.label, ""),
+        min: typeof rec.min === "number" ? rec.min : Number(rec.min) || 0,
+        max: typeof rec.max === "number" ? rec.max : Number(rec.max) || 0,
+        point: typeof rec.point === "number" ? rec.point : undefined,
+        unit: stringValue(rec.unit, "") || undefined,
+      };
+    }).filter((it) => it.label) : [];
+    return withComponentRoot(node, rangePlot(slideId, name, { items, tone }));
+  }
+  if (componentName === "callout-marker") {
+    type CMTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+    const tRaw = node.tone;
+    const tone: CMTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" || tRaw === "neutral" ? tRaw : undefined;
+    const aRaw = node.anchor;
+    const anchorVals = ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
+    const anchor = typeof aRaw === "string" && anchorVals.includes(aRaw) ? aRaw as Parameters<typeof calloutMarker>[2]["anchor"] : undefined;
+    return withComponentRoot(node, calloutMarker(slideId, name, {
+      text: stringValue(node.text, ""),
+      anchor, tone,
+      width: typeof node.width === "number" ? node.width : undefined,
+      height: typeof node.height === "number" ? node.height : undefined,
+    }));
+  }
+  if (componentName === "decoration-grid") {
+    const pat = node.pattern === "diagonal-lines" || node.pattern === "grid" || node.pattern === "dots" ? node.pattern : undefined;
+    const den = node.density === "sparse" || node.density === "dense" || node.density === "normal" ? node.density : undefined;
+    const tn = node.tone === "brand" || node.tone === "muted" ? node.tone : undefined;
+    const asBg = node.asBackground === false ? false : undefined; // only forward explicit false; impl default is true
+    return withComponentRoot(node, decorationGrid(slideId, name, {
+      pattern: pat, density: den, tone: tn,
+      rows: typeof node.rows === "number" ? node.rows : undefined,
+      columns: typeof node.columns === "number" ? node.columns : undefined,
+      ...(asBg === false ? { asBackground: false } : {}),
+    }));
+  }
+  if (componentName === "corner-mark") {
+    const cn = node.corner === "top-left" || node.corner === "top-right" || node.corner === "bottom-left" || node.corner === "bottom-right" ? node.corner : undefined;
+    const tn = node.tone === "brand" || node.tone === "warning" || node.tone === "danger" || node.tone === "neutral" ? node.tone : undefined;
+    const st = node.style === "ribbon" || node.style === "stamp" || node.style === "tag" ? node.style : undefined;
+    return withComponentRoot(node, cornerMark(slideId, name, {
+      text: stringValue(node.text, ""),
+      corner: cn, tone: tn, style: st,
+    }));
+  }
+  if (componentName === "bracket") {
+    const dir = node.direction === "right" || node.direction === "top" || node.direction === "bottom" || node.direction === "left" ? node.direction : undefined;
+    const tn = node.tone === "brand" || node.tone === "positive" || node.tone === "warning" || node.tone === "danger" ? node.tone : undefined;
+    return withComponentRoot(node, bracket(slideId, name, {
+      direction: dir, tone: tn,
+      label: stringValue(node.label, "") || undefined,
+    }));
+  }
+  if (componentName === "arrow-link") {
+    const dir = node.direction === "down" || node.direction === "right" ? node.direction : undefined;
+    const tn = node.tone === "brand" || node.tone === "positive" || node.tone === "warning" || node.tone === "danger" ? node.tone : undefined;
+    return withComponentRoot(node, arrowLink(slideId, name, {
+      fromLabel: stringValue(node.fromLabel, stringValue(node.from, "")) || undefined,
+      toLabel: stringValue(node.toLabel, stringValue(node.to, "")) || undefined,
+      label: stringValue(node.label, "") || undefined,
+      direction: dir, tone: tn,
+    }));
+  }
+  if (componentName === "watermark") {
+    const tn = node.tone === "muted" || node.tone === "danger" || node.tone === "warning" || node.tone === "brand" ? node.tone : undefined;
+    return withComponentRoot(node, watermark(slideId, name, {
+      text: stringValue(node.text, ""),
+      rotation: typeof node.rotation === "number" ? node.rotation : undefined,
+      tone: tn,
+    }));
+  }
+  if (componentName === "big-page-number") {
+    const pos = node.position === "top-left" || node.position === "top-right" || node.position === "bottom-left" || node.position === "bottom-right" ? node.position : undefined;
+    const tn = node.tone === "brand" || node.tone === "muted" ? node.tone : undefined;
+    const cur = typeof node.current === "number" || typeof node.current === "string" ? node.current : "";
+    const tot = typeof node.total === "number" || typeof node.total === "string" ? node.total : undefined;
+    return withComponentRoot(node, bigPageNumber(slideId, name, {
+      current: cur, total: tot, position: pos, tone: tn,
+    }));
+  }
+  if (componentName === "timeline-axis-bar") {
+    const tn = node.tone === "brand" || node.tone === "neutral" ? node.tone : undefined;
+    const sections = Array.isArray(node.sections) ? node.sections.map(String) : [];
+    return withComponentRoot(node, timelineAxisBar(slideId, name, {
+      sections,
+      current: typeof node.current === "number" ? node.current : 0,
+      tone: tn,
+    }));
+  }
+  if (componentName === "scale-bar") {
+    const tn = node.tone === "brand" || node.tone === "neutral" ? node.tone : undefined;
+    return withComponentRoot(node, scaleBar(slideId, name, {
+      max: typeof node.max === "number" ? node.max : Number(node.max) || 100,
+      min: typeof node.min === "number" ? node.min : undefined,
+      unit: stringValue(node.unit, "") || undefined,
+      ticks: typeof node.ticks === "number" ? node.ticks : undefined,
+      tone: tn,
+    }));
   }
   if (componentName === "two-column") {
     const left = node.left && typeof node.left === "object" ? node.left as DomNode : { id: `${slideId}.${name}.left.empty`, type: "spacer" };
@@ -906,19 +1286,21 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     }));
   }
   if (componentName === "takeaway-list") {
-    type TakeawayTone = "brand" | "positive" | "warning" | "danger";
+    type TakeawayTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+    const allowed = new Set<string>(["brand", "positive", "warning", "danger", "neutral"]);
+    const coerce = (v: unknown): TakeawayTone | undefined => {
+      const norm = normalizeToneAlias(v);
+      return norm && allowed.has(norm) ? norm as TakeawayTone : undefined;
+    };
     const items: Array<{ headline: string; detail?: string; tone?: TakeawayTone }> = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { headline: String(raw ?? "") };
-      const toneRaw = rec.tone;
-      const tone: TakeawayTone | undefined = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" ? toneRaw : undefined;
       return {
         headline: stringValue(rec.headline, stringValue(rec.title, stringValue(rec.text, ""))),
         detail: stringValue(rec.detail, stringValue(rec.body, stringValue(rec.description, ""))) || undefined,
-        tone,
+        tone: coerce(rec.tone),
       };
     }).filter((item) => item.headline) : [];
-    const toneRaw = node.tone;
-    const tone = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" ? toneRaw : undefined;
+    const tone = coerce(node.tone);
     return withComponentRoot(node, takeawayList(slideId, name, { items, tone }));
   }
   return withComponentRoot(node, { id: node.id, type: "stack", direction: "vertical", children: [] });
@@ -1072,17 +1454,25 @@ function chartCardNode(slideId: string, name: string, node: DomNode): DomNode {
   const title = stringValue(node.title, "");
   const caption = stringValue(node.caption, "");
   const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
+  // 96vi8n slide 14: chart-card with only title+chart (no caption) had
+  // padding 0.45 + gap 0.25 + title 0.65, eating ~1.4cm of the card's
+  // ~8cm height — the chart looked cramped against the title and the
+  // card felt empty around it. When the card has no caption, we tighten
+  // padding (0.45→0.35) and gap (0.25→0.18) so the chart gets more room.
+  const lean = !caption;
+  const padding = lean ? 0.35 : 0.45;
+  const gap = lean ? 0.18 : 0.25;
   return {
     id: `${slideId}.${name}`,
     type: "card",
     role: "chart-card",
-    padding: 0.45,
+    padding,
     ...cardToneProps(node.tone),
     children: [{
       id: `${slideId}.${name}.stack`,
       type: "stack",
       direction: "vertical",
-      gap: 0.25,
+      gap,
       children: [
         ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65 }] : []),
         {
@@ -1687,13 +2077,39 @@ export function resolveTextColor(rawColor: unknown, rawTone: unknown): string {
 }
 
 export function toneToColors(tone: unknown): { fg?: string; bg?: string; line?: string } {
-  if (tone === "inverse") return { fg: "text.inverse", line: "text.inverse" };
-  if (tone === "positive") return { fg: "success", bg: "success.tint", line: "success" };
-  if (tone === "warning") return { fg: "warning", bg: "warning.tint", line: "warning" };
-  if (tone === "danger") return { fg: "danger", bg: "danger.tint", line: "danger" };
-  if (tone === "brand") return { fg: "brand.primary", bg: "brand.tint", line: "brand.primary" };
-  if (tone === "neutral") return { fg: "text.primary", bg: "surface", line: "divider" };
+  const t = normalizeToneAlias(tone);
+  if (t === "inverse") return { fg: "text.inverse", line: "text.inverse" };
+  if (t === "positive") return { fg: "success", bg: "success.tint", line: "success" };
+  if (t === "warning") return { fg: "warning", bg: "warning.tint", line: "warning" };
+  if (t === "danger") return { fg: "danger", bg: "danger.tint", line: "danger" };
+  if (t === "brand") return { fg: "brand.primary", bg: "brand.tint", line: "brand.primary" };
+  if (t === "neutral") return { fg: "text.primary", bg: "surface", line: "divider" };
   return {};
+}
+
+/**
+ * Normalize tone aliases to the canonical vocabulary used across components.
+ * Agents commonly mix the theme-token names (success/error/caution) with the
+ * semantic words (positive/danger/warning) — both should work. Without this
+ * shim, an agent writing `tone:"success"` on a stat-strip cell silently
+ * falls through to the strip default. (qtt7dd log slide 4: KPI values
+ * tone="success"|"warning"|"danger" intended green/orange/red but rendered
+ * blue/blue/red because "success" wasn't in the allowed set.)
+ *
+ * Returns undefined for non-strings; lets callers keep their own fallback.
+ */
+export function normalizeToneAlias(tone: unknown): string | undefined {
+  if (typeof tone !== "string") return undefined;
+  const t = tone.trim().toLowerCase();
+  if (!t) return undefined;
+  // Synonyms → canonical.
+  if (t === "success" || t === "good" || t === "positive") return "positive";
+  if (t === "error" || t === "bad" || t === "negative" || t === "danger") return "danger";
+  if (t === "caution" || t === "warn" || t === "warning") return "warning";
+  if (t === "info" || t === "primary" || t === "brand") return "brand";
+  if (t === "muted" || t === "subtle" || t === "neutral") return "neutral";
+  if (t === "inverse" || t === "white") return "inverse";
+  return t; // pass through unknowns; caller decides whether to accept.
 }
 
 function tonePropsFrom(tone: unknown): Record<string, unknown> {

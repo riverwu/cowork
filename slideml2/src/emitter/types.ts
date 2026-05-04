@@ -90,10 +90,20 @@ export interface TextRun {
 
 export interface Paragraph {
   runs: TextRun[];
-  /** Bullet rendering. Default = no bullet. `{ char: "•" }` would produce
-   *  a unicode bullet — DON'T; SlideML core uses `{ auto: true }` for
-   *  layout-defined bullets. */
-  bullet?: { auto: true } | { number: true };
+  /** Bullet rendering. Default = no bullet.
+   *  - `{ auto: true }` — layout-defined unicode bullet (•).
+   *  - `{ number: true }` — auto-numbered (1., 2., ...).
+   *  - `{ char, color?, sizePct?, font? }` — explicit glyph bullet, used by
+   *    the bullets node's `marker` field to render shape-style markers
+   *    (●, ■, ▶, ◆, →, ✓, ★, –, ›, ○) as native OOXML bullets. The
+   *    glyph is colored via `<a:buClr>` and sized via `<a:buSzPct>` — both
+   *    independent of the run color/size, so an agent can paint a bold
+   *    accent dot in front of plain body text. `font` lets a non-Latin
+   *    glyph (e.g. Wingdings) be addressed by typeface. */
+  bullet?:
+    | { auto: true }
+    | { number: true }
+    | { char: string; color?: HexColor; sizePct?: number; font?: string };
   align?: "left" | "center" | "right" | "justify";
   /** Indent level (0-based). Bullets and indent both use this. */
   indentLevel?: number;
