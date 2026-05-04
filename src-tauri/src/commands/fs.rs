@@ -1114,6 +1114,11 @@ pub async fn run_python_script(script: String, timeout_secs: Option<u64>) -> Res
 }
 
 /// Initialize isolated Python environment via uv.
+///
+/// Reconciles the required-packages list every time. Older venvs created
+/// before a package was added to the canonical list (e.g. matplotlib)
+/// would otherwise stay missing it forever — `pip install` is idempotent
+/// when the package is already present, so we always run it.
 #[tauri::command]
 pub async fn init_python_env() -> Result<String, String> {
     use tokio::process::Command;
@@ -1121,24 +1126,33 @@ pub async fn init_python_env() -> Result<String, String> {
     let home = dirs_next::home_dir().ok_or("Cannot find home directory")?;
     let cowork_dir = home.join(".cowork/python");
     let venv_dir = cowork_dir.join("venv");
-
-    if venv_dir.join("bin/python3").exists() {
-        return Ok("Python environment already initialized.".to_string());
-    }
+    let venv_python = venv_dir.join("bin/python3");
 
     fs::create_dir_all(&cowork_dir).map_err(|e| format!("Failed to create dir: {}", e))?;
     let uv = which_uv().await?;
 
-    let out = Command::new(&uv).args(["venv", venv_dir.to_str().unwrap(), "--python", "3.12"])
-        .output().await.map_err(|e| format!("uv venv failed: {}", e))?;
-    if !out.status.success() { return Err(format!("uv venv: {}", String::from_utf8_lossy(&out.stderr))); }
+    // Create venv only if it doesn't already exist. Pre-existing venvs
+    // are kept (don't blow away user-installed packages they added via
+    // `install_python_package`).
+    let venv_existed = venv_python.exists();
+    if !venv_existed {
+        let out = Command::new(&uv).args(["venv", venv_dir.to_str().unwrap(), "--python", "3.12"])
+            .output().await.map_err(|e| format!("uv venv failed: {}", e))?;
+        if !out.status.success() { return Err(format!("uv venv: {}", String::from_utf8_lossy(&out.stderr))); }
+    }
 
-    let out = Command::new(&uv).args(["pip", "install", "--python", venv_dir.join("bin/python3").to_str().unwrap(),
-        "pandas", "openpyxl", "python-docx", "matplotlib", "PyPDF2"])
+    // Reconcile required packages. `--quiet` suppresses the "Requirement
+    // already satisfied" noise; failures still surface via stderr.
+    let out = Command::new(&uv).args(["pip", "install", "--python", venv_python.to_str().unwrap(), "--quiet",
+        "pandas", "openpyxl", "python-docx", "matplotlib", "seaborn", "numpy", "PyPDF2"])
         .output().await.map_err(|e| format!("pip install failed: {}", e))?;
     if !out.status.success() { return Err(format!("pip install: {}", String::from_utf8_lossy(&out.stderr))); }
 
-    Ok("Python environment initialized.".to_string())
+    if venv_existed {
+        Ok("Python environment reconciled (required packages verified).".to_string())
+    } else {
+        Ok("Python environment initialized.".to_string())
+    }
 }
 
 /// Install a Python package into the isolated environment.

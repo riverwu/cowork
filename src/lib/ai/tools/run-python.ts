@@ -5,18 +5,18 @@ export const runPython: Tool = {
   definition: {
     name: "run_python",
     description:
-      `Execute Python code in an isolated environment. The environment has pre-installed packages: pandas, openpyxl, python-docx, matplotlib, PyPDF2.
+      `Execute Python code in an isolated environment. Pre-installed: pandas, numpy, openpyxl, python-docx, matplotlib, seaborn, PyPDF2.
 
 Use this for:
 - Data analysis and computation (pandas, numpy)
 - Reading/writing Excel files (openpyxl)
 - Generating/reading Word documents (python-docx)
-- Data charts plotted from real numbers (matplotlib, seaborn, plotly). For illustrations/covers use \`image_gen\` instead.
+- Data charts plotted from real numbers (matplotlib, seaborn). For illustrations/covers use \`image_gen\` instead.
 - PDF processing (PyPDF2)
 - Any computation that benefits from Python
 
 The script runs with a 30-second timeout by default. Print results to stdout.
-If you need a package that's not installed, first call with install_package parameter.`,
+If you need a package that's not pre-installed (e.g. plotly, scikit-learn), first call with install_package parameter.`,
     parameters: {
       type: "object",
       properties: {
