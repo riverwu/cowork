@@ -88,6 +88,7 @@ export type FontWeight =
 export interface TextStyle {
   fontSize: number;
   weight?: FontWeight;
+  fontWeight?: FontWeight;
   color: string;
   lineHeight: number;
   margin?: { l?: number; r?: number; t?: number; b?: number };
@@ -116,6 +117,8 @@ export interface ComponentStyle {
   accent?: string;
   padding?: number;
   radius?: number;
+  cornerRadius?: number;
+  elevation?: "flat" | "raised" | "floating" | "outlined";
 }
 
 export type ThemeFactory = (brandPrimary: string) => SimpleTheme;
@@ -194,6 +197,9 @@ function stripHexPrefix(value: string): string {
 function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOverride, prebuiltColors?: Record<string, string>): SimpleTheme {
   const flatColors = prebuiltColors ?? flattenColorOverrides(override?.colors);
   const colors = { ...base.colors, ...derivedBrandPalette(brandPrimary), ...flatColors };
+  if (flatColors["text.secondary"] && !flatColors["text.muted"]) {
+    colors["text.muted"] = flatColors["text.secondary"];
+  }
   // Reconcile dependent surface tokens: when the agent overrides
   // `surface` to a dark color (or `background` to dark) but doesn't
   // override `surface.subtle` or `divider`, those default to the
@@ -235,7 +241,7 @@ function mergeTextStyles(base: Record<string, TextStyle>, override?: Record<stri
     const existing = out[key] || base.paragraph || { fontSize: 11, color: "text.primary", lineHeight: 1.4 };
     out[key] = {
       fontSize: typeof value.fontSize === "number" ? value.fontSize : existing.fontSize,
-      weight: value.weight ?? existing.weight,
+      weight: value.weight ?? value.fontWeight ?? existing.weight,
       color: typeof value.color === "string" ? value.color : existing.color,
       lineHeight: typeof value.lineHeight === "number" ? value.lineHeight : existing.lineHeight,
       margin: value.margin ?? existing.margin,
@@ -285,7 +291,11 @@ function mergeComponentStyles(base: Record<string, ComponentStyle>, override?: R
   if (!override) return { ...base };
   const out: Record<string, ComponentStyle> = { ...base };
   for (const [key, value] of Object.entries(override)) {
-    out[key] = { ...(base[key] || {}), ...value };
+    out[key] = {
+      ...(base[key] || {}),
+      ...value,
+      ...(typeof value.cornerRadius === "number" ? { radius: value.cornerRadius } : {}),
+    };
   }
   return out;
 }
@@ -928,6 +938,22 @@ function applySurfaceConsistency(colors: Record<string, string>, flatOverrides: 
       colors["divider"] = mixHex(surfaceHex, isDarkSurface ? "FFFFFF" : "000000", 0.78);
     }
   }
+  if (isDarkSurface) {
+    const tintPairs: Array<[string, string]> = [
+      ["brand.tint", "brand.primary"],
+      ["success.tint", "success"],
+      ["warning.tint", "warning"],
+      ["danger.tint", "danger"],
+    ];
+    for (const [tintKey, baseKey] of tintPairs) {
+      if (userSet(tintKey)) continue;
+      const baseHex = colors[baseKey];
+      if (typeof baseHex !== "string" || !/^[0-9A-Fa-f]{6}$/.test(baseHex)) continue;
+      const cur = colors[tintKey];
+      const curLum = typeof cur === "string" ? relativeLuminanceOfHex(cur) : 0.95;
+      if (curLum > 0.5) colors[tintKey] = mixHex(surfaceHex, baseHex, 0.72);
+    }
+  }
 }
 
 function relativeLuminanceOfHex(hex: string): number {
@@ -946,10 +972,14 @@ function relativeLuminanceOfHex(hex: string): number {
 function derivedBrandPalette(primary: string): Record<string, string> {
   const tint = mixHex(primary, "FFFFFF", 0.85);
   const shade = mixHex(primary, "000000", 0.75);
+  const primaryLum = relativeLuminanceOfHex(primary);
+  const whiteContrast = (1.05) / (primaryLum + 0.05);
+  const blackContrast = (primaryLum + 0.05) / 0.05;
   return {
     "brand.primary": primary,
     "brand.primary.tint": tint,
     "brand.primary.shade": shade,
+    "brand.onPrimary": whiteContrast >= blackContrast ? "FFFFFF" : "000000",
   };
 }
 

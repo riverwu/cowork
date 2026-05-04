@@ -19,6 +19,15 @@ import type { Slideml2SourceDeck, SlideV2 } from "./types.js";
  * override the dependents.
  */
 
+function luminance(hex: string): number {
+  const normalized = hex.replace(/^#/, "");
+  const vals = [0, 2, 4].map((i) => {
+    const channel = parseInt(normalized.slice(i, i + 2), 16) / 255;
+    return channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * vals[0]! + 0.7152 * vals[1]! + 0.0722 * vals[2]!;
+}
+
 describe("dark-theme surface dependents auto-derive", () => {
   it("dark surface override → surface.subtle becomes a dark variant (not light gray)", () => {
     const theme = buildTheme(
@@ -59,6 +68,40 @@ describe("dark-theme surface dependents auto-derive", () => {
     const theme = buildTheme({ primary: "2563EB" }, "default", undefined);
     expect(theme.colors["surface.subtle"].toUpperCase()).toBe("F1F4FA");
     expect(theme.colors["divider"].toUpperCase()).toBe("DDE3EC");
+  });
+
+  it("text.secondary override also feeds text.muted when muted is omitted", () => {
+    const theme = buildTheme(
+      { primary: "E94560" },
+      "default",
+      { colors: { background: "0D1B2A", surface: "1A1A2E", "text.primary": "FFFFFF", "text.secondary": "E0E0E0" } },
+    );
+    expect(theme.colors["text.muted"].toUpperCase()).toBe("E0E0E0");
+  });
+
+  it("dark surface override derives semantic tints as dark fills, not light pastel cards", () => {
+    const theme = buildTheme(
+      { primary: "E94560" },
+      "default",
+      { colors: { background: "0D1B2A", surface: "1A1A2E", "text.primary": "FFFFFF" } },
+    );
+    for (const key of ["brand.tint", "success.tint", "warning.tint", "danger.tint"]) {
+      expect(luminance(theme.colors[key]!), key).toBeLessThan(0.35);
+    }
+  });
+
+  it("agent-friendly theme aliases fontWeight, cornerRadius, and elevation are honored", () => {
+    const theme = buildTheme(
+      { primary: "E94560" },
+      "default",
+      {
+        text: { paragraph: { fontWeight: 700 } },
+        component: { card: { cornerRadius: 0.32, elevation: "raised" } },
+      },
+    );
+    expect(theme.text.paragraph.weight).toBe(700);
+    expect(theme.component.card.radius).toBe(0.32);
+    expect(theme.component.card.elevation).toBe("raised");
   });
 });
 
