@@ -193,9 +193,19 @@ function stripHexPrefix(value: string): string {
 
 function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOverride, prebuiltColors?: Record<string, string>): SimpleTheme {
   const flatColors = prebuiltColors ?? flattenColorOverrides(override?.colors);
+  const colors = { ...base.colors, ...derivedBrandPalette(brandPrimary), ...flatColors };
+  // Reconcile dependent surface tokens: when the agent overrides
+  // `surface` to a dark color (or `background` to dark) but doesn't
+  // override `surface.subtle` or `divider`, those default to the
+  // light-theme constants (F1F4FA / DDE3EC) and create invisible
+  // strips inside cards (vdhl38 log: agent set surface=#1A1A2E for a
+  // dark-themed deck, table headers kept the F1F4FA fill, white
+  // header text became invisible). Auto-derive a slight tone shift
+  // from `surface` so the dependents stay consistent.
+  applySurfaceConsistency(colors, flatColors);
   const merged: SimpleTheme = {
     ...base,
-    colors: { ...base.colors, ...derivedBrandPalette(brandPrimary), ...flatColors },
+    colors,
     text: mergeTextStyles(base.text, override?.text),
     component: mergeComponentStyles(base.component, override?.component),
     tone: { ...base.tone, ...(override?.tone || {}) },
@@ -875,6 +885,62 @@ export function resolveFill(theme: SimpleTheme, value: unknown, fallback = "back
     }
   }
   return { type: "solid", color: color(theme, value, fallback) };
+}
+
+/**
+ * Keep dependent surface tokens consistent when the agent overrides
+ * `surface` (or `background`). If they only set the base surface but the
+ * dependents (`surface.subtle`, `divider`) inherit the light-theme
+ * defaults, dark-themed decks render light strips inside dark cards —
+ * exactly the vdhl38 table-header bug.
+ *
+ * Derivation: nudge `surface` toward white (when dark) or black (when
+ * light) by ~10% to get `surface.subtle`, ~25% for `divider`. Only runs
+ * when the agent didn't explicitly set the dependent.
+ */
+function applySurfaceConsistency(colors: Record<string, string>, flatOverrides: Record<string, string>): void {
+  const userSet = (key: string): boolean => Object.prototype.hasOwnProperty.call(flatOverrides, key);
+  const surfaceHex = colors["surface"];
+  if (typeof surfaceHex !== "string" || !/^[0-9A-Fa-f]{6}$/.test(surfaceHex)) return;
+  const surfaceLum = relativeLuminanceOfHex(surfaceHex);
+  const isDarkSurface = surfaceLum < 0.3;
+  // Only override dependents the user didn't explicitly set themselves.
+  // Also only intervene when the existing dependent is on the wrong side
+  // (light dependent on dark surface, or vice versa) — preserves a user
+  // who overrode `surface` to a mid-toned color where the defaults still
+  // contrast acceptably.
+  // mixHex(a, b, weight) blends a × weight + b × (1 - weight). Weight 0.92
+  // = 92% surface + 8% destination; 0.78 = 78% + 22%. Destination is white
+  // for dark surfaces, black for light surfaces.
+  if (!userSet("surface.subtle")) {
+    const cur = colors["surface.subtle"];
+    const curLum = typeof cur === "string" ? relativeLuminanceOfHex(cur) : 0.95;
+    const inconsistent = isDarkSurface ? curLum > 0.5 : curLum < 0.5;
+    if (inconsistent) {
+      colors["surface.subtle"] = mixHex(surfaceHex, isDarkSurface ? "FFFFFF" : "000000", 0.92);
+    }
+  }
+  if (!userSet("divider")) {
+    const cur = colors["divider"];
+    const curLum = typeof cur === "string" ? relativeLuminanceOfHex(cur) : 0.85;
+    const inconsistent = isDarkSurface ? curLum > 0.5 : curLum < 0.3;
+    if (inconsistent) {
+      colors["divider"] = mixHex(surfaceHex, isDarkSurface ? "FFFFFF" : "000000", 0.78);
+    }
+  }
+}
+
+function relativeLuminanceOfHex(hex: string): number {
+  const cleaned = hex.replace(/^#/, "");
+  if (!/^[0-9A-Fa-f]{6}$/.test(cleaned)) return 1;
+  const toLin = (n: number) => {
+    const s = n / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const r = toLin(parseInt(cleaned.slice(0, 2), 16));
+  const g = toLin(parseInt(cleaned.slice(2, 4), 16));
+  const b = toLin(parseInt(cleaned.slice(4, 6), 16));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 function derivedBrandPalette(primary: string): Record<string, string> {
