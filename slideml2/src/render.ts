@@ -682,15 +682,22 @@ function runShapeVisibilityCheck(slideId: string, slide: { shapes: ShapeList; ba
       // empty rather than as separate modules.)
       //
       // SKIP if the shape already has a visible shadow — elevation
-      // "raised"/"floating" cards intentionally use shadow as their
-      // distinguishing visual instead of a border. Adding a border on
-      // top would override the floating-card design language.
-      const hasShadow = !!(shape as { shadow?: { color?: string; alpha?: number } }).shadow;
+      // SKIP if the shape carries a STRONG shadow — `floating`
+      // elevation uses shadow as the primary boundary signal (alpha
+      // ~0.28, blur ~14pt), so adding a border would override the
+      // intended floating-card look. `raised` (alpha ~0.18, blur ~6pt)
+      // is too subtle to delineate the card on a same-color slide bg
+      // by itself, so we still add a border there.
+      const shadow = (shape as { shadow?: { alpha?: number; blur?: number } }).shadow;
+      const hasStrongShadow = !!shadow && (
+        (typeof shadow.alpha === "number" && shadow.alpha >= 0.25)
+        || (typeof shadow.blur === "number" && shadow.blur >= 100000)
+      );
       // SKIP if the agent supplied a non-solid line treatment (dash etc.)
       // — overwriting their explicit `dash` style with a default border
       // would lose intent.
       const hasAgentLineStyle = !!(shape.line && typeof (shape.line as { dash?: string }).dash === "string");
-      if (!hasShadow && !hasAgentLineStyle) {
+      if (!hasStrongShadow && !hasAgentLineStyle) {
         // pickBorderForSurface already filters by the same 1.5:1
         // dual-contrast threshold; if it returns a hex, that hex is
         // guaranteed to contrast with both surface and fill — no need
@@ -797,8 +804,9 @@ export function measureDeck(deck: RenderedDeck): Array<{ slideId: string; nodes:
 function detectCollisionsForSlide(slideId: string, measured: MeasuredNode[], slideDom: DomNode): void {
   const overlayIds = collectOverlayIds(slideDom);
   const skipIds = collectCaptionPairs(measured);
+  const layeredIds = collectLayeredIds(slideDom);
   const candidates = measured.filter((node) =>
-    node.id !== slideDom.id && !overlayIds.has(node.id) && !skipIds.has(node.id),
+    node.id !== slideDom.id && !overlayIds.has(node.id) && !skipIds.has(node.id) && !layeredIds.has(node.id),
   );
   const containerIds = collectContainerIds(slideDom);
   for (let i = 0; i < candidates.length; i++) {
@@ -825,6 +833,24 @@ function detectCollisionsForSlide(slideId: string, measured: MeasuredNode[], sli
 function collectOverlayIds(slideDom: DomNode): Set<string> {
   const ids = new Set<string>();
   for (const child of slideDom.children || []) if (isOverlayChild(child)) ids.add(child.id);
+  return ids;
+}
+
+/**
+ * Collect ids of nodes with `layer:"behind"` or `"above"` anywhere in
+ * the slide tree. Layered children intentionally overlap their flow
+ * siblings (that's the whole point), so the collision detector skips
+ * them — without this, a `behind` image filling a card's content rect
+ * would trigger COLLISION against every flow sibling inside the card.
+ */
+function collectLayeredIds(root: DomNode): Set<string> {
+  const ids = new Set<string>();
+  const walk = (n: DomNode) => {
+    if (!n || typeof n !== "object") return;
+    if (n.layer === "behind" || n.layer === "above") ids.add(n.id);
+    for (const c of (n.children || [])) walk(c);
+  };
+  walk(root);
   return ids;
 }
 
@@ -1035,8 +1061,22 @@ function layoutSlide(theme: SimpleTheme, slideDom: DomNode): LayoutResult {
   currentSlideId = slideDom.id.replace(/\.root$/, "") || slideDom.id;
   ancestorStack.length = 0;
   try {
-    for (const child of slideDom.children || []) {
+    // Pass 1: lay out flow + slide-anchor overlays. anchorTo overlays
+    // are deferred so their target rects exist in rectsById first.
+    const allChildren = slideDom.children || [];
+    const deferred: DomNode[] = [];
+    for (const child of allChildren) {
+      if (isAnchorToOverlay(child)) {
+        deferred.push(child);
+        continue;
+      }
       const childRect = rectForSlideChild(theme, child);
+      measureSubtree(theme, child, childRect, measured, rectsById);
+    }
+    // Pass 2: anchorTo overlays — reference frame is the target's rect.
+    for (const child of deferred) {
+      const childRect = rectForAnchorToOverlay(child, rectsById);
+      if (!childRect) continue; // target not found; skip rather than crash.
       measureSubtree(theme, child, childRect, measured, rectsById);
     }
   } finally {
@@ -1046,10 +1086,44 @@ function layoutSlide(theme: SimpleTheme, slideDom: DomNode): LayoutResult {
   return { measured, rectsById };
 }
 
+/**
+ * Resolve an `anchorTo` overlay's rect against its target's rect.
+ * Returns null when the target id isn't found — caller skips emission.
+ *
+ * Honors the same anchor / offsetX / offsetY / width / height fields as
+ * a slide-anchored overlay, but the reference frame is the target rect
+ * rather than the slide canvas.
+ */
+function rectForAnchorToOverlay(node: DomNode, rectsById: Map<string, Rect>): Rect | null {
+  const targetId = typeof node.anchorTo === "string" ? node.anchorTo : "";
+  if (!targetId) return null;
+  const target = rectsById.get(targetId);
+  if (!target) return null;
+  const anchor = (typeof node.anchor === "string" && ANCHOR_POINTS.has(node.anchor) ? node.anchor : "top-right") as AnchorPoint;
+  const ox = numberProp(node, "offsetX", 0);
+  const oy = numberProp(node, "offsetY", 0);
+  const w = numberProp(node, "width", node.type === "image" ? 4 : 3);
+  const h = numberProp(node, "height", node.type === "image" ? 3 : 1.2);
+  let x = 0;
+  let y = 0;
+  if (anchor.endsWith("-left")) x = target.x + ox;
+  else if (anchor.endsWith("-center")) x = target.x + (target.w - w) / 2 + ox;
+  else x = target.x + target.w - w - ox;
+  if (anchor.startsWith("top-")) y = target.y + oy;
+  else if (anchor.startsWith("middle-")) y = target.y + (target.h - h) / 2 + oy;
+  else y = target.y + target.h - h - oy;
+  return { x, y, w, h };
+}
+
 function isOverlayChild(node: DomNode): boolean {
   if (typeof node.anchor === "string" && ANCHOR_POINTS.has(node.anchor)) return true;
+  if (typeof node.anchorTo === "string" && node.anchorTo.length > 0) return true;
   if (node.type === "image" && (node.position === "bottom-right" || node.position === "top-right" || node.position === "center")) return true;
   return false;
+}
+
+function isAnchorToOverlay(node: DomNode): boolean {
+  return typeof node.anchorTo === "string" && node.anchorTo.length > 0;
 }
 
 function flowChildren(slideDom: DomNode): DomNode[] {
@@ -1333,6 +1407,39 @@ function toneTokens(tone: unknown): { fill?: string; line?: string; fg?: string;
   return {};
 }
 
+function readableTextColorForFill(theme: SimpleTheme, fillToken: string, preferredToken?: string): string {
+  const fillHex = color(theme, fillToken, "surface");
+  const candidates = [
+    preferredToken,
+    fillToken === "brand.primary" ? "brand.onPrimary" : undefined,
+    "text.inverse",
+    "text.primary",
+    "000000",
+    "FFFFFF",
+  ].filter((token): token is string => typeof token === "string" && token.length > 0);
+  let best: { token: string; ratio: number } | null = null;
+  for (const token of candidates) {
+    const hex = color(theme, token, token);
+    const ratio = contrastRatio(hex, fillHex);
+    if (!best || ratio > best.ratio) best = { token, ratio };
+    if (ratio >= 4.5) return token;
+  }
+  return best?.token || preferredToken || "text.primary";
+}
+
+function withDefaultTextColor(node: DomNode, colorToken: string): DomNode {
+  if (node.type === "text" || node.type === "bullets") {
+    return typeof node.color === "string" && node.color.trim() ? node : { ...node, color: colorToken };
+  }
+  if (Array.isArray(node.children) && node.children.length > 0) {
+    return {
+      ...node,
+      children: node.children.map((child) => withDefaultTextColor(child, colorToken)),
+    };
+  }
+  return node;
+}
+
 /**
  * Elevation → outerShdw parameters in EMU.
  *   - flat:     no shadow, full border (the renderer's prior default)
@@ -1505,6 +1612,7 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
           : toneTokens(toneRaw);
   const style = theme.component.band || {};
   const fillToken = stringProp(node, "fill", tone.fill || style.fill || "surface.subtle");
+  const childFgToken = readableTextColorForFill(theme, fillToken, tone.fg);
   const cornerRadius = optionalNumberProp(node, "cornerRadius") ?? style.radius ?? 0;
   // umzrkm fix: agents reach for `band` when they want a thin colored
   // divider line ({ type:"band", tone:"brand", height:0.05 }) — `height`
@@ -1538,7 +1646,7 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const child = decorativeChild(node);
   if (child) {
     rectsById.set(child.id, innerRect);
-    shapes.push(...renderNode(theme, child, innerRect, rectsById, ids, slideId));
+    shapes.push(...renderNode(theme, withDefaultTextColor(child, childFgToken), innerRect, rectsById, ids, slideId));
   }
   return shapes;
 }
@@ -1613,13 +1721,7 @@ function renderStack(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
   // FALLBACK_FAILED on the stale stack path.
   const oriented = autoOrientFlow(node, rect);
   if (oriented.type === "grid") return renderGrid(theme, oriented, rect, rectsById, ids, slideId);
-  return [
-    ...containerBackgroundShape(theme, oriented, rect, ids),
-    ...layoutStackChildren(theme, oriented, contentRect(theme, oriented, rect)).flatMap(({ node: child, rect: childRect }) => {
-      rectsById.set(child.id, childRect);
-      return renderNode(theme, child, childRect, rectsById, ids, slideId);
-    }),
-  ];
+  return assembleLayeredContainer(theme, oriented, rect, rectsById, ids, slideId, layoutStackChildren);
 }
 
 function renderGrid(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
@@ -1627,12 +1729,61 @@ function renderGrid(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   if (children.length === 0) return [];
   const oriented = autoOrientFlow(node, rect);
   if (oriented.type === "stack") return renderStack(theme, oriented, rect, rectsById, ids, slideId);
+  return assembleLayeredContainer(theme, oriented, rect, rectsById, ids, slideId, layoutGridChildren);
+}
+
+/**
+ * Render a stack/grid container with layered children: backing → behind
+ * children → flow children → above children. Layered children fill the
+ * parent's content rect (set by layoutStack/GridChildren). Render order
+ * matches z-order — behind first, flow next, above last.
+ */
+function assembleLayeredContainer(
+  theme: SimpleTheme,
+  node: DomNode,
+  rect: Rect,
+  rectsById: Map<string, Rect>,
+  ids: { nextId: number },
+  slideId: string,
+  layoutFn: (theme: SimpleTheme, node: DomNode, rect: Rect) => Array<{ node: DomNode; rect: Rect }>,
+): ShapeList {
+  const inner = contentRect(theme, node, rect);
+  const placements = layoutFn(theme, node, inner);
+  // If the parent container declares a cornerRadius (panel/card-like
+  // round shape) and a layered image child has no explicit clip, inherit
+  // the radius so the image fits the container's rounded corners. This
+  // is the lightweight clipping case — full container clipping for all
+  // child types is harder in OOXML and out of scope here.
+  const parentCornerRadius = optionalNumberProp(node, "cornerRadius");
+  const behind: ShapeList = [];
+  const flow: ShapeList = [];
+  const above: ShapeList = [];
+  for (const { node: child, rect: childRect } of placements) {
+    const isLayeredImage = child.type === "image" && (child.layer === "behind" || child.layer === "above");
+    const shouldInheritClip = isLayeredImage
+      && typeof parentCornerRadius === "number" && parentCornerRadius > 0
+      && child.clip === undefined;
+    if (shouldInheritClip) {
+      // Mutate a shallow clone — don't touch the source DOM.
+      const clipped: DomNode = { ...child, clip: "rounded", cornerRadius: parentCornerRadius };
+      rectsById.set(clipped.id, childRect);
+      const shapes = renderNode(theme, clipped, childRect, rectsById, ids, slideId);
+      const layer = clipped.layer === "behind" ? "behind" : "above";
+      if (layer === "behind") behind.push(...shapes); else above.push(...shapes);
+      continue;
+    }
+    rectsById.set(child.id, childRect);
+    const shapes = renderNode(theme, child, childRect, rectsById, ids, slideId);
+    const layer = child.layer === "behind" ? "behind" : child.layer === "above" ? "above" : "flow";
+    if (layer === "behind") behind.push(...shapes);
+    else if (layer === "above") above.push(...shapes);
+    else flow.push(...shapes);
+  }
   return [
-    ...containerBackgroundShape(theme, oriented, rect, ids),
-    ...layoutGridChildren(theme, oriented, contentRect(theme, oriented, rect)).flatMap(({ node: child, rect: childRect }) => {
-      rectsById.set(child.id, childRect);
-      return renderNode(theme, child, childRect, rectsById, ids, slideId);
-    }),
+    ...containerBackgroundShape(theme, node, rect, ids),
+    ...behind,
+    ...flow,
+    ...above,
   ];
 }
 
@@ -1977,7 +2128,10 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   const widthsInput = Array.isArray(node.colWidths) ? node.colWidths : (widthsFromColumns && widthsFromColumns.some((w) => w > 0) ? widthsFromColumns : undefined);
   const colWidths = resolveTableColWidths(widthsInput, colCount, rect.w);
   const rowHeightsCm = resolveTableRowHeights(node.rowHeights, rowCount, rect.h);
-  const cells = makeTableCells(theme, allRows, colCount, firstRowHeader, cellAlign);
+  const cells = makeTableCells(theme, allRows, colCount, firstRowHeader, cellAlign, {
+    headerFill: typeof node.headerFill === "string" ? node.headerFill : undefined,
+    bodyFill: typeof node.bodyFill === "string" ? node.bodyFill : undefined,
+  });
   pushTableFitDiagnostics(theme, node, rect, allRows, colWidths, rowHeightsCm, firstRowHeader);
   return {
     type: "table",
@@ -1993,7 +2147,14 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   };
 }
 
-function makeTableCells(theme: SimpleTheme, rows: unknown[][], colCount: number, firstRowHeader: boolean, defaultAlign: "left" | "center" | "right"): TableCell[][] {
+function makeTableCells(
+  theme: SimpleTheme,
+  rows: unknown[][],
+  colCount: number,
+  firstRowHeader: boolean,
+  defaultAlign: "left" | "center" | "right",
+  defaults: { headerFill?: string; bodyFill?: string } = {},
+): TableCell[][] {
   const out: TableCell[][] = [];
   const occupied: boolean[][] = [];
   for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
@@ -2012,7 +2173,7 @@ function makeTableCells(theme: SimpleTheme, rows: unknown[][], colCount: number,
       const rowspan = Math.max(1, Math.floor(typeof rec.rowspan === "number" ? rec.rowspan : 1));
       const isHeader = rowIndex === 0 && firstRowHeader;
       row[colIndex] = {
-        ...makeTableCell(theme, raw, isHeader, defaultAlign),
+        ...makeTableCell(theme, raw, isHeader, defaultAlign, defaults),
         ...(colspan > 1 ? { colspan } : {}),
         ...(rowspan > 1 ? { rowspan } : {}),
       };
@@ -2030,7 +2191,7 @@ function makeTableCells(theme: SimpleTheme, rows: unknown[][], colCount: number,
     }
     while (colIndex < colCount) {
       if (occupied[rowIndex]?.[colIndex]) row[colIndex] = coveredTableCell(occupiedByHorizontalMerge(occupied, rowIndex, colIndex), true);
-      else row[colIndex] = makeTableCell(theme, "", rowIndex === 0 && firstRowHeader, defaultAlign);
+      else row[colIndex] = makeTableCell(theme, "", rowIndex === 0 && firstRowHeader, defaultAlign, defaults);
       colIndex++;
     }
   }
@@ -2076,7 +2237,13 @@ function resolveTableRowHeights(raw: unknown, rowCount: number, totalCm: number)
   return Array.from({ length: rowCount }, () => totalCm / rowCount);
 }
 
-function makeTableCell(theme: SimpleTheme, raw: unknown, isHeader: boolean, defaultAlign: "left" | "center" | "right"): TableCell {
+function makeTableCell(
+  theme: SimpleTheme,
+  raw: unknown,
+  isHeader: boolean,
+  defaultAlign: "left" | "center" | "right",
+  defaults: { headerFill?: string; bodyFill?: string } = {},
+): TableCell {
   const kind = isHeader ? "table-header" : "table-cell";
   const style = textStyle(theme, kind, "table-cell");
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -2085,7 +2252,7 @@ function makeTableCell(theme: SimpleTheme, raw: unknown, isHeader: boolean, defa
     const customRuns = Array.isArray(cell.runs) ? cell.runs : null;
     const align = cell.align === "left" || cell.align === "center" || cell.align === "right" ? cell.align : (isHeader ? "center" : defaultAlign);
     const valign = cell.valign === "top" || cell.valign === "bottom" || cell.valign === "middle" ? cell.valign : "middle";
-    const fillToken = typeof cell.fill === "string" ? cell.fill : isHeader ? "surface.subtle" : undefined;
+    const fillToken = typeof cell.fill === "string" ? cell.fill : isHeader ? (defaults.headerFill || "surface.subtle") : defaults.bodyFill;
     const colorToken = typeof cell.color === "string" ? cell.color : undefined;
     const bold = cell.bold === true || (isStyleBold(style.weight));
     const runs: TextRun[] = customRuns
@@ -2101,7 +2268,9 @@ function makeTableCell(theme: SimpleTheme, raw: unknown, isHeader: boolean, defa
   const text = String(raw ?? "");
   return {
     runs: [{ text, sizeHalfPt: style.fontSize * 2, bold: isStyleBold(style.weight), color: color(theme, undefined, style.color), fontFace: containsCjk(text) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"), cjk: true }],
-    fill: isHeader ? { type: "solid", color: color(theme, "surface.subtle") } : undefined,
+    fill: isHeader
+      ? { type: "solid", color: color(theme, defaults.headerFill || "surface.subtle") }
+      : defaults.bodyFill ? { type: "solid", color: color(theme, defaults.bodyFill) } : undefined,
     align: isHeader ? "center" : defaultAlign,
     valign: "middle",
   };
@@ -2727,12 +2896,32 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
   const mainSize = direction === "horizontal" ? rect.w : rect.h;
   const crossSize = direction === "horizontal" ? rect.h : rect.w;
   const gap = gapCm(theme, node);
-  const initialChildren = node.children || [];
-  if (initialChildren.length === 0) return [];
+  const allChildren = node.children || [];
+  if (allChildren.length === 0) return [];
+  // Layered children (`layer:"behind"` / `"above"`) claim no main-axis
+  // space. They fill the parent's content rect and are rendered
+  // beneath / above flow children in renderStack/renderGrid.
+  const isLayered = (c: DomNode) => c.layer === "behind" || c.layer === "above";
+  const flowOnly = allChildren.filter((c) => !isLayered(c));
+  const layered = allChildren.filter(isLayered);
+  // Stash flow children on the node so applyFallbackLadder operates on
+  // them only; restore after.
+  const savedChildren = node.children;
+  node.children = flowOnly;
+  const initialChildren = flowOnly;
+  if (initialChildren.length === 0) {
+    node.children = savedChildren;
+    return layered.map((c) => ({ node: c, rect }));
+  }
   const initialAvailable = Math.max(0, mainSize - gap * (initialChildren.length - 1));
   applyFallbackLadder(theme, node, direction, initialAvailable, crossSize);
   const children = node.children || [];
-  if (children.length === 0) return [];
+  // Restore the full child list so renderStack still iterates the full
+  // set including layered ones.
+  node.children = savedChildren;
+  if (children.length === 0) {
+    return layered.map((c) => ({ node: c, rect }));
+  }
   const availableMain = Math.max(0, mainSize - gap * (children.length - 1));
   const childSpecs = children.map((child) => childMainSpec(theme, child, direction, crossSize));
   if (currentSlideId) {
@@ -2767,7 +2956,7 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
     });
   }
   let cursor = (direction === "horizontal" ? rect.x : rect.y) + startOffset;
-  return children.map((child, index) => {
+  const flowOut = children.map((child, index) => {
     const size = childSizes[index]!;
     const cross = childCrossRect(child, direction === "horizontal" ? rect.y : rect.x, crossSize, node, child);
     const childRect = direction === "horizontal"
@@ -2776,6 +2965,8 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
     cursor += size + gap;
     return { node: child, rect: childRect };
   });
+  if (layered.length === 0) return flowOut;
+  return [...flowOut, ...layered.map((c) => ({ node: c, rect }))];
 }
 
 function childCrossRect(child: DomNode, parentCrossStart: number, parentCrossSize: number, parent: DomNode, _self: DomNode): { start: number; size: number } {
@@ -2852,8 +3043,16 @@ function computeGridPlacements(children: DomNode[], columns: number): GridPlacem
 }
 
 function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Array<{ node: DomNode; rect: Rect }> {
-  const children = node.children || [];
-  if (children.length === 0) return [];
+  const allChildren = node.children || [];
+  if (allChildren.length === 0) return [];
+  // Layered children skip grid placement and fill the grid's content rect.
+  const isLayered = (c: DomNode) => c.layer === "behind" || c.layer === "above";
+  const flowOnly = allChildren.filter((c) => !isLayered(c));
+  const layered = allChildren.filter(isLayered);
+  if (flowOnly.length === 0) {
+    return layered.map((c) => ({ node: c, rect }));
+  }
+  const children = flowOnly;
   const columns = Math.max(1, numberProp(node, "columns", 2));
   const placements = computeGridPlacements(children, columns);
   const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
@@ -2867,7 +3066,7 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
   const colWidths = colX.map((col) => col.size);
   const rowHeights = resolveGridRowHeights(theme, placements, columns, rows, availableHeight, colWidths, gap, node.rowWeights);
   const rowY = positionsFromSizes(rect.y, gap, rowHeights);
-  return placements.map(({ child, row, col, rowSpan, colSpan }) => {
+  const flowOut = placements.map(({ child, row, col, rowSpan, colSpan }) => {
     const x = colX[col]!.start;
     const y = rowY[row]!.start;
     let w = 0;
@@ -2878,6 +3077,8 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
     if (rowSpan > 1) h += gap * (rowSpan - 1);
     return { node: child, rect: { x, y, w, h } };
   });
+  if (layered.length === 0) return flowOut;
+  return [...flowOut, ...layered.map((c) => ({ node: c, rect }))];
 }
 
 function resolveMainSizes(theme: SimpleTheme, children: DomNode[], direction: "horizontal" | "vertical", availableMain: number, crossSize: number): number[] {

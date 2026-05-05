@@ -500,7 +500,7 @@ export function kpiGrid(slideId: string, id: string, metrics: Array<{ name?: str
     columns: cols,
     gap: 0.5,
     role: "kpi-grid",
-    children: metrics.map((m, index) => metricCard(slideId, m.name || `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend })),
+    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend })),
   };
 }
 
@@ -839,7 +839,19 @@ export function processFlow(slideId: string, id: string, options: { steps: Array
         // 96vi8n slide 20: body minHeight 0.4 → 0.7 fits 2 lines instead
         // of 1, matching typical step-description sentences. Body still
         // optional so dense rows can drop it.
-        ...(step.body && step.body.trim() ? [{ id: `${slideId}.${id}.step${index + 1}.body`, type: "text" as const, text: step.body.trim(), style: "caption", align: "center" as const, valign: "top" as const, minHeight: dense || verticalDense ? 0.5 : 0.9, autoFit: "shrink" as const, optional: true }] : []),
+        ...(step.body && step.body.trim() ? [{
+          id: `${slideId}.${id}.step${index + 1}.body`,
+          type: "text" as const,
+          text: step.body.trim(),
+          style: "caption",
+          align: "center" as const,
+          valign: "top" as const,
+          ...(direction === "horizontal"
+            ? { fixedHeight: dense ? 0.5 : 0.9 }
+            : { minHeight: verticalDense ? 0.5 : 0.9 }),
+          autoFit: "shrink" as const,
+          optional: true,
+        }] : []),
       ],
       layoutWeight: 4,
     });
@@ -1140,7 +1152,7 @@ export function keyTakeaway(
       text: options.headline,
       style: "section-title",
       size: "lg",
-      color: accentToken,
+      color: "text.primary",
       align: "left",
     },
   ];
@@ -1905,32 +1917,22 @@ export function outline(
     const numberColor = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : accentToken;
     const rowChildren: DomNode[] = [];
     if (anyNumbered) {
-      // Reserve the number column on every row (even blank ones) so
-      // titles stay aligned across items. 96vi8n slide 3: without a
-      // height cap the number text inherited the row's full ~1.7cm and
-      // the digits looked vertically stretched. We wrap the number in a
-      // valign:"top" container with bounded fixedHeight so the digit
-      // stays a label, not a metric, regardless of row height.
+      // Reserve the number column on every row (even blank ones) so titles
+      // stay aligned across items. Keep it as a direct fixed-width text node:
+      // wrapping it in a vertical stack lets container natural-size logic
+      // expand the number column, creating a huge gap before the title.
       rowChildren.push({
-        id: `${slideId}.${id}.${idx}.num.wrap`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0,
+        id: `${slideId}.${id}.${idx}.num`,
+        type: "text",
+        text: numberText,
+        style: veryCompact ? "label" : "metric-label",
+        weight: "bold",
+        color: numberColor,
+        align: "left",
         valign: "top",
-        align: "start",
         fixedWidth: veryCompact ? 0.8 : compact ? 1.0 : 1.4,
-        children: [{
-          id: `${slideId}.${id}.${idx}.num`,
-          type: "text",
-          text: numberText,
-          style: veryCompact ? "label" : "metric-label",
-          weight: "bold",
-          color: numberColor,
-          align: "left",
-          valign: "top",
-          fixedHeight: veryCompact ? 0.6 : compact ? 0.8 : 1.0,
-          autoFit: "shrink",
-        }],
+        fixedHeight: veryCompact ? 0.6 : compact ? 0.8 : 1.0,
+        autoFit: "shrink",
       });
     }
     const titleStack: DomNode = {
@@ -2214,10 +2216,7 @@ export function comparisonTable(
   const headerRow: DomNode[] = [
     {
       id: `${slideId}.${id}.h0`,
-      type: "text",
-      text: " ",
-      style: "label",
-      align: "left",
+      type: "spacer",
       fixedHeight: 0.9,
     },
     ...opts.map((opt, idx) => ({
@@ -2237,7 +2236,7 @@ export function comparisonTable(
           text: "RECOMMENDED",
           style: "label",
           weight: "bold" as const,
-          color: "brand.primary",
+          color: "text.primary",
           align: "center" as const,
           tracking: "wide" as const,
           minHeight: 0.32,
@@ -2249,7 +2248,7 @@ export function comparisonTable(
           text: opt.name,
           style: "card-title",
           weight: "bold" as const,
-          color: opt.recommended ? "brand.primary" : "text.primary",
+          color: "text.primary",
           align: "center" as const,
           minHeight: 0.5,
           autoFit: "shrink" as const,
@@ -2916,6 +2915,15 @@ export function donutSummary(
   const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
   const allValues = [primary.value, ...others.map((o) => o.value)];
   const total = allValues.reduce((a, b) => a + b, 0) || 1;
+  const entries = [primary, ...others];
+  const palette = [
+    accent,
+    "text.muted",
+    "brand.tint",
+    "warning.tint",
+    "success.tint",
+    "danger.tint",
+  ];
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "grid",
@@ -2928,12 +2936,25 @@ export function donutSummary(
         id: `${slideId}.${id}.ring`,
         type: "stack",
         direction: "vertical",
-        gap: 0.15,
+        gap: 0.12,
         align: "center",
         valign: "middle",
         children: [
-          { id: `${slideId}.${id}.value`, type: "text", text: `${Math.round((primary.value / total) * 100)}%${unit ? ` ${unit}` : ""}`, style: "hero", color: accent, align: "center", autoFit: "shrink", minHeight: 1.4 },
+          {
+            id: `${slideId}.${id}.chart`,
+            type: "chart",
+            chartType: "doughnut",
+            labels: entries.map((entry) => entry.label),
+            series: [{ name: primary.label, values: entries.map((entry) => entry.value) }],
+            colors: palette.slice(0, entries.length),
+            showLegend: false,
+            showValues: false,
+            layoutWeight: 1,
+            minHeight: 2.2,
+          },
+          { id: `${slideId}.${id}.value`, type: "text", text: `${Math.round((primary.value / total) * 100)}%`, style: "hero", color: accent, align: "center", autoFit: "shrink", minHeight: 0.95 },
           { id: `${slideId}.${id}.label`, type: "text", text: primary.label, style: "card-title", color: "text.primary", align: "center", autoFit: "shrink", minHeight: 0.55 },
+          ...(unit ? [{ id: `${slideId}.${id}.unit`, type: "text" as const, text: unit, style: "source-note", color: "text.muted", align: "center" as const, autoFit: "shrink" as const, optional: true }] : []),
         ],
       },
       // Right: legend of primary + others
@@ -2943,9 +2964,9 @@ export function donutSummary(
         direction: "vertical",
         gap: 0.18,
         valign: "middle",
-        children: [primary, ...others].map((entry, idx) => {
+        children: entries.map((entry, idx) => {
           const isPrimary = idx === 0;
-          const dotColor = isPrimary ? accent : ["text.muted", "brand.tint", "warning.tint", "success.tint"][idx % 4];
+          const dotColor = isPrimary ? accent : palette[idx % palette.length];
           const pct = Math.round((entry.value / total) * 100);
           return {
             id: `${slideId}.${id}.legend.${idx}`,
@@ -3151,6 +3172,100 @@ export function decorationGrid(
 }
 
 /**
+ * decorative-shapes — anchored vector motif made of lightweight shapes.
+ * Use for background texture, corner ornaments, confetti, bubbles, abstract
+ * blobs, or simple science/tech atmosphere without requiring generated images.
+ */
+export function decorativeShapes(
+  slideId: string,
+  id: string,
+  options: {
+    motif?: "bubbles" | "confetti" | "corner-blobs" | "sparkles" | "molecule";
+    position?: "top-left" | "top-right" | "bottom-left" | "bottom-right" | "full";
+    tone?: "muted" | "brand" | "accent" | "warning";
+    count?: number;
+    width?: number;
+    height?: number;
+    asBackground?: boolean;
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const motif = options.motif || "bubbles";
+  const position = options.position || "top-right";
+  const tone = options.tone || "muted";
+  const count = Math.max(3, Math.min(40, Math.floor(options.count || (position === "full" ? 24 : motif === "corner-blobs" ? 6 : 12))));
+  const columns = position === "full" ? Math.ceil(Math.sqrt(count * 1.7)) : Math.ceil(Math.sqrt(count * 1.4));
+  const rows = Math.ceil(count / columns);
+  const palette = decorativePalette(tone);
+  const children: DomNode[] = Array.from({ length: count }, (_, index) => {
+    const preset = decorativePreset(motif, index);
+    const size = decorativeSize(motif, index);
+    const token = palette[index % palette.length]!;
+    const rotation = motif === "confetti" ? ((index % 5) - 2) * 17 : motif === "sparkles" ? (index % 2) * 18 : undefined;
+    return {
+      id: `${slideId}.${id}.${index}`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0,
+      align: "center",
+      valign: "middle",
+      children: [{
+        id: `${slideId}.${id}.${index}.mark`,
+        type: "shape",
+        preset,
+        fill: preset === "line" ? undefined : token,
+        line: token,
+        lineWidth: preset === "line" ? 0.035 : 0.018,
+        fixedWidth: preset === "line" ? size * 1.8 : size,
+        fixedHeight: preset === "line" ? 0.04 : size,
+        ...(rotation !== undefined ? { rotation } : {}),
+      }],
+    };
+  });
+  const isFull = position === "full";
+  const asBackground = options.asBackground !== false;
+  const node: DomNode = {
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns,
+    rows,
+    gap: motif === "corner-blobs" ? 0.1 : position === "full" ? 0.35 : 0.22,
+    role: "decorative-shapes",
+    children,
+    anchor: isFull ? "top-left" : position,
+    width: isFull ? undefined : options.width || 5.2,
+    height: isFull ? undefined : options.height || 3.4,
+    offsetX: isFull ? 0 : 0.35,
+    offsetY: isFull ? 0 : 0.35,
+    ...(isFull ? { fillSlide: true } : {}),
+    zIndex: asBackground ? -1 : 2,
+  };
+  return applyAgentSurface(node, options);
+}
+
+function decorativePalette(tone: "muted" | "brand" | "accent" | "warning"): string[] {
+  if (tone === "brand") return ["brand.primary", "brand.tint", "divider"];
+  if (tone === "accent") return ["accent", "brand.primary", "success", "warning"];
+  if (tone === "warning") return ["warning", "danger", "accent"];
+  return ["divider", "text.muted", "surface.subtle"];
+}
+
+function decorativePreset(motif: string, index: number): "ellipse" | "rect" | "triangle" | "star-5" | "line" | "cloud" {
+  if (motif === "confetti") return (["rect", "triangle", "line", "star-5"] as const)[index % 4]!;
+  if (motif === "sparkles") return index % 3 === 0 ? "star-5" : "ellipse";
+  if (motif === "molecule") return index % 4 === 3 ? "line" : "ellipse";
+  if (motif === "corner-blobs") return index % 5 === 0 ? "cloud" : "ellipse";
+  return "ellipse";
+}
+
+function decorativeSize(motif: string, index: number): number {
+  if (motif === "corner-blobs") return [1.1, 0.75, 0.55, 0.9, 0.42, 0.65][index % 6]!;
+  if (motif === "confetti") return [0.22, 0.3, 0.45, 0.26][index % 4]!;
+  if (motif === "sparkles") return [0.32, 0.16, 0.22][index % 3]!;
+  if (motif === "molecule") return [0.28, 0.18, 0.24, 0.5][index % 4]!;
+  return [0.22, 0.34, 0.16, 0.42][index % 4]!;
+}
+
+/**
  * corner-mark — small ribbon/stamp/tag in a slide corner. Use for
  * draft markers, version labels, status badges that should not
  * compete with main content.
@@ -3336,6 +3451,77 @@ export function arrowLink(
     align: "center",
     valign: "middle",
     children,
+  } as DomNode, options);
+}
+
+/**
+ * pointer-arrow — anchored overlay arrow for pointing at specific chart,
+ * image, or diagram regions. Unlike arrow-link, it does not take layout
+ * space in the main flow.
+ */
+export function pointerArrow(
+  slideId: string,
+  id: string,
+  options: {
+    label?: string;
+    direction?: "right" | "left" | "down" | "up";
+    anchor?: "top-left" | "top-center" | "top-right" | "middle-left" | "middle-center" | "middle-right" | "bottom-left" | "bottom-center" | "bottom-right";
+    offsetX?: number;
+    offsetY?: number;
+    width?: number;
+    height?: number;
+    tone?: "brand" | "positive" | "warning" | "danger";
+    style?: "solid" | "dashed";
+  } & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const direction = options.direction || "right";
+  const tone = options.tone || "brand";
+  const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const horizontal = direction === "right" || direction === "left";
+  const hasLabel = Boolean(options.label && options.label.trim());
+  const width = Math.max(options.width || (horizontal ? 3.4 : 1.6), horizontal ? (hasLabel ? 2.2 : 1.8) : 1.2);
+  const height = Math.max(options.height || (horizontal ? (hasLabel ? 1.1 : 0.75) : 2.4), horizontal ? (hasLabel ? 1.4 : 0.85) : (hasLabel ? 2.8 : 2.1));
+  const arrowPreset = horizontal ? "arrow-right" : "arrow-down";
+  const arrow: DomNode = {
+    id: `${slideId}.${id}.shape`,
+    type: "shape",
+    preset: arrowPreset,
+    fill: accent,
+    line: accent,
+    lineWidth: 0.035,
+    ...(options.style === "dashed" ? { lineDash: "dash" } : {}),
+    fixedWidth: horizontal ? Math.max(1.2, width - 0.3) : 0.8,
+    fixedHeight: horizontal ? 0.55 : Math.max(1.2, height - (hasLabel ? 0.72 : 0.3)),
+    ...(direction === "left" ? { flipH: true } : {}),
+    ...(direction === "up" ? { flipV: true } : {}),
+  };
+  const label = hasLabel ? {
+    id: `${slideId}.${id}.label`,
+    type: "text" as const,
+    text: (options.label ?? "").trim(),
+    style: "label",
+    weight: "bold",
+    color: accent,
+    align: "center" as const,
+    valign: "middle" as const,
+    autoFit: "shrink" as const,
+    minHeight: 0.35,
+  } : null;
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.08,
+    role: "pointer-arrow",
+    align: "center",
+    valign: "middle",
+    anchor: options.anchor || "middle-center",
+    offsetX: options.offsetX || 0,
+    offsetY: options.offsetY || 0,
+    width,
+    height,
+    zIndex: 3,
+    children: label ? [label, arrow] : [arrow],
   } as DomNode, options);
 }
 

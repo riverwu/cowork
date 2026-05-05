@@ -61,7 +61,7 @@ export function sourceSlideToRendered(slide: SlideV2): RenderedSlide {
           // down to fit instead of clipping, preserving the agent's text.
           autoFit: "shrink" as const,
         }] : []),
-        ...ensureContentArea(slide.id, slide.children),
+        ...ensureContentArea(slide.id, slide.children, Boolean(slide.title)),
       ],
     },
   };
@@ -135,6 +135,7 @@ const OVERLAY_COMPONENT_TYPES = new Set([
 function isOverlayChildAtSource(node: DomNode): boolean {
   if (!node || typeof node !== "object") return false;
   if (typeof node.anchor === "string" && OVERLAY_ANCHOR_POINTS.has(node.anchor)) return true;
+  if (typeof node.anchorTo === "string" && node.anchorTo.length > 0) return true;
   if (node.type === "image" && (node.position === "bottom-right" || node.position === "top-right" || node.position === "center")) return true;
   if (typeof node.type === "string" && OVERLAY_COMPONENT_TYPES.has(node.type)) return true;
   return false;
@@ -175,7 +176,7 @@ function aliasDimensionFields(node: DomNode): DomNode {
   return mutated;
 }
 
-function ensureContentArea(slideId: string, children: DomNode[]): DomNode[] {
+function ensureContentArea(slideId: string, children: DomNode[], hasSlideTitle = false): DomNode[] {
   // Run dimension-field aliasing on every child before content-area wrap.
   children = children.map((c) => aliasDimensionFields(c));
   if (children.some((node) => node.area === "content")) return children;
@@ -187,6 +188,10 @@ function ensureContentArea(slideId: string, children: DomNode[]): DomNode[] {
   // slide level so rectForSlideChild gives them a proper anchored rect.
   const overlays = children.filter(isOverlayChildAtSource);
   const flow = children.filter((c) => !isOverlayChildAtSource(c));
+  const onlyFlow = flow[0];
+  if (!hasSlideTitle && flow.length === 1 && onlyFlow?.type === "band" && onlyFlow.area === undefined && onlyFlow.fixedHeight === undefined && onlyFlow.height === undefined) {
+    return [onlyFlow, ...overlays];
+  }
   return [
     {
       id: `${slideId}.content`,

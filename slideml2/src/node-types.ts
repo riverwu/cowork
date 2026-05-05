@@ -36,6 +36,8 @@ const ANCHOR_FIELDS: Record<string, NodeFieldInfo> = {
   height: { valueType: "number", description: "Anchored node height in cm." },
   zIndex: { valueType: "number", description: "Render order: higher = on top. Negative = behind flow content." },
   fillSlide: { valueType: "boolean", description: "Slide-spanning overlay sentinel: width/height auto-expand to (slideWidthCm - 2*offsetX) / (slideHeightCm - 2*offsetY). Use for decoration-grid backgrounds, full-bleed watermarks. Works across deck sizes (16x9 / 4x3 / wide)." },
+  anchorTo: { valueType: "string", description: "Relative-anchor: instead of positioning against the slide canvas, position against the rect of another node by id (e.g. 'cover.image'). Honors the same anchor/offsetX/offsetY/width/height fields, but the anchor reference frame becomes the target's rect. Use for badges clipping over a card edge, callout-markers pointing at a chart region, annotation arrows between siblings. Slide-level only (direct child of slide root). When set, `anchor` defaults to 'top-right' if omitted." },
+  layer: { valueType: "enum", values: ["behind", "flow", "above"], description: "Layered composition: 'flow' (default) participates in stack/grid layout. 'behind' fills the parent's content rect and renders below sibling flow children — use for backing images, tinted bands, decoration-grid behind a card's text. 'above' fills the parent rect and renders on top of flow children — use for scrims, ribbons, watermark-style overlays. behind/above children claim no main-axis space." },
 };
 
 const TRANSFORM_FIELDS: Record<string, NodeFieldInfo> = {
