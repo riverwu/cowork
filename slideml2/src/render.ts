@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { emitPackage } from "./emitter/package.js";
 import type { ChartAnnotation, ChartNumberFormat, ChartSeries, ChartType, DeckAst, ImageShape, LineSpec, Paragraph, ShapeList, SlideAst, TableCell, TextRun, ShapePreset } from "./emitter/types.js";
 import { expandComponent, isComponentTypedNode } from "./component-registry.js";
-import { contrastRatio, contrastThreshold, pushDiagnostic, rectsOverlap } from "./diagnostics.js";
+import { contrastRatio, contrastThreshold, pushDiagnostic, rectsOverlap, relativeLuminance } from "./diagnostics.js";
 import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
 import type { Slideml2SourceDeck } from "./types.js";
@@ -366,6 +366,24 @@ function pickIntentPreservingFix(theme: SimpleTheme, fgHex: string, bgHex: strin
     }
   }
   if (!originalIsAccent) return null;
+  // First try preserving hue: darken (or lighten, on dark bgs) the
+  // original color until it passes the contrast threshold. This keeps
+  // the agent's brand color visually faithful — e.g. the agent's
+  // brand.primary 6366F1 (purple, 4.47:1 on white) becomes ~4F46E5
+  // (still purple, ~6.6:1) instead of the default blue 2563EB.
+  // (oc7dyx log: 69 LOW_CONTRAST_FIXED instances of 6366F1→2563EB
+  // silently swapped the agent's brand purple for the default blue.)
+  //
+  // Only attempt hue-preservation when the original color has SOME
+  // contrast against the bg (≥ 2.0:1 ≈ borderline-readable). When
+  // fg ≈ bg exactly (text-on-same-color band, contrast 1.0–1.5:1),
+  // shading would have to traverse so far it's no longer the same hue
+  // — fall through to the sibling-accent search instead.
+  const currentRatio = contrastRatio(fgUpper, bgUpper);
+  if (currentRatio >= 2.0) {
+    const huePreserved = pickShadedVariantForContrast(fgUpper, bgUpper, 4.5);
+    if (huePreserved) return huePreserved;
+  }
   // Find a sibling accent that (a) reaches 4.5:1 and (b) preserves the
   // "color pop" intent. The naive max-contrast pick on a dark bg is
   // brand.tint (a near-white) which technically passes contrast but
@@ -399,6 +417,40 @@ function hexChroma(hex: string): number {
   const b = parseInt(hex.slice(4, 6), 16);
   return Math.max(r, g, b) - Math.min(r, g, b);
 }
+
+/**
+ * Find the smallest tonal nudge of `srcHex` that still hits `threshold`
+ * contrast against `bgHex`. Mixes toward black (when bg is light) or
+ * white (when bg is dark) in 5% steps up to 60%. Returns null when no
+ * mix in that range passes — caller falls back to sibling-accent search.
+ *
+ * The point: an agent's brand.primary that lands at 4.47:1 (just below
+ * 4.5) gets a slightly darker variant of the SAME hue rather than being
+ * swapped wholesale for a different theme color.
+ */
+function pickShadedVariantForContrast(srcHex: string, bgHex: string, threshold: number): string | null {
+  const cleanSrc = srcHex.replace(/^#/, "");
+  const cleanBg = bgHex.replace(/^#/, "");
+  if (!/^[0-9A-Fa-f]{6}$/.test(cleanSrc) || !/^[0-9A-Fa-f]{6}$/.test(cleanBg)) return null;
+  const bgIsLight = relativeLuminance(cleanBg) > 0.5;
+  const target = bgIsLight ? "000000" : "FFFFFF";
+  const sr = parseInt(cleanSrc.slice(0, 2), 16);
+  const sg = parseInt(cleanSrc.slice(2, 4), 16);
+  const sb = parseInt(cleanSrc.slice(4, 6), 16);
+  const tr = parseInt(target.slice(0, 2), 16);
+  const tg = parseInt(target.slice(2, 4), 16);
+  const tb = parseInt(target.slice(4, 6), 16);
+  for (let pct = 5; pct <= 60; pct += 5) {
+    const t = pct / 100;
+    const r = Math.round(sr + (tr - sr) * t);
+    const g = Math.round(sg + (tg - sg) * t);
+    const b = Math.round(sb + (tb - sb) * t);
+    const hex = [r, g, b].map((n) => n.toString(16).padStart(2, "0").toUpperCase()).join("");
+    if (contrastRatio(hex, cleanBg) >= threshold) return hex;
+  }
+  return null;
+}
+
 
 function runContrastCheck(slideId: string, slide: { shapes: ShapeList; background?: { type: string; color?: string; stops?: Array<{ color: string }> } }, theme?: SimpleTheme): void {
   const slideBg = pickContrastBackgroundColor(slide.background);
@@ -1427,14 +1479,16 @@ function readableTextColorForFill(theme: SimpleTheme, fillToken: string, preferr
   return best?.token || preferredToken || "text.primary";
 }
 
-function withDefaultTextColor(node: DomNode, colorToken: string): DomNode {
+function withDefaultTextColor(node: DomNode, colorToken: string, replaceDefaultTextColors = false): DomNode {
   if (node.type === "text" || node.type === "bullets") {
-    return typeof node.color === "string" && node.color.trim() ? node : { ...node, color: colorToken };
+    const existing = typeof node.color === "string" ? node.color.trim() : "";
+    const isDefaultColor = existing === "text.primary" || existing === "text.inverse";
+    return existing && (!replaceDefaultTextColors || !isDefaultColor) ? node : { ...node, color: colorToken };
   }
   if (Array.isArray(node.children) && node.children.length > 0) {
     return {
       ...node,
-      children: node.children.map((child) => withDefaultTextColor(child, colorToken)),
+      children: node.children.map((child) => withDefaultTextColor(child, colorToken, replaceDefaultTextColors)),
     };
   }
   return node;
@@ -1646,7 +1700,7 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const child = decorativeChild(node);
   if (child) {
     rectsById.set(child.id, innerRect);
-    shapes.push(...renderNode(theme, withDefaultTextColor(child, childFgToken), innerRect, rectsById, ids, slideId));
+    shapes.push(...renderNode(theme, withDefaultTextColor(child, childFgToken, true), innerRect, rectsById, ids, slideId));
   }
   return shapes;
 }
