@@ -53,6 +53,25 @@ A deck is judged by content density, not slide count. Chrome slides (cover / TOC
 
 When you find yourself authoring more chrome than content, stop and ask whether the underlying material justifies the structure. A deck of 8 dense, well-designed content slides reads better than 16 slides where half are dividers.
 
+### A common anti-pattern (avoid)
+
+A 22-slide deck about a paper that looks like:
+`cover · TOC · § · 内容 · § · 内容 · § · 内容 · § · 内容5张 · § · 内容2张 · § · 内容3张 · 谢谢`
+
+= 9 chrome slides (cover + TOC + 6 section-breaks + closing) + 13 content slides — 41% of the deck is structural padding, four sections have only 1 content slide.
+
+The same material rendered well:
+`cover · TOC(with body) · 内容 · 内容 · § 实验 · 实验5张 · § 结论 · 结论5张 · 致谢+引用`
+
+= 1 cover + 1 TOC + 2 section-breaks + 13 content + 1 closing-with-content = 18 slides, 78% content. The remaining 4 standalone "lead-in" content slides absorbed into their section's first content slide as an `eyebrow:"01 研究背景"` + `slide-title` + lead paragraph — same chapter signal, no padding slide.
+
+### Pre-validate self-check (run mentally before each `validate_render`)
+
+1. **Count slides by class.** chrome = cover + TOC + section-break + bare-closing. content = everything else. If chrome > 30% of total, something is over-segmented.
+2. **Count content per section.** A section-break should introduce ≥ 3 content slides. If a section has 1–2 slides, drop the divider and put the section name in the first slide's `eyebrow`.
+3. **Is the TOC earning its place?** A TOC with 6 single-line item titles on a 13-content-slide deck is worth keeping. A TOC on a 5-content deck is chrome — drop it.
+4. **Closing slide test.** If the closing slide reads "谢谢/Thank You" plus nothing else, replace its body with the 3-5 strongest takeaways or remove it. References + contact + QR is fine.
+
 ## Typography Rhythm
 
 - One hero per slide. At most one element at hero / deck-title / cover-title / metric-value scale. Two heroes split attention.
