@@ -321,3 +321,106 @@ describe("layer in grid containers", () => {
     expect((bg!.xfrm!.cx) / EMU).toBeGreaterThan((c1!.xfrm!.cx + c3!.xfrm!.cx) / EMU);
   });
 });
+
+describe("at: [x, y, w, h] — slide-relative absolute positioning", () => {
+  it("a node with at=[x,y,w,h] renders at exactly those coordinates", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.headline",
+        type: "shape",
+        preset: "rect",
+        fill: "brand.primary",
+        at: [1.8, 6.4, 18, 4.2],
+      } as never],
+    };
+    const list = shapes(slide);
+    const headline = find(list, "s.headline") as { xfrm?: { x: number; y: number; cx: number; cy: number } } | undefined;
+    expect(headline).toBeDefined();
+    expect(headline!.xfrm!.x / EMU).toBeCloseTo(1.8, 2);
+    expect(headline!.xfrm!.y / EMU).toBeCloseTo(6.4, 2);
+    expect(headline!.xfrm!.cx / EMU).toBeCloseTo(18, 2);
+    expect(headline!.xfrm!.cy / EMU).toBeCloseTo(4.2, 2);
+  });
+
+  it("at-positioned text honors `rotation` (passes through to OOXML xfrm.rot)", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.tilted",
+        type: "text",
+        text: "Bench → Bedside",
+        style: "deck-title",
+        at: [2, 5, 21, 3],
+        rotation: -4,
+      } as never],
+    };
+    const list = shapes(slide);
+    const tilted = find(list, "s.tilted") as { xfrm?: { rot?: number } } | undefined;
+    expect(tilted).toBeDefined();
+    // rotation in xfrm is degrees × 60000 (OOXML 1/60000-degree units).
+    expect(tilted!.xfrm!.rot).toBe(-4 * 60000);
+  });
+
+  it("at-positioned children skip flow layout (don't compress siblings)", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [
+        // Flow content
+        { id: "s.body", type: "text", text: "Body text", style: "paragraph" },
+        // Absolute overlay
+        { id: "s.stamp", type: "shape", preset: "rect", fill: "danger", at: [20, 0.5, 4, 1.2] } as never,
+      ],
+    };
+    const list = shapes(slide);
+    const stamp = find(list, "s.stamp") as { xfrm?: { x: number; y: number } } | undefined;
+    expect(stamp).toBeDefined();
+    expect(stamp!.xfrm!.x / EMU).toBeCloseTo(20, 2);
+    expect(stamp!.xfrm!.y / EMU).toBeCloseTo(0.5, 2);
+    // Body text is in flow and not displaced by the absolute stamp.
+    const body = find(list, "s.body") as { xfrm?: { x: number; y: number } } | undefined;
+    expect(body).toBeDefined();
+    expect(body!.xfrm!.x / EMU).toBeLessThan(2); // standard pageMarginX (1.8)
+  });
+
+  it("at with non-array or wrong-length value is silently ignored (falls through to flow)", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.bad",
+        type: "text",
+        text: "Should flow",
+        style: "h2",
+        at: [1.8, 6.4], // wrong length
+      } as never],
+    };
+    const list = shapes(slide);
+    const node = find(list, "s.bad") as { xfrm?: { x: number; y: number } } | undefined;
+    expect(node).toBeDefined();
+    // Treated as flow — x is within content area, not the malformed at[0].
+    expect(node!.xfrm!.x / EMU).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it("at with w/h ≤ 0 is clamped to a tiny floor (no crash)", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.zero",
+        type: "shape",
+        preset: "rect",
+        fill: "brand.primary",
+        at: [5, 5, 0, 0],
+      } as never],
+    };
+    const list = shapes(slide);
+    const zero = find(list, "s.zero") as { xfrm?: { cx: number; cy: number } } | undefined;
+    expect(zero).toBeDefined();
+    expect(zero!.xfrm!.cx / EMU).toBeGreaterThan(0);
+    expect(zero!.xfrm!.cy / EMU).toBeGreaterThan(0);
+  });
+});

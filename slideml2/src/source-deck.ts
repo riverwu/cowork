@@ -130,15 +130,30 @@ const OVERLAY_ANCHOR_POINTS = new Set([
 // metadata gets buried inside the content stack and is ignored.
 const OVERLAY_COMPONENT_TYPES = new Set([
   "watermark", "corner-mark", "callout-marker", "big-page-number",
+  "freeform-group", "cover-composition", "chapter-divider",
 ]);
 
 function isOverlayChildAtSource(node: DomNode): boolean {
   if (!node || typeof node !== "object") return false;
+  if ((node.type === "decoration-grid" || node.type === "decorative-shapes") && node.asBackground !== false) return true;
   if (typeof node.anchor === "string" && OVERLAY_ANCHOR_POINTS.has(node.anchor)) return true;
   if (typeof node.anchorTo === "string" && node.anchorTo.length > 0) return true;
+  if (isAbsoluteAt(node.at)) return true;
   if (node.type === "image" && (node.position === "bottom-right" || node.position === "top-right" || node.position === "center")) return true;
   if (typeof node.type === "string" && OVERLAY_COMPONENT_TYPES.has(node.type)) return true;
   return false;
+}
+
+/**
+ * `at: [x, y, w, h]` — slide-relative absolute positioning. Validates as
+ * a 4-number array; the renderer clamps w/h ≤ 0 to a tiny floor. A
+ * non-array or wrong-length value is silently ignored — the node falls
+ * through to the next overlay-detection path or to flow.
+ */
+function isAbsoluteAt(value: unknown): value is [number, number, number, number] {
+  return Array.isArray(value)
+    && value.length === 4
+    && value.every((n) => typeof n === "number" && Number.isFinite(n));
 }
 
 function aliasDimensionFields(node: DomNode): DomNode {

@@ -942,6 +942,7 @@ function findNodeById(root: DomNode, id: string): DomNode | null {
 function materializeAndCompactify(slideDom: DomNode, slideId: string): DomNode {
   const materialized = materializeNode(slideDom, slideId);
   const compactedChildren = (materialized.children || [])
+    .flatMap((child) => child.type === "fragment" ? (child.children || []) : [child])
     .map(compactifyNode)
     .filter((c): c is DomNode => c !== null);
   return { ...materialized, children: compactedChildren };
@@ -1170,12 +1171,26 @@ function rectForAnchorToOverlay(node: DomNode, rectsById: Map<string, Rect>): Re
 function isOverlayChild(node: DomNode): boolean {
   if (typeof node.anchor === "string" && ANCHOR_POINTS.has(node.anchor)) return true;
   if (typeof node.anchorTo === "string" && node.anchorTo.length > 0) return true;
+  if (isAbsoluteAt(node.at)) return true;
   if (node.type === "image" && (node.position === "bottom-right" || node.position === "top-right" || node.position === "center")) return true;
   return false;
 }
 
 function isAnchorToOverlay(node: DomNode): boolean {
   return typeof node.anchorTo === "string" && node.anchorTo.length > 0;
+}
+
+/**
+ * `at: [x, y, w, h]` — slide-relative absolute coordinates in cm. The
+ * agent-facing primitive for editorial / custom layouts that don't fit
+ * the flow + component model. Honored at slide-level only (direct child
+ * of slide root); inside a stack/grid use `layer:"behind"|"above"`
+ * instead. See node-types.ts ANCHOR_FIELDS for the full schema entry.
+ */
+function isAbsoluteAt(value: unknown): value is [number, number, number, number] {
+  return Array.isArray(value)
+    && value.length === 4
+    && value.every((n) => typeof n === "number" && Number.isFinite(n));
 }
 
 function flowChildren(slideDom: DomNode): DomNode[] {
@@ -1279,6 +1294,14 @@ function rectForSlideChild(theme: SimpleTheme, node: DomNode): Rect {
   if (typeof node.anchor === "string" && ANCHOR_POINTS.has(node.anchor)) {
     return rectFromAnchor(theme, node);
   }
+  if (isAbsoluteAt(node.at)) {
+    // Slide-relative absolute coordinates: agent supplies [x, y, w, h]
+    // in cm against the slide canvas origin. Clamp w/h to just above
+    // the renderer's TINY_RECT threshold (0.02cm for shapes / 0.18cm
+    // for content) so an accidental zero doesn't get the node dropped.
+    const [x, y, w, h] = node.at;
+    return { x, y, w: Math.max(0.03, w), h: Math.max(0.03, h) };
+  }
   if (node.type === "image" && node.position === "bottom-right") {
     const w = numberProp(node, "width", 2.4);
     const h = numberProp(node, "height", 1.0);
@@ -1352,6 +1375,10 @@ function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   pushSquashedDiagnostic(theme, node, rect, slideId);
   if (node.type === "stack") return renderStack(theme, node, rect, rectsById, ids, slideId);
   if (node.type === "grid") return renderGrid(theme, node, rect, rectsById, ids, slideId);
+  if (node.type === "fragment") return (node.children || []).flatMap((child) => {
+    const childRect = rectsById.get(child.id) || rect;
+    return renderNode(theme, child, childRect, rectsById, ids, slideId);
+  });
   if (node.type === "spacer") return [];
   // Dividers and spacers are intentionally thin/empty along one axis; only
   // gate on tiny rect for nodes that need a meaningful 2D area.
@@ -1914,7 +1941,7 @@ function textShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId:
     type: "text",
     id: ids.nextId++,
     name: nodeLabel(node),
-    xfrm: xfrm(rect),
+    xfrm: xfrm(rect, node),
     valign: valignProp(node, kind),
     paragraphs,
     margin: { l: cm(0.1), r: cm(0.1), t: cm(0.05), b: cm(0.05) },
@@ -2076,6 +2103,7 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
   const numbered = node.numbered === true;
   const defaultIndent = typeof node.indentLevel === "number" ? node.indentLevel : 0;
   const markerSpec = resolveBulletMarker(theme, node);
+  const hangingIndent = bulletHangingIndent(node);
   const itemParas: Paragraph[] = rawItems.map((rawItem) => {
     const isObject = rawItem && typeof rawItem === "object" && !Array.isArray(rawItem);
     const itemRec = isObject ? rawItem as Record<string, unknown> : { text: String(rawItem ?? "") };
@@ -2097,6 +2125,8 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
         : (markerSpec ? markerSpec : { auto: true as const }),
       runs,
       spaceAfterHalfPt: node.density === "compact" ? 4 : 10,
+      marginLeft: hangingIndent.marginLeft,
+      hanging: hangingIndent.hanging,
     };
     if (indent > 0) para.indentLevel = indent;
     return para;
@@ -2105,7 +2135,7 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
     type: "text",
     id: ids.nextId++,
     name: nodeLabel(node),
-    xfrm: xfrm(rect),
+    xfrm: xfrm(rect, node),
     paragraphs: [
       ...(title ? [{
         runs: [{ text: title, sizeHalfPt: theme.text["card-title"].fontSize * 2, bold: true, color: color(theme, "brand.primary"), fontFace: containsCjk(title) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"), cjk: true }],
@@ -2115,6 +2145,17 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
     ],
     margin: { l: cm(0.2), r: cm(0.1), t: cm(0.08), b: cm(0.08) },
   };
+}
+
+function bulletHangingIndent(node: DomNode): { marginLeft: number; hanging: number } {
+  if (node.numbered === true) {
+    return node.density === "compact"
+      ? { marginLeft: cm(0.58), hanging: -cm(0.34) }
+      : { marginLeft: cm(0.68), hanging: -cm(0.40) };
+  }
+  return node.density === "compact"
+    ? { marginLeft: cm(0.44), hanging: -cm(0.24) }
+    : { marginLeft: cm(0.54), hanging: -cm(0.30) };
 }
 
 function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }): ShapeList[number] {
@@ -2711,10 +2752,13 @@ function materializeNode(node: DomNode, slideId: string, fallbackPath = ""): Dom
   // component expansion as well, since semantic components such as two-column
   // can expand to split.
   const lowered = expanded.type === "split" ? splitToStack(expanded) : expanded;
+  const children = lowered.children
+    ?.map((child, index) => materializeNode(child, slideId, `${fallbackPath ? fallbackPath + "." : ""}${index}`))
+    .flatMap((child) => child.type === "fragment" ? (child.children || []) : [child]);
   return {
     ...lowered,
     id: typeof lowered.id === "string" && lowered.id ? lowered.id : fallbackId,
-    children: lowered.children?.map((child, index) => materializeNode(child, slideId, `${fallbackPath ? fallbackPath + "." : ""}${index}`)),
+    children,
   };
 }
 
@@ -3688,8 +3732,17 @@ function effectiveTextStyle(theme: SimpleTheme, node: DomNode, fallback = "parag
   const key = textStyleKey(node);
   const base = textStyle(theme, key, fallback);
   const mult = sizeMultiplier(theme, node.size);
-  if (mult === 1) return base;
-  return { ...base, fontSize: base.fontSize * mult };
+  const out = { ...base };
+  if (mult !== 1) out.fontSize = out.fontSize * mult;
+  if (typeof node.fontSize === "number" && Number.isFinite(node.fontSize) && node.fontSize > 0) out.fontSize = node.fontSize;
+  if (typeof node.lineHeight === "number" && Number.isFinite(node.lineHeight) && node.lineHeight > 0) out.lineHeight = node.lineHeight;
+  if (node.fontWeight !== undefined) out.weight = node.fontWeight;
+  if (node.weight !== undefined) out.weight = node.weight;
+  if (node.fontFamily === "display" || node.fontFamily === "text" || node.fontFamily === "mono") out.fontFamily = node.fontFamily;
+  if (node.font === "display" || node.font === "text" || node.font === "mono") out.fontFamily = node.font;
+  if (typeof node.letterSpacing === "number") out.letterSpacing = node.letterSpacing;
+  if (node.italic === true) out.italic = true;
+  return out;
 }
 
 function nodeLabel(node: DomNode): string {

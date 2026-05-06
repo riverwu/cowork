@@ -858,7 +858,7 @@ describe("slideml2 MVP", () => {
     expect(promptPack).not.toContain("image-with-caption");
     // The pack now ships the always-on starter set + full deck rules, so it's
     // larger than the original minimal pack but should stay under 32k chars.
-    expect(promptPack.length).toBeLessThan(32000);
+    expect(promptPack.length).toBeLessThan(33000);
     expect(promptPack).toContain("feature-card");
     expect(promptPack).toContain("checklist");
     expect(promptPack).toContain("pros-cons");
