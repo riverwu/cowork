@@ -35,14 +35,13 @@ describe("createDeckTool argument coercion (288ryd regression)", () => {
     expect(callArg.themeOverride).toBe(override);
   });
 
-  it("ignores a non-JSON themeOverride string with a soft note (does not silently drop)", async () => {
+  it("rejects a non-JSON themeOverride string instead of silently dropping it", async () => {
     const result = await createDeckTool.execute({
       deckPath: "/tmp/x.json",
       themeOverride: "not-a-json-string",
     });
-    const callArg = mock.mock.calls[0]![1] as { themeOverride?: unknown };
-    expect(callArg.themeOverride).toBeUndefined();
-    expect(String(result)).toMatch(/non-JSON string/);
+    expect(mock).not.toHaveBeenCalled();
+    expect(String(result)).toMatch(/^Error: themeOverride arrived as a non-JSON string/);
   });
 
   it("auto-parses brand when it arrives as a JSON-encoded string", async () => {
@@ -55,13 +54,12 @@ describe("createDeckTool argument coercion (288ryd regression)", () => {
     expect(String(result)).toMatch(/auto-parsed/i);
   });
 
-  it("themeOverride with malformed JSON gets dropped with a note (no crash)", async () => {
+  it("rejects malformed themeOverride JSON instead of creating an unthemed deck", async () => {
     const result = await createDeckTool.execute({
       deckPath: "/tmp/x.json",
       themeOverride: '{"colors": {malformed',
     });
-    const callArg = mock.mock.calls[0]![1] as { themeOverride?: unknown };
-    expect(callArg.themeOverride).toBeUndefined();
-    expect(String(result)).toMatch(/not valid JSON/);
+    expect(mock).not.toHaveBeenCalled();
+    expect(String(result)).toMatch(/^Error: themeOverride string was not valid JSON/);
   });
 });

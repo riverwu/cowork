@@ -17,6 +17,7 @@ real-LLM generation (Anthropic-compatible API).
 ## What's in here
 
 ```
+SPEC.md                   // full source-deck, layout, render, and authoring contract
 src/
   components.ts            // composite components (kpi-grid, hero-stat, ...)
   component-registry.ts    // component registration + expansion
@@ -35,6 +36,10 @@ tools/
     index.ts               // CLI entry
   render-snapshot.ts       // golden-deck visual regression tool
 ```
+
+Read [SPEC.md](./SPEC.md) for the authoritative SlideML2 contract. The
+runtime agent skill at `src/catalog/skills/slideml2/SKILL.md` is the compact
+authoring reference derived from the same rules.
 
 ## Quick start
 

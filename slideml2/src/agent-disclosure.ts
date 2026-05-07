@@ -28,7 +28,9 @@ const STARTER_COMPONENTS = [
   "swot-matrix", "quote", "icon-text", "numbered-list",
   "hero-stat", "bar-list", "tag-list", "key-takeaway", "numbered-grid",
   "stat-strip", "legend", "badge", "flow-arrow",
-  "image-card", "chart-card", "table-card", "insight-card", "two-column",
+  "image-card", "chart-card", "table-card", "insight-card",
+  "executive-summary", "explanation-block", "comparison-list", "fact-list",
+  "two-column",
   "lead", "h1", "h2", "text", "label", "source-note",
 ] as const;
 
@@ -70,20 +72,21 @@ export function buildAgentPromptPack(options: AgentPromptPackOptions = {}): stri
     "- Write the component name directly in `type`: {id,type:'callout',...fields}; never wrap as type:'component'+component:'X'.",
     "- Component nodes are flat; do not wrap fields in `props`.",
     "- Compose the page freely with top-level components, stack/grid/split, and anchored overlays. Use area:'content' when a node should occupy the standard content rect; it is not a required wrapper.",
-    "- All distance fields (gap, padding, fixedHeight, fixedWidth, ...) are in cm.",
+    "- Units: layout distances are cm (`at`, `gap`, `padding`, `fixedHeight`, `fixedWidth`, `width`, `height`, `length`). `cornerRadius` is a normalized roundRect fraction 0..0.5 (use 0.08-0.16 for subtle cards, never CSS-like 8/12). Text `fontSize` is pt. Stroke fields (`lineWidth`, `borderWidth`, divider/accent-rule `thickness`) are point-like: use 1 for a normal 1pt rule, 2-3 for emphasis; legacy tiny cm values like 0.02 still work.",
     "- Avoid page-level components: cover, section, dashboard, product-matrix, risk-list.",
     "- For each slide, reach for the *most semantic* component first. Use `callout` sparingly: at most one emphasized warning/rule per slide, never as repeated grid filler.",
+    "- Text slide routing: answer/synthesis → executive-summary; why/how explanation → explanation-block; options/trade-offs → comparison-list; facts/source-backed observations → fact-list; standalone curated finding → insight-card.",
     "- Pick components by semantic job first, then layout. Component menu:",
     "    Quantitative proof → hero-stat (one dominant number), kpi-grid (2-4 KPIs), stat-strip (3-6 light metrics), metric-card (one KPI inside grid), stat-comparison (before/after), bar-list (4-8 ranked values), progress-bar (completion/quota)",
     "    Comparison / decision → comparison-card grid (2-4 peers), pros-cons (trade-off), swot-matrix (exact SWOT), pricing-card grid (tiers), table-card (feature/financial matrix)",
     "    Sequence / causality → process-flow (connected pipeline), timeline (dated sequence), numbered-grid (ordered principles), numbered-list (ordered prose), step-card grid (stage cards), flow-arrow (single transition)",
     "    Evidence / media → image-card (inspectable visual), chart-card (self-contained chart), table-card (structured evidence), quote (voice/evidence), source-note (provenance)",
-    "    Insight / narrative → key-takeaway (final verdict), takeaway-list (3-5 conclusions), lead (framing thesis), insight-card (finding + proof), callout (one warning/rule only), quote (voice/evidence), article/text (residual prose only)",
+    "    Insight / narrative → executive-summary (thesis + findings), key-takeaway (final verdict), takeaway-list (3-5 conclusions), explanation-block (how/why), comparison-list (lightweight options), fact-list (facts + sources), lead (framing thesis), insight-card (finding + proof), callout (one warning/rule only), quote (voice/evidence), article/text (residual prose only)",
     "    Product / identity → feature-card grid (capability/benefit), logo-strip (partners/customers), profile-card (person/role), tag-list (categories), badge (single status)",
     "    Layout / surface → two-column (named narrative+visual regions), stack (sequence), grid (peer scan), split (region split), panel/card/band/frame/inset (visual grouping)",
     "- Decorative containers (NOT layout): panel (tinted surface), card (panel + header/footer/accent), band (full-width strip), frame (border-only), inset (padding only). Wrap a stack/grid inside one when grouping needs visual separation. Never set fill/line/cornerRadius on stack/grid — wrap in panel/card instead.",
     `- Color tokens: brand.primary, surface, surface.subtle, text.primary, text.muted, text.inverse, divider, success/warning/danger (+ .tint), brand.tint. Semantic palette for *categorical* meaning: ${palette.join(", ")} (each with .tint and .shade). DO NOT invent tokens like text-secondary, primary-color.`,
-    "- Vary slide structure across a deck: do not use insight-card/callout as the main block on consecutive slides unless the content genuinely repeats the same semantic job.",
+    "- Vary slide structure across a deck: insight-card is one option for standalone findings, not the default text container. Prefer executive-summary / explanation-block / comparison-list / fact-list whenever the content shape matches.",
     "- Use `optional: true` on captions/source-notes/secondary callouts so the layout can drop them when space is tight.",
     "- Minimal shape: {\"id\":\"s1\",\"title\":\"Title\",\"children\":[{\"id\":\"s1.lead\",\"type\":\"lead\",\"area\":\"content\",\"text\":\"One insight\"}]}",
     "- Layout escape hatches (use sparingly, when components don't fit):",
@@ -158,12 +161,17 @@ function compactComponentSchema(definition: import("./component-registry.js").Co
     ? ` children=${definition.children.required ? "required" : "optional"}`
     : " children=none";
   const kind = definition.children.allowed ? "container" : "semantic";
-  return `- ${definition.name}: ${definition.purpose} kind=${kind} parent=${parent}${children} type='${definition.name}' ${fieldParts}${example}`;
+  return `- ${definition.name}: ${compactPurpose(definition.purpose)} kind=${kind} parent=${parent}${children} type='${definition.name}' ${fieldParts}${example}`;
 }
 
 function fieldSummary(key: string, prop: { type: string; enum?: string[]; values?: string[] }): string {
   const values = prop.enum || prop.values;
   return values?.length ? `${key}:${prop.type}[${values.slice(0, 6).join("|")}]` : `${key}:${prop.type}`;
+}
+
+function compactPurpose(purpose: string): string {
+  const firstSentence = purpose.split(/(?<=[.!?。！？])\s+/)[0] || purpose;
+  return firstSentence.length > 170 ? `${firstSentence.slice(0, 167)}...` : firstSentence;
 }
 
 function componentSchemaGroups(components: readonly string[]): { title: string; names: string[] }[] {
@@ -173,7 +181,7 @@ function componentSchemaGroups(components: readonly string[]): { title: string; 
     { title: "Comparison and decisions", names: ["comparison-card", "pros-cons", "swot-matrix", "pricing-card", "table-card"] },
     { title: "Sequence and causality", names: ["process-flow", "timeline", "numbered-grid", "numbered-list", "step-card", "flow-arrow", "axis-ruler"] },
     { title: "Evidence and media", names: ["image", "image-card", "chart", "table", "quote", "source-note", "legend"] },
-    { title: "Insight and narrative", names: ["key-takeaway", "insight-card", "callout", "lead", "h1", "h2", "text", "article", "label", "code"] },
+    { title: "Insight and narrative", names: ["executive-summary", "key-takeaway", "takeaway-list", "explanation-block", "comparison-list", "fact-list", "insight-card", "callout", "lead", "h1", "h2", "text", "article", "label", "code"] },
     { title: "Product, identity, and markers", names: ["feature-card", "logo-strip", "profile-card", "tag-list", "badge", "icon-text", "cta", "section-break"] },
     { title: "Style primitives", names: ["title-lockup", "eyebrow", "accent-rule", "annotation", "side-rail", "shape"] },
   ];
@@ -227,6 +235,10 @@ function heuristicComponentScore(name: string, text: string): number {
   if (name === "bar-list" && /ranking|share|distribution|breakdown|排名|占比|分布|份额|分解/.test(text)) return 6;
   if (name === "tag-list" && /keyword|tag|chip|label|category|关键词|标签|分类|类别|tags/.test(text)) return 5;
   if (name === "key-takeaway" && /takeaway|conclusion|so what|结论|要点|启示|核心|底牌/.test(text)) return 6;
+  if (name === "executive-summary" && /executive|summary|memo|decision|synthesis|board|摘要|综述|汇总|决策|结论页|管理层/.test(text)) return 6;
+  if (name === "explanation-block" && /explain|mechanism|cause|why|how|concept|解释|机制|原因|为什么|如何|概念|原理/.test(text)) return 6;
+  if (name === "comparison-list" && /compare|before|after|option|tradeoff|trade-off|对比|比较|前后|选项|取舍|利弊/.test(text)) return 6;
+  if (name === "fact-list" && /fact|evidence|source|observation|claim|事实|证据|来源|观察|数据点|材料/.test(text)) return 6;
   if (name === "numbered-grid" && /principle|priority|step|principle|rank|框架|要点|原则|准则|优先级|步骤/.test(text)) return 5;
   if (name === "stat-strip" && /headline|inline|strip|kpi|核心数据|首屏|条/.test(text)) return 5;
   if (name === "legend" && /legend|category|key|图例|图注|分类|标识/.test(text)) return 5;

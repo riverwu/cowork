@@ -45,6 +45,7 @@ export function buildSystemPrompt(params?: {
   workingDirectory?: string;
   availableSkillsPrompt?: string;
   longTaskContext?: string;
+  taskIsolationContext?: string;
   systemPaths?: {
     skills: string;
     mcp: string;
@@ -90,6 +91,10 @@ MCP API keys are managed by the app (stored in database, not in config files). I
 
   if (params?.longTaskContext) {
     sections.push(params.longTaskContext);
+  }
+
+  if (params?.taskIsolationContext) {
+    sections.push(params.taskIsolationContext);
   }
 
   if (params?.memoryContext) {

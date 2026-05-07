@@ -61,6 +61,34 @@ describe("timeline visual spine (slide 7 fix)", () => {
     }
   });
 
+  it("vertical timeline keeps the date, spine, and copy columns close together", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.tl",
+        type: "timeline",
+        direction: "vertical",
+        items: [
+          { time: "2015-2018", title: "0 到 1 阶段", body: "学习传统比例姿态，最大化产品可靠性。" },
+          { time: "2019-2023", title: "1 到 10 阶段", body: "通过统一语言积累用户信任。" },
+          { time: "2024 至今", title: "10 到 N 阶段", body: "尝试品牌升级和体验区隔。" },
+        ],
+      } as never],
+    };
+    const list = shapes(slide);
+    const time = findEndingWith(list, ".0.time") as { xfrm?: { x: number; cx: number } };
+    const dot = findEndingWith(list, ".0.dot") as { xfrm?: { x: number; cx: number } };
+    const title = findEndingWith(list, ".0.title") as { xfrm?: { x: number } };
+
+    const timeToDotGap = (dot.xfrm!.x - (time.xfrm!.x + time.xfrm!.cx)) / EMU;
+    const dotToTitleGap = (title.xfrm!.x - (dot.xfrm!.x + dot.xfrm!.cx)) / EMU;
+    expect(timeToDotGap).toBeGreaterThanOrEqual(0.15);
+    expect(timeToDotGap).toBeLessThan(0.7);
+    expect(dotToTitleGap).toBeGreaterThanOrEqual(0.15);
+    expect(dotToTitleGap).toBeLessThan(0.7);
+  });
+
   it("horizontal timeline does NOT emit dot/line spines (cells flow horizontally)", () => {
     const slide: SlideV2 = {
       id: "s",
@@ -85,7 +113,7 @@ describe("decoration-grid as background overlay (slide 1 fix)", () => {
   it("default behavior anchors the grid as overlay (asBackground:true)", () => {
     // We can't easily inspect anchor on the source DOM through renderToAst
     // shape output (shapes are flattened), but we can verify the dot size
-    // bumped to 0.30cm as part of the same fix.
+    // stays subtle instead of turning the cover into a field of dark blocks.
     const slide: SlideV2 = {
       id: "s",
       title: "x",
@@ -95,7 +123,7 @@ describe("decoration-grid as background overlay (slide 1 fix)", () => {
     const dots = filterEndingWith(list, ".dot");
     expect(dots.length).toBeGreaterThan(0);
     for (const d of dots.slice(0, 3)) {
-      expect((d as { xfrm?: { cx: number } }).xfrm!.cx / EMU).toBeCloseTo(0.30, 1);
+      expect((d as { xfrm?: { cx: number } }).xfrm!.cx / EMU).toBeCloseTo(0.12, 1);
     }
   });
 });

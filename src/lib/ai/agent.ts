@@ -8,6 +8,7 @@ import { retrieveMemoryContext, buildMemoryPrompt, extractMemories } from "@/lib
 import { mcpManager } from "@/lib/mcp";
 import type { AgentEvent } from "@/types";
 import { buildLongTaskPrompt, detectLongTask } from "./long-task";
+import { buildTaskIsolationPrompt } from "./task-isolation";
 import {
   setCurrentLongTask,
   setCurrentWorkingDirectory,
@@ -32,6 +33,10 @@ import type { DebugLogger } from "./debug-log";
 const MAX_STEPS = 120;
 const MAX_TRUNCATION_RECOVERIES = 3;
 const MAX_TOOL_RESULT_CHARS_FOR_LLM = 12000;
+const POST_FAILURE_COMPACTION_SYSTEM =
+  "You are compacting conversation context after the previous LLM request failed. " +
+  "Produce a concise handoff for the next request. Preserve the user's current task, file paths, created artifacts, tool failures, and pending next actions. " +
+  "Do not include large JSON payloads or full tool arguments; summarize them by intent and affected file/slide ids.";
 
 export interface AgentParams {
   messages: LLMMessage[];
@@ -53,6 +58,9 @@ export interface AgentParams {
    *  the same directory. Off by default; controlled by the chat
    *  composer's `+` menu toggle. */
   debugLog?: DebugLogger;
+  /** Set when the UI/runtime intentionally started this request after a
+   *  task boundary, so the model should not inherit prior task specifics. */
+  taskIsolationReason?: string;
 }
 
 /**
@@ -98,11 +106,14 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
 
   const lastUserMsg = [...params.messages].reverse().find((m) => m.role === "user");
   const query = lastUserMsg?.content || "";
+  const taskIsolationReason = params.taskIsolationReason;
 
   // 1. Retrieve memory context
   let memoryContext = "";
   try {
-    const memCtx = await retrieveMemoryContext(query);
+    const memCtx = await retrieveMemoryContext(query, taskIsolationReason
+      ? { includeCore: false, includeSemantic: false, includeEpisodes: false }
+      : undefined);
     memoryContext = buildMemoryPrompt(memCtx);
   } catch {
     // Memory retrieval failed — continue without
@@ -162,6 +173,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     tools: toolDefs,
     memoryContext: droppedMemory ? undefined : (memoryContext || undefined),
     longTaskContext: longTask ? buildLongTaskPrompt(longTask) : undefined,
+    taskIsolationContext: taskIsolationReason ? buildTaskIsolationPrompt(taskIsolationReason) : undefined,
     planMode: params.planMode,
     workingDirectory: params.workingDirectory,
     availableSkillsPrompt: availableSkillsPrompt || undefined,
@@ -278,6 +290,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   let fullAssistantText = "";
   let hitStepLimit = true;
   let truncationRecoveries = 0;
+  const slideValidationGate = createSlideValidationGate();
 
   try {
   for (let step = 0; step < MAX_STEPS; step++) {
@@ -313,6 +326,26 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       yield { type: "thinking", active: false };
       const message = `LLM request failed: ${err instanceof Error ? err.message : String(err)}`;
       params.debugLog?.recordError({ step, error: message, phase: "llm-request" });
+      const compacted = await compactAfterLlmRequestFailure({
+        provider,
+        messages: currentMessages,
+        error: message,
+        maxOutputTokens: Math.min(4_000, budget.maxOutputTokens),
+      });
+      if (compacted) {
+        yield {
+          type: "compacted",
+          summary: compacted.summary,
+          preservedUserMessages: compacted.messages.filter((m) => m.role === "user").length - 1,
+          estimatedTokens: compacted.estimatedTokens,
+          reason: "llm-request-failed",
+        };
+        params.debugLog?.recordCompacted({
+          summary: compacted.summary,
+          preservedUserMessages: compacted.messages.filter((m) => m.role === "user").length - 1,
+          estimatedTokens: compacted.estimatedTokens,
+        });
+      }
       yield { type: "error", error: message };
       hitStepLimit = false;
       break;
@@ -370,8 +403,16 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     // would carry an empty assistant message that the API will reject.
     if (doneEvent.toolCalls.length === 0) {
       if (turnText) {
-        yield { type: "text-delta", text: turnText };
-        fullAssistantText += turnText;
+        const finalText = appendSlideValidationNotice(turnText, getSlideValidationBlocker(slideValidationGate));
+        yield { type: "text-delta", text: finalText };
+        fullAssistantText += finalText;
+      } else {
+        const blocked = getSlideValidationBlocker(slideValidationGate);
+        if (blocked) {
+          const notice = slideValidationNotice(blocked);
+          yield { type: "text-delta", text: notice };
+          fullAssistantText += notice;
+        }
       }
       hitStepLimit = false;
       break;
@@ -424,6 +465,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         const result = await tool.execute(toolCall.input as Record<string, unknown>, onProgress);
         const durationMs = Date.now() - startTime;
         const success = !isToolResultFailure(result);
+        updateSlideValidationGate(slideValidationGate, toolCall.name, toolCall.input, result, success);
 
         let uiResult: unknown = summarizeResult(result);
         // Internal dispatch markers (`__ARTIFACT__:…`, `__TASK_PROGRESS__:…`)
@@ -530,6 +572,69 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   }
 }
 
+async function compactAfterLlmRequestFailure(input: {
+  provider: Awaited<ReturnType<typeof getConfiguredProvider>>;
+  messages: LLMMessage[];
+  error: string;
+  maxOutputTokens: number;
+}) {
+  if (input.messages.length < 2) return null;
+  const compacted = await runInlineCompaction({
+    provider: input.provider,
+    messages: [
+      ...input.messages,
+      {
+        role: "assistant",
+        content: `[LLM request failed before producing a usable response]\n${input.error}`,
+      },
+    ],
+    maxOutputTokens: input.maxOutputTokens,
+    baseSystem: POST_FAILURE_COMPACTION_SYSTEM,
+  });
+  if (compacted) return compacted;
+  return buildEmergencyCompaction(input.messages, input.error);
+}
+
+function buildEmergencyCompaction(messages: LLMMessage[], error: string) {
+  const userMessages = messages.filter((m) => m.role === "user").map((m) => m.content.trim()).filter(Boolean);
+  const recentUsers = userMessages.slice(-4);
+  const recentAssistant = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant" && m.content?.trim())?.content
+    ?.trim()
+    .slice(0, 1200);
+  const recentTools = messages
+    .filter((m) => m.role === "tool")
+    .slice(-8)
+    .map((m) => `- ${m.toolCallId}: ${m.content.slice(0, 500).replace(/\s+/g, " ")}`);
+
+  const summary = [
+    "Emergency context compaction was created locally because the LLM request failed and the summary LLM call was unavailable.",
+    "",
+    `Failure: ${error}`,
+    "",
+    "Recent user requests:",
+    ...recentUsers.map((m, i) => `${i + 1}. ${m.slice(0, 2000)}`),
+    recentAssistant ? `\nMost recent assistant text:\n${recentAssistant}` : "",
+    recentTools.length ? `\nRecent tool results:\n${recentTools.join("\n")}` : "",
+    "",
+    "Next model should continue from the latest user request and should not inherit old task-specific style, layout, or research assumptions unless explicitly requested.",
+  ].filter(Boolean).join("\n");
+
+  const replacementMessages: LLMMessage[] = [
+    ...recentUsers.map((content): LLMMessage => ({ role: "user", content })),
+    {
+      role: "user",
+      content: summary,
+    },
+  ];
+  return {
+    messages: replacementMessages,
+    summary,
+    estimatedTokens: estimateMessagesTokens(replacementMessages),
+  };
+}
+
 function buildTruncationRecoveryMessage(workspaceDir: string, attempt: number): string {
   return `Your previous response was truncated by the model output token limit. Do not repeat or continue the truncated prose/code in assistant text.
 
@@ -634,6 +739,119 @@ function truncateToolResultForLlm(toolName: string, result: string, success: boo
     result.slice(result.length - tailSize),
   ].join("");
   return `${header}\n${body}`;
+}
+
+type SlideDeckValidationStatus = {
+  deckPath: string;
+  state: "dirty" | "invalid";
+  reason: string;
+};
+
+type SlideValidationGate = {
+  decks: Map<string, SlideDeckValidationStatus>;
+};
+
+function createSlideValidationGate(): SlideValidationGate {
+  return { decks: new Map() };
+}
+
+const SLIDEML2_DIRTY_TOOLS = new Set([
+  "create_deck",
+  "replace_slide",
+  "insert_slide",
+  "delete_slide",
+  "patch_deck",
+]);
+
+function updateSlideValidationGate(
+  gate: SlideValidationGate,
+  toolName: string,
+  input: unknown,
+  rawResult: string,
+  success: boolean,
+): void {
+  const deckPath = extractDeckPath(input, rawResult);
+  if (!deckPath) return;
+
+  if (toolName === "validate_render") {
+    const render = input && typeof input === "object" && (input as Record<string, unknown>).render === false
+      ? false
+      : true;
+    const parsed = parseJsonObject(rawResult) as { ok?: unknown; error?: unknown; diagnostics?: { blockingCount?: unknown } } | null;
+    if (success && render && parsed?.ok === true) {
+      gate.decks.delete(deckPath);
+      return;
+    }
+    if (render && parsed?.ok === false) {
+      const blocking = typeof parsed.diagnostics?.blockingCount === "number" ? ` blocking=${parsed.diagnostics.blockingCount}` : "";
+      gate.decks.set(deckPath, {
+        deckPath,
+        state: "invalid",
+        reason: `Last validate_render failed${blocking}: ${typeof parsed.error === "string" ? parsed.error : "blocking diagnostics remain"}.`,
+      });
+      return;
+    }
+    if (!render && parsed?.ok === true && !gate.decks.has(deckPath)) {
+      gate.decks.set(deckPath, {
+        deckPath,
+        state: "dirty",
+        reason: "Only schema validation passed; final delivery still needs validate_render({render:true}).",
+      });
+    }
+    return;
+  }
+
+  if (!success || !SLIDEML2_DIRTY_TOOLS.has(toolName)) return;
+  const reason = toolName === "create_deck"
+    ? "Deck was created but has not yet passed validate_render({render:true})."
+    : `Deck was modified by ${toolName} after the last passing render validation.`;
+  gate.decks.set(deckPath, { deckPath, state: "dirty", reason });
+}
+
+function getSlideValidationBlocker(gate: SlideValidationGate): string | null {
+  if (gate.decks.size === 0) return null;
+  const lines = [...gate.decks.values()].map((status) =>
+    `- ${status.deckPath}: ${status.state.toUpperCase()} — ${status.reason}`,
+  );
+  return [
+    "A SlideML2 deck is not yet verified because it is invalid or has unvalidated edits.",
+    ...lines,
+  ].join("\n");
+}
+
+function appendSlideValidationNotice(text: string, blocked: string | null): string {
+  if (!blocked) return text;
+  return `${text.trimEnd()}\n\n${slideValidationNotice(blocked)}`;
+}
+
+function slideValidationNotice(blocked: string): string {
+  return [
+    "[SlideML2 validation notice]",
+    blocked,
+    "This does not block other tools. It only means this SlideML2 deck should not be treated as a verified final PPTX until validate_render({render:true}) passes.",
+  ].join("\n\n");
+}
+
+function extractDeckPath(input: unknown, rawResult: string): string | null {
+  if (input && typeof input === "object") {
+    const value = (input as Record<string, unknown>).deckPath;
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  const resultPath = /Deck created at\s+(\S+)/.exec(rawResult)
+    || /"deckPath"\s*:\s*"([^"]+)"/.exec(rawResult)
+    || /"outputPath"\s*:\s*"([^"]+\.pptx)"/.exec(rawResult);
+  if (!resultPath) return null;
+  const path = resultPath[1]!;
+  return path.endsWith(".pptx") ? path.replace(/\.pptx$/, ".json") : path;
+}
+
+function parseJsonObject(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
 }
 
 function formatContextDump(input: {

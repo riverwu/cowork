@@ -5,7 +5,7 @@ export const readFile: Tool = {
   definition: {
     name: "read_file",
     description:
-      "Read a bounded preview or segment of a file. For documents (PDF, DOC, DOCX, XLSX), extracts text content. For text files (txt, md, markdown, csv, json, code), returns raw content. Use offset/max_chars to read large files progressively instead of loading everything at once.",
+      "Read a bounded preview or segment of a text file. For binary/Office documents (PDF, DOC, DOCX, XLSX, XLS, PPTX), this is only a lossy text preview; use run_python with python-docx/openpyxl/python-pptx/PyPDF2 when exact structure, tables, slide/page layout, metadata, or faithful analysis is needed. The result includes total_chars, returned_range, truncated, and next_offset. If truncated=true for a text file and the task requires full-file understanding, continue reading with offset=next_offset until truncated=false, or use grep/search plus targeted ranges.",
     parameters: {
       type: "object",
       properties: {
@@ -19,7 +19,7 @@ export const readFile: Tool = {
         },
         max_chars: {
           type: "number",
-          description: "Maximum characters to return. Default: 6000, max: 20000. Use later offsets for more content.",
+          description: "Maximum characters to return. Default: 6000, max: 20000. Prefer 6000-10000 for large files so each chunk remains intact in context. Use later offsets for more content.",
         },
       },
       required: ["path"],
@@ -33,13 +33,27 @@ export const readFile: Tool = {
       const requestedMax = Math.floor((input.max_chars as number) || 6000);
       const ext = path.split(".").pop()?.toLowerCase() || "";
       const docExtensions = ["pdf", "doc", "docx", "xlsx", "xls"];
+      const structuredExtensions = ["pdf", "doc", "docx", "xlsx", "xls", "pptx", "ppt"];
+      const isStructuredDocument = structuredExtensions.includes(ext);
 
       const text = docExtensions.includes(ext)
         ? await parseDocument(path)
         : await readFileText(path);
 
-      if (!text || text.trim().length === 0) {
-        return `File "${path}" is empty or could not be parsed.`;
+      if (!text || text.length === 0) {
+        return [
+          "READ_FILE_RESULT",
+          `path: ${path}`,
+          "total_chars: 0",
+          "offset: 0",
+          "max_chars: 0",
+          "returned_range: 0-0",
+          "chars_returned: 0",
+          "truncated: false",
+          "next_offset: null",
+          "---",
+          `File "${path}" is empty or could not be parsed.`,
+        ].join("\n");
       }
 
       const isSkillMd = isSkillMarkdownPath(path);
@@ -49,15 +63,29 @@ export const readFile: Tool = {
       const start = Math.min(offset, text.length);
       const end = Math.min(start + maxChars, text.length);
       const segment = text.slice(start, end);
+      const hasMore = end < text.length;
+      const progress = text.length > 0 ? Math.round((end / text.length) * 100) : 100;
       const header = [
-        `File: ${path}`,
-        `Total characters: ${text.length}`,
-        `Returned range: ${start}-${end}`,
+        "READ_FILE_RESULT",
+        `path: ${path}`,
+        `total_chars: ${text.length}`,
+        `offset: ${start}`,
+        `max_chars: ${maxChars}`,
+        `returned_range: ${start}-${end}`,
+        `chars_returned: ${segment.length}`,
+        `truncated: ${hasMore ? "true" : "false"}`,
+        `next_offset: ${hasMore ? end : "null"}`,
+        `progress: ${progress}%`,
+        `mode: ${isStructuredDocument ? "lossy_text_preview" : "raw_text"}`,
+        "---",
       ];
-      const footer = end < text.length
-        ? `\n\n[More content available. Continue with read_file offset=${end}, max_chars=${maxChars}.]`
+      const structuredNote = isStructuredDocument
+        ? `[STRUCTURED_DOCUMENT_PREVIEW: This is extracted text only. For exact ${ext.toUpperCase()} structure, tables, layout, metadata, or visual fidelity, use run_python with the appropriate library instead of continuing with read_file.]\n\n`
         : "";
-      return `${header.join("\n")}\n\n${segment}${footer}`;
+      const footer = hasMore
+        ? `\n\n[READ_FILE_TRUNCATED: true. You have NOT read the full file. Continue with read_file({ "path": "${path}", "offset": ${end}, "max_chars": ${maxChars} }) if the task requires full-file understanding.]`
+        : "";
+      return `${header.join("\n")}\n\n${structuredNote}${segment}${footer}`;
     } catch (err) {
       return `Error reading file: ${err}`;
     }

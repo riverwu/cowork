@@ -1,15 +1,17 @@
 import {
-  arrowLink, badge, barList, bigPageNumber, bracket, bulletList, calloutMarker, checklist,
-  comparisonCard, comparisonTable, cornerMark, ctaButton, decorationGrid, donutSummary,
+  applyAgentSurface, arrowLink, badge, barList, bigPageNumber, bracket, bulletList, calloutMarker, checklist,
+  comparisonCard, comparisonTable, cornerMark, ctaButton, decorationGrid, decorativeShapes, donutSummary,
   featureCard, flowArrow, funnel, gauge, glossary, heatmap, heroStat, iconText, insightCallout,
   keyTakeaway, kpiGrid, legend, logoStrip, matrix2x2, metricCard, numberedGrid, numberedList,
   outline, pricingCard, processFlow, profileCard, prosCons, progressBar, qAndA, quizCard,
-  quoteBlock, rangePlot, scaleBar, scorecard, sectionBreak, statComparison, statFlow, statStrip,
+  pointerArrow, quoteBlock, rangePlot, scaleBar, scorecard, sectionBreak, statComparison, statFlow, statStrip,
   stepCard, swotMatrix, tagList, takeawayList, timelineAxisBar, timelineBlock, trendLine,
   watermark,
 } from "./components.js";
 import { listNodeTypes } from "./node-types.js";
 import type { DomNode, NodeType } from "./types.js";
+import type { DecorationMarkerInput } from "./components.js";
+import { normalizeStrokeCm } from "./units.js";
 
 export type ComponentName =
   | "deck-title"
@@ -63,6 +65,10 @@ export type ComponentName =
   | "chart-card"
   | "table-card"
   | "insight-card"
+  | "explanation-block"
+  | "comparison-list"
+  | "fact-list"
+  | "executive-summary"
   | "quiz-card"
   | "q-and-a"
   | "takeaway-list"
@@ -82,14 +88,24 @@ export type ComponentName =
   // Decoration components
   | "callout-marker"
   | "decoration-grid"
+  | "decorative-shapes"
   | "corner-mark"
   | "bracket"
   | "arrow-link"
+  | "pointer-arrow"
   | "watermark"
   | "big-page-number"
   | "timeline-axis-bar"
   | "scale-bar"
-  | "two-column";
+  | "two-column"
+  | "freeform-group"
+  | "cover-composition"
+  | "chapter-divider"
+  | "evidence-layout"
+  | "factorial-matrix"
+  | "probe-flow"
+  | "failure-taxonomy"
+  | "main-effect-comparison";
 
 export interface PropDefinition {
   type: "string" | "number" | "boolean" | "enum" | "array" | "object" | "image-ref" | "table" | "chart";
@@ -179,16 +195,41 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     label: { type: "string", required: true, semantic: "metric-label", description: "Short metric label." },
     unit: { type: "string", description: "Optional unit appended to value." },
     trend: { type: "enum", enum: ["up", "down", "flat"], description: "Optional trend intent." },
+    delta: { type: "string", description: "Optional delta or change label." },
+    status: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Semantic status color independent of trend." },
+    comparison: { type: "string", description: "Optional benchmark / target / peer note." },
+    source: { type: "string", description: "Optional compact source note." },
+    sparkline: { type: "array", description: "Optional tiny trend sequence; numeric values render as a micro-bar sparkline." },
+    variant: { type: "enum", enum: ["plain", "card", "compact"], description: "Visual treatment." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
+    surface: { type: "object", description: "Optional surface override {fill,border,cornerRadius,padding,elevation,accent}." },
   }, "stack(text.metric-value, text.metric-label)", "grid"),
-  component("callout", "One highlighted insight, warning, recommendation, or rule of thumb. Use when a sentence needs emphasis but is not the final conclusion.", {
-    text: { type: "string", required: true, semantic: "callout", description: "One concise insight." },
+  component("callout", "Highlighted insight, warning, recommendation, or rule of thumb. Use sparingly: at most one primary callout per slide, not as the default container for every idea. Supports either legacy single-line text or a richer title/body/bullets/content block, so agents should not hand-build callout cards for formatted emphasis.", {
+    text: { type: "string", semantic: "callout", description: "Legacy concise insight. Use title/body/content for richer callouts." },
+    title: { type: "string", semantic: "card-title", description: "Optional colored heading." },
+    body: { type: "string", semantic: "paragraph", description: "Optional supporting body text." },
+    content: { type: "array", description: "Optional rich text runs for body text, e.g. [{text:'Key',marks:['bold']},{text:' detail'}]." },
+    bullets: { type: "array", semantic: "bullet", max: 5, description: "Optional short support bullets." },
+    variant: { type: "enum", enum: ["plain", "card", "banner"], description: "plain keeps legacy text shape; card/banner add stronger surface and heading structure." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Semantic tone." },
   }, "text.callout with styled surface", "stack"),
   component("comparison-card", "One peer item in a comparison set: option, product, persona, scenario, or competitor with parallel points.", {
     title: { type: "string", required: true, semantic: "card-title", description: "Object title." },
     subtitle: { type: "string", semantic: "label", description: "Optional subtitle." },
+    body: { type: "string", semantic: "caption", description: "Optional explanatory sentence." },
+    content: { type: "array", description: "Optional rich text runs for explanatory copy." },
+    badge: { type: "string", description: "Optional short status/category badge." },
     points: { type: "array", semantic: "bullet", max: 6, description: "Short supporting points (max 6)." },
     items: { type: "array", semantic: "bullet", max: 6, description: "Alias for points (max 6)." },
+    metrics: { type: "array", description: "Optional compact metrics [{label,value,tone?}]." },
+    pros: { type: "array", description: "Optional benefits list." },
+    cons: { type: "array", description: "Optional drawbacks list." },
+    score: { type: "string", description: "Optional score/rating/value." },
+    winner: { type: "boolean", description: "Mark this option as the selected/recommended winner." },
+    footer: { type: "string", description: "Optional muted footer note." },
+    variant: { type: "enum", enum: ["plain", "card", "compact"], description: "Visual treatment." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
+    surface: { type: "object", description: "Optional surface override." },
   }, "stack(text.card-title, bullets)", "grid"),
   component("step-card", "One discrete step or stage with a title and short detail. Use inside a larger sequence only when each step needs card-level detail; prefer process-flow for connected pipelines.", {
     step: { type: "string", semantic: "numbered-step", description: "Optional step label." },
@@ -197,6 +238,16 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     body: { type: "string", semantic: "paragraph", description: "Step body." },
     description: { type: "string", semantic: "paragraph", description: "Alias for body when the source uses description copy." },
     steps: { type: "array", semantic: "bullet", description: "Alias used when a step has multiple short details." },
+    content: { type: "array", description: "Optional rich text runs for the body." },
+    bullets: { type: "array", semantic: "bullet", description: "Optional short substeps." },
+    icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional step icon." },
+    marker: { type: "object", description: "Optional semantic item marker instead of a full icon. String or {shape:'dot|ring|square|rounded-square|diamond|side-bar|slash|index-chip', variant?:'tint|solid|outline|ghost|ring|badge', tone?, size?}. Use for subtle list-item decoration." },
+    status: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Semantic step state." },
+    owner: { type: "string", description: "Optional owner/role." },
+    time: { type: "string", description: "Optional duration/date." },
+    variant: { type: "enum", enum: ["plain", "card", "compact"], description: "Visual treatment." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
+    surface: { type: "object", description: "Optional surface override." },
   }, "stack(text.numbered-step, text.card-title, text.paragraph)", "grid"),
   component("definition-card", "Term plus definition. Use for glossary, concept introduction, vocabulary, or clarifying a named framework element.", {
     term: { type: "string", required: true, semantic: "card-title", description: "Term." },
@@ -211,14 +262,14 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     source: { type: "string", description: "Optional source / attribution." },
   }, "stack(text.quote, text.quote-source)", "stack"),
   component("icon-text", "Icon plus short label for compact feature/status/category cues. Use as a small semantic marker, not as a substitute for rich explanation.", {
-    icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], required: true, description: "OOXML preset icon shape." },
+    icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], required: true, description: "OOXML preset icon shape." },
     text: { type: "string", required: true, semantic: "card-title", description: "Label text." },
     iconColor: { type: "string", description: "Icon line/glyph color token." },
     iconBackground: { type: "string", description: "Icon background fill token." },
     tone: { type: "string", description: "Optional text color token." },
   }, "stack.horizontal(shape, text)", "stack"),
   component("timeline", "Chronological sequence with dates, eras, milestones, or releases. Use when time is the organizing meaning. Each item supports rich content: a sub-headline (title), simple body text (body), OR a full embedded DomNode (content) such as a metric-card, image, insight-card, quote, or a stack of multiple blocks. Pass `content` when the moment deserves more than text — a launch screenshot, a fundraising metric, a key quote.", {
-    items: { type: "array", required: true, description: "Array of { time? or date?, title?/label?, body?/description? (text), content? (any DomNode — metric-card, image, insight-card, etc.) }. content takes priority over body when both are supplied. Use vertical direction when items have rich content." },
+    items: { type: "array", required: true, description: "Array of { time?/date?/year?, title?/label?/headline?/name?, body?/description? (text), content? (any DomNode — metric-card, image, insight-card, etc.) }. content takes priority over body when both are supplied. Use vertical direction when items have rich content." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Layout direction. Defaults to horizontal — safe for short text items. Pass 'vertical' when items have rich content (each row gets ~12cm width vs ~4cm in horizontal)." },
     orientation: { type: "enum", enum: ["horizontal", "vertical"], description: "Alias for direction." },
   }, "grid|stack of timeline-step cards", "stack"),
@@ -251,12 +302,22 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     link: { type: "string", description: "Optional hyperlink target." },
   }, "text on roundRect surface", "stack"),
   component("feature-card", "One feature, capability, benefit, or ingredient of an offer. Use for modular value propositions, not for arbitrary bullet paragraphs.", {
-    icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], required: true, description: "Icon shape preset." },
+    icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional large icon shape preset. Prefer marker for subtle item decoration." },
     title: { type: "string", required: true, semantic: "card-title", description: "Feature title." },
     body: { type: "string", semantic: "caption", description: "Optional supporting copy." },
+    content: { type: "array", description: "Optional rich text runs for supporting copy." },
+    marker: { type: "object", description: "Optional semantic item marker that sits beside the title and replaces the large icon. String or {shape:'dot|ring|square|rounded-square|diamond|side-bar|slash|index-chip', variant?, tone?, size?}. Use when a small decorative cue is enough." },
+    badge: { type: "string", description: "Optional category/status badge." },
+    tags: { type: "array", description: "Optional compact tags." },
+    metric: { type: "object", description: "Optional proof metric {value,label,tone?}." },
+    proof: { type: "string", description: "Optional short evidence/source line." },
+    ctaText: { type: "string", description: "Optional compact action label." },
     iconColor: { type: "string", description: "Icon line color (theme token)." },
     iconBackground: { type: "string", description: "Icon fill (theme token)." },
     tone: { type: "string", description: "Title color token." },
+    variant: { type: "enum", enum: ["plain", "card", "compact"], description: "Visual treatment." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
+    surface: { type: "object", description: "Optional surface override." },
   }, "stack(shape, text.card-title, text.caption)", "grid"),
   component("checklist", "Status list with checked/unchecked/warning states. Use for requirements, audit, readiness, QA, or feature parity where completion state matters.", {
     items: { type: "array", required: true, description: "Array of { text, status?: 'checked'|'unchecked'|'warning' }." },
@@ -275,9 +336,12 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     consTitle: { type: "string", description: "Override 'Cons' label." },
   }, "grid 2 columns of titled checklist", "stack"),
   component("process-flow", "Connected process, workflow, recipe, pipeline, or causal sequence. Use when steps depend on each other or movement through stages is the main idea.", {
-    steps: { type: "array", required: true, description: "Array of { title, body? } steps." },
+    steps: { type: "array", required: true, description: "Array of { title, body?, status?, owner?, time?, icon?, bullets? } steps." },
     items: { type: "array", description: "Alias for steps." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Flow direction (default horizontal)." },
+    variant: { type: "enum", enum: ["plain", "cards"], description: "Use cards when each stage needs its own surface." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Step density." },
+    surface: { type: "object", description: "Optional surface override." },
   }, "stack of step blocks separated by arrow shapes", "stack"),
   component("logo-strip", "Set of logos representing customers, partners, integrations, sponsors, or tools. Use when recognition and affiliation are the evidence.", {
     logos: { type: "array", required: true, description: "Array of { src, alt? }." },
@@ -335,7 +399,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Rule orientation." },
     tone: { type: "enum", enum: ["brand", "neutral", "inverse", "positive", "warning", "danger"], description: "Rule color tone. Use inverse on dark color fields." },
     length: { type: "number", description: "Rule length in cm (width for horizontal, height for vertical)." },
-    thickness: { type: "number", description: "Rule thickness in cm." },
+    thickness: { type: "number", description: "Rule thickness. Prefer point-like values 1-3 for normal lines; legacy tiny cm values 0.03-0.18 are also accepted." },
   }, "shape.rect rule with semantic sizing", "stack"),
   component("annotation", "Compact label plus note attached to a chart, image, diagram, or hero object. Use for local explanation of a visual feature, not body copy.", {
     label: { type: "string", required: true, semantic: "label", description: "Short annotation label." },
@@ -363,12 +427,19 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     title: { type: "string", semantic: "section-title", description: "Alias for headline." },
     detail: { type: "string", semantic: "lead", description: "Optional supporting sentence." },
     body: { type: "string", semantic: "lead", description: "Alias for detail." },
+    content: { type: "array", description: "Optional rich text runs for detail copy." },
+    bullets: { type: "array", semantic: "bullet", description: "Optional supporting implications." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Tone color (default brand)." },
+    variant: { type: "enum", enum: ["panel", "banner", "minimal"], description: "Visual emphasis level." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
+    surface: { type: "object", description: "Optional surface override." },
   }, "tinted+bordered panel with accent bar + headline + detail", "stack"),
   component("numbered-grid", "Designed set of ordered priorities, principles, or framework points. Use when each item is a peer module and the number itself communicates order.", {
-    items: { type: "array", required: true, description: "Array of { title/label/name, body/description/text? } items." },
+    items: { type: "array", required: true, description: "Array of { title/label/name, body/description/text?, marker?, tone? } items. marker can be string or {shape,variant,tone,size}." },
     columns: { type: "number", description: "Columns (default min(4, items.length))." },
     tone: { type: "enum", enum: ["brand", "neutral"], description: "Number color tone." },
+    marker: { type: "object", description: "Optional marker applied to every item title row. Prefer this over raw square shapes for item decoration." },
+    numberStyle: { type: "enum", enum: ["chip", "plain"], description: "Number treatment. chip is default; plain uses oversized text numerals." },
   }, "grid of (big-number, card-title, caption) cells", "stack"),
   component("tag-list", "Set of short keywords, categories, feature flags, or filters. Use for compact classification; not for sentences or long labels.", {
     items: { type: "array", required: true, description: "Array of strings or { text, tone? } objects." },
@@ -386,9 +457,16 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     src: { type: "image-ref", required: true, description: "Image source path, URL, or data URL." },
     alt: { type: "string", description: "Accessible image description." },
     title: { type: "string", description: "Optional title above the image." },
+    badge: { type: "string", description: "Optional status/category badge above the image." },
+    insight: { type: "string", description: "Optional interpretation sentence below the image." },
+    annotations: { type: "array", description: "Optional local labels; render as compact notes below/around the media." },
+    callouts: { type: "array", description: "Optional short callout notes." },
     caption: { type: "string", description: "Optional caption below the image." },
     fit: { type: "enum", enum: ["cover", "contain", "fill"], description: "Image fit mode." },
+    imageWidth: { type: "number", description: "Optional inner image width in cm. Defaults to a centered illustration width for contain-fit cards." },
     tone: { type: "enum", enum: ["neutral", "brand", "tinted"], description: "Card surface tone." },
+    variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
+    surface: { type: "object", description: "Optional surface override." },
   }, "card(stack(title?, image, caption?))", "grid"),
   component("chart-card", "Titled quantitative evidence module. Use when the chart is a self-contained proof object with interpretation/source, not just a raw plot.", {
     chartType: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], required: true, description: "Chart type." },
@@ -397,11 +475,15 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     series: { type: "array", required: true, description: "Chart series." },
     data: { type: "object", description: "Optional { labels, series } alias bundle." },
     title: { type: "string", description: "Optional card/chart title." },
+    badge: { type: "string", description: "Optional status/category badge." },
+    insight: { type: "string", description: "Optional conclusion sentence." },
     caption: { type: "string", description: "Optional source or interpretation note." },
     showLegend: { type: "boolean", description: "Show chart legend." },
     showValues: { type: "boolean", description: "Show values on chart marks." },
     yFormat: { type: "enum", enum: ["int", "decimal", "percent", "wanyuan", "yi"], description: "Y-axis number format." },
     tone: { type: "enum", enum: ["neutral", "brand", "tinted"], description: "Card surface tone." },
+    variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
+    surface: { type: "object", description: "Optional surface override." },
   }, "card(stack(title?, chart, caption?))", "grid"),
   component("table-card", "Titled structured comparison or lookup table. Use for financials, feature matrices, risks, guidance, and compact data summaries.", {
     title: { type: "string", description: "Optional table title." },
@@ -409,10 +491,14 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     columns: { type: "array", description: "Alternative column definitions { header, width? }." },
     rows: { type: "array", required: true, description: "Table rows. Supports cell objects with text/runs/fill/color/bold/align/valign/colspan/rowspan." },
     data: { type: "object", description: "Optional { headers, rows } alias bundle." },
+    badge: { type: "string", description: "Optional status/category badge." },
+    insight: { type: "string", description: "Optional conclusion sentence." },
     caption: { type: "string", description: "Optional source note below the table." },
     tone: { type: "enum", enum: ["neutral", "brand", "tinted"], description: "Card surface tone." },
+    variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
+    surface: { type: "object", description: "Optional surface override." },
   }, "card(stack(title?, table, caption?))", "stack"),
-  component("insight-card", "One modular insight with badge/headline/detail/proof bullets. Use for a curated finding or recommendation, not generic paragraph storage.", {
+  component("insight-card", "One modular insight with badge/headline/detail/proof bullets. Use for a curated finding or recommendation, not generic paragraph storage; avoid filling a whole deck with repeated insight-card grids when process-flow, comparison-card, key-takeaway, chart-card, table-card, or evidence-layout better fits the slide job.", {
     badge: { type: "string", description: "Optional short status/category badge." },
     headline: { type: "string", required: true, semantic: "card-title", description: "Main insight." },
     title: { type: "string", semantic: "card-title", description: "Alias for headline." },
@@ -422,7 +508,53 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     items: { type: "array", semantic: "bullet", description: "Alias for bullets." },
     points: { type: "array", semantic: "bullet", description: "Alias for bullets." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Card tone." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Use compact in dense grids or small cells." },
   }, "card(stack(badge?, title, detail?, bullets?))", "grid"),
+  component("explanation-block", "Structured explanation for concepts, mechanisms, causes, or implications. Prefer this over repeated insight-cards when the slide job is to explain how/why something works.", {
+    title: { type: "string", semantic: "card-title", description: "Optional explanation heading." },
+    headline: { type: "string", semantic: "card-title", description: "Alias for title." },
+    body: { type: "string", semantic: "paragraph", description: "Main explanatory paragraph." },
+    detail: { type: "string", semantic: "paragraph", description: "Alias for body." },
+    description: { type: "string", semantic: "paragraph", description: "Alias for body." },
+    content: { type: "array", description: "Optional rich text runs for the body." },
+    bullets: { type: "array", semantic: "bullet", description: "Optional supporting points." },
+    items: { type: "array", semantic: "bullet", description: "Alias for bullets." },
+    example: { type: "string", description: "Optional example sentence." },
+    note: { type: "string", description: "Optional muted note or caveat." },
+    variant: { type: "enum", enum: ["plain", "rail", "panel"], description: "plain = no chrome; rail = accent spine; panel = subtle surface." },
+    tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Semantic accent tone." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
+    surface: { type: "object", description: "Optional surface override." },
+  }, "stack(title?, paragraph, bullets?, example?, note?)", "stack"),
+  component("comparison-list", "Lightweight comparison of 2-4 options, positions, cases, or before/after states. Use when a full matrix is too heavy and separate comparison-card grids would create repetitive chrome.", {
+    title: { type: "string", description: "Optional local heading." },
+    basis: { type: "string", description: "Optional comparison basis or lens." },
+    items: { type: "array", required: true, description: "Array of {title/name/label, body/description?, points/items/bullets?, badge?, tone?}." },
+    columns: { type: "number", description: "Optional column count; default follows item count." },
+    variant: { type: "enum", enum: ["plain", "columns", "subtle"], description: "Visual treatment." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
+  }, "stack(title?, grid(option stacks))", "stack"),
+  component("fact-list", "Evidence-first list of facts, data snippets, claims, or source-backed observations. Prefer this over insight-card when each item is a fact plus interpretation/source rather than a full standalone insight.", {
+    title: { type: "string", description: "Optional local heading." },
+    items: { type: "array", required: true, description: "Array of {label/title/name, value?, fact/text/body?, interpretation/insight?, source?, tone?}." },
+    columns: { type: "number", description: "Optional column count for grid layout." },
+    variant: { type: "enum", enum: ["list", "grid", "strip"], description: "list = vertical evidence list; grid = compact multi-column; strip = horizontal facts." },
+    tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Default accent tone." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
+  }, "stack/grid of fact rows(label,value,fact,interpretation,source)", "stack"),
+  component("executive-summary", "Executive synthesis block: thesis plus findings and implication/action. Use for opening summary, closing summary, decision memo, or high-level answer slides.", {
+    thesis: { type: "string", semantic: "lead", description: "Primary thesis or answer." },
+    headline: { type: "string", semantic: "lead", description: "Alias for thesis." },
+    title: { type: "string", semantic: "lead", description: "Alias for thesis." },
+    summary: { type: "string", semantic: "paragraph", description: "Optional short summary sentence." },
+    body: { type: "string", semantic: "paragraph", description: "Alias for summary." },
+    findings: { type: "array", description: "Array of {headline/title, detail/body?, tone?}; alias items." },
+    items: { type: "array", description: "Alias for findings." },
+    implication: { type: "string", description: "Optional implication sentence." },
+    action: { type: "string", description: "Optional recommended next action." },
+    variant: { type: "enum", enum: ["memo", "board", "compact"], description: "Visual treatment." },
+    tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Semantic accent tone." },
+  }, "stack(thesis, summary?, findings?, implication/action?)", "stack"),
   component("two-column", "Semantic two-region layout for narrative + visual, evidence + commentary, or before + after. Use when both sides have named roles, not as a generic equal split.", {
     left: { type: "object", required: true, description: "Left DomNode." },
     right: { type: "object", required: true, description: "Right DomNode." },
@@ -439,9 +571,10 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     tone: { type: "enum", enum: ["brand", "neutral", "tinted"], description: "Card surface tone." },
   }, "card(stack(stem, items:Array<marker+text>?, divider?, explanation?))", "stack"),
   component("takeaway-list", "Multi-item Key Takeaways: 3-5 short conclusions, each with a colored accent bar + bold headline + optional 1-line detail. Right component for a wrap-up / summary slide.", {
-    items: { type: "array", required: true, description: "Array of {headline, detail?, tone?}. Per-item tone (brand|positive|warning|danger|neutral) overrides the list default — useful for a 'three findings + one caveat' shape where the caveat is muted (neutral) and the findings are chromatic." },
+    items: { type: "array", required: true, description: "Array of {headline, detail?, tone?, marker?}. Per-item tone (brand|positive|warning|danger|neutral) overrides the list default — useful for a 'three findings + one caveat' shape where the caveat is muted (neutral) and the findings are chromatic." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Default accent tone for items that don't supply one. 'neutral' renders a divider-gray bar (de-emphasized)." },
-  }, "stack(items:Array<bar+stack(headline,detail)>)", "stack"),
+    marker: { type: "object", description: "Optional list-wide item marker. String or {shape,variant,tone,size}. Replaces the default accent bar; use side-bar for a slimmer rail, ring/dot/diamond for lightweight bullets." },
+  }, "stack(items:Array<marker/bar+stack(headline,detail)>)", "stack"),
   component("outline", "Table of contents / agenda. Vertical list of N chapters, each with optional number + title + optional 1-line body + optional page reference. Use for cover-following TOC slides, talk agendas, chapter indexes. Distinct from numbered-grid (parallel modules in a grid) and timeline (date-ordered events) — outline is for linear reading-order chapters with editorial spacing. Density adapts: 1-5 items show body, 6-9 are compact, 10-12 hide body. Numbering is NEVER auto-generated — pass `number` explicitly per item if you want chapter labels (e.g. \"01\", \"I\", \"Ch 1\"). When at least one item supplies number, a number column is reserved across all rows (blank cells for un-numbered items, so titles stay aligned).", {
     items: { type: "array", required: true, description: "Array of {title:string, number?:string (e.g. \"01\", \"I\", \"Ch 1\"; not auto-generated), body?:string, page?:string|number, tone?:enum[brand|positive|warning|danger]}." },
     showPages: { type: "boolean", description: "Right-align item.page as a page reference (default false)." },
@@ -524,6 +657,15 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     columns: { type: "number", description: "Override column count." },
     asBackground: { type: "boolean", description: "Default true: anchors the grid as a slide-spanning overlay (zIndex<0) so it sits behind content without occupying flow. Set false to embed inline (e.g. as a designed band between content blocks)." },
   }, "grid of small shape primitives in a repeating pattern", "stack"),
+  component("decorative-shapes", "Cluster of decorative vector shapes for background texture, corner ornaments, confetti, bubbles, abstract blobs, or light scientific/tech motifs. Use when the slide needs visual atmosphere but not semantic content.", {
+    motif: { type: "enum", enum: ["bubbles", "confetti", "corner-blobs", "sparkles", "molecule"], description: "Visual motif (default bubbles)." },
+    position: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right", "full"], description: "Where the cluster is anchored. full spans the slide as a background texture." },
+    tone: { type: "enum", enum: ["muted", "brand", "accent", "warning"], description: "Color family (default muted)." },
+    count: { type: "number", description: "Approximate number of marks, 3-40." },
+    width: { type: "number", description: "Cluster width in cm for corner positions." },
+    height: { type: "number", description: "Cluster height in cm for corner positions." },
+    asBackground: { type: "boolean", description: "Default true: places the motif behind content. Set false for foreground decorative accents." },
+  }, "anchored grid of vector shape marks", "grid"),
   component("corner-mark", "Small ribbon/stamp/tag in a slide corner — DRAFT, CONFIDENTIAL, V2.0 style markers. Anchored to corner, doesn't compete with main content.", {
     text: { type: "string", required: true, description: "The marker text." },
     corner: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right"], description: "Corner position (default top-right)." },
@@ -542,6 +684,17 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     direction: { type: "enum", enum: ["right", "down"], description: "Arrow direction (default right)." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Arrow color tone." },
   }, "stack of from-label, arrow, to-label", "stack"),
+  component("pointer-arrow", "Anchored directional arrow used to point at a region of an image, chart, diagram, or highlighted object. Different from arrow-link: this is an overlay annotation arrow, not an inline flow connector.", {
+    label: { type: "string", description: "Optional label above/beside the arrow." },
+    direction: { type: "enum", enum: ["right", "left", "down", "up"], description: "Direction the arrow points (default right)." },
+    anchor: { type: "enum", enum: ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"], description: "Slide-relative anchor position." },
+    offsetX: { type: "number", description: "Horizontal offset from the anchor in cm." },
+    offsetY: { type: "number", description: "Vertical offset from the anchor in cm." },
+    width: { type: "number", description: "Overlay width in cm." },
+    height: { type: "number", description: "Overlay height in cm." },
+    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Arrow color tone." },
+    style: { type: "enum", enum: ["solid", "dashed"], description: "Line style (default solid)." },
+  }, "anchored arrow shape with optional label", "stack"),
   component("watermark", "Large semi-transparent decorative text overlay (DRAFT, CONFIDENTIAL, SAMPLE). Anchored to slide center.", {
     text: { type: "string", required: true, description: "The watermark text." },
     rotation: { type: "number", description: "Rotation in degrees (default 0)." },
@@ -565,6 +718,61 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ticks: { type: "number", description: "Number of tick marks (default 5, min 2)." },
     tone: { type: "enum", enum: ["brand", "neutral"], description: "Line color tone." },
   }, "stack(ticks, baseline, labels)", "stack"),
+  containerComponent("freeform-group", "Slide-level composition group for anchored overlays. Use when a cover, section opener, annotation layer, or editorial page needs several independently positioned objects without abandoning validation. Children should set anchor/offsetX/offsetY/width/height/zIndex; the component expands them as direct slide children.", {
+    mode: { type: "enum", enum: ["overlay", "background"], description: "overlay (default) keeps authored zIndex; background defaults child zIndex to -1." },
+  }, "fragment(children as slide-level overlays)", "stack"),
+  component("cover-composition", "Editorial cover layout: optional full-bleed visual/background, decorative motif, dominant title lockup, and optional hero stat. Use instead of loose deck-title/text nodes when a cover needs richer composition.", {
+    title: { type: "string", required: true, description: "Cover title." },
+    subtitle: { type: "string", description: "Optional subtitle." },
+    eyebrow: { type: "string", description: "Optional kicker." },
+    visual: { type: "object", description: "Optional {src, fit:'cover'|'contain', anchor?, width?, height?, opacity?} background or hero image." },
+    heroStat: { type: "object", description: "Optional {value,label,caption,tone} hero stat." },
+    tone: { type: "enum", enum: ["neutral", "inverse", "brand"], description: "Text tone. Use inverse on dark/image backgrounds." },
+    decor: { type: "enum", enum: ["none", "grid", "shapes"], description: "Optional background decoration." },
+  }, "fragment(background + title-lockup overlays)", "stack"),
+  component("chapter-divider", "High-impact chapter opener with full-slide color field, large chapter number, title/subtitle lockup, and optional progress bar. Use for major section resets only.", {
+    title: { type: "string", required: true, description: "Chapter title." },
+    subtitle: { type: "string", description: "Optional subtitle." },
+    chapter: { type: "string", description: "Large chapter number or label, e.g. 03." },
+    eyebrow: { type: "string", description: "Small label above title." },
+    sections: { type: "array", description: "Optional section names for timeline-axis-bar." },
+    current: { type: "number", description: "0-based current section index when sections are provided." },
+    tone: { type: "enum", enum: ["brand", "neutral", "inverse"], description: "Color treatment." },
+  }, "fragment(full-slide band + big-page-number + title-lockup)", "stack"),
+  component("evidence-layout", "Two-region evidence page: visual proof on the left or top, interpretation panel beside/below it, plus optional annotations. Use for chart/screenshot/image/table + conclusion pages so the slide says what the evidence means.", {
+    evidence: { type: "object", required: true, description: "DomNode for chart-card, image-card, table-card, chart, image, or diagram." },
+    insight: { type: "object", description: "DomNode for insight-card/key-takeaway/callout. If omitted, headline/detail create an insight-card." },
+    headline: { type: "string", description: "Insight headline alias when insight node is omitted." },
+    detail: { type: "string", description: "Insight detail alias when insight node is omitted." },
+    annotations: { type: "array", description: "Optional anchored DomNodes such as pointer-arrow/callout-marker. These expand as slide-level overlays." },
+    layout: { type: "enum", enum: ["sidecar", "stacked"], description: "sidecar (default) = evidence left + insight right; stacked = evidence top + insight bottom." },
+    ratio: { type: "array", description: "Split ratio, default [0.68,0.32]." },
+  }, "fragment(split + annotations)", "stack"),
+  component("factorial-matrix", "Labeled 2D matrix for experiment factors, scenarios, capabilities, or model comparisons. Use when rows and columns both carry meaning; cells are compact values or short labels.", {
+    rows: { type: "array", required: true, description: "Row labels." },
+    columns: { type: "array", required: true, description: "Column labels." },
+    cells: { type: "array", required: true, description: "2D array matching rows x columns; each cell may be string or {text,tone}." },
+    title: { type: "string", description: "Optional matrix title." },
+  }, "stack(title?, grid(header+cells))", "stack"),
+  component("probe-flow", "Experiment/probe walkthrough: prompt or input → model/agent step(s) → observation/output. Use for evaluation methods, user-study protocols, and technical walkthroughs.", {
+    steps: { type: "array", required: true, description: "Array of {title, body?, tone?}; alias items." },
+    items: { type: "array", description: "Alias for steps." },
+    direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Flow direction." },
+  }, "process-flow with probe semantics", "stack"),
+  component("failure-taxonomy", "Horizontal set of failure categories with rate chips and examples. Use for error analysis, evaluation results, risk taxonomies, or postmortems.", {
+    items: { type: "array", required: true, description: "Array of {title/name, rate/value?, examples?/bullets?, body?}." },
+    columns: { type: "number", description: "Optional columns." },
+    tone: { type: "enum", enum: ["brand", "warning", "danger", "neutral"], description: "Default rate chip tone." },
+  }, "grid of failure cards", "stack"),
+  component("main-effect-comparison", "Main-effect summary: visual comparison/evidence plus a right-side conclusion panel. Use for experimental result pages where one effect dominates and must be interpreted.", {
+    title: { type: "string", description: "Optional local title." },
+    beforeLabel: { type: "string", required: true, description: "Left/current/baseline label." },
+    beforeValue: { type: "string", required: true, description: "Baseline value." },
+    afterLabel: { type: "string", required: true, description: "Right/treatment label." },
+    afterValue: { type: "string", required: true, description: "Treatment value." },
+    insight: { type: "string", description: "Interpretation sentence." },
+    trend: { type: "enum", enum: ["up", "down", "flat"], description: "Effect direction." },
+  }, "stat-comparison + insight panel", "stack"),
 ];
 
 export function listComponents(): ComponentSummary[] {
@@ -628,14 +836,48 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
   if (componentName === "metric-card") {
     const unit = stringValue(node.unit, "");
     const trend = node.trend === "up" || node.trend === "down" || node.trend === "flat" ? node.trend : undefined;
-    return withComponentRoot(node, metricCard(slideId, name, stringValue(node.value, ""), stringValue(node.label, ""), { unit, trend }));
+    const status = componentTone(node.status);
+    const variant = node.variant === "card" || node.variant === "compact" ? node.variant : undefined;
+    const density = node.density === "compact" || node.density === "comfortable" ? node.density : undefined;
+    return withComponentRoot(node, metricCard(slideId, name, stringValue(node.value, ""), stringValue(node.label, ""), {
+      unit,
+      trend,
+      delta: stringValue(node.delta, ""),
+      status,
+      source: stringValue(node.source, ""),
+      comparison: stringValue(node.comparison, ""),
+      sparkline: Array.isArray(node.sparkline) ? node.sparkline as Array<number | string> : undefined,
+      variant,
+      density,
+      ...surfaceOptions(node),
+    }));
   }
   if (componentName === "callout") {
-    const toneProps = tonePropsFrom(node.tone);
-    const expanded = insightCallout(slideId, name, stringValue(node.text, ""));
-    return withComponentRoot(node, { ...expanded, ...toneProps });
+    return withComponentRoot(node, calloutNode(slideId, name, node));
   }
-  if (componentName === "comparison-card") return withComponentRoot(node, comparisonCard(slideId, name, stringValue(node.title, ""), comparisonPoints(node).slice(0, 6)));
+  if (componentName === "comparison-card") {
+    const metrics = Array.isArray(node.metrics) ? node.metrics.map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      return { label: stringValue(rec.label, ""), value: stringValue(rec.value, ""), tone: componentTone(rec.tone) };
+    }).filter((m) => m.label || m.value) : undefined;
+    const variant = node.variant === "card" || node.variant === "compact" ? node.variant : undefined;
+    const density = node.density === "compact" || node.density === "comfortable" ? node.density : undefined;
+    return withComponentRoot(node, comparisonCard(slideId, name, stringValue(node.title, ""), comparisonPoints(node).slice(0, 6), {
+      subtitle: stringValue(node.subtitle, ""),
+      badge: stringValue(node.badge, ""),
+      body: stringValue(node.body, ""),
+      content: node.content,
+      metrics,
+      pros: stringArray(node.pros),
+      cons: stringArray(node.cons),
+      score: stringValue(node.score, ""),
+      winner: node.winner === true || node.recommended === true,
+      footer: stringValue(node.footer, ""),
+      variant,
+      density,
+      ...surfaceOptions(node),
+    }));
+  }
   if (componentName === "step-card") {
     return withComponentRoot(node, stepCard(
       slideId,
@@ -643,6 +885,18 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       stringValue(node.step, stringValue(node.number, "")),
       stringValue(node.title, stringValue(node.label, "")),
       stringValue(node.body, stringValue(node.description, stringArray(node.steps).join("\n"))),
+      {
+        content: node.content,
+        bullets: stringArray(node.bullets),
+        icon: stringValue(node.icon, ""),
+        marker: decorationMarker(node.marker),
+        status: componentTone(node.status),
+        owner: stringValue(node.owner, ""),
+        time: stringValue(node.time, ""),
+        variant: node.variant === "card" || node.variant === "compact" ? node.variant : undefined,
+        density: node.density === "compact" || node.density === "comfortable" ? node.density : undefined,
+        ...surfaceOptions(node),
+      },
     ));
   }
   if (componentName === "article") return withComponentRoot(node, articleFallback(slideId, name, node));
@@ -675,10 +929,10 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
         ? contentRaw as DomNode
         : undefined;
       return {
-        time: stringValue(rec.time, stringValue(rec.date, "")),
+        time: stringValue(rec.time, stringValue(rec.date, stringValue(rec.year, ""))),
         // title is now optional; when content is present, agents often
         // omit it because the content carries its own headline.
-        title: stringValue(rec.title, stringValue(rec.label, "")),
+        title: stringValue(rec.title, stringValue(rec.label, stringValue(rec.headline, stringValue(rec.name, "")))),
         body: stringValue(rec.body, stringValue(rec.description, "")),
         content,
       };
@@ -710,11 +964,20 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
         value: stringValue(rec.value, ""),
         label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))),
         unit: stringValue(rec.unit, ""),
+        delta: stringValue(rec.delta, ""),
+        status: componentTone(rec.status),
+        source: stringValue(rec.source, ""),
+        comparison: stringValue(rec.comparison, ""),
+        sparkline: Array.isArray(rec.sparkline) ? rec.sparkline as Array<number | string> : undefined,
         trend,
       };
     });
     const columns = typeof node.columns === "number" ? node.columns : undefined;
-    return withComponentRoot(node, kpiGrid(slideId, name, metrics, columns));
+    return withComponentRoot(node, kpiGrid(slideId, name, metrics, columns, {
+      variant: node.variant === "card" || node.variant === "compact" ? node.variant : undefined,
+      density: node.density === "compact" || node.density === "comfortable" ? node.density : undefined,
+      ...surfaceOptions(node),
+    }));
   }
   if (componentName === "section-break") {
     const rawTone = node.tone;
@@ -748,9 +1011,23 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       icon: stringValue(node.icon, "ellipse"),
       title: stringValue(node.title, ""),
       body: stringValue(node.body, ""),
+      content: node.content,
+      marker: decorationMarker(node.marker),
+      badge: stringValue(node.badge, ""),
+      tags: stringArray(node.tags),
+      metric: node.metric && typeof node.metric === "object" ? {
+        value: stringValue((node.metric as Record<string, unknown>).value, ""),
+        label: stringValue((node.metric as Record<string, unknown>).label, ""),
+        tone: componentTone((node.metric as Record<string, unknown>).tone),
+      } : undefined,
+      proof: stringValue(node.proof, ""),
+      ctaText: stringValue(node.ctaText, ""),
       iconColor: stringValue(node.iconColor, ""),
       iconBackground: stringValue(node.iconBackground, ""),
       tone: stringValue(node.tone, ""),
+      variant: node.variant === "card" || node.variant === "compact" ? node.variant : undefined,
+      density: node.density === "compact" || node.density === "comfortable" ? node.density : undefined,
+      ...surfaceOptions(node),
     }));
   }
   if (componentName === "checklist") {
@@ -785,10 +1062,24 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
   if (componentName === "process-flow") {
     const steps = arrayValue(node.steps, node.items).map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-      return { title: stringValue(rec.title, stringValue(rec.label, "")), body: stringValue(rec.body, stringValue(rec.description, "")) };
+      return {
+        title: stringValue(rec.title, stringValue(rec.label, "")),
+        body: stringValue(rec.body, stringValue(rec.description, "")),
+        status: stringValue(rec.status, ""),
+        owner: stringValue(rec.owner, ""),
+        time: stringValue(rec.time, stringValue(rec.duration, "")),
+        icon: stringValue(rec.icon, ""),
+        bullets: stringArray(rec.bullets),
+      };
     }).filter((step) => step.title);
     const direction = node.direction === "vertical" ? "vertical" : "horizontal";
-    return withComponentRoot(node, processFlow(slideId, name, { steps, direction }));
+    return withComponentRoot(node, processFlow(slideId, name, {
+      steps,
+      direction,
+      variant: node.variant === "cards" ? "cards" : undefined,
+      density: node.density === "compact" || node.density === "comfortable" ? node.density : undefined,
+      ...surfaceOptions(node),
+    }));
   }
   if (componentName === "logo-strip") {
     const logos = arrayValue(node.logos, node.items, node.images).map((raw) => {
@@ -897,18 +1188,29 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     return withComponentRoot(node, keyTakeaway(slideId, name, {
       headline: stringValue(node.headline, stringValue(node.title, "")),
       detail: stringValue(node.detail, stringValue(node.body, stringValue(node.description, ""))),
+      content: node.content,
+      bullets: stringArray(node.bullets),
       tone,
+      variant: node.variant === "banner" || node.variant === "minimal" || node.variant === "panel" ? node.variant : undefined,
+      density: node.density === "compact" || node.density === "comfortable" ? node.density : undefined,
+      ...surfaceOptions(node),
     }));
   }
   if (componentName === "numbered-grid") {
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { title: String(raw ?? "") };
-      return { title: stringValue(rec.title, stringValue(rec.label, stringValue(rec.name, ""))), body: stringValue(rec.body, stringValue(rec.description, stringValue(rec.text, ""))) };
+      return {
+        title: stringValue(rec.title, stringValue(rec.label, stringValue(rec.name, ""))),
+        body: stringValue(rec.body, stringValue(rec.description, stringValue(rec.text, ""))),
+        marker: decorationMarker(rec.marker),
+        tone: componentTone(rec.tone),
+      };
     }).filter((item) => item.title) : [];
     const cols = typeof node.columns === "number" ? node.columns : undefined;
     const toneRaw = node.tone;
     const tone = toneRaw === "brand" || toneRaw === "neutral" ? toneRaw : undefined;
-    return withComponentRoot(node, numberedGrid(slideId, name, { items, columns: cols, tone }));
+    const numberStyle = node.numberStyle === "plain" ? "plain" : node.numberStyle === "chip" ? "chip" : undefined;
+    return withComponentRoot(node, numberedGrid(slideId, name, { items, columns: cols, tone, marker: decorationMarker(node.marker), numberStyle, ...surfaceOptions(node) }));
   }
   if (componentName === "tag-list") {
     const toneRaw = node.tone;
@@ -943,6 +1245,18 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
   }
   if (componentName === "insight-card") {
     return withComponentRoot(node, insightCardNode(slideId, name, node));
+  }
+  if (componentName === "explanation-block") {
+    return withComponentRoot(node, explanationBlockNode(slideId, name, node));
+  }
+  if (componentName === "comparison-list") {
+    return withComponentRoot(node, comparisonListNode(slideId, name, node));
+  }
+  if (componentName === "fact-list") {
+    return withComponentRoot(node, factListNode(slideId, name, node));
+  }
+  if (componentName === "executive-summary") {
+    return withComponentRoot(node, executiveSummaryNode(slideId, name, node));
   }
   if (componentName === "scorecard") {
     type ScoreStatus = "good" | "warning" | "danger" | "neutral";
@@ -1120,6 +1434,20 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       ...(asBg === false ? { asBackground: false } : {}),
     }));
   }
+  if (componentName === "decorative-shapes") {
+    const motif = node.motif === "confetti" || node.motif === "corner-blobs" || node.motif === "sparkles" || node.motif === "molecule" || node.motif === "bubbles" ? node.motif : undefined;
+    const position = node.position === "top-left" || node.position === "top-right" || node.position === "bottom-left" || node.position === "bottom-right" || node.position === "full" ? node.position : undefined;
+    const tone = node.tone === "brand" || node.tone === "accent" || node.tone === "warning" || node.tone === "muted" ? node.tone : undefined;
+    return withComponentRoot(node, decorativeShapes(slideId, name, {
+      motif,
+      position,
+      tone,
+      count: typeof node.count === "number" ? node.count : undefined,
+      width: typeof node.width === "number" ? node.width : undefined,
+      height: typeof node.height === "number" ? node.height : undefined,
+      ...(node.asBackground === false ? { asBackground: false } : {}),
+    }));
+  }
   if (componentName === "corner-mark") {
     const cn = node.corner === "top-left" || node.corner === "top-right" || node.corner === "bottom-left" || node.corner === "bottom-right" ? node.corner : undefined;
     const tn = node.tone === "brand" || node.tone === "warning" || node.tone === "danger" || node.tone === "neutral" ? node.tone : undefined;
@@ -1146,6 +1474,33 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       label: stringValue(node.label, "") || undefined,
       direction: dir, tone: tn,
     }));
+  }
+  if (componentName === "pointer-arrow") {
+    const dir = node.direction === "left" || node.direction === "down" || node.direction === "up" || node.direction === "right" ? node.direction : undefined;
+    const tn = node.tone === "brand" || node.tone === "positive" || node.tone === "warning" || node.tone === "danger" ? node.tone : undefined;
+    const anchorVals = ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
+    const anchor = typeof node.anchor === "string" && anchorVals.includes(node.anchor) ? node.anchor as Parameters<typeof pointerArrow>[2]["anchor"] : undefined;
+    const expanded = pointerArrow(slideId, name, {
+      label: stringValue(node.label, "") || undefined,
+      direction: dir,
+      anchor,
+      offsetX: typeof node.offsetX === "number" ? node.offsetX : undefined,
+      offsetY: typeof node.offsetY === "number" ? node.offsetY : undefined,
+      width: typeof node.width === "number" ? node.width : undefined,
+      height: typeof node.height === "number" ? node.height : undefined,
+      tone: tn,
+      style: node.style === "dashed" || node.style === "solid" ? node.style : undefined,
+    });
+    const root = withComponentRoot(node, expanded);
+    // width/height are both authored placement hints and internal fit
+    // constraints. Preserve the agent's larger explicit size, but do not let
+    // too-small values override the component's minimum needed to fit label +
+    // arrow.
+    return {
+      ...root,
+      width: Math.max(numberValue(node.width, 0), numberValue(expanded.width, 0)),
+      height: Math.max(numberValue(node.height, 0), numberValue(expanded.height, 0)),
+    };
   }
   if (componentName === "watermark") {
     const tn = node.tone === "muted" || node.tone === "danger" || node.tone === "warning" || node.tone === "brand" ? node.tone : undefined;
@@ -1182,6 +1537,34 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       ticks: typeof node.ticks === "number" ? node.ticks : undefined,
       tone: tn,
     }));
+  }
+  if (componentName === "freeform-group") {
+    return withComponentRoot(node, freeformGroupNode(slideId, name, node));
+  }
+  if (componentName === "cover-composition") {
+    return withComponentRoot(node, coverCompositionNode(slideId, name, node));
+  }
+  if (componentName === "chapter-divider") {
+    return withComponentRoot(node, chapterDividerNode(slideId, name, node));
+  }
+  if (componentName === "evidence-layout") {
+    return withComponentRoot(node, evidenceLayoutNode(slideId, name, node));
+  }
+  if (componentName === "factorial-matrix") {
+    return withComponentRoot(node, factorialMatrixNode(slideId, name, node));
+  }
+  if (componentName === "probe-flow") {
+    const steps = arrayValue(node.steps, node.items).map((raw) => {
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { title: String(raw ?? "") };
+      return { title: stringValue(rec.title, stringValue(rec.label, "")), body: stringValue(rec.body, stringValue(rec.description, "")) };
+    }).filter((step) => step.title);
+    return withComponentRoot(node, processFlow(slideId, name, { steps, direction: node.direction === "vertical" ? "vertical" : "horizontal" }));
+  }
+  if (componentName === "failure-taxonomy") {
+    return withComponentRoot(node, failureTaxonomyNode(slideId, name, node));
+  }
+  if (componentName === "main-effect-comparison") {
+    return withComponentRoot(node, mainEffectComparisonNode(slideId, name, node));
   }
   if (componentName === "two-column") {
     const left = node.left && typeof node.left === "object" ? node.left as DomNode : { id: `${slideId}.${name}.left.empty`, type: "spacer" };
@@ -1292,16 +1675,17 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       const norm = normalizeToneAlias(v);
       return norm && allowed.has(norm) ? norm as TakeawayTone : undefined;
     };
-    const items: Array<{ headline: string; detail?: string; tone?: TakeawayTone }> = Array.isArray(node.items) ? node.items.map((raw) => {
+    const items: Array<{ headline: string; detail?: string; tone?: TakeawayTone; marker?: DecorationMarkerInput }> = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { headline: String(raw ?? "") };
       return {
         headline: stringValue(rec.headline, stringValue(rec.title, stringValue(rec.text, ""))),
         detail: stringValue(rec.detail, stringValue(rec.body, stringValue(rec.description, ""))) || undefined,
         tone: coerce(rec.tone),
+        marker: decorationMarker(rec.marker),
       };
     }).filter((item) => item.headline) : [];
     const tone = coerce(node.tone);
-    return withComponentRoot(node, takeawayList(slideId, name, { items, tone }));
+    return withComponentRoot(node, takeawayList(slideId, name, { items, tone, marker: decorationMarker(node.marker), ...surfaceOptions(node) }));
   }
   return withComponentRoot(node, { id: node.id, type: "stack", direction: "vertical", children: [] });
 }
@@ -1353,17 +1737,58 @@ function componentLocalId(slideId: string, id: unknown): string {
 }
 
 function withComponentRoot(source: DomNode, expanded: DomNode): DomNode {
+  const typography = typographyProps(source);
+  const styled = Object.keys(typography).length > 0
+    ? applyTypographyOverrides(expanded, typography)
+    : expanded;
   return {
-    ...expanded,
+    ...styled,
     ...layoutProps(source),
     id: source.id || expanded.id,
   };
+}
+
+function typographyProps(node: DomNode): Record<string, unknown> {
+  const output: Record<string, unknown> = {};
+  for (const key of [
+    "color",
+    "fontSize",
+    "fontFamily",
+    "font",
+    "fontWeight",
+    "weight",
+    "lineHeight",
+    "letterSpacing",
+    "tracking",
+    "uppercase",
+    "italic",
+    "underline",
+    "size",
+  ]) {
+    if (node[key] !== undefined) output[key] = node[key];
+  }
+  return output;
+}
+
+function applyTypographyOverrides(node: DomNode, typography: Record<string, unknown>): DomNode {
+  const next: DomNode = { ...node };
+  const appliesHere = next.type === "text" || next.type === "bullets";
+  if (appliesHere) {
+    for (const [key, value] of Object.entries(typography)) {
+      if (next[key] === undefined) next[key] = value;
+    }
+  }
+  if (next.children) {
+    next.children = next.children.map((child) => applyTypographyOverrides(child, typography));
+  }
+  return next;
 }
 
 function layoutProps(node: DomNode): Record<string, unknown> {
   const output: Record<string, unknown> = {};
   for (const key of [
     "area",
+    "at",
     "fixedWidth",
     "fixedHeight",
     "minWidth",
@@ -1373,13 +1798,18 @@ function layoutProps(node: DomNode): Record<string, unknown> {
     "layoutWeight",
     "optional",
     "anchor",
+    "anchorTo",
     "offsetX",
     "offsetY",
     "width",
     "height",
+    "fillSlide",
+    "layer",
     "zIndex",
     "fill",
     "line",
+    "lineWidth",
+    "dash",
     "padding",
     "cornerRadius",
     "role",
@@ -1397,8 +1827,17 @@ function layoutProps(node: DomNode): Record<string, unknown> {
     "autoFit",
     "size",
     "weight",
+    "fontSize",
+    "fontFamily",
+    "font",
+    "fontWeight",
+    "lineHeight",
+    "color",
     "letterSpacing",
+    "tracking",
     "uppercase",
+    "italic",
+    "underline",
   ]) {
     if (node[key] !== undefined) output[key] = node[key];
   }
@@ -1417,41 +1856,418 @@ function cardToneProps(tone: unknown): Record<string, unknown> {
   return { fill: "surface", line: "divider" };
 }
 
-function imageCardNode(slideId: string, name: string, node: DomNode): DomNode {
+function calloutNode(slideId: string, name: string, node: DomNode): DomNode {
   const title = stringValue(node.title, "");
-  const caption = stringValue(node.caption, "");
+  const text = stringValue(node.text, "");
+  const body = stringValue(node.body, stringValue(node.detail, ""));
+  const bullets = stringArray(node.bullets).length ? stringArray(node.bullets) : stringArray(node.items);
+  const richContent = Array.isArray(node.content)
+    ? node.content.filter((run) => run && typeof run === "object" && typeof (run as Record<string, unknown>).text === "string")
+    : undefined;
+  const variant = node.variant === "banner" || node.variant === "card" ? node.variant : (title || body || richContent || bullets.length ? "card" : "plain");
+  const toneProps = tonePropsFrom(node.tone);
+  const accent = toneAccent(node.tone);
+  if (variant === "plain") {
+    const expanded = insightCallout(slideId, name, text || title || body);
+    return { ...expanded, ...toneProps, color: "text.primary" };
+  }
+  const children: DomNode[] = [];
+  const titleText = title || (variant === "banner" ? text : "");
+  if (titleText) {
+    children.push({
+      id: `${slideId}.${name}.title`,
+      type: "text",
+      text: titleText,
+      style: "card-title",
+      color: accent,
+      minHeight: 0.55,
+      autoFit: "shrink",
+    });
+  }
+  const bodyText = body || (titleText ? "" : text);
+  if (bodyText || richContent) {
+    children.push({
+      id: `${slideId}.${name}.body`,
+      type: "text",
+      text: bodyText,
+      ...(richContent ? { content: richContent } : {}),
+      style: variant === "banner" ? "lead" : "paragraph",
+      color: "text.primary",
+      autoFit: "shrink",
+      minHeight: 0.55,
+    });
+  }
+  if (bullets.length > 0) children.push(bulletList(slideId, `${name}.bullets`, bullets.slice(0, 5), "compact"));
+  if (children.length === 0) children.push({ id: `${slideId}.${name}.body`, type: "text", text, style: "callout", color: "text.primary", autoFit: "shrink" });
+  const surface = variant === "banner"
+    ? { fill: toneProps.fill || "brand.tint", line: toneProps.line || accent, padding: 0.75, cornerRadius: 0.08 }
+    : { fill: toneProps.fill || "surface", line: toneProps.line || "divider", padding: 0.72, cornerRadius: 0.12 };
   return {
     id: `${slideId}.${name}`,
-    type: "card",
+    type: "stack",
+    direction: "vertical",
+    gap: 0.22,
+    role: "callout",
+    ...surface,
+    children: [
+      {
+        id: `${slideId}.${name}.accent`,
+        type: "shape",
+        preset: "rect",
+        fill: accent,
+        line: accent,
+        fixedHeight: 0.12,
+        fixedWidth: 2.5,
+        align: "start",
+        optional: true,
+      },
+      ...children,
+    ],
+  };
+}
+
+function toneAccent(tone: unknown): string {
+  if (tone === "positive") return "success";
+  if (tone === "warning") return "warning";
+  if (tone === "danger") return "danger";
+  if (tone === "neutral") return "text.primary";
+  return "brand.primary";
+}
+
+function freeformGroupNode(_slideId: string, _name: string, node: DomNode): DomNode {
+  const mode = node.mode === "background" ? "background" : "overlay";
+  const children = Array.isArray(node.children) ? node.children.map((child, index) => {
+    const out = { ...child };
+    if (typeof out.anchor !== "string") out.anchor = "top-left";
+    if (typeof out.offsetX !== "number") out.offsetX = 0;
+    if (typeof out.offsetY !== "number") out.offsetY = 0;
+    if (typeof out.zIndex !== "number") out.zIndex = mode === "background" ? -1 : index + 1;
+    return out;
+  }) : [];
+  return { id: node.id, type: "fragment", children };
+}
+
+function coverCompositionNode(slideId: string, name: string, node: DomNode): DomNode {
+  const tone = node.tone === "inverse" ? "inverse" : node.tone === "brand" ? "brand" : "neutral";
+  const color = tone === "inverse" ? "text.inverse" : "text.primary";
+  const decor = node.decor === "grid" || node.decor === "shapes" ? node.decor : "none";
+  const visual = node.visual && typeof node.visual === "object" ? node.visual as Record<string, unknown> : {};
+  const hero = node.heroStat && typeof node.heroStat === "object" ? node.heroStat as Record<string, unknown> : {};
+  const children: DomNode[] = [];
+  if (typeof visual.src === "string" && visual.src) {
+    children.push({
+      id: `${slideId}.${name}.visual`,
+      type: "image",
+      src: visual.src,
+      alt: stringValue(visual.alt, stringValue(node.title, "cover visual")),
+      fit: visual.fit === "contain" || visual.fit === "fill" ? visual.fit : "cover",
+      anchor: "top-left",
+      offsetX: 0,
+      offsetY: 0,
+      fillSlide: true,
+      zIndex: -3,
+    });
+    if (tone === "inverse") {
+      children.push({ id: `${slideId}.${name}.scrim`, type: "shape", preset: "rect", fill: "000000", anchor: "top-left", offsetX: 0, offsetY: 0, fillSlide: true, zIndex: -2 });
+    }
+  }
+  if (decor === "grid") children.push(decorationGrid(slideId, `${name}.decor`, { pattern: "dots", density: "sparse", tone: "muted" }));
+  if (decor === "shapes") children.push(decorativeShapes(slideId, `${name}.decor`, { motif: "corner-blobs", position: "bottom-right", tone: "brand", count: 7 }));
+  children.push({
+    id: `${slideId}.${name}.lockup`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.3,
+    anchor: "middle-left",
+    offsetX: 1.4,
+    offsetY: 0,
+    width: 13.5,
+    height: 5.8,
+    zIndex: 1,
+    children: [
+      ...(stringValue(node.eyebrow, "") ? [{ id: `${slideId}.${name}.eyebrow`, type: "text" as const, text: stringValue(node.eyebrow, ""), style: "label", color: tone === "inverse" ? "text.inverse" : "brand.primary", uppercase: true, letterSpacing: 100, minHeight: 0.45, autoFit: "shrink" as const }] : []),
+      { id: `${slideId}.${name}.title`, type: "text", text: stringValue(node.title, ""), style: "deck-title", color, align: "left", autoFit: "shrink" },
+      ...(stringValue(node.subtitle, "") ? [{ id: `${slideId}.${name}.subtitle`, type: "text" as const, text: stringValue(node.subtitle, ""), style: "lead", color: tone === "inverse" ? "text.inverse" : "text.muted", align: "left" as const, minHeight: 0.8, autoFit: "shrink" as const }] : []),
+    ],
+  });
+  if (stringValue(hero.value, "")) {
+    children.push({
+      id: `${slideId}.${name}.hero`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.12,
+      align: "center",
+      justify: "center",
+      children: [
+        { id: `${slideId}.${name}.hero.value`, type: "text", text: stringValue(hero.value, ""), style: "metric-value", size: "xl", color: tone === "inverse" ? "text.inverse" : "brand.primary", align: "center", minHeight: 1.0, autoFit: "shrink" },
+        { id: `${slideId}.${name}.hero.label`, type: "text", text: stringValue(hero.label, ""), style: "label", color: tone === "inverse" ? "text.inverse" : "text.primary", align: "center", minHeight: 0.38, autoFit: "shrink" },
+        ...(stringValue(hero.caption, "") ? [{ id: `${slideId}.${name}.hero.caption`, type: "text" as const, text: stringValue(hero.caption, ""), style: "caption", color: tone === "inverse" ? "text.inverse" : "text.muted", align: "center" as const, minHeight: 0.35, autoFit: "shrink" as const }] : []),
+      ],
+      anchor: "bottom-right",
+      offsetX: 1.2,
+      offsetY: 1.0,
+      width: 6.2,
+      height: 2.9,
+      zIndex: 2,
+    } as DomNode);
+  }
+  return { id: `${slideId}.${name}`, type: "fragment", children };
+}
+
+function chapterDividerNode(slideId: string, name: string, node: DomNode): DomNode {
+  const tone = node.tone === "neutral" || node.tone === "inverse" ? node.tone : "brand";
+  const inverse = tone === "brand" || tone === "inverse";
+  const bg = tone === "neutral" ? "surface" : "brand.primary";
+  const fg = inverse ? "text.inverse" : "text.primary";
+  const children: DomNode[] = [
+    { id: `${slideId}.${name}.bg`, type: "shape", preset: "rect", fill: bg, line: bg, anchor: "top-left", offsetX: 0, offsetY: 0, fillSlide: true, zIndex: -2 },
+    {
+      ...bigPageNumber(slideId, `${name}.num`, { current: stringValue(node.chapter, stringValue(node.number, "01")), position: "top-right", tone: tone === "neutral" ? "muted" : "brand" }),
+      color: inverse ? "text.inverse" : "brand.primary",
+      anchor: "top-right",
+      offsetX: 0.9,
+      offsetY: 0.7,
+      width: 6.5,
+      height: 2.2,
+      zIndex: 1,
+    } as DomNode,
+    {
+      id: `${slideId}.${name}.lockup`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.35,
+      anchor: "middle-left",
+      offsetX: 1.4,
+      offsetY: 0.2,
+      width: 15,
+      height: 5.0,
+      zIndex: 2,
+      children: [
+        ...(stringValue(node.eyebrow, "") ? [{ id: `${slideId}.${name}.eyebrow`, type: "text" as const, text: stringValue(node.eyebrow, ""), style: "label", color: fg, uppercase: true, letterSpacing: 120, minHeight: 0.45, autoFit: "shrink" as const }] : []),
+        { id: `${slideId}.${name}.title`, type: "text", text: stringValue(node.title, ""), style: "deck-title", color: fg, align: "left", autoFit: "shrink" },
+        ...(stringValue(node.subtitle, "") ? [{ id: `${slideId}.${name}.subtitle`, type: "text" as const, text: stringValue(node.subtitle, ""), style: "lead", color: fg, align: "left" as const, minHeight: 0.8, autoFit: "shrink" as const }] : []),
+      ],
+    },
+  ];
+  const sections = Array.isArray(node.sections) ? node.sections.map(String) : [];
+  if (sections.length > 0) {
+    children.push({ ...timelineAxisBar(slideId, `${name}.nav`, { sections, current: numberValue(node.current, 0), tone: "neutral" }), anchor: "bottom-left", offsetX: 1.4, offsetY: 0.7, width: 17, height: 1.0, zIndex: 2 } as DomNode);
+  }
+  return { id: `${slideId}.${name}`, type: "fragment", children };
+}
+
+function evidenceLayoutNode(slideId: string, name: string, node: DomNode): DomNode {
+  const evidence = node.evidence && typeof node.evidence === "object" ? node.evidence as DomNode : { id: `${slideId}.${name}.evidence.empty`, type: "spacer" };
+  const defaultHeadline = stringValue(node.headline, stringValue(node.title, ""));
+  const defaultDetail = stringValue(node.detail, stringValue(node.body, ""));
+  const hasAuthoredInsight = node.insight && typeof node.insight === "object";
+  const hasDefaultInsight = Boolean(defaultHeadline || defaultDetail);
+  const annotations = Array.isArray(node.annotations) ? node.annotations.filter((a): a is DomNode => a && typeof a === "object").map((a, i) => ({
+    ...a,
+    id: typeof a.id === "string" && a.id ? a.id : `${slideId}.${name}.annotation${i + 1}`,
+    zIndex: typeof a.zIndex === "number" ? a.zIndex : 4,
+  })) : [];
+  if (!hasAuthoredInsight && !hasDefaultInsight) {
+    return { id: `${slideId}.${name}`, type: "fragment", children: [evidence, ...annotations] };
+  }
+  const insight = hasAuthoredInsight ? node.insight as DomNode : {
+    id: `${slideId}.${name}.insight`,
+    type: "insight-card",
+    headline: defaultHeadline,
+    detail: defaultDetail,
+  };
+  const layout = node.layout === "stacked" ? "vertical" : "horizontal";
+  const split: DomNode = {
+    id: `${slideId}.${name}.split`,
+    type: "split",
+    direction: layout,
+    ratio: Array.isArray(node.ratio) ? node.ratio : (layout === "horizontal" ? [0.68, 0.32] : [0.68, 0.32]),
+    gap: typeof node.gap === "number" ? node.gap : 0.55,
+    children: [evidence, insight],
+  };
+  return { id: `${slideId}.${name}`, type: "fragment", children: [split, ...annotations] };
+}
+
+function factorialMatrixNode(slideId: string, name: string, node: DomNode): DomNode {
+  const rows = Array.isArray(node.rows) ? node.rows.map(String) : [];
+  const columns = Array.isArray(node.columns) ? node.columns.map(String) : [];
+  const rawCells = Array.isArray(node.cells) ? node.cells : [];
+  const gridChildren: DomNode[] = [
+    { id: `${slideId}.${name}.corner`, type: "text", text: "", style: "label", fill: "surface.subtle" },
+    ...columns.map((col, i) => ({ id: `${slideId}.${name}.col${i}`, type: "text" as const, text: col, style: "label", weight: "bold" as const, align: "center" as const, valign: "middle" as const, fill: "surface.subtle", color: "text.primary", minHeight: 0.6, autoFit: "shrink" as const })),
+  ];
+  rows.forEach((row, r) => {
+    gridChildren.push({ id: `${slideId}.${name}.row${r}`, type: "text", text: row, style: "label", weight: "bold", align: "right", valign: "middle", color: "text.primary", minHeight: 0.6, autoFit: "shrink" });
+    for (let c = 0; c < columns.length; c++) {
+      const raw = Array.isArray(rawCells[r]) ? rawCells[r][c] : "";
+      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { text: String(raw ?? "") };
+      const tone = rec.tone;
+      gridChildren.push({ id: `${slideId}.${name}.cell${r}.${c}`, type: "text", text: stringValue(rec.text, ""), style: "caption", align: "center", valign: "middle", fill: tone === "warning" ? "warning.tint" : tone === "danger" ? "danger.tint" : tone === "positive" ? "success.tint" : "surface", line: "divider", color: "text.primary", minHeight: 0.75, autoFit: "shrink" });
+    }
+  });
+  return {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.3,
+    role: "factorial-matrix",
+    children: [
+      ...(stringValue(node.title, "") ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: stringValue(node.title, ""), style: "card-title", minHeight: 0.6, autoFit: "shrink" as const }] : []),
+      { id: `${slideId}.${name}.grid`, type: "grid", columns: Math.max(1, columns.length + 1), gap: 0.08, children: gridChildren, layoutWeight: 1 },
+    ],
+  };
+}
+
+function failureTaxonomyNode(slideId: string, name: string, node: DomNode): DomNode {
+  const items = arrayValue(node.items).map((raw) => raw && typeof raw === "object" ? raw as Record<string, unknown> : { title: String(raw ?? "") }).filter((rec) => stringValue(rec.title, stringValue(rec.name, "")));
+  const columns = typeof node.columns === "number" ? node.columns : Math.min(3, Math.max(1, items.length));
+  const tone = node.tone === "brand" || node.tone === "warning" || node.tone === "danger" || node.tone === "neutral" ? node.tone : "danger";
+  return {
+    id: `${slideId}.${name}`,
+    type: "grid",
+    columns,
+    gap: 0.45,
+    role: "failure-taxonomy",
+    children: items.map((rec, index) => {
+      const examples = stringArray(rec.examples).length ? stringArray(rec.examples) : stringArray(rec.bullets);
+      const title = stringValue(rec.title, stringValue(rec.name, ""));
+      const rate = stringValue(rec.rate, stringValue(rec.value, ""));
+      return {
+        id: `${slideId}.${name}.${index}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.2,
+        fill: tone === "neutral" ? "surface" : tone === "brand" ? "brand.tint" : tone === "warning" ? "warning.tint" : "danger.tint",
+        line: tone === "neutral" ? "divider" : toneAccent(tone),
+        padding: 0.22,
+        cornerRadius: 0.08,
+        children: [
+          {
+            id: `${slideId}.${name}.${index}.title`,
+            type: "text",
+            text: rate ? `${rate}  ${title}` : title,
+            style: "card-title",
+            color: "text.primary",
+            minHeight: 0.45,
+            autoFit: "shrink",
+          },
+          ...(stringValue(rec.body, "") ? [{ id: `${slideId}.${name}.${index}.body`, type: "text" as const, text: stringValue(rec.body, ""), style: "caption", color: "text.primary", minHeight: 0.4, autoFit: "shrink" as const, optional: true }] : []),
+          ...(examples.length ? [{ id: `${slideId}.${name}.${index}.examples`, type: "text" as const, text: examples.slice(0, 3).join("；"), style: "caption", color: "text.primary", minHeight: 0.4, autoFit: "shrink" as const }] : []),
+        ],
+      };
+    }),
+  };
+}
+
+function mainEffectComparisonNode(slideId: string, name: string, node: DomNode): DomNode {
+  const trend = node.trend === "down" || node.trend === "flat" ? node.trend : "up";
+  const accent = trend === "down" ? "danger" : trend === "flat" ? "warning" : "success";
+  const comparison: DomNode = {
+    id: `${slideId}.${name}.effect`,
+    type: "stack",
+    direction: "horizontal",
+    gap: 0.24,
+    fixedHeight: 1.75,
+    valign: "middle",
+    children: [
+      compactEffectValue(slideId, `${name}.before`, stringValue(node.beforeLabel, ""), stringValue(node.beforeValue, ""), "text.primary"),
+      { id: `${slideId}.${name}.arrow`, type: "shape", preset: trend === "down" ? "arrow-down" : "arrow-right", fill: accent, line: accent, fixedWidth: 0.85, fixedHeight: 0.65 },
+      compactEffectValue(slideId, `${name}.after`, stringValue(node.afterLabel, ""), stringValue(node.afterValue, ""), accent),
+    ],
+  };
+  const insight: DomNode = {
+    id: `${slideId}.${name}.insight`,
+    type: "text",
+    text: stringValue(node.insight, stringValue(node.headline, "Main effect")),
+    style: "caption",
+    color: "text.primary",
+    fill: trend === "down" ? "danger.tint" : trend === "flat" ? "warning.tint" : "success.tint",
+    line: accent,
+    padding: 0.25,
+    cornerRadius: 0.08,
+    minHeight: 0.7,
+    autoFit: "shrink",
+  };
+  return {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.28,
+    role: "main-effect-comparison",
+    children: [
+      ...(stringValue(node.title, "") ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: stringValue(node.title, ""), style: "card-title", minHeight: 0.6, autoFit: "shrink" as const }] : []),
+      comparison,
+      insight,
+    ],
+  };
+}
+
+function compactEffectValue(slideId: string, id: string, label: string, value: string, color: string): DomNode {
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.08,
+    layoutWeight: 1,
+    align: "center",
+    justify: "center",
+    children: [
+      { id: `${slideId}.${id}.value`, type: "text", text: value, style: "metric-value", size: "lg", color, align: "center", minHeight: 0.75, autoFit: "shrink" },
+      { id: `${slideId}.${id}.label`, type: "text", text: label, style: "label", color: "text.muted", align: "center", minHeight: 0.35, autoFit: "shrink" },
+    ],
+  };
+}
+
+function imageCardNode(slideId: string, name: string, node: DomNode): DomNode {
+  const title = stringValue(node.title, "");
+  const badge = stringValue(node.badge, "");
+  const insight = stringValue(node.insight, "");
+  const caption = stringValue(node.caption, "");
+  const fit = node.fit === "cover" || node.fit === "fill" ? node.fit : "contain";
+  const imageWidth = numberValue(node.imageWidth, undefined);
+  const containFrameWidth = fit === "contain" ? imageWidth ?? 18.2 : undefined;
+  const annotations = arrayValue(node.annotations, node.callouts).map((raw) => {
+    const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { text: String(raw ?? "") };
+    return stringValue(rec.text, stringValue(rec.label, ""));
+  }).filter(Boolean).slice(0, 4);
+  const frameless = node.variant === "frameless";
+  return applyAgentSurface({
+    id: `${slideId}.${name}`,
+    type: frameless ? "stack" : "card",
     role: "image-card",
-    padding: 0.45,
-    ...cardToneProps(node.tone),
+    ...(frameless ? {} : { padding: node.variant === "compact" ? 0.3 : 0.45, ...cardToneProps(node.tone) }),
     children: [{
       id: `${slideId}.${name}.stack`,
       type: "stack",
       direction: "vertical",
-      gap: 0.25,
+      gap: node.variant === "compact" ? 0.16 : 0.25,
       children: [
+        ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.36, fixedWidth: Math.max(1.0, Math.min(3.0, badge.length * 0.18 + 0.55)), align: "center" as const, autoFit: "shrink" as const }] : []),
         ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65 }] : []),
         {
           id: `${slideId}.${name}.image`,
           type: "image",
           src: stringValue(node.src, ""),
           alt: stringValue(node.alt, title || "image"),
-          fit: node.fit === "cover" || node.fit === "fill" ? node.fit : "contain",
+          fit,
+          ...(containFrameWidth !== undefined ? { fixedWidth: containFrameWidth, align: "center" as const } : {}),
           layoutWeight: 1,
         },
+        ...(insight ? [{ id: `${slideId}.${name}.insight`, type: "text" as const, text: insight, style: "paragraph", color: "text.primary", minHeight: 0.45, autoFit: "shrink" as const, optional: true }] : []),
+        ...(annotations.length ? [{ id: `${slideId}.${name}.annotations`, type: "stack" as const, direction: "horizontal" as const, gap: 0.15, optional: true, children: annotations.map((text, index) => ({ id: `${slideId}.${name}.ann${index}`, type: "text" as const, text, style: "caption" as const, color: "text.muted", fill: "surface.subtle", cornerRadius: 0.12, minHeight: 0.35, autoFit: "shrink" as const, layoutWeight: 1 })) }] : []),
         // Caption is optional+autoFit so when the image-card sits in a tight
         // fixedHeight slot the layout solver drops/shrinks the caption rather
         // than triggering FALLBACK_FAILED on the parent.
         ...(caption ? [{ id: `${slideId}.${name}.caption`, type: "text" as const, text: caption, style: "figure-caption", align: "center" as const, minHeight: 0.4, autoFit: "shrink" as const, optional: true }] : []),
       ],
     }],
-  };
+  } as DomNode, surfaceOptions(node));
 }
 
 function chartCardNode(slideId: string, name: string, node: DomNode): DomNode {
   const title = stringValue(node.title, "");
+  const badge = stringValue(node.badge, "");
+  const insight = stringValue(node.insight, "");
   const caption = stringValue(node.caption, "");
   const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
   // 96vi8n slide 14: chart-card with only title+chart (no caption) had
@@ -1459,21 +2275,22 @@ function chartCardNode(slideId: string, name: string, node: DomNode): DomNode {
   // ~8cm height — the chart looked cramped against the title and the
   // card felt empty around it. When the card has no caption, we tighten
   // padding (0.45→0.35) and gap (0.25→0.18) so the chart gets more room.
-  const lean = !caption;
+  const lean = !caption && !insight;
   const padding = lean ? 0.35 : 0.45;
   const gap = lean ? 0.18 : 0.25;
-  return {
+  const frameless = node.variant === "frameless";
+  return applyAgentSurface({
     id: `${slideId}.${name}`,
-    type: "card",
+    type: frameless ? "stack" : "card",
     role: "chart-card",
-    padding,
-    ...cardToneProps(node.tone),
+    ...(frameless ? {} : { padding: node.variant === "compact" ? 0.3 : padding, ...cardToneProps(node.tone) }),
     children: [{
       id: `${slideId}.${name}.stack`,
       type: "stack",
       direction: "vertical",
       gap,
       children: [
+        ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.36, fixedWidth: Math.max(1.0, Math.min(3.0, badge.length * 0.18 + 0.55)), align: "center" as const, autoFit: "shrink" as const }] : []),
         ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65 }] : []),
         {
           id: `${slideId}.${name}.chart`,
@@ -1488,28 +2305,34 @@ function chartCardNode(slideId: string, name: string, node: DomNode): DomNode {
           annotations: node.annotations,
           layoutWeight: 1,
         },
-        ...(caption ? [{ id: `${slideId}.${name}.caption`, type: "text" as const, text: caption, style: "source-note", color: "text.muted", fixedHeight: 0.45 }] : []),
+        ...(insight ? [{ id: `${slideId}.${name}.insight`, type: "text" as const, text: insight, style: "paragraph", color: "text.primary", minHeight: 0.45, autoFit: "shrink" as const, optional: true }] : []),
+        ...(caption ? [{ id: `${slideId}.${name}.caption`, type: "text" as const, text: caption, style: "source-note", color: "text.muted", minHeight: 0.35, autoFit: "shrink" as const, optional: true }] : []),
       ],
     }],
-  };
+  } as DomNode, surfaceOptions(node));
 }
 
 function tableCardNode(slideId: string, name: string, node: DomNode): DomNode {
   const title = stringValue(node.title, "");
+  const badge = stringValue(node.badge, "");
+  const insight = stringValue(node.insight, "");
   const caption = stringValue(node.caption, "");
   const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
-  return {
+  const cardProps = cardToneProps(node.tone);
+  const cardFill = typeof node.fill === "string" ? node.fill : typeof cardProps.fill === "string" ? cardProps.fill : "surface";
+  const frameless = node.variant === "frameless";
+  return applyAgentSurface({
     id: `${slideId}.${name}`,
-    type: "card",
+    type: frameless ? "stack" : "card",
     role: "table-card",
-    padding: 0.45,
-    ...cardToneProps(node.tone),
+    ...(frameless ? {} : { padding: node.variant === "compact" ? 0.3 : 0.45, ...cardProps }),
     children: [{
       id: `${slideId}.${name}.stack`,
       type: "stack",
       direction: "vertical",
       gap: 0.25,
       children: [
+        ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.36, fixedWidth: Math.max(1.0, Math.min(3.0, badge.length * 0.18 + 0.55)), align: "center" as const, autoFit: "shrink" as const }] : []),
         ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65 }] : []),
         {
           id: `${slideId}.${name}.table`,
@@ -1520,18 +2343,22 @@ function tableCardNode(slideId: string, name: string, node: DomNode): DomNode {
           firstRowHeader: node.firstRowHeader,
           colWidths: node.colWidths,
           rowHeights: node.rowHeights,
+          bodyFill: cardFill,
           borderColor: node.borderColor,
           borderWidth: node.borderWidth,
           layoutWeight: 1,
         },
-        ...(caption ? [{ id: `${slideId}.${name}.caption`, type: "text" as const, text: caption, style: "source-note", color: "text.muted", fixedHeight: 0.45 }] : []),
+        ...(insight ? [{ id: `${slideId}.${name}.insight`, type: "text" as const, text: insight, style: "paragraph", color: "text.primary", minHeight: 0.45, autoFit: "shrink" as const, optional: true }] : []),
+        ...(caption ? [{ id: `${slideId}.${name}.caption`, type: "text" as const, text: caption, style: "source-note", color: "text.muted", minHeight: 0.35, autoFit: "shrink" as const, optional: true }] : []),
       ],
     }],
-  };
+  } as DomNode, surfaceOptions(node));
 }
 
 function insightCardNode(slideId: string, name: string, node: DomNode): DomNode {
   const tone = node.tone === "positive" || node.tone === "warning" || node.tone === "danger" || node.tone === "brand" ? node.tone : "neutral";
+  const density = node.density === "compact" ? "compact" : "comfortable";
+  const compact = density === "compact";
   const children: DomNode[] = [];
   const badgeText = stringValue(node.badge, "");
   if (badgeText) {
@@ -1542,25 +2369,427 @@ function insightCardNode(slideId: string, name: string, node: DomNode): DomNode 
     const b = badge(slideId, `${name}.badge`, { text: badgeText, tone: tone === "neutral" ? "brand" : tone });
     children.push({ ...b, optional: true } as DomNode);
   }
-  children.push({ id: `${slideId}.${name}.headline`, type: "text", text: stringValue(node.headline, stringValue(node.title, "")), style: "card-title", color: tone === "neutral" ? "text.primary" : toneToColors(tone).fg, minHeight: 0.55, autoFit: "shrink" });
+  children.push({ id: `${slideId}.${name}.headline`, type: "text", text: stringValue(node.headline, stringValue(node.title, "")), style: "card-title", color: "text.primary", minHeight: compact ? 0.38 : 0.48, autoFit: "shrink" });
   const detail = stringValue(node.detail, stringValue(node.body, stringValue(node.description, "")));
-  if (detail) children.push({ id: `${slideId}.${name}.detail`, type: "text", text: detail, style: "paragraph", color: "text.primary", autoFit: "shrink", optional: true });
+  if (detail) {
+    children.push({
+      id: `${slideId}.${name}.detail`,
+      type: "text",
+      text: detail,
+      style: compact ? "caption" : "paragraph",
+      color: "text.primary",
+      minHeight: estimateInsightDetailMinHeight(detail, compact),
+      layoutWeight: 1,
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
   const bullets = stringArray(node.bullets).length ? stringArray(node.bullets) : stringArray(node.items).length ? stringArray(node.items) : stringArray(node.points);
-  if (bullets.length > 0) children.push(bulletList(slideId, `${name}.bullets`, bullets, "compact"));
+  if (bullets.length > 0) children.push({ ...bulletList(slideId, `${name}.bullets`, bullets.slice(0, compact ? 3 : 5), "compact"), optional: true });
   return {
     id: `${slideId}.${name}`,
     type: "card",
     role: "insight-card",
-    padding: 0.5,
+    padding: compact ? 0.22 : 0.32,
     ...(tone === "neutral" ? cardToneProps("neutral") : tonePropsFrom(tone)),
     children: [{
       id: `${slideId}.${name}.stack`,
       type: "stack",
       direction: "vertical",
-      gap: 0.25,
+      gap: compact ? 0.08 : 0.14,
       children,
     }],
   };
+}
+
+function explanationBlockNode(slideId: string, name: string, node: DomNode): DomNode {
+  const tone = componentTone(node.tone) || "brand";
+  const variant = node.variant === "plain" || node.variant === "panel" ? node.variant : "rail";
+  const compact = node.density === "compact";
+  const title = stringValue(node.title, stringValue(node.headline, ""));
+  const body = stringValue(node.body, stringValue(node.detail, stringValue(node.description, "")));
+  const richContent = richTextRuns(node.content);
+  const bullets = stringArray(node.bullets).length ? stringArray(node.bullets) : stringArray(node.items);
+  const example = stringValue(node.example, "");
+  const note = stringValue(node.note, "");
+  const children: DomNode[] = [];
+  if (title) {
+    children.push({
+      id: `${slideId}.${name}.title`,
+      type: "text",
+      text: title,
+      style: "card-title",
+      color: toneAccent(tone),
+      minHeight: compact ? 0.42 : 0.5,
+      autoFit: "shrink",
+    });
+  }
+  if (body || richContent) {
+    children.push({
+      id: `${slideId}.${name}.body`,
+      type: "text",
+      text: body,
+      ...(richContent ? { content: richContent } : {}),
+      style: compact ? "caption" : "paragraph",
+      color: "text.primary",
+      lineHeight: compact ? 1.48 : 1.68,
+      letterSpacing: compact ? 4 : 10,
+      minHeight: estimateInsightDetailMinHeight(body || richTextPlain(richContent), compact),
+      layoutWeight: 1,
+      autoFit: "shrink",
+    });
+  }
+  if (bullets.length) children.push(bulletList(slideId, `${name}.bullets`, bullets.slice(0, compact ? 4 : 6), compact ? "compact" : "comfortable"));
+  if (example) {
+    children.push({
+      id: `${slideId}.${name}.example`,
+      type: "text",
+      text: `Example: ${example}`,
+      style: "caption",
+      color: "text.muted",
+      minHeight: 0.38,
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  if (note) {
+    children.push({
+      id: `${slideId}.${name}.note`,
+      type: "text",
+      text: note,
+      style: "source-note",
+      color: "text.muted",
+      minHeight: 0.32,
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  if (!children.length) {
+    children.push({ id: `${slideId}.${name}.body`, type: "text", text: "", style: "paragraph", minHeight: 0.45 });
+  }
+  const contentStack: DomNode = {
+    id: `${slideId}.${name}.content`,
+    type: "stack",
+    direction: "vertical",
+    gap: compact ? 0.1 : 0.16,
+    children,
+  };
+  const baseSurface = variant === "panel"
+    ? { fill: "surface.subtle", line: "divider", padding: compact ? 0.42 : 0.58, cornerRadius: 0.1 }
+    : {};
+  const expanded: DomNode = variant === "rail"
+    ? {
+        id: `${slideId}.${name}`,
+        type: "stack",
+        direction: "horizontal",
+        gap: compact ? 0.22 : 0.32,
+        role: "explanation-block",
+        children: [
+          { id: `${slideId}.${name}.rail`, type: "shape", preset: "rect", fill: toneAccent(tone), line: toneAccent(tone), fixedWidth: compact ? 0.07 : 0.08 },
+          { ...contentStack, layoutWeight: 1 },
+        ],
+      }
+    : {
+        id: `${slideId}.${name}`,
+        type: "stack",
+        direction: "vertical",
+        gap: compact ? 0.1 : 0.16,
+        role: "explanation-block",
+        ...baseSurface,
+        children,
+      };
+  return applyAgentSurface(expanded, surfaceOptions(node));
+}
+
+function comparisonListNode(slideId: string, name: string, node: DomNode): DomNode {
+  const compact = node.density === "compact";
+  const variant = node.variant === "plain" || node.variant === "subtle" ? node.variant : "columns";
+  const items = recordItems(node.items).map((rec) => ({
+    title: stringValue(rec.title, stringValue(rec.name, stringValue(rec.label, ""))),
+    body: stringValue(rec.body, stringValue(rec.description, stringValue(rec.text, ""))),
+    badge: stringValue(rec.badge, ""),
+    tone: componentTone(rec.tone) || "brand",
+    points: stringArray(rec.points).length ? stringArray(rec.points) : stringArray(rec.items).length ? stringArray(rec.items) : stringArray(rec.bullets),
+  })).filter((item) => item.title || item.body || item.points.length);
+  const columns = Math.max(1, Math.min(4, Math.round(numberValue(node.columns, items.length <= 1 ? 1 : items.length) || 1)));
+  const cells = items.map((item, index) => {
+    const children: DomNode[] = [];
+    if (item.badge) children.push({ ...badge(slideId, `${name}.${index + 1}.badge`, { text: item.badge, tone: item.tone }), optional: true });
+    if (item.title) children.push({ id: `${slideId}.${name}.${index + 1}.title`, type: "text", text: item.title, style: "card-title", color: toneAccent(item.tone), minHeight: compact ? 0.38 : 0.48, autoFit: "shrink" });
+    if (item.body) children.push({ id: `${slideId}.${name}.${index + 1}.body`, type: "text", text: item.body, style: compact ? "caption" : "paragraph", color: "text.primary", minHeight: estimateInsightDetailMinHeight(item.body, compact), autoFit: "shrink", optional: true });
+    if (item.points.length) children.push({ ...bulletList(slideId, `${name}.${index + 1}.points`, item.points.slice(0, compact ? 4 : 6), "compact"), optional: true });
+    return {
+      id: `${slideId}.${name}.${index + 1}`,
+      type: "stack",
+      direction: "vertical",
+      gap: compact ? 0.08 : 0.12,
+      padding: variant === "subtle" ? (compact ? 0.24 : 0.32) : 0,
+      ...(variant === "subtle" ? { fill: "surface.subtle", line: "divider", cornerRadius: 0.08 } : {}),
+      children,
+    } as DomNode;
+  });
+  const children: DomNode[] = [];
+  const title = stringValue(node.title, "");
+  const basis = stringValue(node.basis, "");
+  if (title) children.push({ id: `${slideId}.${name}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.5, autoFit: "shrink" });
+  if (basis) {
+    const basisIsMainStatement = !title;
+    children.push({
+      id: `${slideId}.${name}.basis`,
+      type: "text",
+      text: basis,
+      style: basisIsMainStatement ? "card-title" : "caption",
+      color: basisIsMainStatement ? "text.primary" : "text.muted",
+      minHeight: basisIsMainStatement ? 0.5 : 0.36,
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  children.push({
+    id: `${slideId}.${name}.grid`,
+    type: "grid",
+    columns,
+    gap: compact ? 0.22 : 0.34,
+    children: cells.length ? cells : [{ id: `${slideId}.${name}.empty`, type: "text", text: "", style: "paragraph" }],
+  });
+  return {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: compact ? 0.12 : 0.2,
+    role: "comparison-list",
+    children,
+  };
+}
+
+function factListNode(slideId: string, name: string, node: DomNode): DomNode {
+  const requestedVariant = node.variant === "grid" || node.variant === "strip" ? node.variant : "list";
+  const defaultTone = componentTone(node.tone) || "brand";
+  const items = recordItems(node.items).map((rec) => ({
+    label: stringValue(rec.label, stringValue(rec.title, stringValue(rec.name, ""))),
+    value: stringValue(rec.value, ""),
+    fact: stringValue(rec.fact, stringValue(rec.text, stringValue(rec.body, ""))),
+    interpretation: stringValue(rec.interpretation, stringValue(rec.insight, "")),
+    source: stringValue(rec.source, ""),
+    tone: componentTone(rec.tone) || defaultTone,
+  })).filter((item) => item.label || item.value || item.fact || item.interpretation);
+  const denseList = requestedVariant === "list" && items.length >= 5;
+  const compact = node.density === "compact" || items.length >= 5 || requestedVariant === "strip";
+  // A single-column fact list with 5-8 rows routinely appears when agents
+  // turn a timeline or evidence list into facts. Preserve the user's
+  // evidence-list intent, but flow dense lists into two columns so a normal
+  // content slide can still render.
+  const variant = requestedVariant === "list" && items.length >= 5 ? "grid" : requestedVariant;
+  const cells = items.map((item, index) => factItemNode(slideId, `${name}.${index + 1}`, item, compact, variant !== "list", variant));
+  const children: DomNode[] = [];
+  const title = stringValue(node.title, "");
+  if (title) children.push({ id: `${slideId}.${name}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.5, autoFit: "shrink" });
+  if (denseList) {
+    children.push({
+      id: `${slideId}.${name}.items`,
+      type: "table",
+      rows: items.map((item) => [
+        item.label || item.value,
+        item.fact,
+        item.interpretation || item.source,
+      ]),
+      colWidths: [0.2, 0.34, 0.46],
+      firstRowHeader: false,
+      bodyFill: "surface.subtle",
+      borderColor: "divider",
+      borderWidth: 0.5,
+      layoutWeight: 1,
+    });
+  } else if (variant === "list") {
+    children.push({
+      id: `${slideId}.${name}.items`,
+      type: "stack",
+      direction: "vertical",
+      gap: compact ? 0.14 : 0.22,
+      children: cells,
+    });
+  } else {
+    const fallbackColumns = variant === "strip"
+      ? Math.max(1, Math.min(4, items.length || 1))
+      : items.length >= 5
+        ? 2
+        : Math.min(3, Math.max(1, items.length || 1));
+    children.push({
+      id: `${slideId}.${name}.items`,
+      type: "grid",
+      columns: Math.max(1, Math.min(4, Math.round(numberValue(node.columns, fallbackColumns) || fallbackColumns))),
+      gap: compact ? 0.2 : 0.3,
+      children: cells,
+    });
+  }
+  return {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: compact ? 0.12 : 0.22,
+    role: "fact-list",
+    children,
+  };
+}
+
+function executiveSummaryNode(slideId: string, name: string, node: DomNode): DomNode {
+  const tone = componentTone(node.tone) || "brand";
+  const variant = node.variant === "board" || node.variant === "compact" ? node.variant : "memo";
+  const compact = variant === "compact";
+  const thesis = stringValue(node.thesis, stringValue(node.headline, stringValue(node.title, "")));
+  const summary = stringValue(node.summary, stringValue(node.body, stringValue(node.detail, "")));
+  const findings = recordItems(Array.isArray(node.findings) ? node.findings : node.items).map((rec) => ({
+    headline: stringValue(rec.headline, stringValue(rec.title, stringValue(rec.name, ""))),
+    detail: stringValue(rec.detail, stringValue(rec.body, stringValue(rec.description, ""))),
+    tone: componentTone(rec.tone) || tone,
+  })).filter((item) => item.headline || item.detail);
+  const children: DomNode[] = [{
+    id: `${slideId}.${name}.thesis`,
+    type: "text",
+    text: thesis,
+    style: compact ? "card-title" : "lead",
+    color: toneAccent(tone),
+    minHeight: compact ? 0.6 : 0.85,
+    autoFit: "shrink",
+  }];
+  if (summary) children.push({ id: `${slideId}.${name}.summary`, type: "text", text: summary, style: "paragraph", color: "text.primary", minHeight: estimateInsightDetailMinHeight(summary, compact), autoFit: "shrink", optional: true });
+  if (findings.length) {
+    if (variant !== "board") {
+      const bulletDensity = compact || findings.length > 4 ? "compact" : "comfortable";
+      children.push({
+        ...bulletList(slideId, `${name}.findings`, findings.map((item) => [item.headline, item.detail].filter(Boolean).join(": ")).filter(Boolean), bulletDensity),
+        optional: true,
+      });
+    } else {
+      const findingNodes = findings.map((item, index) => {
+      const localChildren: DomNode[] = [];
+      if (item.headline) localChildren.push({ id: `${slideId}.${name}.finding${index + 1}.headline`, type: "text", text: item.headline, style: "card-title", color: toneAccent(item.tone), minHeight: compact ? 0.34 : 0.42, autoFit: "shrink" });
+      if (item.detail) localChildren.push({ id: `${slideId}.${name}.finding${index + 1}.detail`, type: "text", text: item.detail, style: "caption", color: "text.primary", minHeight: estimateInsightDetailMinHeight(item.detail, true), autoFit: "shrink", optional: true });
+      return { id: `${slideId}.${name}.finding${index + 1}`, type: "stack", direction: "vertical", gap: 0.08, children: localChildren } as DomNode;
+      });
+      children.push({
+        id: `${slideId}.${name}.findings`,
+        type: "grid",
+        columns: Math.min(3, Math.max(1, findingNodes.length)),
+        gap: 0.28,
+        children: findingNodes,
+      });
+    }
+  }
+  const implication = stringValue(node.implication, "");
+  const action = stringValue(node.action, "");
+  if (implication || action) {
+    children.push({
+      id: `${slideId}.${name}.next`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.08,
+      fill: "surface.subtle",
+      line: "divider",
+      padding: compact ? 0.28 : 0.38,
+      cornerRadius: 0.08,
+      optional: true,
+      children: [
+        ...(implication ? [{ id: `${slideId}.${name}.implication`, type: "text" as const, text: implication, style: "paragraph", color: "text.primary", minHeight: 0.42, autoFit: "shrink" as const }] : []),
+        ...(action ? [{ id: `${slideId}.${name}.action`, type: "text" as const, text: action, style: "card-title", color: toneAccent(tone), minHeight: 0.42, autoFit: "shrink" as const }] : []),
+      ],
+    });
+  }
+  return {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: compact ? 0.16 : 0.24,
+    role: "executive-summary",
+    fill: variant === "memo" ? "surface.subtle" : undefined,
+    line: variant === "memo" ? "divider" : undefined,
+    padding: variant === "memo" ? (compact ? 0.42 : 0.58) : 0,
+    cornerRadius: variant === "memo" ? 0.1 : undefined,
+    children,
+  };
+}
+
+function factItemNode(
+  slideId: string,
+  name: string,
+  item: { label: string; value: string; fact: string; interpretation: string; source: string; tone: ComponentTone },
+  compact: boolean,
+  framed: boolean,
+  variant: "list" | "grid" | "strip",
+): DomNode {
+  const topLine = [item.label, item.value].filter(Boolean).join("  ");
+  const children: DomNode[] = [];
+  const strip = variant === "strip";
+  if (topLine) children.push({ id: `${slideId}.${name}.label`, type: "text", text: topLine, style: "label", color: toneAccent(item.tone), minHeight: compact ? 0.24 : 0.3, autoFit: "shrink" });
+  if (item.fact) children.push({
+    id: `${slideId}.${name}.fact`,
+    type: "text",
+    text: item.fact,
+    style: compact && !strip ? "caption" : "paragraph",
+    color: "text.primary",
+    minHeight: strip ? estimateStripFactMinHeight(item.fact) : compact ? estimateCompactFactMinHeight(item.fact) : estimateInsightDetailMinHeight(item.fact, false),
+    autoFit: "shrink",
+    optional: !strip && compact,
+  });
+  if (item.interpretation) children.push({ id: `${slideId}.${name}.interpretation`, type: "text", text: item.interpretation, style: "caption", color: "text.primary", minHeight: compact ? 0.28 : 0.38, autoFit: "shrink", optional: true });
+  if (item.source) children.push({ id: `${slideId}.${name}.source`, type: "text", text: item.source, style: "source-note", color: "text.muted", minHeight: compact ? 0.22 : 0.28, autoFit: "shrink", optional: true });
+  if (compact) {
+    return {
+      id: `${slideId}.${name}`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.03,
+      padding: framed ? 0.1 : 0,
+      ...(framed ? { fill: "surface.subtle", line: "divider", cornerRadius: 0.06 } : {}),
+      children: [
+        { id: `${slideId}.${name}.accent`, type: "shape", preset: "rect", fill: toneAccent(item.tone), line: toneAccent(item.tone), fixedHeight: 0.05, optional: true },
+        ...children,
+      ],
+    };
+  }
+  return {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: compact ? 0.16 : 0.22,
+    padding: framed ? (compact ? 0.14 : 0.3) : 0,
+    ...(framed ? { fill: "surface.subtle", line: "divider", cornerRadius: 0.08 } : {}),
+    children: [
+      { id: `${slideId}.${name}.accent`, type: "shape", preset: "rect", fill: toneAccent(item.tone), line: toneAccent(item.tone), fixedWidth: 0.08 },
+      { id: `${slideId}.${name}.stack`, type: "stack", direction: "vertical", gap: compact ? 0.04 : 0.1, layoutWeight: 1, children },
+    ],
+  };
+}
+
+function estimateCompactFactMinHeight(text: string): number {
+  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const weighted = weightedTextLengthForComponent(text);
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / 48));
+  return Math.max(0.3, Math.min(0.72, estimatedLines * 0.28 + 0.06));
+}
+
+function estimateStripFactMinHeight(text: string): number {
+  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const weighted = weightedTextLengthForComponent(text);
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / 32));
+  return Math.max(0.7, Math.min(1.8, estimatedLines * 0.48 + 0.16));
+}
+
+function estimateInsightDetailMinHeight(text: string, compact: boolean): number {
+  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const weighted = weightedTextLengthForComponent(text);
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / (compact ? 34 : 42)));
+  const lineHeight = compact ? 0.34 : 0.43;
+  return Math.max(compact ? 0.42 : 0.55, Math.min(2.1, estimatedLines * lineHeight + 0.12));
+}
+
+function weightedTextLengthForComponent(text: string): number {
+  let length = 0;
+  for (const char of text) {
+    if (char === "\n") continue;
+    length += /[\u4e00-\u9fff]/.test(char) ? 1.05 : 0.58;
+  }
+  return length;
 }
 
 function primitiveFields(detailed: Record<string, import("./node-types.js").NodeFieldInfo>): Record<string, PropDefinition> {
@@ -1802,7 +3031,7 @@ function accentRuleNode(slideId: string, name: string, node: DomNode): DomNode {
   const tone = toneToColors(node.tone);
   const colorToken = tone.line || "brand.primary";
   const length = typeof node.length === "number" ? node.length : direction === "horizontal" ? 2.2 : 1.4;
-  const thickness = typeof node.thickness === "number" ? node.thickness : 0.08;
+  const thickness = normalizeAccentRuleThickness(node.thickness);
   return {
     id: `${slideId}.${name}`,
     type: "shape",
@@ -1813,6 +3042,10 @@ function accentRuleNode(slideId: string, name: string, node: DomNode): DomNode {
     fixedHeight: direction === "horizontal" ? thickness : length,
     align: "start",
   };
+}
+
+function normalizeAccentRuleThickness(raw: unknown): number {
+  return normalizeStrokeCm(raw, 0.08, { minCm: 0.015, maxCm: 0.18 });
 }
 
 function titleLockupNode(slideId: string, name: string, node: DomNode): DomNode {
@@ -2063,6 +3296,30 @@ function comparisonPoints(fields: Record<string, unknown>): string[] {
   return [stringValue(fields.subtitle, ""), stringValue(fields.body, "")].filter(Boolean);
 }
 
+type ComponentTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+
+function componentTone(value: unknown): ComponentTone | undefined {
+  const normalized = normalizeToneAlias(value);
+  return normalized === "brand" || normalized === "positive" || normalized === "warning" || normalized === "danger" || normalized === "neutral"
+    ? normalized
+    : undefined;
+}
+
+function decorationMarker(value: unknown): DecorationMarkerInput | undefined {
+  if (typeof value === "string" && value.trim()) return value.trim() as DecorationMarkerInput;
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as DecorationMarkerInput;
+  return undefined;
+}
+
+function surfaceOptions(node: DomNode): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if (node.surface && typeof node.surface === "object") out.surface = node.surface;
+  for (const key of ["fill", "border", "borderColor", "borderWidth", "borderStyle", "cornerRadius", "padding", "elevation", "accent", "accentColor", "accentWidth"]) {
+    if (node[key] !== undefined) out[key] = node[key];
+  }
+  return out;
+}
+
 /**
  * Resolve a text node color by preferring an explicit color, then mapping a
  * semantic tone to its fg token, and finally falling back to text.primary so a
@@ -2145,4 +3402,20 @@ function arrayValue(...values: unknown[]): unknown[] {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean) : [];
+}
+
+function recordItems(value: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(value)
+    ? value.map((item) => item && typeof item === "object" ? item as Record<string, unknown> : { title: String(item ?? "") })
+    : [];
+}
+
+function richTextRuns(value: unknown): Array<Record<string, unknown>> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const runs = value.filter((run): run is Record<string, unknown> => run && typeof run === "object" && typeof (run as Record<string, unknown>).text === "string");
+  return runs.length ? runs : undefined;
+}
+
+function richTextPlain(runs: Array<Record<string, unknown>> | undefined): string {
+  return runs ? runs.map((run) => String(run.text ?? "")).join("") : "";
 }

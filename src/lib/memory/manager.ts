@@ -16,13 +16,25 @@ interface MemoryContext {
   relevantEpisodes: string;
 }
 
+interface RetrieveMemoryOptions {
+  includeCore?: boolean;
+  includeSemantic?: boolean;
+  includeEpisodes?: boolean;
+}
+
 /**
  * Retrieve all relevant memory context for a given user query.
  * Called at the start of each agent execution.
  */
-export async function retrieveMemoryContext(query: string): Promise<MemoryContext> {
-  // 1. Core facts — always include all of them (small set)
-  const facts = await getAllCoreFacts();
+export async function retrieveMemoryContext(query: string, options: RetrieveMemoryOptions = {}): Promise<MemoryContext> {
+  const includeCore = options.includeCore !== false;
+  const includeSemantic = options.includeSemantic !== false;
+  const includeEpisodes = options.includeEpisodes !== false;
+
+  // 1. Core facts — normally include all of them (small set). Fresh task
+  // boundaries may opt out so task-specific memories cannot leak style or
+  // artifact assumptions into the next run.
+  const facts = includeCore ? await getAllCoreFacts() : [];
   const coreFacts = formatCoreFacts(facts);
 
   // 2. Semantic memories — vector similarity search
@@ -30,11 +42,15 @@ export async function retrieveMemoryContext(query: string): Promise<MemoryContex
   let relevantEpisodes = "";
 
   try {
+    if (!includeSemantic && !includeEpisodes) {
+      return { coreFacts, relevantMemories, relevantEpisodes };
+    }
+
     const queryEmbedding = await generateEmbedding(query);
 
     // Search semantic memories
-    const allMemories = await getAllMemoriesWithEmbeddings();
-    if (allMemories.length > 0) {
+    const allMemories = includeSemantic ? await getAllMemoriesWithEmbeddings() : [];
+    if (includeSemantic && allMemories.length > 0) {
       const scored = allMemories.map((m) => ({
         ...m,
         score: cosineSimilarity(queryEmbedding, m.embedding),
@@ -54,8 +70,8 @@ export async function retrieveMemoryContext(query: string): Promise<MemoryContex
     }
 
     // Search episodic buffer
-    const allEpisodes = await getAllEpisodesWithEmbeddings();
-    if (allEpisodes.length > 0) {
+    const allEpisodes = includeEpisodes ? await getAllEpisodesWithEmbeddings() : [];
+    if (includeEpisodes && allEpisodes.length > 0) {
       const scored = allEpisodes.map((e) => ({
         ...e,
         score: cosineSimilarity(queryEmbedding, e.embedding),

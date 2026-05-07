@@ -44,6 +44,7 @@ export interface LineSpec {
   /** Line width in EMU. */
   width: number;
   dash?: "solid" | "dash" | "dashDot" | "dot";
+  alpha?: number;
 }
 
 /**
@@ -107,6 +108,10 @@ export interface Paragraph {
   align?: "left" | "center" | "right" | "justify";
   /** Indent level (0-based). Bullets and indent both use this. */
   indentLevel?: number;
+  /** Explicit paragraph left margin in EMU. Used for stable bullet hanging indents. */
+  marginLeft?: number;
+  /** Explicit paragraph hanging indent in EMU. Negative value places marker left of text. */
+  hanging?: number;
   /** Line spacing in HALF-POINTS, or undefined for layout default. */
   lineSpacingHalfPt?: number;
   /** Space-after in HALF-POINTS. */
@@ -154,6 +159,7 @@ export type ShapePreset =
   | "triangle"
   | "rightTriangle"
   | "pentagon"
+  | "diamond"
   | "arrow-right"
   | "arrow-down"
   | "callout"

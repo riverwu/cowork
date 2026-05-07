@@ -129,8 +129,7 @@ export class DebugLogger {
     if (candidates.length === 0) return [];
     const copied: string[] = [];
     for (const src of candidates) {
-      if (this.copied.has(src)) continue;
-      this.copied.add(src);
+      if (!shouldCopyArtifact(toolName, src, this.copied)) continue;
       try {
         const label = `t${++this.artifactSeq}-${toolName}`;
         const r = await debugLogCopyArtifact(this.requestDir || "", src, label);
@@ -192,4 +191,12 @@ function extractArtifactPaths(text: string): string[] {
   return [...set];
 }
 
-export const __test = { extractArtifactPaths };
+function shouldCopyArtifact(toolName: string, src: string, copied: Set<string>): boolean {
+  const isIterativeRenderArtifact = toolName === "validate_render" && /\.(?:pptx|render-tree\.json)$/i.test(src);
+  if (isIterativeRenderArtifact) return true;
+  if (copied.has(src)) return false;
+  copied.add(src);
+  return true;
+}
+
+export const __test = { extractArtifactPaths, shouldCopyArtifact };

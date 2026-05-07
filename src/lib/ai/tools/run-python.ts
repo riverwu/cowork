@@ -5,13 +5,16 @@ export const runPython: Tool = {
   definition: {
     name: "run_python",
     description:
-      `Execute Python code in an isolated environment. Pre-installed: pandas, numpy, openpyxl, python-docx, matplotlib, seaborn, PyPDF2.
+      `Execute Python code in an isolated environment. First use initializes ~/.cowork/python/.venv with: pandas, numpy, openpyxl, python-docx, matplotlib, seaborn, PyPDF2, Pillow, python-pptx.
 
 Use this for:
 - Data analysis and computation (pandas, numpy)
 - Reading/writing Excel files (openpyxl)
 - Generating/reading Word documents (python-docx)
-- Data charts plotted from real numbers (matplotlib, seaborn). For illustrations/covers use \`image_gen\` instead.
+- Generating/reading PowerPoint files (python-pptx)
+- Inspecting structured Office/PDF files when hierarchy, tables, formatting, pages/slides/sheets, or metadata matter. Prefer this over read_file for DOCX/XLSX/PPTX/PDF analysis.
+- Data charts plotted from real numbers (matplotlib, seaborn). For freeform illustrations/covers, \`image_gen\` is usually the better tool.
+- Image processing (Pillow)
 - PDF processing (PyPDF2)
 - Any computation that benefits from Python
 

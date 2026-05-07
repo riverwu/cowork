@@ -1,6 +1,6 @@
 import type { Tool } from "./types";
 import { slideml2PatchDeck, slideml2ReadDeck, type Slideml2JsonPatchOp } from "@/lib/tauri";
-import { recordSlideWrite, getUnvalidatedSlideWrites } from "./slideml2-authoring-state";
+import { recordSlideWrite } from "./slideml2-authoring-state";
 
 /**
  * Thin wrapper over patch_deck — equivalent to:
@@ -22,7 +22,7 @@ export const insertSlideTool: Tool = {
 
 The slide JSON has the same shape as \`replace_slide.slide\`: \`{id, title?, background?, children, notes?, metadata?}\`. The whole deck is re-validated after insertion; if the slide breaks schema invariants the deck file is left unchanged.
 
-After every 1-2 successful slide writes, run \`validate_render({deckPath, render:true})\`.`,
+Use \`validate_render({deckPath, render:true})\` periodically and before final delivery.`,
     parameters: {
       type: "object",
       properties: {
@@ -39,14 +39,6 @@ After every 1-2 successful slide writes, run \`validate_render({deckPath, render
     if (!deckPath) return "Error: deckPath is required.";
     const slide = parseSlideArg(input.slide);
     if (typeof slide === "string") return slide;
-    const pendingWrites = getUnvalidatedSlideWrites(deckPath);
-    if (pendingWrites >= 2) {
-      return [
-        "Slide write rejected: validate_render is required after every 1-2 successful slide writes.",
-        `This deck already has ${pendingWrites} unvalidated write(s).`,
-        "Run validate_render with render=true, then continue authoring.",
-      ].join("\n");
-    }
     let deck: { slides?: unknown[] } | null = null;
     try {
       deck = await slideml2ReadDeck(deckPath) as { slides?: unknown[] };
@@ -64,9 +56,7 @@ After every 1-2 successful slide writes, run \`validate_render({deckPath, render
         return `Slide insert rejected (deck unchanged): ${result.error}\n${JSON.stringify(result.validation, null, 2)}`;
       }
       const writes = recordSlideWrite(deckPath);
-      const validateHint = writes >= 2
-        ? "\nNext required action: run validate_render with render=true before any more slide writes."
-        : "\nNext action: you may write one more slide, then run validate_render.";
+      const validateHint = "\nRecommended: run validate_render with render=true before treating the PPTX as final.";
       return `Slide inserted at index ${targetIndex}. slideCount=${result.summary.slideCount}. unvalidatedSlideWrites=${writes}.${validateHint}`;
     } catch (err) {
       return `Error: insert_slide failed.\n${err instanceof Error ? err.message : String(err)}`;

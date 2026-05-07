@@ -9,7 +9,9 @@ export const browserTool: Tool = {
       `Pass an actions[] array. Use open/navigate or snapshot to get structured page facts: real links include href, absoluteUrl, pathname, and hash. ` +
       `Use extract to pull focused page facts from the current structured snapshot, inspect to read local structure around one ref, grep to find text/html occurrences, read to page through large text/html/link content, and wait_for_change after actions that trigger async updates. ` +
       `Use show when the user needs to login in a visible controlled browser; use hide to return to background mode. ` +
-      `Click/type/select/upload/check/hover only with ref values returned by the latest snapshot. Use evaluate only as an advanced fallback when built-in actions cannot express the operation. Do not guess selectors, wait text, or synthesize URLs; use snapshot links and refs.`,
+      `Click/type/select/upload/check/hover only with ref values returned by the latest snapshot; if the user already provides current refs, act on those refs directly instead of calling snapshot first. ` +
+      `Use screenshot for image capture, pdf for page export, and downloads to list recent downloaded files; include all requested capture actions in the same actions[] sequence when no page navigation is needed. ` +
+      `Use evaluate only as an advanced fallback when built-in actions cannot express the operation. Do not guess selectors, wait text, or synthesize URLs; use snapshot links and refs.`,
     parameters: {
       type: "object",
       properties: {

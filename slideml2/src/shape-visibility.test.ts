@@ -114,7 +114,51 @@ describe("SHAPE_INVISIBLE detection on decorative shapes", () => {
     const card = ast.slides[0].shapes.find((s) => typeof (s as { name?: string }).name === "string" && (s as { name: string }).name.endsWith("s.bigblob")) as
       | { fill?: { color?: string }; line?: { color?: string } } | undefined;
     expect(card?.fill?.color?.toUpperCase()).toBe("FAFAF7");
-    expect(card?.line?.color).toBeDefined();
+    expect(card?.line?.color?.toUpperCase()).toBe("DDE3EC");
+  });
+
+  it("a card with an intentional divider border is not promoted to dark muted text color", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.dividerCard",
+        type: "shape",
+        preset: "rect",
+        fill: "FAFAF7",
+        line: "divider",
+        fixedWidth: 12,
+        fixedHeight: 5,
+      } as unknown as DomNode],
+    };
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(deck([slide], { colors: { background: "FAFAF7" } })));
+    const fixedHits = getRenderDiagnostics().filter((d) => d.code === "SHAPE_INVISIBLE_FIXED" && String(d.nodeId || "").includes("s.dividerCard"));
+    expect(fixedHits).toHaveLength(0);
+    const card = ast.slides[0].shapes.find((s) => typeof (s as { name?: string }).name === "string" && (s as { name: string }).name.endsWith("s.dividerCard")) as
+      | { line?: { color?: string } } | undefined;
+    expect(card?.line?.color?.toUpperCase()).toBe("DDE3EC");
+  });
+
+  it("a raised large card with the default divider border is not promoted to a dark border", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.raised",
+        type: "card",
+        fill: "FAFAF7",
+        elevation: "raised",
+        children: [{ id: "s.raised.t", type: "text", text: "Card text" }],
+      } as unknown as DomNode],
+    };
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(deck([slide], { colors: { background: "FAFAF7" } })));
+    const fixedHits = getRenderDiagnostics().filter((d) => d.code === "SHAPE_INVISIBLE_FIXED" && String(d.nodeId || "").includes("s.raised"));
+    expect(fixedHits).toHaveLength(0);
+    const card = ast.slides[0].shapes.find((s) => typeof (s as { name?: string }).name === "string" && (s as { name: string }).name.includes("s.raised-card")) as
+      | { line?: { color?: string } } | undefined;
+    expect(card?.line?.color?.toUpperCase()).toBe("DDE3EC");
   });
 
   it("a shape with a contrasting border (line) is not flagged as invisible", () => {

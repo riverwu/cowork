@@ -755,7 +755,187 @@ describe("slideml2 MVP", () => {
     const image = described.found["image"];
     expect(image?.fields.src.required).toBe(true);
     expect(image?.fields.caption.description).toContain("optional");
+    const textAlternatives = describeComponents(["explanation-block", "comparison-list", "fact-list", "executive-summary"]);
+    expect(textAlternatives.missing).toEqual([]);
+    expect(textAlternatives.found["comparison-list"]?.fields.items.required).toBe(true);
+    expect(textAlternatives.found["fact-list"]?.fields.items.required).toBe(true);
     expect(describeComponents(["unknown-component"]).missing).toEqual(["unknown-component"]);
+  });
+
+  it("renders text narrative alternatives without falling back to repeated insight cards", () => {
+    const sourceDeck = createSourceDeck({ title: "Narrative components" });
+    sourceDeck.slides.push({
+      id: "narrative-components",
+      children: [{
+        id: "narrative-components.content",
+        type: "stack",
+        area: "content",
+        gap: 0.25,
+        children: [
+          {
+            id: "narrative-components.summary",
+            type: "executive-summary",
+            thesis: "任务隔离应该先清理旧会话决策，再重新装载本次技能。",
+            summary: "这样保留可复用事实，同时避免前一个 PPT 的视觉风格污染新任务。",
+            findings: [
+              { headline: "清理风格锚点", detail: "颜色、版式、案例素材不跨任务继承。", tone: "warning" },
+              { headline: "保留稳定知识", detail: "用户偏好和项目约束以摘要形式保留。", tone: "positive" },
+            ],
+            implication: "新 session compact 应该是清理打包，而不是普通摘要。",
+          },
+          {
+            id: "narrative-components.grid",
+            type: "grid",
+            columns: 3,
+            gap: 0.25,
+            children: [
+              {
+                id: "narrative-components.explain",
+                type: "explanation-block",
+                title: "为什么会串扰",
+                body: "旧任务的主题、视觉 token 和素材如果留在上下文里，agent 会把它们误判为当前任务约束。",
+                bullets: ["区分事实记忆和任务决策", "新任务重新加载 skill"],
+                variant: "rail",
+              },
+              {
+                id: "narrative-components.compare",
+                type: "comparison-list",
+                basis: "两种处理方式",
+                items: [
+                  { title: "普通 compact", body: "压缩所有历史，细节仍可能残留。" },
+                  { title: "session reset", body: "只保留跨任务稳定信息，丢弃本轮实现细节。", tone: "positive" },
+                ],
+              },
+              {
+                id: "narrative-components.facts",
+                type: "fact-list",
+                variant: "list",
+                items: [
+                  { label: "日志", fact: "第二个 PPT 沿用第一个 PPT 风格。", interpretation: "上下文边界没有被显式重置。", tone: "warning" },
+                  { label: "策略", fact: "skill 应在新 session 重新装载。", source: "Cowork session plan" },
+                ],
+              },
+            ],
+          },
+        ],
+      }],
+    });
+    const deck = sourceToRenderedDeck(sourceDeck);
+    const ast = renderToAst(deck);
+    assertShapeBounds(ast);
+    const shapeNames = ast.slides[0]!.shapes.map((shape) => shape.name || "");
+    expect(shapeNames.some((name) => name.includes("narrative-components.explain.rail"))).toBe(true);
+    expect(shapeNames.some((name) => name.includes("narrative-components.facts.1.accent"))).toBe(true);
+    const rail = ast.slides[0]!.shapes.find((shape) => (shape.name || "").includes("narrative-components.explain.rail"));
+    const factAccent = ast.slides[0]!.shapes.find((shape) => (shape.name || "").includes("narrative-components.facts.1.accent"));
+    expect(rail!.xfrm.cx / 360000).toBeLessThan(0.15);
+    expect(factAccent!.xfrm.cx / 360000).toBeLessThan(0.15);
+  });
+
+  it("wraps explanation-block body text before shrinking font size", () => {
+    const sourceDeck = createSourceDeck({ title: "Explanation body" });
+    sourceDeck.deck.themeOverride = { text: { paragraph: { fontSize: 12, lineHeight: 1.6 } } };
+    sourceDeck.slides.push({
+      id: "explanation-wrap",
+      children: [{
+        id: "explanation-wrap.content",
+        type: "stack",
+        area: "content",
+        gap: 0.25,
+        children: [
+          { id: "explanation-wrap.title", type: "h1", text: "市场背景" },
+          {
+            id: "explanation-wrap.block",
+            type: "explanation-block",
+            variant: "panel",
+            title: "表面现象 vs 深层趋势",
+            body: "2026年2月，OpenClaw爆火刷屏。但进入3月底热度骤降。作者发现了一条被龙虾声量掩盖的暗线：几乎所有互联网大厂同时押注「AI员工」赛道。",
+          },
+        ],
+      }],
+    });
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(sourceDeck));
+    const body = ast.slides[0]!.shapes.find((shape) => (shape.name || "").endsWith(".block.body"));
+    const sizePt = body?.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt ? body.paragraphs[0]!.runs[0]!.sizeHalfPt / 2 : 0;
+    expect(sizePt).toBeGreaterThanOrEqual(11.5);
+    expect(getDiagnosticsByCode("TRUNCATED").filter((d) => (d.nodeId || "").endsWith(".block.body"))).toHaveLength(0);
+  });
+
+  it("keeps dense fact-list timelines renderable", () => {
+    const sourceDeck = createSourceDeck({ title: "Dense facts" });
+    sourceDeck.slides.push({
+      id: "dense-facts",
+      children: [{
+        id: "dense-facts.content",
+        type: "stack",
+        area: "content",
+        gap: 0.2,
+        children: [
+          { id: "dense-facts.section", type: "label", text: "01 背景与赛道", tone: "brand" },
+          { id: "dense-facts.title", type: "h1", text: "大厂密集入局：AI员工赛道时间线" },
+          { id: "dense-facts.lead", type: "lead", text: "2026年3月至4月，中国科技巨头和全球AI公司密集发布企业级Agent产品，这场竞赛的本质是对工作入口的争夺。" },
+          {
+            id: "dense-facts.factlist",
+            type: "fact-list",
+            variant: "list",
+            items: [
+              { label: "2026.03.09", fact: "腾讯上线 WorkBuddy", interpretation: "定位AI原生桌面智能体工作台，主打企业级运行环境" },
+              { label: "2026.03.17", fact: "阿里发布钉钉悟空", interpretation: "企业级AI原生工作平台，整合钉钉生态" },
+              { label: "2026.03.19", fact: "字节飞书 aily 升级", interpretation: "飞书AI全面升级为智能体平台" },
+              { label: "2026.03.23", fact: "百度推出 DuMate 搭子", interpretation: "面向个人和团队的桌面级AI智能体" },
+              { label: "2026.04.08", fact: "Anthropic 发布 Claude Managed Agents", interpretation: "发布次日美股SaaS指数单日暴跌5.5%，引发行业震动", tone: "warning" },
+              { label: "2026.04.08", fact: "GenSpark 4.0 全球同步发布", interpretation: "愿景：让AI员工无处不在", tone: "positive" },
+            ],
+          },
+        ],
+      }],
+    });
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(sourceDeck));
+    assertShapeBounds(ast);
+    const blockingCodes = new Set(["FALLBACK_FAILED", "OVERFLOW", "SQUASHED", "TINY_RECT"]);
+    const blocking = [...blockingCodes].flatMap((code) => getDiagnosticsByCode(code as Parameters<typeof getDiagnosticsByCode>[0]));
+    expect(blocking.map((item) => `${item.code}:${item.nodeId}`)).toEqual([]);
+    const names = ast.slides[0]!.shapes.map((shape) => shape.name || "");
+    expect(names.some((name) => name.includes("dense-facts.factlist.items"))).toBe(true);
+  });
+
+  it("adapts long key-takeaway headlines inside normal content flow", () => {
+    const sourceDeck = createSourceDeck({ title: "Long takeaway" });
+    sourceDeck.slides.push({
+      id: "long-takeaway",
+      children: [{
+        id: "long-takeaway.content",
+        type: "stack",
+        area: "content",
+        gap: 0.25,
+        children: [
+          { id: "long-takeaway.title", type: "h1", text: "OpenClaw热潮：被忽视的暗线" },
+          {
+            id: "long-takeaway.grid",
+            type: "grid",
+            columns: 2,
+            gap: 0.4,
+            children: [
+              { id: "long-takeaway.card1", type: "insight-card", headline: "明线：OpenClaw的全民狂欢", body: "2026年2月至3月，几乎所有互联网大厂推出OpenClaw平台。", density: "compact" },
+              { id: "long-takeaway.card2", type: "insight-card", headline: "暗线：大厂押注AI员工赛道", body: "巨头们看到了更大的机会：让AI走进企业，节省人力成本或提升效率。", density: "compact" },
+            ],
+          },
+          {
+            id: "long-takeaway.takeaway",
+            type: "key-takeaway",
+            headline: "核心洞察：OpenClaw验证了AI Agent的能力上限，而AI员工才是大厂眼中更大的商业机会。",
+            tone: "brand",
+          },
+        ],
+      }],
+    });
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(sourceDeck));
+    const blocking = getDiagnosticsByCode("FALLBACK_FAILED")
+      .filter((item) => item.nodeId === "long-takeaway.takeaway" || String(item.nodeId || "").startsWith("long-takeaway.takeaway."));
+    expect(blocking).toEqual([]);
   });
 
   it("discloses deck-level brand, chrome, and aesthetic principles", () => {
@@ -927,6 +1107,73 @@ describe("slideml2 MVP", () => {
     expect(names.some((name) => name.includes("visual-primitives.kicker.rule"))).toBe(true);
     expect(names.some((name) => name.includes("visual-primitives.axis.line"))).toBe(true);
     expect(names.some((name) => name.includes("visual-primitives.rail-card"))).toBe(true);
+  });
+
+  it("interprets oversized accent-rule thickness values as points, not centimeter blocks", () => {
+    const sourceDeck = createSourceDeck({ title: "Thin rule" });
+    sourceDeck.slides.push({
+      id: "thin-rule",
+      children: [{
+        id: "thin-rule.content",
+        type: "stack",
+        area: "content",
+        children: [
+          { id: "thin-rule.title", type: "h1", text: "A real line" },
+          { id: "thin-rule.rule", type: "accent-rule", direction: "horizontal", tone: "brand", thickness: 1 },
+        ],
+      }],
+    });
+    const ast = renderToAst(sourceToRenderedDeck(sourceDeck));
+    const rule = ast.slides[0]!.shapes.find((shape) => shape.name === "thin-rule.rule");
+    expect(rule).toBeDefined();
+    // 1pt is ~12,700 EMU. The bug rendered this as 1cm = 360,000 EMU,
+    // a visible black block rather than a thin rule.
+    expect(rule!.xfrm.cy).toBeLessThan(30_000);
+  });
+
+  it("interprets primitive stroke widths as points while preserving layout cm", () => {
+    const sourceDeck = createSourceDeck({ title: "Stroke units" });
+    sourceDeck.slides.push({
+      id: "stroke-units",
+      children: [{
+        id: "stroke-units.content",
+        type: "stack",
+        area: "content",
+        children: [
+          { id: "stroke-units.divider", type: "divider", orientation: "horizontal", thickness: 1, fixedHeight: 1 },
+          {
+            id: "stroke-units.frame",
+            type: "frame",
+            line: "brand.primary",
+            lineWidth: 2,
+            fixedHeight: 1.2,
+            children: [{ id: "stroke-units.frame.body", type: "text", text: "Framed" }],
+          },
+          {
+            id: "stroke-units.table",
+            type: "table",
+            headers: ["A"],
+            rows: [["B"]],
+            borderWidth: 1,
+            fixedHeight: 1.6,
+          },
+        ],
+      }],
+    });
+    const ast = renderToAst(sourceToRenderedDeck(sourceDeck));
+    const shapes = ast.slides[0]!.shapes;
+    const divider = shapes.find((shape) => shape.name === "stroke-units.divider");
+    const frame = shapes.find((shape) => shape.name === "stroke-units.frame-frame") as any;
+    const table = shapes.find((shape) => shape.name === "stroke-units.table") as any;
+    expect(divider).toBeDefined();
+    expect(frame).toBeDefined();
+    expect(table).toBeDefined();
+    // `fixedHeight:1` remains a 1cm layout allocation, but `thickness:1` is
+    // normalized to a 1pt visual rule.
+    expect(divider!.xfrm.cy).toBeLessThan(30_000);
+    expect(frame!.line.width).toBeGreaterThan(20_000);
+    expect(frame!.line.width).toBeLessThan(30_000);
+    expect(table!.borderWidth).toBeLessThan(30_000);
   });
 
   it("treats severely compressed component regions as blocking render diagnostics", () => {
@@ -1164,6 +1411,22 @@ describe("slideml2 MVP", () => {
     expect(validation.errors).toHaveLength(0);
   });
 
+  it("renders deck.chrome footer text and page numbers through the theme chrome path", () => {
+    const deck = createSourceDeck({ title: "Chrome", theme: "default" });
+    deck.deck.chrome = { pageNumber: true, footerText: "Internal use" };
+    deck.slides.push(sourceSlide("summary", "执行摘要"));
+
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    const names = ast.slides[0]!.shapes.map((shape) => shape.name);
+    expect(names).toContain("chrome.footer-text");
+    expect(names).toContain("chrome.page-1");
+    const footer = ast.slides[0]!.shapes.find((shape) => shape.name === "chrome.footer-text");
+    expect(footer?.type).toBe("text");
+    if (footer?.type === "text") {
+      expect(footer.paragraphs[0]?.runs[0]?.text).toBe("Internal use");
+    }
+  });
+
   it("validates source slides with actionable component errors", () => {
     const deck = createSourceDeck({ title: "Validation", theme: "default" });
     deck.slides.push({
@@ -1179,6 +1442,26 @@ describe("slideml2 MVP", () => {
     expect(validation.ok).toBe(false);
     expect(validation.errors[0]?.code).toBe("UNKNOWN_COMPONENT");
     expect(validation.errors[0]?.suggestedFix).toContain("active SKILL.md");
+  });
+
+  it("rejects ineffective themeOverride page/layout/font fields instead of silently ignoring them", () => {
+    const deck = createSourceDeck({ title: "Invalid theme", theme: "default" });
+    deck.deck.themeOverride = {
+      layout: { pageMarginY: 0.9 },
+      text: { paragraph: { lineSpacing: 1.4 } },
+      component: { card: { borderRadius: 8 } },
+      fonts: { body: ["Arial"] },
+    } as never;
+    deck.slides.push(sourceSlide("summary", "执行摘要"));
+
+    const validation = validateDeck(deck);
+    expect(validation.ok).toBe(false);
+    expect(validation.errors.map((err) => err.code)).toEqual(expect.arrayContaining([
+      "UNKNOWN_THEME_LAYOUT_FIELD",
+      "UNKNOWN_THEME_TEXT_FIELD",
+      "UNKNOWN_THEME_COMPONENT_FIELD",
+      "UNKNOWN_THEME_FONT_FIELD",
+    ]));
   });
 
   it("renders the same component source deck with three themes", async () => {
@@ -1553,6 +1836,84 @@ describe("slideml2 MVP", () => {
     expect(getDiagnosticsByCode("FALLBACK_FAILED")).toHaveLength(0);
     expect(getDiagnosticsByCode("SQUASHED")).toHaveLength(0);
     expect(getDiagnosticsByCode("TINY_RECT")).toHaveLength(0);
+  });
+
+  it("preserves timeline year/headline aliases instead of dropping milestone content", () => {
+    const deck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "timeline-alias",
+        children: [{
+          id: "timeline-alias.tl",
+          type: "timeline",
+          items: [
+            { year: "2025.11", headline: "估值约$43亿", body: "上一轮融资节点，估值基准" },
+            { year: "2026.05", headline: "本轮$20亿", body: "美团龙珠领投" },
+          ],
+        }],
+      }],
+    } as const;
+    const rendered = sourceToRenderedDeck(deck);
+    const json = JSON.stringify(rendered);
+    expect(json).toContain("2025.11");
+    expect(json).toContain("估值约$43亿");
+    expect(json).toContain("本轮$20亿");
+  });
+
+  it("does not shrink explicit multiline insight-card details as if they were one long line", () => {
+    clearRenderDiagnostics();
+    const deck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "insight-fit",
+        children: [{
+          id: "insight-fit.g",
+          type: "grid",
+          columns: 2,
+          children: [
+            {
+              id: "insight-fit.c1",
+              type: "insight-card",
+              headline: "2025.07 K2",
+              body: "借鉴DeepSeek经验，补课预训练能力\n开源版本发布，强化编程能力",
+            },
+            {
+              id: "insight-fit.c2",
+              type: "insight-card",
+              headline: "2026.04.20 K2.6开源",
+              body: "发布即开源\n强化编程能力和Agent集群能力",
+            },
+          ],
+        }],
+      }],
+    } as const;
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    const detail = ast.slides[0]!.shapes.find((shape) => shape.name === "insight-fit.c1.detail") as any;
+    const sizeHalfPt = detail?.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt;
+    expect(sizeHalfPt).toBeGreaterThanOrEqual(20);
+    expect(getDiagnosticsByCode("TRUNCATED").filter((d) => d.nodeId === "insight-fit.c1.detail")).toHaveLength(0);
+  });
+
+  it("warns when a deck repeats insight-card grids across many slides", () => {
+    const slides = Array.from({ length: 3 }, (_, slideIndex) => ({
+      id: `repeat-${slideIndex + 1}`,
+      children: [{
+        id: `repeat-${slideIndex + 1}.g`,
+        type: "grid",
+        columns: 3,
+        children: Array.from({ length: 4 }, (_, cardIndex) => ({
+          id: `repeat-${slideIndex + 1}.c${cardIndex + 1}`,
+          type: "insight-card",
+          headline: `Finding ${cardIndex + 1}`,
+          body: "Support sentence.",
+        })),
+      }],
+    }));
+    const report = validateDeck({ slideml2: 2, deck: { size: "16x9", theme: "default" }, slides } as any);
+    expect(report.errors).toHaveLength(0);
+    expect(report.warnings.some((warning) => warning.code === "REPEATED_CARD_LAYOUT")).toBe(true);
   });
 
   it("describeDeck exposes the full prompt rule set the agent should follow", () => {

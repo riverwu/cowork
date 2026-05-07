@@ -68,6 +68,22 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("If a patch fails");
   });
 
+  it("requires paginated reading for truncated text read_file results", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain("Large text file reads");
+    expect(prompt).toContain("truncated: true");
+    expect(prompt).toContain("next_offset");
+    expect(prompt).toContain("Structured documents need structured parsers");
+    expect(prompt).toContain("read_file` on these formats is only a lossy quick text preview");
+    expect(prompt).toContain("Do not make whole-file claims from only the first chunk");
+  });
+
+  it("can inject task isolation guidance", () => {
+    const prompt = buildSystemPrompt({ taskIsolationContext: "## Task Isolation\n\nFresh task." });
+    expect(prompt).toContain("## Task Isolation");
+    expect(prompt).toContain("Fresh task.");
+  });
+
   it("does NOT re-list tools (they are sent in the API tools array and covered by Tool usage)", () => {
     const prompt = buildSystemPrompt({
       tools: [

@@ -7,7 +7,7 @@ export const createDeckTool: Tool = {
     description:
       `Create a fresh SlideML2 source deck JSON file at \`deckPath\`. Use once at the start of a deck task; the JSON is the source of truth.
 
-The deck-level visual identity should be installed in this initial call via \`themeOverride\`: pass colors (\`brand.primary\`, \`background\`, \`surface\`, \`text.primary\`, ...), text styles (\`slide-title\`, \`paragraph\`, \`metric-value\`), component tuning (\`card\`, \`panel\`), layout (\`pageMarginX\`, \`defaultGap\`), fonts, and chrome (\`brandMark\`, \`pageNumber\`). Read the slideml2 SKILL.md for the style brief structure to derive these from the source content.
+The deck-level visual identity should be installed in this initial call via \`themeOverride\`: pass colors (\`brand.primary\`, \`background\`, \`surface\`, \`text.primary\`, \`divider\`, ...), text styles (\`slide-title\`, \`paragraph\`, \`metric-value\`), component tuning (\`card\`, \`panel\`), effective layout fields (\`pageMarginX\`, \`titleTop\`, \`titleHeight\`, \`contentTop\`, \`contentBottom\`, \`defaultGap\`), fonts, and chrome (\`brandMark\`, \`pageNumber\`). Read the slideml2 SKILL.md for the style brief structure to derive these from the source content.
 
 After this call, add slides via \`replace_slide\` (when slideId equals current slide count, it appends) and refine deck-level fields via \`patch_deck\`.`,
     parameters: {
@@ -43,7 +43,9 @@ After this call, add slides via \`replace_slide\` (when slideId equals current s
     // override actually takes effect instead of being silently dropped.
     const autoNotes: string[] = [];
     const themeOverride = parseMaybeJsonObject(input.themeOverride, "themeOverride", autoNotes);
+    if (typeof themeOverride === "string") return themeOverride;
     const brand = parseMaybeJsonObject(input.brand, "brand", autoNotes);
+    if (typeof brand === "string") return brand;
     try {
       const result = await slideml2CreateDeck(deckPath, {
         title: typeof input.title === "string" ? input.title : undefined,
@@ -68,25 +70,24 @@ After this call, add slides via \`replace_slide\` (when slideId equals current s
 /**
  * Accept either an object (preferred) or a JSON-encoded string. Strings get
  * parsed and a soft note is appended so the agent learns the canonical shape.
- * On parse failure the string is dropped (logged as a note) — silently
- * dropping was the wuur34/288ryd authoring failure.
+ * On parse failure this returns an Error string. Silently dropping a malformed
+ * themeOverride lets the agent continue with the wrong visual system and
+ * makes later render failures much harder to repair.
  */
-function parseMaybeJsonObject(value: unknown, fieldName: string, notes: string[]): unknown {
+function parseMaybeJsonObject(value: unknown, fieldName: string, notes: string[]): unknown | string {
   if (value == null) return undefined;
   if (typeof value === "object") return value;
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed.startsWith("{")) {
-      notes.push(`Note: ${fieldName} arrived as a non-JSON string and was ignored. Pass an object literal next time.`);
-      return undefined;
+      return `Error: ${fieldName} arrived as a non-JSON string. Pass an object literal, or a valid JSON object string starting with "{".`;
     }
     try {
       const parsed = JSON.parse(trimmed);
       notes.push(`Note: ${fieldName} arrived as a JSON string and was auto-parsed; pass it as an object literal next time to skip this rescue.`);
       return parsed;
     } catch (err) {
-      notes.push(`Note: ${fieldName} string was not valid JSON (${err instanceof Error ? err.message : String(err)}); ignored.`);
-      return undefined;
+      return `Error: ${fieldName} string was not valid JSON (${err instanceof Error ? err.message : String(err)}). Re-emit ${fieldName} as a JSON object literal instead of a string.`;
     }
   }
   return undefined;

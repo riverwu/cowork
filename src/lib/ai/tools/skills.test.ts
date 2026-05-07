@@ -67,37 +67,45 @@ describe("read_file skill", () => {
     mockReadFileText.mockResolvedValue("hello world");
     const result = await readFile.execute({ path: "/test/file.txt" });
     expect(result).toContain("hello world");
-    expect(result).toContain("Returned range: 0-11");
+    expect(result).toContain("returned_range: 0-11");
+    expect(result).toContain("truncated: false");
     expect(mockReadFileText).toHaveBeenCalledWith("/test/file.txt");
   });
 
-  it("reads documents via parseDocument", async () => {
+  it("returns only a lossy preview for structured documents", async () => {
     mockParseDocument.mockResolvedValue("PDF content here");
     const result = await readFile.execute({ path: "/test/doc.pdf" });
     expect(result).toContain("PDF content here");
-    expect(result).toContain("Total characters: 16");
+    expect(result).toContain("total_chars: 16");
+    expect(result).toContain("mode: lossy_text_preview");
+    expect(result).toContain("STRUCTURED_DOCUMENT_PREVIEW");
+    expect(result).toContain("use run_python");
     expect(mockParseDocument).toHaveBeenCalledWith("/test/doc.pdf");
   });
 
   it("reads a bounded preview of very long files", async () => {
     mockReadFileText.mockResolvedValue("x".repeat(25000));
     const result = await readFile.execute({ path: "/test/big.txt" });
-    expect(result).toContain("More content available");
-    expect(result).toContain("Returned range: 0-6000");
+    expect(result).toContain("READ_FILE_TRUNCATED: true");
+    expect(result).toContain("returned_range: 0-6000");
+    expect(result).toContain("truncated: true");
+    expect(result).toContain("next_offset: 6000");
     expect(result.length).toBeLessThan(25000);
   });
 
   it("reads later file segments by offset", async () => {
     mockReadFileText.mockResolvedValue("0123456789".repeat(1000));
     const result = await readFile.execute({ path: "/test/big.txt", offset: 10, max_chars: 1000 });
-    expect(result).toContain("Returned range: 10-1010");
+    expect(result).toContain("returned_range: 10-1010");
+    expect(result).toContain("next_offset: 1010");
   });
 
   it("returns full SKILL.md content for task-scoped skill activation", async () => {
     mockReadFileText.mockResolvedValue("x".repeat(25000));
     const result = await readFile.execute({ path: "/Users/river/.cowork/skills/slideml2/SKILL.md" });
-    expect(result).toContain("Returned range: 0-25000");
-    expect(result).not.toContain("More content available");
+    expect(result).toContain("returned_range: 0-25000");
+    expect(result).toContain("truncated: false");
+    expect(result).not.toContain("READ_FILE_TRUNCATED");
     expect(result.length).toBeGreaterThan(25000);
   });
 
@@ -189,6 +197,13 @@ describe("grep skill", () => {
 });
 
 describe("run_python skill", () => {
+  it("documents the first-use Python baseline packages", () => {
+    expect(runPython.definition.description).toContain("~/.cowork/python/.venv");
+    expect(runPython.definition.description).toContain("python-docx");
+    expect(runPython.definition.description).toContain("python-pptx");
+    expect(runPython.definition.description).toContain("Pillow");
+  });
+
   it("runs Python code and returns output", async () => {
     mockInitPythonEnv.mockResolvedValue("ready");
     mockRunPythonScript.mockResolvedValue({ stdout: "42\n", stderr: "", exit_code: 0 });

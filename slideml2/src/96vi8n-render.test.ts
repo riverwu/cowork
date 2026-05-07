@@ -79,7 +79,7 @@ describe("section-break: tone-keyword passed as `accent` is silently ignored", (
 });
 
 describe("SHAPE_INVISIBLE auto-border on white-on-near-white card backings", () => {
-  it("a large fill-matches-surface card gets a divider border (instead of just warning)", () => {
+  it("a large white card keeps the subtle divider border instead of being promoted to dark gray", () => {
     // Mimics the 96vi8n setup: bg = F8FAFC, surface = FFFFFF.
     const slide: SlideV2 = {
       id: "s",
@@ -96,13 +96,13 @@ describe("SHAPE_INVISIBLE auto-border on white-on-near-white card backings", () 
       colors: { background: "F8FAFC", surface: "FFFFFF" },
     })));
     const fixed = getRenderDiagnostics().filter((d) => d.code === "SHAPE_INVISIBLE_FIXED");
-    expect(fixed.length).toBeGreaterThan(0);
-    // The auto-border should sit on the card-backing shape.
+    expect(fixed).toHaveLength(0);
+    // The explicit/default divider border should sit on the card-backing shape.
     const cardShape = ast.slides[0].shapes.find((s) =>
       typeof (s as { name?: string }).name === "string" &&
       (s as { name: string }).name.endsWith("-card")
     ) as { line?: { color?: string }; fill?: { color?: string } } | undefined;
-    expect(cardShape?.line?.color).toBeDefined();
+    expect(cardShape?.line?.color?.toUpperCase()).toBe("DDE3EC");
     // Fill stays the agent's choice (white).
     expect(cardShape?.fill?.color?.toUpperCase()).toBe("FFFFFF");
   });

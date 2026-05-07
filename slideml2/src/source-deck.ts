@@ -19,7 +19,8 @@ export function createSourceDeck(options: {
 }
 
 export function sourceToRenderedDeck(source: Slideml2SourceDeck): RenderedDeck {
-  const theme = buildTheme(source.deck.brand || {}, source.deck.theme || "default", source.deck.themeOverride);
+  const themeOverride = mergeDeckChrome(source.deck.themeOverride, source.deck.chrome);
+  const theme = buildTheme(source.deck.brand || {}, source.deck.theme || "default", themeOverride);
   const articleStyle = theme.text.article || theme.text.paragraph;
   const pageWeight = computeArticlePageWeight(articleStyle.fontSize, articleStyle.lineHeight);
   return {
@@ -27,9 +28,23 @@ export function sourceToRenderedDeck(source: Slideml2SourceDeck): RenderedDeck {
       size: source.deck.size || "16x9",
       theme: source.deck.theme || "default",
       brand: source.deck.brand || {},
-      themeOverride: source.deck.themeOverride,
+      themeOverride,
     },
     slides: source.slides.flatMap((slide) => expandArticleSlide(slide, pageWeight)).map(sourceSlideToRendered),
+  };
+}
+
+function mergeDeckChrome(
+  themeOverride: Slideml2SourceDeck["deck"]["themeOverride"],
+  chrome: Slideml2SourceDeck["deck"]["chrome"],
+): Slideml2SourceDeck["deck"]["themeOverride"] {
+  if (!chrome || typeof chrome !== "object") return themeOverride;
+  return {
+    ...(themeOverride || {}),
+    chrome: {
+      ...(themeOverride?.chrome || {}),
+      ...chrome,
+    },
   };
 }
 

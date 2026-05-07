@@ -54,9 +54,22 @@ describe("typography — numeric weight axis", () => {
     expect(preferredFont(theme, "latin", "text", 900)).toBe("Inter Black");
   });
 
+  it("maps semibold to installed-safe variants for common system fonts", () => {
+    const arial = buildTheme({}, "default", { fonts: { latin: ["Arial"] } });
+    const helvetica = buildTheme({}, "default", { fonts: { latin: ["Helvetica Neue"] } });
+    expect(preferredFont(arial, "latin", "text", 600)).toBe("Arial Bold");
+    expect(preferredFont(helvetica, "latin", "text", 600)).toBe("Helvetica Neue Bold");
+  });
+
   it("does not double-suffix when the head font already names a weight", () => {
     const theme = buildTheme({}, "default", { fonts: { latin: ["Inter Bold"] } });
     expect(preferredFont(theme, "latin", "text", 700)).toBe("Inter Bold");
+  });
+
+  it("does not invent weight-suffixed CJK font names", () => {
+    const theme = buildTheme({}, "default", { fonts: { cjk: { display: ["Hiragino Sans W6"], text: ["Hiragino Sans W3"] } } });
+    expect(preferredFont(theme, "cjk", "display", 700)).toBe("Hiragino Sans W6");
+    expect(preferredFont(theme, "cjk", "text", 700)).toBe("Hiragino Sans W3");
   });
 
   it("themeOverride numeric weight on slide-title sets b='1' on the title run", () => {

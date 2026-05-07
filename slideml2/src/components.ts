@@ -30,6 +30,103 @@ export interface AgentSurface {
   accentWidth?: number;
 }
 
+export type DecorationMarkerShape =
+  | "dot"
+  | "ring"
+  | "square"
+  | "rounded-square"
+  | "diamond"
+  | "side-bar"
+  | "slash"
+  | "index-chip";
+
+export type DecorationMarkerVariant = "tint" | "solid" | "outline" | "ghost" | "ring" | "badge";
+export type DecorationMarkerTone = "brand" | "neutral" | "muted" | "positive" | "warning" | "danger";
+export type DecorationMarkerSize = "xs" | "sm" | "md" | "lg" | "xl" | number;
+export type DecorationMarkerInput =
+  | DecorationMarkerShape
+  | {
+      shape?: DecorationMarkerShape;
+      marker?: DecorationMarkerShape;
+      preset?: DecorationMarkerShape;
+      type?: DecorationMarkerShape;
+      tone?: DecorationMarkerTone;
+      variant?: DecorationMarkerVariant;
+      size?: DecorationMarkerSize;
+    };
+
+const DECORATION_MARKER_SHAPES = new Set<string>([
+  "dot", "ring", "square", "rounded-square", "diamond", "side-bar", "slash", "index-chip",
+]);
+
+function decorationMarkerNode(
+  slideId: string,
+  id: string,
+  marker: DecorationMarkerInput | undefined,
+  defaults: { shape?: DecorationMarkerShape; tone?: DecorationMarkerTone; variant?: DecorationMarkerVariant; size?: DecorationMarkerSize } = {},
+): DomNode | undefined {
+  const spec = normalizeDecorationMarker(marker, defaults);
+  if (!spec) return undefined;
+  const dims = decorationMarkerDimensionsCm(spec.shape, markerSizeCm(spec.size));
+  return {
+    id: `${slideId}.${id}`,
+    type: "shape",
+    role: "item-marker",
+    marker: spec,
+    fixedWidth: dims.w,
+    fixedHeight: dims.h,
+    align: "start",
+    valign: "middle",
+    optional: true,
+  };
+}
+
+function normalizeDecorationMarker(
+  marker: DecorationMarkerInput | undefined,
+  defaults: { shape?: DecorationMarkerShape; tone?: DecorationMarkerTone; variant?: DecorationMarkerVariant; size?: DecorationMarkerSize },
+): { shape: DecorationMarkerShape; tone: DecorationMarkerTone; variant: DecorationMarkerVariant; size: DecorationMarkerSize } | null {
+  if (marker === undefined) return null;
+  const rawShape = typeof marker === "string"
+    ? marker
+    : marker?.shape ?? marker?.marker ?? marker?.preset ?? marker?.type ?? defaults.shape;
+  const shape = normalizeDecorationMarkerShape(rawShape);
+  if (!shape) return null;
+  return {
+    shape,
+    tone: (typeof marker === "object" ? marker.tone : undefined) || defaults.tone || "brand",
+    variant: (typeof marker === "object" ? marker.variant : undefined) || defaults.variant || "tint",
+    size: (typeof marker === "object" ? marker.size : undefined) || defaults.size || "sm",
+  };
+}
+
+function normalizeDecorationMarkerShape(value: unknown): DecorationMarkerShape | null {
+  if (typeof value !== "string") return null;
+  const normalized =
+    value === "rect" ? "square" :
+    value === "roundRect" || value === "roundedSquare" || value === "round-square" || value === "rounded-rect" ? "rounded-square" :
+    value === "ellipse" ? "dot" :
+    value === "bar" || value === "stripe" || value === "side-rail" ? "side-bar" :
+    value === "chip" || value === "index" ? "index-chip" :
+    value;
+  return DECORATION_MARKER_SHAPES.has(normalized) ? normalized as DecorationMarkerShape : null;
+}
+
+function markerSizeCm(value: DecorationMarkerSize | undefined): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return Math.max(0.12, Math.min(0.9, value));
+  if (value === "xs") return 0.18;
+  if (value === "sm") return 0.28;
+  if (value === "lg") return 0.52;
+  if (value === "xl") return 0.68;
+  return 0.38;
+}
+
+function decorationMarkerDimensionsCm(shape: DecorationMarkerShape, size: number): { w: number; h: number } {
+  if (shape === "side-bar") return { w: Math.max(0.06, size * 0.22), h: Math.max(0.55, size * 1.9) };
+  if (shape === "slash") return { w: Math.max(0.5, size * 1.55), h: Math.max(0.16, size * 0.32) };
+  if (shape === "index-chip") return { w: size * 1.35, h: size };
+  return { w: size, h: size };
+}
+
 /**
  * Merge agent-supplied surface options into a wrapper node. Only fields the
  * agent set are applied — defaults already on the wrapper survive.
@@ -68,6 +165,36 @@ export function applyAgentSurface<T extends DomNode>(node: T, options: { surface
   return out as T;
 }
 
+type RichContentRun = Record<string, unknown>;
+
+function richContent(value: unknown): RichContentRun[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const runs = value.filter((run): run is RichContentRun => Boolean(run) && typeof run === "object" && typeof (run as Record<string, unknown>).text === "string");
+  return runs.length ? runs : undefined;
+}
+
+function textWithRichContent(text: string, content?: unknown): { text: string; content?: RichContentRun[] } {
+  const runs = richContent(content);
+  return runs ? { text, content: runs } : { text };
+}
+
+function toneColor(tone: unknown, fallback = "brand.primary"): string {
+  if (tone === "positive" || tone === "success" || tone === "good") return "success";
+  if (tone === "warning" || tone === "caution" || tone === "warn") return "warning";
+  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative") return "danger";
+  if (tone === "neutral" || tone === "muted") return "text.muted";
+  if (tone === "flat") return "text.muted";
+  return fallback;
+}
+
+function toneAccentColor(tone: unknown, fallback = "brand.primary"): string {
+  if (tone === "positive" || tone === "success" || tone === "good") return "success.accent";
+  if (tone === "warning" || tone === "caution" || tone === "warn") return "warning.accent";
+  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative") return "danger.accent";
+  if (tone === "neutral" || tone === "muted" || tone === "flat") return "divider";
+  return fallback;
+}
+
 export function titleText(slideId: string, id: string, text: string): DomNode {
   return { id: `${slideId}.${id}`, type: "slide-title", text, align: "left" };
 }
@@ -103,15 +230,26 @@ export function metricCard(
   id: string,
   value: string,
   label: string,
-  options: { unit?: string; trend?: "up" | "down" | "flat" } = {},
+  options: {
+    unit?: string;
+    trend?: "up" | "down" | "flat";
+    delta?: string;
+    status?: "positive" | "warning" | "danger" | "neutral" | "brand";
+    source?: string;
+    comparison?: string;
+    sparkline?: Array<number | string>;
+    variant?: "plain" | "card" | "compact";
+    density?: "comfortable" | "compact";
+  } & { surface?: AgentSurface } & AgentSurface = {},
 ): DomNode {
   const trend = options.trend;
   const unit = options.unit && options.unit.trim() ? options.unit.trim() : "";
   // Trend semantics are conveyed by *coloring* the value (and label) — no
   // extra glyph, so narrow cards never have to make room for an arrow that
   // would otherwise force the value text to wrap.
-  const valueColor = trend === "up" ? "success" : trend === "down" ? "danger" : trend === "flat" ? "text.muted" : "brand.primary";
-  const labelColor = trend === "up" ? "success" : trend === "down" ? "danger" : "text.muted";
+  const statusColor = toneColor(options.status, "");
+  const valueColor = statusColor || (trend === "up" ? "success" : trend === "down" ? "danger" : trend === "flat" ? "text.muted" : "brand.primary");
+  const labelColor = statusColor || (trend === "up" ? "success" : trend === "down" ? "danger" : "text.muted");
   // If a unit string was supplied, suffix it inline as a muted run so the
   // raw value stays the dominant character — but no separate column.
   const content: Array<Record<string, unknown>> = unit
@@ -154,58 +292,206 @@ export function metricCard(
     layoutWeight: 2,
     children: [valueNode],
   };
-  return {
+  const dense = options.density === "compact" || options.variant === "compact";
+  const spark = (options.sparkline || []).map((v) => typeof v === "number" ? v : Number.parseFloat(String(v))).filter((v) => Number.isFinite(v));
+  const sparkMax = Math.max(1, ...spark);
+  const sparkNodes: DomNode[] = spark.slice(0, 12).map((v, idx) => ({
+    id: `${slideId}.${id}.spark.${idx}`,
+    type: "shape",
+    preset: "rect",
+    fill: valueColor,
+    line: valueColor,
+    layoutWeight: 1,
+    fixedHeight: Math.max(0.1, Math.min(0.42, (v / sparkMax) * 0.42)),
+    valign: "bottom",
+  }));
+  const children: DomNode[] = [
+    valueWrap,
+    { id: `${slideId}.${id}.label`, type: "text", text: label, style: "metric-label", color: labelColor, align: "center", valign: "top", layoutWeight: 1, autoFit: "shrink", optional: true },
+  ];
+  if (options.delta || options.comparison) {
+    children.push({
+      id: `${slideId}.${id}.delta`,
+      type: "text",
+      text: [options.delta, options.comparison].filter(Boolean).join(" · "),
+      style: "label",
+      color: valueColor,
+      align: "center",
+      minHeight: dense ? 0.25 : 0.35,
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  if (sparkNodes.length >= 2) {
+    children.push({
+      id: `${slideId}.${id}.spark`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0.04,
+      align: "center",
+      valign: "bottom",
+      fixedHeight: 0.45,
+      optional: true,
+      children: sparkNodes,
+    });
+  }
+  if (options.source) {
+    children.push({ id: `${slideId}.${id}.source`, type: "text", text: options.source, style: "caption", color: "text.muted", align: "center", minHeight: 0.25, autoFit: "shrink", optional: true });
+  }
+  return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.18,
+    gap: dense ? 0.1 : 0.18,
     role: "metric-card",
     valign: "middle",
-    children: [
-      valueWrap,
-      // 761q1u: 5 metric-cards in one row only get ~1cm height each;
-      // making the label optional lets the layout drop it instead of
-      // SQUASHED+FALLBACK_FAILED. Agents can still read the value (the
-      // primary signal) on tight grids.
-      { id: `${slideId}.${id}.label`, type: "text", text: label, style: "metric-label", color: labelColor, align: "center", valign: "top", layoutWeight: 1, autoFit: "shrink", optional: true },
-    ],
-  };
+    ...(options.variant === "card" ? { fill: "surface", line: "divider", padding: 0.45, cornerRadius: 0.1 } : {}),
+    children,
+  } as DomNode, options);
 }
 
-export function stepCard(slideId: string, id: string, step: string, title: string, body: string): DomNode {
+export function stepCard(
+  slideId: string,
+  id: string,
+  step: string,
+  title: string,
+  body: string,
+  options: {
+    content?: unknown;
+    bullets?: string[];
+    icon?: string;
+    marker?: DecorationMarkerInput;
+    status?: "positive" | "warning" | "danger" | "neutral" | "brand";
+    owner?: string;
+    time?: string;
+    variant?: "plain" | "card" | "compact";
+    density?: "comfortable" | "compact";
+  } & { surface?: AgentSurface } & AgentSurface = {},
+): DomNode {
   // umzrkm fix: step label defaulted to brand.primary, which fails 4.5:1
   // contrast on mid-saturation brand themes (e.g. teal 5B8A8A on light
   // E8F3F3 ≈ 3.4:1). Use text.primary so the label always reads; the step
   // number is still bold + prominent via the numbered-step style. Agents
   // who want a colored label can override `color` directly.
-  return {
+  const dense = options.density === "compact" || options.variant === "compact";
+  const status = toneColor(options.status, "text.primary");
+  const iconFill = status === "text.primary" ? "surface.subtle" : status;
+  const meta = [options.owner, options.time].filter(Boolean).join(" · ");
+  const marker = decorationMarkerNode(slideId, `${id}.marker`, options.marker, {
+    shape: "dot",
+    tone: options.status || "brand",
+    variant: "tint",
+    size: dense ? "xs" : "sm",
+  });
+  const titleRowChildren: DomNode[] = [
+    ...(marker ? [marker] : options.icon ? [{ id: `${slideId}.${id}.icon`, type: "shape" as const, preset: options.icon, fill: iconFill, line: status, fixedWidth: 0.55, fixedHeight: 0.55, align: "start" as const }] : []),
+    { id: `${slideId}.${id}.title`, type: "text" as const, text: title, style: "card-title" as const, minHeight: 0.65, autoFit: "shrink" as const, layoutWeight: 1 },
+  ];
+  const children: DomNode[] = [
+    { id: `${slideId}.${id}.step`, type: "text", text: step, style: "numbered-step", color: status, minHeight: 0.42, autoFit: "shrink" },
+    {
+      id: `${slideId}.${id}.titleRow`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0.2,
+      valign: "middle",
+      children: titleRowChildren,
+    },
+  ];
+  if (meta) children.push({ id: `${slideId}.${id}.meta`, type: "text", text: meta, style: "label", color: "text.muted", minHeight: 0.35, autoFit: "shrink", optional: true });
+  if (body || richContent(options.content)) {
+    children.push({ id: `${slideId}.${id}.body`, type: "text", ...textWithRichContent(body, options.content), style: "caption", valign: "top", autoFit: "shrink", optional: dense });
+  }
+  if (options.bullets && options.bullets.length) children.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets.slice(0, 4), "compact"), optional: true });
+  return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.25,
+    gap: dense ? 0.14 : 0.25,
     role: "step-card",
-    children: [
-      { id: `${slideId}.${id}.step`, type: "text", text: step, style: "numbered-step", color: "text.primary", minHeight: 0.42, autoFit: "shrink" },
-      { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", minHeight: 0.65, autoFit: "shrink" },
-      { id: `${slideId}.${id}.body`, type: "text", text: body, style: "caption", valign: "top" },
-    ],
-  };
+    ...(options.variant === "card" ? { fill: "surface", line: "divider", padding: 0.5, cornerRadius: 0.1 } : {}),
+    children,
+  } as DomNode, options);
 }
 
-export function comparisonCard(slideId: string, id: string, title: string, points: string[]): DomNode {
-  return {
+export function comparisonCard(
+  slideId: string,
+  id: string,
+  title: string,
+  points: string[],
+  options: {
+    subtitle?: string;
+    badge?: string;
+    body?: string;
+    content?: unknown;
+    metrics?: Array<{ label: string; value: string; tone?: "brand" | "positive" | "warning" | "danger" | "neutral" }>;
+    pros?: string[];
+    cons?: string[];
+    score?: string;
+    winner?: boolean;
+    footer?: string;
+    variant?: "plain" | "card" | "compact";
+    density?: "comfortable" | "compact";
+  } & { surface?: AgentSurface } & AgentSurface = {},
+): DomNode {
+  const dense = options.density === "compact" || options.variant === "compact";
+  const crowded = points.length + (options.pros?.length || 0) + (options.cons?.length || 0) + (options.metrics?.length || 0) + (options.body ? 1 : 0) + (options.score ? 1 : 0) > 8;
+  const visiblePoints = points.slice(0, crowded ? 3 : 6);
+  const children: DomNode[] = [
+    ...(options.badge ? [{ id: `${slideId}.${id}.badge`, type: "text" as const, text: options.badge, style: "label" as const, uppercase: true, color: options.winner ? "text.inverse" : "text.primary", fill: options.winner ? "brand.primary" : "surface.subtle", cornerRadius: 0.18, align: "center" as const, fixedHeight: 0.34, fixedWidth: Math.max(1.2, Math.min(3.2, options.badge.length * 0.16 + 0.5)), autoFit: "shrink" as const }] : []),
+    { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.6, autoFit: "shrink" },
+    ...(options.subtitle && !crowded ? [{ id: `${slideId}.${id}.subtitle`, type: "text" as const, text: options.subtitle, style: "label" as const, color: "text.muted", minHeight: 0.32, autoFit: "shrink" as const }] : []),
+  ];
+  if (options.score) children.push({ id: `${slideId}.${id}.score`, type: "text", text: options.score, style: crowded ? "label" : "metric-value", color: options.winner ? "brand.primary" : "text.primary", align: "left", minHeight: crowded ? 0.34 : 0.7, autoFit: "shrink" });
+  if ((options.body || richContent(options.content)) && !crowded) children.push({ id: `${slideId}.${id}.body`, type: "text", ...textWithRichContent(options.body || "", options.content), style: "caption", color: "text.primary", autoFit: "shrink", minHeight: 0.45 });
+  if (visiblePoints.length) children.push({ ...bulletList(slideId, `${id}-points`, visiblePoints, "compact"), maxHeight: crowded ? 1.55 : undefined });
+  if (options.metrics && options.metrics.length) {
+    children.push({
+      id: `${slideId}.${id}.metrics`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0.2,
+      fixedHeight: 0.5,
+      children: options.metrics.slice(0, crowded ? 2 : 3).map((m, index) => ({
+        id: `${slideId}.${id}.metric${index + 1}`,
+        type: "text" as const,
+        text: `${m.label}: ${m.value}`,
+        style: "label" as const,
+        color: toneColor(m.tone, "text.primary"),
+        fill: "surface.subtle",
+        cornerRadius: 0.12,
+        align: "center" as const,
+        valign: "middle" as const,
+        autoFit: "shrink" as const,
+        layoutWeight: 1,
+      })),
+    });
+  }
+  if ((options.pros && options.pros.length) || (options.cons && options.cons.length)) {
+    const prosText = (options.pros || []).slice(0, crowded ? 1 : 2).join(" / ");
+    const consText = (options.cons || []).slice(0, crowded ? 1 : 2).join(" / ");
+    children.push({
+      id: `${slideId}.${id}.tradeoff`,
+      type: "grid",
+      columns: 2,
+      gap: 0.2,
+      fixedHeight: crowded ? 0.48 : 0.72,
+      children: [
+        { id: `${slideId}.${id}.pros`, type: "text", text: prosText ? `+ ${prosText}` : "+", style: "caption", color: "success", autoFit: "shrink", valign: "middle" },
+        { id: `${slideId}.${id}.cons`, type: "text", text: consText ? `- ${consText}` : "-", style: "caption", color: "danger", autoFit: "shrink", valign: "middle" },
+      ],
+    });
+  }
+  if (options.footer && !crowded) children.push({ id: `${slideId}.${id}.footer`, type: "text", text: options.footer, style: "caption", color: "text.muted", minHeight: 0.35, autoFit: "shrink" });
+  return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.25,
+    gap: dense ? 0.16 : 0.25,
     role: "comparison-card",
-    children: [
-      // umzrkm: use text.primary for the title; brand color is reserved
-      // for accent shapes / chips. Mid-saturation brand colors fail 4.5:1.
-      { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.6, autoFit: "shrink" },
-      bulletList(slideId, `${id}-points`, points, "compact"),
-    ],
-  };
+    ...(options.variant === "card" || options.winner ? { fill: options.winner ? "brand.tint" : "surface", line: options.winner ? "brand.primary" : "divider", padding: 0.5, cornerRadius: 0.1 } : {}),
+    children,
+  } as DomNode, options);
 }
 
 export function insightCallout(slideId: string, id: string, text: string): DomNode {
@@ -243,17 +529,18 @@ export function quoteBlock(
       valign: "top",
       fixedHeight: 1.4,
       autoFit: "shrink",
+      optional: true,
     });
   }
-  children.push({ id: `${slideId}.${id}.text`, type: "text", text: `\u201C${text}\u201D`, style: "quote", align: "left", valign: "middle" });
+  children.push({ id: `${slideId}.${id}.text`, type: "text", text: `\u201C${text}\u201D`, style: "quote", align: "left", valign: "middle", autoFit: "shrink", minHeight: 0.75 });
   if (source && source.trim()) {
-    children.push({ id: `${slideId}.${id}.source`, type: "text", text: `\u2014 ${source.trim()}`, style: "quote-source", align: "left", minHeight: 0.4, autoFit: "shrink" });
+    children.push({ id: `${slideId}.${id}.source`, type: "text", text: `\u2014 ${source.trim()}`, style: "quote-source", align: "left", minHeight: 0.32, autoFit: "shrink", optional: true });
   }
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.18,
+    gap: 0.12,
     role: "quote",
     children,
   } as DomNode, opts);
@@ -421,6 +708,7 @@ function timelineStep(
     type: "stack",
     direction: "vertical",
     gap: 0,
+    role: "timeline-spine",
     align: "center",
     valign: "top",
     fixedWidth: 0.4,
@@ -431,8 +719,8 @@ function timelineStep(
         preset: "ellipse",
         fill: "brand.primary",
         line: "brand.primary",
-        fixedWidth: 0.32,
-        fixedHeight: 0.32,
+        fixedWidth: 0.24,
+        fixedHeight: 0.24,
       },
       {
         id: `${slideId}.${id}.${index}.line`,
@@ -440,7 +728,7 @@ function timelineStep(
         preset: "rect",
         fill: "brand.primary",
         line: "brand.primary",
-        fixedWidth: 0.04,
+        fixedWidth: 0.03,
         layoutWeight: 1,
       },
     ],
@@ -492,16 +780,28 @@ export function profileCard(slideId: string, id: string, options: { image: strin
   };
 }
 
-export function kpiGrid(slideId: string, id: string, metrics: Array<{ name?: string; value: string; label: string; unit?: string; trend?: "up" | "down" | "flat" }>, columns?: number): DomNode {
+export function kpiGrid(slideId: string, id: string, metrics: Array<{
+  name?: string;
+  value: string;
+  label: string;
+  unit?: string;
+  trend?: "up" | "down" | "flat";
+  delta?: string;
+  status?: "positive" | "warning" | "danger" | "neutral" | "brand";
+  source?: string;
+  comparison?: string;
+  sparkline?: Array<number | string>;
+}>, columns?: number, options: { variant?: "plain" | "card" | "compact"; density?: "comfortable" | "compact" } & { surface?: AgentSurface } & AgentSurface = {}): DomNode {
   const cols = Math.max(1, columns || Math.min(4, metrics.length));
-  return {
+  const dense = options.density === "compact" || options.variant === "compact" || metrics.length >= 5;
+  return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "grid",
     columns: cols,
-    gap: 0.5,
+    gap: dense ? 0.32 : 0.5,
     role: "kpi-grid",
-    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend })),
-  };
+    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable" })),
+  } as DomNode, options);
 }
 
 export function sectionBreak(
@@ -573,11 +873,11 @@ export function swotMatrix(slideId: string, id: string, options: { strengths: st
     id: `${slideId}.${id}.${qid}`,
     type: "stack" as const,
     direction: "vertical" as const,
-    gap: 0.22,
+    gap: 0.12,
     role: "swot-quadrant",
     children: [
-      { id: `${slideId}.${id}.${qid}.title`, type: "text" as const, text: title, style: "card-title", color, minHeight: 0.55, autoFit: "shrink" as const },
-      bulletList(slideId, `${id}-${qid}`, points, "compact"),
+      { id: `${slideId}.${id}.${qid}.title`, type: "text" as const, text: title, style: "card-title", color, minHeight: 0.46, autoFit: "shrink" as const },
+      { ...bulletList(slideId, `${id}-${qid}`, points, "compact"), spaceAfter: 1 },
     ],
   });
   return {
@@ -618,37 +918,105 @@ export function ctaButton(slideId: string, id: string, options: { text: string; 
   };
 }
 
-export function featureCard(slideId: string, id: string, options: { icon: string; title: string; body?: string; iconColor?: string; iconBackground?: string; tone?: string }): DomNode {
+export function featureCard(slideId: string, id: string, options: {
+  icon?: string;
+  title: string;
+  body?: string;
+  content?: unknown;
+  marker?: DecorationMarkerInput;
+  iconColor?: string;
+  iconBackground?: string;
+  tone?: string;
+  badge?: string;
+  tags?: string[];
+  metric?: { value: string; label: string; tone?: "brand" | "positive" | "warning" | "danger" | "neutral" };
+  proof?: string;
+  ctaText?: string;
+  variant?: "plain" | "card" | "compact";
+  density?: "comfortable" | "compact";
+} & { surface?: AgentSurface } & AgentSurface): DomNode {
   const iconColor = options.iconColor || "brand.primary";
   const iconBackground = options.iconBackground || "brand.tint";
-  const children: DomNode[] = [
-    {
-      id: `${slideId}.${id}.icon`,
-      type: "shape",
-      preset: options.icon || "ellipse",
-      fill: iconBackground,
-      line: iconColor,
-      lineWidth: 0.04,
-      fixedWidth: 0.95,
-      fixedHeight: 0.95,
-      // Without explicit align, the parent vertical stack stretches the icon
-      // across the card width (cross-axis) and we get a flat banner instead
-      // of a square glyph. Pin to start so fixedWidth is honored.
-      align: "start",
-    },
-    { id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "card-title", align: "left", color: options.tone || "text.primary", minHeight: 0.6, autoFit: "shrink" },
-  ];
-  if (options.body && options.body.trim()) {
-    children.push({ id: `${slideId}.${id}.body`, type: "text", text: options.body.trim(), style: "caption", align: "left", valign: "top" });
+  const dense = options.density === "compact" || options.variant === "compact";
+  const iconSize = dense ? 0.62 : 0.82;
+  const marker = decorationMarkerNode(slideId, `${id}.marker`, options.marker, {
+    shape: "rounded-square",
+    tone: "brand",
+    variant: "tint",
+    size: dense ? "xs" : "sm",
+  });
+  const titleNode: DomNode = { id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "card-title", align: "left", color: options.tone || "text.primary", minHeight: dense ? 0.42 : 0.5, autoFit: "shrink", layoutWeight: marker ? 1 : undefined };
+  const children: DomNode[] = marker
+    ? [{
+        id: `${slideId}.${id}.titleRow`,
+        type: "stack",
+        direction: "horizontal",
+        gap: dense ? 0.14 : 0.18,
+        valign: "middle",
+        children: [marker, titleNode],
+      }]
+    : [
+        {
+          id: `${slideId}.${id}.icon`,
+          type: "shape",
+          preset: options.icon || "ellipse",
+          fill: iconBackground,
+          line: iconColor,
+          lineWidth: 0.04,
+          fixedWidth: iconSize,
+          fixedHeight: iconSize,
+          // Without explicit align, the parent vertical stack stretches the icon
+          // across the card width (cross-axis) and we get a flat banner instead
+          // of a square glyph. Pin to start so fixedWidth is honored.
+          align: "start",
+          optional: true,
+        },
+        titleNode,
+      ];
+  if (options.badge) {
+    children.unshift({ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", color: "text.primary", fill: "surface.subtle", cornerRadius: 0.18, fixedHeight: 0.36, fixedWidth: Math.max(1.0, Math.min(3.0, options.badge.length * 0.18 + 0.55)), align: "center", autoFit: "shrink" });
   }
-  return {
+  const body = textWithRichContent(options.body?.trim() || "", options.content);
+  if (body.text || body.content) {
+    children.push({
+      id: `${slideId}.${id}.body`,
+      type: "text",
+      ...body,
+      style: "caption",
+      align: "left",
+      valign: "top",
+      minHeight: estimateFeatureBodyMinHeight(body.text, dense),
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  if (options.metric) {
+    children.push({ ...metricCard(slideId, `${id}.metric`, options.metric.value, options.metric.label, { variant: "compact", status: options.metric.tone }), optional: true });
+  }
+  if (options.proof) {
+    children.push({ id: `${slideId}.${id}.proof`, type: "text", text: options.proof, style: "label", color: "text.muted", minHeight: 0.34, autoFit: "shrink", optional: true });
+  }
+  if (options.tags && options.tags.length) {
+    children.push({ id: `${slideId}.${id}.tags`, type: "stack", direction: "horizontal", gap: 0.12, optional: true, children: options.tags.slice(0, 4).map((tag, index) => ({ id: `${slideId}.${id}.tag${index}`, type: "text" as const, text: String(tag), style: "label" as const, fill: "surface.subtle", color: "text.muted", cornerRadius: 0.16, fixedHeight: 0.34, autoFit: "shrink" as const, layoutWeight: 1 })) });
+  }
+  if (options.ctaText) {
+    children.push({ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "label", color: "text.inverse", fill: "brand.primary", cornerRadius: 0.2, align: "center", valign: "middle", fixedHeight: 0.46, autoFit: "shrink", optional: true });
+  }
+  return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.32,
+    gap: dense ? 0.1 : 0.16,
     role: "feature-card",
+    ...(options.variant === "card" ? { fill: "surface", line: "divider", padding: dense ? 0.3 : 0.4, cornerRadius: 0.1 } : {}),
     children,
-  };
+  } as DomNode, options);
+}
+
+function estimateFeatureBodyMinHeight(text: string, dense: boolean): number {
+  const explicitLines = text.split(/\n+/).filter((line) => line.trim()).length;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weightedTextLength(text) / (dense ? 24 : 20)));
+  return Math.max(dense ? 0.42 : 0.5, Math.min(dense ? 0.85 : 1.1, estimatedLines * (dense ? 0.34 : 0.4) + 0.14));
 }
 
 export function checklist(slideId: string, id: string, items: Array<{ text: string; status?: "checked" | "unchecked" | "warning" }>, density: "comfortable" | "compact" = "comfortable", opts: { markStyle?: "chip" | "plain" } = {}): DomNode {
@@ -796,7 +1164,12 @@ export function prosCons(slideId: string, id: string, options: { pros: string[];
   };
 }
 
-export function processFlow(slideId: string, id: string, options: { steps: Array<{ title: string; body?: string }>; direction?: "horizontal" | "vertical" }): DomNode {
+export function processFlow(slideId: string, id: string, options: {
+  steps: Array<{ title: string; body?: string; status?: string; owner?: string; time?: string; icon?: string; bullets?: string[] }>;
+  direction?: "horizontal" | "vertical";
+  variant?: "plain" | "cards";
+  density?: "comfortable" | "compact";
+} & { surface?: AgentSurface } & AgentSurface): DomNode {
   // direction "auto" or undefined defers to layout: a hint we read at
   // measure time and flip to vertical when the flow is squeezed into a
   // narrow column.
@@ -810,6 +1183,8 @@ export function processFlow(slideId: string, id: string, options: { steps: Array
   // FALLBACK_FAILED on a default deck.
   const verticalDense = direction === "vertical" && options.steps.length >= 4;
   options.steps.forEach((step, index) => {
+    const statusColor = toneColor(step.status, "text.primary");
+    const iconFill = statusColor === "text.primary" ? "surface.subtle" : statusColor;
     const stepMinHeight = direction === "horizontal"
       ? (dense ? 1.85 : 2.0)
       : (verticalDense ? 1.0 : 1.4);
@@ -835,7 +1210,19 @@ export function processFlow(slideId: string, id: string, options: { steps: Array
         // E8F3F3 ≈ 3.4:1). Mirror the 2pmnxh fix that already moved
         // timeline-step to text.primary. The arrow shape between steps
         // still carries brand.primary so the visual claim is preserved.
-        { id: `${slideId}.${id}.step${index + 1}.title`, type: "text", text: step.title, style: "card-title", color: "text.primary", align: "center", minHeight: dense || verticalDense ? 0.42 : 0.6, autoFit: "shrink" },
+        ...(step.icon ? [{ id: `${slideId}.${id}.step${index + 1}.icon`, type: "shape" as const, preset: step.icon, fill: iconFill, line: statusColor, fixedWidth: 0.46, fixedHeight: 0.46, align: "center" as const }] : []),
+        { id: `${slideId}.${id}.step${index + 1}.title`, type: "text", text: step.title, style: "card-title", color: statusColor, align: "center", minHeight: dense || verticalDense ? 0.42 : 0.6, autoFit: "shrink" },
+        ...((step.owner || step.time) ? [{
+          id: `${slideId}.${id}.step${index + 1}.meta`,
+          type: "text" as const,
+          text: [step.owner, step.time].filter(Boolean).join(" · "),
+          style: "label",
+          color: "text.muted",
+          align: "center" as const,
+          minHeight: 0.28,
+          autoFit: "shrink" as const,
+          optional: true,
+        }] : []),
         // 96vi8n slide 20: body minHeight 0.4 → 0.7 fits 2 lines instead
         // of 1, matching typical step-description sentences. Body still
         // optional so dense rows can drop it.
@@ -852,8 +1239,10 @@ export function processFlow(slideId: string, id: string, options: { steps: Array
           autoFit: "shrink" as const,
           optional: true,
         }] : []),
+        ...(step.bullets && step.bullets.length ? [{ ...bulletList(slideId, `${id}.step${index + 1}.bullets`, step.bullets.slice(0, 3), "compact"), optional: true }] : []),
       ],
       layoutWeight: 4,
+      ...(options.variant === "cards" ? { fill: "surface", line: "divider", padding: 0.35, cornerRadius: 0.08 } : {}),
     });
     if (index < options.steps.length - 1) {
       // 96vi8n slide 20: 0.7×0.5cm chevrons were nearly invisible. Bumped
@@ -872,7 +1261,7 @@ export function processFlow(slideId: string, id: string, options: { steps: Array
       });
     }
   });
-  return {
+  return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction,
@@ -884,7 +1273,7 @@ export function processFlow(slideId: string, id: string, options: { steps: Array
     // No outer fixedHeight: process-flow lets the container above decide.
     // Layout falls back to vertical orientation when the cross-axis cell is
     // too narrow (see autoOrientFlow in render.ts).
-  };
+  } as DomNode, options);
 }
 
 export function logoStrip(slideId: string, id: string, logos: Array<{ src: string; alt?: string }>, options: { caption?: string; columns?: number } = {}): DomNode {
@@ -1129,11 +1518,20 @@ export function barList(slideId: string, id: string, options: { items: Array<{ l
 export function keyTakeaway(
   slideId: string,
   id: string,
-  options: { headline: string; detail?: string; tone?: "brand" | "positive" | "warning" | "danger" } & { surface?: AgentSurface } & AgentSurface,
+  options: {
+    headline: string;
+    detail?: string;
+    content?: unknown;
+    bullets?: string[];
+    tone?: "brand" | "positive" | "warning" | "danger";
+    variant?: "panel" | "banner" | "minimal";
+    density?: "comfortable" | "compact";
+  } & { surface?: AgentSurface } & AgentSurface,
 ): DomNode {
   const tone = options.tone || "brand";
   const fillToken = tone === "brand" ? "brand.tint" : tone === "positive" ? "success.tint" : tone === "warning" ? "warning.tint" : "danger.tint";
   const accentToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const denseHeadline = options.density === "compact" || weightedTextLength(options.headline) > 46;
   // Thicker accent bar (0.18cm vs the previous 0.12) + a longer rule
   // (3.2cm) to give the takeaway visual weight against a busy slide.
   const children: DomNode[] = [
@@ -1150,42 +1548,54 @@ export function keyTakeaway(
       id: `${slideId}.${id}.headline`,
       type: "text",
       text: options.headline,
-      style: "section-title",
-      size: "lg",
+      style: denseHeadline ? "lead" : "section-title",
+      size: denseHeadline ? "md" : "lg",
       color: "text.primary",
       align: "left",
+      autoFit: "shrink",
+      minHeight: denseHeadline ? 0.55 : undefined,
     },
   ];
-  if (options.detail && options.detail.trim()) {
+  const detail = textWithRichContent(options.detail?.trim() || "", options.content);
+  if (detail.text || detail.content) {
     children.push({
       id: `${slideId}.${id}.detail`,
       type: "text",
-      text: options.detail.trim(),
+      ...detail,
       style: "lead",
       color: "text.primary",
       align: "left",
       valign: "top",
+      autoFit: "shrink",
     });
   }
+  if (options.bullets && options.bullets.length) {
+    children.push(bulletList(slideId, `${id}.bullets`, options.bullets.slice(0, 5), options.density === "compact" ? "compact" : "comfortable"));
+  }
+  const minimal = options.variant === "minimal";
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.3,
+    gap: denseHeadline ? 0.14 : options.density === "compact" ? 0.18 : 0.3,
     role: "key-takeaway",
-    fill: fillToken,
-    line: accentToken,
-    padding: 0.7,
-    cornerRadius: 0.12,
-    elevation: "raised",
+    ...(!minimal ? { fill: fillToken, line: accentToken, padding: denseHeadline ? 0.38 : options.variant === "banner" ? 0.55 : 0.7, cornerRadius: 0.12, elevation: "raised" } : {}),
     children,
   } as DomNode, options);
+}
+
+function weightedTextLength(text: string): number {
+  let length = 0;
+  for (const char of text) {
+    length += /[\u4e00-\u9fff]/.test(char) ? 1.05 : 0.58;
+  }
+  return length;
 }
 
 export function numberedGrid(
   slideId: string,
   id: string,
-  options: { items: Array<{ title: string; body?: string }>; columns?: number; tone?: "brand" | "neutral"; numberStyle?: "chip" | "plain" } & { surface?: AgentSurface } & AgentSurface,
+  options: { items: Array<{ title: string; body?: string; marker?: DecorationMarkerInput; tone?: DecorationMarkerTone }>; columns?: number; tone?: "brand" | "neutral"; marker?: DecorationMarkerInput; numberStyle?: "chip" | "plain" } & { surface?: AgentSurface } & AgentSurface,
 ): DomNode {
   const tone = options.tone || "brand";
   const accentColor = tone === "brand" ? "brand.primary" : "text.primary";
@@ -1205,80 +1615,117 @@ export function numberedGrid(
         ? 3
         : 4;
   const dense = options.items.length >= 5;
+  const bodyStyle = dense ? "caption" : "paragraph";
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "grid",
     columns: cols,
     gap: dense ? 0.32 : 0.55,
     role: "numbered-grid",
-    children: options.items.map((item, index) => ({
-      id: `${slideId}.${id}.${index}`,
-      type: "stack",
-      direction: "vertical",
-      gap: dense ? 0.14 : 0.25,
-      role: "numbered-step",
-      // 96vi8n slide 23: chip was visually centered above a left-aligned
-      // title because the chip's own align:"center" (text-internal) was
-      // also being read as the cross-axis positional alignment. Wrap
-      // the chip in a left-anchored horizontal stack so the chip box
-      // sits at cell-x and the digit inside the chip stays centered.
-      align: "start" as const,
-      children: [
-        chipStyle
-          ? {
-              id: `${slideId}.${id}.${index}.num.wrap`,
-              type: "stack" as const,
-              direction: "horizontal" as const,
-              gap: 0,
-              align: "start" as const,
-              valign: "top" as const,
-              children: [
-                {
-                  id: `${slideId}.${id}.${index}.num`,
-                  type: "text" as const,
-                  text: String(index + 1),
-                  // 761q1u: dense (5+ items) shrinks chip to 0.7cm so body has
-                  // headroom in tight 2-col layouts where each row is only
-                  // ~2cm tall after gaps. Non-dense stays 1.15cm for visual
-                  // weight on hero-style 3-up layouts.
-                  style: dense ? "label" : "card-title",
-                  weight: "bold" as const,
-                  color: "text.inverse",
-                  fill: accentColor,
-                  align: "center" as const,
-                  valign: "middle" as const,
-                  cornerRadius: 0.5,
-                  fixedWidth: dense ? 0.7 : 1.15,
-                  fixedHeight: dense ? 0.7 : 1.15,
-                },
-                { id: `${slideId}.${id}.${index}.num.flex`, type: "spacer" as const, layoutWeight: 1 },
-              ],
-            }
-          : {
-              id: `${slideId}.${id}.${index}.num`,
-              type: "text" as const,
-              text: String(index + 1).padStart(2, "0"),
-              style: "metric-value",
-              color: accentColor,
-              align: "left" as const,
-              valign: "bottom" as const,
-              minHeight: dense ? 0.6 : 0.9,
-              autoFit: "shrink" as const,
-            },
-        {
-          id: `${slideId}.${id}.${index}.title`,
-          type: "text",
-          text: item.title,
-          style: "card-title",
-          color: "text.primary",
-          align: "left",
-          minHeight: dense ? 0.42 : 0.55,
-          autoFit: "shrink",
-        },
-        ...(item.body && item.body.trim() ? [{ id: `${slideId}.${id}.${index}.body`, type: "text" as const, text: item.body.trim(), style: "caption", align: "left" as const, valign: "top" as const, color: "text.muted", minHeight: dense ? 0.5 : 0.7, autoFit: "shrink" as const, optional: true }] : []),
-      ],
-    })),
+    children: options.items.map((item, index) => {
+      const marker = decorationMarkerNode(slideId, `${id}.${index}.marker`, item.marker || options.marker, {
+        shape: "dot",
+        tone: item.tone || (tone === "brand" ? "brand" : "neutral"),
+        variant: "tint",
+        size: dense ? "xs" : "sm",
+      });
+      const titleNode: DomNode = {
+        id: `${slideId}.${id}.${index}.title`,
+        type: "text",
+        text: item.title,
+        style: "card-title",
+        color: "text.primary",
+        align: "left",
+        minHeight: dense ? 0.42 : 0.55,
+        autoFit: "shrink",
+        layoutWeight: marker ? 1 : undefined,
+      };
+      return {
+        id: `${slideId}.${id}.${index}`,
+        type: "stack",
+        direction: "vertical",
+        gap: dense ? 0.14 : 0.25,
+        role: "numbered-step",
+        // 96vi8n slide 23: chip was visually centered above a left-aligned
+        // title because the chip's own align:"center" (text-internal) was
+        // also being read as the cross-axis positional alignment. Wrap
+        // the chip in a left-anchored horizontal stack so the chip box
+        // sits at cell-x and the digit inside the chip stays centered.
+        align: "start" as const,
+        children: [
+          chipStyle
+            ? {
+                id: `${slideId}.${id}.${index}.num.wrap`,
+                type: "stack" as const,
+                direction: "horizontal" as const,
+                gap: 0,
+                align: "start" as const,
+                valign: "top" as const,
+                children: [
+                  {
+                    id: `${slideId}.${id}.${index}.num`,
+                    type: "text" as const,
+                    text: String(index + 1),
+                    // 761q1u: dense (5+ items) shrinks chip to 0.7cm so body has
+                    // headroom in tight 2-col layouts where each row is only
+                    // ~2cm tall after gaps. Non-dense stays 1.15cm for visual
+                    // weight on hero-style 3-up layouts.
+                    style: dense ? "label" : "card-title",
+                    weight: "bold" as const,
+                    color: "text.inverse",
+                    fill: accentColor,
+                    align: "center" as const,
+                    valign: "middle" as const,
+                    cornerRadius: 0.5,
+                    fixedWidth: dense ? 0.7 : 1.15,
+                    fixedHeight: dense ? 0.7 : 1.15,
+                  },
+                  { id: `${slideId}.${id}.${index}.num.flex`, type: "spacer" as const, layoutWeight: 1 },
+                ],
+              }
+            : {
+                id: `${slideId}.${id}.${index}.num`,
+                type: "text" as const,
+                text: String(index + 1).padStart(2, "0"),
+                style: "metric-value",
+                color: accentColor,
+                align: "left" as const,
+                valign: "bottom" as const,
+                minHeight: dense ? 0.6 : 0.9,
+                autoFit: "shrink" as const,
+              },
+          ...(marker ? [{
+            id: `${slideId}.${id}.${index}.titleRow`,
+            type: "stack" as const,
+            direction: "horizontal" as const,
+            gap: dense ? 0.14 : 0.18,
+            valign: "middle" as const,
+            children: [marker, titleNode],
+          }] : [titleNode]),
+          ...(item.body && item.body.trim() ? [{
+            id: `${slideId}.${id}.${index}.body`,
+            type: "text" as const,
+            text: item.body.trim(),
+            style: bodyStyle,
+            align: "left" as const,
+            valign: "top" as const,
+            color: "text.muted",
+            minHeight: numberedGridBodyMinHeight(item.body.trim(), dense),
+            layoutWeight: dense ? undefined : 1.4,
+            autoFit: "shrink" as const,
+            optional: dense,
+          }] : []),
+        ],
+      };
+    }),
   } as DomNode, options);
+}
+
+function numberedGridBodyMinHeight(text: string, dense: boolean): number {
+  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weightedTextLength(text) / (dense ? 44 : 32)));
+  const line = dense ? 0.32 : 0.5;
+  return Math.max(dense ? 0.5 : 1.05, Math.min(dense ? 0.95 : 2.15, estimatedLines * line + 0.2));
 }
 
 export function statStrip(slideId: string, id: string, options: { items: Array<{ value: string; label: string; tone?: StatStripTone }>; tone?: StatStripTone }): DomNode {
@@ -1303,8 +1750,9 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
         preset: "rect",
         fill: "divider",
         fixedWidth: 0.04,
-        fixedHeight: 1.6,
+        fixedHeight: 1.35,
         align: "center",
+        valign: "middle",
       });
     }
     items.push({
@@ -1313,7 +1761,9 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
       direction: "vertical",
       gap: 0.15,
       align: "center",
+      justify: "center",
       valign: "middle",
+      fixedHeight: 1.7,
       layoutWeight: 4,
       children: [
         { id: `${slideId}.${id}.${index}.value`, type: "text", text: item.value, style: "metric-value", color: valueColor, align: "center", valign: "bottom", autoFit: "shrink", minHeight: 0.85 },
@@ -1329,6 +1779,8 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
     role: "stat-strip",
     align: "stretch",
     valign: "middle",
+    minHeight: 1.7,
+    maxHeight: 1.95,
     children: items,
   };
 }
@@ -1781,7 +2233,7 @@ export type TakeawayTone = "brand" | "positive" | "warning" | "danger" | "neutra
 export function takeawayList(
   slideId: string,
   id: string,
-  options: { items: Array<{ headline: string; detail?: string; tone?: TakeawayTone }>; tone?: TakeawayTone } & { surface?: AgentSurface } & AgentSurface,
+  options: { items: Array<{ headline: string; detail?: string; tone?: TakeawayTone; marker?: DecorationMarkerInput }>; tone?: TakeawayTone; marker?: DecorationMarkerInput } & { surface?: AgentSurface } & AgentSurface,
 ): DomNode {
   const baseTone: TakeawayTone = options.tone || "brand";
   const items = (options.items || []).slice(0, 6);
@@ -1795,22 +2247,22 @@ export function takeawayList(
     // the caveat shouldn't compete with green/orange/brand). Maps to a
     // muted divider gray, not silently coerced to brand. (qyectb log,
     // slide 13: tone='neutral' was rendering as brand.primary.)
-    const accent =
-      tone === "brand" ? "brand.primary" :
-      tone === "positive" ? "success" :
-      tone === "warning" ? "warning" :
-      tone === "danger" ? "danger" :
-      tone === "neutral" ? "divider" :
-      "brand.primary";
+    const accent = tone === "brand" ? "brand.primary" : toneAccentColor(tone, "brand.primary");
+    const marker = decorationMarkerNode(slideId, `${id}.${idx}.marker`, item.marker || options.marker, {
+      shape: "side-bar",
+      tone,
+      variant: tone === "neutral" ? "outline" : "solid",
+      size: dense ? "sm" : "md",
+    });
     const children: DomNode[] = [
-      // Accent bar uses fixedWidth only — its height is decided by the
-      // row's allocated cross-axis. Setting fixedHeight made every row
-      // demand at least that much, blocking dense (5+) layouts.
-      // 96vi8n slides 2/22: dense=0.14cm read as a hairline at slide
-      // distance. Both modes bumped to 0.18cm — visible without
-      // dominating, and dense rows can absorb the extra 0.04cm with
-      // no FALLBACK_FAILED.
-      {
+      marker || {
+        // Accent bar uses fixedWidth only — its height is decided by the
+        // row's allocated cross-axis. Setting fixedHeight made every row
+        // demand at least that much, blocking dense (5+) layouts.
+        // 96vi8n slides 2/22: dense=0.14cm read as a hairline at slide
+        // distance. Both modes bumped to 0.18cm — visible without
+        // dominating, and dense rows can absorb the extra 0.04cm with
+        // no FALLBACK_FAILED.
         id: `${slideId}.${id}.${idx}.bar`,
         type: "shape",
         preset: "rect",
@@ -1855,7 +2307,7 @@ export function takeawayList(
       id: `${slideId}.${id}.${idx}`,
       type: "stack",
       direction: "horizontal",
-      gap: 0.35,
+      gap: 0.26,
       role: "takeaway-item",
       align: "start",
       valign: "top",
@@ -3118,24 +3570,28 @@ export function decorationGrid(
   const density = options.density === "sparse" ? "sparse" : options.density === "dense" ? "dense" : "normal";
   const rows = options.rows && options.rows > 0 ? options.rows : (density === "sparse" ? 5 : density === "dense" ? 12 : 8);
   const cols = options.columns && options.columns > 0 ? options.columns : (density === "sparse" ? 8 : density === "dense" ? 18 : 12);
-  const tone = options.tone === "brand" ? "brand.primary" : "text.muted";
-  // 96vi8n cover regression: 0.18cm dots at sparse 4×6 looked like a
-  // printer test pattern. Bumped default sizes (dots 0.30cm, grid 0.16cm)
-  // and added asBackground:true so the grid no longer occupies content
-  // flow on covers — it sits as an overlay behind title text.
-  const dotSize = pattern === "dots" ? 0.30 : pattern === "diagonal-lines" ? 0.06 : 0.16;
+  const tone = options.tone === "brand" ? "brand.tint" : "divider";
+  // Background texture must read as texture, not as a set of content marks.
+  // Keep default dots below 4pt and bind muted tone to divider instead of
+  // text.muted so cover patterns do not become dark visible blocks.
+  const dotSize = pattern === "dots"
+    ? (density === "sparse" ? 0.12 : density === "dense" ? 0.08 : 0.10)
+    : pattern === "diagonal-lines"
+      ? 0.04
+      : 0.08;
   const dotPreset: "ellipse" | "line" | "rect" = pattern === "dots" ? "ellipse" : pattern === "diagonal-lines" ? "line" : "rect";
   const cells: DomNode[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       cells.push({
-        id: `${slideId}.${id}.${r}.${c}`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0,
-        align: "center",
-        valign: "middle",
-        children: [{
+      id: `${slideId}.${id}.${r}.${c}`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0,
+      align: "center",
+      valign: "middle",
+      optional: true,
+      children: [{
           id: `${slideId}.${id}.${r}.${c}.dot`,
           type: "shape",
           preset: dotPreset,
@@ -3208,6 +3664,7 @@ export function decorativeShapes(
       gap: 0,
       align: "center",
       valign: "middle",
+      optional: true,
       children: [{
         id: `${slideId}.${id}.${index}.mark`,
         type: "shape",

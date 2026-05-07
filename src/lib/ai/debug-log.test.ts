@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { __test } from "./debug-log";
 
-const { extractArtifactPaths } = __test;
+const { extractArtifactPaths, shouldCopyArtifact } = __test;
 
 describe("extractArtifactPaths", () => {
   it("finds an absolute pptx path in a sentence", () => {
@@ -41,5 +41,21 @@ describe("extractArtifactPaths", () => {
       "/tmp/a.pptx",
       "/tmp/b.png",
     ]);
+  });
+});
+
+describe("debug artifact copy policy", () => {
+  it("keeps every validate_render pptx/render-tree iteration for debugging", () => {
+    const copied = new Set<string>();
+    expect(shouldCopyArtifact("validate_render", "/tmp/deck.pptx", copied)).toBe(true);
+    expect(shouldCopyArtifact("validate_render", "/tmp/deck.pptx", copied)).toBe(true);
+    expect(shouldCopyArtifact("validate_render", "/tmp/deck.pptx.render-tree.json", copied)).toBe(true);
+    expect(shouldCopyArtifact("validate_render", "/tmp/deck.pptx.render-tree.json", copied)).toBe(true);
+  });
+
+  it("still dedupes non-render artifacts", () => {
+    const copied = new Set<string>();
+    expect(shouldCopyArtifact("read_file", "/tmp/source.md", copied)).toBe(true);
+    expect(shouldCopyArtifact("read_file", "/tmp/source.md", copied)).toBe(false);
   });
 });

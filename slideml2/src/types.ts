@@ -37,6 +37,8 @@ export interface ThemeOverride {
      *  typeface-name suffixes ("Inter Light", "Inter SemiBold") and emit
      *  b="1" for >=600. */
     weight?: "normal" | "bold" | number;
+    /** Agent-friendly alias for weight. */
+    fontWeight?: "normal" | "bold" | number;
     color?: string;
     lineHeight?: number;
     margin?: { l?: number; r?: number; t?: number; b?: number };
@@ -48,7 +50,7 @@ export interface ThemeOverride {
     uppercase?: boolean;
     italic?: boolean;
   }>;
-  component?: Record<string, { fill?: string; line?: string; accent?: string; padding?: number; radius?: number }>;
+  component?: Record<string, { fill?: string; line?: string; accent?: string; padding?: number; radius?: number; cornerRadius?: number; elevation?: "flat" | "raised" | "floating" | "outlined" }>;
   tone?: Record<string, { fg: string; bg: string; line: string }>;
   layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number }>;
   /** Per-script font chains. `latin` and `cjk` accept either a single
@@ -60,7 +62,7 @@ export interface ThemeOverride {
     mono?: string[];
   };
   chart?: { series?: string[] };
-  chrome?: { brandMark?: "none" | "top-right" | "bottom-right"; pageNumber?: boolean; footerLine?: boolean; footerHeight?: number; footerPadding?: number };
+  chrome?: { brandMark?: "none" | "top-right" | "bottom-right"; pageNumber?: boolean; footerText?: string; footerLine?: boolean; footerHeight?: number; footerPadding?: number };
   imageGrowWeight?: number;
   sizeScale?: Partial<Record<"xs" | "sm" | "md" | "lg" | "xl" | "2xl", number>>;
   /**

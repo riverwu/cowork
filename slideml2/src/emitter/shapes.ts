@@ -4,7 +4,7 @@
  *
  * Vendored carve-out: shape-XML structure mirrors PptxGenJS `gen-xml.ts`'s
  * `slideObjectToXml` for `RECTANGLE` / `ELLIPSE` / `LINE` / `ROUNDED_RECT`.
- * We support only the four preset names SlideML's `ShapePreset` lists.
+ * ShapePreset intentionally stays small and maps to OOXML preset geometry.
  */
 
 import { txBody, type RunRels } from "./text.js";
@@ -21,6 +21,7 @@ const PRESET_TO_GEOM: Record<ShapePreset, string> = {
   triangle: "triangle",
   rightTriangle: "rtTriangle",
   pentagon: "pentagon",
+  diamond: "diamond",
   "arrow-right": "rightArrow",
   "arrow-down": "downArrow",
   callout: "wedgeRectCallout",
@@ -439,9 +440,12 @@ function lineXmlOf(line: LineSpec | undefined): string {
   const dashXml = line.dash && line.dash !== "solid"
     ? `<a:prstDash val="${line.dash}"/>`
     : "";
+  const alphaXml = line.alpha !== undefined && line.alpha < 1
+    ? `<a:alpha val="${Math.round(line.alpha * 100000)}"/>`
+    : "";
   return (
     `<a:ln w="${Math.round(line.width)}">` +
-    `<a:solidFill><a:srgbClr val="${line.color.toUpperCase()}"/></a:solidFill>` +
+    `<a:solidFill><a:srgbClr val="${line.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:solidFill>` +
     dashXml +
     `</a:ln>`
   );

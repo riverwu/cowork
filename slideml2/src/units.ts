@@ -52,6 +52,32 @@ export const cm = (n: number): number => Math.round(n * EMU_PER_CM);
 export const inch = (n: number): number => Math.round(n * EMU_PER_INCH);
 export const pt = (n: number): number => Math.round(n * EMU_PER_PT);
 
+export function ptToCm(n: number): number {
+  return n * EMU_PER_PT / EMU_PER_CM;
+}
+
+/**
+ * Normalize visual stroke thickness to cm for the renderer.
+ *
+ * Contract:
+ * - layout dimensions remain cm (`x/y/w/h`, `gap`, `padding`, `fixedHeight`).
+ * - text `fontSize` remains pt.
+ * - stroke-like fields (`lineWidth`, `borderWidth`, divider/rule `thickness`)
+ *   are authored as point sizes in normal prose. For backwards compatibility,
+ *   existing tiny numeric values <= 0.3 are kept as cm because old decks used
+ *   `0.02` / `0.05` for hairlines. Values above 0.3 are too large for a
+ *   visible line in cm, so they are interpreted as pt.
+ */
+export function normalizeStrokeCm(raw: unknown, fallbackCm: number, options: { minCm?: number; maxCm?: number } = {}): number {
+  const minCm = options.minCm ?? 0.005;
+  const maxCm = options.maxCm ?? 0.18;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
+    return clampNumber(fallbackCm, minCm, maxCm);
+  }
+  const cmValue = raw > 0.3 ? ptToCm(raw) : raw;
+  return clampNumber(cmValue, minCm, maxCm);
+}
+
 /** Convert EMU back to cm — used by tests and debug tooling, not by the renderer. */
 export function emuToCm(emu: number): number {
   return emu / EMU_PER_CM;
@@ -69,3 +95,7 @@ export const SLIDE_SIZES = {
 } as const satisfies Record<string, { width: number; height: number }>;
 
 export type DeckSize = keyof typeof SLIDE_SIZES;
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}

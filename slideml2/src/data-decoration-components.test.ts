@@ -292,6 +292,33 @@ describe("decoration-grid", () => {
   });
 });
 
+describe("decorative-shapes", () => {
+  it("confetti motif renders as a background overlay", () => {
+    const slide: SlideV2 = {
+      id: "s", title: "x",
+      children: [{
+        id: "s.ds", type: "decorative-shapes",
+        motif: "confetti", position: "full", tone: "accent", count: 16,
+      } as unknown as DomNode],
+    };
+    expectClean(slide, "decorative-shapes");
+  });
+
+  it("corner blobs render multiple vector marks", () => {
+    const slide: SlideV2 = {
+      id: "s", title: "x",
+      children: [{
+        id: "s.ds", type: "decorative-shapes",
+        motif: "corner-blobs", position: "bottom-right", tone: "brand", count: 6,
+      } as unknown as DomNode],
+    };
+    expectClean(slide, "decorative-shapes-corner");
+    const { ast } = render(slide);
+    const marks = ast.slides[0].shapes.filter((shape) => String(shape.name || "").includes("s.ds") && shape.type === "shape");
+    expect(marks.length).toBeGreaterThanOrEqual(6);
+  });
+});
+
 describe("corner-mark", () => {
   it("DRAFT marker at top-right renders", () => {
     const slide: SlideV2 = {
@@ -336,6 +363,21 @@ describe("arrow-link", () => {
     expect(findRunByText(ast.slides[0].shapes, "Step A")).toBeDefined();
     expect(findRunByText(ast.slides[0].shapes, "Step B")).toBeDefined();
     expect(findRunByText(ast.slides[0].shapes, "depends on")).toBeDefined();
+  });
+});
+
+describe("pointer-arrow", () => {
+  it("anchored overlay arrow renders with label", () => {
+    const slide: SlideV2 = {
+      id: "s", title: "x",
+      children: [{
+        id: "s.pa", type: "pointer-arrow",
+        label: "重点", direction: "left", anchor: "middle-right", offsetX: 1, tone: "warning",
+      } as unknown as DomNode],
+    };
+    expectClean(slide, "pointer-arrow");
+    const { ast } = render(slide);
+    expect(findRunByText(ast.slides[0].shapes, "重点")).toBeDefined();
   });
 });
 

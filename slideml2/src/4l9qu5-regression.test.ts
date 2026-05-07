@@ -61,6 +61,26 @@ describe("chrome page-number contrast (4l9qu5)", () => {
     const chromeIssues = diags.filter((d) => d.code === "LOW_CONTRAST" && /chrome\.page/.test(String(d.nodeId || "")));
     expect(chromeIssues, chromeIssues.map((d) => d.message).join("\n")).toHaveLength(0);
   });
+
+  it("page-number picks contrast against a footer band, not only the slide background", () => {
+    const slide: SlideV2 = {
+      id: "closing",
+      children: [{
+        id: "closing.band",
+        type: "band",
+        tone: "brand",
+        area: "content",
+        fill: "success",
+        children: [{ id: "closing.t", type: "text", text: "感谢聆听", color: "text.inverse" }],
+      } as unknown as DomNode],
+    };
+    const diags = renderAndCollect(deckWith([slide], {
+      colors: { success: "27AE60", text: { secondary: "4A6274" } },
+      chrome: { pageNumber: true },
+    }));
+    const chromeIssues = diags.filter((d) => d.code === "LOW_CONTRAST" && /chrome\.page/.test(String(d.nodeId || "")));
+    expect(chromeIssues, chromeIssues.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
 });
 
 describe("composite factory minHeight conversions (4l9qu5)", () => {

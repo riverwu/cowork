@@ -681,7 +681,7 @@ export async function listMessages(sessionId: string): Promise<Message[]> {
   const db = await getDb();
   const rows = await db.select<Array<{
     id: string; session_id: string; role: string; content: string; metadata: string | null; created_at: number;
-  }>>("SELECT * FROM messages WHERE session_id = $1 ORDER BY created_at", [sessionId]);
+  }>>("SELECT * FROM messages WHERE session_id = $1 ORDER BY created_at, rowid", [sessionId]);
   return rows.map((r) => ({
     id: r.id,
     sessionId: r.session_id,

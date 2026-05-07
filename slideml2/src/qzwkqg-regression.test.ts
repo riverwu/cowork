@@ -76,6 +76,41 @@ describe("themeOverride.colors flattening (P0)", () => {
     const blocking = blockingAfterRender(deck);
     expect(blocking, blocking.map((d) => d.message).join("\n")).toHaveLength(0);
   });
+
+  it("auto-fixes themeOverride text.muted metric labels on light surfaces", () => {
+    const slide: SlideV2 = {
+      id: "rg-muted-metric",
+      children: [{
+        id: "rg-muted-metric.grid",
+        type: "kpi-grid",
+        metrics: [
+          { value: "10%", label: "印刷术前欧洲识字率" },
+          { value: "70%", label: "今日全球识字率" },
+        ],
+      } as unknown as DomNode],
+    };
+    const blocking = blockingAfterRender(deckWith([slide], {
+      colors: {
+        surface: "F7FAFC",
+        text: { primary: "1A202C", muted: "718096" },
+      } as any,
+    }));
+    expect(blocking.filter((d) => d.code === "LOW_CONTRAST"), blocking.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
+});
+
+describe("validation robustness for agent-authored ids", () => {
+  it("reports missing text ids without throwing during text kind inference", () => {
+    const slide: SlideV2 = {
+      id: "rg-missing-id",
+      children: [
+        { type: "text", text: "No id here" } as unknown as DomNode,
+      ],
+    };
+    const report = validateSlide(slide);
+    expect(report.errors.some((e) => e.code === "MISSING_NODE_ID")).toBe(true);
+    expect(report.errors.some((e) => e.code === "MISSING_NODE_TYPE")).toBe(false);
+  });
 });
 
 describe("color() defensive resolution (P0)", () => {
@@ -150,6 +185,18 @@ describe("gradient parsing + rendering (P0)", () => {
     const blocking = blockingAfterRender(deckWith([slide]));
     expect(blocking, blocking.map((d) => d.message).join("\n")).toHaveLength(0);
   });
+
+  it("slide.background {type:'solid', color} renders without UNKNOWN_COLOR", () => {
+    const slide: SlideV2 = {
+      id: "rg-solid-bg",
+      background: { type: "solid", color: "#6366F1" } as unknown as SlideV2["background"],
+      children: [{ id: "rg-solid-bg.t", type: "text", text: "白色标题", style: "deck-title", color: "text.inverse" } as DomNode],
+    };
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(deckWith([slide])));
+    expect(ast.slides[0]!.background).toEqual({ type: "solid", color: "6366F1" });
+    expect(getRenderDiagnostics().filter((d) => d.code === "UNKNOWN_COLOR")).toHaveLength(0);
+  });
 });
 
 describe("constrainedBy ancestor surfacing (P1)", () => {
@@ -185,6 +232,47 @@ describe("constrainedBy ancestor surfacing (P1)", () => {
     expect(hit!.constrainedBy!.prop).toBe("fixedHeight");
     expect(hit!.constrainedBy!.value).toBe(1.6);
     expect(hit!.suggestion).toMatch(/rg-fixed\.panel\.fixedHeight/);
+  });
+});
+
+describe("table row fitting diagnostics", () => {
+  it("allocates table row height by content instead of equal rows when total height is enough", () => {
+    const slide: SlideV2 = {
+      id: "rg-table-fit",
+      children: [{
+        id: "rg-table-fit.table",
+        type: "table",
+        headers: ["持有者", "论点", "评估结论"],
+        rows: [
+          ["李飞飞", "AI熟练度>好文凭", "混淆使用与创新，名校仍是主要筛选标准"],
+          ["马斯克", "医学院没意义", "过度简化，医疗包含AI难以替代的维度"],
+          ["黄仁勋", "不需要CS博士", "言行矛盾——英伟达仍优先招募顶尖人才"],
+        ],
+      } as DomNode],
+    };
+    const blocking = blockingAfterRender(deckWith([slide]));
+    expect(blocking.filter((d) => d.nodeId === "rg-table-fit.table"), blocking.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
+
+  it("keeps slideId on table fallback diagnostics emitted during render", () => {
+    const slide: SlideV2 = {
+      id: "rg-table-fail",
+      children: [{
+        id: "rg-table-fail.table",
+        type: "table",
+        fixedHeight: 1.2,
+        headers: ["列A", "列B"],
+        rows: [
+          ["很长的单元格文本很长的单元格文本很长的单元格文本很长的单元格文本", "同样很长的说明文字同样很长的说明文字同样很长的说明文字"],
+          ["短", "短"],
+        ],
+      } as DomNode],
+    };
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(deckWith([slide])));
+    const hit = getRenderDiagnostics().find((d) => d.code === "FALLBACK_FAILED" && d.nodeId === "rg-table-fail.table");
+    expect(hit).toBeDefined();
+    expect(hit!.slideId).toBe("rg-table-fail");
   });
 });
 
@@ -268,7 +356,7 @@ describe("timeline component (qzwkqg s3) renders cleanly", () => {
             "slide-title": { fontSize: 36, fontWeight: "bold", color: "text.primary" } as any,
             paragraph: { fontSize: 16, lineHeight: 1.5, color: "text.secondary" },
           },
-          layout: { pageMarginX: 0.6, pageMarginY: 0.5, defaultGap: 0.3 },
+          layout: { pageMarginX: 0.6, titleTop: 0.5, contentTop: 1.32, contentBottom: 6.75, defaultGap: 0.3 },
         },
       },
       slides: [{

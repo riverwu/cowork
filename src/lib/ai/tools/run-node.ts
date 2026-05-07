@@ -12,8 +12,9 @@ Use this for:
 - Generating Word documents (docx) — no built-in tool exists
 - Custom data-shaping scripts that other tools don't cover
 - Any task that benefits from a one-off Node.js library
+- Generating files with JavaScript libraries when that is the most direct path for the current task
 
-DO NOT use this to generate .pptx files. Activate the slideml2 skill, then use the dedicated SlideML2 tools (\`create_deck\` → \`replace_slide\` / \`patch_deck\` → \`validate_render\`) instead. \`run_node\` + \`pptxgenjs\` is a fallback ONLY when SlideML2 cannot express a truly custom geometry (rare).
+For standard editable PPTX authoring, prefer the SlideML2 tools because they provide schema validation and render diagnostics. Use \`run_node\` for PPTX only when the user asks for a custom script/library path, when an existing workflow already depends on it, or when SlideML2 is not the right fit for the requested output.
 
 The script runs with a 60-second timeout by default. Use console.log() for output.
 If you need packages, use the install_package parameter — it installs to the isolated environment. You may pass one package or a comma/space-separated list.

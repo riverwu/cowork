@@ -8,7 +8,7 @@ export const readDeckTool: Tool = {
     description:
       `Read the current SlideML2 deck JSON from disk. Use before targeted edits or after validation/render failures to inspect the exact structure.
 
-For a deck with many slides, pass \`slideId\` to read only the slide you need to repair. After \`validate_render\` returns ok:false, you must call this before \`replace_slide\` or \`patch_deck\` so repairs are based on the current source JSON rather than memory.`,
+For a deck with many slides, pass \`slideId\` to read only the slide you need to repair. After \`validate_render\` returns ok:false, prefer calling this before \`replace_slide\` or \`patch_deck\` so repairs are based on the current source JSON rather than memory.`,
     parameters: {
       type: "object",
       properties: {

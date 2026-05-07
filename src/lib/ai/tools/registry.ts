@@ -38,9 +38,9 @@ import { validateRenderTool } from "./validate-render";
  * Decks (SlideML2):        describe_schema, create_deck, read_deck, replace_slide, insert_slide, delete_slide, patch_deck, validate_render
  *   Skill:                 read the slideml2 SKILL.md once per deck task
  *   Discovery:             describe_schema({ components }) for focused prop schemas
- *   Authoring:             create_deck → replace_slide (append by passing slideId == slideCount)
+ *   Typical authoring:     create_deck → replace_slide (append by passing slideId == slideCount)
  *   Editing:               replace_slide (slide content) | insert_slide (new at index) | delete_slide (by id/index) | patch_deck (deck-level fields, reorder)
- *   Render & QA:           validate_render (schema + render + diagnostics; iterate on blocking codes)
+ *   Render & QA:           validate_render (schema + render + diagnostics; use periodically and before final delivery)
  *
  * The agent must activate the slideml2 skill once at the start of any deck
  * task. Its SKILL.md carries the design taste, component philosophy,

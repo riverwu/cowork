@@ -22,7 +22,7 @@ function deck(slides: SlideV2[]): Slideml2SourceDeck {
 function bullets(slide: SlideV2) {
   const ast = renderToAst(sourceToRenderedDeck(deck([slide])));
   return ast.slides[0].shapes.find((s) => (s as { name?: string }).name?.endsWith(".list")) as
-    | { paragraphs?: Array<{ bullet?: { char?: string; color?: string; sizePct?: number; auto?: boolean; number?: boolean } }> }
+    | { paragraphs?: Array<{ bullet?: { char?: string; color?: string; sizePct?: number; auto?: boolean; number?: boolean }; marginLeft?: number; hanging?: number }> }
     | undefined;
 }
 
@@ -163,6 +163,20 @@ describe("bullets.marker → shape-glyph bullets", () => {
     });
     const para = shape!.paragraphs!.find((p) => p.bullet)!;
     expect((para.bullet as { auto?: boolean }).auto).toBe(true);
+  });
+
+  it("compact bullets carry explicit hanging indent so marker and text do not touch", () => {
+    const shape = bullets({
+      id: "s",
+      title: "x",
+      children: [{ id: "s.list", type: "bullets", density: "compact", items: ["Proof point"] } as never],
+    });
+    const para = shape!.paragraphs!.find((p) => p.bullet)!;
+    expect(para.marginLeft).toBeGreaterThan(0);
+    expect(para.hanging).toBeLessThan(0);
+    expect(para.marginLeft! + para.hanging!).toBeGreaterThan(0);
+    // Text starts at marL, bullet at marL+indent; keep at least ~0.2cm gap.
+    expect(Math.abs(para.hanging!) / 360000).toBeGreaterThanOrEqual(0.2);
   });
 });
 

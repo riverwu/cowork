@@ -210,7 +210,7 @@ export type AgentEvent =
   | { type: "artifact"; artifact: Artifact }
   | { type: "knowledge-ref"; refs: { documentId: string; filename: string; snippet: string }[] }
   | { type: "context-dump"; content: string }
-  | { type: "compacted"; summary: string; preservedUserMessages: number; estimatedTokens: number }
+  | { type: "compacted"; summary: string; preservedUserMessages: number; estimatedTokens: number; reason?: string }
   | { type: "error"; error: string }
   | { type: "done" };
 

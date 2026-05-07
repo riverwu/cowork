@@ -32,7 +32,7 @@ export const imageGen: Tool = {
     description:
       `Generate an illustrative / photographic / designed image with the AI image model (Doubao Seedream). Saves a PNG/JPG to disk and returns the absolute path.
 
-Use for: covers, section dividers, hero/banner images, posters, icons, logos, mood imagery — anything the user calls 配图/插图/封面/illustration. Do NOT use for data charts (use run_python + matplotlib instead — this tool cannot draw exact numbers/axes/legends).
+Use for: covers, section dividers, hero/banner images, posters, icons, logos, mood imagery — anything the user calls 配图/插图/封面/illustration. It is not suitable for exact data charts with precise numbers/axes/legends; use run_python + matplotlib for those.
 
 Sizing guidance (IMPORTANT — pick a preset, do not invent values):
 

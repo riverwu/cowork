@@ -151,7 +151,7 @@ Prefer passing a structured plan when you can: use should for OR recall, must fo
       });
 
       const guidance = mode === "documents"
-        ? "\n\nReturned document candidates only. Process candidates in rank order. Use read_file with offset/max_chars, or rerun search_knowledge with mode='snippets' for content snippets when needed."
+        ? "\n\nReturned document candidates only. Process candidates in rank order. For text files, use read_file with offset/max_chars. For DOCX/XLSX/PPTX/PDF files, use run_python with the appropriate parser when exact structure or faithful analysis is needed. You can also rerun search_knowledge with mode='snippets' for content snippets."
         : "";
       return `Found ${results.length} relevant ${mode === "documents" ? "documents" : "excerpts"}:\n\n${formatted.join("\n\n---\n\n")}${guidance}`;
     } catch (err) {

@@ -113,7 +113,7 @@ const SPACER_DETAILED: Record<string, NodeFieldInfo> = {
 
 const DIVIDER_DETAILED: Record<string, NodeFieldInfo> = {
   orientation: { valueType: "enum", values: ["horizontal", "vertical", "auto"], description: "horizontal | vertical | auto" },
-  thickness: { valueType: "number", description: "number in cm; line thickness" },
+  thickness: { valueType: "number", description: "stroke thickness; prefer 1-3 for pt-sized rules. Legacy tiny cm values <=0.3 are accepted." },
   line: { valueType: "string", description: "theme token or 6-char hex" },
   dash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "line dash style" },
   fixedWidth: { valueType: "number", description: "number in cm; useful for vertical dividers" },
@@ -204,7 +204,7 @@ const TABLE_DETAILED: Record<string, NodeFieldInfo> = {
   colWidths: { valueType: "array", description: "number[] in cm OR fractional weights; controls column proportions" },
   rowHeights: { valueType: "array", description: "number[] in cm; controls row heights" },
   borderColor: { valueType: "string", description: "theme token or hex; cell border color" },
-  borderWidth: { valueType: "number", description: "number in cm; cell border width" },
+  borderWidth: { valueType: "number", description: "stroke thickness; prefer 0.5-1 for pt-sized cell borders. Legacy tiny cm values <=0.3 are accepted." },
   fixedHeight: { valueType: "number", description: "number in cm; explicit height" },
 };
 
@@ -234,15 +234,24 @@ const SHAPE_DETAILED: Record<string, NodeFieldInfo> = {
     valueType: "enum",
     values: [
       "rect", "roundRect", "ellipse", "line",
-      "triangle", "rightTriangle", "pentagon",
+      "triangle", "rightTriangle", "pentagon", "diamond",
       "arrow-right", "arrow-down", "callout",
       "chevron", "star-5", "parallelogram", "cloud",
     ],
     description: "OOXML preset geometry name",
   },
+  role: { valueType: "enum", values: ["item-marker"], description: "Semantic role. item-marker renders a small stable decoration mark inside its allocated rect instead of stretching to fill it." },
+  marker: { valueType: "object", description: "Item-decoration shorthand: string or {shape|preset|marker, tone?, variant?, size?}. Shapes: dot, ring, square, rounded-square, diamond, side-bar, slash, index-chip." },
+  shape: { valueType: "enum", values: ["dot", "ring", "square", "rounded-square", "diamond", "side-bar", "slash", "index-chip"], description: "Alias used with role:'item-marker' when marker is omitted." },
+  tone: { valueType: "enum", values: ["brand", "neutral", "muted", "positive", "warning", "danger"], description: "Semantic marker color." },
+  variant: { valueType: "enum", values: ["tint", "solid", "outline", "ghost", "ring", "badge"], description: "Marker treatment: tint (default), solid, outline/ring, ghost, or badge." },
+  size: { valueType: "enum", values: ["xs", "sm", "md", "lg", "xl"], description: "Marker size preset; numeric cm also accepted." },
   fill: { valueType: "string", description: "theme token or 6-char hex" },
   line: { valueType: "string", description: "theme token or 6-char hex" },
-  lineWidth: { valueType: "number", description: "number in cm; line/border width" },
+  fillOpacity: { valueType: "number", description: "Fill opacity 0..1." },
+  lineOpacity: { valueType: "number", description: "Line opacity 0..1." },
+  opacity: { valueType: "number", description: "Overall fill/line opacity 0..1 when specific opacity fields are omitted." },
+  lineWidth: { valueType: "number", description: "stroke thickness; prefer 1-3 for pt-sized lines. Legacy tiny cm values <=0.3 are accepted." },
   lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "line dash style" },
   cornerRadius: { valueType: "number", description: "0..1 fraction of shorter side (roundRect)" },
   fixedHeight: { valueType: "number", description: "number in cm; explicit height" },
@@ -281,7 +290,7 @@ const BAND_DETAILED: Record<string, NodeFieldInfo> = {
 
 const FRAME_DETAILED: Record<string, NodeFieldInfo> = {
   line: { valueType: "string", description: "Border color theme token (default 'divider')." },
-  lineWidth: { valueType: "number", description: "Line width in cm (default 0.025)." },
+  lineWidth: { valueType: "number", description: "Stroke thickness; prefer 1-3 for pt-sized borders. Legacy tiny cm values <=0.3 are accepted." },
   dash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "Border dash style." },
   cornerRadius: { valueType: "number", description: "Roundness 0..0.5." },
   padding: { valueType: "number", description: "Inner padding in cm." },

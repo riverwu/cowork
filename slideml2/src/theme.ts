@@ -53,6 +53,7 @@ export interface SimpleTheme {
   chrome: {
     brandMark: "none" | "top-right" | "bottom-right";
     pageNumber: boolean;
+    footerText?: string;
     footerLine: boolean;
     footerHeight: number;
     footerPadding: number;
@@ -200,6 +201,7 @@ function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOve
   if (flatColors["text.secondary"] && !flatColors["text.muted"]) {
     colors["text.muted"] = flatColors["text.secondary"];
   }
+  applySemanticAccentAliases(colors, flatColors);
   // Reconcile dependent surface tokens: when the agent overrides
   // `surface` to a dark color (or `background` to dark) but doesn't
   // override `surface.subtle` or `divider`, those default to the
@@ -232,6 +234,86 @@ function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOve
     sizeScale: { ...base.sizeScale, ...(override?.sizeScale || {}) },
   };
   return merged;
+}
+
+function applySemanticAccentAliases(colors: Record<string, string>, flatOverrides: Record<string, string>): void {
+  const userSet = (key: string): boolean => Object.prototype.hasOwnProperty.call(flatOverrides, key);
+  const aliases: Array<{ accent: string; semantic: string; tint: string }> = [
+    { accent: "accent.green", semantic: "success", tint: "success.tint" },
+    { accent: "accent.orange", semantic: "warning", tint: "warning.tint" },
+    { accent: "accent.red", semantic: "danger", tint: "danger.tint" },
+    { accent: "accent.blue", semantic: "info", tint: "info.tint" },
+  ];
+
+  for (const { accent, semantic, tint } of aliases) {
+    const accentToken = `${semantic}.accent`;
+    const accentHex = isHexColor(colors[accent]) ? colors[accent] : undefined;
+    if (accentHex && !userSet(accentToken)) {
+      colors[accentToken] = accentHex;
+    }
+    if (accentHex && !userSet(semantic)) {
+      colors[semantic] = semanticForeground(colors, accentHex);
+    }
+
+    const semanticHex = isHexColor(colors[semantic]) ? colors[semantic] : undefined;
+    if (semanticHex && !colors[accentToken]) {
+      colors[accentToken] = semanticHex;
+    }
+    if (!semanticHex || userSet(tint)) continue;
+
+    const accentTint = colors[`${accent}.tint`];
+    colors[tint] = isHexColor(accentTint) ? accentTint : semanticTint(colors, accentHex || semanticHex);
+  }
+}
+
+function semanticForeground(colors: Record<string, string>, accentHex: string): string {
+  const backgrounds = ["background", "surface", "surface.subtle"]
+    .map((key) => colors[key])
+    .filter(isHexColor);
+  let out = accentHex;
+  for (const bg of backgrounds) {
+    if (contrastRatioOfHex(out, bg) >= 4.5) continue;
+    out = shadedVariantForContrast(out, bg, 4.5) || out;
+  }
+  return out;
+}
+
+function semanticTint(colors: Record<string, string>, semanticHex: string): string {
+  const surfaceHex = isHexColor(colors.surface) ? colors.surface : "FFFFFF";
+  const surfaceLum = relativeLuminanceOfHex(surfaceHex);
+  return mixHex(surfaceHex, semanticHex, surfaceLum < 0.3 ? 0.72 : 0.88);
+}
+
+function isHexColor(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9A-Fa-f]{6}$/.test(value);
+}
+
+function contrastRatioOfHex(fgHex: string, bgHex: string): number {
+  const lf = relativeLuminanceOfHex(fgHex);
+  const lb = relativeLuminanceOfHex(bgHex);
+  const light = Math.max(lf, lb);
+  const dark = Math.min(lf, lb);
+  return (light + 0.05) / (dark + 0.05);
+}
+
+function shadedVariantForContrast(srcHex: string, bgHex: string, threshold: number): string | null {
+  const bgIsLight = relativeLuminanceOfHex(bgHex) > 0.5;
+  const target = bgIsLight ? "000000" : "FFFFFF";
+  const sr = parseInt(srcHex.slice(0, 2), 16);
+  const sg = parseInt(srcHex.slice(2, 4), 16);
+  const sb = parseInt(srcHex.slice(4, 6), 16);
+  const tr = parseInt(target.slice(0, 2), 16);
+  const tg = parseInt(target.slice(2, 4), 16);
+  const tb = parseInt(target.slice(4, 6), 16);
+  for (let pct = 5; pct <= 60; pct += 5) {
+    const t = pct / 100;
+    const r = Math.round(sr + (tr - sr) * t);
+    const g = Math.round(sg + (tg - sg) * t);
+    const b = Math.round(sb + (tb - sb) * t);
+    const hex = [r, g, b].map((n) => n.toString(16).padStart(2, "0").toUpperCase()).join("");
+    if (contrastRatioOfHex(hex, bgHex) >= threshold) return hex;
+  }
+  return null;
 }
 
 function mergeTextStyles(base: Record<string, TextStyle>, override?: Record<string, Partial<TextStyle>>): Record<string, TextStyle> {
@@ -291,13 +373,41 @@ function mergeComponentStyles(base: Record<string, ComponentStyle>, override?: R
   if (!override) return { ...base };
   const out: Record<string, ComponentStyle> = { ...base };
   for (const [key, value] of Object.entries(override)) {
+    const { cornerRadius, radius: rawRadius, padding: rawPadding, ...rest } = value;
+    const radius = typeof value.cornerRadius === "number"
+      ? normalizeCornerRadius(value.cornerRadius)
+      : typeof value.radius === "number"
+        ? normalizeCornerRadius(value.radius)
+        : undefined;
+    const padding = typeof rawPadding === "number" ? normalizeComponentPadding(rawPadding) : undefined;
     out[key] = {
       ...(base[key] || {}),
-      ...value,
-      ...(typeof value.cornerRadius === "number" ? { radius: value.cornerRadius } : {}),
+      ...rest,
+      ...(padding !== undefined ? { padding } : {}),
+      ...(radius !== undefined ? { radius, cornerRadius: radius } : {}),
     };
   }
   return out;
+}
+
+export function normalizeCornerRadius(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  // SlideML cornerRadius is a 0..0.5 fraction of the shorter side. Agents
+  // often write CSS-like pixel values in theme overrides (10, 12). Treat
+  // those as percent-like shorthand so they become 0.10/0.12 instead of
+  // maximum-pill roundRects.
+  const normalized = value > 1 ? value / 100 : value;
+  return Math.max(0, Math.min(0.5, normalized));
+}
+
+export function normalizeComponentPadding(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  // Component padding is authored in centimeters. Agents often copy CSS-like
+  // theme snippets (`padding:16`) where the number means px; treating that as
+  // 16cm destroys layout. Values above 2cm are not practical for slide cards,
+  // so normalize them as CSS px at 96dpi.
+  const normalized = value > 2 ? value / 37.7952755906 : value;
+  return Math.max(0, Math.min(1.5, normalized));
 }
 
 export function textStyle(theme: SimpleTheme, kindOrVariant: unknown, fallback = "paragraph"): TextStyle {
@@ -635,11 +745,17 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       "text.muted": "5B6478",
       divider: "DDE3EC",
       success: "0E7C3A",
+      "success.accent": "0E7C3A",
       "success.tint": "E6F6EC",
       warning: "B45309",
+      "warning.accent": "B45309",
       "warning.tint": "FFF6E6",
       danger: "B42318",
+      "danger.accent": "B42318",
       "danger.tint": "FEECEB",
+      info: "2563EB",
+      "info.accent": "2563EB",
+      "info.tint": "DBEAFE",
       ...defaultPalette(),
     },
     text: commonText(),
@@ -691,8 +807,8 @@ function defaultBase(brandPrimary: string): SimpleTheme {
     },
     fonts: {
       latin: {
-        display: ["Aptos Display", "Aptos", "Calibri", "Arial"],
-        text: ["Aptos", "Calibri", "Arial"],
+        display: ["Helvetica Neue", "Arial", "Aptos Display", "Aptos", "Calibri"],
+        text: ["Arial", "Helvetica Neue", "Aptos", "Calibri"],
       },
       cjk: {
         display: ["PingFang SC", "Microsoft YaHei", "SimHei"],
@@ -700,7 +816,7 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       },
       mono: ["Menlo", "Consolas", "Courier New"],
     },
-    fontFace: "Aptos",
+    fontFace: "Arial",
     layout: {
       slideWidthCm: 25.4,
       slideHeightCm: 14.2875,
@@ -1023,11 +1139,27 @@ export function preferredFont(
   const chain = chainFor(theme, script, role);
   const head = chain[0] || theme.fontFace;
   const numericWeight = resolveNumericWeight(weight);
-  if (script === "mono" || numericWeight === undefined || numericWeight === 400) return head;
+  if (script === "mono" || script === "cjk" || numericWeight === undefined || numericWeight === 400) return head;
   // Suffixes only apply when the face name doesn't already carry one.
   if (/\b(thin|light|medium|semibold|bold|black)\b/i.test(head)) return head;
-  const suffix = WEIGHT_SUFFIX[numericWeight];
+  const suffix = weightSuffixForFace(head, numericWeight);
   return suffix ? `${head} ${suffix}` : head;
+}
+
+function weightSuffixForFace(face: string, numericWeight: number): string | undefined {
+  const lower = face.toLowerCase();
+  if (lower.includes("arial")) {
+    if (numericWeight >= 600) return "Bold";
+    return undefined;
+  }
+  if (lower.includes("helvetica neue") || lower === "helvetica") {
+    if (numericWeight >= 600) return "Bold";
+    if (numericWeight === 500) return "Medium";
+    if (numericWeight === 300) return "Light";
+    if (numericWeight === 100) return "Thin";
+    return undefined;
+  }
+  return WEIGHT_SUFFIX[numericWeight];
 }
 
 const WEIGHT_SUFFIX: Record<number, string> = {

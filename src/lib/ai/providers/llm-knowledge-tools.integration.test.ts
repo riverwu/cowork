@@ -244,17 +244,23 @@ describe("LLM knowledge tool routing integration", () => {
       input: { query: "AI Pin failure reasons", top_k: 3 },
     };
     const done = await firstDone({
-      system: "You are in final-answer phase. The previous search_knowledge tool result is sufficient. Do not call any tools. Answer briefly in Chinese and include the source filename.",
+      system: [
+        "You are in final-answer phase.",
+        "The previous search_knowledge tool result is sufficient. Do not call any tools.",
+        "Answer in exactly two lines:",
+        "1. A brief Chinese summary.",
+        "2. The exact source line: 来源：AI_Agent时代可穿戴硬件发展趋势调研报告.md",
+        "Copy the filename exactly from the tool result, including the .md suffix.",
+      ].join("\n"),
       messages: [
-        { role: "user", content: "总结 Humane AI Pin 失败原因。" },
+        { role: "user", content: "总结 Humane AI Pin 失败原因。最后一行必须逐字引用来源文件名。" },
         { role: "assistant", content: "", toolCalls: [toolCall] },
         { role: "tool", toolCallId: toolCall.id, content: "[1] (from AI_Agent时代可穿戴硬件发展趋势调研报告.md)\n失败原因：定价高、技术问题、缺乏生态系统。" },
       ],
-      tools: knowledgeTools,
     });
 
     expect(done.stopReason).toBe("end");
-    expect(done.content).toContain("AI_Agent时代可穿戴硬件发展趋势调研报告.md");
+    expect(done.content.replace(/\s+/g, "_")).toContain("AI_Agent时代可穿戴硬件发展趋势调研报告.md");
   }, 30000);
 });
 

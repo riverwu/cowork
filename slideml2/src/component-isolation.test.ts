@@ -41,6 +41,24 @@ const PARAGRAPH_SHORT = "短句证据，一行可读完。";
 const PARAGRAPH_MID = "中等密度的解释文本，一两行覆盖关键判断。";
 const PARAGRAPH_LONG = "稍微长一点的解释文本，但不应超过两行：核心判断 + 关键依据 + 一个补充说明，避免逐字读。";
 
+const LIGHT_BRAND_OVERRIDE: Slideml2SourceDeck["deck"]["themeOverride"] = {
+  colors: {
+    brand: { primary: "C41E3A" },
+    background: "FDF6E3",
+    surface: "FFFFFF",
+    text: { primary: "1A1A1A", secondary: "555555", muted: "888888" },
+  } as never,
+};
+
+const DARK_OVERRIDE: Slideml2SourceDeck["deck"]["themeOverride"] = {
+  colors: {
+    brand: { primary: "C0392B" },
+    background: "0D1117",
+    surface: "161B22",
+    text: { primary: "F0F6FC", secondary: "8B949E", muted: "8B949E", inverse: "0D1117" },
+  } as never,
+};
+
 interface Profile {
   name: "minimum" | "typical" | "dense";
   build: (componentName: string, schema: Record<string, unknown>) => Record<string, unknown> | null;
@@ -76,6 +94,10 @@ function valuesForField(componentName: string, fieldName: string, fieldSchema: R
     if (fieldName === "data" && componentName === "table-card") return { headers: ["Name", "Value"], rows: [["A", "1"], ["B", "2"]] };
     if (fieldName === "left") return { id: "iso.left", type: "text", text: "Left", style: "paragraph" };
     if (fieldName === "right") return { id: "iso.right", type: "text", text: "Right", style: "paragraph" };
+    if (fieldName === "evidence") return { id: "iso.evidence", type: "image-card", src: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiPjxyZWN0IHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiIGZpbGw9IiMyNTYzZWIiLz48L3N2Zz4=", title: "Evidence" };
+    if (fieldName === "insight") return { id: "iso.insight", type: "insight-card", headline: "核心判断", detail: "证据说明。" };
+    if (fieldName === "visual") return { src: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiPjxyZWN0IHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiIGZpbGw9IiMyNTYzZWIiLz48L3N2Zz4=", fit: "cover" };
+    if (fieldName === "heroStat") return { value: "72%", label: "完成度", caption: "+12pp" };
     return {};
   }
   if (fieldName === "text") return profile === "dense" ? PARAGRAPH_LONG : PARAGRAPH_SHORT;
@@ -126,6 +148,21 @@ function arrayValueFor(componentName: string, fieldName: string, count: number):
   }
   if ((componentName === "process-flow" || componentName === "step-card") && (fieldName === "steps" || fieldName === "items")) {
     return Array.from({ length: count }, (_, i) => ({ title: titleAt(i), body: bodyAt(i) }));
+  }
+  if (componentName === "probe-flow" && (fieldName === "steps" || fieldName === "items")) {
+    return Array.from({ length: count }, (_, i) => ({ title: titleAt(i), body: bodyAt(i) }));
+  }
+  if (componentName === "factorial-matrix" && fieldName === "rows") return Array.from({ length: Math.min(count, 3) }, (_, i) => `行 ${i + 1}`);
+  if (componentName === "factorial-matrix" && fieldName === "columns") return Array.from({ length: Math.min(count, 3) }, (_, i) => `列 ${i + 1}`);
+  if (componentName === "factorial-matrix" && fieldName === "cells") {
+    const n = Math.min(count, 3);
+    return Array.from({ length: n }, (_, r) => Array.from({ length: n }, (_, c) => ({ text: `${r + 1}-${c + 1}`, tone: (r + c) % 3 === 0 ? "positive" : "neutral" })));
+  }
+  if (componentName === "failure-taxonomy" && fieldName === "items") {
+    return Array.from({ length: Math.min(count, 3) }, (_, i) => ({ title: `失败类型 ${i + 1}`, rate: `${(i + 1) * 12}%`, examples: [`案例 ${i + 1}.1`, `案例 ${i + 1}.2`] }));
+  }
+  if (componentName === "evidence-layout" && fieldName === "annotations") {
+    return [{ id: "iso.annotation", type: "pointer-arrow", label: "关键变化", anchor: "middle-right", direction: "left" }];
   }
   if (componentName === "timeline" && fieldName === "items") {
     return Array.from({ length: count }, (_, i) => ({ time: dateAt(i), title: titleAt(i), body: bodyAt(i) }));
@@ -209,6 +246,7 @@ const PROFILES: Profile[] = [
 function isMinimumOneOf(componentName: string, fieldName: string): boolean {
   if (componentName === "article" && fieldName === "text") return true;
   if (componentName === "label" && fieldName === "text") return true;
+  if (componentName === "callout" && fieldName === "text") return true;
   return false;
 }
 
@@ -222,10 +260,7 @@ function optionalShouldBeIncluded(componentName: string, fieldName: string): boo
   return false;
 }
 
-const COMPONENT_SKIPLIST: ReadonlySet<string> = new Set<string>([
-  "two-column",
-  "side-rail",
-]);
+const COMPONENT_SKIPLIST: ReadonlySet<string> = new Set<string>();
 
 function nodeForComponent(componentName: string, slideId: string, fields: Record<string, unknown>): DomNode {
   return {
@@ -235,7 +270,7 @@ function nodeForComponent(componentName: string, slideId: string, fields: Record
   };
 }
 
-function buildSourceDeck(slideId: string, child: DomNode, fillContent = true): Slideml2SourceDeck {
+function buildSourceDeck(slideId: string, child: DomNode, fillContent = true, themeOverride?: Slideml2SourceDeck["deck"]["themeOverride"]): Slideml2SourceDeck {
   const children: DomNode[] = fillContent ? [child] : [child];
   return {
     slideml2: 2,
@@ -243,6 +278,7 @@ function buildSourceDeck(slideId: string, child: DomNode, fillContent = true): S
       size: "16x9",
       theme: "default",
       brand: { name: "Test", primary: "2563EB" },
+      themeOverride,
     },
     slides: [{
       id: slideId,
@@ -288,6 +324,26 @@ describe("component-isolation baseline", () => {
         renderToAst(sourceToRenderedDeck(source));
         const blocking = blockingDiagnostics(getRenderDiagnostics());
         expect(blocking, describeFailure(name, profile.name, source, blocking, validationDescriptions)).toHaveLength(0);
+      });
+    }
+
+    for (const themeCase of [
+      { name: "light-brand", override: LIGHT_BRAND_OVERRIDE },
+      { name: "dark", override: DARK_OVERRIDE },
+    ] as const) {
+      it(`${name} renders cleanly (typical, ${themeCase.name} theme)`, () => {
+        clearRenderDiagnostics();
+        const fields = PROFILES[1].build(name, schema);
+        if (!fields) return;
+        const slideId = `iso-${name}-typical-${themeCase.name}`.replace(/[^a-z0-9-]/g, "_");
+        const child = nodeForComponent(name, slideId, fields);
+        const source = buildSourceDeck(slideId, child, true, themeCase.override);
+        const validation = validateDeck(source);
+        const validationDescriptions = validation.errors.map((e) => `[${e.code}${e.path ? ` ${e.path}` : ""}] ${e.message}${e.suggestedFix ? ` :: ${e.suggestedFix}` : ""}`);
+        expect(validation.errors, describeFailure(name, "typical", source, [], validationDescriptions)).toHaveLength(0);
+        renderToAst(sourceToRenderedDeck(source));
+        const blocking = blockingDiagnostics(getRenderDiagnostics());
+        expect(blocking, describeFailure(name, "typical", source, blocking, validationDescriptions)).toHaveLength(0);
       });
     }
   }

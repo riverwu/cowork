@@ -20,6 +20,8 @@ export interface InstallStatus {
   installed: boolean;
 }
 
+const SKILL_MANIFEST_FILE = ".cowork-skill-manifest.json";
+
 /**
  * Load all catalog skill files at build time.
  * Vite resolves these imports statically — no runtime filesystem access needed.
@@ -40,10 +42,18 @@ function getCatalogSkillFiles(id: string): Record<string, string> {
     if (path.startsWith(prefix)) {
       // Convert "../catalog/skills/pptx/editing.md" → "editing.md"
       const relativePath = path.slice(prefix.length);
+      if (!isRuntimeSkillFile(relativePath)) continue;
       files[relativePath] = content;
     }
   }
   return files;
+}
+
+function isRuntimeSkillFile(relativePath: string): boolean {
+  if (!relativePath || relativePath.startsWith(".")) return false;
+  if (/(^|\/)[^/]+\.test\.[cm]?[jt]sx?$/.test(relativePath)) return false;
+  if (/(^|\/)__tests__(\/|$)/.test(relativePath)) return false;
+  return true;
 }
 
 /** Get the SKILL.md content for a catalog skill (for detail display). */
@@ -64,10 +74,21 @@ export async function getSkillInstallStatus(): Promise<InstallStatus[]> {
 
   for (const skill of CATALOG_SKILLS) {
     let installedVersion: string | null = null;
+    let manifestOutOfDate = false;
+    const catalogSkillFiles = getCatalogSkillFiles(skill.id);
     try {
       const content = await readFileText(`${skillsDir}/${skill.id}/SKILL.md`);
       const match = content.match(/^version:\s*(.+)$/m);
       installedVersion = match?.[1]?.trim() || "0.0.0";
+      try {
+        const rawManifest = await readFileText(`${skillsDir}/${skill.id}/${SKILL_MANIFEST_FILE}`);
+        manifestOutOfDate = !sameSkillManifest(parseSkillManifest(rawManifest), buildSkillManifest(catalogSkillFiles));
+      } catch {
+        // Older installs only had SKILL.md version checks. If the bundled
+        // skill has auxiliary files, force one update so business.md/scripts
+        // cannot lag behind an already-updated SKILL.md.
+        manifestOutOfDate = Object.keys(catalogSkillFiles).some((name) => name !== "SKILL.md");
+      }
     } catch {
       // Not installed
     }
@@ -77,7 +98,7 @@ export async function getSkillInstallStatus(): Promise<InstallStatus[]> {
       catalogVersion: skill.version,
       installedVersion,
       installed: installedVersion !== null,
-      needsUpdate: installedVersion !== null && compareVersions(skill.version, installedVersion) > 0,
+      needsUpdate: installedVersion !== null && (compareVersions(skill.version, installedVersion) > 0 || manifestOutOfDate),
     });
   }
 
@@ -128,6 +149,7 @@ export async function installCatalogSkill(id: string): Promise<void> {
   for (const [relativePath, content] of Object.entries(files)) {
     await writeFile(`${skillDir}/${relativePath}`, content);
   }
+  await writeFile(`${skillDir}/${SKILL_MANIFEST_FILE}`, JSON.stringify(buildSkillManifest(files), null, 2));
 }
 
 /** Install an MCP from the catalog. */
@@ -166,4 +188,53 @@ function compareVersions(a: string, b: string): number {
     if (va !== vb) return va - vb;
   }
   return 0;
+}
+
+interface SkillManifest {
+  version: 1;
+  files: Record<string, { length: number; hash: string }>;
+}
+
+function buildSkillManifest(files: Record<string, string>): SkillManifest {
+  return {
+    version: 1,
+    files: Object.fromEntries(
+      Object.entries(files)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, content]) => [name, { length: content.length, hash: hashString(content) }]),
+    ),
+  };
+}
+
+function parseSkillManifest(raw: string): SkillManifest | null {
+  try {
+    const parsed = JSON.parse(raw) as SkillManifest;
+    if (parsed?.version !== 1 || !parsed.files || typeof parsed.files !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function sameSkillManifest(a: SkillManifest | null, b: SkillManifest): boolean {
+  if (!a) return false;
+  const aFiles = Object.keys(a.files).sort();
+  const bFiles = Object.keys(b.files).sort();
+  if (aFiles.length !== bFiles.length) return false;
+  for (let i = 0; i < aFiles.length; i++) {
+    const name = aFiles[i]!;
+    if (name !== bFiles[i]) return false;
+    const left = a.files[name];
+    const right = b.files[name];
+    if (!left || !right || left.length !== right.length || left.hash !== right.hash) return false;
+  }
+  return true;
+}
+
+function hashString(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i++) {
+    hash = ((hash << 5) + hash) ^ value.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }

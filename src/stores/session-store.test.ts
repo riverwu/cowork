@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { assembleLlmMessages, sanitizeMessageSequence } from "./session-store";
+import {
+  assembleLlmMessages,
+  isContextSummary,
+  isSessionArchive,
+  parseNewSessionCommand,
+  sanitizeMessageSequence,
+} from "./session-store";
 import type { Message } from "@/types";
 import type { LLMMessage } from "@/lib/ai/providers/types";
 
@@ -15,6 +21,9 @@ function assistantMsg(content: string, steps: unknown[] = []): Message {
     metadata: { steps },
     createdAt: 0,
   };
+}
+function systemMsg(content: string): Message {
+  return { id: `s-${content.slice(0, 4)}`, sessionId: "s", role: "system", content, metadata: null, createdAt: 0 };
 }
 
 describe("assembleLlmMessages — native tool-block sequence", () => {
@@ -74,6 +83,58 @@ describe("assembleLlmMessages — native tool-block sequence", () => {
     const tools = out.filter((m) => m.role === "tool");
     expect(tools).toHaveLength(1);
     expect(tools[0]).toMatchObject({ toolCallId: "z" });
+  });
+
+  it("ships hidden context summaries as user handoff messages", () => {
+    const summary = systemMsg("__CONTEXT_SUMMARY__\nCompacted after LLM request failure.");
+    expect(isContextSummary(summary)).toBe(true);
+
+    const out = assembleLlmMessages([
+      systemMsg("__CONTEXT_CLEARED__"),
+      summary,
+      assistantMsg("[Error: LLM request failed: terminated]"),
+      userMsg("继续"),
+    ]);
+
+    expect(out).toEqual([
+      { role: "user", content: "Compacted after LLM request failure." },
+      { role: "assistant", content: "[Error: LLM request failed: terminated]" },
+      { role: "user", content: "继续" },
+    ]);
+  });
+
+  it("does not ship completed-session archives to the LLM", () => {
+    const archive = systemMsg("__SESSION_ARCHIVE__\n{\"type\":\"session-archive\"}");
+    expect(isSessionArchive(archive)).toBe(true);
+
+    const out = assembleLlmMessages([
+      archive,
+      systemMsg("__CONTEXT_CLEARED__"),
+      userMsg("start fresh"),
+    ]);
+
+    expect(out).toEqual([{ role: "user", content: "start fresh" }]);
+  });
+});
+
+describe("new-session slash command", () => {
+  it("recognizes /new and strips the command from follow-up content", () => {
+    expect(parseNewSessionCommand("/new")).toEqual({ isNewSession: true, remainingContent: "" });
+    expect(parseNewSessionCommand("/new make a different deck")).toEqual({
+      isNewSession: true,
+      remainingContent: "make a different deck",
+    });
+    expect(parseNewSessionCommand("/new-session research a new topic")).toEqual({
+      isNewSession: true,
+      remainingContent: "research a new topic",
+    });
+  });
+
+  it("leaves normal messages untouched", () => {
+    expect(parseNewSessionCommand("please create a new slide")).toEqual({
+      isNewSession: false,
+      remainingContent: "please create a new slide",
+    });
   });
 });
 

@@ -44,6 +44,18 @@ const contentIndexableExtensions = new Set([
   "py", "js", "ts", "rs", "go", "java", "rb", "sh",
   "yaml", "yml", "toml",
 ]);
+const pythonBaselinePackages = [
+  "pandas",
+  "numpy",
+  "openpyxl",
+  "python-docx",
+  "matplotlib",
+  "seaborn",
+  "PyPDF2",
+  "Pillow",
+  "python-pptx",
+];
+let pythonEnvInitPromise = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -433,17 +445,66 @@ async function ripgrepSearch(directory, pattern, maxResults = 50) {
 }
 
 async function runPythonScript(script, timeoutSecs = 30) {
-  return runScript("python3", ["-c", script], undefined, timeoutSecs);
+  await initPythonEnv();
+  const { python } = pythonEnvPaths();
+  return runScript(python, ["-c", script], undefined, timeoutSecs);
 }
 
 async function initPythonEnv() {
-  const dir = path.join(os.homedir(), ".cowork", "python");
+  if (!pythonEnvInitPromise) {
+    pythonEnvInitPromise = doInitPythonEnv().catch((error) => {
+      pythonEnvInitPromise = null;
+      throw error;
+    });
+  }
+  return pythonEnvInitPromise;
+}
+
+async function doInitPythonEnv() {
+  const { dir, venvDir, python, marker } = pythonEnvPaths();
   await fsp.mkdir(dir, { recursive: true });
+  const needsVenv = !fs.existsSync(python);
+  if (needsVenv) {
+    const result = await runScript("python3", ["-m", "venv", venvDir], undefined, 120);
+    if (result.exit_code !== 0) throw new Error(result.stderr || result.stdout || "Failed to create Python virtual environment");
+  }
+  await ensurePythonBaselinePackages(python, marker, needsVenv);
   return dir;
 }
 
+function pythonEnvPaths() {
+  const dir = path.join(os.homedir(), ".cowork", "python");
+  const venvDir = path.join(dir, ".venv");
+  const binDir = process.platform === "win32" ? "Scripts" : "bin";
+  const python = path.join(venvDir, binDir, process.platform === "win32" ? "python.exe" : "python");
+  const marker = path.join(dir, "baseline-packages.v1.json");
+  return { dir, venvDir, python, marker };
+}
+
+async function ensurePythonBaselinePackages(python, marker, force = false) {
+  const markerPayload = JSON.stringify({ version: 1, packages: pythonBaselinePackages }, null, 2);
+  if (!force && fs.existsSync(marker)) {
+    try {
+      if ((await fsp.readFile(marker, "utf8")) === markerPayload) return;
+    } catch {
+      // Fall through and repair the environment.
+    }
+  }
+
+  const result = await runScript(
+    python,
+    ["-m", "pip", "install", "--disable-pip-version-check", ...pythonBaselinePackages],
+    undefined,
+    600,
+  );
+  if (result.exit_code !== 0) throw new Error(result.stderr || result.stdout || "Failed to install baseline Python packages");
+  await fsp.writeFile(marker, markerPayload, "utf8");
+}
+
 async function installPythonPackage(pkg) {
-  const result = await runScript("python3", ["-m", "pip", "install", pkg], undefined, 120);
+  await initPythonEnv();
+  const { python } = pythonEnvPaths();
+  const result = await runScript(python, ["-m", "pip", "install", pkg], undefined, 120);
   if (result.exit_code !== 0) throw new Error(result.stderr || result.stdout);
   return result.stdout;
 }
@@ -589,7 +650,7 @@ async function slideml2ValidateRender(deckPath, outputPath, render) {
 }
 
 function blockingSlideml2Diagnostics(items) {
-  const codes = new Set(["DROP", "COLLISION", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "SQUASHED", "FALLBACK_FAILED", "LOW_CONTRAST"]);
+  const codes = new Set(["DROP", "COLLISION", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "SQUASHED", "FALLBACK_FAILED", "LOW_CONTRAST", "SHAPE_INVISIBLE"]);
   return items.filter((d) => d.severity === "error" || codes.has(d.code));
 }
 

@@ -51,6 +51,9 @@ export interface LayoutDiagnostic {
   measured?: {
     available?: number;
     needed?: number;
+    heightAvailable?: number;
+    heightNeeded?: number;
+    unbreakableNeeded?: number;
     deltaCm?: number;
     rect?: { x: number; y: number; w: number; h: number };
     other?: { x: number; y: number; w: number; h: number; nodeId?: string };

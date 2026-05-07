@@ -5,7 +5,7 @@ import {
   getRenderDiagnostics,
   type LayoutDiagnostic,
 } from "./diagnostics.js";
-import { renderToAst } from "./render.js";
+import { measureDeck, renderToAst } from "./render.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
 import { validateDeck } from "./validate.js";
 import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
@@ -112,6 +112,24 @@ const cases: UsabilityCase[] = [
     }),
   },
   {
+    name: "expressive kpi-grid with deltas status and sparklines",
+    build: () => ({
+      id: "s",
+      title: "指标故事",
+      children: [{
+        id: "s.kpi.story",
+        type: "kpi-grid",
+        columns: 3,
+        variant: "card",
+        metrics: [
+          { value: "42%", label: "样式串扰", delta: "-18pp", status: "positive", comparison: "vs baseline", sparkline: [70, 64, 58, 42] },
+          { value: "3.2s", label: "读取延迟", delta: "+0.4s", status: "warning", source: "render log", sparkline: [2.1, 2.3, 2.8, 3.2] },
+          { value: "0", label: "阻断诊断", status: "positive", comparison: "target met", sparkline: [4, 2, 1, 0] },
+        ],
+      } as unknown as DomNode],
+    }),
+  },
+  {
     name: "stat-strip 5 items inside a brand-fill band on dark deck",
     themeOverride: DARK_OVERRIDE,
     build: () => ({
@@ -207,6 +225,46 @@ const cases: UsabilityCase[] = [
     }),
   },
   {
+    name: "comparison-card rich winner with metrics and pros-cons",
+    build: () => ({
+      id: "s",
+      title: "方案选择",
+      children: [{
+        id: "s.compare",
+        type: "grid",
+        columns: 2,
+        gap: 0.45,
+        children: [
+          {
+            id: "s.compare.a",
+            type: "comparison-card",
+            variant: "card",
+            winner: true,
+            badge: "Recommended",
+            title: "显式任务隔离",
+            subtitle: "每个新任务重置风格锚点",
+            score: "92/100",
+            content: [{ text: "最稳定地降低跨任务影响，", marks: ["bold"] }, { text: "同时保留用户意图。" }],
+            points: ["开销低", "行为可解释"],
+            metrics: [{ label: "carryover", value: "-68%", tone: "positive" }],
+            pros: ["清晰边界", "易测试"],
+            cons: ["需要识别新任务"],
+            footer: "适合作为默认策略",
+          },
+          {
+            id: "s.compare.b",
+            type: "comparison-card",
+            variant: "card",
+            badge: "Fallback",
+            title: "完全清空上下文",
+            points: ["隔离彻底", "会丢失连续修改语境"],
+            score: "74/100",
+          },
+        ],
+      } as unknown as DomNode],
+    }),
+  },
+  {
     name: "step-card grid of 4 in numbered-grid",
     build: () => ({
       id: "s",
@@ -239,6 +297,73 @@ const cases: UsabilityCase[] = [
           iconColor: "text.inverse",
           iconBackground: "brand.primary",
         } as unknown as DomNode)),
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "feature-card rich card with badge tags proof metric",
+    build: () => ({
+      id: "s",
+      title: "能力模块",
+      children: [{
+        id: "s.features",
+        type: "grid",
+        columns: 3,
+        gap: 0.35,
+        children: [
+          {
+            id: "s.features.1",
+            type: "feature-card",
+            variant: "card",
+            icon: "ellipse",
+            badge: "Core",
+            title: "任务隔离",
+            content: [{ text: "重置上一轮 deck 的视觉锚点", marks: ["bold"] }, { text: "，避免风格继承。" }],
+            tags: ["memory", "style"],
+            metric: { value: "-68%", label: "carryover", tone: "positive" },
+            proof: "来自同内容双 deck 对比",
+          },
+          { id: "s.features.2", type: "feature-card", variant: "card", icon: "roundRect", title: "组件表达", body: "让 agent 少手写 primitive。", tags: ["schema"] },
+          { id: "s.features.3", type: "feature-card", variant: "card", icon: "triangle", title: "渲染兜底", body: "保留主体，丢弃低优先级装饰。", ctaText: "Inspect" },
+        ],
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "feature-card 2x2 compact grid keeps title readable",
+    build: () => ({
+      id: "s",
+      title: "产品亮点",
+      children: [{
+        id: "s.features.tight",
+        type: "grid",
+        columns: 2,
+        gap: 0.3,
+        area: "content",
+        children: [
+          { id: "s.features.tight.1", type: "feature-card", icon: "ellipse", title: "高精准同传翻译", body: "低延时，实时翻译多语言" },
+          { id: "s.features.tight.2", type: "feature-card", icon: "roundRect", title: "AI 课堂笔记", body: "一键生成课堂笔记与期末总结" },
+          { id: "s.features.tight.3", type: "feature-card", icon: "triangle", title: "对话翻译", body: "留学生生活随时可用" },
+          { id: "s.features.tight.4", type: "feature-card", icon: "star-5", title: "便捷入口", body: "增加便捷入口，渗透词典用户" },
+        ] as unknown as DomNode[],
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "process-flow cards with status owner time and bullets",
+    build: () => ({
+      id: "s",
+      title: "发布流程",
+      children: [{
+        id: "s.flow.rich",
+        type: "process-flow",
+        variant: "cards",
+        direction: "horizontal",
+        steps: [
+          { title: "Detect", body: "识别是否为新任务", status: "positive", owner: "Agent", icon: "ellipse", bullets: ["主题变更", "产物路径变更"] },
+          { title: "Reset", body: "清理上轮风格锚点", status: "warning", time: "T+1", icon: "roundRect" },
+          { title: "Render", body: "用本轮 theme 和组件重建", status: "brand", owner: "SlideML2", icon: "arrow-right" },
+        ],
       } as unknown as DomNode],
     }),
   },
@@ -333,6 +458,24 @@ const cases: UsabilityCase[] = [
     }),
   },
   {
+    name: "quote in a tight grid cell degrades instead of failing",
+    build: () => ({
+      id: "s",
+      title: "紧凑引用",
+      children: [{
+        id: "s.grid",
+        type: "grid",
+        columns: 2,
+        gap: 0.35,
+        area: "content",
+        children: [
+          { id: "s.grid.quote", type: "quote", text: "市面上最好用的同传翻译，最强 AI 课堂助手", source: "产品定位" } as unknown as DomNode,
+          { id: "s.grid.note", type: "callout", text: "右侧内容必须保留，引用组件不能挤爆整页。", tone: "brand" } as unknown as DomNode,
+        ],
+      } as unknown as DomNode],
+    }),
+  },
+  {
     name: "callout warning + checklist combo",
     build: () => ({
       id: "s",
@@ -355,6 +498,145 @@ const cases: UsabilityCase[] = [
               { text: "回滚演练", status: "unchecked" },
               { text: "运维 oncall", status: "unchecked" },
             ],
+          } as unknown as DomNode,
+        ],
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "rich callout with colored title and bold body runs",
+    build: () => ({
+      id: "s",
+      title: "关键提醒",
+      children: [{
+        id: "s.callout",
+        type: "callout",
+        variant: "card",
+        tone: "warning",
+        title: "模型记忆会污染下一次任务",
+        content: [
+          { text: "必须在新任务开始时重置风格锚点，", marks: ["bold"] },
+          { text: "否则后续 PPT 会沿用上一个 deck 的视觉语言。" },
+        ],
+        bullets: ["隔离任务上下文", "显式记录本次 deck 的主题", "避免复用上一轮设计 token"],
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "media cards with badges insights annotations and frameless variant",
+    build: () => ({
+      id: "s",
+      title: "证据页",
+      children: [{
+        id: "s.media.grid",
+        type: "grid",
+        columns: 2,
+        gap: 0.45,
+        children: [
+          {
+            id: "s.media.image",
+            type: "image-card",
+            variant: "compact",
+            src: TINY_PNG,
+            title: "最终 PPT 截图",
+            badge: "Evidence",
+            fit: "contain",
+            insight: "亮色文字风险集中在自动继承的深浅配色。",
+            annotations: ["标题可读", "正文低对比"],
+            caption: "render validation sample",
+          },
+          {
+            id: "s.media.chart",
+            type: "chart-card",
+            variant: "compact",
+            chartType: "bar",
+            title: "诊断数量",
+            badge: "Render",
+            labels: ["Before", "After"],
+            series: [{ name: "Blocking", values: [7, 0] }],
+            insight: "阻断项归零后仍需看视觉质量。",
+            caption: "synthetic test",
+          },
+        ],
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "key-takeaway rich banner with bullets",
+    build: () => ({
+      id: "s",
+      title: "结论",
+      children: [{
+        id: "s.takeaway",
+        type: "key-takeaway",
+        variant: "banner",
+        tone: "brand",
+        headline: "组件必须表达 agent 的真实意图",
+        content: [{ text: "能力增强应优先落在常用组件，", marks: ["bold"] }, { text: "而不是让 agent 退回手写 primitive。" }],
+        bullets: ["KPI 自带上下文", "对比卡支持 winner 和证据", "媒体卡直接承载 readout"],
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "component instance typography overrides theme defaults locally",
+    build: () => ({
+      id: "s",
+      title: "局部样式覆盖",
+      children: [{
+        id: "s.stack.override",
+        type: "stack",
+        direction: "vertical",
+        gap: 0.35,
+        children: [
+          {
+            id: "s.override.takeaway",
+            type: "key-takeaway",
+            headline: "这一条使用实例级字体覆盖",
+            detail: "theme 仍然是默认字体节奏，只有这个组件实例被放大。",
+            fontSize: 18,
+            fontFamily: "display",
+            fontWeight: "bold",
+            lineHeight: 1.15,
+            color: "text.primary",
+            surface: { fill: "surface.subtle", borderColor: "divider", cornerRadius: 0.08 },
+          } as unknown as DomNode,
+          {
+            id: "s.override.callout",
+            type: "callout",
+            variant: "card",
+            tone: "brand",
+            title: "run 级别仍然可以覆盖实例",
+            fontSize: 12,
+            content: [
+              { text: "普通片段继承实例字号；" },
+              { text: "重点片段使用 run 自己的字号和颜色。", size: "lg", color: "brand.primary", marks: ["bold"] },
+            ],
+          } as unknown as DomNode,
+        ],
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "callout legacy plain and rich banner variants",
+    themeOverride: DARK_OVERRIDE,
+    build: () => ({
+      id: "s",
+      title: "Callout 变体",
+      children: [{
+        id: "s.stack",
+        type: "stack",
+        direction: "vertical",
+        gap: 0.4,
+        area: "content",
+        children: [
+          { id: "s.stack.legacy", type: "callout", text: "旧写法仍然保持单句强调能力。", tone: "brand" } as unknown as DomNode,
+          {
+            id: "s.stack.banner",
+            type: "callout",
+            variant: "banner",
+            tone: "danger",
+            title: "亮色文字风险",
+            body: "深色主题下必须由组件控制标题、正文和 surface 对比度。",
           } as unknown as DomNode,
         ],
       } as unknown as DomNode],
@@ -710,6 +992,192 @@ const cases: UsabilityCase[] = [
       } as unknown as DomNode],
     }),
   },
+  {
+    name: "freeform-group anchors decorative and annotation overlays",
+    build: () => ({
+      id: "s",
+      title: "自由构图",
+      children: [{
+        id: "s.free",
+        type: "freeform-group",
+        children: [
+          { id: "s.free.bg", type: "decorative-shapes", motif: "corner-blobs", position: "top-right", tone: "muted", count: 6 },
+          { id: "s.free.arrow", type: "pointer-arrow", label: "重点", anchor: "middle-right", direction: "left", offsetX: 1.0, tone: "warning" },
+        ],
+      } as unknown as DomNode, {
+        id: "s.body",
+        type: "insight-card",
+        headline: "主体内容仍走流式布局",
+        detail: "装饰和箭头由 freeform-group 作为受约束 overlay 展开。",
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "freeform-group background mode keeps authored content in flow",
+    build: () => ({
+      id: "s",
+      title: "背景装饰",
+      children: [
+        {
+          id: "s.bg",
+          type: "freeform-group",
+          mode: "background",
+          children: [
+            { id: "s.bg.grid", type: "decoration-grid", pattern: "grid", density: "sparse", tone: "muted" },
+            { id: "s.bg.mark", type: "watermark", text: "DRAFT", tone: "muted", rotation: -18 },
+          ],
+        } as unknown as DomNode,
+        { id: "s.content", type: "key-takeaway", headline: "背景装饰不参与主内容排版", detail: "正文仍由 content stack 约束，overlay 只提供视觉气氛。" } as unknown as DomNode,
+      ],
+    }),
+  },
+  {
+    name: "slide-level decoration-grid renders as background overlay",
+    build: () => ({
+      id: "s",
+      children: [
+        { id: "s.decor", type: "decoration-grid", pattern: "dots", density: "sparse", tone: "muted" } as unknown as DomNode,
+        { id: "s.title", type: "deck-title", text: "背景装饰", align: "left" } as unknown as DomNode,
+        { id: "s.lead", type: "lead", text: "decoration-grid 不应进入 content stack，也不应抢占主内容高度。" } as unknown as DomNode,
+      ],
+    }),
+  },
+  {
+    name: "cover-composition with hero stat and background visual",
+    build: () => ({
+      id: "s",
+      children: [{
+        id: "s.cover",
+        type: "cover-composition",
+        eyebrow: "DIAGNOSIS",
+        title: "LLM Agent Memory Diagnosis",
+        subtitle: "Task isolation, evidence, and mitigation strategy",
+        visual: { src: TINY_PNG, fit: "cover" },
+        heroStat: { value: "22", label: "slides compared", caption: "pptxgenjs vs SlideML2" },
+        tone: "inverse",
+        decor: "shapes",
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "chapter-divider full-slide brand field",
+    build: () => ({
+      id: "s",
+      children: [{
+        id: "s.chapter",
+        type: "chapter-divider",
+        chapter: "03",
+        eyebrow: "RESULTS",
+        title: "实验结果",
+        subtitle: "从诊断到改进路径",
+        sections: ["背景", "方法", "结果", "建议"],
+        current: 2,
+        tone: "brand",
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "chapter-divider neutral tone without progress",
+    build: () => ({
+      id: "s",
+      children: [{
+        id: "s.chapter",
+        type: "chapter-divider",
+        chapter: "01",
+        title: "研究背景",
+        subtitle: "为什么任务隔离会影响最终质量",
+        tone: "neutral",
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "evidence-layout sidecar with image evidence and insight",
+    build: () => ({
+      id: "s",
+      title: "证据与解读",
+      children: [{
+        id: "s.ev",
+        type: "evidence-layout",
+        evidence: { id: "s.ev.img", type: "image-card", src: TINY_PNG, title: "输出截图", caption: "同一内容的两种生成方式" },
+        insight: { id: "s.ev.insight", type: "insight-card", headline: "原生 PPTX 更灵活", detail: "SlideML2 需要增加受约束的自由定位和证据解读版式。" },
+        annotations: [{ id: "s.ev.arrow", type: "pointer-arrow", label: "布局差异", anchor: "middle-center", offsetX: 1.5, direction: "right", tone: "brand" }],
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "evidence-layout stacked chart evidence with generated insight",
+    themeOverride: DARK_OVERRIDE,
+    build: () => ({
+      id: "s",
+      title: "堆叠证据页",
+      children: [{
+        id: "s.ev",
+        type: "evidence-layout",
+        layout: "stacked",
+        ratio: [0.62, 0.38],
+        evidence: {
+          id: "s.ev.chart",
+          type: "chart-card",
+          chartType: "bar",
+          labels: ["A", "B", "C"],
+          series: [{ name: "错误率", values: [42, 18, 8] }],
+          title: "错误率下降",
+          showValues: true,
+        },
+        headline: "任务隔离降低跨任务污染",
+        detail: "使用 generated insight fallback 时也应形成完整 evidence + interpretation 版式。",
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "analysis components for matrix taxonomy and main effect",
+    build: () => ({
+      id: "s",
+      title: "分析页组件",
+      children: [{
+        id: "s.grid",
+        type: "grid",
+        columns: 2,
+        gap: 0.4,
+        area: "content",
+        children: [
+          { id: "s.grid.matrix", type: "factorial-matrix", title: "2×2 条件", rows: ["记忆开", "记忆关"], columns: ["旧任务", "新任务"], cells: [[{ text: "污染", tone: "danger" }, { text: "继承", tone: "warning" }], [{ text: "干净", tone: "positive" }, { text: "稳定", tone: "positive" }]] } as unknown as DomNode,
+          { id: "s.grid.fail", type: "failure-taxonomy", columns: 1, items: [{ title: "风格串扰", rate: "42%", examples: ["颜色沿用", "版式沿用"] }, { title: "主题偏移", rate: "18%", examples: ["上一任务术语残留"] }] } as unknown as DomNode,
+          { id: "s.grid.effect", type: "main-effect-comparison", beforeLabel: "隔离前", beforeValue: "42%", afterLabel: "隔离后", afterValue: "8%", trend: "down", insight: "任务隔离显著降低风格串扰。" } as unknown as DomNode,
+          { id: "s.grid.probe", type: "probe-flow", steps: [{ title: "输入", body: "新主题 brief" }, { title: "执行", body: "生成 deck" }, { title: "检查", body: "比对风格残留" }] } as unknown as DomNode,
+        ],
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "analysis components dense standalone variants",
+    themeOverride: LIGHT_BRAND_OVERRIDE,
+    build: () => ({
+      id: "s",
+      title: "独立分析组件",
+      children: [{
+        id: "s.stack",
+        type: "stack",
+        direction: "vertical",
+        gap: 0.35,
+        area: "content",
+        children: [
+          {
+            id: "s.stack.taxonomy",
+            type: "failure-taxonomy",
+            columns: 3,
+            tone: "warning",
+            items: [
+              { title: "风格串扰", rate: "42%", body: "上一任务视觉残留", examples: ["颜色沿用", "卡片样式沿用"] },
+              { title: "事实串扰", rate: "16%", body: "旧主题术语进入新任务", examples: ["专有名词残留"] },
+              { title: "结构串扰", rate: "11%", body: "沿用旧 deck 章节节奏", examples: ["过度 section-break"] },
+            ],
+          } as unknown as DomNode,
+          { id: "s.stack.effect", type: "main-effect-comparison", title: "隔离效果", beforeLabel: "基线", beforeValue: "42%", afterLabel: "隔离", afterValue: "8%", trend: "down", insight: "显式任务边界后，风格串扰显著下降。" } as unknown as DomNode,
+        ],
+      } as unknown as DomNode],
+    }),
+  },
 ];
 
 describe("component usability suite", () => {
@@ -732,6 +1200,50 @@ describe("component usability suite", () => {
       const semantics = Array.from(types).filter((t) => KNOWN_COMPONENT_NAMES.has(t));
       expect(semantics.length, `${c.name} did not use a known semantic component (saw types ${[...types].join(",")})`).toBeGreaterThan(0);
     }
+  });
+
+  it("keeps slide-level decoration-grid as a root overlay", () => {
+    const source = deckWith({
+      id: "s",
+      children: [
+        { id: "s.decor", type: "decoration-grid", pattern: "dots", density: "sparse", tone: "muted" } as unknown as DomNode,
+        { id: "s.title", type: "deck-title", text: "背景装饰" } as unknown as DomNode,
+      ],
+    });
+    const rendered = sourceToRenderedDeck(source);
+    const rootChildren = rendered.slides[0]?.dom.children || [];
+    const decor = rootChildren.find((child) => child.id === "s.decor");
+    const content = rootChildren.find((child) => child.id === "s.content");
+    expect(decor, "decoration-grid must stay at slide root so anchor/fillSlide is honored").toBeTruthy();
+    expect((content?.children || []).some((child) => child.id === "s.decor")).toBe(false);
+  });
+
+  it("rich callout keeps comfortable spacing between text and border", () => {
+    const source = deckWith({
+      id: "s",
+      title: "关键提醒",
+      children: [{
+        id: "s.callout",
+        type: "callout",
+        variant: "card",
+        tone: "warning",
+        title: "模型记忆会污染下一次任务",
+        body: "新任务开始时必须重置风格锚点，否则后续 PPT 会沿用上一个 deck 的视觉语言。",
+      } as unknown as DomNode],
+    });
+    const measured = measureDeck(sourceToRenderedDeck(source))[0]!.nodes;
+    const rect = (id: string) => measured.find((n) => n.id === id)!.rect;
+    const root = rect("s.callout");
+    const title = rect("s.callout.title");
+    const body = rect("s.callout.body");
+    const contentRight = Math.max(title.x + title.w, body.x + body.w);
+    const contentBottom = Math.max(title.y + title.h, body.y + body.h);
+
+    expect(title.x - root.x).toBeGreaterThanOrEqual(0.7);
+    expect(body.x - root.x).toBeGreaterThanOrEqual(0.7);
+    expect(title.y - root.y).toBeGreaterThanOrEqual(0.7);
+    expect(root.x + root.w - contentRight).toBeGreaterThanOrEqual(0.65);
+    expect(root.y + root.h - contentBottom).toBeGreaterThanOrEqual(0.65);
   });
 
   for (const c of cases) {

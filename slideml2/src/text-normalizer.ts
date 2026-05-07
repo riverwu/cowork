@@ -9,7 +9,7 @@ export interface InferredTextKind {
 
 export function inferTextKind(node: DomNode, parent?: DomNode): InferredTextKind {
   if (isTextKind(node.style)) return { kind: node.style, confidence: 1, reason: "explicit style" };
-  const name = node.id.toLowerCase();
+  const name = typeof node.id === "string" ? node.id.toLowerCase() : "";
   if (name.includes("slide-title")) return { kind: "slide-title", confidence: 0.95, reason: "node name is slide-title" };
   if (name.includes("caption") || name.includes("source")) return { kind: "caption", confidence: 0.8, reason: "node name suggests caption/source" };
   if (name.includes("label")) return { kind: "label", confidence: 0.75, reason: "node name suggests label" };

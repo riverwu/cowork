@@ -26,7 +26,7 @@ type AnyShape = {
   type: string;
   name?: string;
   preset?: string;
-  xfrm?: { x: number; y: number; cx: number; cy: number };
+  xfrm?: { x: number; y: number; cx: number; cy: number; flipH?: boolean; flipV?: boolean };
   fill?: { type: string; color?: string };
   line?: { color: string; width: number };
   cornerRadius?: number;
@@ -325,6 +325,22 @@ describe("donut-summary visual structure", () => {
     expect(valueRun?.text).toContain("60%");
   });
 
+  it("renders an actual doughnut chart and keeps unit out of the hero percent", () => {
+    const shapes = renderShapes({
+      id: "s.d", type: "donut-summary",
+      primary: { label: "Direct", value: 60 },
+      others: [{ label: "Search", value: 40 }],
+      unit: "of revenue",
+    } as unknown as DomNode);
+    const chart = findByNameSuffix(shapes, "s.d.chart") as (AnyShape & { chartType?: string }) | undefined;
+    expect(chart?.type).toBe("chart");
+    expect(chart?.chartType).toBe("doughnut");
+    const valueRun = findByNameSuffix(shapes, "s.d.value")?.paragraphs?.[0]?.runs[0];
+    expect(valueRun?.text).toBe("60%");
+    const unitRun = findByNameSuffix(shapes, "s.d.unit")?.paragraphs?.[0]?.runs[0];
+    expect(unitRun?.text).toBe("of revenue");
+  });
+
   it("renders one legend dot per entry (primary + others)", () => {
     const shapes = renderShapes({
       id: "s.d", type: "donut-summary",
@@ -399,20 +415,20 @@ describe("callout-marker overlay positioning", () => {
 /* ============================================================ decoration-grid */
 
 describe("decoration-grid visual structure", () => {
-  it("each dot is rendered at small fixed size (~0.30cm), not stretched to grid cell", () => {
-    // 96vi8n cover regression: previously 0.18cm dots looked like a
-    // printer test pattern at slide-distance. Default bumped to 0.30cm.
+  it("each muted background dot is rendered as a subtle texture mark, not a dark block", () => {
     const shapes = renderShapes({
       id: "s.dg", type: "decoration-grid",
-      pattern: "dots", density: "sparse",
+      pattern: "dots", density: "sparse", tone: "muted",
       asBackground: false, // inline so the shapes flow into the test's renderShapes container
     } as unknown as DomNode);
     const dots = shapes.filter((s) => s.preset === "ellipse");
     expect(dots.length).toBeGreaterThan(0);
     for (const d of dots) {
-      expect(d.xfrm!.cx / EMU).toBeCloseTo(0.30, 1);
-      expect(d.xfrm!.cy / EMU).toBeCloseTo(0.30, 1);
+      expect(d.xfrm!.cx / EMU).toBeLessThanOrEqual(0.13);
+      expect(d.xfrm!.cy / EMU).toBeLessThanOrEqual(0.13);
+      expect(fillColor(d)).toBe("DDE3EC");
     }
+    expect(getRenderDiagnostics().filter((d) => d.code === "SHAPE_INVISIBLE_FIXED")).toHaveLength(0);
   });
 
   it("dense density emits more cells than sparse", () => {
@@ -509,6 +525,28 @@ describe("arrow-link visual structure", () => {
     } as unknown as DomNode);
     const arrow = findByNameSuffix(shapes, "s.al.shape");
     expect(arrow?.preset).toBe("arrow-down");
+  });
+});
+
+/* ============================================================ pointer-arrow */
+
+describe("pointer-arrow visual structure", () => {
+  it("left direction flips the arrow-right preset horizontally", () => {
+    const shapes = renderShapes({
+      id: "s.pa", type: "pointer-arrow", direction: "left", anchor: "middle-right",
+    } as unknown as DomNode);
+    const arrow = findByNameSuffix(shapes, "s.pa.shape");
+    expect(arrow?.preset).toBe("arrow-right");
+    expect(arrow?.xfrm?.flipH).toBe(true);
+  });
+
+  it("up direction flips the arrow-down preset vertically", () => {
+    const shapes = renderShapes({
+      id: "s.pa", type: "pointer-arrow", direction: "up", anchor: "bottom-center",
+    } as unknown as DomNode);
+    const arrow = findByNameSuffix(shapes, "s.pa.shape");
+    expect(arrow?.preset).toBe("arrow-down");
+    expect(arrow?.xfrm?.flipV).toBe(true);
   });
 });
 

@@ -2,7 +2,7 @@ import { describeComponents, getComponentName, isComponentName, isComponentTyped
 // Single source of truth for the layout/container primitive types. Adding a
 // new layout primitive (e.g. another decorative wrapper) only requires
 // updating this set.
-const LAYOUT_CONTAINERS = new Set(["stack", "grid", "split", "panel", "card", "band", "frame", "inset"]);
+const LAYOUT_CONTAINERS = new Set(["stack", "grid", "split", "panel", "card", "band", "frame", "inset", "fragment"]);
 import { buildTheme, textStyle } from "./theme.js";
 import { inferTextKind } from "./text-normalizer.js";
 import type { DomNode, RenderedDeck, Slideml2SourceDeck, SlideV2 } from "./types.js";
@@ -10,6 +10,13 @@ import { measureDeck } from "./render.js";
 import { sourceSlideToRendered, sourceToRenderedDeck } from "./source-deck.js";
 
 const RAW_HEX_RE = /^[0-9A-Fa-f]{6}$/;
+const THEME_OVERRIDE_KEYS = new Set(["colors", "text", "component", "tone", "layout", "fonts", "chart", "chrome", "imageGrowWeight", "sizeScale", "guidance"]);
+const THEME_TEXT_STYLE_KEYS = new Set(["fontSize", "weight", "fontWeight", "color", "lineHeight", "margin", "letterSpacing", "fontFamily", "fontFeatures", "uppercase", "italic"]);
+const THEME_COMPONENT_STYLE_KEYS = new Set(["fill", "line", "accent", "padding", "radius", "cornerRadius", "elevation"]);
+const THEME_LAYOUT_KEYS = new Set(["slideWidthCm", "slideHeightCm", "pageMarginX", "titleTop", "titleHeight", "contentTop", "contentBottom", "defaultGap", "columnGap", "cardPadding"]);
+const THEME_CHROME_KEYS = new Set(["brandMark", "pageNumber", "footerText", "footerLine", "footerHeight", "footerPadding"]);
+const THEME_FONT_KEYS = new Set(["latin", "cjk", "mono"]);
+const THEME_SCRIPT_FONT_KEYS = new Set(["display", "text"]);
 
 export interface ValidationIssue {
   level: "error" | "warning" | "info";
@@ -78,6 +85,7 @@ export function validateDeck(deck: Slideml2SourceDeck): ValidationReport {
   if (deck.slideml2 !== 2) issues.push(issue("error", "VERSION_MISMATCH", "Deck must declare slideml2: 2."));
   if (!deck.deck || deck.deck.size !== "16x9") issues.push(issue("error", "INVALID_DECK_SIZE", "Only deck.size='16x9' is supported in MVP."));
   validateThemeOverride(deck, issues);
+  validateDeckChrome(deck, issues);
   if (!Array.isArray(deck.slides)) {
     issues.push(issue("error", "INVALID_SLIDES", "deck.slides must be an array."));
     return report(issues);
@@ -89,6 +97,7 @@ export function validateDeck(deck: Slideml2SourceDeck): ValidationReport {
     const slideReport = validateSlide(slide, deck);
     issues.push(...slideReport.errors, ...slideReport.warnings, ...slideReport.info);
   });
+  addRepeatedCardAuthoringDiagnostics(deck, issues);
   if (!issues.some((item) => item.level === "error")) {
     try {
       validateLayout(sourceToRenderedDeck(deck), issues);
@@ -97,6 +106,40 @@ export function validateDeck(deck: Slideml2SourceDeck): ValidationReport {
     }
   }
   return report(dedupeIssues(issues));
+}
+
+function addRepeatedCardAuthoringDiagnostics(deck: Slideml2SourceDeck, issues: ValidationIssue[]): void {
+  const perSlide = deck.slides.map((slide) => ({
+    slide,
+    count: countNodesOfType(slide.children || [], "insight-card"),
+  }));
+  const total = perSlide.reduce((sum, item) => sum + item.count, 0);
+  if (total < 10) return;
+  const repeatedSlides = perSlide.filter((item) => item.count >= 3);
+  if (repeatedSlides.length < 3) return;
+  issues.push(issue(
+    "warning",
+    "REPEATED_CARD_LAYOUT",
+    `Deck uses ${total} insight-card components across ${repeatedSlides.length} card-heavy slides; the deck may feel repetitive even though it renders successfully.`,
+    {
+      slideId: repeatedSlides[0]?.slide.id,
+      details: {
+        totalInsightCards: total,
+        cardHeavySlides: repeatedSlides.map((item) => ({ slideId: item.slide.id, count: item.count })),
+      },
+      suggestedFix: "Replace repeated 2x2 insight-card grids with semantic layouts such as executive-summary, explanation-block, comparison-list, fact-list, timeline, process-flow, comparison-card, takeaway-list, table-card, chart-card, stat-comparison, or evidence-layout based on the slide's job.",
+    },
+  ));
+}
+
+function countNodesOfType(nodes: DomNode[], type: string): number {
+  let count = 0;
+  for (const node of nodes) {
+    if (!node || typeof node !== "object") continue;
+    if (node.type === type || (node.type === "component" && node.component === type)) count++;
+    if (Array.isArray(node.children)) count += countNodesOfType(node.children as DomNode[], type);
+  }
+  return count;
 }
 
 // Style tokens an LLM may write as a node `type` even though the canonical
@@ -139,12 +182,20 @@ function validateNode(node: DomNode, path: string, slideId: string, issues: Vali
     if ("name" in node) issues.push(issue("error", "LEGACY_NODE_NAME", `${path}.name is not supported; use id as the stable node identity.`, { slideId, path, nodeName: node.id, suggestedFix: "Remove name and put the stable identifier in id." }));
     if ("props" in node) issues.push(issue("error", "LEGACY_NODE_PROPS", `${path}.props is not supported; node fields must be flat.`, { slideId, path, nodeName: node.id, suggestedFix: "Move every props field onto the node itself." }));
   }
-  if ("fontSize" in node || "fontFace" in node) {
+  if ("fontFace" in node) {
     issues.push(issue("error", "RAW_TEXT_FORMATTING", `${path} uses raw text formatting; use semantic style/size/theme tokens instead.`, {
       slideId,
       path,
       nodeName: node.id,
-      suggestedFix: "Remove fontSize/fontFace from the node. Use style, size, weight, and deck.themeOverride.text.",
+      suggestedFix: "Remove fontFace from the node. Use fontFamily:'display'|'text'|'mono' or deck.themeOverride.fonts.",
+    }));
+  }
+  if ("fontSize" in node && (typeof node.fontSize !== "number" || !Number.isFinite(node.fontSize) || node.fontSize < 7)) {
+    issues.push(issue("error", "INVALID_NODE_FONT_SIZE", `${path}.fontSize must be a readable point size >= 7.`, {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "Use a numeric fontSize >= 7, or use semantic size:'sm'|'md'|'lg' for safer scaling.",
     }));
   }
   if (node.type === "text" && typeof node.color === "string" && RAW_HEX_RE.test(node.color)) {
@@ -212,7 +263,7 @@ function unknownTypeSuggestion(nodeType: string): string | null {
       return "There is no \"overlay\" node type. For a translucent layer over a background image use a band with a fill+alpha color (e.g. fill:\"rgba(0,0,0,0.55)\"). To set a slide-level background image use slide.background:{src:\"/path/to/image.png\"} or slide.backgroundImage:\"/path\".";
     case "background":
     case "bg":
-      return "Set the slide background via slide.background (a token like \"brand.primary\", a hex, a gradient string, or {src:\"/path\"} for a background image), not as a child node.";
+      return "Set the slide background via slide.background (a token like \"brand.primary\", a hex, {type:\"solid\", color:\"brand.primary\"}, a gradient string/{fill:\"linear-gradient(...)\"}, or {src:\"/path\"} for a background image), not as a child node.";
     case "container":
     case "div":
     case "box":
@@ -233,23 +284,198 @@ function unknownTypeSuggestion(nodeType: string): string | null {
 }
 
 function validateThemeOverride(deck: Slideml2SourceDeck, issues: ValidationIssue[]): void {
+  const override = deck.deck?.themeOverride;
+  if (!override || typeof override !== "object") return;
+  validateThemeOverrideTopLevel(override as Record<string, unknown>, issues);
   validateThemeColorsShape(deck, issues);
-  const text = deck.deck?.themeOverride?.text;
+  validateThemeLayout(override as Record<string, unknown>, issues);
+  validateThemeComponentStyles(override as Record<string, unknown>, issues);
+  validateThemeFonts(override as Record<string, unknown>, issues);
+  validateThemeChrome(override as Record<string, unknown>, issues);
+  const text = override.text;
   if (!text || typeof text !== "object") return;
   for (const [styleName, style] of Object.entries(text)) {
     if (!style || typeof style !== "object") continue;
     const path = `deck.themeOverride.text.${styleName}`;
+    for (const key of Object.keys(style)) {
+      if (!THEME_TEXT_STYLE_KEYS.has(key)) {
+        issues.push(issue("error", "UNKNOWN_THEME_TEXT_FIELD", `${path}.${key} is not a supported text style field, so it would be ignored.`, {
+          path: `${path}.${key}`,
+          suggestedFix: "Use supported fields: fontSize, weight/fontWeight, color, lineHeight, margin, letterSpacing, fontFamily, fontFeatures, uppercase, italic.",
+        }));
+      }
+    }
     if (typeof style.fontSize === "number" && style.fontSize < 7) {
       issues.push(issue("error", "THEME_FONT_TOO_SMALL", `${path}.fontSize is ${style.fontSize}pt, which is too small for PPTX output.`, {
         path,
         suggestedFix: "Use at least 7pt for footnotes/captions and 9pt+ for normal content.",
       }));
     }
-    if (style.weight !== undefined && style.weight !== "normal" && style.weight !== "bold") {
-      issues.push(issue("error", "INVALID_THEME_TEXT_WEIGHT", `${path}.weight must be 'normal' or 'bold'.`, {
+    const weight = style.weight ?? (style as Record<string, unknown>).fontWeight;
+    if (weight !== undefined && weight !== "normal" && weight !== "bold" && !(typeof weight === "number" && weight >= 100 && weight <= 900)) {
+      issues.push(issue("error", "INVALID_THEME_TEXT_WEIGHT", `${path}.weight/fontWeight must be 'normal', 'bold', or a numeric 100..900 weight.`, {
         path,
-        suggestedFix: "Use weight:'bold' for emphasis, or omit weight for normal text.",
+        suggestedFix: "Use weight:'bold' (or fontWeight:'bold') for emphasis, a numeric CSS weight, or omit it for normal text.",
       }));
+    }
+    const fontFamily = (style as Record<string, unknown>).fontFamily;
+    if (fontFamily !== undefined && fontFamily !== "display" && fontFamily !== "text" && fontFamily !== "mono") {
+      issues.push(issue("error", "INVALID_THEME_FONT_FAMILY", `${path}.fontFamily must be display, text, or mono.`, {
+        path: `${path}.fontFamily`,
+        suggestedFix: "Use fontFamily:'display' for titles, 'text' for body, or 'mono' for code/data identifiers.",
+      }));
+    }
+  }
+}
+
+function validateDeckChrome(deck: Slideml2SourceDeck, issues: ValidationIssue[]): void {
+  const chrome = deck.deck?.chrome;
+  if (!chrome || typeof chrome !== "object" || Array.isArray(chrome)) return;
+  const allowed = new Set(["brandMark", "pageNumber", "footerText"]);
+  for (const [key, value] of Object.entries(chrome as Record<string, unknown>)) {
+    const path = `deck.chrome.${key}`;
+    if (!allowed.has(key)) {
+      issues.push(issue("error", "UNKNOWN_DECK_CHROME_FIELD", `${path} is not a supported deck chrome field, so it would be ignored.`, {
+        path,
+        suggestedFix: "Use deck.chrome.brandMark, deck.chrome.pageNumber, deck.chrome.footerText, or use deck.themeOverride.chrome for footerLine/footerHeight/footerPadding.",
+      }));
+      continue;
+    }
+    if (key === "pageNumber" && typeof value !== "boolean") {
+      issues.push(issue("error", "INVALID_DECK_CHROME_VALUE", `${path} must be boolean.`, { path, suggestedFix: "Use pageNumber:true or false." }));
+    }
+    if (key === "brandMark" && value !== "none" && value !== "top-right" && value !== "bottom-right") {
+      issues.push(issue("error", "INVALID_DECK_CHROME_VALUE", `${path} must be none, top-right, or bottom-right.`, { path, suggestedFix: "Use brandMark:'none'|'top-right'|'bottom-right'." }));
+    }
+    if (key === "footerText" && typeof value !== "string") {
+      issues.push(issue("error", "INVALID_DECK_CHROME_VALUE", `${path} must be a string.`, { path, suggestedFix: "Use footerText:'Internal use' or omit it." }));
+    }
+  }
+}
+
+function validateThemeOverrideTopLevel(override: Record<string, unknown>, issues: ValidationIssue[]): void {
+  for (const key of Object.keys(override)) {
+    if (!THEME_OVERRIDE_KEYS.has(key)) {
+      issues.push(issue("error", "UNKNOWN_THEME_OVERRIDE_FIELD", `deck.themeOverride.${key} is not a supported themeOverride field, so it would be ignored.`, {
+        path: `deck.themeOverride.${key}`,
+        suggestedFix: "Use one of: colors, text, component, tone, layout, fonts, chart, chrome, imageGrowWeight, sizeScale, guidance.",
+      }));
+    }
+  }
+}
+
+function validateThemeLayout(override: Record<string, unknown>, issues: ValidationIssue[]): void {
+  const layout = override.layout;
+  if (!layout || typeof layout !== "object" || Array.isArray(layout)) return;
+  for (const [key, value] of Object.entries(layout as Record<string, unknown>)) {
+    const path = `deck.themeOverride.layout.${key}`;
+    if (!THEME_LAYOUT_KEYS.has(key)) {
+      issues.push(issue("error", "UNKNOWN_THEME_LAYOUT_FIELD", `${path} is not a supported layout field, so it would not affect rendering.`, {
+        path,
+        suggestedFix: "Use effective layout fields: pageMarginX, titleTop, titleHeight, contentTop, contentBottom, defaultGap, columnGap, cardPadding, slideWidthCm, slideHeightCm. There is no pageMarginY.",
+      }));
+      continue;
+    }
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      issues.push(issue("error", "INVALID_THEME_LAYOUT_VALUE", `${path} must be a finite number.`, {
+        path,
+        suggestedFix: "Use centimeters for layout geometry, e.g. contentTop:2.6 or contentBottom:0.9.",
+      }));
+    }
+  }
+}
+
+function validateThemeComponentStyles(override: Record<string, unknown>, issues: ValidationIssue[]): void {
+  const component = override.component;
+  if (!component || typeof component !== "object" || Array.isArray(component)) return;
+  for (const [componentName, rawStyle] of Object.entries(component as Record<string, unknown>)) {
+    if (!rawStyle || typeof rawStyle !== "object" || Array.isArray(rawStyle)) continue;
+    const style = rawStyle as Record<string, unknown>;
+    for (const key of Object.keys(style)) {
+      if (!THEME_COMPONENT_STYLE_KEYS.has(key)) {
+        const path = `deck.themeOverride.component.${componentName}.${key}`;
+        issues.push(issue("error", "UNKNOWN_THEME_COMPONENT_FIELD", `${path} is not a supported component style field, so it would be ignored.`, {
+          path,
+          suggestedFix: "Use supported component style fields: fill, line, accent, padding, radius/cornerRadius, elevation.",
+        }));
+      }
+    }
+  }
+}
+
+function validateThemeFonts(override: Record<string, unknown>, issues: ValidationIssue[]): void {
+  const fonts = override.fonts;
+  if (!fonts || typeof fonts !== "object" || Array.isArray(fonts)) return;
+  for (const [key, value] of Object.entries(fonts as Record<string, unknown>)) {
+    const path = `deck.themeOverride.fonts.${key}`;
+    if (!THEME_FONT_KEYS.has(key)) {
+      issues.push(issue("error", "UNKNOWN_THEME_FONT_FIELD", `${path} is not a supported font field, so it would be ignored.`, {
+        path,
+        suggestedFix: "Use fonts.latin, fonts.cjk, and fonts.mono.",
+      }));
+      continue;
+    }
+    if (key === "mono") {
+      validateFontArray(value, path, issues);
+      continue;
+    }
+    if (Array.isArray(value)) {
+      validateFontArray(value, path, issues);
+      continue;
+    }
+    if (!value || typeof value !== "object") {
+      issues.push(issue("error", "INVALID_THEME_FONT_VALUE", `${path} must be a string array or {display?: string[], text?: string[]}.`, {
+        path,
+        suggestedFix: "Use e.g. fonts.latin:{display:['Helvetica Neue'], text:['Arial']}.",
+      }));
+      continue;
+    }
+    for (const [role, chain] of Object.entries(value as Record<string, unknown>)) {
+      const rolePath = `${path}.${role}`;
+      if (!THEME_SCRIPT_FONT_KEYS.has(role)) {
+        issues.push(issue("error", "UNKNOWN_THEME_FONT_ROLE", `${rolePath} is not a supported font role, so it would be ignored.`, {
+          path: rolePath,
+          suggestedFix: "Use display and/or text.",
+        }));
+        continue;
+      }
+      validateFontArray(chain, rolePath, issues);
+    }
+  }
+}
+
+function validateFontArray(value: unknown, path: string, issues: ValidationIssue[]): void {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) {
+    issues.push(issue("error", "INVALID_THEME_FONT_VALUE", `${path} must be a non-empty string array of font face names.`, {
+      path,
+      suggestedFix: "Use installed font face names, e.g. ['Arial'] or ['Hiragino Sans W3']. SlideML2 emits the first face into PPTX and does not embed fonts.",
+    }));
+  }
+}
+
+function validateThemeChrome(override: Record<string, unknown>, issues: ValidationIssue[]): void {
+  const chrome = override.chrome;
+  if (!chrome || typeof chrome !== "object" || Array.isArray(chrome)) return;
+  for (const [key, value] of Object.entries(chrome as Record<string, unknown>)) {
+    const path = `deck.themeOverride.chrome.${key}`;
+    if (!THEME_CHROME_KEYS.has(key)) {
+      issues.push(issue("error", "UNKNOWN_THEME_CHROME_FIELD", `${path} is not a supported chrome field, so it would be ignored.`, {
+        path,
+        suggestedFix: "Use brandMark, pageNumber, footerText, footerLine, footerHeight, or footerPadding.",
+      }));
+      continue;
+    }
+    if ((key === "pageNumber" || key === "footerLine") && typeof value !== "boolean") {
+      issues.push(issue("error", "INVALID_THEME_CHROME_VALUE", `${path} must be boolean.`, { path, suggestedFix: `Use ${key}: true or false.` }));
+    }
+    if ((key === "footerHeight" || key === "footerPadding") && (typeof value !== "number" || !Number.isFinite(value))) {
+      issues.push(issue("error", "INVALID_THEME_CHROME_VALUE", `${path} must be a finite number.`, { path, suggestedFix: "Use centimeters, e.g. footerHeight:0.55." }));
+    }
+    if (key === "brandMark" && value !== "none" && value !== "top-right" && value !== "bottom-right") {
+      issues.push(issue("error", "INVALID_THEME_CHROME_VALUE", `${path} must be none, top-right, or bottom-right.`, { path, suggestedFix: "Use brandMark:'none'|'top-right'|'bottom-right'." }));
+    }
+    if (key === "footerText" && typeof value !== "string") {
+      issues.push(issue("error", "INVALID_THEME_CHROME_VALUE", `${path} must be a string.`, { path, suggestedFix: "Use footerText:'Internal use' or omit it." }));
     }
   }
 }
@@ -308,6 +534,14 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       suggestedFix: "Keep article semantics and provide text or paragraphs.",
     }));
   }
+  if (name === "callout" && !node.text && !node.title && !node.body && !node.content && !node.bullets) {
+    issues.push(issue("error", "MISSING_REQUIRED_FIELD", "callout requires text, title, body, content, or bullets.", {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "Use legacy {type:'callout', text:'...'} or a rich callout with title/body/content/bullets.",
+    }));
+  }
   for (const [propName, prop] of Object.entries(definition.fields)) {
     if (prop.required && !hasRequiredComponentField(String(name), propName, node)) {
       issues.push(issue("error", "MISSING_REQUIRED_FIELD", `${definition.name} requires ${propName}.`, {
@@ -316,6 +550,17 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
         nodeName: node.id,
         suggestedFix: `Keep ${definition.name} semantics and provide ${propName}.`,
       }));
+    }
+    const value = node[propName];
+    if (prop.type === "enum" && value !== undefined && value !== null && value !== "" && prop.enum?.length) {
+      if (typeof value !== "string" || !prop.enum.includes(value)) {
+        issues.push(issue("error", "INVALID_FIELD_USAGE", `${definition.name}.${propName} must be one of: ${prop.enum.join(", ")}. Got ${JSON.stringify(value)}.`, {
+          slideId,
+          path: `${path}.${propName}`,
+          nodeName: node.id,
+          suggestedFix: `Use a documented ${propName} value (${prop.enum.join(", ")}), or move custom color intent into a color/fill/accent token field instead of ${propName}.`,
+        }));
+      }
     }
   }
   // section-break.accent is a *label string* (renders above the title), NOT a
@@ -360,6 +605,32 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       }
     }
   }
+  if (name === "two-column") {
+    for (const side of ["left", "right"] as const) {
+      const content = (node as Record<string, unknown>)[side];
+      if (content && typeof content === "object" && !Array.isArray(content)) {
+        validateNode(content as DomNode, `${path}.${side}`, slideId, issues, node);
+      } else if (content !== undefined && content !== null && content !== "") {
+        issues.push(issue("error", "INVALID_FIELD_USAGE", `two-column.${side} must be a DomNode object.`, {
+          slideId,
+          path: `${path}.${side}`,
+          nodeName: node.id,
+          suggestedFix: `Set ${side} to a full node object, e.g. {id:"${slideId}.${side}", type:"text", text:"..."}.`,
+        }));
+      }
+    }
+  }
+  if (name === "evidence-layout") {
+    for (const key of ["evidence", "insight"] as const) {
+      const content = (node as Record<string, unknown>)[key];
+      if (content && typeof content === "object" && !Array.isArray(content)) validateNode(content as DomNode, `${path}.${key}`, slideId, issues, node);
+    }
+    if (Array.isArray(node.annotations)) {
+      node.annotations.forEach((content, index) => {
+        if (content && typeof content === "object" && !Array.isArray(content)) validateNode(content as DomNode, `${path}.annotations[${index}]`, slideId, issues, node);
+      });
+    }
+  }
 }
 
 const REQUIRED_FIELD_ALIASES: Record<string, Record<string, string[]>> = {
@@ -374,6 +645,7 @@ const REQUIRED_FIELD_ALIASES: Record<string, Record<string, string[]>> = {
   "table-card": { rows: ["data.rows", "items"] },
   "key-takeaway": { headline: ["title"] },
   "insight-card": { headline: ["title"] },
+  "probe-flow": { steps: ["items"] },
 };
 
 function hasRequiredComponentField(componentName: string, propName: string, node: DomNode): boolean {

@@ -12,11 +12,11 @@ export const validateRenderTool: Tool = {
 - diagnostics summary by code
 - a list of BLOCKING diagnostics with slideId/nodeId/measured/suggestion
 
-Blocking diagnostic codes: \`FALLBACK_FAILED\`, \`COLLISION\`, \`TINY_RECT\`, \`SQUASHED\`, \`DROP\`, \`LOW_CONTRAST\`, \`UNKNOWN_COLOR\`, \`UNKNOWN_STYLE\`. Re-author the offending slide via \`replace_slide\` (or fix deck-level via \`patch_deck\`) and re-validate.
+Blocking diagnostic codes: \`FALLBACK_FAILED\`, \`COLLISION\`, \`TINY_RECT\`, \`SQUASHED\`, \`DROP\`, \`LOW_CONTRAST\`, \`SHAPE_INVISIBLE\`, \`UNKNOWN_COLOR\`, \`UNKNOWN_STYLE\`. Re-author the offending slide via \`replace_slide\` (or fix deck-level via \`patch_deck\`) and re-validate.
 
 Pass \`render: false\` for a fast schema-only dry run during authoring; default is render=true after slides are in place.
 
-Run this AFTER every 1-2 edited slides, then iterate from diagnostics. Do not declare the deck done until validate_render returns zero blocking diagnostics.`,
+Use this periodically during deck authoring and before final delivery. A failing result is repair guidance, not a restriction on using other tools.`,
     parameters: {
       type: "object",
       properties: {

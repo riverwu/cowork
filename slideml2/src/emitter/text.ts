@@ -119,9 +119,11 @@ function paragraphPropsXml(p: Paragraph): string {
     bullet = `<a:buNone/>`;
   }
 
-  const attrs = attr("marL", lvl ? lvl * 285750 : undefined) +
+  const marginLeft = typeof p.marginLeft === "number" ? Math.max(0, Math.round(p.marginLeft)) : undefined;
+  const hanging = typeof p.hanging === "number" ? Math.round(p.hanging) : undefined;
+  const attrs = attr("marL", marginLeft ?? (lvl ? lvl * 285750 : undefined)) +
                 attr("lvl", lvl) +
-                attr("indent", lvl ? -285750 : undefined) +
+                attr("indent", hanging ?? (lvl ? -285750 : undefined)) +
                 attr("algn", algn);
 
   // Order matters for OOXML: spacing first, then bullet props.

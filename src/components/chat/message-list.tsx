@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FileTypeIcon, IconDocument, IconCheck, IconSettings, IconWarning, IconFolder } from "@/components/icons";
-import { isContextDivider } from "@/stores/session-store";
+import { isContextDivider, isContextSummary, isSessionArchive } from "@/stores/session-store";
 import { MarkdownContent } from "./markdown-renderer";
 import { openPath, revealInFolder } from "@/lib/tauri";
 import { outputsFromSteps, type ProducedOutput } from "@/lib/outputs";
@@ -47,7 +47,7 @@ export function MessageList({
   return (
     <div className="space-y-4">
       {messages.map((msg) =>
-        isContextDivider(msg) ? (
+        isContextSummary(msg) || isSessionArchive(msg) ? null : isContextDivider(msg) ? (
           <ContextDivider key={msg.id} />
         ) : msg.role === "user" ? (
           <UserBubble key={msg.id} content={msg.content} />

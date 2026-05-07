@@ -4,6 +4,8 @@ import { DebugLogger } from "@/lib/ai/debug-log";
 import { useAppStore } from "@/stores/app-store";
 import { skillRegistry } from "@/lib/ai/skill-registry";
 import { getTool } from "@/lib/ai/tools/registry";
+import { resetAllSlideMl2AuthoringState } from "@/lib/ai/tools/slideml2-authoring-state";
+import { detectTaskBoundary } from "@/lib/ai/task-isolation";
 import type { LLMMessage, ToolCall } from "@/lib/ai/providers/types";
 import type { AgentEvent, Artifact, Message } from "@/types";
 import {
@@ -23,6 +25,8 @@ const TOOL_HISTORY_RESULT_LIMIT = 300;
 /** Special role for context divider markers. */
 const CONTEXT_DIVIDER_ROLE = "system" as const;
 const CONTEXT_DIVIDER_CONTENT = "__CONTEXT_CLEARED__";
+const CONTEXT_SUMMARY_PREFIX = "__CONTEXT_SUMMARY__\n";
+const SESSION_ARCHIVE_PREFIX = "__SESSION_ARCHIVE__\n";
 
 interface KnowledgeRef {
   documentId: string;
@@ -182,6 +186,47 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       set({ sessionId });
     }
 
+    const explicitNew = parseNewSessionCommand(content);
+    const existingMessages = get().messages;
+    const lastDividerIndexBefore = findLastDividerIndex(existingMessages);
+    const activeMessages = existingMessages.slice(lastDividerIndexBefore);
+    let taskIsolationReason: string | undefined = lastDividerIndexBefore > 0 && activeMessages.length === 0
+      ? "manual context clear"
+      : undefined;
+    if (explicitNew.isNewSession) {
+      resetAllSlideMl2AuthoringState();
+      set({ steps: [], artifacts: [], knowledgeRefs: [], error: null, longTask: null, streamingText: "" });
+      const boundaryMessages = await createTaskBoundaryMessages(sessionId, activeMessages, "manual new session", {
+        automatic: false,
+        command: "/new",
+      });
+      if (boundaryMessages.length > 0) {
+        set((s) => ({ messages: [...s.messages, ...boundaryMessages] }));
+      }
+      taskIsolationReason = "manual new session";
+      content = explicitNew.remainingContent;
+      if (!content.trim()) {
+        return;
+      }
+    }
+
+    const boundary = explicitNew.isNewSession
+      ? { shouldIsolate: false, confidence: 0, reason: "manual new session already applied" }
+      : detectTaskBoundary(activeMessages, content);
+    if (boundary.shouldIsolate) {
+      resetAllSlideMl2AuthoringState();
+      set({ steps: [], artifacts: [], knowledgeRefs: [], error: null, longTask: null, streamingText: "" });
+      const boundaryMessages = await createTaskBoundaryMessages(sessionId, activeMessages, boundary.reason, {
+        automatic: true,
+        reason: boundary.reason,
+        confidence: boundary.confidence,
+      });
+      taskIsolationReason = boundary.reason;
+      if (boundaryMessages.length > 0) {
+        set((s) => ({ messages: [...s.messages, ...boundaryMessages] }));
+      }
+    }
+
     const userMsg = await createMessage({ sessionId, role: "user", content });
     set((s) => ({ messages: [...s.messages, userMsg] }));
 
@@ -199,6 +244,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     let fullText = "";
     let agentError: string | null = null;
+    let failureCompaction: Extract<AgentEvent, { type: "compacted" }> | null = null;
 
     try {
       const { planMode, workingDirectory } = get();
@@ -226,13 +272,41 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         });
       }
 
-      for await (const event of runAgent({ messages: llmMessages, sessionId, planMode, workingDirectory, onProgress, debugLog })) {
+      for await (const event of runAgent({ messages: llmMessages, sessionId, planMode, workingDirectory, onProgress, debugLog, taskIsolationReason })) {
         handleEvent(event, set);
         if (event.type === "text-delta") {
           fullText += event.text;
         } else if (event.type === "error") {
           agentError = event.error;
+        } else if (event.type === "compacted" && event.reason === "llm-request-failed") {
+          failureCompaction = event;
         }
+      }
+
+      if (failureCompaction) {
+        const divider = await createMessage({
+          sessionId,
+          role: CONTEXT_DIVIDER_ROLE,
+          content: CONTEXT_DIVIDER_CONTENT,
+          metadata: {
+            automatic: true,
+            reason: failureCompaction.reason,
+            source: "llm-request-failed",
+          },
+        });
+        const summaryMsg = await createMessage({
+          sessionId,
+          role: CONTEXT_DIVIDER_ROLE,
+          content: `${CONTEXT_SUMMARY_PREFIX}${failureCompaction.summary}`,
+          metadata: {
+            automatic: true,
+            kind: "context-summary",
+            reason: failureCompaction.reason,
+            estimatedTokens: failureCompaction.estimatedTokens,
+            preservedUserMessages: failureCompaction.preservedUserMessages,
+          },
+        });
+        set((s) => ({ messages: [...s.messages, divider, summaryMsg] }));
       }
 
       // Save message with steps — even if fullText is empty, steps may have useful info
@@ -291,22 +365,35 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   clearContext: () => {
-    // Insert a local divider marker — messages before it won't be sent to LLM
-    const divider: Message = {
+    resetAllSlideMl2AuthoringState();
+    const sessionId = get().sessionId || "";
+    const activeMessages = get().messages.slice(findLastDividerIndex(get().messages));
+    // Insert an archive + divider marker — messages before it won't be sent to LLM.
+    // Persist when a session exists so the boundary survives app restart.
+    const localDivider = (): Message => ({
       id: newId(),
-      sessionId: get().sessionId || "",
+      sessionId,
       role: CONTEXT_DIVIDER_ROLE,
       content: CONTEXT_DIVIDER_CONTENT,
-      metadata: null,
+      metadata: { automatic: false },
       createdAt: dbNow(),
-    };
-    set((s) => ({
-      messages: [...s.messages, divider],
-      steps: [],
-      knowledgeRefs: [],
-      error: null,
-      longTask: null,
-    }));
+    });
+    const dividerPromise = sessionId
+      ? createTaskBoundaryMessages(sessionId, activeMessages, "manual context clear", { automatic: false })
+        .then((messages) => messages.length ? messages : [localDivider()])
+        .catch(() => [localDivider()])
+      : Promise.resolve([localDivider()]);
+
+    dividerPromise.then((messages) => {
+      set((s) => ({
+        messages: [...s.messages, ...messages],
+        steps: [],
+        artifacts: [],
+        knowledgeRefs: [],
+        error: null,
+        longTask: null,
+      }));
+    });
   },
 
   togglePlanMode: () => {
@@ -355,6 +442,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   closeContextDump: () => set({ contextDump: null }),
 
   resetAll: async () => {
+    resetAllSlideMl2AuthoringState();
     try {
       await resetAllConversationAndMemory();
     } catch (err) {
@@ -395,6 +483,122 @@ function findLastDividerIndex(messages: Message[]): number {
     }
   }
   return 0;
+}
+
+export function parseNewSessionCommand(content: string): { isNewSession: boolean; remainingContent: string } {
+  const trimmed = content.trim();
+  const match = trimmed.match(/^\/(?:new|new-session)(?:\s+([\s\S]*))?$/i);
+  if (!match) return { isNewSession: false, remainingContent: content };
+  return { isNewSession: true, remainingContent: (match[1] ?? "").trim() };
+}
+
+async function createTaskBoundaryMessages(
+  sessionId: string,
+  activeMessages: Message[],
+  reason: string,
+  dividerMetadata: Record<string, unknown>,
+): Promise<Message[]> {
+  const messages: Message[] = [];
+  const archive = buildSessionArchive(activeMessages, reason);
+  if (archive) {
+    messages.push(await createMessage({
+      sessionId,
+      role: CONTEXT_DIVIDER_ROLE,
+      content: `${SESSION_ARCHIVE_PREFIX}${archive}`,
+      metadata: {
+        kind: "session-archive",
+        reason,
+      },
+    }));
+  }
+  messages.push(await createMessage({
+    sessionId,
+    role: CONTEXT_DIVIDER_ROLE,
+    content: CONTEXT_DIVIDER_CONTENT,
+    metadata: dividerMetadata,
+  }));
+  return messages;
+}
+
+function buildSessionArchive(messages: Message[], reason: string): string | null {
+  const archivable = messages.filter((m) =>
+    (m.role === "user" || m.role === "assistant" || isContextSummary(m)) &&
+    !isContextDivider(m) &&
+    !isSessionArchive(m)
+  );
+  if (archivable.length === 0) return null;
+
+  const steps = archivable.flatMap((m) => ((m.metadata as { steps?: AgentStepRecord[] } | null)?.steps ?? []));
+  const userMessages = archivable.filter((m) => m.role === "user");
+  const assistantMessages = archivable.filter((m) => m.role === "assistant");
+  const contextSummaries = archivable.filter(isContextSummary);
+
+  const payload = {
+    type: "session-archive",
+    version: 1,
+    reason,
+    createdAt: Date.now(),
+    counts: {
+      messages: archivable.length,
+      userMessages: userMessages.length,
+      assistantMessages: assistantMessages.length,
+      contextSummaries: contextSummaries.length,
+      toolSteps: steps.length,
+      skillReads: steps.filter(isSkillReadStep).length,
+      largeResults: steps.filter(hasLargeResult).length,
+    },
+    recentUserRequests: userMessages.slice(-3).map((m) => compactText(m.content, 320)),
+    producedArtifacts: extractArtifactPaths(archivable, steps).slice(0, 12),
+    discarded: [
+      "prior assistant prose",
+      "tool result bodies",
+      "loaded file contents",
+      "loaded skill instructions",
+      "old styling/layout decisions",
+    ],
+  };
+
+  return JSON.stringify(payload);
+}
+
+function isSkillReadStep(step: AgentStepRecord): boolean {
+  if (step.skill !== "read_file") return false;
+  return stringifyCompact(step.input, 1200).includes("SKILL.md");
+}
+
+function hasLargeResult(step: AgentStepRecord): boolean {
+  return stringifyCompact(step.result, 5001).length > 5000;
+}
+
+function extractArtifactPaths(messages: Message[], steps: AgentStepRecord[]): string[] {
+  const seen = new Set<string>();
+  const addFromText = (text: string) => {
+    const re = /(?:^|\s)(\/[^\s"'<>]+?\.(?:pptx|docx|xlsx|pdf|png|jpe?g|svg|html|md|json|csv|tsv|txt))/gi;
+    for (const match of text.matchAll(re)) {
+      seen.add(match[1]!);
+    }
+  };
+  for (const message of messages) addFromText(message.content);
+  for (const step of steps) {
+    addFromText(stringifyCompact(step.input, 2000));
+    addFromText(stringifyCompact(step.result, 2000));
+  }
+  return Array.from(seen);
+}
+
+function compactText(text: string, limit: number): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= limit) return normalized;
+  return `${normalized.slice(0, limit - 3)}...`;
+}
+
+function stringifyCompact(value: unknown, limit: number): string {
+  if (typeof value === "string") return compactText(value, limit);
+  try {
+    return compactText(JSON.stringify(value ?? ""), limit);
+  } catch {
+    return compactText(String(value), limit);
+  }
 }
 
 function handleEvent(
@@ -534,6 +738,16 @@ export function isContextDivider(message: Message): boolean {
   return message.role === CONTEXT_DIVIDER_ROLE && message.content === CONTEXT_DIVIDER_CONTENT;
 }
 
+/** Hidden system message containing a compacted handoff for future LLM calls. */
+export function isContextSummary(message: Message): boolean {
+  return message.role === CONTEXT_DIVIDER_ROLE && message.content.startsWith(CONTEXT_SUMMARY_PREFIX);
+}
+
+/** Hidden archive for a completed/abandoned prior task. Never sent to the LLM by default. */
+export function isSessionArchive(message: Message): boolean {
+  return message.role === CONTEXT_DIVIDER_ROLE && message.content.startsWith(SESSION_ARCHIVE_PREFIX);
+}
+
 /**
  * Assemble messages for the LLM as a NATIVE tool-block sequence —
  * `assistant.toolCalls[]` paired with `role: "tool"` entries. This
@@ -565,9 +779,16 @@ export function isContextDivider(message: Message): boolean {
  * contract that the providers / API enforce.
  */
 export function assembleLlmMessages(messages: Message[]): LLMMessage[] {
-  const conversational = messages.filter((m) => m.role === "user" || m.role === "assistant");
+  const conversational = messages.filter((m) => m.role === "user" || m.role === "assistant" || isContextSummary(m));
   const out: LLMMessage[] = [];
   for (const m of conversational) {
+    if (isContextSummary(m)) {
+      out.push({
+        role: "user",
+        content: m.content.slice(CONTEXT_SUMMARY_PREFIX.length),
+      });
+      continue;
+    }
     if (m.role === "user") {
       out.push({ role: "user", content: m.content });
       continue;

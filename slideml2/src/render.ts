@@ -10,6 +10,7 @@ import type { Slideml2SourceDeck } from "./types.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
 import { buildTheme, color, preferredFont, resolveEmphasis, resolveFill, resolveFontWeight, sizeMultiplier, textStyle, type FontRole, type FontWeight, type SimpleTheme, type TextStyle } from "./theme.js";
 import { parseMarkdownInline, splitNumericRun } from "./markdown-inline.js";
+import { normalizeStrokeCm } from "./units.js";
 
 /** Resolve a TextStyle's weight (string or numeric) into the boolean
  *  emitter flag. Anything ≥ 600 reads as bold so the OOXML `b` attribute
@@ -81,6 +82,7 @@ const ANCHOR_POINTS: Set<string> = new Set([
 const SHAPE_PRESETS: Set<string> = new Set([
   "rect", "roundRect", "ellipse", "line",
   "triangle", "rightTriangle", "pentagon",
+  "diamond",
   "arrow-right", "arrow-down", "callout",
   "chevron", "star-5", "parallelogram", "cloud",
 ]);
@@ -123,6 +125,7 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
   // teal (5B8A8A) leak that color into text.color="brand.primary" callsites
   // and the contrast check refuses to repair, treating it as user intent.
   themeAccentHexesForContrast = collectThemeAccentHexes(theme);
+  themeMutedHexesForContrast = collectThemeMutedHexes(theme);
   const slides: SlideAst[] = deck.slides.map((slide, index) => {
     const dom = materializeAndCompactify(slide.dom, slide.id);
     const ids = { nextId: 2 };
@@ -140,6 +143,7 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
     return slideAst;
   });
   themeAccentHexesForContrast = null;
+  themeMutedHexesForContrast = null;
   return {
     size: "16x9",
     language: "zh-CN",
@@ -151,9 +155,10 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
 
 /**
  * Resolve a slide background expression. Accepts a token string, a hex (with or
- * without `#`), or `{fill: "linear-gradient(...)"}`/`{fill: "<token>"}`. Falls
- * back to the deck's `background` token. Gradients are preserved as-is so the
- * OOXML emitter can produce <a:gradFill>.
+ * without `#`), `{type:"solid", color:"<token>"}`,
+ * `{fill: "linear-gradient(...)"}`/`{fill: "<token>"}`, or `{src:"/path"}`.
+ * Falls back to the deck's `background` token. Gradients are preserved as-is
+ * so the OOXML emitter can produce <a:gradFill>.
  */
 function resolveSlideBackground(theme: SimpleTheme, raw: unknown):
   | { type: "solid"; color: string }
@@ -162,6 +167,7 @@ function resolveSlideBackground(theme: SimpleTheme, raw: unknown):
   if (raw && typeof raw === "object") {
     const rec = raw as Record<string, unknown>;
     if (typeof rec.src === "string" && rec.src.trim()) return { type: "image", src: rec.src };
+    if (typeof rec.color === "string") return resolveFill(theme, rec.color, "background");
     if (typeof rec.fill === "string") return resolveFill(theme, rec.fill, "background");
   }
   return resolveFill(theme, raw, "background");
@@ -234,6 +240,7 @@ const MUTED_TOKEN_HEXES = new Set([
   // Default theme.text.muted variants
   "8B949E", "8C959F", "5B6478", "484F58", "9CA3AF", "6B7280",
   "94A3B8", "64748B", "A0A4AB", "78808A",
+  "718096", "4A5568", "2D3748",
   // Common light-theme muted picks (agent themeOverride.text.muted variants)
   "888888", "777777", "999999", "AAAAAA", "555555", "666666",
   // Common dark-theme muted picks
@@ -245,7 +252,9 @@ const MUTED_TOKEN_HEXES = new Set([
   "FFFFFF", "0D1117", "0F172A", "111827", "1A1A1A", "2C2C2C", "1E293B",
 ]);
 function isLikelyMutedToken(hex: string): boolean {
-  if (MUTED_TOKEN_HEXES.has(hex.toUpperCase())) return true;
+  const upper = hex.toUpperCase();
+  if (MUTED_TOKEN_HEXES.has(upper)) return true;
+  if (themeMutedHexesForContrast && themeMutedHexesForContrast.has(upper)) return true;
   // Near-white or near-black hexes are almost always theme-resolved
   // (text.primary/inverse defaults), not custom user accent picks. Auto-fix
   // them when contrast fails — agents reach for brand-colored accents, not
@@ -285,13 +294,31 @@ function isLikelySemanticAccent(hex: string): boolean {
 }
 
 let themeAccentHexesForContrast: Set<string> | null = null;
+let themeMutedHexesForContrast: Set<string> | null = null;
 
 function collectThemeAccentHexes(theme: SimpleTheme): Set<string> {
   const out = new Set<string>();
   const tokens = [
     "brand.primary", "brand.tint",
     "accent",
-    "success", "warning", "danger", "info",
+    "success", "success.accent", "warning", "warning.accent", "danger", "danger.accent", "info", "info.accent",
+    "neutral",
+  ];
+  for (const tok of tokens) {
+    const hex = theme.colors[tok];
+    if (typeof hex === "string" && /^[0-9A-Fa-f]{6}$/.test(hex)) out.add(hex.toUpperCase());
+  }
+  return out;
+}
+
+function collectThemeMutedHexes(theme: SimpleTheme): Set<string> {
+  const out = new Set<string>();
+  const tokens = [
+    "text.muted",
+    "text.secondary",
+    "text.tertiary",
+    "text.subtle",
+    "chart.neutral",
     "neutral",
   ];
   for (const tok of tokens) {
@@ -352,7 +379,7 @@ function pickIntentPreservingFix(theme: SimpleTheme, fgHex: string, bgHex: strin
   const accentTokens = [
     "accent", "accent1", "accent2", "accent3",
     "brand.primary", "brand.tint",
-    "success", "warning", "danger", "info",
+    "success", "success.accent", "warning", "warning.accent", "danger", "danger.accent", "info", "info.accent",
     "red", "orange", "yellow", "lime", "green", "teal", "blue", "purple", "pink",
   ];
   // Was the failing color one of these? If not, the fix isn't intent-
@@ -641,7 +668,7 @@ function runContrastCheck(slideId: string, slide: { shapes: ShapeList; backgroun
  */
 function isSubtleByDesignToken(theme: SimpleTheme, hex: string): boolean {
   const upper = hex.toUpperCase();
-  const subtleTokens = ["divider", "border", "surface.subtle", "surface.muted", "text.muted", "text.subtle"];
+  const subtleTokens = ["divider", "border", "surface.subtle", "surface.muted", "brand.tint", "text.muted", "text.subtle"];
   for (const tok of subtleTokens) {
     const v = theme.colors[tok];
     if (typeof v === "string" && v.toUpperCase() === upper) return true;
@@ -701,6 +728,7 @@ function runShapeVisibilityCheck(slideId: string, slide: { shapes: ShapeList; ba
     // shape is still discernible — skip.
     if (shape.line && typeof shape.line.color === "string") {
       const lineRatio = contrastRatio(shape.line.color, surfaceColor);
+      if (isSubtleByDesignToken(theme, shape.line.color) && lineRatio >= 1.08) continue;
       if (lineRatio >= 2.0) continue;
     }
     const ratio = contrastRatio(fillHex, surfaceColor);
@@ -791,8 +819,16 @@ function runShapeVisibilityCheck(slideId: string, slide: { shapes: ShapeList; ba
  * neutral text-muted gray.
  */
 function pickBorderForSurface(theme: SimpleTheme, surfaceHex: string, fillHex: string): string | null {
-  const candidates = ["divider", "border", "text.muted", "surface.subtle"];
-  for (const tok of candidates) {
+  const subtleCandidates = ["divider", "border", "surface.subtle"];
+  for (const tok of subtleCandidates) {
+    const v = theme.colors[tok];
+    if (typeof v !== "string" || !/^[0-9A-Fa-f]{6}$/.test(v)) continue;
+    const ratioVsSurface = contrastRatio(v, surfaceHex);
+    const ratioVsFill = contrastRatio(v, fillHex);
+    if (ratioVsSurface >= 1.08 && ratioVsFill >= 1.08) return v;
+  }
+  const fallbackCandidates = ["text.muted"];
+  for (const tok of fallbackCandidates) {
     const v = theme.colors[tok];
     if (typeof v !== "string" || !/^[0-9A-Fa-f]{6}$/.test(v)) continue;
     const ratioVsSurface = contrastRatio(v, surfaceHex);
@@ -1349,26 +1385,32 @@ function rectFromAnchor(theme: SimpleTheme, node: DomNode): Rect {
 
 function renderSlide(theme: SimpleTheme, slideDom: DomNode, ids: { nextId: number }, slideId: string): ShapeList {
   const layout = layoutSlide(theme, slideDom);
-  const flow = flowChildren(slideDom);
-  const overlays = overlayChildren(slideDom);
-  const flowShapes: ShapeList = [];
-  for (const child of flow) {
-    const rect = layout.rectsById.get(child.id);
-    if (!rect) continue;
-    flowShapes.push(...renderNode(theme, child, rect, layout.rectsById, ids, slideId));
+  const previous = currentSlideId;
+  currentSlideId = slideId;
+  try {
+    const flow = flowChildren(slideDom);
+    const overlays = overlayChildren(slideDom);
+    const flowShapes: ShapeList = [];
+    for (const child of flow) {
+      const rect = layout.rectsById.get(child.id);
+      if (!rect) continue;
+      flowShapes.push(...renderNode(theme, child, rect, layout.rectsById, ids, slideId));
+    }
+    const sorted = [...overlays].sort((a, b) => numberProp(a, "zIndex", 0) - numberProp(b, "zIndex", 0));
+    const below: ShapeList = [];
+    const above: ShapeList = [];
+    for (const child of sorted) {
+      const rect = layout.rectsById.get(child.id);
+      if (!rect) continue;
+      const z = numberProp(child, "zIndex", 0);
+      const shapes = renderNode(theme, child, rect, layout.rectsById, ids, slideId);
+      if (z < 0) below.push(...shapes);
+      else above.push(...shapes);
+    }
+    return [...below, ...flowShapes, ...above];
+  } finally {
+    currentSlideId = previous;
   }
-  const sorted = [...overlays].sort((a, b) => numberProp(a, "zIndex", 0) - numberProp(b, "zIndex", 0));
-  const below: ShapeList = [];
-  const above: ShapeList = [];
-  for (const child of sorted) {
-    const rect = layout.rectsById.get(child.id);
-    if (!rect) continue;
-    const z = numberProp(child, "zIndex", 0);
-    const shapes = renderNode(theme, child, rect, layout.rectsById, ids, slideId);
-    if (z < 0) below.push(...shapes);
-    else above.push(...shapes);
-  }
-  return [...below, ...flowShapes, ...above];
 }
 
 function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
@@ -1425,6 +1467,7 @@ const squashedWarnings = new Set<string>();
 function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, slideId: string): void {
   if (node.optional === true) return;
   if (node.type === "spacer" || node.type === "divider" || node.type === "shape") return;
+  if (node.role === "timeline-spine") return;
   const meaningfulContainer = node.type === "stack" || node.type === "grid" || node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset";
   const key = `${slideId}/${node.id}`;
   if (squashedWarnings.has(key)) return;
@@ -1434,7 +1477,7 @@ function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, s
   const hasFixedWidth = typeof node.fixedWidth === "number" && Number.isFinite(node.fixedWidth);
   const hasFixedHeight = typeof node.fixedHeight === "number" && Number.isFinite(node.fixedHeight);
   if ((node.type === "image" || node.type === "shape") && (hasFixedWidth || hasFixedHeight)) return;
-  const minWidth = node.type === "text" ? 1.4 : node.type === "image" || node.type === "chart" || node.type === "table" ? 3.0 : meaningfulContainer ? 2.2 : 1.8;
+  const minWidth = node.type === "text" ? 1.4 : node.type === "image" || node.type === "chart" || node.type === "table" ? 3.0 : node.role === "process-step" ? 1.8 : meaningfulContainer ? 2.2 : 1.8;
   const minHeight = node.type === "text" ? textSquashMinHeight(theme, node) : node.type === "bullets" ? 1.0 : meaningfulContainer ? 0.75 : 0.5;
   const narrowContainer = meaningfulContainer && rect.w < minWidth && rect.h > 1.2;
   const shortContent = !meaningfulContainer && rect.h < minHeight;
@@ -1476,11 +1519,11 @@ function decorativeChild(node: DomNode): DomNode | null {
 function toneTokens(tone: unknown): { fill?: string; line?: string; fg?: string; accent?: string } {
   if (tone === "brand") return { fill: "brand.tint", line: "brand.primary", fg: "brand.primary", accent: "brand.primary" };
   if (tone === "tinted") return { fill: "brand.tint", line: "divider", fg: "brand.primary", accent: "brand.primary" };
-  if (tone === "positive") return { fill: "success.tint", line: "success", fg: "success", accent: "success" };
-  if (tone === "success") return { fill: "success.tint", line: "success", fg: "success", accent: "success" };
-  if (tone === "warning") return { fill: "warning.tint", line: "warning", fg: "warning", accent: "warning" };
-  if (tone === "danger") return { fill: "danger.tint", line: "danger", fg: "danger", accent: "danger" };
-  if (tone === "info") return { fill: "info.tint", line: "info", fg: "info", accent: "info" };
+  if (tone === "positive") return { fill: "success.tint", line: "success", fg: "success", accent: "success.accent" };
+  if (tone === "success") return { fill: "success.tint", line: "success", fg: "success", accent: "success.accent" };
+  if (tone === "warning") return { fill: "warning.tint", line: "warning", fg: "warning", accent: "warning.accent" };
+  if (tone === "danger") return { fill: "danger.tint", line: "danger", fg: "danger", accent: "danger.accent" };
+  if (tone === "info") return { fill: "info.tint", line: "info", fg: "info", accent: "info.accent" };
   if (tone === "neutral") return { fill: "surface", line: "divider", fg: "text.primary", accent: "brand.primary" };
   if (tone === "muted") return { fill: "surface.subtle", line: "divider", fg: "text.muted", accent: "text.muted" };
   return {};
@@ -1571,10 +1614,10 @@ function renderPanel(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
   const elevation = resolveElevation(node.elevation) ?? "flat";
   const shadow = shadowForElevation(theme, elevation, tone.accent);
   const padding = optionalNumberProp(node, "padding") ?? style.padding ?? 0.45;
-  // Per-component border width override: agents reach for `borderWidth` /
-  // `lineWidth` to make a strong frame. Numbers are in cm to stay
-  // consistent with the rest of the layout vocabulary.
-  const lineWidth = optionalNumberProp(node, "lineWidth") ?? optionalNumberProp(node, "borderWidth") ?? (elevation === "outlined" ? 0.04 : 0.02);
+  // Stroke-like fields are normalized separately from layout dimensions:
+  // legacy tiny values (0.02cm) remain valid, while agent-authored `1` means
+  // 1pt instead of a 1cm block.
+  const lineWidth = normalizeStrokeCm(optionalNumberProp(node, "lineWidth") ?? optionalNumberProp(node, "borderWidth"), elevation === "outlined" ? 0.04 : 0.02);
   const innerRect: Rect = { x: rect.x + padding, y: rect.y + padding, w: Math.max(0, rect.w - padding * 2), h: Math.max(0, rect.h - padding * 2) };
   const shapes: ShapeList = [{
     type: "shape",
@@ -1610,7 +1653,7 @@ function renderCard(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const elevation = resolveElevation(node.elevation) ?? "flat";
   const shadow = shadowForElevation(theme, elevation, tone.accent);
   // Per-card border width / dash override.
-  const lineWidth = optionalNumberProp(node, "lineWidth") ?? optionalNumberProp(node, "borderWidth") ?? 0.02;
+  const lineWidth = normalizeStrokeCm(optionalNumberProp(node, "lineWidth") ?? optionalNumberProp(node, "borderWidth"), 0.02);
   const dashToken = node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : undefined;
   const accent = node.accent === "left" || node.accent === "top" ? node.accent : "none";
   // Accent color follows the tone when the agent didn't override it
@@ -1708,7 +1751,7 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const padding = optionalNumberProp(node, "padding") ?? defaultPadding;
   // Optional agent overrides on bands.
   const lineToken = typeof node.line === "string" ? node.line : null;
-  const lineWidth = optionalNumberProp(node, "lineWidth") ?? optionalNumberProp(node, "borderWidth") ?? 0;
+  const lineWidth = normalizeStrokeCm(optionalNumberProp(node, "lineWidth") ?? optionalNumberProp(node, "borderWidth"), 0.02);
   const dashToken = node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : undefined;
   const elevation = resolveElevation(node.elevation) ?? "flat";
   const shadow = shadowForElevation(theme, elevation, tone.accent);
@@ -1721,7 +1764,7 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
     xfrm: xfrm(rect),
     fill: resolveFill(theme, fillToken, "surface.subtle"),
     cornerRadius: cornerRadius > 0 ? cornerRadius : undefined,
-    line: lineToken ? { color: color(theme, lineToken), width: cm(lineWidth || 0.02), ...(dashToken ? { dash: dashToken } : {}) } : undefined,
+    line: lineToken ? { color: color(theme, lineToken), width: cm(lineWidth), ...(dashToken ? { dash: dashToken } : {}) } : undefined,
     shadow,
   }];
   const child = decorativeChild(node);
@@ -1735,7 +1778,7 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
 function renderFrame(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
   const style = theme.component.frame || {};
   const lineToken = stringProp(node, "line", style.line || "divider");
-  const lineWidth = optionalNumberProp(node, "lineWidth") ?? 0.025;
+  const lineWidth = normalizeStrokeCm(optionalNumberProp(node, "lineWidth"), 0.025);
   const dash = node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : undefined;
   // 761q1u fix: agents reach for `frame` with a tiny fixedHeight as a
   // horizontal accent rule (`{type:"frame", line:"FFFFFF", fixedHeight:0.08}`).
@@ -1899,6 +1942,24 @@ function renderChrome(theme: SimpleTheme, deck: RenderedDeck, slideIndex: number
       color: pageColor,
     }, { x: layout.slideWidthCm - chrome.footerPadding - 2, y: footerY + 0.05, w: 2, h: chrome.footerHeight - 0.05 }, ids));
   }
+  const footerText = typeof chrome.footerText === "string" && chrome.footerText.trim() ? chrome.footerText.trim() : "";
+  if (footerText) {
+    const footerColor = pickChromeFgColor(theme, slideBgHex);
+    const rightReserve = chrome.pageNumber ? 2.4 : 0;
+    out.push(textShape(theme, {
+      id: "chrome.footer-text",
+      type: "text",
+      text: footerText,
+      style: "footnote",
+      align: "left",
+      color: footerColor,
+    }, {
+      x: layout.pageMarginX,
+      y: footerY + 0.05,
+      w: Math.max(2, layout.slideWidthCm - layout.pageMarginX * 2 - rightReserve),
+      h: chrome.footerHeight - 0.05,
+    }, ids));
+  }
   return out;
 }
 
@@ -1931,7 +1992,7 @@ function textShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId:
   // because shrinking body text usually means the layout is wrong, not the
   // text being too long.
   const effectiveAutoFit = node.autoFit ?? defaultAutoFitForStyle(kind);
-  const style = effectiveAutoFit === "shrink" ? autoShrinkStyle(theme, node, baseStyle, rect) : baseStyle;
+  const style = effectiveAutoFit === "shrink" ? autoShrinkStyle(theme, node, baseStyle, rect, kind) : baseStyle;
   const paragraphs = buildParagraphs(theme, node, style);
   const autoFit = effectiveAutoFit === "shrink" || effectiveAutoFit === "resize" ? effectiveAutoFit : undefined;
   const cornerRadius = typeof node.cornerRadius === "number"
@@ -1990,7 +2051,7 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
         align: paragraphAlign(rec.align ?? node.align),
       };
       if (typeof rec.indentLevel === "number" && rec.indentLevel > 0) para.indentLevel = rec.indentLevel;
-      if (typeof rec.lineSpacing === "number") para.lineSpacingHalfPt = rec.lineSpacing * 2;
+      para.lineSpacingHalfPt = typeof rec.lineSpacing === "number" ? rec.lineSpacing * 2 : lineSpacingHalfPtForStyle(paraStyle);
       if (typeof rec.spaceAfter === "number") para.spaceAfterHalfPt = rec.spaceAfter * 2;
       if (rec.bullet === "auto") para.bullet = { auto: true };
       else if (rec.bullet === "number") para.bullet = { number: true };
@@ -2003,9 +2064,14 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
     runs,
   };
   if (typeof node.indentLevel === "number" && node.indentLevel > 0) para.indentLevel = node.indentLevel;
-  if (typeof node.lineSpacing === "number") para.lineSpacingHalfPt = node.lineSpacing * 2;
+  para.lineSpacingHalfPt = typeof node.lineSpacing === "number" ? node.lineSpacing * 2 : lineSpacingHalfPtForStyle(style);
   if (typeof node.spaceAfter === "number") para.spaceAfterHalfPt = node.spaceAfter * 2;
   return [para];
+}
+
+function lineSpacingHalfPtForStyle(style: ReturnType<typeof textStyle>): number | undefined {
+  if (!Number.isFinite(style.fontSize) || !Number.isFinite(style.lineHeight) || style.fontSize <= 0 || style.lineHeight <= 0) return undefined;
+  return style.fontSize * style.lineHeight * 2;
 }
 
 function paragraphAlign(value: unknown): "left" | "center" | "right" | "justify" | undefined {
@@ -2124,13 +2190,15 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
         ? { number: true as const }
         : (markerSpec ? markerSpec : { auto: true as const }),
       runs,
-      spaceAfterHalfPt: node.density === "compact" ? 4 : 10,
+      lineSpacingHalfPt: lineSpacingHalfPtForStyle(style),
+      spaceAfterHalfPt: bulletSpaceAfterHalfPt(node),
       marginLeft: hangingIndent.marginLeft,
       hanging: hangingIndent.hanging,
     };
     if (indent > 0) para.indentLevel = indent;
     return para;
   });
+  pushBulletsFitDiagnostics(theme, node, rect);
   return {
     type: "text",
     id: ids.nextId++,
@@ -2139,6 +2207,7 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
     paragraphs: [
       ...(title ? [{
         runs: [{ text: title, sizeHalfPt: theme.text["card-title"].fontSize * 2, bold: true, color: color(theme, "brand.primary"), fontFace: containsCjk(title) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"), cjk: true }],
+        lineSpacingHalfPt: lineSpacingHalfPtForStyle(theme.text["card-title"]),
         spaceAfterHalfPt: 6,
       }] : []),
       ...itemParas,
@@ -2158,28 +2227,167 @@ function bulletHangingIndent(node: DomNode): { marginLeft: number; hanging: numb
     : { marginLeft: cm(0.54), hanging: -cm(0.30) };
 }
 
+function bulletSpaceAfterHalfPt(node: DomNode): number {
+  if (typeof node.spaceAfter === "number" && Number.isFinite(node.spaceAfter) && node.spaceAfter >= 0) return node.spaceAfter * 2;
+  return node.density === "compact" ? 7 : 12;
+}
+
 function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }): ShapeList[number] {
-  const presetCandidate = typeof node.preset === "string" && SHAPE_PRESETS.has(node.preset) ? node.preset : "rect";
+  const marker = markerVisualSpec(theme, node);
+  const presetCandidate = marker?.preset || (typeof node.preset === "string" && SHAPE_PRESETS.has(node.preset) ? node.preset : "rect");
   const preset = presetCandidate as ShapePreset;
-  const lineWidthCm = typeof node.lineWidth === "number" ? node.lineWidth : 0.02;
-  const lineDash = node.lineDash === "dash" || node.lineDash === "dashDot" || node.lineDash === "dot" ? node.lineDash : undefined;
+  const lineWidthCm = normalizeStrokeCm(optionalNumberProp(node, "lineWidth") ?? marker?.lineWidth, marker?.lineWidth ?? 0.02);
+  const lineDash = node.lineDash === "dash" || node.lineDash === "dashDot" || node.lineDash === "dot"
+    ? node.lineDash
+    : node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot"
+      ? node.dash
+      : marker?.dash;
+  const fillToken = typeof node.fill === "string" ? node.fill : marker?.fill;
+  const lineToken = typeof node.line === "string" ? node.line : marker?.line;
+  const fillAlpha = alphaProp(node.fillOpacity ?? node.opacity ?? marker?.fillOpacity);
+  const lineAlpha = alphaProp(node.lineOpacity ?? node.opacity ?? marker?.lineOpacity);
+  const shapeRect = marker ? markerRect(rect, marker, node) : rect;
+  const shapeNode = marker && typeof node.rotation !== "number" && typeof marker.rotation === "number"
+    ? { ...node, rotation: marker.rotation }
+    : node;
   return {
     type: "shape",
     id: ids.nextId++,
     name: nodeLabel(node),
     preset,
-    xfrm: xfrm(rect, node),
-    fill: typeof node.fill === "string" ? { type: "solid", color: color(theme, node.fill) } : { type: "none" },
-    line: typeof node.line === "string" ? { color: color(theme, node.line), width: cm(lineWidthCm), ...(lineDash ? { dash: lineDash } : {}) } : undefined,
-    ...(typeof node.cornerRadius === "number" ? { cornerRadius: node.cornerRadius } : {}),
+    xfrm: xfrm(shapeRect, shapeNode),
+    fill: fillToken ? { type: "solid", color: color(theme, fillToken), ...(fillAlpha !== undefined ? { alpha: fillAlpha } : {}) } : { type: "none" },
+    line: lineToken ? { color: color(theme, lineToken), width: cm(lineWidthCm), ...(lineDash ? { dash: lineDash } : {}), ...(lineAlpha !== undefined ? { alpha: lineAlpha } : {}) } : undefined,
+    ...(typeof node.cornerRadius === "number" ? { cornerRadius: node.cornerRadius } : marker?.cornerRadius !== undefined ? { cornerRadius: marker.cornerRadius } : {}),
   };
+}
+
+type MarkerVisualSpec = {
+  preset: ShapePreset;
+  w: number;
+  h: number;
+  fill?: string;
+  line?: string;
+  fillOpacity?: number;
+  lineOpacity?: number;
+  lineWidth?: number;
+  dash?: "dash" | "dashDot" | "dot";
+  cornerRadius?: number;
+  rotation?: number;
+};
+
+function markerVisualSpec(theme: SimpleTheme, node: DomNode): MarkerVisualSpec | null {
+  const marker = markerName(node);
+  if (!marker) return null;
+  const markerRec = markerObject(node);
+  const size = markerSizeCm(node.size ?? node.markerSize ?? markerRec?.size);
+  const tone = markerToneTokens(node.tone ?? markerRec?.tone);
+  const rawVariant = node.variant ?? markerRec?.variant;
+  const variant = rawVariant === "solid" || rawVariant === "outline" || rawVariant === "ghost" || rawVariant === "ring" || rawVariant === "badge"
+    ? rawVariant
+    : marker === "ring"
+      ? "ring"
+      : "tint";
+  const preset = markerPreset(marker);
+  const dims = markerDimensions(marker, size);
+  const accent = tone.accent;
+  const tint = tone.fill;
+  const fill = variant === "solid" || variant === "badge"
+    ? accent
+    : variant === "outline" || variant === "ring"
+      ? undefined
+      : variant === "ghost"
+        ? accent
+        : tint;
+  const line = variant === "ghost" && node.line === undefined ? accent : accent;
+  return {
+    preset,
+    ...dims,
+    fill,
+    line,
+    fillOpacity: variant === "ghost" ? 0.14 : undefined,
+    lineOpacity: variant === "ghost" ? 0.38 : undefined,
+    lineWidth: variant === "solid" || variant === "badge" ? 0.02 : 1,
+    cornerRadius: marker === "rounded-square" || marker === "index-chip" || marker === "side-bar" ? 0.18 : undefined,
+    rotation: marker === "slash" ? -18 : undefined,
+  };
+}
+
+function markerObject(node: DomNode): Record<string, unknown> | null {
+  return node.marker && typeof node.marker === "object" && !Array.isArray(node.marker)
+    ? node.marker as Record<string, unknown>
+    : null;
+}
+
+function markerName(node: DomNode): string | null {
+  const raw = node.marker;
+  if (typeof raw === "string" && raw.trim()) return normalizeMarkerName(raw);
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const rec = raw as Record<string, unknown>;
+    const value = rec.shape ?? rec.preset ?? rec.marker ?? rec.type;
+    if (typeof value === "string" && value.trim()) return normalizeMarkerName(value);
+  }
+  if (node.role === "item-marker" && typeof node.shape === "string") return normalizeMarkerName(node.shape);
+  if (node.role === "item-marker" && typeof node.preset === "string") return normalizeMarkerName(node.preset);
+  return null;
+}
+
+function normalizeMarkerName(value: string): string {
+  const v = value.trim();
+  if (v === "rect") return "square";
+  if (v === "roundRect") return "rounded-square";
+  if (v === "ellipse") return "dot";
+  if (v === "roundedSquare" || v === "round-square" || v === "rounded-rect") return "rounded-square";
+  if (v === "chip" || v === "index") return "index-chip";
+  if (v === "bar" || v === "stripe" || v === "side-rail") return "side-bar";
+  return v;
+}
+
+function markerPreset(marker: string): ShapePreset {
+  if (marker === "dot" || marker === "ring") return "ellipse";
+  if (marker === "rounded-square" || marker === "index-chip") return "roundRect";
+  if (marker === "diamond") return "diamond";
+  if (marker === "slash") return "line";
+  return "rect";
+}
+
+function markerDimensions(marker: string, size: number): { w: number; h: number } {
+  if (marker === "side-bar") return { w: Math.max(0.06, size * 0.22), h: Math.max(0.55, size * 1.9) };
+  if (marker === "slash") return { w: Math.max(0.5, size * 1.55), h: Math.max(0.16, size * 0.32) };
+  if (marker === "index-chip") return { w: size * 1.35, h: size };
+  return { w: size, h: size };
+}
+
+function markerSizeCm(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return clamp(value, 0.12, 0.9);
+  if (value === "xs") return 0.18;
+  if (value === "sm") return 0.28;
+  if (value === "lg") return 0.52;
+  if (value === "xl") return 0.68;
+  return 0.38;
+}
+
+function markerToneTokens(toneValue: unknown): { fill: string; accent: string } {
+  const tone = toneTokens(toneValue);
+  if (toneValue === "neutral" || toneValue === "muted") return { fill: "surface.subtle", accent: "divider" };
+  return { fill: tone.fill || "brand.tint", accent: tone.accent || tone.line || "brand.primary" };
+}
+
+function markerRect(rect: Rect, marker: MarkerVisualSpec, node: DomNode): Rect {
+  const w = Math.min(marker.w, rect.w);
+  const h = Math.min(marker.h, rect.h);
+  const align = node.align === "left" || node.align === "start" ? "start" : node.align === "right" || node.align === "end" ? "end" : "center";
+  const valign = node.valign === "top" || node.valign === "start" ? "start" : node.valign === "bottom" || node.valign === "end" ? "end" : "center";
+  const x = align === "start" ? rect.x : align === "end" ? rect.x + rect.w - w : rect.x + (rect.w - w) / 2;
+  const y = valign === "start" ? rect.y : valign === "end" ? rect.y + rect.h - h : rect.y + (rect.h - h) / 2;
+  return { x, y, w, h };
 }
 
 function dividerShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }): ShapeList[number] {
   const orientation = node.orientation === "horizontal" || node.orientation === "vertical"
     ? node.orientation
     : rect.w >= rect.h ? "horizontal" : "vertical";
-  const thickness = numberProp(node, "thickness", 0.025);
+  const thickness = normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 });
   const lineRect = orientation === "horizontal"
     ? { x: rect.x, y: rect.y + rect.h / 2, w: rect.w, h: Math.max(0.01, thickness) }
     : { x: rect.x + rect.w / 2, y: rect.y, w: Math.max(0.01, thickness), h: rect.h };
@@ -2222,7 +2430,12 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0;
   const widthsInput = Array.isArray(node.colWidths) ? node.colWidths : (widthsFromColumns && widthsFromColumns.some((w) => w > 0) ? widthsFromColumns : undefined);
   const colWidths = resolveTableColWidths(widthsInput, colCount, rect.w);
-  const rowHeightsCm = resolveTableRowHeights(node.rowHeights, rowCount, rect.h);
+  const rowHeightsCm = resolveTableRowHeights(node.rowHeights, rowCount, rect.h, {
+    theme,
+    rows: allRows,
+    colWidths,
+    firstRowHeader,
+  });
   const cells = makeTableCells(theme, allRows, colCount, firstRowHeader, cellAlign, {
     headerFill: typeof node.headerFill === "string" ? node.headerFill : undefined,
     bodyFill: typeof node.bodyFill === "string" ? node.bodyFill : undefined,
@@ -2238,7 +2451,7 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     cells,
     firstRowHeader,
     borderColor: color(theme, typeof node.borderColor === "string" ? node.borderColor : "divider"),
-    borderWidth: cm(typeof node.borderWidth === "number" ? node.borderWidth : 0.01),
+    borderWidth: cm(normalizeStrokeCm(node.borderWidth, 0.01)),
   };
 }
 
@@ -2319,7 +2532,12 @@ function resolveTableColWidths(raw: unknown, colCount: number, totalCm: number):
   return Array.from({ length: colCount }, () => totalCm / colCount);
 }
 
-function resolveTableRowHeights(raw: unknown, rowCount: number, totalCm: number): number[] {
+function resolveTableRowHeights(
+  raw: unknown,
+  rowCount: number,
+  totalCm: number,
+  intrinsic?: { theme: SimpleTheme; rows: unknown[][]; colWidths: number[]; firstRowHeader: boolean },
+): number[] {
   if (Array.isArray(raw) && raw.length === rowCount) {
     const nums = raw.map((v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
     const sum = nums.reduce((a, b) => a + b, 0);
@@ -2327,6 +2545,21 @@ function resolveTableRowHeights(raw: unknown, rowCount: number, totalCm: number)
       const looksAbsolute = Math.abs(sum - totalCm) < totalCm * 0.5 && nums.every((n) => n >= 0.2);
       if (looksAbsolute) return nums;
       return nums.map((n) => (n / sum) * totalCm);
+    }
+  }
+  if (intrinsic && intrinsic.rows.length === rowCount) {
+    const needed = estimateTableRowHeights(intrinsic.theme, intrinsic.rows, intrinsic.colWidths, intrinsic.firstRowHeader)
+      .map((h) => Math.max(0.24, h));
+    const sum = needed.reduce((a, b) => a + b, 0);
+    if (sum > 0 && Number.isFinite(sum)) {
+      if (sum <= totalCm) {
+        const surplus = (totalCm - sum) / rowCount;
+        return needed.map((h) => h + surplus);
+      }
+      // When the table is genuinely too dense, allocate proportional row
+      // heights so the diagnostic points at real shortage instead of an
+      // artificial equal-row split.
+      return needed.map((h) => (h / sum) * totalCm);
     }
   }
   return Array.from({ length: rowCount }, () => totalCm / rowCount);
@@ -3159,9 +3392,8 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
   const gap = gapCm(theme, node);
   const availableWidth = Math.max(0, rect.w - gap * (columns - 1));
   const availableHeight = Math.max(0, rect.h - gap * (rows - 1));
-  const columnWeights = weightsFromProp(node.columnWeights, columns);
-  const colX = positionsFromWeights(rect.x, availableWidth, gap, columnWeights);
-  const colWidths = colX.map((col) => col.size);
+  const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
+  const colX = positionsFromSizes(rect.x, gap, colWidths);
   const rowHeights = resolveGridRowHeights(theme, placements, columns, rows, availableHeight, colWidths, gap, node.rowWeights);
   const rowY = positionsFromSizes(rect.y, gap, rowHeights);
   const flowOut = placements.map(({ child, row, col, rowSpan, colSpan }) => {
@@ -3238,6 +3470,7 @@ function containerNaturalMainSize(theme: SimpleTheme, node: DomNode, direction: 
     return 0;
   }
   if (node.type === "stack" && node.direction === "horizontal") return horizontalStackIntrinsicWidth(theme, node, crossSize);
+  if (node.type === "stack" && node.direction !== "horizontal") return verticalStackIntrinsicWidth(theme, node, crossSize);
   return crossSize;
 }
 
@@ -3316,20 +3549,24 @@ function growSizes(specs: SizeSpec[], sizes: number[], extra: number, autoFillSl
 function intrinsicMainSize(theme: SimpleTheme, node: DomNode, direction: "horizontal" | "vertical", crossSize: number): number {
   const fixed = optionalNumberProp(node, direction === "horizontal" ? "fixedWidth" : "fixedHeight");
   if (fixed !== undefined) return fixed;
+  if (node.type === "shape") {
+    const marker = markerVisualSpec(theme, node);
+    if (marker) return direction === "horizontal" ? marker.w : marker.h;
+  }
   if (node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset") {
     return decorativeIntrinsicMain(theme, node, direction, crossSize);
   }
   if (direction === "horizontal") {
     if (node.type === "image") return Math.min(12, Math.max(6, crossSize * 0.9));
     if (node.type === "text") return textIntrinsicWidth(theme, node);
-    if (node.type === "divider") return numberProp(node, "thickness", 0.025) + 0.02;
-    if (node.type === "stack" && node.direction === "horizontal") return horizontalStackIntrinsicWidth(theme, node, crossSize);
+    if (node.type === "divider") return normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.02;
+    if (node.type === "stack") return node.direction === "horizontal" ? horizontalStackIntrinsicWidth(theme, node, crossSize) : verticalStackIntrinsicWidth(theme, node, crossSize);
     return 3.2;
   }
   if (node.type === "text") return textIntrinsicHeight(theme, node, crossSize);
   if (node.type === "bullets") return bulletsIntrinsicHeight(theme, node, crossSize);
   if (node.type === "spacer") return direction === "vertical" ? 0.4 : 0.6;
-  if (node.type === "divider") return numberProp(node, "thickness", 0.025) + 0.02;
+  if (node.type === "divider") return normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.02;
   if (node.type === "image") return Math.min(10, Math.max(4, crossSize * 0.62));
   if (node.type === "table") return tableIntrinsicHeight(theme, node, crossSize);
   if (node.type === "stack") return stackIntrinsicHeight(theme, node, crossSize);
@@ -3359,8 +3596,8 @@ function intrinsicMinSize(theme: SimpleTheme, node: DomNode, direction: "horizon
   if (explicit !== undefined) return explicit;
   if (direction === "horizontal") return Math.min(intrinsicMainSize(theme, node, direction, crossSize), node.type === "divider" ? 0.02 : 0.45);
   if (node.type === "text") return singleLineTextHeight(theme, node);
-  if (node.type === "bullets") return 0.8;
-  if (node.type === "divider") return numberProp(node, "thickness", 0.025) + 0.02;
+  if (node.type === "bullets") return bulletsIntrinsicHeight(theme, node, crossSize);
+  if (node.type === "divider") return normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.02;
   if (node.type === "spacer") return 0;
   return Math.min(intrinsicMainSize(theme, node, direction, crossSize), 0.9);
 }
@@ -3415,13 +3652,10 @@ function tableCellIntrinsicHeight(theme: SimpleTheme, raw: unknown, widthCm: num
   const kind = isHeader ? "table-header" : "table-cell";
   const style = textStyle(theme, kind, "table-cell");
   const text = tableCellText(raw);
-  const contentWidth = Math.max(0.8, widthCm - 0.28);
+  const contentWidth = Math.max(0.8, widthCm - 0.52);
   const fontPt = style.fontSize;
-  const isMostlyCjk = text.length > 0 && cjkRatio(text) > 0.5;
-  const charWidthCm = isMostlyCjk ? fontPt * 0.0353 * 1.02 : avgCharWidthCm(theme, fontPt, isStyleBold(style.weight));
-  const charsPerLine = Math.max(6, Math.floor(contentWidth / charWidthCm));
-  const lines = Math.max(1, Math.ceil(weightedTextLength(text) / charsPerLine));
-  return lines * fontPt * 0.0353 * style.lineHeight + 0.24;
+  const lines = estimatedWrappedLineCount(theme, text, fontPt, isStyleBold(style.weight), contentWidth);
+  return lines * fontPt * 0.0353 * style.lineHeight + 0.28;
 }
 
 function tableCellText(raw: unknown): string {
@@ -3453,7 +3687,7 @@ function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, 
 }
 
 function canGrow(node: DomNode): boolean {
-  return node.type === "image" || node.type === "grid" || node.type === "stack" || node.type === "table" || node.type === "chart" || node.type === "shape" || node.type === "spacer" || node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset" || node.fill === true;
+  return node.type === "image" || node.type === "grid" || node.type === "stack" || node.type === "table" || node.type === "chart" || node.type === "spacer" || node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset" || node.fill === true;
 }
 
 function stackIntrinsicHeight(theme: SimpleTheme, node: DomNode, crossSize: number): number {
@@ -3480,6 +3714,15 @@ function horizontalStackIntrinsicWidth(theme: SimpleTheme, node: DomNode, height
   return children.reduce((sum, child) => sum + intrinsicMainSize(theme, child, "horizontal", heightCm), 0) + gap * Math.max(0, children.length - 1) + pad * 2;
 }
 
+function verticalStackIntrinsicWidth(theme: SimpleTheme, node: DomNode, heightCm: number): number {
+  const children = node.children || [];
+  if (children.length === 0) return 0;
+  const pad = paddingCm(theme, node);
+  const innerHeight = Math.max(0, heightCm - pad * 2);
+  const childWidths = children.map((child) => intrinsicMainSize(theme, child, "horizontal", innerHeight));
+  return Math.max(0, ...childWidths) + pad * 2;
+}
+
 function gridIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number): number {
   const children = node.children || [];
   if (children.length === 0) return 0;
@@ -3489,10 +3732,9 @@ function gridIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number)
   const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
   const rows = Math.max(1, declaredRows, usedRows);
   const gap = gapCm(theme, node);
-  const columnWeights = weightsFromProp(node.columnWeights, columns);
   const contentWidth = contentRect(theme, node, { x: 0, y: 0, w: widthCm, h: 10 }).w;
   const availableWidth = Math.max(0, contentWidth - gap * (columns - 1));
-  const colWidths = columnWeights.map((weight) => availableWidth * weight);
+  const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
   // Each row's intrinsic height is the max of (placed child intrinsic / rowSpan)
   // for children that start in that row OR span across it.
   const rowHeights = new Array(rows).fill(0);
@@ -3645,13 +3887,66 @@ function bulletsIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: numb
   const baseStyle = textStyle(theme, node.density === "compact" ? "bullet-compact" : "bullet", "paragraph");
   const mult = sizeMultiplier(theme, node.size);
   const style = mult === 1 ? baseStyle : { ...baseStyle, fontSize: baseStyle.fontSize * mult };
-  const charWidthCm = avgCharWidthCm(theme, style.fontSize, isStyleBold(style.weight));
-  const charsPerLine = Math.max(8, Math.floor(widthCm / charWidthCm));
-  const lineCount = items.reduce((sum, item) => sum + Math.max(1, Math.ceil(weightedTextLength(item) / charsPerLine)), 0);
+  const contentWidth = Math.max(0.8, widthCm - 0.85);
+  const lineCount = items.reduce((sum, item) => sum + estimatedWrappedLineCount(theme, item, style.fontSize, isStyleBold(style.weight), contentWidth), 0);
   const lineHeight = style.fontSize * 0.0353 * style.lineHeight;
-  const paragraphGap = (node.density === "compact" ? 0.012 : 0.018) * style.fontSize;
-  const titleHeight = typeof node.title === "string" && node.title.trim() ? 0.62 : 0;
-  return Math.max(1.05, titleHeight + lineCount * lineHeight + Math.max(0, items.length - 1) * paragraphGap + 0.35);
+  const spaceAfter = bulletSpaceAfterHalfPt(node) * 0.5 * 0.0353;
+  const titleHeight = typeof node.title === "string" && node.title.trim()
+    ? theme.text["card-title"].fontSize * 0.0353 * theme.text["card-title"].lineHeight + 6 * 0.5 * 0.0353
+    : 0;
+  return Math.max(1.05, titleHeight + lineCount * lineHeight + items.length * spaceAfter + 0.16);
+}
+
+function pushBulletsFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect): void {
+  const needed = bulletsIntrinsicHeight(theme, node, rect.w);
+  if (needed <= rect.h + 0.08) return;
+  pushDiagnostic({
+    severity: "error",
+    code: "FALLBACK_FAILED",
+    slideId: currentSlideId,
+    nodeId: node.id,
+    message: `Bullets '${nodeLabel(node)}' need ${needed.toFixed(2)}cm but were assigned ${rect.h.toFixed(2)}cm; PowerPoint would compress paragraph spacing or overlap lines.`,
+    suggestion: "Use fewer bullets, switch to compact density, split the slide, or give the bullet list more vertical space.",
+    measured: { available: rect.h, needed, deltaCm: needed - rect.h, rect },
+  });
+}
+
+function estimatedWrappedLineCount(theme: SimpleTheme, text: string, fontPt: number, bold: boolean, contentWidthCm: number): number {
+  const usable = Math.max(0.25, contentWidthCm);
+  const lines = String(text || "").split(/\r?\n/);
+  return lines.reduce((sum, line) => {
+    const totalWidth = estimatedTextWidthCm(theme, line, fontPt, bold);
+    const unbreakableWidth = longestUnbreakableWidthCm(theme, line, fontPt, bold);
+    return sum + Math.max(1, Math.ceil(totalWidth / usable), Math.ceil(unbreakableWidth / usable));
+  }, 0);
+}
+
+function estimatedTextWidthCm(theme: SimpleTheme, text: string, fontPt: number, bold: boolean): number {
+  let width = 0;
+  for (const ch of text) width += estimatedGlyphWidthCm(theme, ch, fontPt, bold);
+  return width;
+}
+
+function longestUnbreakableWidthCm(theme: SimpleTheme, text: string, fontPt: number, bold: boolean): number {
+  let longest = 0;
+  let current = 0;
+  for (const ch of text) {
+    if (/\s/.test(ch) || /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch)) {
+      longest = Math.max(longest, current);
+      current = 0;
+      continue;
+    }
+    current += estimatedGlyphWidthCm(theme, ch, fontPt, bold);
+  }
+  return Math.max(longest, current);
+}
+
+function estimatedGlyphWidthCm(theme: SimpleTheme, ch: string, fontPt: number, bold: boolean): number {
+  if (/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch)) return fontPt * 0.0353 * 1.02;
+  if (/\s/.test(ch)) return avgCharWidthCm(theme, fontPt, bold) * 0.45;
+  if (/[ilI1|.,:;]/.test(ch)) return avgCharWidthCm(theme, fontPt, bold) * 0.55;
+  if (/[MW@#%&]/.test(ch)) return avgCharWidthCm(theme, fontPt, bold) * 1.25;
+  return avgCharWidthCm(theme, fontPt, bold);
 }
 
 function singleLineTextHeight(theme: SimpleTheme, node: DomNode): number {
@@ -3685,31 +3980,63 @@ function defaultAutoFitForStyle(styleKey: string): "shrink" | undefined {
  * runtime normAutofit hint. Floor at 70% of the original size — beyond
  * that the metric is illegible and the slide should be re-authored.
  */
-function autoShrinkStyle(theme: SimpleTheme, node: DomNode, style: ReturnType<typeof textStyle>, rect: Rect): ReturnType<typeof textStyle> {
-  const text = renderedTextContent(node).replace(/\n/g, " ");
+function autoShrinkStyle(theme: SimpleTheme, node: DomNode, style: ReturnType<typeof textStyle>, rect: Rect, styleKey: string): ReturnType<typeof textStyle> {
+  const rawText = renderedTextContent(node);
+  const lines = rawText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+  const text = (lines.length > 0 ? lines : [rawText.replace(/\n/g, " ")]).join("\n");
   if (!text) return style;
   // Width margin baked into textShape (l:0.1 + r:0.1 = 0.2 cm) plus a safety
   // buffer so we land well inside the renderer's actual line-break threshold.
   const inner = Math.max(0.1, rect.w - 0.35);
-  const isMostlyCjk = cjkRatio(text) > 0.5;
-  const computeWidth = (fontPt: number): number => {
+  const innerHeight = Math.max(0.12, rect.h - 0.12);
+  const textLines = text.split("\n");
+  const computeFit = (fontPt: number): { fits: boolean; widthNeeded: number; heightNeeded: number; unbreakableNeeded: number } => {
     // Bold display text in LibreOffice consistently rendered ~12-15% wider
     // than the cm/pt × char-count estimate; bake that in here so autoShrink
     // errs toward smaller-but-fits rather than estimated-fits-but-wraps.
     const boldFactor = isStyleBold(style.weight) ? (fontPt >= 22 ? 1.32 : 1.22) : 1;
     const latinW = fontPt * 0.019 * boldFactor;
     const cjkW = fontPt * 0.0353 * 1.05;
-    if (isMostlyCjk) return text.length * cjkW;
-    let w = 0;
-    for (const ch of text) w += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? cjkW : latinW;
-    return w;
+    const measureLine = (line: string): number => {
+      let w = 0;
+      for (const ch of line) w += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? cjkW : latinW;
+      return w;
+    };
+    const measureUnbreakable = (line: string): number => {
+      if (cjkRatio(line) > 0.3) {
+        const latinSegments = line.match(/[A-Za-z0-9_.:/@#%+\-]+/g) || [];
+        return Math.max(cjkW, ...latinSegments.map(measureLine));
+      }
+      const tokens = line.trim().split(/\s+/).filter(Boolean);
+      return Math.max(0, ...tokens.map(measureLine));
+    };
+    let widthNeeded = 0;
+    let unbreakableNeeded = 0;
+    let wrappedLines = 0;
+    for (const line of textLines) {
+      const measured = measureLine(line);
+      widthNeeded = Math.max(widthNeeded, measured);
+      unbreakableNeeded = Math.max(unbreakableNeeded, measureUnbreakable(line));
+      wrappedLines += Math.max(1, Math.ceil(measured / inner));
+    }
+    const lineHeightCm = typeof node.lineSpacing === "number" && Number.isFinite(node.lineSpacing) && node.lineSpacing > 0
+      ? node.lineSpacing * 0.0353
+      : fontPt * 0.0353 * style.lineHeight;
+    const heightNeeded = wrappedLines * lineHeightCm;
+    return {
+      fits: unbreakableNeeded <= inner && (wrappedLines === 1 || heightNeeded <= innerHeight + 0.08),
+      widthNeeded,
+      heightNeeded,
+      unbreakableNeeded,
+    };
   };
-  if (computeWidth(style.fontSize) <= inner) return style;
+  const initial = computeFit(style.fontSize);
+  if (initial.fits) return style;
   const minPt = Math.max(8, style.fontSize * 0.7);
   let lo = minPt, hi = style.fontSize, fitted = minPt;
   for (let iter = 0; iter < 12; iter++) {
     const mid = (lo + hi) / 2;
-    if (computeWidth(mid) <= inner) {
+    if (computeFit(mid).fits) {
       fitted = mid;
       lo = mid;
     } else {
@@ -3719,7 +4046,29 @@ function autoShrinkStyle(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
   // Round to a half-pt to keep nice numbers.
   fitted = Math.round(fitted * 2) / 2;
   if (fitted >= style.fontSize - 0.25) return style;
+  const severe = isSevereTextShrink(node, styleKey, style.fontSize, fitted);
+  if (severe || fitted <= 9 || fitted <= style.fontSize * 0.78) {
+    pushDiagnostic({
+      severity: severe ? "error" : "warn",
+      code: "TRUNCATED",
+      slideId: currentSlideId || undefined,
+      nodeId: node.id,
+      message: `Text '${nodeLabel(node)}' was auto-shrunk from ${style.fontSize.toFixed(1)}pt to ${fitted.toFixed(1)}pt to fit its assigned text box after wrapping.`,
+      suggestion: severe
+        ? "This body text is no longer presentation-readable. Give it more width/height, split the content, shorten it, or choose a layout/component that gives body text more space."
+        : "Give this text more width/height, split the content, use shorter lines, or choose a layout/component that gives body text more space.",
+      measured: { available: inner, needed: initial.widthNeeded, heightAvailable: innerHeight, heightNeeded: initial.heightNeeded, unbreakableNeeded: initial.unbreakableNeeded, rect },
+    });
+  }
   return { ...style, fontSize: fitted };
+}
+
+function isSevereTextShrink(node: DomNode, styleKey: string, originalPt: number, fittedPt: number): boolean {
+  if (node.optional === true) return false;
+  if (styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") return false;
+  const bodyLike = styleKey === "paragraph" || styleKey === "caption" || styleKey === "figure-caption" || styleKey === "article" || styleKey === "lead";
+  if (!bodyLike) return false;
+  return fittedPt < 9.5 || fittedPt <= originalPt * 0.72;
 }
 
 /**
@@ -3770,6 +4119,27 @@ function weightsFromProp(value: unknown, count: number): number[] {
     return normalizeWeights(value.map((item) => typeof item === "number" && Number.isFinite(item) && item > 0 ? item : 1));
   }
   return normalizeWeights(Array.from({ length: count }, () => 1));
+}
+
+function gridColumnSizesFromProps(node: DomNode, columns: number, availableWidth: number): number[] {
+  if (Array.isArray(node.columnWeights) && node.columnWeights.length === columns) {
+    return weightsFromProp(node.columnWeights, columns).map((weight) => availableWidth * weight);
+  }
+  if (Array.isArray(node.colWidths) && node.colWidths.length === columns) {
+    const nums = node.colWidths.map((item) => typeof item === "number" && Number.isFinite(item) && item > 0 ? item : 0);
+    const sum = nums.reduce((acc, value) => acc + value, 0);
+    if (sum > 0) {
+      // Match table semantics: values close to the available width are cm;
+      // small fractional lists such as [0.12, 1] are proportions.
+      const looksAbsolute = Math.abs(sum - availableWidth) < availableWidth * 0.5 && nums.every((n) => n >= 0.3);
+      if (looksAbsolute) {
+        if (sum <= availableWidth) return nums;
+        return nums.map((n) => (n / sum) * availableWidth);
+      }
+      return normalizeWeights(nums).map((weight) => availableWidth * weight);
+    }
+  }
+  return weightsFromProp(undefined, columns).map((weight) => availableWidth * weight);
 }
 
 function normalizeWeights(values: number[]): number[] {
@@ -3832,6 +4202,11 @@ function numberProp(node: DomNode, key: string, fallback: number): number {
 function optionalNumberProp(node: DomNode, key: string): number | undefined {
   const value = node[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function alphaProp(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  return clamp(value, 0, 1);
 }
 
 function alignProp(node: DomNode): "left" | "center" | "right" {
