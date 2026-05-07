@@ -8,7 +8,7 @@ import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
 import type { Slideml2SourceDeck } from "./types.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
-import { buildTheme, color, preferredFont, resolveEmphasis, resolveFill, resolveFontWeight, sizeMultiplier, textStyle, type FontRole, type FontWeight, type SimpleTheme, type TextStyle } from "./theme.js";
+import { buildTheme, color, normalizeCornerRadius, preferredFont, resolveEmphasis, resolveFill, resolveFontWeight, sizeMultiplier, textStyle, type FontRole, type FontWeight, type SimpleTheme, type TextStyle } from "./theme.js";
 import { parseMarkdownInline, splitNumericRun } from "./markdown-inline.js";
 import { normalizeStrokeCm } from "./units.js";
 
@@ -1159,12 +1159,12 @@ function findConstrainingAncestor(direction: "horizontal" | "vertical", failingC
   const propsForVertical = ["fixedHeight", "minHeight", "height", "maxHeight"] as const;
   const propsForHorizontal = ["fixedWidth", "minWidth", "width", "maxWidth"] as const;
   const axisProps = direction === "vertical" ? propsForVertical : propsForHorizontal;
-  // 761q1u: walk past trivial decorative fixedHeights (< 0.4cm). These are
+  // 761q1u: walk past trivial decorative fixedHeights. These are
   // accent rules / dividers / chip ornaments — they're visually small and
   // never the actual bottleneck. Reporting them as the constraint sends
-  // agents on a wild goose chase ("relax accent.fixedHeight = 0.18cm" —
-  // doing so frees 0.18cm out of a 4cm shortfall).
-  const isMeaningfulConstraint = (value: number) => value >= 0.4;
+  // agents on a wild goose chase ("relax eyebrow.fixedHeight = 0.46cm" —
+  // doing so frees less than half a line when the real issue is page density).
+  const isMeaningfulConstraint = (value: number) => value >= 0.8;
   for (let i = ancestorStack.length - 1; i >= 0; i--) {
     const node = ancestorStack[i]!;
     for (const prop of axisProps) {
@@ -1275,7 +1275,6 @@ function isOverlayChild(node: DomNode): boolean {
   if (typeof node.anchor === "string" && ANCHOR_POINTS.has(node.anchor)) return true;
   if (typeof node.anchorTo === "string" && node.anchorTo.length > 0) return true;
   if (isAbsoluteAt(node.at)) return true;
-  if (node.type === "image" && (node.position === "bottom-right" || node.position === "top-right" || node.position === "center")) return true;
   return false;
 }
 
@@ -1382,12 +1381,13 @@ function protectedContentRect(theme: SimpleTheme, slideDom: DomNode): Rect {
     : theme.layout.contentTop;
   const y = Math.max(theme.layout.contentTop, minTop);
   const footerChrome = theme.chrome.pageNumber || Boolean(theme.chrome.footerText);
-  const protectedBottom = footerChrome ? Math.max(theme.layout.contentBottom, theme.chrome.footerHeight + 0.2) : theme.layout.contentBottom;
+  const footerTop = theme.layout.slideHeightCm - (theme.chrome.footerHeight + 0.2);
+  const bottom = footerChrome ? Math.min(theme.layout.contentBottom, footerTop) : theme.layout.contentBottom;
   return {
     x: theme.layout.pageMarginX,
     y,
     w: theme.layout.slideWidthCm - theme.layout.pageMarginX * 2,
-    h: Math.max(0.2, theme.layout.slideHeightCm - y - protectedBottom),
+    h: Math.max(0.2, bottom - y),
   };
 }
 
@@ -1428,25 +1428,10 @@ function rectForSlideChild(theme: SimpleTheme, node: DomNode, slideDom?: DomNode
     const [x, y, w, h] = node.at;
     return { x, y, w: Math.max(0.03, w), h: Math.max(0.03, h) };
   }
-  if (node.type === "image" && node.position === "bottom-right") {
-    const w = numberProp(node, "width", 2.4);
-    const h = numberProp(node, "height", 1.0);
-    return { x: theme.layout.slideWidthCm - w - 0.7, y: theme.layout.slideHeightCm - h - 0.55, w, h };
-  }
-  if (node.type === "image" && node.position === "top-right") {
-    const w = numberProp(node, "width", 2.4);
-    const h = numberProp(node, "height", 1.0);
-    return { x: theme.layout.slideWidthCm - w - 0.7, y: 0.55, w, h };
-  }
-  if (node.type === "image" && node.position === "center") {
-    const w = numberProp(node, "width", 8);
-    const h = numberProp(node, "height", 5);
-    return { x: (theme.layout.slideWidthCm - w) / 2, y: (theme.layout.slideHeightCm - h) / 2, w, h };
-  }
   if (stringProp(node, "area", "") === "content") {
     return slideDom
       ? protectedContentRect(theme, slideDom)
-      : { x: theme.layout.pageMarginX, y: theme.layout.contentTop, w: theme.layout.slideWidthCm - theme.layout.pageMarginX * 2, h: theme.layout.slideHeightCm - theme.layout.contentTop - theme.layout.contentBottom };
+      : { x: theme.layout.pageMarginX, y: theme.layout.contentTop, w: theme.layout.slideWidthCm - theme.layout.pageMarginX * 2, h: theme.layout.contentBottom - theme.layout.contentTop };
   }
   return fullRect(theme);
 }
@@ -1700,7 +1685,7 @@ function renderPanel(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
   const style = theme.component.panel || {};
   const fillToken = stringProp(node, "fill", tone.fill || style.fill || "surface");
   const lineToken = stringProp(node, "line", tone.line || style.line || "divider");
-  const cornerRadius = optionalNumberProp(node, "cornerRadius") ?? style.radius ?? 0.12;
+  const cornerRadius = optionalCornerRadiusProp(node) ?? style.cornerRadius ?? 0.12;
   // Panels default to "flat" — they're surface containers, not raised
   // cards. Agents who want elevation pass elevation:"raised".
   const elevation = resolveElevation(node.elevation) ?? "flat";
@@ -1737,7 +1722,7 @@ function renderCard(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const style = theme.component.card || {};
   const fillToken = stringProp(node, "fill", tone.fill || style.fill || "surface");
   const lineToken = stringProp(node, "line", tone.line || style.line || "divider");
-  const cornerRadius = optionalNumberProp(node, "cornerRadius") ?? style.radius ?? 0.12;
+  const cornerRadius = optionalCornerRadiusProp(node) ?? style.cornerRadius ?? 0.12;
   const padding = optionalNumberProp(node, "padding") ?? style.padding ?? 0.5;
   // Cards default to subtle elevation so they stand off the page; agents who
   // want a flat card pass elevation:"flat". The shadow inherits the tone's
@@ -1829,7 +1814,7 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const style = theme.component.band || {};
   const fillToken = stringProp(node, "fill", tone.fill || style.fill || "surface.subtle");
   const childFgToken = readableTextColorForFill(theme, fillToken, tone.fg);
-  const cornerRadius = optionalNumberProp(node, "cornerRadius") ?? style.radius ?? 0;
+  const cornerRadius = optionalCornerRadiusProp(node) ?? style.cornerRadius ?? 0;
   // umzrkm fix: agents reach for `band` when they want a thin colored
   // divider line ({ type:"band", tone:"brand", height:0.05 }) — `height`
   // gets aliased to `fixedHeight` upstream, but the band still applied
@@ -1882,7 +1867,7 @@ function renderFrame(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
   const fixedH = optionalNumberProp(node, "fixedHeight");
   const isDividerLikeFrame = (!Array.isArray(node.children) || node.children.length === 0)
     && typeof fixedH === "number" && fixedH < 0.6;
-  const cornerRadius = optionalNumberProp(node, "cornerRadius") ?? (isDividerLikeFrame ? 0 : (style.radius ?? 0.12));
+  const cornerRadius = optionalCornerRadiusProp(node) ?? (isDividerLikeFrame ? 0 : (style.cornerRadius ?? 0.12));
   const padding = optionalNumberProp(node, "padding") ?? (isDividerLikeFrame ? 0 : (style.padding ?? 0.4));
   const innerRect: Rect = { x: rect.x + padding, y: rect.y + padding, w: Math.max(0, rect.w - padding * 2), h: Math.max(0, rect.h - padding * 2) };
   const shapes: ShapeList = [{
@@ -1970,7 +1955,7 @@ function assembleLayeredContainer(
   // the radius so the image fits the container's rounded corners. This
   // is the lightweight clipping case — full container clipping for all
   // child types is harder in OOXML and out of scope here.
-  const parentCornerRadius = optionalNumberProp(node, "cornerRadius");
+  const parentCornerRadius = optionalCornerRadiusProp(node);
   const behind: ShapeList = [];
   const flow: ShapeList = [];
   const above: ShapeList = [];
@@ -2088,7 +2073,7 @@ function textShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId:
   const paragraphs = buildParagraphs(theme, node, style);
   const autoFit = effectiveAutoFit === "shrink" || effectiveAutoFit === "resize" ? effectiveAutoFit : undefined;
   const cornerRadius = typeof node.cornerRadius === "number"
-    ? node.cornerRadius
+    ? normalizeCornerRadius(node.cornerRadius)
     : (typeof node.fill === "string" || typeof node.line === "string" ? 0.08 : undefined);
   return {
     type: "text",
@@ -2352,7 +2337,7 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
     xfrm: xfrm(shapeRect, shapeNode),
     fill: fillToken ? { type: "solid", color: color(theme, fillToken), ...(fillAlpha !== undefined ? { alpha: fillAlpha } : {}) } : { type: "none" },
     line: lineToken ? { color: color(theme, lineToken), width: cm(lineWidthCm), ...(lineDash ? { dash: lineDash } : {}), ...(lineAlpha !== undefined ? { alpha: lineAlpha } : {}) } : undefined,
-    ...(typeof node.cornerRadius === "number" ? { cornerRadius: node.cornerRadius } : marker?.cornerRadius !== undefined ? { cornerRadius: marker.cornerRadius } : {}),
+    ...(typeof node.cornerRadius === "number" ? { cornerRadius: normalizeCornerRadius(node.cornerRadius) } : marker?.cornerRadius !== undefined ? { cornerRadius: marker.cornerRadius } : {}),
   };
 }
 
@@ -2529,10 +2514,12 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     rows: allRows,
     colWidths,
     firstRowHeader,
+    compact: node.density === "compact",
   });
   const cells = makeTableCells(theme, allRows, colCount, firstRowHeader, cellAlign, {
     headerFill: typeof node.headerFill === "string" ? node.headerFill : undefined,
     bodyFill: typeof node.bodyFill === "string" ? node.bodyFill : undefined,
+    compact: node.density === "compact",
   });
   pushTableFitDiagnostics(theme, node, rect, allRows, colWidths, rowHeightsCm, firstRowHeader);
   return {
@@ -2555,7 +2542,7 @@ function makeTableCells(
   colCount: number,
   firstRowHeader: boolean,
   defaultAlign: "left" | "center" | "right",
-  defaults: { headerFill?: string; bodyFill?: string } = {},
+  defaults: { headerFill?: string; bodyFill?: string; compact?: boolean } = {},
 ): TableCell[][] {
   const out: TableCell[][] = [];
   const occupied: boolean[][] = [];
@@ -2630,7 +2617,7 @@ function resolveTableRowHeights(
   raw: unknown,
   rowCount: number,
   totalCm: number,
-  intrinsic?: { theme: SimpleTheme; rows: unknown[][]; colWidths: number[]; firstRowHeader: boolean },
+  intrinsic?: { theme: SimpleTheme; rows: unknown[][]; colWidths: number[]; firstRowHeader: boolean; compact?: boolean },
 ): number[] {
   if (Array.isArray(raw) && raw.length === rowCount) {
     const nums = raw.map((v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
@@ -2642,7 +2629,7 @@ function resolveTableRowHeights(
     }
   }
   if (intrinsic && intrinsic.rows.length === rowCount) {
-    const needed = estimateTableRowHeights(intrinsic.theme, intrinsic.rows, intrinsic.colWidths, intrinsic.firstRowHeader)
+    const needed = estimateTableRowHeights(intrinsic.theme, intrinsic.rows, intrinsic.colWidths, intrinsic.firstRowHeader, intrinsic.compact === true)
       .map((h) => Math.max(0.24, h));
     const sum = needed.reduce((a, b) => a + b, 0);
     if (sum > 0 && Number.isFinite(sum)) {
@@ -2664,10 +2651,9 @@ function makeTableCell(
   raw: unknown,
   isHeader: boolean,
   defaultAlign: "left" | "center" | "right",
-  defaults: { headerFill?: string; bodyFill?: string } = {},
+  defaults: { headerFill?: string; bodyFill?: string; compact?: boolean } = {},
 ): TableCell {
-  const kind = isHeader ? "table-header" : "table-cell";
-  const style = textStyle(theme, kind, "table-cell");
+  const style = tableTextStyle(theme, isHeader, defaults.compact === true);
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const cell = raw as Record<string, unknown>;
     const text = typeof cell.text === "string" ? cell.text : "";
@@ -2852,11 +2838,13 @@ function imageShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     fit: node.fit === "cover" || node.fit === "fill" ? node.fit : "contain",
   };
   if (node.clip === "rounded" || node.clip === "circle" || node.clip === "square") shape.clip = node.clip;
-  if (typeof node.cornerRadius === "number") shape.cornerRadius = node.cornerRadius;
+  if (typeof node.cornerRadius === "number") shape.cornerRadius = normalizeCornerRadius(node.cornerRadius);
   const border = imageBorderSpec(theme, node);
   if (border) shape.border = border;
   const overlay = imageOverlaySpec(theme, node);
   if (overlay) shape.overlay = overlay;
+  const opacity = alphaProp(node.opacity);
+  if (opacity !== undefined) shape.opacity = opacity;
   const crop = imageCropSpec(node);
   if (crop) shape.crop = crop;
   if (typeof node.softEdge === "number") shape.softEdge = node.softEdge;
@@ -3157,7 +3145,7 @@ function containerBackgroundShape(theme: SimpleTheme, node: DomNode, rect: Rect,
   const fillToken = typeof node.fill === "string" ? node.fill : style.fill;
   const lineToken = typeof node.line === "string" ? node.line : style.line;
   if (!fillToken && !lineToken) return [];
-  const cornerRadius = typeof node.cornerRadius === "number" ? node.cornerRadius : 0.08;
+  const cornerRadius = typeof node.cornerRadius === "number" ? normalizeCornerRadius(node.cornerRadius) : 0.08;
   return [{
     type: "shape",
     id: ids.nextId++,
@@ -3198,17 +3186,19 @@ function contentRect(theme: SimpleTheme, node: DomNode, rect: Rect): Rect {
 function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "horizontal" | "vertical", availableMain: number, crossSize: number): void {
   if (parent.__fallbackApplied === true) return;
   parent.__fallbackApplied = true;
-  const children = parent.children || [];
-  if (children.length === 0) return;
+  const children = () => parent.children || [];
+  if (children().length === 0) return;
 
   const gap = gapCm(theme, parent);
   const sumIntrinsic = () => {
-    const specs = children.map((child) => childMainSpec(theme, child, direction, crossSize));
-    return specs.reduce((sum, spec) => sum + spec.basis, 0) + gap * Math.max(0, children.length - 1);
+    const current = children();
+    const specs = current.map((child) => childMainSpec(theme, child, direction, crossSize));
+    return specs.reduce((sum, spec) => sum + spec.basis, 0) + gap * Math.max(0, current.length - 1);
   };
   const sumMin = () => {
-    const specs = children.map((child) => childMainSpec(theme, child, direction, crossSize));
-    return specs.reduce((sum, spec) => sum + spec.min, 0) + gap * Math.max(0, children.length - 1);
+    const current = children();
+    const specs = current.map((child) => childMainSpec(theme, child, direction, crossSize));
+    return specs.reduce((sum, spec) => sum + spec.min, 0) + gap * Math.max(0, current.length - 1);
   };
 
   // Stage 1 covered by solver; we only act when min sum exceeds available.
@@ -3216,7 +3206,7 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
 
   // Stage 2: demote density.
   let demoted = 0;
-  for (const child of children) {
+  for (const child of children()) {
     if (child.type === "bullets" && child.density !== "compact") {
       child.density = "compact";
       demoted++;
@@ -3244,8 +3234,8 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
   if (demoted > 0 && sumMin() <= availableMain + 0.001) return;
 
   // Stage 3: drop optional.
-  const before = children.length;
-  const remaining = children.filter((child) => {
+  const before = children().length;
+  const remaining = children().filter((child) => {
     if (child.optional === true) {
       pushDiagnostic({
         severity: "warn",
@@ -3342,7 +3332,11 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
     node.children = savedChildren;
     return layered.map((c) => ({ node: c, rect }));
   }
-  const initialAvailable = Math.max(0, mainSize - gap * (initialChildren.length - 1));
+  // applyFallbackLadder compares total child demand including gaps
+  // (`sumMin` / `sumIntrinsic` add gap * (n - 1)). Pass the full main-axis
+  // size here; subtracting gaps here as well double-counts spacing and
+  // falsely reports FALLBACK_FAILED for otherwise valid compact stacks.
+  const initialAvailable = Math.max(0, mainSize);
   applyFallbackLadder(theme, node, direction, initialAvailable, crossSize);
   const children = node.children || [];
   // Restore the full child list so renderStack still iterates the full
@@ -3703,7 +3697,7 @@ function intrinsicMinSize(theme: SimpleTheme, node: DomNode, direction: "horizon
 function tableIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number): number {
   const { allRows, colCount, firstRowHeader, colWidths } = tableLayoutInfo(node, widthCm);
   if (allRows.length === 0) return 0.9;
-  const rowHeights = estimateTableRowHeights(theme, allRows, colWidths, firstRowHeader);
+  const rowHeights = estimateTableRowHeights(theme, allRows, colWidths, firstRowHeader, node.density === "compact");
   return Math.min(10, Math.max(0.9, rowHeights.reduce((sum, h) => sum + h, 0)));
 }
 
@@ -3734,30 +3728,40 @@ function tableLayoutInfo(node: DomNode, widthCm: number): {
   return { allRows, colCount, firstRowHeader, colWidths };
 }
 
-function estimateTableRowHeights(theme: SimpleTheme, rows: unknown[][], colWidths: number[], firstRowHeader: boolean): number[] {
+function estimateTableRowHeights(theme: SimpleTheme, rows: unknown[][], colWidths: number[], firstRowHeader: boolean, compact = false): number[] {
   return rows.map((row, rowIndex) => {
     const isHeader = rowIndex === 0 && firstRowHeader;
-    let needed = isHeader ? 0.55 : 0.48;
+    let needed = compact ? (isHeader ? 0.42 : 0.36) : (isHeader ? 0.55 : 0.48);
     for (let col = 0; col < Math.max(row.length, colWidths.length); col++) {
       const raw = row[col] ?? "";
-      needed = Math.max(needed, tableCellIntrinsicHeight(theme, raw, colWidths[col] || colWidths[0] || 1, isHeader));
+      needed = Math.max(needed, tableCellIntrinsicHeight(theme, raw, colWidths[col] || colWidths[0] || 1, isHeader, compact));
     }
     return needed;
   });
 }
 
-function tableCellIntrinsicHeight(theme: SimpleTheme, raw: unknown, widthCm: number, isHeader: boolean): number {
+function tableTextStyle(theme: SimpleTheme, isHeader: boolean, compact: boolean): ReturnType<typeof textStyle> {
   const kind = isHeader ? "table-header" : "table-cell";
   const style = textStyle(theme, kind, "table-cell");
+  if (!compact) return style;
+  return {
+    ...style,
+    fontSize: Math.max(isHeader ? 8.5 : 8, style.fontSize - (isHeader ? 0.8 : 1.0)),
+    lineHeight: Math.min(style.lineHeight, isHeader ? 1.12 : 1.15),
+  };
+}
+
+function tableCellIntrinsicHeight(theme: SimpleTheme, raw: unknown, widthCm: number, isHeader: boolean, compact = false): number {
+  const style = tableTextStyle(theme, isHeader, compact);
   const text = tableCellText(raw);
-  const contentWidth = Math.max(0.8, widthCm - 0.52);
+  const contentWidth = Math.max(0.8, widthCm - (compact ? 0.38 : 0.52));
   const fontPt = style.fontSize;
   const lines = estimatedWrappedLineCount(theme, text, fontPt, isStyleBold(style.weight), contentWidth);
   // Native PowerPoint table cells reserve top/bottom inset and tend to look
   // cramped before geometric overflow is visible in our outer layout. Keep a
   // conservative readable floor so dense 6x7 comparison tables fail validation
   // instead of shipping rows that visually collide in PowerPoint.
-  const verticalPadding = isHeader ? 0.38 : 0.42;
+  const verticalPadding = compact ? (isHeader ? 0.24 : 0.28) : (isHeader ? 0.38 : 0.42);
   return lines * fontPt * 0.0353 * style.lineHeight + verticalPadding;
 }
 
@@ -3772,7 +3776,7 @@ function tableCellText(raw: unknown): string {
 }
 
 function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, rows: unknown[][], colWidths: number[], rowHeights: number[], firstRowHeader: boolean): void {
-  const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader);
+  const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, node.density === "compact");
   const shortRows = needed
     .map((height, index) => ({ index, needed: height, available: rowHeights[index] || 0 }))
     .filter((row) => row.needed > row.available + 0.08);
@@ -3795,9 +3799,23 @@ const CONTENT_HUG_STACK_ROLES = new Set([
 ]);
 
 function contentHugSafetySlack(node: DomNode): number {
-  if (node.role === "callout") return 0.58;
+  if (node.role === "callout") {
+    // Short callouts should hug their text; the larger safety slack is only
+    // needed for long/rich callouts where PowerPoint's text metrics can add
+    // another wrapped line.
+    return subtreeWeightedTextLength(node) <= 52 ? 0.48 : 0.58;
+  }
   if (node.role === "quote") return 0.35;
   return 0;
+}
+
+function subtreeWeightedTextLength(node: DomNode): number {
+  let total = weightedTextLength(renderedTextContent(node));
+  if (node.type === "bullets" && Array.isArray(node.items)) {
+    total += node.items.reduce((sum, item) => sum + weightedTextLength(String(item ?? "")), 0);
+  }
+  for (const child of node.children || []) total += subtreeWeightedTextLength(child);
+  return total;
 }
 
 function canGrow(node: DomNode): boolean {
@@ -4319,6 +4337,11 @@ function numberProp(node: DomNode, key: string, fallback: number): number {
 function optionalNumberProp(node: DomNode, key: string): number | undefined {
   const value = node[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function optionalCornerRadiusProp(node: DomNode): number | undefined {
+  const value = optionalNumberProp(node, "cornerRadius");
+  return value === undefined ? undefined : normalizeCornerRadius(value);
 }
 
 function alphaProp(value: unknown): number | undefined {

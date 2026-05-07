@@ -4,6 +4,19 @@ Use this reference for business-related PPT generation: market research, industr
 
 The goal is a decision-quality business deck, not a decorative article. The viewer should understand the answer, the proof, and the decision implication without reading speaker notes.
 
+## First-Read Non-Negotiables
+
+These rules must be applied before `create_deck`. If this file was opened with `read_file` and the header says `truncated:true`, continue reading from `next_offset` before planning; do not infer business style from a partial read.
+
+- Business research decks are **light-first**. Use white or near-white backgrounds for most analysis pages. Reserve dark or saturated backgrounds for covers, chapter resets, hero-stat pages, or an explicit dark-theme user request.
+- Install a light analytical `themeOverride` at `create_deck` time: `background:"FFFFFF"`, `surface:"F8FAFC"`, `text.primary:"111827"`, `text.muted:"6B7280"`, `divider:"E5E7EB"`, plus one brand accent and stable status colors.
+- Do not make a full business report dark by default. Dense tables, charts, source notes, and bullets need high-contrast light surfaces unless the user explicitly asks otherwise.
+- Component route comes before JSON. Prefer `executive-summary`, `chart-with-rail`, `evidence-layout`, `bar-list`, `scorecard`, `comparison-table`, `matrix-2x2`, `process-flow`, `axis-ruler`, and `failure-taxonomy` over generic `grid` + `insight-card` pages.
+- `insight-card` is only for curated peer findings. If a slide has 3-4 `insight-card`s and no dominant evidence object or decision frame, redesign it with a more semantic component.
+- Use cards only for modular objects such as options, metrics, or evidence tiles. Do not turn every paragraph into a card.
+- Generate icons only when they will be placed in the deck. After `generate_icon_sheet`, use returned `manifest.icons[].path` as `iconSrc` or image-card/image source; unused assets do not improve the slide.
+- Validate after every 1-2 slide writes with `validate_render({render:true})`. Do not batch the whole deck and repair everything at the end.
+
 ## Core Principle
 
 Default to a McKinsey/BCG-style analytical memo:
@@ -13,6 +26,25 @@ Default to a McKinsey/BCG-style analytical memo:
 - Prefer charts, tables, ranked lists, matrices, and process/decision components over generic card grids.
 - Use page titles as conclusions: "Luxury positioning is now the growth driver", not "Market Analysis".
 - Treat visual style as quiet infrastructure. The data and recommendation should be louder than decoration.
+
+## Business Authoring Loop
+
+Before writing each business slide, choose the page role and component route. This is the main control against repetitive `insight-card` pages, generic cards, and manual text-box layouts.
+
+| Business page role | Use first | Use with | Do not default to |
+| --- | --- | --- | --- |
+| Executive answer | `executive-summary` | `key-takeaway`, `takeaway-list` | four equal cards |
+| Market proof / trend proof | `chart-with-rail` | `chart-card`, `bar-list`, `side-rail` | chart plus loose text boxes |
+| Evidence table / benchmark | `evidence-layout` | `table-card`, `fact-list`, `comparison-table` | manually aligned text columns |
+| Category or segment ranking | `bar-list` | `chart-card`, `donut-summary` | card grid of category names |
+| KPI / operating snapshot | `scorecard` or `kpi-grid` | `stat-strip`, `hero-stat` | paragraph-sized metric text |
+| Competitor / option choice | `comparison-table` | `comparison-list`, `matrix-2x2` | one card per competitor with no criteria |
+| Strategic positioning | `matrix-2x2` | `comparison-card`, `tag-list` | decorative quadrants built from shapes |
+| Causal chain / economics | `stat-flow` | `process-flow`, `explanation-block` | arrows plus text boxes |
+| Roadmap / execution | `process-flow` or `axis-ruler` | `timeline`, `checklist` | milestone pins as decoration |
+| Risks / mitigations | `failure-taxonomy` | `matrix-2x2`, `scorecard`, `checklist` | red cards without probability/impact |
+
+If the slide plan cannot be expressed by one row above, split the slide or call `describe_schema` for 2-4 candidate components before using manual `text`/`at`. `insight-card` is for curated findings in a peer set; it is not the default container for business prose.
 
 ## When To Use This Style
 
@@ -174,7 +206,7 @@ Set `themeOverride` at `create_deck` time. A safe default:
     "titleTop": 0.75,
     "titleHeight": 1.35,
     "contentTop": 2.6,
-    "contentBottom": 0.9,
+    "contentBottom": 13.35,
     "defaultGap": 0.48
   },
   "component": {
@@ -186,7 +218,7 @@ Set `themeOverride` at `create_deck` time. A safe default:
 
 Adjust the accent color to the company/industry if the brief provides one. Keep semantic status colors stable: green = good/upside, amber = caution, red = risk.
 
-Use only effective theme fields. Vertical page rhythm is controlled by `titleTop`, `titleHeight`, `contentTop`, and `contentBottom`; do not invent `pageMarginY`. Component borders use the `divider` token by default. Font chains are preference order: put the font you most want to use first. PPTX OOXML emits that first face for each script/role and SlideML2 does not embed fonts, so the first face should also be available in the render/viewing environment when fidelity matters.
+Use only effective theme fields. Vertical page rhythm is controlled by `titleTop`, `titleHeight`, `contentTop`, and `contentBottom`; do not invent `pageMarginY`. `contentTop` and `contentBottom` are y-coordinates for the content area; on 16:9 business decks, `contentBottom` is usually `13.0`-`13.5`. Component borders use the `divider` token by default. Font chains are preference order: put the font you most want to use first. PPTX OOXML emits that first face for each script/role and SlideML2 does not embed fonts, so the first face should also be available in the render/viewing environment when fidelity matters.
 
 ### Composition
 

@@ -451,14 +451,15 @@ function summarizeDiagnostics(items: LayoutDiagnostic[]): Record<string, number>
 
 function blockingDiagnostics(items: LayoutDiagnostic[]): LayoutDiagnostic[] {
   const blockingCodes = new Set<LayoutDiagnostic["code"]>([
-    "DROP",
     "COLLISION",
     "UNKNOWN_COLOR",
     "UNKNOWN_STYLE",
     "TINY_RECT",
     "SQUASHED",
     "FALLBACK_FAILED",
+    "TITLE_OCCLUDED",
     "LOW_CONTRAST",
+    "SHAPE_INVISIBLE",
   ]);
   return items.filter((item) => item.severity === "error" || blockingCodes.has(item.code));
 }

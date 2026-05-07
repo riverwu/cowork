@@ -17,6 +17,7 @@ import { shellExecSkill } from "./shell-exec";
 import { applyPatchSkill } from "./apply-patch";
 import { updateTaskProgress } from "./update-task-progress";
 import { imageGen } from "./image-gen";
+import { generateIconSheet } from "./generate-icon-sheet";
 import { describeSchemaTool } from "./describe-schema";
 import { createDeckTool } from "./create-deck";
 import { readDeckTool } from "./read-deck";
@@ -34,13 +35,14 @@ import { validateRenderTool } from "./validate-render";
  * Web:                     web_search, web_fetch, browser
  * Knowledge & memory:      list_knowledge_sources, get_source_catalog, search_knowledge, save_memory
  * Output / progress:       create_artifact, update_task_progress
- * Media:                   image_gen
+ * Media:                   image_gen, generate_icon_sheet
  * Decks (SlideML2):        describe_schema, create_deck, read_deck, replace_slide, insert_slide, delete_slide, patch_deck, validate_render
- *   Skill:                 read the slideml2 SKILL.md once per deck task
+ *   Skill:                 read the slideml2 SKILL.md once per deck task; for business/research decks also read sibling business.md completely
  *   Discovery:             describe_schema({ components }) for focused prop schemas
  *   Typical authoring:     create_deck → replace_slide (append by passing slideId == slideCount)
  *   Editing:               replace_slide (slide content) | insert_slide (new at index) | delete_slide (by id/index) | patch_deck (deck-level fields, reorder)
  *   Render & QA:           validate_render (schema + render + diagnostics; use periodically and before final delivery)
+ *   Do not bypass:          do not hand-edit SlideML2 deck JSON via write_file/run_node/run_python, and do not fallback to python-pptx after validate_render fails unless the user explicitly asks to abandon SlideML2.
  *
  * The agent must activate the slideml2 skill once at the start of any deck
  * task. Its SKILL.md carries the design taste, component philosophy,
@@ -66,6 +68,7 @@ const tools: Record<string, Tool> = {
   create_artifact: createArtifactSkill,
   update_task_progress: updateTaskProgress,
   image_gen: imageGen,
+  generate_icon_sheet: generateIconSheet,
   describe_schema: describeSchemaTool,
   create_deck: createDeckTool,
   read_deck: readDeckTool,

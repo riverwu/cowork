@@ -1,5 +1,5 @@
 import {
-  applyAgentSurface, arrowLink, badge, barList, bigPageNumber, bracket, bulletList, calloutMarker, checklist,
+  applyAgentSurface, arrowLink, badge, barList, bigPageNumber, brandMark, bracket, bulletList, calloutMarker, checklist,
   comparisonCard, comparisonTable, cornerMark, ctaButton, decorationGrid, decorativeShapes, donutSummary,
   featureCard, flowArrow, funnel, gauge, glossary, heatmap, heroStat, iconText, insightCallout,
   keyTakeaway, kpiGrid, legend, logoStrip, matrix2x2, metricCard, numberedGrid, numberedList,
@@ -90,6 +90,7 @@ export type ComponentName =
   | "decoration-grid"
   | "decorative-shapes"
   | "corner-mark"
+  | "brand-mark"
   | "bracket"
   | "arrow-link"
   | "pointer-arrow"
@@ -111,7 +112,7 @@ export type ComponentName =
   | "main-effect-comparison";
 
 export interface PropDefinition {
-  type: "string" | "number" | "boolean" | "enum" | "array" | "object" | "image-ref" | "table" | "chart";
+  type: "string" | "number" | "boolean" | "enum" | "array" | "object" | "image-ref" | "color-ref" | "table" | "chart";
   required?: boolean;
   semantic?: string;
   enum?: string[];
@@ -257,7 +258,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     definition: { type: "string", required: true, semantic: "paragraph", description: "Definition." },
   }, "stack(text.card-title, text.paragraph)", "grid"),
   component("numbered-list", "Ordered text list where sequence or priority matters but each item is still brief prose. Use numbered-grid when each item should become a designed module.", {
-    items: { type: "array", required: true, semantic: "bullet", description: "Ordered list items (string[])." },
+    items: { type: "array", required: true, semantic: "bullet", description: "Ordered list items. Each item may be a string or {title/headline/label/name/text, body/detail/description?}." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Bullet density." },
   }, "bullets with numbered:true", "stack"),
   component("quote", "Verbatim or voice-like statement with optional attribution. Use when authority, emotion, or wording is the evidence.", {
@@ -306,6 +307,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   }, "text on roundRect surface", "stack"),
   component("feature-card", "One feature, capability, benefit, or ingredient of an offer. Use for modular value propositions, not for arbitrary bullet paragraphs.", {
     icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional large icon shape preset. Prefer marker for subtle item decoration." },
+    iconSrc: { type: "image-ref", description: "Optional generated/raster icon path. Use with generate_icon_sheet outputs; rendered as a contain-fit square icon." },
     title: { type: "string", required: true, semantic: "card-title", description: "Feature title." },
     body: { type: "string", semantic: "caption", description: "Optional supporting copy." },
     content: { type: "array", description: "Optional rich text runs for supporting copy." },
@@ -317,7 +319,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ctaText: { type: "string", description: "Optional compact action label." },
     iconColor: { type: "string", description: "Icon line color (theme token)." },
     iconBackground: { type: "string", description: "Icon fill (theme token)." },
-    tone: { type: "string", description: "Title color token." },
+    tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger"], description: "Semantic feature tone; controls title and marker color." },
+    titleColor: { type: "color-ref", description: "Explicit title color token when semantic tone is not enough." },
     variant: { type: "enum", enum: ["plain", "card", "compact"], description: "Visual treatment." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
     surface: { type: "object", description: "Optional surface override." },
@@ -499,6 +502,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     caption: { type: "string", description: "Optional source note below the table." },
     tone: { type: "enum", enum: ["neutral", "brand", "tinted"], description: "Card surface tone." },
     variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Table text density. Compact is suitable for 6-8 row business tables." },
     surface: { type: "object", description: "Optional surface override." },
   }, "card(stack(title?, table, caption?))", "stack"),
   component("insight-card", "One modular insight with badge/headline/detail/proof bullets. Use for a curated finding or recommendation, not generic paragraph storage; avoid filling a whole deck with repeated insight-card grids when process-flow, comparison-card, key-takeaway, chart-card, table-card, or evidence-layout better fits the slide job.", {
@@ -696,7 +700,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   }, "grid of small shape primitives in a repeating pattern", "stack"),
   component("decorative-shapes", "Cluster of decorative vector shapes for background texture, corner ornaments, confetti, bubbles, abstract blobs, or light scientific/tech motifs. Use when the slide needs visual atmosphere but not semantic content.", {
     motif: { type: "enum", enum: ["bubbles", "confetti", "corner-blobs", "sparkles", "molecule"], description: "Visual motif (default bubbles)." },
-    position: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right", "full"], description: "Where the cluster is anchored. full spans the slide as a background texture." },
+    anchor: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right", "full"], description: "Where the cluster is anchored. full spans the slide as a background texture." },
     tone: { type: "enum", enum: ["muted", "brand", "accent", "warning"], description: "Color family (default muted)." },
     count: { type: "number", description: "Approximate number of marks, 3-40." },
     width: { type: "number", description: "Cluster width in cm for corner positions." },
@@ -709,6 +713,15 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     tone: { type: "enum", enum: ["brand", "warning", "danger", "neutral"], description: "Color tone (default warning)." },
     style: { type: "enum", enum: ["ribbon", "stamp", "tag"], description: "Visual style (default tag)." },
   }, "anchored corner-positioned label shape", "stack"),
+  component("brand-mark", "Small brand/source label anchored to a slide corner. Use for unobtrusive footer marks such as customer, partner, source, or logo text. Prefer this over hand-coded at coordinates for corner labels.", {
+    text: { type: "string", required: true, description: "Brand/source label text." },
+    corner: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right"], description: "Corner anchor (default bottom-right)." },
+    tone: { type: "enum", enum: ["muted", "neutral", "inverse", "brand"], description: "Color tone (default muted)." },
+    width: { type: "number", description: "Label box width in cm (default 3.2)." },
+    height: { type: "number", description: "Label box height in cm (default 0.45)." },
+    offsetX: { type: "number", description: "Inset from left/right edge in cm (default 0.75)." },
+    offsetY: { type: "number", description: "Inset from top/bottom edge in cm (default 0.55)." },
+  }, "anchored text label", "stack"),
   component("bracket", "Geometric brace/bracket emphasizing a group of elements. Renders a thin shape on one side with optional label.", {
     direction: { type: "enum", enum: ["left", "right", "top", "bottom"], description: "Bracket side (default left)." },
     label: { type: "string", description: "Optional label rendered next to the bracket." },
@@ -740,7 +753,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   component("big-page-number", "Large decorative page number for cover/section slides. Different from chrome.pageNumber (small footer). Use as visual marker on chapter openers.", {
     current: { type: "string", required: true, description: "Current page number (e.g. 5 or \"Ch 5\")." },
     total: { type: "string", description: "Optional total (renders as \"05 / 22\")." },
-    position: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right"], description: "Corner anchor (default top-right)." },
+    corner: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right"], description: "Corner anchor (default top-right)." },
     tone: { type: "enum", enum: ["brand", "muted"], description: "Color tone." },
   }, "anchored hero-style number", "stack"),
   component("timeline-axis-bar", "Section navigation bar — N section dots with current section highlighted. Use at top of section break slides to communicate progress through deck.", {
@@ -762,10 +775,13 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     title: { type: "string", required: true, description: "Cover title." },
     subtitle: { type: "string", description: "Optional subtitle." },
     eyebrow: { type: "string", description: "Optional kicker." },
-    visual: { type: "object", description: "Optional {src, fit:'cover'|'contain', anchor?, width?, height?, opacity?} background or hero image." },
+    visual: { type: "object", description: "Optional {src, fit:'cover'|'contain', anchor?, width?, height?, offsetX?, offsetY?, opacity?, scrimOpacity?} background or hero image. Omitting geometry makes it full-bleed." },
     heroStat: { type: "object", description: "Optional {value,label,caption,tone} hero stat." },
     tone: { type: "enum", enum: ["neutral", "inverse", "brand"], description: "Text tone. Use inverse on dark/image backgrounds." },
     decor: { type: "enum", enum: ["none", "grid", "shapes"], description: "Optional background decoration." },
+    titleSize: { type: "enum", enum: ["deck-title", "slide-title", "section-title"], description: "Optional title scale override. Long cover titles auto-downgrade to slide-title." },
+    lockupWidth: { type: "number", description: "Optional title lockup width in cm. Defaults wider when no heroStat is present." },
+    lockupHeight: { type: "number", description: "Optional title lockup height in cm." },
   }, "fragment(background + title-lockup overlays)", "stack"),
   component("chapter-divider", "High-impact chapter opener with full-slide color field, large chapter number, title/subtitle lockup, and optional progress bar. Use for major section resets only.", {
     title: { type: "string", required: true, description: "Chapter title." },
@@ -940,7 +956,7 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
   if (componentName === "definition-card") return withComponentRoot(node, definitionCard(slideId, name, stringValue(node.term, ""), stringValue(node.definition, "")));
   if (componentName === "numbered-list") {
     const density = node.density === "compact" ? "compact" : "comfortable";
-    return withComponentRoot(node, numberedList(slideId, name, stringArray(node.items), density));
+    return withComponentRoot(node, numberedList(slideId, name, numberedListItems(node.items), density));
   }
   if (componentName === "quote") {
     return withComponentRoot(node, quoteBlock(slideId, name, stringValue(node.text, ""), stringValue(node.source, "")));
@@ -955,7 +971,7 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     }));
   }
   if (componentName === "timeline") {
-    const items = Array.isArray(node.items) ? node.items.map((raw) => {
+    const items = Array.isArray(node.items) ? node.items.map((raw, index) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
       // `content` accepts any DomNode (registered component or
       // primitive). It runs through the same materialize/expand path as
@@ -963,7 +979,7 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       // renderer recursively.
       const contentRaw = rec.content;
       const content: DomNode | undefined = contentRaw && typeof contentRaw === "object" && !Array.isArray(contentRaw)
-        ? contentRaw as DomNode
+        ? normalizeTimelineContent(slideId, name, index, contentRaw as DomNode)
         : undefined;
       return {
         time: stringValue(rec.time, stringValue(rec.date, stringValue(rec.year, ""))),
@@ -1044,8 +1060,11 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     }));
   }
   if (componentName === "feature-card") {
+    const rawTone = stringValue(node.tone, "");
+    const semanticTone = componentTone(rawTone);
     return withComponentRoot(node, featureCard(slideId, name, {
       icon: stringValue(node.icon, "ellipse"),
+      iconSrc: stringValue(node.iconSrc, ""),
       title: stringValue(node.title, ""),
       body: stringValue(node.body, ""),
       content: node.content,
@@ -1061,7 +1080,8 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       ctaText: stringValue(node.ctaText, ""),
       iconColor: stringValue(node.iconColor, ""),
       iconBackground: stringValue(node.iconBackground, ""),
-      tone: stringValue(node.tone, ""),
+      tone: semanticTone,
+      titleColor: stringValue(node.titleColor, semanticTone ? "" : rawTone),
       variant: node.variant === "card" || node.variant === "compact" ? node.variant : undefined,
       density: node.density === "compact" || node.density === "comfortable" ? node.density : undefined,
       ...surfaceOptions(node),
@@ -1473,11 +1493,11 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
   }
   if (componentName === "decorative-shapes") {
     const motif = node.motif === "confetti" || node.motif === "corner-blobs" || node.motif === "sparkles" || node.motif === "molecule" || node.motif === "bubbles" ? node.motif : undefined;
-    const position = node.position === "top-left" || node.position === "top-right" || node.position === "bottom-left" || node.position === "bottom-right" || node.position === "full" ? node.position : undefined;
+    const anchor = node.anchor === "top-left" || node.anchor === "top-right" || node.anchor === "bottom-left" || node.anchor === "bottom-right" || node.anchor === "full" ? node.anchor : undefined;
     const tone = node.tone === "brand" || node.tone === "accent" || node.tone === "warning" || node.tone === "muted" ? node.tone : undefined;
     return withComponentRoot(node, decorativeShapes(slideId, name, {
       motif,
-      position,
+      anchor,
       tone,
       count: typeof node.count === "number" ? node.count : undefined,
       width: typeof node.width === "number" ? node.width : undefined,
@@ -1492,6 +1512,19 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     return withComponentRoot(node, cornerMark(slideId, name, {
       text: stringValue(node.text, ""),
       corner: cn, tone: tn, style: st,
+    }));
+  }
+  if (componentName === "brand-mark") {
+    const corner = node.corner === "top-left" || node.corner === "top-right" || node.corner === "bottom-left" || node.corner === "bottom-right" ? node.corner : undefined;
+    const tn = node.tone === "muted" || node.tone === "neutral" || node.tone === "inverse" || node.tone === "brand" ? node.tone : undefined;
+    return withComponentRoot(node, brandMark(slideId, name, {
+      text: stringValue(node.text, ""),
+      corner,
+      tone: tn,
+      width: typeof node.width === "number" ? node.width : undefined,
+      height: typeof node.height === "number" ? node.height : undefined,
+      offsetX: typeof node.offsetX === "number" ? node.offsetX : undefined,
+      offsetY: typeof node.offsetY === "number" ? node.offsetY : undefined,
     }));
   }
   if (componentName === "bracket") {
@@ -1548,12 +1581,12 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     }));
   }
   if (componentName === "big-page-number") {
-    const pos = node.position === "top-left" || node.position === "top-right" || node.position === "bottom-left" || node.position === "bottom-right" ? node.position : undefined;
+    const corner = node.corner === "top-left" || node.corner === "top-right" || node.corner === "bottom-left" || node.corner === "bottom-right" ? node.corner : undefined;
     const tn = node.tone === "brand" || node.tone === "muted" ? node.tone : undefined;
     const cur = typeof node.current === "number" || typeof node.current === "string" ? node.current : "";
     const tot = typeof node.total === "number" || typeof node.total === "string" ? node.total : undefined;
     return withComponentRoot(node, bigPageNumber(slideId, name, {
-      current: cur, total: tot, position: pos, tone: tn,
+      current: cur, total: tot, corner, tone: tn,
     }));
   }
   if (componentName === "timeline-axis-bar") {
@@ -1918,7 +1951,8 @@ function calloutNode(slideId: string, name: string, node: DomNode): DomNode {
     return { ...expanded, ...toneProps, color: "text.primary" };
   }
   const children: DomNode[] = [];
-  const titleText = title || (variant === "banner" ? text : "");
+  const textPromotedToTitle = !title && variant === "banner" && Boolean(text);
+  const titleText = title || (textPromotedToTitle ? text : "");
   if (titleText) {
     children.push({
       id: `${slideId}.${name}.title`,
@@ -1930,8 +1964,9 @@ function calloutNode(slideId: string, name: string, node: DomNode): DomNode {
       autoFit: "shrink",
     });
   }
-  const bodyText = body || (titleText ? "" : text);
+  const bodyText = body || (textPromotedToTitle ? "" : text);
   if (bodyText || richContent) {
+    const bodyPlain = bodyText || richTextPlain(richContent);
     children.push({
       id: `${slideId}.${name}.body`,
       type: "text",
@@ -1940,7 +1975,8 @@ function calloutNode(slideId: string, name: string, node: DomNode): DomNode {
       style: variant === "banner" ? "lead" : "paragraph",
       color: "text.primary",
       autoFit: "shrink",
-      minHeight: 0.55,
+      lineHeight: variant === "banner" ? 1.42 : 1.45,
+      minHeight: estimateCalloutBodyMinHeight(bodyPlain, variant === "banner"),
     });
   }
   if (bullets.length > 0) children.push(bulletList(slideId, `${name}.bullets`, bullets.slice(0, 5), "compact"));
@@ -1999,26 +2035,48 @@ function coverCompositionNode(slideId: string, name: string, node: DomNode): Dom
   const decor = node.decor === "grid" || node.decor === "shapes" ? node.decor : "none";
   const visual = node.visual && typeof node.visual === "object" ? node.visual as Record<string, unknown> : {};
   const hero = node.heroStat && typeof node.heroStat === "object" ? node.heroStat as Record<string, unknown> : {};
+  const hasHero = Boolean(stringValue(hero.value, ""));
+  const title = stringValue(node.title, "");
+  const titleWeight = weightedTextLengthForComponent(title);
+  const titleStyle = node.titleSize === "slide-title" || node.titleSize === "section-title" || node.titleSize === "deck-title"
+    ? node.titleSize
+    : titleWeight > 18
+      ? "slide-title"
+      : "deck-title";
+  const requestedLockupWidth = numberValue(node.lockupWidth, hasHero ? 13.5 : 18.4);
+  const requestedLockupHeight = numberValue(node.lockupHeight, titleStyle === "deck-title" ? 6.1 : 5.6);
+  const lockupWidth = Math.max(hasHero ? 13.5 : 16.5, Math.min(20.8, requestedLockupWidth));
+  const lockupHeight = Math.max(titleStyle === "deck-title" ? 4.8 : 3.6, Math.min(8.4, requestedLockupHeight));
   const children: DomNode[] = [];
   if (typeof visual.src === "string" && visual.src) {
+    const anchorVals = ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
+    const visualAnchor = typeof visual.anchor === "string" && anchorVals.includes(visual.anchor) ? visual.anchor : "top-left";
+    const visualHasBox = visual.fillSlide === false
+      || typeof visual.width === "number"
+      || typeof visual.height === "number"
+      || (typeof visual.anchor === "string" && visualAnchor !== "top-left");
+    const visualOpacity = numberValue(visual.opacity, undefined);
     children.push({
       id: `${slideId}.${name}.visual`,
       type: "image",
       src: visual.src,
       alt: stringValue(visual.alt, stringValue(node.title, "cover visual")),
       fit: visual.fit === "contain" || visual.fit === "fill" ? visual.fit : "cover",
-      anchor: "top-left",
-      offsetX: 0,
-      offsetY: 0,
-      fillSlide: true,
+      anchor: visualAnchor,
+      offsetX: numberValue(visual.offsetX, 0),
+      offsetY: numberValue(visual.offsetY, 0),
+      ...(visualHasBox
+        ? { width: numberValue(visual.width, 9.2), height: numberValue(visual.height, 8.4) }
+        : { fillSlide: true }),
+      ...(visualOpacity !== undefined ? { opacity: visualOpacity } : {}),
       zIndex: -3,
     });
     if (tone === "inverse") {
-      children.push({ id: `${slideId}.${name}.scrim`, type: "shape", preset: "rect", fill: "000000", anchor: "top-left", offsetX: 0, offsetY: 0, fillSlide: true, zIndex: -2 });
+      children.push({ id: `${slideId}.${name}.scrim`, type: "shape", preset: "rect", fill: "000000", fillOpacity: numberValue(visual.scrimOpacity, 0.42), anchor: "top-left", offsetX: 0, offsetY: 0, fillSlide: true, zIndex: -2 });
     }
   }
   if (decor === "grid") children.push(decorationGrid(slideId, `${name}.decor`, { pattern: "dots", density: "sparse", tone: "muted" }));
-  if (decor === "shapes") children.push(decorativeShapes(slideId, `${name}.decor`, { motif: "corner-blobs", position: "bottom-right", tone: "brand", count: 7 }));
+  if (decor === "shapes") children.push(decorativeShapes(slideId, `${name}.decor`, { motif: "corner-blobs", anchor: "bottom-right", tone: "brand", count: 7 }));
   children.push({
     id: `${slideId}.${name}.lockup`,
     type: "stack",
@@ -2027,16 +2085,16 @@ function coverCompositionNode(slideId: string, name: string, node: DomNode): Dom
     anchor: "middle-left",
     offsetX: 1.4,
     offsetY: 0,
-    width: 13.5,
-    height: 5.8,
+    width: lockupWidth,
+    height: lockupHeight,
     zIndex: 1,
     children: [
       ...(stringValue(node.eyebrow, "") ? [{ id: `${slideId}.${name}.eyebrow`, type: "text" as const, text: stringValue(node.eyebrow, ""), style: "label", color: tone === "inverse" ? "text.inverse" : "brand.primary", uppercase: true, letterSpacing: 100, minHeight: 0.45, autoFit: "shrink" as const }] : []),
-      { id: `${slideId}.${name}.title`, type: "text", text: stringValue(node.title, ""), style: "deck-title", color, align: "left", autoFit: "shrink" },
+      { id: `${slideId}.${name}.title`, type: "text", text: title, style: titleStyle, color, align: "left", autoFit: "shrink", minHeight: titleStyle === "deck-title" ? 1.55 : 1.15 },
       ...(stringValue(node.subtitle, "") ? [{ id: `${slideId}.${name}.subtitle`, type: "text" as const, text: stringValue(node.subtitle, ""), style: "lead", color: tone === "inverse" ? "text.inverse" : "text.muted", align: "left" as const, minHeight: 0.8, autoFit: "shrink" as const }] : []),
     ],
   });
-  if (stringValue(hero.value, "")) {
+  if (hasHero) {
     children.push({
       id: `${slideId}.${name}.hero`,
       type: "stack",
@@ -2068,7 +2126,7 @@ function chapterDividerNode(slideId: string, name: string, node: DomNode): DomNo
   const children: DomNode[] = [
     { id: `${slideId}.${name}.bg`, type: "shape", preset: "rect", fill: bg, line: bg, anchor: "top-left", offsetX: 0, offsetY: 0, fillSlide: true, zIndex: -2 },
     {
-      ...bigPageNumber(slideId, `${name}.num`, { current: stringValue(node.chapter, stringValue(node.number, "01")), position: "top-right", tone: tone === "neutral" ? "muted" : "brand" }),
+      ...bigPageNumber(slideId, `${name}.num`, { current: stringValue(node.chapter, stringValue(node.number, "01")), corner: "top-right", tone: tone === "neutral" ? "muted" : "brand" }),
       color: inverse ? "text.inverse" : "brand.primary",
       anchor: "top-right",
       offsetX: 0.9,
@@ -2588,6 +2646,9 @@ function tableCardNode(slideId: string, name: string, node: DomNode): DomNode {
   const insight = stringValue(node.insight, "");
   const caption = stringValue(node.caption, "");
   const data = node.data && typeof node.data === "object" ? node.data as Record<string, unknown> : {};
+  const tableRows = Array.isArray(node.rows) ? node.rows : Array.isArray(data.rows) ? data.rows : Array.isArray(node.items) ? node.items : [];
+  const tableHeaders = Array.isArray(node.headers) ? node.headers : Array.isArray(data.headers) ? data.headers : [];
+  const denseTable = node.density === "compact" || node.variant === "compact" || tableRows.length + (tableHeaders.length ? 1 : 0) >= 7;
   const cardProps = cardToneProps(node.tone);
   const cardFill = typeof node.fill === "string" ? node.fill : typeof cardProps.fill === "string" ? cardProps.fill : "surface";
   const frameless = node.variant === "frameless";
@@ -2600,10 +2661,12 @@ function tableCardNode(slideId: string, name: string, node: DomNode): DomNode {
       id: `${slideId}.${name}.stack`,
       type: "stack",
       direction: "vertical",
-      gap: 0.25,
+      gap: denseTable ? 0.16 : 0.25,
       children: [
         ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.36, fixedWidth: Math.max(1.0, Math.min(3.0, badge.length * 0.18 + 0.55)), align: "center" as const, autoFit: "shrink" as const }] : []),
-        ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65 }] : []),
+        ...(title ? [denseTable
+          ? { id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", minHeight: 0.45, autoFit: "shrink" as const, optional: true }
+          : { id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65 }] : []),
         {
           id: `${slideId}.${name}.table`,
           type: "table",
@@ -2613,6 +2676,7 @@ function tableCardNode(slideId: string, name: string, node: DomNode): DomNode {
           firstRowHeader: node.firstRowHeader,
           colWidths: node.colWidths,
           rowHeights: node.rowHeights,
+          density: denseTable ? "compact" : node.density,
           bodyFill: cardFill,
           borderColor: node.borderColor,
           borderWidth: node.borderWidth,
@@ -3053,6 +3117,15 @@ function estimateInsightDetailMinHeight(text: string, compact: boolean): number 
   return Math.max(compact ? 0.56 : 0.72, Math.min(2.4, estimatedLines * lineHeight + 0.12));
 }
 
+function estimateCalloutBodyMinHeight(text: string, banner: boolean): number {
+  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const weighted = weightedTextLengthForComponent(text);
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / (banner ? 42 : 48)));
+  if (estimatedLines <= 1) return banner ? 0.74 : 0.55;
+  const lineHeight = banner ? 0.54 : 0.48;
+  return Math.max(banner ? 0.82 : 0.68, Math.min(banner ? 2.4 : 2.0, estimatedLines * lineHeight + 0.16));
+}
+
 function weightedTextLengthForComponent(text: string): number {
   let length = 0;
   for (const char of text) {
@@ -3060,6 +3133,20 @@ function weightedTextLengthForComponent(text: string): number {
     length += /[\u4e00-\u9fff]/.test(char) ? 1.05 : 0.58;
   }
   return length;
+}
+
+function normalizeTimelineContent(slideId: string, name: string, index: number, content: DomNode): DomNode {
+  const id = typeof content.id === "string" && content.id ? content.id : `${slideId}.${name}.${index + 1}.content`;
+  const next: DomNode = { ...content, id };
+  if (next.type === "metric-card") {
+    if (next.variant === undefined) next.variant = "compact";
+    if (next.density === undefined) next.density = "compact";
+    if (next.size === undefined) next.size = "xs";
+  } else if (next.type === "insight-card" || next.type === "key-takeaway") {
+    if (next.density === undefined) next.density = "compact";
+    if (next.type === "key-takeaway" && next.variant === undefined) next.variant = "minimal";
+  }
+  return next;
 }
 
 function primitiveFields(detailed: Record<string, import("./node-types.js").NodeFieldInfo>): Record<string, PropDefinition> {
@@ -3685,6 +3772,27 @@ function arrayValue(...values: unknown[]): unknown[] {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean) : [];
+}
+
+function numberedListItems(value: unknown): Array<string | { title?: string; headline?: string; label?: string; name?: string; text?: string; body?: string; detail?: string; description?: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    if (typeof item === "string") return item;
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      const rec = item as Record<string, unknown>;
+      return {
+        title: stringValue(rec.title, ""),
+        headline: stringValue(rec.headline, ""),
+        label: stringValue(rec.label, ""),
+        name: stringValue(rec.name, ""),
+        text: stringValue(rec.text, ""),
+        body: stringValue(rec.body, ""),
+        detail: stringValue(rec.detail, ""),
+        description: stringValue(rec.description, ""),
+      };
+    }
+    return String(item ?? "");
+  });
 }
 
 function recordItems(value: unknown): Array<Record<string, unknown>> {

@@ -122,7 +122,7 @@ function brandLogo(slideId: string, src: string): DomNode {
     type: "image",
     src,
     alt: "Brand logo",
-    position: "top-right",
+    anchor: "top-right",
     width: 2.4,
     height: 1.0,
     fit: "contain",

@@ -138,8 +138,8 @@ When you call `create_deck`, pass a partial `themeOverride`:
       "metric-value": { "fontSize": 28, "weight": "bold", "color": "brand.primary", "lineHeight": 1.0 }
     },
     "component": {
-      "card": { "fill": "surface", "line": "divider", "padding": 0.65, "radius": 0.1 },
-      "panel": { "fill": "surface", "line": "divider", "padding": 0.6, "radius": 0.1 }
+      "card": { "fill": "surface", "line": "divider", "padding": 0.65, "cornerRadius": 0.1 },
+      "panel": { "fill": "surface", "line": "divider", "padding": 0.6, "cornerRadius": 0.1 }
     },
     "layout": { "pageMarginX": 2.0, "defaultGap": 0.55 },
     "fonts": { "latin": ["Inter", "Aptos", "Helvetica"], "cjk": ["PingFang SC", "Noto Sans CJK"] },

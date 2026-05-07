@@ -12,11 +12,11 @@ export const validateRenderTool: Tool = {
 - diagnostics summary by code
 - a list of BLOCKING diagnostics with slideId/nodeId/measured/suggestion
 
-Blocking diagnostic codes: \`FALLBACK_FAILED\`, \`COLLISION\`, \`TITLE_OCCLUDED\`, \`TINY_RECT\`, \`SQUASHED\`, \`DROP\`, \`LOW_CONTRAST\`, \`SHAPE_INVISIBLE\`, \`UNKNOWN_COLOR\`, \`UNKNOWN_STYLE\`. Excessive soft-fit warnings (\`TRUNCATED\`/\`OVERFLOW\`, 3+ in one render) also block final delivery because the deck is visually unstable. Re-author the offending slide via \`replace_slide\` (or fix deck-level via \`patch_deck\`) and re-validate.
+Blocking diagnostic codes: \`FALLBACK_FAILED\`, \`COLLISION\`, \`TITLE_OCCLUDED\`, \`TINY_RECT\`, \`SQUASHED\`, \`LOW_CONTRAST\`, \`SHAPE_INVISIBLE\`, \`UNKNOWN_COLOR\`, \`UNKNOWN_STYLE\`, plus any diagnostic whose severity is \`error\`. \`DROP\` means optional content was removed by the fallback ladder; it is a repair hint, not a blocker unless paired with a blocking diagnostic on the same slide. Warn-level \`TRUNCATED\`/\`OVERFLOW\` means text was softly fit; improve it when practical, but do not abandon semantic components solely because of mild shrink warnings. Re-author the offending slide via \`replace_slide\` (or fix deck-level via \`patch_deck\`) and re-validate.
 
-Pass \`render: false\` for a fast schema-only dry run during authoring; default is render=true after slides are in place.
+Pass \`render: false\` for a fast schema-only dry run during authoring; default is render=true.
 
-Use this periodically during deck authoring and before final delivery. A failing result is repair guidance, not a restriction on using other tools.`,
+Use this as an authoring checkpoint after every 1-2 slide writes, not only after the full deck is written. A failing result is repair guidance: inspect the affected slide with \`read_deck\`, repair it with \`replace_slide\` / \`patch_deck\`, validate again, then continue with the next 1-2 slides.`,
     parameters: {
       type: "object",
       properties: {

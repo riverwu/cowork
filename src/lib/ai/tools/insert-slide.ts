@@ -1,6 +1,6 @@
 import type { Tool } from "./types";
 import { slideml2PatchDeck, slideml2ReadDeck, type Slideml2JsonPatchOp } from "@/lib/tauri";
-import { recordSlideWrite } from "./slideml2-authoring-state";
+import { recordSlideWrite, slideAuthoringCheckpointHint, slideSemanticLayoutHint } from "./slideml2-authoring-state";
 
 /**
  * Thin wrapper over patch_deck — equivalent to:
@@ -20,9 +20,9 @@ export const insertSlideTool: Tool = {
 - \`index\` may be \`"end"\` as a shortcut for "append".
 - For replacing an EXISTING slide, use \`replace_slide\`. For deleting a slide, use \`delete_slide\`. For batch ops or arbitrary DOM edits, use \`patch_deck\`.
 
-The slide JSON has the same shape as \`replace_slide.slide\`: \`{id, title?, background?, children, notes?, metadata?}\`. The whole deck is re-validated after insertion; if the slide breaks schema invariants the deck file is left unchanged.
+The slide JSON has the same shape as \`replace_slide.slide\`: \`{id, title?, background?, children, notes?, metadata?}\`. The whole deck is re-validated after insertion; if the slide breaks schema invariants the deck file is left unchanged. If a slide is mostly manually positioned \`text\`, the result includes a non-blocking semantic layout warning with better component candidates; redesign before continuing.
 
-Use \`validate_render({deckPath, render:true})\` periodically and before final delivery.`,
+Use \`validate_render({deckPath, render:true})\` after every 1-2 inserted/replaced slides. Do not wait until the whole deck is written; early render diagnostics teach the next slide batch.`,
     parameters: {
       type: "object",
       properties: {
@@ -56,8 +56,9 @@ Use \`validate_render({deckPath, render:true})\` periodically and before final d
         return `Slide insert rejected (deck unchanged): ${result.error}\n${JSON.stringify(result.validation, null, 2)}`;
       }
       const writes = recordSlideWrite(deckPath);
-      const validateHint = "\nRecommended: run validate_render with render=true before treating the PPTX as final.";
-      return `Slide inserted at index ${targetIndex}. slideCount=${result.summary.slideCount}. unvalidatedSlideWrites=${writes}.${validateHint}`;
+      const semanticHint = slideSemanticLayoutHint(slide);
+      const validateHint = `\n${slideAuthoringCheckpointHint(deckPath, writes)}`;
+      return `Slide inserted at index ${targetIndex}. slideCount=${result.summary.slideCount}. unvalidatedSlideWrites=${writes}.${semanticHint ? `\n${semanticHint}` : ""}${validateHint}`;
     } catch (err) {
       return `Error: insert_slide failed.\n${err instanceof Error ? err.message : String(err)}`;
     }

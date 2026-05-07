@@ -57,7 +57,7 @@ export interface DeckDescription {
 export function describeDeck(): DeckDescription {
   const sample = buildTheme();
   const layout = sample.layout;
-  const contentHeight = sample.layout.slideHeightCm - layout.contentTop - layout.contentBottom;
+  const contentHeight = layout.contentBottom - layout.contentTop;
   const colorTokens = Object.keys(sample.colors).sort();
   const textStyles = Object.keys(sample.text).sort();
   return {
@@ -69,7 +69,7 @@ export function describeDeck(): DeckDescription {
       contentTop: layout.contentTop,
       contentBottom: layout.contentBottom,
       contentHeight,
-      description: `Title sits at y=${layout.titleTop}cm with height ${layout.titleHeight}cm. The content rect (area:'content') spans x=${layout.pageMarginX}..${(layout.slideWidthCm - layout.pageMarginX).toFixed(2)}, y=${layout.contentTop}..${(layout.slideHeightCm - layout.contentBottom).toFixed(2)} (height ${contentHeight.toFixed(2)}cm). All cm.`,
+      description: `Title sits at y=${layout.titleTop}cm with height ${layout.titleHeight}cm. contentTop and contentBottom are y-coordinates for the content rect. The content rect (area:'content') spans x=${layout.pageMarginX}..${(layout.slideWidthCm - layout.pageMarginX).toFixed(2)}, y=${layout.contentTop}..${layout.contentBottom.toFixed(2)} (height ${contentHeight.toFixed(2)}cm). All cm.`,
     },
     themes: {
       available: listThemes(),

@@ -117,7 +117,6 @@ export interface ComponentStyle {
   line?: string;
   accent?: string;
   padding?: number;
-  radius?: number;
   cornerRadius?: number;
   elevation?: "flat" | "raised" | "floating" | "outlined";
 }
@@ -373,18 +372,18 @@ function mergeComponentStyles(base: Record<string, ComponentStyle>, override?: R
   if (!override) return { ...base };
   const out: Record<string, ComponentStyle> = { ...base };
   for (const [key, value] of Object.entries(override)) {
-    const { cornerRadius, radius: rawRadius, padding: rawPadding, ...rest } = value;
-    const radius = typeof value.cornerRadius === "number"
-      ? normalizeCornerRadius(value.cornerRadius)
-      : typeof value.radius === "number"
-        ? normalizeCornerRadius(value.radius)
-        : undefined;
+    const { cornerRadius: rawCornerRadius, padding: rawPadding, ...restWithLegacy } = value as ComponentStyle & { radius?: unknown };
+    const rest = { ...restWithLegacy };
+    delete rest.radius;
+    const cornerRadius = typeof rawCornerRadius === "number"
+      ? normalizeCornerRadius(rawCornerRadius)
+      : undefined;
     const padding = typeof rawPadding === "number" ? normalizeComponentPadding(rawPadding) : undefined;
     out[key] = {
       ...(base[key] || {}),
       ...rest,
       ...(padding !== undefined ? { padding } : {}),
-      ...(radius !== undefined ? { radius, cornerRadius: radius } : {}),
+      ...(cornerRadius !== undefined ? { cornerRadius } : {}),
     };
   }
   return out;
@@ -761,12 +760,12 @@ function defaultBase(brandPrimary: string): SimpleTheme {
     text: commonText(),
     sizeScale: { ...DEFAULT_SIZE_SCALE },
     component: {
-      "metric-card": { fill: "surface", line: "divider", padding: 0.4, radius: 0.06 },
-      callout: { fill: "brand.tint", line: "divider", accent: "brand.primary", padding: 0.55, radius: 0.06 },
-      "comparison-card": { fill: "surface", line: "divider", padding: 0.55, radius: 0.06 },
-      "step-card": { fill: "surface", line: "divider", padding: 0.55, radius: 0.06 },
-      "definition-card": { fill: "surface", line: "divider", padding: 0.6, radius: 0.08 },
-      quote: { fill: "surface.subtle", line: "divider", padding: 0.7, radius: 0.08 },
+      "metric-card": { fill: "surface", line: "divider", padding: 0.4, cornerRadius: 0.06 },
+      callout: { fill: "brand.tint", line: "divider", accent: "brand.primary", padding: 0.55, cornerRadius: 0.06 },
+      "comparison-card": { fill: "surface", line: "divider", padding: 0.55, cornerRadius: 0.06 },
+      "step-card": { fill: "surface", line: "divider", padding: 0.55, cornerRadius: 0.06 },
+      "definition-card": { fill: "surface", line: "divider", padding: 0.6, cornerRadius: 0.08 },
+      quote: { fill: "surface.subtle", line: "divider", padding: 0.7, cornerRadius: 0.08 },
       // timeline-step is a flow group, not a card. Earlier the entry declared
       // {fill:"surface", line:"divider", padding:0.5}, which made the stack
       // paint a card frame around every step (via containerBackgroundShape)
@@ -774,9 +773,9 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       // ≥3 items collapsed under FALLBACK_FAILED. Strip chrome + padding so
       // the timeline reads as a connected sequence, not a column of cards.
       "timeline-step": { padding: 0 },
-      "profile-card": { fill: "surface", line: "divider", padding: 0.5, radius: 0.08 },
-      "swot-quadrant": { fill: "surface", line: "divider", padding: 0.55, radius: 0.06 },
-      cta: { fill: "brand.primary", padding: 0.4, radius: 0.3 },
+      "profile-card": { fill: "surface", line: "divider", padding: 0.5, cornerRadius: 0.08 },
+      "swot-quadrant": { fill: "surface", line: "divider", padding: 0.55, cornerRadius: 0.06 },
+      cta: { fill: "brand.primary", padding: 0.4, cornerRadius: 0.3 },
       "icon-text": { padding: 0 },
       "section-break": { padding: 0 },
       "kpi-grid": { padding: 0 },
@@ -792,11 +791,11 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       legend: { padding: 0 },
       badge: { padding: 0 },
       "flow-arrow": { padding: 0 },
-      panel: { fill: "surface", line: "divider", padding: 0.55, radius: 0.12 },
-      card: { fill: "surface", line: "divider", padding: 0.6, radius: 0.12 },
-      band: { fill: "surface.subtle", padding: 0.7, radius: 0 },
-      frame: { line: "divider", padding: 0.5, radius: 0.12 },
-      inset: { padding: 0.4, radius: 0 },
+      panel: { fill: "surface", line: "divider", padding: 0.55, cornerRadius: 0.12 },
+      card: { fill: "surface", line: "divider", padding: 0.6, cornerRadius: 0.12 },
+      band: { fill: "surface.subtle", padding: 0.7, cornerRadius: 0 },
+      frame: { line: "divider", padding: 0.5, cornerRadius: 0.12 },
+      inset: { padding: 0.4, cornerRadius: 0 },
     },
     tone: {
       neutral: { fg: "text.primary", bg: "surface", line: "divider" },
@@ -827,7 +826,7 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       titleTop: 0.85,
       titleHeight: 1.45,
       contentTop: 2.95,
-      contentBottom: 1.0,
+      contentBottom: 13.2875,
       defaultGap: 0.5,
       columnGap: 0.7,
       cardPadding: 0.55,

@@ -104,8 +104,9 @@ class SkillRegistry {
     lines.push("### How to use skills");
     lines.push(`- **The list above is EXHAUSTIVE.** Do NOT speculatively read SKILL.md paths for skills not listed (e.g. don't probe \`~/.cowork/skills/<guess>/SKILL.md\` based on the path convention you see for installed skills). If a domain isn't covered by a listed skill, use built-in tools directly.
 - **Trigger**: If the user's task clearly matches a listed skill's description, use that skill.
-- **Activation requirement**: A skill is not active just because it is listed here. To use a skill, you MUST first read its SKILL.md with \`read_file\` in the current turn.
-- **Task-scoped retention**: A successfully read \`SKILL.md\` is pinned in full for the current task run so its instructions are not lost to generic tool-result truncation. It is not permanently active for later user tasks; read the skill again when a new task needs it.
+- **Activation requirement**: A skill is not active just because it is listed here. To use a skill, you MUST first read its SKILL.md with \`read_file\` in the current request.
+- **Task/session reset**: Starting a fresh task/session (for example after \`/new\`) resets active skills to \`[]\`. Prior skill reads, prior tool history, and prior loaded SKILL.md contents are not available in the new task.
+- **Run-scoped retention**: A successfully read \`SKILL.md\` is pinned in full only inside the live tool loop that read it, so its instructions are not lost to generic tool-result truncation while that request is running. It is not permanently active for later turns or later tasks; read the skill again when the current request needs it.
 - **Progressive disclosure**: Do NOT load all skills upfront. When you decide to use a skill:
   1. Use \`read_file\` to open its SKILL.md
   2. Read only enough to follow the workflow for the current task

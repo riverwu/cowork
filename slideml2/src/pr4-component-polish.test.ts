@@ -44,7 +44,7 @@ describe("PR4: applyAgentSurface helper merges options into wrapper nodes", () =
     const out = applyAgentSurface(node, {
       borderColor: "AAA",
       borderWidth: 0.02,
-      surface: { border: { color: "BBB", width: 0.08, style: "dash", radius: 0.3 }, elevation: "floating", padding: 0.6 },
+      surface: { border: { color: "BBB", width: 0.08, style: "dash", cornerRadius: 0.3 }, elevation: "floating", padding: 0.6 },
     });
     expect(out.line).toBe("BBB");
     expect(out.lineWidth).toBe(0.08);

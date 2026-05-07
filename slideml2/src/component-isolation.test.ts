@@ -31,7 +31,6 @@ const BLOCKING_CODES: ReadonlySet<LayoutDiagnostic["code"]> = new Set<LayoutDiag
   "COLLISION",
   "TINY_RECT",
   "SQUASHED",
-  "DROP",
   "LOW_CONTRAST",
   "UNKNOWN_COLOR",
   "UNKNOWN_STYLE",
@@ -68,6 +67,7 @@ function valuesForField(componentName: string, fieldName: string, fieldSchema: R
   const fieldType = String(fieldSchema.type || "");
   const enumValues = (fieldSchema.enum as string[] | undefined) || (fieldSchema.values as string[] | undefined) || [];
   if (fieldType === "image-ref") return "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiPjxyZWN0IHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiIGZpbGw9IiMyNTYzZWIiLz48L3N2Zz4=";
+  if (fieldType === "color-ref") return "brand.primary";
   if (fieldType === "boolean") return false;
   if (fieldType === "number") {
     if (fieldName === "value") return profile === "dense" ? 92 : 60;

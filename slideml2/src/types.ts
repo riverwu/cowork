@@ -50,7 +50,7 @@ export interface ThemeOverride {
     uppercase?: boolean;
     italic?: boolean;
   }>;
-  component?: Record<string, { fill?: string; line?: string; accent?: string; padding?: number; radius?: number; cornerRadius?: number; elevation?: "flat" | "raised" | "floating" | "outlined" }>;
+  component?: Record<string, { fill?: string; line?: string; accent?: string; padding?: number; cornerRadius?: number; elevation?: "flat" | "raised" | "floating" | "outlined" }>;
   tone?: Record<string, { fg: string; bg: string; line: string }>;
   layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number }>;
   /** Per-script font chains. `latin` and `cjk` accept either a single

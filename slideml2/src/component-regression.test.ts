@@ -25,7 +25,6 @@ const BLOCKING_CODES: ReadonlySet<LayoutDiagnostic["code"]> = new Set<LayoutDiag
   "COLLISION",
   "TINY_RECT",
   "SQUASHED",
-  "DROP",
   "LOW_CONTRAST",
   "UNKNOWN_COLOR",
   "UNKNOWN_STYLE",
@@ -90,6 +89,91 @@ describe("component regressions", () => {
     expect(blocking, JSON.stringify(blocking)).toHaveLength(0);
   });
 
+  it("feature-card renders generated raster iconSrc as a contain-fit image", () => {
+    const slide: SlideV2 = {
+      id: "icons",
+      title: "Generated icons",
+      children: [
+        {
+          id: "icons.feature",
+          type: "feature-card",
+          title: "Risk Control",
+          body: "Use the generated icon as the feature cue.",
+          iconSrc: TINY_PNG,
+          variant: "card",
+        },
+      ],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const icon = findRenderedByName(ast, "icons.feature.icon");
+    expect(icon?.type).toBe("image");
+    expect((icon as { fit?: string } | undefined)?.fit).toBe("contain");
+  });
+
+  it("feature-card keeps generated iconSrc when a marker is also present", () => {
+    const slide: SlideV2 = {
+      id: "icons-marker",
+      title: "Generated icons with marker",
+      children: [
+        {
+          id: "icons-marker.feature",
+          type: "feature-card",
+          title: "Risk Control",
+          iconSrc: TINY_PNG,
+          marker: { shape: "rounded-square", tone: "brand", variant: "tint" },
+          variant: "card",
+        },
+      ],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    expect(findRenderedByName(ast, "icons-marker.feature.icon")?.type).toBe("image");
+    expect(findRenderedByName(ast, "icons-marker.feature.marker")?.type).toBe("shape");
+  });
+
+  it("feature-card semantic tone maps to a real theme color", () => {
+    const slide: SlideV2 = {
+      id: "feature-tone",
+      title: "Feature tone",
+      children: [
+        {
+          id: "feature-tone.card",
+          type: "feature-card",
+          title: "Positive signal",
+          body: "Semantic tone should not be treated as a raw color token.",
+          tone: "positive",
+          variant: "card",
+        } as unknown as DomNode,
+      ],
+    };
+
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const unknownTone = getRenderDiagnostics().filter((d) => d.code === "UNKNOWN_COLOR" && /positive/i.test(d.message));
+    expect(unknownTone).toHaveLength(0);
+  });
+
+  it("feature-card titleColor still allows explicit title color override", () => {
+    const slide: SlideV2 = {
+      id: "feature-title-color",
+      title: "Feature title color",
+      children: [
+        {
+          id: "feature-title-color.card",
+          type: "feature-card",
+          title: "Explicit token",
+          body: "Local override should win over semantic tone.",
+          tone: "warning",
+          titleColor: "brand.primary",
+          variant: "card",
+        } as unknown as DomNode,
+      ],
+    };
+
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    expect(findRunColor(ast, "feature-title-color.card.title")).toBe("2563EB");
+  });
+
   it("ctaButton with link still inherits node.color into content runs", () => {
     const slide: SlideV2 = {
       id: "reg-cta-link",
@@ -99,6 +183,37 @@ describe("component regressions", () => {
     const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
     const runColor = findRunColor(ast, "reg-cta-link.btn");
     expect(runColor).toBe("FFFFFF");
+  });
+
+  it("process-flow compact density applies to a three-step vertical card flow", () => {
+    const slide: SlideV2 = {
+      id: "compact-flow",
+      title: "市场地图：三层结构",
+      children: [
+        {
+          id: "compact-flow.flow",
+          type: "process-flow",
+          variant: "cards",
+          direction: "vertical",
+          density: "compact",
+          steps: [
+            { title: "应用层", body: "通用Office Agent / 垂直行业Agent / 出海Productivity", status: "brand" },
+            { title: "平台层", body: "Agent OS / MCP Gateway / 协议层(MCP/A2A/ACP)", status: "brand" },
+            { title: "基础设施层", body: "巨头垂直集成：Runtime/Browser/Memory/Eval/模型", status: "brand" },
+          ],
+        } as unknown as DomNode,
+        {
+          id: "compact-flow.note",
+          type: "source-note",
+          text: "中国基建层不出独立SaaS——15年历史规律：云监控/训练infra/向量库/CI/CD均被巨头内置",
+        } as unknown as DomNode,
+      ],
+    };
+
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const failed = getRenderDiagnostics().filter((d) => d.code === "FALLBACK_FAILED" && d.slideId === "compact-flow");
+    expect(failed, JSON.stringify(failed, null, 2)).toHaveLength(0);
   });
 
   it("profile-card with default photo size does not emit SQUASHED on the photo", () => {
@@ -490,6 +605,25 @@ describe("component regressions", () => {
     expect(card?.cornerRadius).toBe(0.12);
   });
 
+  it("CSS-like node cornerRadius values are normalized before rendering", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "reg-node-radius",
+        children: [
+          { id: "reg-node-radius.card", type: "card", cornerRadius: 12, children: [{ id: "reg-node-radius.card.t", type: "text", text: "x" }] },
+          { id: "reg-node-radius.shape", type: "shape", preset: "roundRect", fill: "brand.primary", cornerRadius: 8, fixedHeight: 0.8 },
+        ] as unknown as DomNode[],
+      }],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    const card = findRenderedByName(ast, "reg-node-radius.card-card") as { cornerRadius?: number } | undefined;
+    const shape = findRenderedByName(ast, "reg-node-radius.shape") as { cornerRadius?: number } | undefined;
+    expect(card?.cornerRadius).toBe(0.12);
+    expect(shape?.cornerRadius).toBe(0.08);
+  });
+
   it("table-card propagates dark card fill into body cells so PPT does not default them to white", () => {
     const slide: SlideV2 = {
       id: "reg-table-fill",
@@ -576,6 +710,199 @@ describe("component regressions", () => {
     expect((title?.xfrm?.y || 0) / 360000).toBeCloseTo(4.3, 2);
     expect((title?.xfrm?.cx || 0) / 360000).toBeCloseTo(20, 2);
     expect((title?.xfrm?.cy || 0) / 360000).toBeCloseTo(1.5, 2);
+  });
+
+  it("cover-composition without hero stat gives long cover titles enough width", () => {
+    const slide: SlideV2 = {
+      id: "cover",
+      background: "1E3A5F",
+      children: [{
+        id: "cover.cv",
+        type: "cover-composition",
+        title: "AI Agent 机会总图",
+        subtitle: "最终综合报告 v1.0",
+        eyebrow: "4份深度调研",
+        tone: "inverse",
+      } as unknown as SlideV2["children"][number]],
+    };
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const coverTitleShrink = getRenderDiagnostics().filter((d) => d.nodeId === "cover.cv.title" && d.code === "TRUNCATED");
+    expect(coverTitleShrink, coverTitleShrink.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
+
+  it("cover-composition honors visual geometry and uses a translucent inverse scrim", () => {
+    const slide: SlideV2 = {
+      id: "cover-visual",
+      children: [{
+        id: "cover-visual.cv",
+        type: "cover-composition",
+        title: "Visual cover",
+        tone: "inverse",
+        visual: {
+          src: TINY_PNG,
+          fit: "contain",
+          anchor: "bottom-right",
+          width: 6,
+          height: 4,
+          opacity: 0.6,
+        },
+      } as unknown as SlideV2["children"][number]],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const visual = findRenderedByName(ast, "cover-visual.cv.visual") as { type?: string; fit?: string; opacity?: number; xfrm?: { cx: number; cy: number } } | undefined;
+    const scrim = findRenderedByName(ast, "cover-visual.cv.scrim") as { fill?: { alpha?: number } } | undefined;
+    expect(visual?.type).toBe("image");
+    expect(visual?.fit).toBe("contain");
+    expect(visual?.opacity).toBe(0.6);
+    expect((visual?.xfrm?.cx || 0) / 360000).toBeCloseTo(6, 2);
+    expect((visual?.xfrm?.cy || 0) / 360000).toBeCloseTo(4, 2);
+    expect(scrim?.fill?.alpha).toBeCloseTo(0.42, 2);
+  });
+
+  it("callout preserves text as body when a title is provided", () => {
+    const slide: SlideV2 = {
+      id: "callout-body",
+      children: [{
+        id: "callout-body.c",
+        type: "callout",
+        title: "警示",
+        text: "不要继承旧风格",
+        variant: "card",
+      } as unknown as SlideV2["children"][number]],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    expect(firstTextShapeContaining(ast, "警示")).toBeTruthy();
+    expect(firstTextShapeContaining(ast, "不要继承旧风格")).toBeTruthy();
+  });
+
+  it("key-takeaway long business detail wraps before shrinking to unreadable text", () => {
+    const slide: SlideV2 = {
+      id: "s3",
+      children: [{
+        id: "s3.kt",
+        type: "key-takeaway",
+        headline: "Coding Agent 是入口，Office 是真正目标市场",
+        detail: "TAM：$150亿（coding）→ $3000亿（office）= 20倍空间。Claude Code 接入 office 是定位重构，不是功能升级。",
+        tone: "brand",
+        variant: "banner",
+      } as unknown as SlideV2["children"][number]],
+    };
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const detailShrink = getRenderDiagnostics().filter((d) => d.nodeId === "s3.kt.detail" && d.code === "TRUNCATED" && d.severity === "error");
+    expect(detailShrink, detailShrink.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
+
+  it("stack fallback does not double-count gap when checking minimum child demand", () => {
+    const slide: SlideV2 = {
+      id: "gap-fit",
+      children: [{
+        id: "gap-fit.stack",
+        type: "stack",
+        direction: "vertical",
+        fixedHeight: 1.6,
+        gap: 0.3,
+        children: [
+          { id: "gap-fit.stack.a", type: "text", text: "第一行", style: "caption", minHeight: 0.65, autoFit: "shrink" },
+          { id: "gap-fit.stack.b", type: "text", text: "第二行", style: "caption", minHeight: 0.65, autoFit: "shrink" },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const failures = getRenderDiagnostics().filter((d) => d.code === "FALLBACK_FAILED" && d.nodeId === "gap-fit.stack");
+    expect(failures, failures.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
+
+  it("numbered-grid supports a normal 2x2 business summary under a key takeaway", () => {
+    const slide: SlideV2 = {
+      id: "exec-2x2",
+      title: "核心结论：四个高赔率对角线机会",
+      children: [
+        {
+          id: "exec-2x2.thesis",
+          type: "key-takeaway",
+          headline: "不做下一个 Cursor/Claude Code，不做中国版 Mem0/Browserbase",
+          detail: "这两个方向都被巨头预占，创业者应该聚焦四个对角线交叉点",
+          tone: "brand",
+          variant: "banner",
+        } as unknown as DomNode,
+        {
+          id: "exec-2x2.grid",
+          type: "numbered-grid",
+          columns: 2,
+          marker: { shape: "diamond", variant: "tint", tone: "brand", size: "sm" },
+          items: [
+            { title: "垂直行业 + 政策红利", body: "保险理赔 / 财税 / 医疗 / 政务", tone: "positive" },
+            { title: "出海 Productivity SaaS", body: "Day 1 海外架构，避开国内围剿", tone: "positive" },
+            { title: "跨平台中立中间件", body: "Eval / Identity，巨头互不兼容创造的缝隙", tone: "warning" },
+            { title: "私有化 Agent 中台", body: "第四范式路径，央企/金融合规", tone: "brand" },
+          ],
+        } as unknown as DomNode,
+      ],
+    };
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const failures = getRenderDiagnostics().filter((d) => d.code === "FALLBACK_FAILED" && d.slideId === "exec-2x2");
+    expect(failures, failures.map((d) => d.message).join("\n")).toHaveLength(0);
+    const body = findRenderedByName(ast, "exec-2x2.grid.0.body") as { paragraphs?: Array<{ runs: Array<{ sizeHalfPt?: number }> }> } | undefined;
+    expect(body?.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt).toBeGreaterThanOrEqual(20);
+  });
+
+  it("rich callout body in a business split gets enough height before text shrink", () => {
+    const slide: SlideV2 = {
+      id: "s3",
+      title: "判断 1：Coding Agent 是入口，Office 是真正目标市场",
+      children: [{
+        id: "s3.split",
+        type: "split",
+        direction: "horizontal",
+        ratio: [0.55, 0.45],
+        gap: 0.55,
+        children: [
+          {
+            id: "s3.split.left",
+            type: "stack",
+            gap: 0.35,
+            children: [
+              { id: "s3.left.h", type: "h2", text: "TAM 20-30 倍扩容空间" },
+              {
+                id: "s3.left.stat",
+                type: "stat-strip",
+                items: [
+                  { value: "$150 亿/年", label: "Coding Agent TAM" },
+                  { value: "$3000 亿/年", label: "Office Agent TAM" },
+                ],
+                tone: "brand",
+              },
+              {
+                id: "s3.left.note",
+                type: "callout",
+                title: "定位重构信号",
+                body: "Claude Code 接入 office 文档不是功能升级，是「定位重构」；模型方下一波增长只能来自 office 知识工作者市场。",
+                tone: "warning",
+                variant: "card",
+              },
+            ],
+          },
+          {
+            id: "s3.split.right",
+            type: "stack",
+            gap: 0.35,
+            children: [
+              { id: "s3.right.h", type: "h2", text: "谁是最大输家候选" },
+              { id: "s3.right.ins1", type: "insight-card", headline: "Microsoft Copilot", body: "用户入口变成 Claude", tone: "danger" },
+              { id: "s3.right.ins2", type: "insight-card", headline: "Notion / Salesforce", body: "降级为数据后端", tone: "warning" },
+            ],
+          },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const calloutShrink = getRenderDiagnostics().filter((d) => d.nodeId === "s3.left.note.body" && d.code === "TRUNCATED" && d.severity === "error");
+    expect(calloutShrink, calloutShrink.map((d) => d.message).join("\n")).toHaveLength(0);
   });
 
   it("theme lineHeight is emitted as paragraph line spacing for ordinary text", () => {
@@ -807,5 +1134,83 @@ describe("component regressions", () => {
     renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
     const unknownColor = getRenderDiagnostics().filter((d) => d.code === "UNKNOWN_COLOR" && /neutral/i.test(d.message));
     expect(unknownColor, unknownColor.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
+
+  it("numbered-list accepts structured title/body items without rendering [object Object]", () => {
+    const slide: SlideV2 = {
+      id: "numbered-objects",
+      title: "Agent 时代的本质判断",
+      children: [{
+        id: "judgments",
+        type: "numbered-list",
+        density: "compact",
+        items: [
+          { number: "01", title: "Coding agent 是入口", body: "office 是真正的目标市场" },
+          { number: "02", title: "模型方 reverse acquisition", body: "入口变成 Claude，不是 SaaS" },
+          { number: "03", title: "垂直合规深化", body: "行业 workflow 和真实世界 action 是护城河" },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    const validation = validateDeck(buildDeckWithSlide(slide));
+    expect(validation.errors, JSON.stringify(validation.errors, null, 2)).toHaveLength(0);
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    expect(firstTextShapeContaining(ast, "[object Object]")).toBeUndefined();
+    expect(firstTextShapeContaining(ast, "Coding agent 是入口")).toBeDefined();
+    expect(firstTextShapeContaining(ast, "office 是真正的目标市场")).toBeDefined();
+  });
+
+  it("table-card keeps a realistic 7-row business red-flag table renderable", () => {
+    const slide: SlideV2 = {
+      id: "dense-table-card",
+      title: "第四档：不推荐方向",
+      children: [{
+        id: "r3.table",
+        type: "table-card",
+        title: "避开的方向（红灯区）",
+        headers: ["方向", "评级", "原因"],
+        rows: [
+          ["横向通用 office Agent（中国版 Glean）", "★★", "钉钉/飞书已封顶"],
+          ["横向客服 Agent（中国版 Decagon）", "★", "大厂免费 + 容联七陌占 53%"],
+          ["个人 EA / AI 助理（中国版 Lindy）", "★★", "被 Kimi/豆包封顶"],
+          ["通用 IDP / OCR API", "★★", "Mistral OCR $2/1000 页商品化"],
+          ["多模型 Router 独立产品", "不是产品", "是 feature 不是产品，OpenRouter ~$30M ARR 封顶"],
+          ["Agent infra 独立 SaaS（中国境内）", "不成立", "巨头垂直集成，参考 15 年规律"],
+          ["被监管打回的先国内后出海", "已死", "Manus 红线（2026-04-27 发改委叫停）"],
+        ],
+        insight: "不做通用、不做基建 SaaS、不做横向",
+        caption: "来源：综合调研 + 关键修正",
+      } as unknown as SlideV2["children"][number]],
+    };
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const failures = getRenderDiagnostics().filter((d) => d.code === "FALLBACK_FAILED" && d.nodeId === "dense-table-card.r3.table.table");
+    expect(failures, failures.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
+
+  it("timeline with 8 simple events uses a compact grid timeline without blocking diagnostics", () => {
+    const slide: SlideV2 = {
+      id: "timeline-8",
+      title: "关键里程碑时间线（2024-2026）",
+      children: [{
+        id: "tl.timeline",
+        type: "timeline",
+        direction: "vertical",
+        items: [
+          { time: "2024-Q3", body: "Tavily Series A $20M" },
+          { time: "2024-Q4", body: "Anthropic Computer Use 发布" },
+          { time: "2025-Q1", body: "Anthropic web_search API 上线" },
+          { time: "2025-Q3", body: "Exa $85M · You.com $100M" },
+          { time: "2025-Q4", body: "Cohere 案判决 · Coze 开源" },
+          { time: "2026-Q1", body: "Tavily 被 $400M 收购 · 智谱 IPO" },
+          { time: "2026-Q2", body: "Reducto B 轮 $75M · Anthropic Memory" },
+          { time: "2026-04-27", body: "Manus 红线：发改委叫停 Meta 收购" },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const blocking = getRenderDiagnostics().filter((d) => BLOCKING_CODES.has(d.code) && d.severity !== "info");
+    expect(blocking, blocking.map((d) => `${d.code} ${d.nodeId}: ${d.message}`).join("\n")).toHaveLength(0);
   });
 });

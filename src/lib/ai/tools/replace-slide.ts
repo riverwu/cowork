@@ -1,6 +1,7 @@
 import type { Tool } from "./types";
 import { slideml2ReadDeck, slideml2ReplaceSlide } from "@/lib/tauri";
-import { hasUnvalidatedSlideWriteTarget, recordSlideWrite } from "./slideml2-authoring-state";
+import { hasUnvalidatedSlideWriteTarget, recordSlideWrite, slideAuthoringCheckpointHint, slideSemanticLayoutHint } from "./slideml2-authoring-state";
+import { parseJsonLenient } from "./_json-repair";
 
 export const replaceSlideTool: Tool = {
   definition: {
@@ -12,9 +13,9 @@ export const replaceSlideTool: Tool = {
 - To **replace** an existing slide, pass either its id (string) or its 0-based index (number).
 - If you are splitting one slide into multiple pages, replace the first page and use \`insert_slide\` for the additional pages so earlier work is not overwritten.
 
-The \`slide\` field is a SlideML2 SlideV2 JSON object: \`{id, title?, background?, children, notes?, metadata?}\`. Each child node uses the component name directly in \`type\`; fields are flat, never wrapped in \`props\`. Choose component vocabulary from the slideml2 SKILL.md; this tool only writes and validates the slide.
+The \`slide\` field is a SlideML2 SlideV2 JSON object, not a JSON string: \`{id, title?, background?, children, notes?, metadata?}\`. Each child node uses the component name directly in \`type\`; fields are flat, never wrapped in \`props\`. Choose component vocabulary from the slideml2 SKILL.md; this tool only writes and validates the slide.
 
-The tool validates the slide against the deck's schema. It also rejects raw hex text colors on slide nodes; define hex values once in deck.themeOverride.colors and reference semantic tokens from slides. Use \`validate_render\` periodically and before final delivery; if \`validate_render\` returned ok:false, prefer calling \`read_deck({deckPath, slideId})\` before repairing so you edit the current source JSON. On failure it returns a structured validation error pointing at the offending field; fix and retry.`,
+The tool validates the slide against the deck's schema. It also rejects raw hex text colors on slide nodes; define hex values once in deck.themeOverride.colors and reference semantic tokens from slides. If a slide is mostly manually positioned \`text\`, the result includes a non-blocking semantic layout warning with better component candidates; redesign before continuing. Use \`validate_render({deckPath,render:true})\` after every 1-2 slide writes and before final delivery; early render diagnostics should inform the next batch. If \`validate_render\` returned ok:false, prefer calling \`read_deck({deckPath, slideId})\` before repairing so you edit the current source JSON. On failure it returns a structured validation error pointing at the offending field; fix and retry this tool or \`patch_deck\`. Do not write or mutate the deck JSON directly as a workaround.`,
     parameters: {
       type: "object",
       properties: {
@@ -39,10 +40,14 @@ The tool validates the slide against the deck's schema. It also rejects raw hex 
       const trimmed = slide.trim();
       if (trimmed.startsWith("{")) {
         try {
-          slide = JSON.parse(trimmed);
+          slide = parseJsonLenient(trimmed);
           autoParsedNote = "Note: slide arrived as a JSON string and was auto-parsed; next time pass it as an object literal.\n";
         } catch (err) {
-          return `Error: slide must be a JSON object. The string passed could not be parsed as JSON (${err instanceof Error ? err.message : String(err)}).`;
+          return [
+            `Error: slide must be a JSON object, not a malformed JSON string. The string passed could not be parsed (${err instanceof Error ? err.message : String(err)}).`,
+            "Retry replace_slide with slide as an object literal in the tool argument, or use patch_deck with {set:{\"/slides/N\": {...slide...}}}.",
+            "Do not write the deck JSON with write_file/run_node/run_python; that bypasses SlideML2 validation and usually makes render failures harder to repair.",
+          ].join("\n");
         }
       }
     }
@@ -72,8 +77,9 @@ The tool validates the slide against the deck's schema. It also rejects raw hex 
       const repeatHint = repeatedTarget
         ? ` Warning: slide index ${target.index}${target.existingId ? ` (id: ${target.existingId})` : ""} was replaced again before a render validation; verify this was intentional.`
         : "";
-      const validateHint = "\nRecommended: run validate_render with render=true before treating the PPTX as final.";
-      return `${autoParsedNote}Slide ${at}. slideCount=${result.slideCount ?? "?"}. unvalidatedSlideWrites=${writes}.${repeatHint}${validateHint}`;
+      const semanticHint = slideSemanticLayoutHint(input.slide);
+      const validateHint = `\n${slideAuthoringCheckpointHint(deckPath, writes)}`;
+      return `${autoParsedNote}Slide ${at}. slideCount=${result.slideCount ?? "?"}. unvalidatedSlideWrites=${writes}.${repeatHint}${semanticHint ? `\n${semanticHint}` : ""}${validateHint}`;
     } catch (err) {
       return `Error: replace_slide failed.\n${err instanceof Error ? err.message : String(err)}`;
     }

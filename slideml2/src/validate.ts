@@ -1,18 +1,18 @@
-import { describeComponents, getComponentName, isComponentName, isComponentTypedNode } from "./component-registry.js";
+import { describeComponents, getComponentName, isComponentName, isComponentTypedNode, type PropDefinition } from "./component-registry.js";
 // Single source of truth for the layout/container primitive types. Adding a
 // new layout primitive (e.g. another decorative wrapper) only requires
 // updating this set.
 const LAYOUT_CONTAINERS = new Set(["stack", "grid", "split", "panel", "card", "band", "frame", "inset", "fragment"]);
 import { buildTheme, textStyle } from "./theme.js";
 import { inferTextKind } from "./text-normalizer.js";
-import type { DomNode, RenderedDeck, Slideml2SourceDeck, SlideV2 } from "./types.js";
+import type { DomNode, RenderedDeck, Slideml2SourceDeck, SlideV2, ThemeOverride } from "./types.js";
 import { measureDeck } from "./render.js";
 import { sourceSlideToRendered, sourceToRenderedDeck } from "./source-deck.js";
 
 const RAW_HEX_RE = /^[0-9A-Fa-f]{6}$/;
 const THEME_OVERRIDE_KEYS = new Set(["colors", "text", "component", "tone", "layout", "fonts", "chart", "chrome", "imageGrowWeight", "sizeScale", "guidance"]);
 const THEME_TEXT_STYLE_KEYS = new Set(["fontSize", "weight", "fontWeight", "color", "lineHeight", "margin", "letterSpacing", "fontFamily", "fontFeatures", "uppercase", "italic"]);
-const THEME_COMPONENT_STYLE_KEYS = new Set(["fill", "line", "accent", "padding", "radius", "cornerRadius", "elevation"]);
+const THEME_COMPONENT_STYLE_KEYS = new Set(["fill", "line", "accent", "padding", "cornerRadius", "elevation"]);
 const THEME_LAYOUT_KEYS = new Set(["slideWidthCm", "slideHeightCm", "pageMarginX", "titleTop", "titleHeight", "contentTop", "contentBottom", "defaultGap", "columnGap", "cardPadding"]);
 const THEME_CHROME_KEYS = new Set(["brandMark", "pageNumber", "footerText", "footerLine", "footerHeight", "footerPadding"]);
 const THEME_FONT_KEYS = new Set(["latin", "cjk", "mono"]);
@@ -45,16 +45,14 @@ export function validateSlide(slide: SlideV2, deck?: Pick<Slideml2SourceDeck, "d
   if (!slide.id) issues.push(issue("error", "MISSING_SLIDE_ID", "Slide id is required.", { suggestedFix: "Add a stable slide.id." }));
   if (!Array.isArray(slide.children)) issues.push(issue("error", "MISSING_CHILDREN", "Slide children must be an array.", { slideId: slide.id }));
   slide.children?.forEach((node, index) => validateNode(node, `children[${index}]`, slide.id, issues));
-  // Generic rule: a slide may carry exactly ONE hero title. Either set
-  // `slide.title` (which the renderer auto-places in the title rect), OR
-  // place a `deck-title` / `slide-title` styled text / `section-break`
-  // component in the body — never both, otherwise the two render on top
-  // of each other.
-  const bodyHasHeroTitle = Array.isArray(slide.children) && containsTitleNode(slide.children);
-  if (typeof slide.title === "string" && slide.title.trim() && bodyHasHeroTitle) {
+  // Generic rule: a slide may carry exactly ONE visible hero title. `slide.title`
+  // may duplicate the visible body hero title as metadata/navigation text; when
+  // it differs, the renderer would create two competing hero titles.
+  const bodyHeroTitle = Array.isArray(slide.children) ? findBodyHeroTitle(slide.children) : { found: false, titles: [] };
+  if (typeof slide.title === "string" && slide.title.trim() && bodyHeroTitle.found && !bodyHeroTitleMatchesSlideTitle(slide.title, bodyHeroTitle.titles)) {
     issues.push(issue("error", "DUPLICATE_HERO_TITLE", "slide.title is set AND the body already carries a hero title (section-break / deck-title / slide-title text). Only one — drop slide.title for cover/section pages, or remove the body title for ordinary pages.", {
       slideId: slide.id,
-      suggestedFix: "If this is a cover or chapter divider, set slide.title to empty and let the body's section-break or deck-title text be the headline. Otherwise drop the body title text.",
+      suggestedFix: "If this is a cover or chapter divider, either make slide.title match the body hero title exactly so it is treated as metadata, or drop slide.title and let the body's section-break/deck-title text be the headline.",
     }));
   }
   // Skip the layout pass when the structure is broken; layout solver assumes
@@ -63,7 +61,12 @@ export function validateSlide(slide: SlideV2, deck?: Pick<Slideml2SourceDeck, "d
   if (issues.some((item) => item.level === "error")) return report(issues);
   try {
     const rendered: RenderedDeck = {
-      deck: { size: "16x9", theme: deck?.deck.theme || "default", brand: deck?.deck.brand || {} },
+      deck: {
+        size: "16x9",
+        theme: deck?.deck.theme || "default",
+        brand: deck?.deck.brand || {},
+        themeOverride: deck?.deck.themeOverride,
+      },
       slides: [sourceSlideToRendered(slide)],
     };
     validateLayout(rendered, issues);
@@ -245,6 +248,14 @@ function validateNode(node: DomNode, path: string, slideId: string, issues: Vali
       suggestedFix: "Remove fontFace from the node. Use fontFamily:'display'|'text'|'mono' or deck.themeOverride.fonts.",
     }));
   }
+  if ("position" in node) {
+    issues.push(issue("error", "LEGACY_NODE_POSITION", `${path}.position is not supported; use the canonical placement field for this node.`, {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "For slide-level overlays use anchor:'bottom-right' plus width/height/offsetX/offsetY. For brand-mark or big-page-number use corner:'bottom-right'. For decorative-shapes use anchor:'top-right' or anchor:'full'.",
+    }));
+  }
   if ("fontSize" in node && (typeof node.fontSize !== "number" || !Number.isFinite(node.fontSize) || node.fontSize < 7)) {
     issues.push(issue("error", "INVALID_NODE_FONT_SIZE", `${path}.fontSize must be a readable point size >= 7.`, {
       slideId,
@@ -422,6 +433,7 @@ function validateThemeOverrideTopLevel(override: Record<string, unknown>, issues
 function validateThemeLayout(deck: Slideml2SourceDeck, override: Record<string, unknown>, issues: ValidationIssue[]): void {
   const layout = override.layout;
   if (!layout || typeof layout !== "object" || Array.isArray(layout)) return;
+  const safeLayout: ThemeOverride["layout"] = {};
   for (const [key, value] of Object.entries(layout as Record<string, unknown>)) {
     const path = `deck.themeOverride.layout.${key}`;
     if (!THEME_LAYOUT_KEYS.has(key)) {
@@ -434,17 +446,43 @@ function validateThemeLayout(deck: Slideml2SourceDeck, override: Record<string, 
     if (typeof value !== "number" || !Number.isFinite(value)) {
       issues.push(issue("error", "INVALID_THEME_LAYOUT_VALUE", `${path} must be a finite number.`, {
         path,
-        suggestedFix: "Use centimeters for layout geometry, e.g. contentTop:2.6 or contentBottom:0.9.",
+        suggestedFix: "Use centimeters for layout geometry, e.g. contentTop:2.6 and contentBottom:13.3 on a 16:9 deck.",
       }));
+      continue;
     }
+    safeLayout[key as keyof NonNullable<ThemeOverride["layout"]>] = value;
   }
-  const theme = buildTheme(deck.deck?.brand || {}, deck.deck?.theme || "default", override);
+  const safeOverride = { ...override, layout: safeLayout } as ThemeOverride;
+  const theme = buildTheme(deck.deck?.brand || {}, deck.deck?.theme || "default", safeOverride);
   const minContentTop = theme.layout.titleTop + theme.layout.titleHeight + 0.25;
   if (theme.layout.contentTop < minContentTop) {
     issues.push(issue("error", "THEME_LAYOUT_TITLE_OVERLAP", `deck.themeOverride.layout.contentTop (${theme.layout.contentTop.toFixed(2)}cm) starts inside the title zone; titleTop + titleHeight + 0.25cm = ${minContentTop.toFixed(2)}cm.`, {
       path: "deck.themeOverride.layout.contentTop",
       suggestedFix: `Set contentTop to at least ${minContentTop.toFixed(2)}cm, or lower titleTop/titleHeight. Do not use pageMarginY for vertical rhythm.`,
     }));
+  }
+  const contentStartY = Math.max(theme.layout.contentTop, minContentTop);
+  if (theme.layout.contentBottom > theme.layout.slideHeightCm || theme.layout.contentBottom <= 0) {
+    issues.push(issue("error", "THEME_LAYOUT_CONTENT_BOTTOM_OUT_OF_RANGE", `deck.themeOverride.layout.contentBottom (${theme.layout.contentBottom.toFixed(2)}cm) must be a y-coordinate inside the slide height (${theme.layout.slideHeightCm.toFixed(2)}cm).`, {
+      path: "deck.themeOverride.layout.contentBottom",
+      suggestedFix: `Set contentBottom to the content area's bottom y-coordinate, usually ${(theme.layout.slideHeightCm - 1.0).toFixed(2)}cm on a 16:9 deck.`,
+    }));
+  }
+  const contentHeight = theme.layout.contentBottom - contentStartY;
+  const minContentHeight = 5.0;
+  if (contentHeight < minContentHeight) {
+    issues.push(issue("error", "THEME_LAYOUT_CONTENT_AREA_TOO_SMALL", `deck.themeOverride.layout.contentBottom (${theme.layout.contentBottom.toFixed(2)}cm) leaves only ${contentHeight.toFixed(2)}cm of content height.`, {
+      path: "deck.themeOverride.layout.contentBottom",
+      suggestedFix: `contentBottom is the content area's bottom y-coordinate, not a bottom margin. Use about ${(theme.layout.slideHeightCm - 1.2).toFixed(2)}-${(theme.layout.slideHeightCm - 0.8).toFixed(2)}cm for most 16:9 decks; content height should stay at least ${minContentHeight.toFixed(1)}cm.`,
+    }));
+  } else {
+    const recommendedContentHeight = 8.5;
+    if (contentHeight < recommendedContentHeight) {
+      issues.push(issue("warning", "THEME_LAYOUT_CONTENT_AREA_TIGHT", `deck.themeOverride.layout leaves only ${contentHeight.toFixed(2)}cm of effective content height; complex components may fail or become overly compact.`, {
+        path: "deck.themeOverride.layout",
+        suggestedFix: `For content-heavy decks, keep effective content height at least ${recommendedContentHeight.toFixed(1)}cm by lowering contentTop/titleHeight or moving contentBottom closer to the slide bottom.`,
+      }));
+    }
   }
   const chrome = (override.chrome && typeof override.chrome === "object" && !Array.isArray(override.chrome))
     ? override.chrome as Record<string, unknown>
@@ -457,11 +495,11 @@ function validateThemeLayout(deck: Slideml2SourceDeck, override: Record<string, 
   const footerHeightRaw = typeof chrome.footerHeight === "number" && Number.isFinite(chrome.footerHeight)
     ? chrome.footerHeight
     : theme.chrome.footerHeight;
-  const minContentBottom = footerHeightRaw + 0.2;
-  if (hasFooterChrome && theme.layout.contentBottom < minContentBottom) {
-    issues.push(issue("error", "THEME_LAYOUT_FOOTER_OVERLAP", `deck.themeOverride.layout.contentBottom (${theme.layout.contentBottom.toFixed(2)}cm) leaves too little space for footer chrome.`, {
+  const maxContentBottom = theme.layout.slideHeightCm - (footerHeightRaw + 0.2);
+  if (hasFooterChrome && theme.layout.contentBottom > maxContentBottom) {
+    issues.push(issue("error", "THEME_LAYOUT_FOOTER_OVERLAP", `deck.themeOverride.layout.contentBottom (${theme.layout.contentBottom.toFixed(2)}cm) enters the footer chrome zone.`, {
       path: "deck.themeOverride.layout.contentBottom",
-      suggestedFix: `Set contentBottom to at least ${minContentBottom.toFixed(2)}cm when chrome.pageNumber or footerText is enabled.`,
+      suggestedFix: `Set contentBottom to at most ${maxContentBottom.toFixed(2)}cm when chrome.pageNumber or footerText is enabled.`,
     }));
   }
 }
@@ -477,7 +515,9 @@ function validateThemeComponentStyles(override: Record<string, unknown>, issues:
         const path = `deck.themeOverride.component.${componentName}.${key}`;
         issues.push(issue("error", "UNKNOWN_THEME_COMPONENT_FIELD", `${path} is not a supported component style field, so it would be ignored.`, {
           path,
-          suggestedFix: "Use supported component style fields: fill, line, accent, padding, radius/cornerRadius, elevation.",
+          suggestedFix: key === "radius"
+            ? "Rename radius to cornerRadius. cornerRadius is a normalized 0..0.5 roundRect fraction, not px/cm."
+            : "Use supported component style fields: fill, line, accent, padding, cornerRadius, elevation.",
         }));
       }
     }
@@ -623,14 +663,46 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       suggestedFix: "Use legacy {type:'callout', text:'...'} or a rich callout with title/body/content/bullets.",
     }));
   }
+  if (name === "numbered-list" && Array.isArray(node.items)) {
+    node.items.forEach((raw, index) => {
+      if (typeof raw === "string") return;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        issues.push(issue("error", "INVALID_FIELD_USAGE", `numbered-list.items[${index}] must be a string or an object with title/text/body fields.`, {
+          slideId,
+          path: `${path}.items[${index}]`,
+          nodeName: node.id,
+          suggestedFix: "Use a plain string, or {title:'...', body:'...'} for a structured numbered item.",
+        }));
+        return;
+      }
+      const rec = raw as Record<string, unknown>;
+      const hasText = ["title", "headline", "label", "name", "text", "body", "detail", "description"].some((key) => typeof rec[key] === "string" && String(rec[key]).trim() !== "");
+      if (!hasText) {
+        issues.push(issue("error", "INVALID_FIELD_USAGE", `numbered-list.items[${index}] has no renderable title/text/body field.`, {
+          slideId,
+          path: `${path}.items[${index}]`,
+          nodeName: node.id,
+          suggestedFix: "Add title/text/body/detail, or replace the item with a string.",
+        }));
+      }
+    });
+  }
   for (const [propName, prop] of Object.entries(definition.fields)) {
-    if (prop.required && !hasRequiredComponentField(String(name), propName, node)) {
-      issues.push(issue("error", "MISSING_REQUIRED_FIELD", `${definition.name} requires ${propName}.`, {
-        slideId,
-        path,
-        nodeName: node.id,
-        suggestedFix: `Keep ${definition.name} semantics and provide ${propName}.`,
-      }));
+    if (prop.required) {
+      const required = checkRequiredComponentField(String(name), propName, prop, node);
+      if (!required.ok) {
+        const wrongType = required.reason === "wrong-type";
+        issues.push(issue("error", wrongType ? "INVALID_FIELD_USAGE" : "MISSING_REQUIRED_FIELD", wrongType
+          ? `${definition.name}.${propName} must be ${required.expected}; got ${required.actual}.`
+          : `${definition.name} requires ${propName}.`, {
+          slideId,
+          path: required.path ? `${path}.${required.path}` : path,
+          nodeName: node.id,
+          suggestedFix: wrongType
+            ? `Keep ${definition.name} semantics and provide ${propName} as ${required.expected}.`
+            : `Keep ${definition.name} semantics and provide ${propName}.`,
+        }));
+      }
     }
     const value = node[propName];
     if (prop.type === "enum" && value !== undefined && value !== null && value !== "" && prop.enum?.length) {
@@ -682,7 +754,11 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       if (!it || typeof it !== "object") continue;
       const content = (it as Record<string, unknown>).content;
       if (content && typeof content === "object" && !Array.isArray(content)) {
-        validateNode(content as DomNode, `${path}.items[${i}].content`, slideId, issues, node);
+        const rec = content as DomNode;
+        validateNode({
+          ...rec,
+          id: typeof rec.id === "string" && rec.id ? rec.id : `${slideId}.${node.id || "timeline"}.${i + 1}.content`,
+        } as DomNode, `${path}.items[${i}].content`, slideId, issues, node);
       }
     }
   }
@@ -753,9 +829,73 @@ const REQUIRED_FIELD_ALIASES: Record<string, Record<string, string[]>> = {
   "probe-flow": { steps: ["items"] },
 };
 
-function hasRequiredComponentField(componentName: string, propName: string, node: DomNode): boolean {
-  const values = [node[propName], ...(REQUIRED_FIELD_ALIASES[componentName]?.[propName] || []).map((path) => valueAtPath(node, path))];
-  return values.some((value) => value !== undefined && value !== null && value !== "");
+type RequiredFieldCheck =
+  | { ok: true }
+  | { ok: false; reason: "missing"; path?: string }
+  | { ok: false; reason: "wrong-type"; path: string; expected: string; actual: string };
+
+function checkRequiredComponentField(componentName: string, propName: string, prop: PropDefinition, node: DomNode): RequiredFieldCheck {
+  const aliases = REQUIRED_FIELD_ALIASES[componentName]?.[propName] || [];
+  const candidates = [{ path: propName, value: node[propName] }, ...aliases.map((path) => ({ path, value: valueAtPath(node, path) }))];
+  let firstPresent: { path: string; value: unknown } | undefined;
+  for (const candidate of candidates) {
+    if (!candidateHasRequiredValue(candidate.value)) continue;
+    firstPresent ??= candidate;
+    if (requiredValueMatchesType(candidate.value, prop)) return { ok: true };
+  }
+  if (firstPresent) {
+    return {
+      ok: false,
+      reason: "wrong-type",
+      path: firstPresent.path,
+      expected: requiredTypeDescription(prop),
+      actual: describeValueType(firstPresent.value),
+    };
+  }
+  return { ok: false, reason: "missing" };
+}
+
+function candidateHasRequiredValue(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  return true;
+}
+
+function requiredValueMatchesType(value: unknown, prop: PropDefinition): boolean {
+  switch (prop.type) {
+    case "array":
+      return Array.isArray(value) && value.length > 0;
+    case "object":
+      return Boolean(value && typeof value === "object" && !Array.isArray(value));
+    case "number":
+      return (typeof value === "number" && Number.isFinite(value)) || isNumericString(value);
+    case "boolean":
+      return typeof value === "boolean";
+    default:
+      return candidateHasRequiredValue(value);
+  }
+}
+
+function requiredTypeDescription(prop: PropDefinition): string {
+  if (prop.type === "array") return "a non-empty array";
+  if (prop.type === "object") return "an object";
+  if (prop.type === "number") return "a finite number";
+  if (prop.type === "boolean") return "a boolean";
+  return `a non-empty ${prop.type}`;
+}
+
+function describeValueType(value: unknown): string {
+  if (Array.isArray(value)) return `array(${value.length})`;
+  if (value === null) return "null";
+  return typeof value;
+}
+
+function isNumericString(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim().replace(/,/g, "");
+  if (!normalized) return false;
+  const raw = normalized.endsWith("%") ? normalized.slice(0, -1) : normalized;
+  return raw.trim() !== "" && Number.isFinite(Number.parseFloat(raw));
 }
 
 function valueAtPath(value: unknown, path: string): unknown {
@@ -765,17 +905,39 @@ function valueAtPath(value: unknown, path: string): unknown {
   }, value);
 }
 
-function containsTitleNode(nodes: DomNode[]): boolean {
+function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[] } {
+  const titles: string[] = [];
+  let found = false;
   for (const node of nodes) {
     if (!node || typeof node !== "object") continue;
-    if (node.type === "section-break" || (node.type === "component" && node.component === "section-break")) return true;
-    if (node.type === "title-lockup" || (node.type === "component" && node.component === "title-lockup")) return true;
-    if (node.type === "deck-title" || node.type === "slide-title" || node.type === "h1") return true;
-    if (node.type === "text" && (node.style === "deck-title" || node.style === "slide-title" || node.style === "section-title")) return true;
+    const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
+    if (componentName === "section-break" || componentName === "title-lockup") {
+      found = true;
+      if (typeof node.title === "string" && node.title.trim()) titles.push(node.title);
+    } else if (node.type === "deck-title" || node.type === "slide-title" || node.type === "h1") {
+      found = true;
+      if (typeof node.text === "string" && node.text.trim()) titles.push(node.text);
+    } else if (node.type === "text" && (node.style === "deck-title" || node.style === "slide-title" || node.style === "section-title")) {
+      found = true;
+      if (typeof node.text === "string" && node.text.trim()) titles.push(node.text);
+    }
     const inner = (node.children as DomNode[] | undefined) || [];
-    if (inner.length && containsTitleNode(inner)) return true;
+    if (inner.length) {
+      const nested = findBodyHeroTitle(inner);
+      found = found || nested.found;
+      titles.push(...nested.titles);
+    }
   }
-  return false;
+  return { found, titles };
+}
+
+function bodyHeroTitleMatchesSlideTitle(slideTitle: string, bodyTitles: string[]): boolean {
+  const normalizedSlideTitle = normalizeHeroTitle(slideTitle);
+  return bodyTitles.length > 0 && bodyTitles.every((title) => normalizeHeroTitle(title) === normalizedSlideTitle);
+}
+
+function normalizeHeroTitle(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function hasArticleText(node: DomNode): boolean {

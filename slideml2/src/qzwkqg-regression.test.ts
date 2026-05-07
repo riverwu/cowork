@@ -35,7 +35,6 @@ function blockingAfterRender(deck: Slideml2SourceDeck): LayoutDiagnostic[] {
     "COLLISION",
     "TINY_RECT",
     "SQUASHED",
-    "DROP",
     "LOW_CONTRAST",
     "UNKNOWN_COLOR",
     "UNKNOWN_STYLE",
@@ -356,7 +355,7 @@ describe("timeline component (qzwkqg s3) renders cleanly", () => {
             "slide-title": { fontSize: 36, fontWeight: "bold", color: "text.primary" } as any,
             paragraph: { fontSize: 16, lineHeight: 1.5, color: "text.secondary" },
           },
-          layout: { pageMarginX: 0.6, titleTop: 0.5, contentTop: 1.32, contentBottom: 6.75, defaultGap: 0.3 },
+          layout: { pageMarginX: 0.6, titleTop: 0.5, contentTop: 1.32, contentBottom: 7.54, defaultGap: 0.3 },
         },
       },
       slides: [{
@@ -433,7 +432,7 @@ describe("DUPLICATE_HERO_TITLE includes h1 / title-lockup / section-title (P2)",
     const slide: SlideV2 = {
       id: "rg-dup-h1",
       title: "封面",
-      children: [{ id: "rg-dup-h1.h", type: "h1", text: "封面" } as unknown as DomNode],
+      children: [{ id: "rg-dup-h1.h", type: "h1", text: "正文封面" } as unknown as DomNode],
     };
     const report = validateSlide(slide, baseDeck);
     expect(report.errors.find((e) => e.code === "DUPLICATE_HERO_TITLE")).toBeDefined();
@@ -443,9 +442,19 @@ describe("DUPLICATE_HERO_TITLE includes h1 / title-lockup / section-title (P2)",
     const slide: SlideV2 = {
       id: "rg-dup-section",
       title: "第一章",
-      children: [{ id: "rg-dup-section.t", type: "text", text: "第一章", style: "section-title" } as DomNode],
+      children: [{ id: "rg-dup-section.t", type: "text", text: "第二章", style: "section-title" } as DomNode],
     };
     const report = validateSlide(slide, baseDeck);
     expect(report.errors.find((e) => e.code === "DUPLICATE_HERO_TITLE")).toBeDefined();
+  });
+
+  it("allows slide.title to duplicate the body hero title as metadata", () => {
+    const slide: SlideV2 = {
+      id: "rg-dup-same-title",
+      title: "封面",
+      children: [{ id: "rg-dup-same-title.h", type: "h1", text: "封面" } as unknown as DomNode],
+    };
+    const report = validateSlide(slide, baseDeck);
+    expect(report.errors.find((e) => e.code === "DUPLICATE_HERO_TITLE")).toBeUndefined();
   });
 });

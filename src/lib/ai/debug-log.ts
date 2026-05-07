@@ -117,6 +117,10 @@ export class DebugLogger {
     await this.append("compacted", payload);
   }
 
+  async recordContextManifest(payload: unknown): Promise<void> {
+    await this.append("context-manifest", payload);
+  }
+
   async recordCompleted(payload: { totalSteps: number; hitStepLimit: boolean; finalText: string }): Promise<void> {
     await this.append("completed", payload);
   }

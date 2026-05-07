@@ -235,6 +235,8 @@ export interface ImageShape {
   border?: LineSpec;
   /** Translucent colored overlay drawn on top of the image. */
   overlay?: { color: HexColor; alpha?: number };
+  /** Overall image opacity, 0..1. */
+  opacity?: number;
   /**
    * Inset crop (fractions 0..1 of width/height). Maps to OOXML
    * `<a:srcRect l="..." r="..." t="..." b="..."/>` inside the blipFill.

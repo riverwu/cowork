@@ -5,7 +5,7 @@ export const readFile: Tool = {
   definition: {
     name: "read_file",
     description:
-      "Read a bounded preview or segment of a text file. For binary/Office documents (PDF, DOC, DOCX, XLSX, XLS, PPTX), this is only a lossy text preview; use run_python with python-docx/openpyxl/python-pptx/PyPDF2 when exact structure, tables, slide/page layout, metadata, or faithful analysis is needed. The result includes total_chars, returned_range, truncated, and next_offset. If truncated=true for a text file and the task requires full-file understanding, continue reading with offset=next_offset until truncated=false, or use grep/search plus targeted ranges.",
+      "Read a bounded preview or segment of a text file. For binary/Office documents (PDF, DOC, DOCX, XLSX, XLS, PPTX), this is only a lossy text preview; use run_python with python-docx/openpyxl/python-pptx/PyPDF2 when exact structure, tables, slide/page layout, metadata, or faithful analysis is needed. The result includes total_chars, returned_range, truncated, and next_offset. If truncated=true for a text file and the task requires full-file understanding, continue reading with offset=next_offset until truncated=false, or use grep/search plus targeted ranges. Skill instruction markdown files such as SKILL.md and sibling style references under an installed/catalog skill directory are returned in full for the current request.",
     parameters: {
       type: "object",
       properties: {
@@ -56,8 +56,8 @@ export const readFile: Tool = {
         ].join("\n");
       }
 
-      const isSkillMd = isSkillMarkdownPath(path);
-      const maxChars = isSkillMd
+      const isSkillInstructionMd = isSkillInstructionMarkdownPath(path);
+      const maxChars = isSkillInstructionMd
         ? text.length
         : Math.min(Math.max(requestedMax, 1000), 20000);
       const start = Math.min(offset, text.length);
@@ -92,6 +92,12 @@ export const readFile: Tool = {
   },
 };
 
-function isSkillMarkdownPath(path: string): boolean {
-  return /(^|\/)SKILL\.md$/i.test(path);
+export function isSkillInstructionMarkdownPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  if (!/\.md$/i.test(normalized)) return false;
+  if (/(^|\/)SKILL\.md$/i.test(normalized)) return true;
+  return (
+    /(^|\/)(?:\.cowork|\.codex)\/skills\/[^/]+\/[^/]+\.md$/i.test(normalized) ||
+    /(^|\/)src\/catalog\/skills\/[^/]+\/[^/]+\.md$/i.test(normalized)
+  );
 }

@@ -584,10 +584,10 @@ describe("watermark overlay positioning", () => {
 /* ============================================================ big-page-number */
 
 describe("big-page-number overlay positioning", () => {
-  it("position:top-right anchors to top-right corner with current/total", () => {
+  it("corner:top-right anchors to top-right corner with current/total", () => {
     const shapes = renderShapes({
       id: "s.bpn", type: "big-page-number",
-      current: 5, total: 22, position: "top-right",
+      current: 5, total: 22, corner: "top-right",
     } as unknown as DomNode);
     const bpn = findByNameSuffix(shapes, "s.bpn")!;
     const text = bpn.paragraphs?.[0]?.runs.map((r) => r.text).join("") || "";

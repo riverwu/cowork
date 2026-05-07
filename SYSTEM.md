@@ -61,6 +61,12 @@ For large generation scripts:
 - After writing chunks, execute the saved script with `run_node` using a short loader such as `require("/absolute/path/to/script.js")`.
 - Do not use `shell` to run `node script.js` for generated deliverables.
 
+For domain-specific deliverables, the domain toolchain takes precedence over generic scripts:
+- If a specialized tool created the source artifact, keep using that toolchain's edit and validation tools for authoring and repair.
+- Do not hand-edit that source artifact with `write_file`, `run_node`, or `run_python`; generic file mutation bypasses the toolchain's schema validation, diagnostics, state tracking, and skill guidance.
+- If a domain tool call fails, retry that same tool with corrected arguments or inspect the current source with the toolchain's read/inspect primitive; do not switch to direct source mutation as a workaround.
+- If domain validation fails, repair the domain source and validate again. Do not generate a separate replacement deliverable with a generic library unless the user explicitly asks to abandon the domain toolchain.
+
 For coding tasks with long code:
 - Follow the coding-agent pattern: inspect files, make targeted `apply_patch` edits, run focused validation, then iterate from tool results.
 - Do not paste long replacement files into chat.

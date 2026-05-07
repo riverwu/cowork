@@ -21,6 +21,7 @@ describe("Tool Registry", () => {
     "apply_patch",
     "update_task_progress",
     "image_gen",
+    "generate_icon_sheet",
     "describe_schema",
     "create_deck",
     "read_deck",

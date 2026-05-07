@@ -59,6 +59,13 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("Do not use `shell` to run `node script.js`");
   });
 
+  it("keeps domain-specific toolchains ahead of generic scripts", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain("domain toolchain takes precedence");
+    expect(prompt).toContain("Do not hand-edit that source artifact");
+    expect(prompt).toContain("Do not generate a separate replacement deliverable");
+  });
+
   it("guides long coding work through targeted patches", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).toContain("For coding tasks with long code");

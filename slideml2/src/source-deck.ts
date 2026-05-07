@@ -57,6 +57,8 @@ function computeArticlePageWeight(fontSize: number, lineHeight: number): number 
 }
 
 export function sourceSlideToRendered(slide: SlideV2): RenderedSlide {
+  const shouldInjectSlideTitle = shouldRenderSlideTitle(slide);
+  const slideTitle = typeof slide.title === "string" ? slide.title : "";
   return {
     id: slide.id,
     layout: "title-and-content",
@@ -66,20 +68,62 @@ export function sourceSlideToRendered(slide: SlideV2): RenderedSlide {
       background: resolveSlideBackground(slide),
       notes: slide.notes,
       children: [
-        ...(slide.title ? [{
+        ...(shouldInjectSlideTitle ? [{
           id: `${slide.id}.title`,
           type: "slide-title" as const,
-          text: slide.title,
+          text: slideTitle,
           align: "left",
           // Long Chinese / English titles routinely overflow the 1.45cm
           // title rect. autoFit:"shrink" lets the renderer scale the title
           // down to fit instead of clipping, preserving the agent's text.
           autoFit: "shrink" as const,
         }] : []),
-        ...ensureContentArea(slide.id, slide.children, Boolean(slide.title)),
+        ...ensureContentArea(slide.id, slide.children, shouldInjectSlideTitle),
       ],
     },
   };
+}
+
+function shouldRenderSlideTitle(slide: SlideV2): boolean {
+  if (typeof slide.title !== "string" || !slide.title.trim()) return false;
+  const bodyHeroTitle = findBodyHeroTitle(slide.children || []);
+  if (!bodyHeroTitle.found) return true;
+  return !bodyHeroTitleMatchesSlideTitle(slide.title, bodyHeroTitle.titles);
+}
+
+function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[] } {
+  const titles: string[] = [];
+  let found = false;
+  for (const node of nodes) {
+    if (!node || typeof node !== "object") continue;
+    const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
+    if (componentName === "section-break" || componentName === "title-lockup") {
+      found = true;
+      if (typeof node.title === "string" && node.title.trim()) titles.push(node.title);
+    } else if (node.type === "deck-title" || node.type === "slide-title" || node.type === "h1") {
+      found = true;
+      if (typeof node.text === "string" && node.text.trim()) titles.push(node.text);
+    } else if (node.type === "text" && (node.style === "deck-title" || node.style === "slide-title" || node.style === "section-title")) {
+      found = true;
+      if (typeof node.text === "string" && node.text.trim()) titles.push(node.text);
+    }
+    const inner = (node.children as DomNode[] | undefined) || [];
+    if (inner.length) {
+      const nested = findBodyHeroTitle(inner);
+      found = found || nested.found;
+      titles.push(...nested.titles);
+    }
+  }
+  return { found, titles };
+}
+
+function bodyHeroTitleMatchesSlideTitle(slideTitle: string, bodyTitles: string[]): boolean {
+  const normalizedSlideTitle = normalizeHeroTitle(slideTitle);
+  return bodyTitles.length > 0 && bodyTitles.every((title) => normalizeHeroTitle(title) === normalizedSlideTitle);
+}
+
+function normalizeHeroTitle(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -128,7 +172,7 @@ export function normalizeSlide(slide: SlideV2): SlideV2 {
   };
 }
 
-// Anchor / position values that the renderer treats as slide-level overlays
+// Anchor values that the renderer treats as slide-level overlays
 // (they get a fixed rect from rectForSlideChild instead of flowing inside the
 // content stack). Mirrored from render.ts ANCHOR_POINTS / isOverlayChild.
 const OVERLAY_ANCHOR_POINTS = new Set([
@@ -145,6 +189,7 @@ const OVERLAY_ANCHOR_POINTS = new Set([
 // metadata gets buried inside the content stack and is ignored.
 const OVERLAY_COMPONENT_TYPES = new Set([
   "watermark", "corner-mark", "callout-marker", "big-page-number",
+  "brand-mark",
   "freeform-group", "cover-composition", "chapter-divider",
 ]);
 
@@ -154,7 +199,6 @@ function isOverlayChildAtSource(node: DomNode): boolean {
   if (typeof node.anchor === "string" && OVERLAY_ANCHOR_POINTS.has(node.anchor)) return true;
   if (typeof node.anchorTo === "string" && node.anchorTo.length > 0) return true;
   if (isAbsoluteAt(node.at)) return true;
-  if (node.type === "image" && (node.position === "bottom-right" || node.position === "top-right" || node.position === "center")) return true;
   if (typeof node.type === "string" && OVERLAY_COMPONENT_TYPES.has(node.type)) return true;
   return false;
 }
@@ -180,13 +224,13 @@ function aliasDimensionFields(node: DomNode): DomNode {
   // rendered at default size.
   //
   // Caveats:
-  //   - `image` / `chart` / `table` with anchor/position read `width` /
+  //   - `image` / `chart` / `table` with anchor read `width` /
   //     `height` directly via numberProp() — do not strip those.
   //   - Other container types: copy `height`→`fixedHeight` (canonical
   //     field) but keep both available so any code reading either form
   //     still works.
   const skipAlias = node.type === "image" || node.type === "chart" || node.type === "table"
-    || typeof node.anchor === "string" || typeof node.position === "string";
+    || typeof node.anchor === "string";
   let mutated = node;
   if (!skipAlias) {
     if (typeof node.height === "number" && node.fixedHeight === undefined) {
@@ -211,7 +255,7 @@ function ensureContentArea(slideId: string, children: DomNode[], hasSlideTitle =
   children = children.map((c) => aliasDimensionFields(c));
   if (children.some((node) => node.area === "content")) return children;
   // yajush regression: agents put a footer/corner decoration (image with
-  // position:"bottom-right" or anchor:"...") at slide-level expecting it to
+  // anchor:"bottom-right" at slide-level expecting it to
   // float over the slide. ensureContentArea used to wrap EVERY child inside
   // the content stack, so the seal got flowed and stretched to fill the
   // content rect. Now we split overlay-style children out: they stay at

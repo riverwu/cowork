@@ -33,7 +33,7 @@ function proposeEdits(deck: RenderedDeck, issues: AuditIssue[], inspect: ReturnT
     }
     if (issue.code === "BRAND_LOGO_POSITION") {
       for (const slide of deck.slides) {
-        ops.push({ op: "setNodeProp", slideId: slide.id, nodeName: `${slide.id}.brandLogo`, prop: "position", value: "bottom-right" });
+        ops.push({ op: "setNodeProp", slideId: slide.id, nodeName: `${slide.id}.brandLogo`, prop: "anchor", value: "bottom-right" });
       }
     }
     if (issue.code === "MISSING_BRAND_LOGO" && deck.deck.brand.logo) {
@@ -89,7 +89,7 @@ function brandLogoNode(slideId: string, logo: string): DomNode {
     type: "image",
     src: logo,
     alt: "Brand logo",
-    position: "bottom-right",
+    anchor: "bottom-right",
     width: 2.4,
     height: 1.0,
     fit: "contain",

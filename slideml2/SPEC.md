@@ -163,6 +163,8 @@ new deck task SHOULD install a subject-specific `themeOverride` in
 - `component`: default component surfaces (`card`, `panel`, etc.).
 - `layout`: `pageMarginX`, `titleTop`, `titleHeight`, `contentTop`,
   `contentBottom`, `defaultGap`, `columnGap`, `cardPadding`.
+  `contentTop` and `contentBottom` are content-area y-coordinates; content
+  height is `contentBottom - contentTop`.
 - `fonts`: latin/cjk display and text chains plus `mono`.
 - `chart`: chart color cycles.
 - `chrome`: brand mark, page number, footer behavior.
@@ -299,7 +301,8 @@ Containers:
 Layering and absolute composition:
 
 - `at:[x,y,w,h]`: slide-relative absolute rect. Use for covers, section
-  dividers, hero-number compositions, and deliberate poster layouts.
+  dividers, hero-number compositions, and deliberate poster layouts. Do not
+  use it for ordinary corner labels; use `brand-mark` or `anchor`.
 - `anchor`: slide-relative overlay anchored to one of nine anchor points.
 - `anchorTo`: slide-level overlay whose reference frame is another node id.
 - `layer:"behind"|"above"` inside stack/grid: child fills parent rect and does
@@ -468,7 +471,7 @@ both primitives and semantic components. Detailed field descriptions are in
 | `spacer` | - | fixedWidth, fixedHeight, minWidth, minHeight, layoutWeight |
 | `divider` | - | orientation, thickness, line, dash, fixedWidth, fixedHeight |
 | `bullets` | items | size, density, numbered, align, title, indentLevel, marker, markerColor, markerSize |
-| `image` | src | alt, caption, captionPosition, fit, position, width, height, fixedHeight, minHeight, clip, cornerRadius, border |
+| `image` | src | alt, caption, captionPosition, fit, anchor, width, height, fixedHeight, minHeight, clip, cornerRadius, border |
 | `table` | rows | headers, caption, align, firstRowHeader, colWidths, rowHeights, borderColor, borderWidth, fixedHeight |
 | `chart` | chartType, labels, series | title, yFormat, axis, legend, caption, showValues, showLegend, colors, annotations, fixedHeight |
 | `shape` | - | preset, role, marker, shape, tone, variant, size, fill, line, fillOpacity, lineOpacity, opacity |
@@ -492,7 +495,7 @@ both primitives and semantic components. Detailed field descriptions are in
 | `comparison-card` | title | subtitle, body, content, badge, points, items, metrics, pros, cons, score, winner, footer |
 | `step-card` | title | step, number, body, description, steps, content, bullets, icon, marker, status, owner, time |
 | `definition-card` | term, definition | - |
-| `numbered-list` | items | density |
+| `numbered-list` | items (string or `{title/body}` objects) | density |
 | `quote` | text | source |
 | `icon-text` | icon, text | iconColor, iconBackground, tone |
 | `timeline` | items | direction, orientation |
@@ -501,7 +504,7 @@ both primitives and semantic components. Detailed field descriptions are in
 | `section-break` | title | subtitle, accent, tone |
 | `swot-matrix` | strengths, weaknesses, opportunities, threats | - |
 | `cta` | text | tone, link |
-| `feature-card` | title | icon, body, content, marker, badge, tags, metric, proof, ctaText, iconColor, iconBackground, tone |
+| `feature-card` | title | icon, iconSrc, body, content, marker, badge, tags, metric, proof, ctaText, iconColor, iconBackground, tone |
 | `checklist` | items | - |
 | `progress-bar` | label, value | max, valueLabel, tone |
 | `pros-cons` | pros, cons | prosTitle, consTitle |
@@ -526,7 +529,7 @@ both primitives and semantic components. Detailed field descriptions are in
 | `stat-comparison` | beforeLabel, beforeValue, afterLabel, afterValue | trend, deltaLabel |
 | `image-card` | src | alt, title, badge, insight, annotations, callouts, caption, fit, imageWidth, tone, variant, surface |
 | `chart-card` | chartType, labels, series | chart, data, title, badge, insight, caption, showLegend, showValues, yFormat, tone, variant, surface |
-| `table-card` | rows | title, headers, columns, data, badge, insight, caption, tone, variant, surface |
+| `table-card` | rows | title, headers, columns, data, badge, insight, caption, tone, variant, density, surface |
 | `insight-card` | headline | badge, title, detail, body, bullets, items, points, tone, density |
 | `explanation-block` | - | title, headline, body, detail, description, content, bullets, items, example, note, variant, tone |
 | `comparison-list` | items | title, basis, columns, variant, density |
@@ -550,13 +553,14 @@ both primitives and semantic components. Detailed field descriptions are in
 | `range-plot` | items | tone |
 | `callout-marker` | text | anchor, tone, width, height |
 | `decoration-grid` | - | pattern, density, tone, rows, columns, asBackground |
-| `decorative-shapes` | - | motif, position, tone, count, width, height, asBackground |
+| `decorative-shapes` | - | motif, anchor, tone, count, width, height, asBackground |
 | `corner-mark` | text | corner, tone, style |
+| `brand-mark` | text | corner, tone, width, height, offsetX, offsetY |
 | `bracket` | - | direction, label, tone |
 | `arrow-link` | - | fromLabel, toLabel, label, direction, tone |
 | `pointer-arrow` | - | label, direction, anchor, offsetX, offsetY, width, height, tone, style |
 | `watermark` | text | rotation, tone |
-| `big-page-number` | current | total, position, tone |
+| `big-page-number` | current | total, corner, tone |
 | `timeline-axis-bar` | sections, current | tone |
 | `scale-bar` | max | min, unit, ticks, tone |
 | `freeform-group` | - | mode |
@@ -606,7 +610,6 @@ FALLBACK_FAILED
 COLLISION
 TINY_RECT
 SQUASHED
-DROP
 LOW_CONTRAST
 SHAPE_INVISIBLE
 UNKNOWN_COLOR

@@ -22,7 +22,61 @@ beforeEach(() => {
   resetAllSlideMl2AuthoringState();
 });
 
+describe("replace_slide argument recovery", () => {
+  it("tells the agent to retry replace_slide instead of mutating deck JSON after malformed string input", async () => {
+    const result = await replaceSlideTool.execute({
+      deckPath: deckPath(),
+      slideId: 0,
+      slide: "{\"id\":\"s\",\"children\":[]}]}",
+    });
+
+    expect(String(result)).toContain("slide must be a JSON object");
+    expect(String(result)).toContain("Retry replace_slide");
+    expect(String(result)).toContain("Do not write the deck JSON");
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("auto-parses a valid JSON-stringified slide but asks for object literals next time", async () => {
+    const path = deckPath();
+    mockRead.mockResolvedValue({ slides: [] });
+    mockReplace.mockResolvedValue({ ok: true, insertedAt: 0, slideCount: 1 });
+
+    const result = await replaceSlideTool.execute({
+      deckPath: path,
+      slideId: 0,
+      slide: "{\"id\":\"cover\",\"children\":[]}",
+    });
+
+    expect(String(result)).toContain("auto-parsed");
+    expect(mockReplace).toHaveBeenCalledWith(path, 0, { id: "cover", children: [] });
+  });
+});
+
 describe("replace_slide duplicate target notice", () => {
+  it("asks for a render checkpoint after two unvalidated slide writes", async () => {
+    const path = deckPath();
+    mockRead
+      .mockResolvedValueOnce({ slides: [] })
+      .mockResolvedValueOnce({ slides: [{ id: "cover" }] });
+    mockReplace
+      .mockResolvedValueOnce({ ok: true, insertedAt: 0, slideCount: 1 })
+      .mockResolvedValueOnce({ ok: true, insertedAt: 1, slideCount: 2 });
+
+    await replaceSlideTool.execute({
+      deckPath: path,
+      slideId: 0,
+      slide: { id: "cover", children: [] },
+    });
+    const second = await replaceSlideTool.execute({
+      deckPath: path,
+      slideId: 1,
+      slide: { id: "summary", children: [] },
+    });
+
+    expect(String(second)).toContain("Checkpoint required");
+    expect(String(second)).toContain("Call validate_render({deckPath, render:true}) now");
+  });
+
   it("allows replacing the same slide position twice and returns a warning", async () => {
     const path = deckPath();
     mockRead
@@ -69,5 +123,31 @@ describe("replace_slide duplicate target notice", () => {
 
     expect(String(second)).toMatch(/Slide replaced/);
     expect(mockReplace).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("replace_slide semantic layout warning", () => {
+  it("nudges manually positioned text-heavy slides toward semantic components", async () => {
+    const path = deckPath();
+    mockRead.mockResolvedValue({ slides: [] });
+    mockReplace.mockResolvedValue({ ok: true, insertedAt: 0, slideCount: 1 });
+
+    const result = await replaceSlideTool.execute({
+      deckPath: path,
+      slideId: 0,
+      slide: {
+        id: "manual",
+        children: [
+          { type: "text", text: "收入增长 42%", at: [1, 2, 5, 1] },
+          { type: "text", text: "利润率提升", at: [1, 3, 5, 1] },
+          { type: "text", text: "市场份额", at: [1, 4, 5, 1] },
+          { type: "text", text: "KPI 结论", at: [1, 5, 5, 1] },
+        ],
+      },
+    });
+
+    expect(String(result)).toContain("Semantic layout warning");
+    expect(String(result)).toContain("bar-list");
+    expect(String(result)).toContain("describe_schema");
   });
 });

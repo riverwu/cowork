@@ -167,12 +167,12 @@ function compactComponentSchema(definition: import("./component-registry.js").Co
 
 function fieldSummary(key: string, prop: { type: string; enum?: string[]; values?: string[] }): string {
   const values = prop.enum || prop.values;
-  return values?.length ? `${key}:${prop.type}[${values.slice(0, 6).join("|")}]` : `${key}:${prop.type}`;
+  return values?.length ? `${key}:${prop.type}[${values.slice(0, 5).join("|")}]` : `${key}:${prop.type}`;
 }
 
 function compactPurpose(purpose: string): string {
   const firstSentence = purpose.split(/(?<=[.!?。！？])\s+/)[0] || purpose;
-  return firstSentence.length > 170 ? `${firstSentence.slice(0, 167)}...` : firstSentence;
+  return firstSentence.length > 160 ? `${firstSentence.slice(0, 157)}...` : firstSentence;
 }
 
 function componentSchemaGroups(components: readonly string[]): { title: string; names: string[] }[] {

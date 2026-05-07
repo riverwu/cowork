@@ -37,10 +37,13 @@ describe("slideml2 SKILL component reference", () => {
     expect(skill).toContain("Business / research report decks");
     expect(skill).toContain("[business.md](business.md)");
     expect(skill).toContain("read [business.md](business.md) before planning");
+    expect(skill).toContain("business.md` must show `truncated:false");
     expect(business).toContain("executive-summary");
     expect(business).toContain("evidence-layout");
     expect(business).toContain("comparison-table");
     expect(business).toContain("themeOverride");
+    expect(business).toContain("First-Read Non-Negotiables");
+    expect(business).toContain("truncated:true");
   });
 
   it("keeps the business themeOverride example to effective SlideML2 fields", () => {
@@ -62,6 +65,34 @@ describe("slideml2 SKILL component reference", () => {
     expect(business).toContain("PPTX OOXML emits that first face");
     expect(business).toContain("SlideML2 does not embed fonts");
     expect(business).toContain("Business research decks are light-first");
+  });
+
+  it("keeps decision guidance near the top so skill compression does not erase component choice", () => {
+    const skill = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md"), "utf8");
+    const business = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/business.md"), "utf8");
+
+    expect(skill.indexOf("## Deck Structure — Earn Every Slide")).toBeGreaterThan(skill.indexOf("## Authoring Workflow"));
+    expect(skill.indexOf("## Deck Structure — Earn Every Slide")).toBeLessThan(skill.indexOf("## Theme Contract — Define Before Components"));
+    expect(skill.indexOf("## Theme Contract — Define Before Components")).toBeLessThan(skill.indexOf("## Component-First Slide Loop"));
+    expect(skill).toContain("`contentTop` and `contentBottom` are y-coordinates");
+    expect(skill).toContain("Use `cornerRadius`, never `radius`");
+    expect(skill).toContain("Do not use `position` as a placement field");
+    expect(skill.indexOf("## Component-First Slide Loop")).toBeLessThan(skill.indexOf("## Layout Containers"));
+    expect(skill).toContain("Do not start from `text` boxes and coordinates");
+    expect(skill).toContain("| Executive answer / final synthesis | `executive-summary`");
+    expect(skill).toContain("Raw `text` is a residual primitive");
+    expect(skill).toContain("Common anti-pattern");
+    expect(skill).toContain("## Layout Escape Hatches — `at`, `layer`, `anchorTo`");
+    expect(skill).toContain("escape hatch, not free-fall");
+    expect(skillLineFor("grid")).toContain("avoid plain equal cards");
+    expect(skillLineFor("chart-with-rail")).toContain("Page archetype");
+
+    expect(business.indexOf("## Business Authoring Loop")).toBeLessThan(business.indexOf("## Story Structure"));
+    expect(business.indexOf("light-first")).toBeLessThan(1200);
+    expect(business.indexOf("Do not make a full business report dark by default")).toBeLessThan(1800);
+    expect(business.indexOf("Component route comes before JSON")).toBeLessThan(1800);
+    expect(business).toContain("| Executive answer | `executive-summary`");
+    expect(business).toContain("not the default container for business prose");
   });
 
   it("declares every component exposed by component-registry", () => {

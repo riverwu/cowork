@@ -64,10 +64,10 @@ describe("Agent Tool Chain Diagnostics", () => {
       const skills = getTools();
       const names = Object.keys(skills);
       console.log("[Diagnostic] Built-in skills:", names);
-      // 18 generic tools + 8 SlideML2 deck tools (describe_schema, create_deck,
+      // 19 generic tools + 8 SlideML2 deck tools (describe_schema, create_deck,
       // read_deck, replace_slide, insert_slide, delete_slide, patch_deck,
       // validate_render).
-      expect(names).toHaveLength(26);
+      expect(names).toHaveLength(27);
     });
 
     it("all built-in tools have valid tool definitions", () => {

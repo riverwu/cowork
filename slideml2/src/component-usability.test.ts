@@ -26,7 +26,7 @@ import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
 const TINY_PNG = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MDAiIGhlaWdodD0iNDUwIj48cmVjdCB3aWR0aD0iODAwIiBoZWlnaHQ9IjQ1MCIgZmlsbD0iIzExMTgyNyIvPjwvc3ZnPg==";
 
 const BLOCKING: ReadonlySet<LayoutDiagnostic["code"]> = new Set([
-  "FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "DROP", "LOW_CONTRAST", "UNKNOWN_COLOR", "UNKNOWN_STYLE",
+  "FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "LOW_CONTRAST", "UNKNOWN_COLOR", "UNKNOWN_STYLE",
 ]);
 
 const DARK_OVERRIDE: Slideml2SourceDeck["deck"]["themeOverride"] = {
@@ -1001,7 +1001,7 @@ const cases: UsabilityCase[] = [
         id: "s.free",
         type: "freeform-group",
         children: [
-          { id: "s.free.bg", type: "decorative-shapes", motif: "corner-blobs", position: "top-right", tone: "muted", count: 6 },
+          { id: "s.free.bg", type: "decorative-shapes", motif: "corner-blobs", anchor: "top-right", tone: "muted", count: 6 },
           { id: "s.free.arrow", type: "pointer-arrow", label: "重点", anchor: "middle-right", direction: "left", offsetX: 1.0, tone: "warning" },
         ],
       } as unknown as DomNode, {

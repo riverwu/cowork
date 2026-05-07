@@ -9,7 +9,7 @@ import { validateDeck } from "./validate.js";
  * Regressions for 2026-05-07T08-39-17-254-htdnvr:
  * - agent set contentTop inside the title band, so later card backgrounds
  *   covered every slide title;
- * - contentBottom was too small for page-number chrome, so source notes
+ * - contentBottom was too low for page-number chrome, so source notes
  *   collided with page numbers;
  * - validate_render returned ok:true despite the visible title occlusion.
  */
@@ -46,7 +46,7 @@ describe("title/content vertical rhythm guard (htdnvr)", () => {
       layout: {
         titleTop: 0.3,
         contentTop: 1.1,
-        contentBottom: 0.4,
+        contentBottom: 14.0,
       },
     }, { pageNumber: true });
 
@@ -69,7 +69,7 @@ describe("title/content vertical rhythm guard (htdnvr)", () => {
       layout: {
         titleTop: 0.3,
         contentTop: 1.1,
-        contentBottom: 0.4,
+        contentBottom: 14.0,
       },
     }, { pageNumber: true });
 

@@ -60,14 +60,14 @@ describe("slideml2 MVP", () => {
     const cover = deck.slides.find((slide) => slide.id === "cover");
     expect(cover?.dom.id).toBe("cover.root");
     expect(findNodeForTest(cover!.dom, "cover.title")?.text).toBe("Youdao Company");
-    expect(findNodeForTest(cover!.dom, "cover.brandLogo")?.position).toBe("top-right");
+    expect(findNodeForTest(cover!.dom, "cover.brandLogo")?.anchor).toBe("top-right");
   });
 
   it("applies the four primitive edit operations to the DOM", () => {
     const deck = buildDom(sampleSource());
     const edited = applyEdits(deck, [
       { op: "setSlideProp", slideId: "cover", prop: "background", value: "brand.primary" },
-      { op: "setNodeProp", slideId: "cover", nodeName: "cover.brandLogo", prop: "position", value: "bottom-right" },
+      { op: "setNodeProp", slideId: "cover", nodeName: "cover.brandLogo", prop: "anchor", value: "bottom-right" },
       {
         op: "insertNode",
         slideId: "business",
@@ -83,7 +83,7 @@ describe("slideml2 MVP", () => {
     ]);
 
     expect(edited.slides.find((slide) => slide.id === "cover")?.dom.background).toBe("brand.primary");
-    expect(findNodeForTest(edited.slides[0]!.dom, "cover.brandLogo")?.position).toBe("bottom-right");
+    expect(findNodeForTest(edited.slides[0]!.dom, "cover.brandLogo")?.anchor).toBe("bottom-right");
     expect(findNodeForTest(edited.slides[1]!.dom, "business.businessLines")?.items).toHaveLength(2);
     expect(findNodeForTest(edited.slides[1]!.dom, "business.bullets")).toBeNull();
   });
@@ -1290,7 +1290,7 @@ describe("slideml2 MVP", () => {
         themeOverride: {
           colors: { "brand.primary": "0F766E", surface: "F8FAFC" },
           text: { "card-title": { fontSize: 16, weight: "bold" as const, color: "brand.primary", lineHeight: 1.15 } },
-          component: { card: { padding: 0.42, radius: 0.18 } },
+          component: { card: { padding: 0.42, cornerRadius: 0.18 } },
           guidance: {
             scenario: "board dashboard",
             componentGuidance: {
@@ -1462,6 +1462,103 @@ describe("slideml2 MVP", () => {
       "UNKNOWN_THEME_COMPONENT_FIELD",
       "UNKNOWN_THEME_FONT_FIELD",
     ]));
+  });
+
+  it("reports invalid numeric layout values without crashing validation", () => {
+    const deck = createSourceDeck({ title: "Invalid layout value", theme: "default" });
+    deck.deck.themeOverride = {
+      layout: { contentBottom: "13.3" },
+    } as never;
+    deck.slides.push(sourceSlide("summary", "执行摘要"));
+
+    const validation = validateDeck(deck);
+    expect(validation.ok).toBe(false);
+    expect(validation.errors.map((err) => err.code)).toContain("INVALID_THEME_LAYOUT_VALUE");
+    expect(validation.errors.map((err) => err.code)).not.toContain("LAYOUT_VALIDATION_CRASH");
+  });
+
+  it("rejects legacy ambiguous theme names and impossible content area geometry", () => {
+    const deck = createSourceDeck({ title: "Invalid layout", theme: "default" });
+    deck.deck.themeOverride = {
+      layout: { contentBottom: 6, contentBottomMargin: 13 },
+      component: { card: { radius: 0.18 } },
+    } as never;
+    deck.slides.push(sourceSlide("summary", "执行摘要"));
+
+    const validation = validateDeck(deck);
+    expect(validation.ok).toBe(false);
+    expect(validation.errors.map((err) => err.code)).toEqual(expect.arrayContaining([
+      "UNKNOWN_THEME_LAYOUT_FIELD",
+      "THEME_LAYOUT_CONTENT_AREA_TOO_SMALL",
+      "UNKNOWN_THEME_COMPONENT_FIELD",
+    ]));
+    expect(validation.errors.find((err) => err.code === "THEME_LAYOUT_CONTENT_AREA_TOO_SMALL")?.suggestedFix).toContain("contentBottom is the content area's bottom y-coordinate");
+    expect(validation.errors.find((err) => err.path === "deck.themeOverride.component.card.radius")?.suggestedFix).toContain("Rename radius to cornerRadius");
+  });
+
+  it("warns when theme layout leaves too little practical content height", () => {
+    const deck = createSourceDeck({ title: "Tight layout", theme: "default" });
+    deck.deck.themeOverride = {
+      layout: { contentTop: 5.3, contentBottom: 13.3 },
+    };
+    deck.slides.push(sourceSlide("summary", "执行摘要"));
+
+    const validation = validateDeck(deck);
+    expect(validation.ok).toBe(true);
+    expect(validation.warnings.find((warning) => warning.code === "THEME_LAYOUT_CONTENT_AREA_TIGHT")?.suggestedFix).toContain("effective content height");
+  });
+
+  it("rejects required component arrays and objects with the wrong type", () => {
+    const deck = createSourceDeck({ title: "Component type validation", theme: "default" });
+    deck.slides.push({
+      id: "bad-required",
+      children: [
+        { id: "bad-required.pros", type: "pros-cons", pros: "pros", cons: ["Valid con"] },
+        { id: "bad-required.tags", type: "tag-list", items: "items" },
+        { id: "bad-required.cols", type: "two-column", left: "left", right: { id: "bad-required.r", type: "text", text: "Right" } },
+      ] as never,
+    });
+
+    const validation = validateDeck(deck);
+    expect(validation.ok).toBe(false);
+    const invalids = validation.errors.filter((err) => err.code === "INVALID_FIELD_USAGE");
+    expect(invalids.map((err) => err.path)).toEqual(expect.arrayContaining([
+      "children[0].pros",
+      "children[1].items",
+      "children[2].left",
+    ]));
+  });
+
+  it("validateSlide uses deck themeOverride for layout bounds", () => {
+    const slide = {
+      id: "narrow-theme",
+      children: [{ id: "narrow-theme.t", type: "text", text: "x", at: [9.8, 1, 1, 1] }],
+    } as never;
+    const validation = validateSlide(slide, {
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { name: "Narrow", primary: "2563EB" },
+        themeOverride: { layout: { slideWidthCm: 10 } },
+      },
+    });
+    expect(validation.errors.find((err) => err.code === "NODE_OUT_OF_BOUNDS"))?.toBeDefined();
+  });
+
+  it("rejects legacy node position placement in favor of anchor/corner", () => {
+    const deck = createSourceDeck({ title: "Invalid placement", theme: "default" });
+    deck.slides.push({
+      id: "placement",
+      title: "Placement",
+      children: [
+        { id: "placement.mark", type: "text", text: "Source", position: "bottom-right", width: 2.6, height: 0.45 },
+      ],
+    } as never);
+
+    const validation = validateDeck(deck);
+    expect(validation.ok).toBe(false);
+    expect(validation.errors.map((err) => err.code)).toContain("LEGACY_NODE_POSITION");
+    expect(validation.errors.find((err) => err.code === "LEGACY_NODE_POSITION")?.suggestedFix).toContain("anchor:'bottom-right'");
   });
 
   it("renders the same component source deck with three themes", async () => {
@@ -2170,7 +2267,7 @@ describe("slideml2 MVP", () => {
     expect(bodyShape.paragraphs[0]!.runs[0]!.color).toBe("FF6B6B");
   });
 
-  it("validateSlide flags DUPLICATE_HERO_TITLE when slide.title coexists with body section-break or deck-title", () => {
+  it("validateSlide flags DUPLICATE_HERO_TITLE for conflicting body hero titles but allows matching metadata titles", () => {
     const withSectionBreak = validateSlide({
       id: "cover",
       title: "智能竞争雷达 v2",
@@ -2184,7 +2281,7 @@ describe("slideml2 MVP", () => {
     });
     expect(withSectionBreak.errors.map((e) => e.code)).toContain("DUPLICATE_HERO_TITLE");
 
-    const withDeckTitleText = validateSlide({
+    const matchingDeckTitleSlide = {
       id: "cover2",
       title: "Deck title",
       children: [{
@@ -2196,8 +2293,31 @@ describe("slideml2 MVP", () => {
           { id: "cover2.sub", type: "text", style: "lead", text: "subtitle" },
         ],
       }],
+    } as const;
+    const withDeckTitleText = validateSlide(matchingDeckTitleSlide as never);
+    expect(withDeckTitleText.errors.map((e) => e.code)).not.toContain("DUPLICATE_HERO_TITLE");
+
+    const renderedMatching = sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [matchingDeckTitleSlide as never],
     });
-    expect(withDeckTitleText.errors.map((e) => e.code)).toContain("DUPLICATE_HERO_TITLE");
+    expect(findNodeForTest(renderedMatching.slides[0]!.dom, "cover2.title")).toBeNull();
+    expect(findNodeForTest(renderedMatching.slides[0]!.dom, "cover2.hero")?.text).toBe("Deck title");
+
+    const conflictingDeckTitleText = validateSlide({
+      id: "cover3",
+      title: "Metadata title",
+      children: [{
+        id: "cover3.content",
+        type: "stack",
+        area: "content",
+        children: [
+          { id: "cover3.hero", type: "text", style: "deck-title", text: "Visible title" },
+        ],
+      }],
+    });
+    expect(conflictingDeckTitleText.errors.map((e) => e.code)).toContain("DUPLICATE_HERO_TITLE");
 
     const onlySlideTitle = validateSlide({
       id: "ok1",

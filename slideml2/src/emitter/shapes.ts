@@ -173,6 +173,9 @@ function imageShapeXml(shape: ImageShape, _slidePart: string, rels: SlideRels): 
   //   fillOverlay → grayscl → hsl → lum → tint → extLst.
   // We support: blur, duotone, grayscl, lum.
   const blipInner: string[] = [];
+  if (shape.opacity !== undefined && shape.opacity < 1) {
+    blipInner.push(`<a:alphaModFix amt="${Math.round(Math.max(0, Math.min(1, shape.opacity)) * 100000)}"/>`);
+  }
   if (shape.blur !== undefined && shape.blur > 0) {
     blipInner.push(`<a:blur rad="${Math.round(shape.blur)}" grow="0"/>`);
   }
