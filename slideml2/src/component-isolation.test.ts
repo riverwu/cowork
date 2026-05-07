@@ -94,8 +94,10 @@ function valuesForField(componentName: string, fieldName: string, fieldSchema: R
     if (fieldName === "data" && componentName === "table-card") return { headers: ["Name", "Value"], rows: [["A", "1"], ["B", "2"]] };
     if (fieldName === "left") return { id: "iso.left", type: "text", text: "Left", style: "paragraph" };
     if (fieldName === "right") return { id: "iso.right", type: "text", text: "Right", style: "paragraph" };
+    if (fieldName === "hero") return { id: "iso.hero", type: "key-takeaway", headline: "核心主张", detail: "主区域负责承载页面的中心判断。" };
     if (fieldName === "evidence") return { id: "iso.evidence", type: "image-card", src: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiPjxyZWN0IHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiIGZpbGw9IiMyNTYzZWIiLz48L3N2Zz4=", title: "Evidence" };
     if (fieldName === "insight") return { id: "iso.insight", type: "insight-card", headline: "核心判断", detail: "证据说明。" };
+    if (fieldName === "rail") return { id: "iso.rail", type: "side-rail", title: "解读", body: "解释证据的含义。" };
     if (fieldName === "visual") return { src: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiPjxyZWN0IHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiIGZpbGw9IiMyNTYzZWIiLz48L3N2Zz4=", fit: "cover" };
     if (fieldName === "heroStat") return { value: "72%", label: "完成度", caption: "+12pp" };
     return {};
@@ -160,6 +162,15 @@ function arrayValueFor(componentName: string, fieldName: string, count: number):
   }
   if (componentName === "failure-taxonomy" && fieldName === "items") {
     return Array.from({ length: Math.min(count, 3) }, (_, i) => ({ title: `失败类型 ${i + 1}`, rate: `${(i + 1) * 12}%`, examples: [`案例 ${i + 1}.1`, `案例 ${i + 1}.2`] }));
+  }
+  if (componentName === "hero-and-support" && (fieldName === "supports" || fieldName === "items")) {
+    return Array.from({ length: Math.min(count, 4) }, (_, i) => ({ title: `支撑点 ${i + 1}`, body: bodyAt(i), tone: i % 2 === 0 ? "brand" : "neutral" }));
+  }
+  if (componentName === "chart-with-rail" && fieldName === "items") {
+    return Array.from({ length: Math.min(count, 4) }, (_, i) => `解读 ${i + 1}`);
+  }
+  if (componentName === "snapshot-callouts" && (fieldName === "callouts" || fieldName === "items")) {
+    return Array.from({ length: Math.min(count, 4) }, (_, i) => ({ title: `标注 ${i + 1}`, body: bodyAt(i), tone: i % 2 === 0 ? "brand" : "neutral" }));
   }
   if (componentName === "evidence-layout" && fieldName === "annotations") {
     return [{ id: "iso.annotation", type: "pointer-arrow", label: "关键变化", anchor: "middle-right", direction: "left" }];

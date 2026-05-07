@@ -167,8 +167,8 @@ function runXml(run: TextRun): string {
   let fonts = "";
   if (run.fontFace || run.cjk || run.mono) {
     const latinFace = xmlEscape(run.fontFace ?? "Calibri");
-    const eaFace = run.cjk ? xmlEscape(run.fontFace ?? "PingFang SC") : undefined;
-    const csFace = run.mono ? xmlEscape(run.fontFace ?? "Menlo") : undefined;
+    const eaFace = run.cjk ? xmlEscape(run.eastAsianFontFace ?? run.fontFace ?? "PingFang SC") : undefined;
+    const csFace = run.mono ? xmlEscape(run.complexScriptFontFace ?? run.fontFace ?? "Menlo") : undefined;
     fonts += `<a:latin typeface="${latinFace}"/>`;
     if (eaFace) fonts += `<a:ea typeface="${eaFace}"/>`;
     if (csFace) fonts += `<a:cs typeface="${csFace}"/>`;

@@ -66,10 +66,23 @@ Use these patterns instead of defaulting to many `insight-card`s.
 
 ### Evidence Plus Meaning
 
-- Component: `evidence-layout`
+- Components: `chart-with-rail` or `evidence-layout`
 - Evidence side: `chart-card`, `table-card`, `image-card`, `bar-list`, `heatmap`, `funnel`, `range-plot`, or `matrix-2x2`.
 - Insight side: `key-takeaway`, `explanation-block`, `fact-list`, or one `insight-card`.
 - Use for: any slide where a chart/table/screenshot must be interpreted.
+- Prefer `chart-with-rail` for business report pages with one dominant data object plus a narrow executive interpretation rail.
+
+### Hero Plus Support
+
+- Component: `hero-and-support`
+- Use for: one core recommendation, risk, or strategic move with 2-4 supporting facts.
+- Avoid: a 2x2 grid where all cards look equal even though one claim should lead.
+
+### Screenshot / Artifact Walkthrough
+
+- Component: `snapshot-callouts`
+- Use for: UI screenshots, report excerpts, workflow traces, or product evidence with numbered observations.
+- Avoid: loose arrows and text boxes unless exact coordinate pointing is essential.
 
 ### Metrics Snapshot
 
@@ -89,6 +102,7 @@ Use these patterns instead of defaulting to many `insight-card`s.
 
 - Components: `comparison-table`, `comparison-list`, `comparison-card`, `matrix-2x2`, `swot-matrix`, `table-card`
 - Use `comparison-table` for options x criteria, competitor features, pricing tiers.
+- Do not compress 6+ rows x 6+ columns into one table; split by segment, move interpretation to a rail, or reduce columns to the few values that support the slide thesis.
 - Use `matrix-2x2` for strategic positioning or priority trade-offs.
 - Use `swot-matrix` only when the source explicitly needs SWOT.
 
@@ -204,9 +218,11 @@ Before using `insight-card`, check whether one of these is more precise:
 - Evidence rows with source/meaning: `fact-list`
 - Options or before/after: `comparison-list` or `comparison-table`
 - Data proof: `chart-card`, `table-card`, `bar-list`, `scorecard`, `funnel`, `heatmap`
-- Evidence plus interpretation: `evidence-layout`
+- Evidence plus interpretation: `chart-with-rail` or `evidence-layout`
+- One claim with support satellites: `hero-and-support`
+- Screenshot/artifact walkthrough: `snapshot-callouts`
 
-Use `insight-card` only for a curated finding that can stand alone in a peer set. If a slide has 3-4 `insight-card`s and no clear title-level claim, redesign it as `executive-summary`, `evidence-layout`, `comparison-list`, `fact-list`, or a chart/table page.
+Use `insight-card` only for a curated finding that can stand alone in a peer set. If a slide has 3-4 `insight-card`s and no clear title-level claim, redesign it as `executive-summary`, `hero-and-support`, `chart-with-rail`, `evidence-layout`, `comparison-list`, `fact-list`, or a chart/table page.
 
 ## Business Slide Quality Checklist
 

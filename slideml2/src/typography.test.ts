@@ -37,6 +37,22 @@ function findRun(ast: ReturnType<typeof renderToAst>, predicate: (text: string) 
   return undefined;
 }
 
+function findTableRun(ast: ReturnType<typeof renderToAst>, predicate: (text: string) => boolean) {
+  for (const slide of ast.slides) {
+    for (const shape of slide.shapes) {
+      if (shape.type !== "table") continue;
+      for (const row of shape.cells) {
+        for (const cell of row) {
+          for (const run of cell.runs) {
+            if (predicate(run.text)) return run;
+          }
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 describe("typography — numeric weight axis", () => {
   it("resolveFontWeight maps 'bold' / 'normal' / numeric to (numeric,bold)", () => {
     expect(resolveFontWeight("normal")).toEqual({ numeric: 400, bold: false });
@@ -115,6 +131,63 @@ describe("typography — display / text font roles", () => {
     const ast = renderToAst(sourceToRenderedDeck(deck));
     const lead = findRun(ast, (t) => t === "Body line.");
     expect(lead?.fontFace).toBe("Inter");
+  });
+
+  it("mixed Latin/CJK text emits separate latin and east-asian typefaces", () => {
+    const deck = deckWith([
+      { id: "s1.body", type: "stack", area: "content", direction: "vertical", gap: 0.4, children: [
+        { id: "s1.mixed", type: "text", style: "section-title", text: "增长 API-first" },
+      ] },
+    ], {
+      fonts: {
+        latin: { display: ["Bodoni"], text: ["Inter"] },
+        cjk: { display: ["Songti SC"], text: ["PingFang SC"] },
+      },
+      text: { "section-title": { fontFamily: "display" } },
+    });
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    const mixed = findRun(ast, (t) => t === "增长 API-first");
+    expect(mixed?.fontFace).toBe("Bodoni Bold");
+    expect(mixed?.eastAsianFontFace).toBe("Songti SC");
+    expect(mixed?.cjk).toBe(true);
+  });
+
+  it("table cells keep latin and CJK font chains separate", () => {
+    const deck = deckWith([
+      { id: "s1.body", type: "stack", area: "content", direction: "vertical", gap: 0.4, children: [
+        {
+          id: "s1.table",
+          type: "table",
+          headers: ["公司", "定位"],
+          rows: [["合合信息", "AI-Native IDP"]],
+        },
+      ] },
+    ], {
+      fonts: {
+        latin: { display: ["Bodoni"], text: ["Inter"] },
+        cjk: { display: ["Songti SC"], text: ["PingFang SC"] },
+      },
+    });
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    const chineseCell = findTableRun(ast, (t) => t === "合合信息");
+    const latinCell = findTableRun(ast, (t) => t === "AI-Native IDP");
+    expect(chineseCell?.fontFace).toBe("Inter");
+    expect(chineseCell?.eastAsianFontFace).toBe("PingFang SC");
+    expect(latinCell?.fontFace).toBe("Inter");
+    expect(latinCell?.eastAsianFontFace).toBe("PingFang SC");
+  });
+
+  it("text styles with fontFamily:'mono' use the mono chain", () => {
+    const deck = deckWith([
+      { id: "s1.body", type: "stack", area: "content", direction: "vertical", gap: 0.4, children: [
+        { id: "s1.codeish", type: "text", style: "paragraph", text: "状态 code", fontFamily: "mono" },
+      ] },
+    ], { fonts: { mono: ["JetBrains Mono"], latin: { text: ["Inter"], display: ["Bodoni"] }, cjk: { text: ["PingFang SC"], display: ["Songti SC"] } } });
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    const run = findRun(ast, (t) => t === "状态 code");
+    expect(run?.fontFace).toBe("JetBrains Mono");
+    expect(run?.eastAsianFontFace).toBe("JetBrains Mono");
+    expect(run?.mono).toBe(true);
   });
 });
 

@@ -1916,6 +1916,27 @@ describe("slideml2 MVP", () => {
     expect(report.warnings.some((warning) => warning.code === "REPEATED_CARD_LAYOUT")).toBe(true);
   });
 
+  it("warns when a deck repeats generic equal card grids across many slides", () => {
+    const slides = Array.from({ length: 4 }, (_, slideIndex) => ({
+      id: `equal-grid-${slideIndex + 1}`,
+      children: [{
+        id: `equal-grid-${slideIndex + 1}.g`,
+        type: "grid",
+        columns: 3,
+        children: Array.from({ length: 3 }, (_, cardIndex) => ({
+          id: `equal-grid-${slideIndex + 1}.c${cardIndex + 1}`,
+          type: "comparison-card",
+          title: `Option ${cardIndex + 1}`,
+          points: ["Fast", "Low risk"],
+        })),
+      }],
+    }));
+    const report = validateDeck({ slideml2: 2, deck: { size: "16x9", theme: "default" }, slides } as any);
+    expect(report.errors).toHaveLength(0);
+    expect(report.warnings.some((warning) => warning.code === "REPEATED_EQUAL_GRID_LAYOUT")).toBe(true);
+    expect(report.warnings.find((warning) => warning.code === "REPEATED_EQUAL_GRID_LAYOUT")?.suggestedFix).toContain("hero-and-support");
+  });
+
   it("describeDeck exposes the full prompt rule set the agent should follow", () => {
     const deck = describeDeck();
     expect(deck.colorUsageRules.length).toBeGreaterThan(0);

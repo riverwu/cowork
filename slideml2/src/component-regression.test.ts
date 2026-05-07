@@ -684,6 +684,30 @@ describe("component regressions", () => {
     expect(failures.map((d) => d.message).join("\n")).toContain("row");
   });
 
+  it("reports dense one-line comparison tables whose rows are below the readable floor", () => {
+    const slide: SlideV2 = {
+      id: "dense-table",
+      children: [{
+        id: "dense-table.table",
+        type: "table",
+        fixedHeight: 5.15,
+        headers: ["公司", "融资", "ARR", "定价", "核心差异化", "评级"],
+        rows: [
+          ["Reducto", "$108M", "未披露", "$0.015/页", "CV+VLM ParseBench", "★★★★"],
+          ["LlamaParse", "$27.5M", "未披露", "$0.00125-0.11/页", "OSS引流 Agentic", "★★★"],
+          ["Unstructured.io", "$68M", "$7.7M", "开源+付费", "Down round $200M", "避开"],
+          ["Mistral OCR", "N/A", "N/A", "$2/1000页", "价格杀手 win rate", "商品化拐点"],
+          ["Extend", "$17M", "增长中", "全栈定价", "自研LLM+工作流", "★★★★"],
+          ["Veryfi", "$32M", "$20-30M", "$0.01/页", "金融垂直合规", "★★★"],
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const failures = getRenderDiagnostics().filter((d) => d.code === "FALLBACK_FAILED" && d.nodeId === "dense-table.table");
+    expect(failures.map((d) => d.message).join("\n")).toContain("row");
+  });
+
   it("numbered-grid keeps 3-up long body text readable instead of shrinking to caption size", () => {
     const slide: SlideV2 = {
       id: "numbered-readable",

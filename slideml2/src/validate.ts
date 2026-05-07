@@ -112,24 +112,43 @@ function addRepeatedCardAuthoringDiagnostics(deck: Slideml2SourceDeck, issues: V
   const perSlide = deck.slides.map((slide) => ({
     slide,
     count: countNodesOfType(slide.children || [], "insight-card"),
+    equalCardGrids: countEqualCardGrids(slide.children || []),
   }));
   const total = perSlide.reduce((sum, item) => sum + item.count, 0);
-  if (total < 10) return;
-  const repeatedSlides = perSlide.filter((item) => item.count >= 3);
-  if (repeatedSlides.length < 3) return;
-  issues.push(issue(
-    "warning",
-    "REPEATED_CARD_LAYOUT",
-    `Deck uses ${total} insight-card components across ${repeatedSlides.length} card-heavy slides; the deck may feel repetitive even though it renders successfully.`,
-    {
-      slideId: repeatedSlides[0]?.slide.id,
-      details: {
-        totalInsightCards: total,
-        cardHeavySlides: repeatedSlides.map((item) => ({ slideId: item.slide.id, count: item.count })),
+  if (total >= 10) {
+    const repeatedSlides = perSlide.filter((item) => item.count >= 3);
+    if (repeatedSlides.length >= 3) {
+      issues.push(issue(
+        "warning",
+        "REPEATED_CARD_LAYOUT",
+        `Deck uses ${total} insight-card components across ${repeatedSlides.length} card-heavy slides; the deck may feel repetitive even though it renders successfully.`,
+        {
+          slideId: repeatedSlides[0]?.slide.id,
+          details: {
+            totalInsightCards: total,
+            cardHeavySlides: repeatedSlides.map((item) => ({ slideId: item.slide.id, count: item.count })),
+          },
+          suggestedFix: "Replace repeated 2x2 insight-card grids with semantic layouts such as executive-summary, hero-and-support, chart-with-rail, snapshot-callouts, explanation-block, comparison-list, fact-list, timeline, process-flow, comparison-card, takeaway-list, table-card, chart-card, stat-comparison, or evidence-layout based on the slide's job.",
+        },
+      ));
+    }
+  }
+  const equalGridSlides = perSlide.filter((item) => item.equalCardGrids > 0);
+  const equalGridTotal = equalGridSlides.reduce((sum, item) => sum + item.equalCardGrids, 0);
+  if (equalGridSlides.length >= 4 && equalGridTotal >= 4) {
+    issues.push(issue(
+      "warning",
+      "REPEATED_EQUAL_GRID_LAYOUT",
+      `Deck uses ${equalGridTotal} equal card-like grids across ${equalGridSlides.length} slides; the deck may read as a sequence of interchangeable cards.`,
+      {
+        slideId: equalGridSlides[0]?.slide.id,
+        details: {
+          equalCardGridSlides: equalGridSlides.map((item) => ({ slideId: item.slide.id, grids: item.equalCardGrids })),
+        },
+        suggestedFix: "Vary the page archetype: use hero-and-support for one lead idea plus satellites, chart-with-rail/evidence-layout for proof pages, snapshot-callouts for screenshot walkthroughs, process-flow/timeline for sequence, and comparison-list/table for comparisons.",
       },
-      suggestedFix: "Replace repeated 2x2 insight-card grids with semantic layouts such as executive-summary, explanation-block, comparison-list, fact-list, timeline, process-flow, comparison-card, takeaway-list, table-card, chart-card, stat-comparison, or evidence-layout based on the slide's job.",
-    },
-  ));
+    ));
+  }
 }
 
 function countNodesOfType(nodes: DomNode[], type: string): number {
@@ -140,6 +159,42 @@ function countNodesOfType(nodes: DomNode[], type: string): number {
     if (Array.isArray(node.children)) count += countNodesOfType(node.children as DomNode[], type);
   }
   return count;
+}
+
+function countEqualCardGrids(nodes: DomNode[]): number {
+  let count = 0;
+  for (const node of nodes) {
+    if (!node || typeof node !== "object") continue;
+    if (node.type === "grid" && isEqualCardGrid(node)) count++;
+    if (Array.isArray(node.children)) count += countEqualCardGrids(node.children as DomNode[]);
+  }
+  return count;
+}
+
+function isEqualCardGrid(node: DomNode): boolean {
+  const children = Array.isArray(node.children) ? node.children as DomNode[] : [];
+  if (children.length < 3) return false;
+  const columns = typeof node.columns === "number" ? node.columns : 2;
+  if (columns < 2 || columns > 4) return false;
+  if (children.some((child) => typeof child.colSpan === "number" && child.colSpan > 1)) return false;
+  const cardLike = children.filter(isCardLikeNode).length;
+  return cardLike >= Math.min(children.length, 3);
+}
+
+function isCardLikeNode(node: DomNode): boolean {
+  const type = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
+  return typeof type === "string" && new Set([
+    "card",
+    "panel",
+    "insight-card",
+    "comparison-card",
+    "feature-card",
+    "step-card",
+    "definition-card",
+    "metric-card",
+    "pricing-card",
+    "profile-card",
+  ]).has(type);
 }
 
 // Style tokens an LLM may write as a node `type` even though the canonical
@@ -631,6 +686,28 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       });
     }
   }
+  if (name === "hero-and-support") {
+    const hero = (node as Record<string, unknown>).hero;
+    if (hero && typeof hero === "object" && !Array.isArray(hero)) validateNode(hero as DomNode, `${path}.hero`, slideId, issues, node);
+    validateDomNodeArrayField(node, "supports", `${path}.supports`, slideId, issues);
+    validateDomNodeArrayField(node, "items", `${path}.items`, slideId, issues);
+  }
+  if (name === "chart-with-rail") {
+    for (const key of ["evidence", "rail"] as const) {
+      const content = (node as Record<string, unknown>)[key];
+      if (content && typeof content === "object" && !Array.isArray(content)) validateNode(content as DomNode, `${path}.${key}`, slideId, issues, node);
+    }
+  }
+}
+
+function validateDomNodeArrayField(node: DomNode, fieldName: string, path: string, slideId: string, issues: ValidationIssue[]): void {
+  const value = (node as Record<string, unknown>)[fieldName];
+  if (!Array.isArray(value)) return;
+  value.forEach((content, index) => {
+    if (content && typeof content === "object" && !Array.isArray(content) && typeof (content as Record<string, unknown>).type === "string") {
+      validateNode(content as DomNode, `${path}[${index}]`, slideId, issues, node);
+    }
+  });
 }
 
 const REQUIRED_FIELD_ALIASES: Record<string, Record<string, string[]>> = {
@@ -645,6 +722,8 @@ const REQUIRED_FIELD_ALIASES: Record<string, Record<string, string[]>> = {
   "table-card": { rows: ["data.rows", "items"] },
   "key-takeaway": { headline: ["title"] },
   "insight-card": { headline: ["title"] },
+  "hero-and-support": { supports: ["items"] },
+  "snapshot-callouts": { callouts: ["items"] },
   "probe-flow": { steps: ["items"] },
 };
 

@@ -173,8 +173,8 @@ function runXml(run: TextRun, isLast: boolean, rels?: RunRels): string {
   let fontsXml = "";
   if (run.fontFace || run.cjk || run.mono) {
     const latinFace = xmlEscape(run.fontFace ?? "Calibri");
-    const eaFace = run.cjk ? xmlEscape(run.fontFace ?? "PingFang SC") : undefined;
-    const csFace = run.mono ? xmlEscape(run.fontFace ?? "Menlo") : undefined;
+    const eaFace = run.cjk ? xmlEscape(run.eastAsianFontFace ?? run.fontFace ?? "PingFang SC") : undefined;
+    const csFace = run.mono ? xmlEscape(run.complexScriptFontFace ?? run.fontFace ?? "Menlo") : undefined;
     // Order per CT_TextCharacterProperties:
     //   ln → fill → effects → highlight → underline → latin → ea → cs → sym → hlinkClick → hlinkMouseOver → ...
     fontsXml += `<a:latin typeface="${latinFace}"/>`;

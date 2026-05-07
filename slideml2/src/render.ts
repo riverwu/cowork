@@ -33,17 +33,40 @@ function pickRunFontFace(theme: SimpleTheme, text: string, style: TextStyle, opt
   marks?: string[];
   weight?: FontWeight;
   font?: "display" | "text" | "mono" | "cjk";
-} = {}): { fontFace: string; cjk: boolean; mono: boolean } {
+} = {}): { fontFace: string; eastAsianFontFace?: string; complexScriptFontFace?: string; cjk: boolean; mono: boolean } {
   const marks = options.marks || [];
   const weight = options.weight ?? style.weight;
-  if (options.font === "mono" || marks.includes("code")) {
-    return { fontFace: preferredFont(theme, "mono", "text", weight), cjk: false, mono: true };
+  if (options.font === "mono" || marks.includes("code") || (!options.font && style.fontFamily === "mono")) {
+    const monoFace = preferredFont(theme, "mono", "text", weight);
+    return { fontFace: monoFace, eastAsianFontFace: monoFace, complexScriptFontFace: monoFace, cjk: true, mono: true };
   }
-  const script: "latin" | "cjk" = options.font === "cjk" || (options.font !== "display" && options.font !== "text" && containsCjk(text))
-    ? "cjk"
-    : "latin";
   const role: FontRole = options.font === "display" ? "display" : style.fontFamily || "text";
-  return { fontFace: preferredFont(theme, script, role, weight), cjk: true, mono: false };
+  const cjkFace = preferredFont(theme, "cjk", role, weight);
+  if (options.font === "cjk") return { fontFace: cjkFace, eastAsianFontFace: cjkFace, cjk: true, mono: false };
+  return {
+    fontFace: preferredFont(theme, "latin", role, weight),
+    eastAsianFontFace: cjkFace,
+    cjk: true,
+    mono: false,
+  };
+}
+
+function plainTextRun(theme: SimpleTheme, text: string, style: TextStyle, bold: boolean, colorHex: string, options: {
+  font?: "display" | "text" | "mono" | "cjk";
+  weight?: FontWeight;
+} = {}): TextRun {
+  const face = pickRunFontFace(theme, text, style, { font: options.font, weight: options.weight ?? style.weight });
+  return {
+    text,
+    sizeHalfPt: style.fontSize * 2,
+    bold,
+    color: colorHex,
+    fontFace: face.fontFace,
+    eastAsianFontFace: face.eastAsianFontFace,
+    complexScriptFontFace: face.complexScriptFontFace,
+    cjk: face.cjk,
+    mono: face.mono,
+  };
 }
 
 export interface LayoutDecision {
@@ -2042,6 +2065,8 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
               letterSpacing: paraStyle.letterSpacing,
               color: color(theme, typeof rec.color === "string" ? rec.color : undefined, paraStyle.color),
               fontFace: face.fontFace,
+              eastAsianFontFace: face.eastAsianFontFace,
+              complexScriptFontFace: face.complexScriptFontFace,
               cjk: face.cjk,
               mono: face.mono,
             }];
@@ -2184,7 +2209,7 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
       ? customRuns.map((r) => richRunToTextRun(theme, r, style, bold))
       : (parsedRuns && parsedRuns.matched
           ? parsedRuns.runs.map((r) => richRunToTextRun(theme, r, styleForItem, bold))
-          : [{ text, sizeHalfPt: style.fontSize * 2, bold, color: color(theme, colorToken, style.color), fontFace: containsCjk(text) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"), cjk: true }]);
+          : [plainTextRun(theme, text, style, bold, color(theme, colorToken, style.color))]);
     const para: Paragraph = {
       bullet: numbered
         ? { number: true as const }
@@ -2206,7 +2231,7 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
     xfrm: xfrm(rect, node),
     paragraphs: [
       ...(title ? [{
-        runs: [{ text: title, sizeHalfPt: theme.text["card-title"].fontSize * 2, bold: true, color: color(theme, "brand.primary"), fontFace: containsCjk(title) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"), cjk: true }],
+        runs: [plainTextRun(theme, title, theme.text["card-title"], true, color(theme, "brand.primary"))],
         lineSpacingHalfPt: lineSpacingHalfPtForStyle(theme.text["card-title"]),
         spaceAfterHalfPt: 6,
       }] : []),
@@ -2585,7 +2610,7 @@ function makeTableCell(
     const bold = cell.bold === true || (isStyleBold(style.weight));
     const runs: TextRun[] = customRuns
       ? customRuns.map((r) => richRunToTextRun(theme, r, style, bold))
-      : [{ text, sizeHalfPt: style.fontSize * 2, bold, color: color(theme, colorToken, style.color), fontFace: containsCjk(text) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"), cjk: true }];
+      : [plainTextRun(theme, text, style, bold, color(theme, colorToken, style.color))];
     return {
       runs,
       fill: fillToken ? { type: "solid", color: color(theme, fillToken) } : undefined,
@@ -2595,7 +2620,7 @@ function makeTableCell(
   }
   const text = String(raw ?? "");
   return {
-    runs: [{ text, sizeHalfPt: style.fontSize * 2, bold: isStyleBold(style.weight), color: color(theme, undefined, style.color), fontFace: containsCjk(text) ? preferredFont(theme, "cjk") : preferredFont(theme, "latin"), cjk: true }],
+    runs: [plainTextRun(theme, text, style, isStyleBold(style.weight), color(theme, undefined, style.color))],
     fill: isHeader
       ? { type: "solid", color: color(theme, defaults.headerFill || "surface.subtle") }
       : defaults.bodyFill ? { type: "solid", color: color(theme, defaults.bodyFill) } : undefined,
@@ -2663,6 +2688,8 @@ function richRunToTextRun(theme: SimpleTheme, raw: unknown, style: ReturnType<ty
     highlight,
     color: color(theme, colorToken, style.color),
     fontFace: fontFace.fontFace,
+    eastAsianFontFace: fontFace.eastAsianFontFace,
+    complexScriptFontFace: fontFace.complexScriptFontFace,
     cjk: fontFace.cjk,
     mono: fontFace.mono,
     hyperlink: typeof rec.link === "string" ? rec.link : undefined,
@@ -2968,6 +2995,8 @@ function textRuns(theme: SimpleTheme, node: DomNode, style: ReturnType<typeof te
     letterSpacing: trackingPt ?? nodeEmphasis?.letterSpacing ?? style.letterSpacing,
     color: color(theme, node.color ?? nodeEmphasis?.color, style.color),
     fontFace: face.fontFace,
+    eastAsianFontFace: face.eastAsianFontFace,
+    complexScriptFontFace: face.complexScriptFontFace,
     cjk: face.cjk,
     mono: face.mono,
   }];
@@ -3655,7 +3684,12 @@ function tableCellIntrinsicHeight(theme: SimpleTheme, raw: unknown, widthCm: num
   const contentWidth = Math.max(0.8, widthCm - 0.52);
   const fontPt = style.fontSize;
   const lines = estimatedWrappedLineCount(theme, text, fontPt, isStyleBold(style.weight), contentWidth);
-  return lines * fontPt * 0.0353 * style.lineHeight + 0.28;
+  // Native PowerPoint table cells reserve top/bottom inset and tend to look
+  // cramped before geometric overflow is visible in our outer layout. Keep a
+  // conservative readable floor so dense 6x7 comparison tables fail validation
+  // instead of shipping rows that visually collide in PowerPoint.
+  const verticalPadding = isHeader ? 0.38 : 0.42;
+  return lines * fontPt * 0.0353 * style.lineHeight + verticalPadding;
 }
 
 function tableCellText(raw: unknown): string {

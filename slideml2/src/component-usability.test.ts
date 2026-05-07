@@ -1130,6 +1130,67 @@ const cases: UsabilityCase[] = [
     }),
   },
   {
+    name: "hero-and-support creates asymmetric lead plus support satellites",
+    build: () => ({
+      id: "s",
+      title: "主张与支撑",
+      children: [{
+        id: "s.hero",
+        type: "hero-and-support",
+        headline: "利润率改善来自成本结构变化",
+        detail: "先让观众读到判断，再扫描右侧支撑事实。",
+        supports: [
+          { title: "采购", body: "核心物料单价下降 8%", tone: "positive" },
+          { title: "自动化", body: "人效提升 15%", tone: "brand" },
+          { title: "结构", body: "高毛利品类占比提高", tone: "neutral" },
+        ],
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "chart-with-rail gives chart more space than interpretation rail",
+    build: () => ({
+      id: "s",
+      title: "数据与解读",
+      children: [{
+        id: "s.chartRail",
+        type: "chart-with-rail",
+        evidence: {
+          id: "s.chartRail.chart",
+          type: "chart-card",
+          chartType: "bar",
+          labels: ["Q1", "Q2", "Q3"],
+          series: [{ name: "收入", values: [10, 18, 26] }],
+          title: "季度收入",
+          showValues: true,
+        },
+        headline: "Q2 是增长拐点",
+        detail: "新增渠道带来连续改善，下一步应验证获客成本。",
+        items: ["看斜率", "看来源", "看风险"],
+        tone: "tinted",
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "snapshot-callouts presents screenshot with numbered observations",
+    themeOverride: LIGHT_BRAND_OVERRIDE,
+    build: () => ({
+      id: "s",
+      title: "截图走查",
+      children: [{
+        id: "s.snap",
+        type: "snapshot-callouts",
+        src: TINY_PNG,
+        title: "运行日志截图",
+        callouts: [
+          { title: "入口", body: "意图在这里被识别", tone: "brand" },
+          { title: "失败", body: "验证失败后需要换版式", tone: "warning" },
+          { title: "修复", body: "最终应返回 SlideML2", tone: "positive" },
+        ],
+      } as unknown as DomNode],
+    }),
+  },
+  {
     name: "analysis components for matrix taxonomy and main effect",
     build: () => ({
       id: "s",

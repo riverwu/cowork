@@ -30,7 +30,7 @@ const STARTER_COMPONENTS = [
   "stat-strip", "legend", "badge", "flow-arrow",
   "image-card", "chart-card", "table-card", "insight-card",
   "executive-summary", "explanation-block", "comparison-list", "fact-list",
-  "two-column",
+  "hero-and-support", "chart-with-rail", "snapshot-callouts", "two-column",
   "lead", "h1", "h2", "text", "label", "source-note",
 ] as const;
 
@@ -80,10 +80,11 @@ export function buildAgentPromptPack(options: AgentPromptPackOptions = {}): stri
     "    Quantitative proof → hero-stat (one dominant number), kpi-grid (2-4 KPIs), stat-strip (3-6 light metrics), metric-card (one KPI inside grid), stat-comparison (before/after), bar-list (4-8 ranked values), progress-bar (completion/quota)",
     "    Comparison / decision → comparison-card grid (2-4 peers), pros-cons (trade-off), swot-matrix (exact SWOT), pricing-card grid (tiers), table-card (feature/financial matrix)",
     "    Sequence / causality → process-flow (connected pipeline), timeline (dated sequence), numbered-grid (ordered principles), numbered-list (ordered prose), step-card grid (stage cards), flow-arrow (single transition)",
+    "    Page archetypes → hero-and-support (one lead idea + satellites), chart-with-rail (dominant data + interpretation rail), snapshot-callouts (screenshot + numbered observations), evidence-layout (proof + meaning)",
     "    Evidence / media → image-card (inspectable visual), chart-card (self-contained chart), table-card (structured evidence), quote (voice/evidence), source-note (provenance)",
     "    Insight / narrative → executive-summary (thesis + findings), key-takeaway (final verdict), takeaway-list (3-5 conclusions), explanation-block (how/why), comparison-list (lightweight options), fact-list (facts + sources), lead (framing thesis), insight-card (finding + proof), callout (one warning/rule only), quote (voice/evidence), article/text (residual prose only)",
     "    Product / identity → feature-card grid (capability/benefit), logo-strip (partners/customers), profile-card (person/role), tag-list (categories), badge (single status)",
-    "    Layout / surface → two-column (named narrative+visual regions), stack (sequence), grid (peer scan), split (region split), panel/card/band/frame/inset (visual grouping)",
+    "    Layout / surface → split (primary/secondary region split), two-column (named narrative+visual regions), stack (sequence), grid (peer scan), panel/card/band/frame/inset (visual grouping)",
     "- Decorative containers (NOT layout): panel (tinted surface), card (panel + header/footer/accent), band (full-width strip), frame (border-only), inset (padding only). Wrap a stack/grid inside one when grouping needs visual separation. Never set fill/line/cornerRadius on stack/grid — wrap in panel/card instead.",
     `- Color tokens: brand.primary, surface, surface.subtle, text.primary, text.muted, text.inverse, divider, success/warning/danger (+ .tint), brand.tint. Semantic palette for *categorical* meaning: ${palette.join(", ")} (each with .tint and .shade). DO NOT invent tokens like text-secondary, primary-color.`,
     "- Vary slide structure across a deck: insight-card is one option for standalone findings, not the default text container. Prefer executive-summary / explanation-block / comparison-list / fact-list whenever the content shape matches.",
@@ -180,6 +181,7 @@ function componentSchemaGroups(components: readonly string[]): { title: string; 
     { title: "Quantitative proof", names: ["hero-stat", "kpi-grid", "metric-card", "stat-strip", "stat-comparison", "bar-list", "progress-bar", "chart-card"] },
     { title: "Comparison and decisions", names: ["comparison-card", "pros-cons", "swot-matrix", "pricing-card", "table-card"] },
     { title: "Sequence and causality", names: ["process-flow", "timeline", "numbered-grid", "numbered-list", "step-card", "flow-arrow", "axis-ruler"] },
+    { title: "Page archetypes", names: ["hero-and-support", "chart-with-rail", "snapshot-callouts", "evidence-layout", "two-column"] },
     { title: "Evidence and media", names: ["image", "image-card", "chart", "table", "quote", "source-note", "legend"] },
     { title: "Insight and narrative", names: ["executive-summary", "key-takeaway", "takeaway-list", "explanation-block", "comparison-list", "fact-list", "insight-card", "callout", "lead", "h1", "h2", "text", "article", "label", "code"] },
     { title: "Product, identity, and markers", names: ["feature-card", "logo-strip", "profile-card", "tag-list", "badge", "icon-text", "cta", "section-break"] },
@@ -239,6 +241,9 @@ function heuristicComponentScore(name: string, text: string): number {
   if (name === "explanation-block" && /explain|mechanism|cause|why|how|concept|解释|机制|原因|为什么|如何|概念|原理/.test(text)) return 6;
   if (name === "comparison-list" && /compare|before|after|option|tradeoff|trade-off|对比|比较|前后|选项|取舍|利弊/.test(text)) return 6;
   if (name === "fact-list" && /fact|evidence|source|observation|claim|事实|证据|来源|观察|数据点|材料/.test(text)) return 6;
+  if (name === "hero-and-support" && /hero|satellite|support|main.*idea|核心.*支撑|主张|支撑|主次|一主多辅/.test(text)) return 7;
+  if (name === "chart-with-rail" && /chart.*rail|table.*rail|evidence.*rail|interpretation|data.*story|图表.*解读|数据.*解读|侧栏|证据.*解读/.test(text)) return 7;
+  if (name === "snapshot-callouts" && /screenshot|walkthrough|callout|annotation|ui|artifact|截图|标注|走查|界面|产品图/.test(text)) return 7;
   if (name === "numbered-grid" && /principle|priority|step|principle|rank|框架|要点|原则|准则|优先级|步骤/.test(text)) return 5;
   if (name === "stat-strip" && /headline|inline|strip|kpi|核心数据|首屏|条/.test(text)) return 5;
   if (name === "legend" && /legend|category|key|图例|图注|分类|标识/.test(text)) return 5;

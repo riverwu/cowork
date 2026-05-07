@@ -59,9 +59,16 @@ export interface TextRun {
   /** Font size in HALF-POINTS (PowerPoint convention: `<a:rPr sz="2400">` = 24pt). */
   sizeHalfPt?: number;
   color?: HexColor;
-  /** Single font face. SlideML resolves a multi-family stack to one face
-   *  before reaching the emitter — OOXML's `typeface` attr takes one name. */
+  /** Latin font face. SlideML resolves a multi-family stack to one face
+   *  before reaching the emitter — OOXML's `typeface` attr takes one name
+   *  for each script family. */
   fontFace?: string;
+  /** East Asian font face. When omitted and `cjk` is true, the emitter falls
+   *  back to `fontFace` for backward compatibility. */
+  eastAsianFontFace?: string;
+  /** Complex-script font face. When omitted and `mono` is true, the emitter
+   *  falls back to `fontFace`. */
+  complexScriptFontFace?: string;
   /** Mark this run as the East-Asian (`ea`) typeface as well as latin. Set
    *  when the text contains CJK so PowerPoint applies the CJK font. */
   cjk?: boolean;
