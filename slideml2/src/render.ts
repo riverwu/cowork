@@ -161,6 +161,7 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
       background: resolvedBackground,
       notes: typeof dom.notes === "string" ? dom.notes : undefined,
     };
+    runTitleOcclusionCheck(slide.id, dom, slideAst);
     runContrastCheck(slide.id, slideAst, theme);
     runShapeVisibilityCheck(slide.id, slideAst, theme);
     return slideAst;
@@ -213,6 +214,49 @@ function fillCoversText(fill: { x: number; y: number; w: number; h: number }, t:
   const overlap = ix * iy;
   const textArea = Math.max(1, t.w * t.h);
   return overlap / textArea >= 0.7;
+}
+
+function rectOverlapArea(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }): number {
+  const ix = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+  const iy = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+  return ix * iy;
+}
+
+/**
+ * The title is normally the first shape, but PowerPoint paints later shapes on
+ * top. A too-tight contentTop can therefore pass geometry validation while a
+ * panel/card background visually covers the title. Detect that exact final
+ * shape-order problem and block delivery instead of trusting the flow model.
+ */
+function runTitleOcclusionCheck(slideId: string, slideDom: DomNode, slide: { shapes: ShapeList }): void {
+  const titleNode = directSlideTitleNode(slideDom);
+  if (!titleNode) return;
+  const titleIndex = slide.shapes.findIndex((shape) => shape.type === "text" && shape.name === titleNode.id);
+  if (titleIndex < 0) return;
+  const titleShape = slide.shapes[titleIndex]!;
+  const titleRect = { x: titleShape.xfrm.x, y: titleShape.xfrm.y, w: titleShape.xfrm.cx, h: titleShape.xfrm.cy };
+  const titleArea = Math.max(0.1, titleRect.w * titleRect.h);
+  for (let i = titleIndex + 1; i < slide.shapes.length; i++) {
+    const shape = slide.shapes[i]!;
+    if (shape.type !== "shape") continue;
+    const fill = shape.fill;
+    if (!fill || fill.type !== "solid" || fill.alpha !== undefined && fill.alpha < 0.25) continue;
+    const rect = { x: shape.xfrm.x, y: shape.xfrm.y, w: shape.xfrm.cx, h: shape.xfrm.cy };
+    const overlap = rectOverlapArea(titleRect, rect);
+    if (overlap <= 0) continue;
+    const ratio = overlap / titleArea;
+    if (ratio < 0.12 && overlap < 0.5) continue;
+    pushDiagnostic({
+      severity: "error",
+      code: "TITLE_OCCLUDED",
+      slideId,
+      nodeId: titleNode.id,
+      message: `Slide title '${titleNode.id}' is covered by later shape '${shape.name || "shape"}' (${Math.round(ratio * 100)}% of title rect).`,
+      suggestion: "Increase deck.themeOverride.layout.contentTop so content starts below titleTop + titleHeight, or move the covering shape behind with a negative zIndex/layer.",
+      measured: { rect: titleRect, other: { ...rect, nodeId: shape.name } },
+    });
+    return;
+  }
 }
 
 /**
@@ -1182,7 +1226,7 @@ function layoutSlide(theme: SimpleTheme, slideDom: DomNode): LayoutResult {
         deferred.push(child);
         continue;
       }
-      const childRect = rectForSlideChild(theme, child);
+      const childRect = rectForSlideChild(theme, child, slideDom);
       measureSubtree(theme, child, childRect, measured, rectsById);
     }
     // Pass 2: anchorTo overlays — reference frame is the target's rect.
@@ -1324,7 +1368,30 @@ function decorativeInnerRect(theme: SimpleTheme, node: DomNode, rect: Rect): Rec
   return inner;
 }
 
-function rectForSlideChild(theme: SimpleTheme, node: DomNode): Rect {
+function directSlideTitleNode(slideDom: DomNode): DomNode | null {
+  for (const child of slideDom.children || []) {
+    if (child.type === "text" && textStyleKey(child) === "slide-title" && !isOverlayChild(child)) return child;
+  }
+  return null;
+}
+
+function protectedContentRect(theme: SimpleTheme, slideDom: DomNode): Rect {
+  const title = directSlideTitleNode(slideDom);
+  const minTop = title
+    ? theme.layout.titleTop + theme.layout.titleHeight + 0.25
+    : theme.layout.contentTop;
+  const y = Math.max(theme.layout.contentTop, minTop);
+  const footerChrome = theme.chrome.pageNumber || Boolean(theme.chrome.footerText);
+  const protectedBottom = footerChrome ? Math.max(theme.layout.contentBottom, theme.chrome.footerHeight + 0.2) : theme.layout.contentBottom;
+  return {
+    x: theme.layout.pageMarginX,
+    y,
+    w: theme.layout.slideWidthCm - theme.layout.pageMarginX * 2,
+    h: Math.max(0.2, theme.layout.slideHeightCm - y - protectedBottom),
+  };
+}
+
+function rectForSlideChild(theme: SimpleTheme, node: DomNode, slideDom?: DomNode): Rect {
   if (node.type === "text" && textStyleKey(node) === "slide-title" && !isOverlayChild(node)) {
     const titleRect = { x: theme.layout.pageMarginX, y: theme.layout.titleTop, w: theme.layout.slideWidthCm - theme.layout.pageMarginX * 2, h: theme.layout.titleHeight };
     const intrinsic = textIntrinsicHeight(theme, node, titleRect.w);
@@ -1377,7 +1444,9 @@ function rectForSlideChild(theme: SimpleTheme, node: DomNode): Rect {
     return { x: (theme.layout.slideWidthCm - w) / 2, y: (theme.layout.slideHeightCm - h) / 2, w, h };
   }
   if (stringProp(node, "area", "") === "content") {
-    return { x: theme.layout.pageMarginX, y: theme.layout.contentTop, w: theme.layout.slideWidthCm - theme.layout.pageMarginX * 2, h: theme.layout.slideHeightCm - theme.layout.contentTop - theme.layout.contentBottom };
+    return slideDom
+      ? protectedContentRect(theme, slideDom)
+      : { x: theme.layout.pageMarginX, y: theme.layout.contentTop, w: theme.layout.slideWidthCm - theme.layout.pageMarginX * 2, h: theme.layout.slideHeightCm - theme.layout.contentTop - theme.layout.contentBottom };
   }
   return fullRect(theme);
 }
@@ -3598,7 +3667,7 @@ function intrinsicMainSize(theme: SimpleTheme, node: DomNode, direction: "horizo
   if (node.type === "divider") return normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.02;
   if (node.type === "image") return Math.min(10, Math.max(4, crossSize * 0.62));
   if (node.type === "table") return tableIntrinsicHeight(theme, node, crossSize);
-  if (node.type === "stack") return stackIntrinsicHeight(theme, node, crossSize);
+  if (node.type === "stack") return stackIntrinsicHeight(theme, node, crossSize) + contentHugSafetySlack(node);
   if (node.type === "grid") return gridIntrinsicHeight(theme, node, crossSize);
   return 2;
 }
@@ -3720,8 +3789,22 @@ function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, 
   });
 }
 
+const CONTENT_HUG_STACK_ROLES = new Set([
+  "callout",
+  "quote",
+]);
+
+function contentHugSafetySlack(node: DomNode): number {
+  if (node.role === "callout") return 0.58;
+  if (node.role === "quote") return 0.35;
+  return 0;
+}
+
 function canGrow(node: DomNode): boolean {
-  return node.type === "image" || node.type === "grid" || node.type === "stack" || node.type === "table" || node.type === "chart" || node.type === "spacer" || node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset" || node.fill === true;
+  if (optionalNumberProp(node, "layoutWeight") !== undefined) return true;
+  if (node.fill === true) return true;
+  if (node.type === "stack" && typeof node.role === "string" && CONTENT_HUG_STACK_ROLES.has(node.role)) return false;
+  return node.type === "image" || node.type === "grid" || node.type === "stack" || node.type === "table" || node.type === "chart" || node.type === "spacer" || node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset";
 }
 
 function stackIntrinsicHeight(theme: SimpleTheme, node: DomNode, crossSize: number): number {

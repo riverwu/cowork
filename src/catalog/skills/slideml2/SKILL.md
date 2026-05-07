@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: "Use this skill whenever the user asks to create, edit, render, review, or export slide decks, presentations, PPT, PPTX, or SlideML2 decks. This skill is the component reference for Cowork's SlideML2 deck tools."
-version: 1.0.2
+version: 1.0.4
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -37,10 +37,11 @@ license: Proprietary. LICENSE.txt has complete terms
 - Use themeOverride text fields as `fontSize`, `fontWeight`, and `lineHeight`; do not use `bold` or `lineSpacing`.
 - Style precedence is explicit: theme/themeOverride defines deck defaults; a concrete slide node or component instance may override that default with fields such as `fontSize`, `fontFamily`, `fontWeight`, `lineHeight`, `color`, `size`, `tracking`, `italic`, `surface`, `fill`, `line`, or `cornerRadius`; rich text run fields override both for that run only. Instance overrides are local and do not change the theme for other components.
 - Avoid duplicate hero titles: if `slide.title` is set, do not also place a body `slide-title`, `deck-title`, or `section-break` title.
+- Preserve semantic sequence markers when repairing density: if the source chapter says "判断 1/2/3", "Step 1/2/3", or similar, keep that ordinal visible in the slide title, eyebrow, label, or first card headline. Shortening a title must not erase the only visible "判断1" marker while later slides still show "判断2/判断3".
 - Use component names directly in `type` with flat fields. Do not wrap components as `type:"component" + component:"X"` and do not put fields under `props`.
 - Prefer semantic components over plain `card`/`text` when the content has a clear meaning: metrics, timeline, process, comparison, insight, quote, table, chart, image, or takeaway.
 - Keep density renderable: most slides should have either one hero module, one data/evidence module, or 2-4 peer modules. Long prose belongs in shorter bullets, a split slide, or another slide.
-- Treat `FALLBACK_FAILED`, `COLLISION`, `TINY_RECT`, `SQUASHED`, `DROP`, `LOW_CONTRAST`, `UNKNOWN_COLOR`, and `UNKNOWN_STYLE` as blockers.
+- Treat `FALLBACK_FAILED`, `COLLISION`, `TITLE_OCCLUDED`, `TINY_RECT`, `SQUASHED`, `DROP`, `LOW_CONTRAST`, `SHAPE_INVISIBLE`, `UNKNOWN_COLOR`, and `UNKNOWN_STYLE` as blockers. If `TRUNCATED`/`OVERFLOW` appears repeatedly in one render, split or redesign instead of shipping tiny text.
 
 ## Deck Structure — Earn Every Slide
 
@@ -85,6 +86,7 @@ The same material rendered well:
 - Numbers must dominate their labels. metric-value vs metric-label is ~2.7× by default; preserve that gap on any data slide. Don't render a KPI with paragraph-style text.
 - CJK-heavy decks need +1pt: paragraph 12 / slide-title 32 reads better in Chinese than the Latin-tuned defaults.
 - Manage fonts at deck level with `themeOverride.fonts`: `latin` and `cjk` each support `{display:[...], text:[...]}`, and `mono` is an array. Text styles pick the role with `fontFamily:"display"|"text"|"mono"`. Font chains are preference order: put the font you most want to use first. PPTX emits that first face for each script/role and does not embed fonts, so choose a first face that is both desired and available when fidelity matters; later items are documentation/fallback intent, not guaranteed runtime substitution.
+- Keep title and footer clear in `themeOverride.layout`: `contentTop` must be at least `titleTop + titleHeight + 0.25`; when page numbers or footer text are enabled, `contentBottom` must leave room for footer chrome. Do not use `pageMarginY`.
 - Keep tables readable. A 6-column table with 6+ body rows usually needs its own slide or a split across slides; the renderer blocks rows that fall below the PowerPoint-readable row-height floor even if the outer table technically fits.
 
 ## Component Selection — Pick the Most Semantic

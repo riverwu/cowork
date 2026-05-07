@@ -650,8 +650,18 @@ async function slideml2ValidateRender(deckPath, outputPath, render) {
 }
 
 function blockingSlideml2Diagnostics(items) {
-  const codes = new Set(["DROP", "COLLISION", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "SQUASHED", "FALLBACK_FAILED", "LOW_CONTRAST", "SHAPE_INVISIBLE"]);
-  return items.filter((d) => d.severity === "error" || codes.has(d.code));
+  const codes = new Set(["DROP", "COLLISION", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "SQUASHED", "FALLBACK_FAILED", "LOW_CONTRAST", "SHAPE_INVISIBLE", "TITLE_OCCLUDED"]);
+  const blocking = items.filter((d) => d.severity === "error" || codes.has(d.code));
+  const softFit = items.filter((d) => d && (d.code === "TRUNCATED" || d.code === "OVERFLOW") && d.severity !== "error");
+  // A single soft auto-shrink/source-note overflow can be acceptable, but a
+  // deck with many such warnings is visually unstable even if it technically
+  // renders. Treat the cluster as blocking final delivery so the agent splits
+  // or redesigns instead of shipping tiny/overlapping text.
+  if (softFit.length >= 3) {
+    const seen = new Set(blocking);
+    for (const d of softFit) if (!seen.has(d)) blocking.push(d);
+  }
+  return blocking;
 }
 
 function normalizeSlideId(value) {

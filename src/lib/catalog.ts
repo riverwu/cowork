@@ -91,7 +91,7 @@ export const CATALOG_SKILLS: CatalogSkill[] = [
   {
     id: "slideml2",
     name: "SlideML2 Deck Authoring",
-    version: "1.0.2",
+    version: "1.0.4",
     description: "Create, edit, render, and validate presentations with Cowork's SlideML2 deck tools",
   },
   {

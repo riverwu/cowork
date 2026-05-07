@@ -343,7 +343,7 @@ function validateThemeOverride(deck: Slideml2SourceDeck, issues: ValidationIssue
   if (!override || typeof override !== "object") return;
   validateThemeOverrideTopLevel(override as Record<string, unknown>, issues);
   validateThemeColorsShape(deck, issues);
-  validateThemeLayout(override as Record<string, unknown>, issues);
+  validateThemeLayout(deck, override as Record<string, unknown>, issues);
   validateThemeComponentStyles(override as Record<string, unknown>, issues);
   validateThemeFonts(override as Record<string, unknown>, issues);
   validateThemeChrome(override as Record<string, unknown>, issues);
@@ -419,7 +419,7 @@ function validateThemeOverrideTopLevel(override: Record<string, unknown>, issues
   }
 }
 
-function validateThemeLayout(override: Record<string, unknown>, issues: ValidationIssue[]): void {
+function validateThemeLayout(deck: Slideml2SourceDeck, override: Record<string, unknown>, issues: ValidationIssue[]): void {
   const layout = override.layout;
   if (!layout || typeof layout !== "object" || Array.isArray(layout)) return;
   for (const [key, value] of Object.entries(layout as Record<string, unknown>)) {
@@ -437,6 +437,32 @@ function validateThemeLayout(override: Record<string, unknown>, issues: Validati
         suggestedFix: "Use centimeters for layout geometry, e.g. contentTop:2.6 or contentBottom:0.9.",
       }));
     }
+  }
+  const theme = buildTheme(deck.deck?.brand || {}, deck.deck?.theme || "default", override);
+  const minContentTop = theme.layout.titleTop + theme.layout.titleHeight + 0.25;
+  if (theme.layout.contentTop < minContentTop) {
+    issues.push(issue("error", "THEME_LAYOUT_TITLE_OVERLAP", `deck.themeOverride.layout.contentTop (${theme.layout.contentTop.toFixed(2)}cm) starts inside the title zone; titleTop + titleHeight + 0.25cm = ${minContentTop.toFixed(2)}cm.`, {
+      path: "deck.themeOverride.layout.contentTop",
+      suggestedFix: `Set contentTop to at least ${minContentTop.toFixed(2)}cm, or lower titleTop/titleHeight. Do not use pageMarginY for vertical rhythm.`,
+    }));
+  }
+  const chrome = (override.chrome && typeof override.chrome === "object" && !Array.isArray(override.chrome))
+    ? override.chrome as Record<string, unknown>
+    : {};
+  const deckChrome = deck.deck?.chrome || {};
+  const hasFooterChrome = chrome.pageNumber === true
+    || deckChrome.pageNumber === true
+    || typeof chrome.footerText === "string"
+    || typeof deckChrome.footerText === "string";
+  const footerHeightRaw = typeof chrome.footerHeight === "number" && Number.isFinite(chrome.footerHeight)
+    ? chrome.footerHeight
+    : theme.chrome.footerHeight;
+  const minContentBottom = footerHeightRaw + 0.2;
+  if (hasFooterChrome && theme.layout.contentBottom < minContentBottom) {
+    issues.push(issue("error", "THEME_LAYOUT_FOOTER_OVERLAP", `deck.themeOverride.layout.contentBottom (${theme.layout.contentBottom.toFixed(2)}cm) leaves too little space for footer chrome.`, {
+      path: "deck.themeOverride.layout.contentBottom",
+      suggestedFix: `Set contentBottom to at least ${minContentBottom.toFixed(2)}cm when chrome.pageNumber or footerText is enabled.`,
+    }));
   }
 }
 

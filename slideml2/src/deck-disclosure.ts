@@ -421,9 +421,10 @@ export function describeDeck(): DeckDescription {
         "5. hard fail — FALLBACK_FAILED diagnostic is emitted; the slide is rendered but the container cannot honor all children.",
       ],
       diagnostics: [
-        "After render, call getRenderDiagnostics() to read structured warnings; OVERFLOW/DEMOTED/DROP/TRUNCATED/FALLBACK_FAILED/COLLISION/TINY_RECT/UNKNOWN_COLOR/UNKNOWN_STYLE codes are stable.",
+        "After render, call getRenderDiagnostics() to read structured warnings; OVERFLOW/DEMOTED/DROP/TRUNCATED/FALLBACK_FAILED/COLLISION/TITLE_OCCLUDED/TINY_RECT/UNKNOWN_COLOR/UNKNOWN_STYLE codes are stable.",
         "Each diagnostic has `suggestion`; agents should re-author the slide following the suggestion rather than adjusting raw cm sizes.",
         "If FALLBACK_FAILED appears, split content into a new slide instead of fighting the layout.",
+        "If TITLE_OCCLUDED appears, fix deck.themeOverride.layout.contentTop or move the covering decoration behind the title.",
         "If SQUASHED appears, treat it as a layout failure even if the slide technically renders; reduce columns, change the component, or split the content.",
         "Use `optional: true` on nice-to-have decoration so the renderer can drop it cleanly when space is tight.",
       ],

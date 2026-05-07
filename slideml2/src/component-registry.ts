@@ -2855,15 +2855,15 @@ function factListNode(slideId: string, name: string, node: DomNode): DomNode {
   const title = stringValue(node.title, "");
   if (title) children.push({ id: `${slideId}.${name}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.5, autoFit: "shrink" });
   if (denseList) {
+    const hasTertiaryColumn = items.some((item) => Boolean(item.interpretation || item.source));
     children.push({
       id: `${slideId}.${name}.items`,
       type: "table",
-      rows: items.map((item) => [
-        item.label || item.value,
-        item.fact,
-        item.interpretation || item.source,
-      ]),
-      colWidths: [0.2, 0.34, 0.46],
+      rows: items.map((item) => {
+        const base = [item.label || item.value, item.fact];
+        return hasTertiaryColumn ? [...base, item.interpretation || item.source] : base;
+      }),
+      colWidths: hasTertiaryColumn ? [0.2, 0.34, 0.46] : [0.34, 0.66],
       firstRowHeader: false,
       bodyFill: "surface.subtle",
       borderColor: "divider",

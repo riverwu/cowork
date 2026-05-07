@@ -12,7 +12,7 @@ export const validateRenderTool: Tool = {
 - diagnostics summary by code
 - a list of BLOCKING diagnostics with slideId/nodeId/measured/suggestion
 
-Blocking diagnostic codes: \`FALLBACK_FAILED\`, \`COLLISION\`, \`TINY_RECT\`, \`SQUASHED\`, \`DROP\`, \`LOW_CONTRAST\`, \`SHAPE_INVISIBLE\`, \`UNKNOWN_COLOR\`, \`UNKNOWN_STYLE\`. Re-author the offending slide via \`replace_slide\` (or fix deck-level via \`patch_deck\`) and re-validate.
+Blocking diagnostic codes: \`FALLBACK_FAILED\`, \`COLLISION\`, \`TITLE_OCCLUDED\`, \`TINY_RECT\`, \`SQUASHED\`, \`DROP\`, \`LOW_CONTRAST\`, \`SHAPE_INVISIBLE\`, \`UNKNOWN_COLOR\`, \`UNKNOWN_STYLE\`. Excessive soft-fit warnings (\`TRUNCATED\`/\`OVERFLOW\`, 3+ in one render) also block final delivery because the deck is visually unstable. Re-author the offending slide via \`replace_slide\` (or fix deck-level via \`patch_deck\`) and re-validate.
 
 Pass \`render: false\` for a fast schema-only dry run during authoring; default is render=true after slides are in place.
 
@@ -142,6 +142,8 @@ function repairHint(d: Slideml2Diagnostic): string | undefined {
       return "Use a token defined in deck.themeOverride.colors; do not use raw hex on slide nodes.";
     case "UNKNOWN_STYLE":
       return "Use a theme text style token defined in deck.themeOverride.text.";
+    case "TITLE_OCCLUDED":
+      return "Move the content region below the title (contentTop >= titleTop + titleHeight + 0.25), or move the covering decoration behind the title.";
     default:
       return undefined;
   }

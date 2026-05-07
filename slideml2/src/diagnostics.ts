@@ -16,6 +16,7 @@
  *   TRUNCATED        text was clipped or autofit-shrunk to fit
  *   DEMOTED          density/style was demoted (e.g. bullets comfortable->compact)
  *   FALLBACK_FAILED  fallback ladder exhausted; content cannot fit
+ *   TITLE_OCCLUDED   slide title is covered by a later solid-fill shape
  */
 export interface LayoutDiagnostic {
   severity: "warn" | "error";
@@ -30,6 +31,7 @@ export interface LayoutDiagnostic {
     | "TRUNCATED"
     | "DEMOTED"
     | "FALLBACK_FAILED"
+    | "TITLE_OCCLUDED"
     | "LOW_CONTRAST"
     /** LOW_CONTRAST that the renderer auto-rewrote to a contrasting hex. The
      *  rendered PPTX is readable; the diagnostic remains so the agent can
