@@ -8,7 +8,7 @@ import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
 import type { Slideml2SourceDeck } from "./types.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
-import { buildTheme, color, normalizeCornerRadius, preferredFont, resolveEmphasis, resolveFill, resolveFontWeight, sizeMultiplier, textStyle, type FontRole, type FontWeight, type SimpleTheme, type TextStyle } from "./theme.js";
+import { buildTheme, color, normalizeCornerRadius, preferredFont, resolveEmphasis, resolveFill, resolveFontWeight, sizeMultiplier, textStyle, toneStyle, type FontRole, type FontWeight, type SimpleTheme, type TextStyle } from "./theme.js";
 import { parseMarkdownInline, splitNumericRun } from "./markdown-inline.js";
 import { normalizeStrokeCm } from "./units.js";
 
@@ -1303,6 +1303,7 @@ function isOverlayChild(node: DomNode): boolean {
   if (typeof node.anchor === "string" && ANCHOR_POINTS.has(node.anchor)) return true;
   if (typeof node.anchorTo === "string" && node.anchorTo.length > 0) return true;
   if (isAbsoluteAt(node.at)) return true;
+  if (node.layer === "behind" || node.layer === "above") return true;
   return false;
 }
 
@@ -1507,7 +1508,7 @@ function renderSlide(theme: SimpleTheme, slideDom: DomNode, ids: { nextId: numbe
       if (!rect) continue;
       const z = numberProp(child, "zIndex", 0);
       const shapes = renderNode(theme, child, rect, layout.rectsById, ids, slideId);
-      if (z < 0) below.push(...shapes);
+      if (child.layer === "behind" || (child.layer !== "above" && z < 0)) below.push(...shapes);
       else above.push(...shapes);
     }
     return [...below, ...flowShapes, ...above];
@@ -1619,17 +1620,10 @@ function decorativeChild(node: DomNode): DomNode | null {
   };
 }
 
-function toneTokens(tone: unknown): { fill?: string; line?: string; fg?: string; accent?: string } {
-  if (tone === "brand") return { fill: "brand.tint", line: "brand.primary", fg: "brand.primary", accent: "brand.primary" };
-  if (tone === "tinted") return { fill: "brand.tint", line: "divider", fg: "brand.primary", accent: "brand.primary" };
-  if (tone === "positive") return { fill: "success.tint", line: "success", fg: "success", accent: "success.accent" };
-  if (tone === "success") return { fill: "success.tint", line: "success", fg: "success", accent: "success.accent" };
-  if (tone === "warning") return { fill: "warning.tint", line: "warning", fg: "warning", accent: "warning.accent" };
-  if (tone === "danger") return { fill: "danger.tint", line: "danger", fg: "danger", accent: "danger.accent" };
-  if (tone === "info") return { fill: "info.tint", line: "info", fg: "info", accent: "info.accent" };
-  if (tone === "neutral") return { fill: "surface", line: "divider", fg: "text.primary", accent: "brand.primary" };
-  if (tone === "muted") return { fill: "surface.subtle", line: "divider", fg: "text.muted", accent: "text.muted" };
-  return {};
+function toneTokens(theme: SimpleTheme, tone: unknown): { fill?: string; line?: string; fg?: string; accent?: string } {
+  if (tone === undefined || tone === null || tone === "") return {};
+  const resolved = toneStyle(theme, tone, "neutral");
+  return { fill: resolved.bg, line: resolved.line, fg: resolved.fg, accent: resolved.line };
 }
 
 function cardHeader(node: DomNode): { text: string; field: "header" | "title" } | null {
@@ -1713,7 +1707,7 @@ function shadowForElevation(theme: SimpleTheme, elevation: ElevationName, accent
 }
 
 function renderPanel(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
-  const tone = toneTokens(node.tone);
+  const tone = toneTokens(theme, node.tone);
   const style = theme.component.panel || {};
   const fillToken = stringProp(node, "fill", tone.fill || style.fill || "surface");
   const lineToken = stringProp(node, "line", tone.line || style.line || "divider");
@@ -1750,7 +1744,7 @@ function renderPanel(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
 }
 
 function renderCard(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
-  const tone = toneTokens(node.tone);
+  const tone = toneTokens(theme, node.tone);
   const style = theme.component.card || {};
   const fillToken = stringProp(node, "fill", tone.fill || style.fill || "surface");
   const lineToken = stringProp(node, "line", tone.line || style.line || "divider");
@@ -1843,7 +1837,7 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
         ? { fill: "warning", line: "warning", fg: "text.inverse" }
         : toneRaw === "danger"
           ? { fill: "danger", line: "danger", fg: "text.inverse" }
-          : toneTokens(toneRaw);
+          : toneTokens(theme, toneRaw);
   const style = theme.component.band || {};
   const fillToken = stringProp(node, "fill", tone.fill || style.fill || "surface.subtle");
   const childFgToken = readableTextColorForFill(theme, fillToken, tone.fg);
@@ -2385,7 +2379,7 @@ function markerVisualSpec(theme: SimpleTheme, node: DomNode): MarkerVisualSpec |
   if (!marker) return null;
   const markerRec = markerObject(node);
   const size = markerSizeCm(node.size ?? node.markerSize ?? markerRec?.size);
-  const tone = markerToneTokens(node.tone ?? markerRec?.tone);
+  const tone = markerToneTokens(theme, node.tone ?? markerRec?.tone);
   const rawVariant = node.variant ?? markerRec?.variant;
   const variant = rawVariant === "solid" || rawVariant === "outline" || rawVariant === "ghost" || rawVariant === "ring" || rawVariant === "badge"
     ? rawVariant
@@ -2471,8 +2465,8 @@ function markerSizeCm(value: unknown): number {
   return 0.38;
 }
 
-function markerToneTokens(toneValue: unknown): { fill: string; accent: string } {
-  const tone = toneTokens(toneValue);
+function markerToneTokens(theme: SimpleTheme, toneValue: unknown): { fill: string; accent: string } {
+  const tone = toneTokens(theme, toneValue);
   if (toneValue === "neutral" || toneValue === "muted") return { fill: "surface.subtle", accent: "divider" };
   return { fill: tone.fill || "brand.tint", accent: tone.accent || tone.line || "brand.primary" };
 }

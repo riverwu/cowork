@@ -39,7 +39,7 @@ export const generateIconSheet: Tool = {
 
 Use for semantic business/technical/education/science icon sets such as bank, finance, trend, risk, user, automation, database, workflow. The tool internally calls image_gen with strict square grid prompts, then uses Pillow to crop each grid cell into a named icon file under output_dir. Generated sheets are constrained to NxN layouts only, max 3x3 per generated image; larger icon sets are split across multiple sheets automatically.
 
-Output icons are intended for SlideML2 image/image-card/feature-card iconSrc usage. Before calling this tool, the deck planning archive should already map each requested icon name to a slide and field such as feature-card.iconSrc or image-card.src. After this tool returns, place icons by absolute path with fit:"contain"; for feature cards use iconSrc. A later validate_render call warns if the current run has this manifest but the deck references none of its icon paths.
+Output icons are intended for SlideML2 image/image-card/feature-card/timeline iconSrc usage. Before calling this tool, the deck planning archive should already map each requested icon name to a slide and field such as feature-card.iconSrc, timeline.items[].iconSrc, or image-card.src. After this tool returns, place icons by absolute path with fit:"contain"; for feature cards and timeline milestones use iconSrc. A later validate_render call warns if the current run has this manifest but the deck references none of its icon paths.
 
 Do not use for exact data charts or diagrams with text. Use structured SlideML2 charts/tables or run_python charting for precise numbers.`,
     parameters: {
@@ -308,9 +308,9 @@ function buildIconSheetPrompt(input: {
     `Style: ${input.style}.`,
     `Palette: ${describePalette(input.palette)}. Use only these colors plus transparent/white negative space. Do not render color names, codes, swatches, or palette samples.`,
     `Background: ${input.background}.`,
-    "Critical layout rules: exact square regular grid, one centered standalone icon per cell, generous padding inside every cell, all icons same visual weight, consistent stroke width, no cropping, no overlap between cells.",
+    "Critical layout rules: exact square regular grid, one centered standalone icon per cell, generous padding inside every cell, all icons same visual weight, consistent stroke width, no cropping, no overlap between cells, no title, no header, no footer, no captions.",
     "Do not place icons inside rounded-square app tiles, cards, boxes, circles, badges, frames, shadows, or button backgrounds. Each cell should contain only the symbolic icon on plain white/transparent negative space.",
-    "Content rules: no words, no letters, no numbers, no row or column names, no labels, no watermarks, no UI mockups, no realistic photos. Use simple symbolic vector-like icons.",
+    "Content rules: no words, no letters, no numbers, no row or column names, no labels, no captions, no explanatory text, no watermarks, no UI mockups, no realistic photos. Use simple symbolic vector-like icons.",
     cells,
     blanks,
   ].filter(Boolean).join("\n");
@@ -453,16 +453,16 @@ def merge_boxes(boxes):
         max(b[3] for b in boxes),
     )
 
-def icon_bbox(im):
+def icon_bbox(im, expected_center=None):
     mask = foreground_mask(im)
     boxes = component_boxes(mask)
     if not boxes:
         return None
     cell_area = im.width * im.height
-    # AI image models sometimes ignore "no labels" and add words below the
-    # icon. Those letters become many small, low, wide components. Keep the
-    # primary visual components and ignore probable text so the output icon is
-    # centered on the symbol instead of being shrunk or sliced by stray labels.
+    # AI image models sometimes ignore "no labels" and add titles, captions,
+    # or per-cell labels. Keep the primary visual components and ignore
+    # probable text so the output icon is centered on the symbol instead of
+    # being shrunk or sliced by stray text.
     min_area = max(10, int(cell_area * 0.00008))
     candidates = []
     for l,t,r,b,area in boxes:
@@ -470,15 +470,31 @@ def icon_bbox(im):
         bh = b - t
         if area < min_area:
             continue
-        bottom_band = t > im.height * 0.60
-        text_like = bottom_band and bh < im.height * 0.18 and bw > bh * 1.25
+        top_band = b < im.height * 0.26
+        bottom_band = t > im.height * 0.55
+        shallow = bh < im.height * 0.20
+        tiny = area < cell_area * 0.018
+        wide_flat = shallow and bw > bh * 1.25
+        text_like = wide_flat or ((top_band or bottom_band) and tiny and shallow)
         if text_like:
             continue
         candidates.append((l,t,r,b,area))
     if not candidates:
         candidates = sorted(boxes, key=lambda box: box[4], reverse=True)[:3]
+
+    def score(box):
+        l,t,r,b,area = box
+        if expected_center is None:
+            return area
+        cx = (l + r) / 2
+        cy = (t + b) / 2
+        ex, ey = expected_center
+        dx = abs(cx - ex) / max(1, im.width)
+        dy = abs(cy - ey) / max(1, im.height)
+        return area / (1 + (dx + dy) * 2.4)
+
     # Drop far-away tiny remnants after finding the main symbol center.
-    largest = max(candidates, key=lambda box: box[4])
+    largest = max(candidates, key=score)
     lc_x = (largest[0] + largest[2]) / 2
     lc_y = (largest[1] + largest[3]) / 2
     filtered = []
@@ -500,10 +516,26 @@ for index, icon in enumerate(cfg["icons"]):
     top = round(row * cell_h)
     right = round((col + 1) * cell_w)
     bottom = round((row + 1) * cell_h)
-    cell = img.crop((left, top, right, bottom))
-    inset_x = max(0, round(cell.width * 0.055))
-    inset_y = max(0, round(cell.height * 0.055))
-    cell = cell.crop((inset_x, inset_y, cell.width - inset_x, cell.height - inset_y))
+    expand_x = round(cell_w * 0.18)
+    expand_y = round(cell_h * 0.24)
+    search_left = max(0, left - expand_x)
+    search_top = max(0, top - expand_y)
+    search_right = min(w, right + expand_x)
+    search_bottom = min(h, bottom + expand_y)
+    search = img.crop((search_left, search_top, search_right, search_bottom))
+    expected = ((left + right) / 2 - search_left, (top + bottom) / 2 - search_top)
+    bbox = icon_bbox(search, expected)
+    if bbox:
+        pad = max(12, round(max(search.width, search.height) * 0.035))
+        l,t,r,b = bbox
+        l = max(0, l - pad); t = max(0, t - pad)
+        r = min(search.width, r + pad); b = min(search.height, b + pad)
+        cell = search.crop((l,t,r,b))
+    else:
+        cell = img.crop((left, top, right, bottom))
+        inset_x = max(0, round(cell.width * 0.055))
+        inset_y = max(0, round(cell.height * 0.055))
+        cell = cell.crop((inset_x, inset_y, cell.width - inset_x, cell.height - inset_y))
     if transparent:
         bbox = icon_bbox(cell)
         if bbox:

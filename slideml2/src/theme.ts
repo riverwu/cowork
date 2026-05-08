@@ -229,6 +229,7 @@ function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOve
   // header text became invisible). Auto-derive a slight tone shift
   // from `surface` so the dependents stay consistent.
   applySurfaceConsistency(colors, flatColors);
+  applyToneColorAliases(colors, flatColors);
   const merged: SimpleTheme = {
     ...base,
     colors,
@@ -252,6 +253,111 @@ function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOve
     sizeScale: { ...base.sizeScale, ...(override?.sizeScale || {}) },
   };
   return merged;
+}
+
+export type SemanticToneName =
+  | "brand"
+  | "tinted"
+  | "neutral"
+  | "muted"
+  | "subtle"
+  | "positive"
+  | "success"
+  | "good"
+  | "warning"
+  | "caution"
+  | "danger"
+  | "error"
+  | "negative"
+  | "info";
+
+const SEMANTIC_TONE_NAMES: SemanticToneName[] = [
+  "brand", "tinted", "neutral", "muted", "subtle",
+  "positive", "success", "good",
+  "warning", "caution",
+  "danger", "error", "negative",
+  "info",
+];
+
+export function listSemanticTones(): SemanticToneName[] {
+  return [...SEMANTIC_TONE_NAMES];
+}
+
+const SEMANTIC_TONE_ALIASES: Record<string, SemanticToneName> = {
+  brand: "brand",
+  accent: "brand",
+  primary: "brand",
+  tinted: "tinted",
+  tint: "tinted",
+  neutral: "neutral",
+  default: "neutral",
+  muted: "muted",
+  subtle: "subtle",
+  positive: "positive",
+  success: "success",
+  good: "good",
+  up: "positive",
+  warning: "warning",
+  caution: "caution",
+  warn: "caution",
+  danger: "danger",
+  error: "error",
+  negative: "negative",
+  bad: "danger",
+  down: "negative",
+  info: "info",
+};
+
+export interface SemanticToneStyle {
+  fg: string;
+  bg: string;
+  line: string;
+}
+
+export function normalizeSemanticToneName(value: unknown): SemanticToneName | undefined {
+  if (typeof value !== "string") return undefined;
+  const key = value.trim().toLowerCase();
+  const alias = SEMANTIC_TONE_ALIASES[key];
+  if (alias) return alias;
+  return (SEMANTIC_TONE_NAMES as readonly string[]).includes(key) ? key as SemanticToneName : undefined;
+}
+
+export function toneStyle(theme: SimpleTheme, value: unknown, fallback: SemanticToneName = "neutral"): SemanticToneStyle {
+  const key = normalizeSemanticToneName(value) || fallback;
+  return theme.tone[key] || theme.tone[fallback] || { fg: "text.primary", bg: "surface", line: "divider" };
+}
+
+function applyToneColorAliases(colors: Record<string, string>, flatOverrides: Record<string, string>): void {
+  const userSet = (key: string): boolean => Object.prototype.hasOwnProperty.call(flatOverrides, key);
+  const aliasGroups: Array<{ target: string; source: string }> = [
+    { target: "positive", source: "success" },
+    { target: "good", source: "success" },
+    { target: "caution", source: "warning" },
+    { target: "warn", source: "warning" },
+    { target: "error", source: "danger" },
+    { target: "negative", source: "danger" },
+    { target: "bad", source: "danger" },
+    { target: "subtle", source: "muted" },
+  ];
+  const suffixes = ["", ".accent", ".tint", ".shade"];
+  for (const { target, source } of aliasGroups) {
+    for (const suffix of suffixes) {
+      const targetKey = `${target}${suffix}`;
+      const sourceKey = `${source}${suffix}`;
+      if (!userSet(targetKey) && isHexColor(colors[sourceKey])) colors[targetKey] = colors[sourceKey]!;
+    }
+  }
+  if (!userSet("neutral")) colors.neutral = colors["text.primary"] || "0F172A";
+  if (!userSet("neutral.accent")) colors["neutral.accent"] = colors.divider || "DDE3EC";
+  if (!userSet("neutral.tint")) colors["neutral.tint"] = colors.surface || "FFFFFF";
+  if (!userSet("neutral.shade")) colors["neutral.shade"] = colors["text.muted"] || "5B6478";
+  if (!userSet("muted")) colors.muted = colors["text.muted"] || "5B6478";
+  if (!userSet("muted.accent")) colors["muted.accent"] = colors["text.muted"] || "5B6478";
+  if (!userSet("muted.tint")) colors["muted.tint"] = colors["surface.subtle"] || "F1F4FA";
+  if (!userSet("muted.shade")) colors["muted.shade"] = colors["text.primary"] || "0F172A";
+  if (!userSet("tinted")) colors.tinted = colors["brand.tint"] || "EEF2FF";
+  if (!userSet("tinted.accent")) colors["tinted.accent"] = colors["brand.primary"] || "2563EB";
+  if (!userSet("tinted.tint")) colors["tinted.tint"] = colors["brand.tint"] || "EEF2FF";
 }
 
 function applySemanticAccentAliases(colors: Record<string, string>, flatOverrides: Record<string, string>): void {
@@ -579,7 +685,6 @@ const COLOR_ALIASES: Record<string, string> = {
   brand: "brand.primary",
   primary: "text.primary",
   inverse: "text.inverse",
-  muted: "text.muted",
   text: "text.primary",
   bg: "background",
   background: "background",
@@ -958,10 +1063,19 @@ function defaultBase(brandPrimary: string): SimpleTheme {
     },
     tone: {
       neutral: { fg: "text.primary", bg: "surface", line: "divider" },
-      positive: { fg: "success", bg: "success.tint", line: "success" },
-      warning: { fg: "warning", bg: "warning.tint", line: "warning" },
-      danger: { fg: "danger", bg: "danger.tint", line: "danger" },
+      muted: { fg: "text.muted", bg: "surface.subtle", line: "divider" },
+      subtle: { fg: "text.muted", bg: "surface.subtle", line: "divider" },
+      positive: { fg: "success", bg: "success.tint", line: "success.accent" },
+      success: { fg: "success", bg: "success.tint", line: "success.accent" },
+      good: { fg: "success", bg: "success.tint", line: "success.accent" },
+      warning: { fg: "warning", bg: "warning.tint", line: "warning.accent" },
+      caution: { fg: "warning", bg: "warning.tint", line: "warning.accent" },
+      danger: { fg: "danger", bg: "danger.tint", line: "danger.accent" },
+      error: { fg: "danger", bg: "danger.tint", line: "danger.accent" },
+      negative: { fg: "danger", bg: "danger.tint", line: "danger.accent" },
+      info: { fg: "info", bg: "info.tint", line: "info.accent" },
       brand: { fg: "brand.primary", bg: "brand.tint", line: "brand.primary" },
+      tinted: { fg: "brand.primary", bg: "brand.tint", line: "divider" },
     },
     fonts: {
       latin: {

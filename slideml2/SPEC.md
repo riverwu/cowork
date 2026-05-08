@@ -221,7 +221,11 @@ Core tokens:
 - `text.primary`, `text.secondary`, `text.muted`, `text.subtle`,
   `text.inverse`
 - `divider`, `border`
-- `success`, `success.tint`, `warning`, `warning.tint`, `danger`, `danger.tint`
+- semantic status tokens: `success`, `positive`, `warning`, `caution`,
+  `danger`, `error`, `negative`, `info`, each with `.tint` and `.accent`
+  when meaningful
+- neutral tone tokens: `neutral`, `neutral.tint`, `muted`, `muted.tint`,
+  `subtle`, `tinted`
 - palette names such as `red`, `lime`, `blue`, each with `.tint` and `.shade`
 
 Rules:
@@ -232,7 +236,12 @@ Rules:
   are preferred.
 - One emphasis system per slide: choose brand emphasis OR one semantic/palette
   accent. Do not spray many accent colors.
-- Use `success`, `warning`, and `danger` only for meaning, not decoration.
+- Component `tone` values are centralized in the theme. Prefer
+  `tone:"positive"` for good outcomes, `tone:"warning"`/`"caution"` for
+  attention, `tone:"danger"`/`"error"`/`"negative"` for failure, and
+  `tone:"neutral"`/`"muted"` for supporting material. Do not define new
+  tone words inside component implementations.
+- Use semantic tones only for meaning, not decoration.
 - On dark color fields, use `text.inverse` or components that support
   `tone:"inverse"`.
 - Renderer performs contrast checks. Unfixed `LOW_CONTRAST` is blocking;
@@ -546,7 +555,7 @@ both primitives and semantic components. Detailed field descriptions are in
 | `numbered-list` | items (string or `{title/body}` objects) | density |
 | `quote` | text | source |
 | `icon-text` | icon, text | iconColor, iconBackground, tone |
-| `timeline` | items | direction, orientation |
+| `timeline` | items | direction, orientation, gap, per-item: shape, icon, iconSrc, tone |
 | `profile-card` | image, name | role, bio |
 | `kpi-grid` | metrics | items, columns |
 | `section-break` | title | subtitle, accent, tone |

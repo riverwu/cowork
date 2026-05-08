@@ -99,6 +99,7 @@ describe("slideml2 SKILL component reference", () => {
     expect(skill).toContain("create it with `write_file`");
     expect(skill).toContain("`## Asset Plan`");
     expect(skill).toContain("For generated icons, `Asset Plan` must map icon names to actual component fields");
+    expect(skill).toContain("timeline.items[].iconSrc");
     expect(skill).toContain("`contentTop` and `contentBottom` are y-coordinates");
     expect(skill).toContain("Use `cornerRadius`, never `radius`");
     expect(skill).toContain("Do not use `position` as a placement field");

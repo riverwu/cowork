@@ -252,7 +252,9 @@ Component fitness guide:
 - Before/after numeric shift → `stat-comparison`.
 - Done / not-done audit → `checklist`. Trade-offs → `pros-cons`.
 - Pipeline / multi-stage process (3–5 stages) → `process-flow`.
-- Long dated sequence → `timeline`.
+- Long dated sequence → `timeline`; when generated milestone icons matter,
+  put returned icon paths on `timeline.items[].iconSrc` rather than placing
+  separate image nodes by coordinates.
 - Product / feature highlights → grid of `feature-card`.
 - Pricing tiers → grid of `pricing-card`; mark exactly one with `tone:"brand"`.
 - Partner / customer logos → `logo-strip`.
@@ -363,8 +365,12 @@ unless the cards are unusually narrow.
 - Categorical color (palette) only when the slide has *categorical
   meaning* — process steps, SWOT quadrants, distinct product lines.
 - Per-tag color via `tag-list` items: `[{text:"AI",tone:"brand"}, {text:"Risk",tone:"warning"}]`.
-- Trend semantics: `success` / `danger` / `warning` / `muted` apply when
-  the value carries that meaning. Don't use them for decoration.
+- Component tones are theme-defined semantic bundles, not ad hoc component
+  defaults. Common values: `brand`, `tinted`, `neutral`, `muted`,
+  `positive`/`success`, `warning`/`caution`, `danger`/`error`/`negative`,
+  and `info`.
+- Trend/status semantics apply only when the value carries that meaning.
+  Don't use semantic tones for decoration.
 - `divider` — neutral separator between two regions of a stack.
 - `frame` — borderless wrapper with a clear outline, good for
   placeholder regions or dashed-border emphasis (`dash:"dash"`).

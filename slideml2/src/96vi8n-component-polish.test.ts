@@ -9,6 +9,7 @@ import type { Slideml2SourceDeck, SlideV2 } from "./types.js";
  */
 
 const EMU = 360000;
+const TINY_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiI+PGNpcmNsZSBjeD0iNDgiIGN5PSI0OCIgcj0iMzIiIGZpbGw9IiMyNTYzZWIiLz48L3N2Zz4=";
 
 function deck(slide: SlideV2, themeOverride?: Record<string, unknown>): Slideml2SourceDeck {
   return {
@@ -144,6 +145,30 @@ describe("timeline visual spine (slide 7 fix)", () => {
     expect(timeTop - dotBottom).toBeGreaterThanOrEqual(0);
     expect(timeTop - dotBottom).toBeLessThan(0.35);
     expect(body.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt).toBe(17.6);
+  });
+
+  it("horizontal timeline renders generated iconSrc inside the milestone marker", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.tl",
+        type: "timeline",
+        direction: "horizontal",
+        items: [
+          { time: "2024", title: "A", body: "Body", shape: "ellipse", iconSrc: TINY_ICON },
+          { time: "2025", title: "B", body: "Body" },
+        ],
+      } as never],
+    };
+    const list = shapes(slide);
+    const icon = findEndingWith(list, ".0.icon") as { type?: string; fit?: string; xfrm?: { cx: number; cy: number } };
+    const halo = findEndingWith(list, ".0.halo") as { xfrm?: { cx: number; cy: number } };
+
+    expect(icon.type).toBe("image");
+    expect(icon.fit).toBe("contain");
+    expect(icon.xfrm!.cx).toBeLessThan(halo.xfrm!.cx);
+    expect(icon.xfrm!.cy).toBeLessThan(halo.xfrm!.cy);
   });
 
   it("wrapped horizontal timeline exposes row gap for spacing between axes", () => {

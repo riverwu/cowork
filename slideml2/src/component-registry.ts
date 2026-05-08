@@ -273,8 +273,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     iconBackground: { type: "string", description: "Icon background fill token." },
     tone: { type: "string", description: "Optional text color token." },
   }, "stack.horizontal(shape, text)", "stack"),
-  component("timeline", "Chronological sequence with dates, eras, milestones, or releases. Use when time is the organizing meaning. Each item supports a sub-headline (title), simple body text (body), an optional tone (brand|positive|warning|danger|neutral) for accent color, optional milestone shape/icon, OR a full embedded DomNode (content) such as a metric-card, image, insight-card, quote. Capacity caps (auto-applied): horizontal rich items > 5 auto-flip to vertical (each row gets full width); simple items > 6 auto-wrap to a 4-col grid; the renderer takes care of overflow but for histories beyond ~8 rich events you should split into two timeline slides.", {
-    items: { type: "array", required: true, description: "Array of { time?/date?/year?, title?/label?/headline?/name?, body?/description? (text), tone? (brand|positive|warning|danger|neutral), shape? (outer milestone OOXML preset: ellipse/diamond/cloud/star-5/etc.), icon? (optional inner OOXML preset), content? (any DomNode — metric-card, image, insight-card, etc.) }. content takes priority over body when both are supplied. Prefer body+tone for ordinary events; reserve content for moments that need a chart/image/quote." },
+  component("timeline", "Chronological sequence with dates, eras, milestones, or releases. Use when time is the organizing meaning. Each item supports a sub-headline (title), simple body text (body), an optional tone (brand|positive|warning|danger|neutral) for accent color, optional milestone shape/icon/iconSrc, OR a full embedded DomNode (content) such as a metric-card, image, insight-card, quote. Capacity caps (auto-applied): horizontal rich items > 5 auto-flip to vertical (each row gets full width); simple items > 6 auto-wrap to a 4-col grid; the renderer takes care of overflow but for histories beyond ~8 rich events you should split into two timeline slides.", {
+    items: { type: "array", required: true, description: "Array of { time?/date?/year?, title?/label?/headline?/name?, body?/description? (text), tone? (brand|positive|warning|danger|neutral), shape? (outer milestone OOXML preset: ellipse/diamond/cloud/star-5/etc.), icon? (optional inner OOXML preset), iconSrc? (generated raster icon path rendered inside the milestone), content? (any DomNode — metric-card, image, insight-card, etc.) }. content takes priority over body when both are supplied. Prefer body+tone for ordinary events; use iconSrc when generated icons should appear on the timeline marker itself." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Layout direction. Defaults to horizontal — safe for short text items. Pass 'vertical' when items have rich content (each row gets ~12cm width vs ~4cm in horizontal). The component auto-flips to vertical when items > 5 with rich content, and auto-wraps simple items > 6 into a 4-col grid." },
     orientation: { type: "enum", enum: ["horizontal", "vertical"], description: "Alias for direction." },
     gap: { type: "number", description: "For wrapped horizontal timelines, vertical gap in cm between axis rows. Default 0.52; useful range 0.3-1.0." },
@@ -1002,6 +1002,7 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
         tone: toneOf(rec.tone),
         shape: stringValue(rec.shape, stringValue(rec.milestoneShape, stringValue(rec.markerShape, ""))),
         icon: stringValue(rec.icon, ""),
+        iconSrc: stringValue(rec.iconSrc, ""),
         content,
       };
     }) : [];

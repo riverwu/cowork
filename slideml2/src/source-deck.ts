@@ -196,6 +196,7 @@ const OVERLAY_COMPONENT_TYPES = new Set([
 function isOverlayChildAtSource(node: DomNode): boolean {
   if (!node || typeof node !== "object") return false;
   if ((node.type === "decoration-grid" || node.type === "decorative-shapes") && node.asBackground !== false) return true;
+  if (node.layer === "behind" || node.layer === "above") return true;
   if (typeof node.anchor === "string" && OVERLAY_ANCHOR_POINTS.has(node.anchor)) return true;
   if (typeof node.anchorTo === "string" && node.anchorTo.length > 0) return true;
   if (isAbsoluteAt(node.at)) return true;

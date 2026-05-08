@@ -14,7 +14,7 @@ These rules must be applied before `create_deck`. If this file was opened with `
 - Component route comes before JSON. Prefer `executive-summary`, `chart-with-rail`, `evidence-layout`, `bar-list`, `scorecard`, `comparison-table`, `matrix-2x2`, `process-flow`, `axis-ruler`, and `failure-taxonomy` over generic `grid` + `insight-card` pages.
 - `insight-card` is only for curated peer findings. If a slide has 3-4 `insight-card`s and no dominant evidence object or decision frame, redesign it with a more semantic component.
 - Use cards only for modular objects such as options, metrics, or evidence tiles. Do not turn every paragraph into a card.
-- Generate icons only when they will be placed in the deck. `generate_icon_sheet` uses square 1x1/2x2/3x3 sheets and auto-splits sets above 9 icons; do not request rectangular icon grids. After generation, use returned `manifest.icons[].path` as `iconSrc` or image-card/image source; unused assets do not improve the slide and `validate_render` will warn if a current-run icon manifest is unused or partially used. If no slide will reference the icon paths, skip icon generation.
+- Generate icons only when they will be placed in the deck. `generate_icon_sheet` uses square 1x1/2x2/3x3 sheets and auto-splits sets above 9 icons; do not request rectangular icon grids. After generation, use returned `manifest.icons[].path` as `feature-card.iconSrc`, `timeline.items[].iconSrc`, or image-card/image source; unused assets do not improve the slide and `validate_render` will warn if a current-run icon manifest is unused or partially used. If no slide will reference the icon paths, skip icon generation.
 - Tables are evidence objects, not a default page template. For table cells that need semantic color or emphasis, pass cell objects such as `{text, fill, color, bold}`; otherwise `table-card` will correctly use theme `table-header`/`table-cell` styles and tone-derived fills. Three or more table-only pages in a row should be intentional reference material, not a substitute for scorecards, ranked lists, or decision components.
 - Save a complete `deck_plan.md` before `create_deck`. For business decks this archive must include the storyline, slide-by-slide claim/evidence/component route, table/chart plan, and explicit icon/image placements. Add each page with `replace_slide` as an object-literal `slide:{...}` call; it validates and commits one slide at a time. Use `validate_render({render:true})` only after all slides pass `replace_slide`, not to discover the story or component plan.
 
@@ -53,7 +53,7 @@ The business `deck_plan.md` should make the answer/proof relationship explicit:
 - `Claim`: the one-sentence title-level conclusion.
 - `Evidence`: the data, quote, comparison, or source material used on the slide.
 - `Component Route`: primary component plus support components.
-- `Asset Route`: generated icons/images/charts and exact field usage such as `feature-card.iconSrc`, `image-card.src`, or `chart-with-rail.evidence`.
+- `Asset Route`: generated icons/images/charts and exact field usage such as `feature-card.iconSrc`, `timeline.items[].iconSrc`, `image-card.src`, or `chart-with-rail.evidence`.
 - `Decision Implication`: what the viewer should do or believe after the slide.
 
 ## When To Use This Style

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToAst } from "./render.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
-import { buildTheme } from "./theme.js";
+import { buildTheme, listSemanticTones, toneStyle } from "./theme.js";
 import type { Slideml2SourceDeck, SlideV2 } from "./types.js";
 
 const EMU_PER_CM = 360000;
@@ -63,6 +63,25 @@ describe("theme component unit normalization", () => {
 });
 
 describe("theme semantic accent aliases", () => {
+  it("defines common tone tokens centrally on the theme", () => {
+    const theme = buildTheme({ primary: "2563EB" });
+    expect(listSemanticTones()).toEqual(expect.arrayContaining([
+      "brand", "tinted", "neutral", "muted", "subtle",
+      "positive", "success", "good",
+      "warning", "caution",
+      "danger", "error", "negative",
+      "info",
+    ]));
+    expect(theme.colors.positive).toBe(theme.colors.success);
+    expect(theme.colors["positive.tint"]).toBe(theme.colors["success.tint"]);
+    expect(theme.colors.neutral).toBe(theme.colors["text.primary"]);
+    expect(theme.colors["neutral.tint"]).toBe(theme.colors.surface);
+    expect(theme.colors.muted).toBe(theme.colors["text.muted"]);
+    expect(theme.tone.positive).toMatchObject({ fg: "success", bg: "success.tint", line: "success.accent" });
+    expect(theme.tone.neutral).toMatchObject({ fg: "text.primary", bg: "surface", line: "divider" });
+    expect(toneStyle(theme, "error")).toMatchObject({ fg: "danger", bg: "danger.tint", line: "danger.accent" });
+  });
+
   it("maps authored accent colors to semantic component tokens", () => {
     const theme = buildTheme({ primary: "2563EB" }, "default", {
       colors: {
@@ -83,6 +102,10 @@ describe("theme semantic accent aliases", () => {
     expect(theme.colors.info).not.toBe("2563EB");
     expect(theme.colors["success.tint"]).not.toBe("E6F6EC");
     expect(theme.colors["warning.tint"]).not.toBe("FFF6E6");
+    expect(theme.colors.positive).toBe(theme.colors.success);
+    expect(theme.colors["positive.accent"]).toBe("00A86B");
+    expect(theme.colors.caution).toBe(theme.colors.warning);
+    expect(theme.colors.error).toBe(theme.colors.danger);
   });
 
   it("keeps explicit semantic color overrides stronger than accent aliases", () => {

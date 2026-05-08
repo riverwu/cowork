@@ -323,6 +323,55 @@ describe("layer in grid containers", () => {
 });
 
 describe("at: [x, y, w, h] — slide-relative absolute positioning", () => {
+  it("slide-level at image with layer:behind renders below absolute text without requiring zIndex:-1", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      children: [
+        {
+          id: "s.bg",
+          type: "image",
+          src: "/tmp/background.png",
+          fit: "cover",
+          layer: "behind",
+          at: [0, 0, 25.4, 14.29],
+        } as never,
+        {
+          id: "s.title",
+          type: "text",
+          text: "Foreground",
+          style: "deck-title",
+          at: [1.5, 3, 20, 2],
+        } as never,
+      ],
+    };
+    const list = shapes(slide);
+    const bgIdx = list.findIndex((s) => (s as { name?: string }).name?.endsWith("s.bg"));
+    const titleIdx = list.findIndex((s) => (s as { name?: string }).name?.endsWith("s.title"));
+    expect(bgIdx).toBeGreaterThan(-1);
+    expect(titleIdx).toBeGreaterThan(-1);
+    expect(bgIdx).toBeLessThan(titleIdx);
+  });
+
+  it("slide-level layer:behind without at is treated as a full-slide background overlay", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      children: [
+        { id: "s.bg", type: "shape", preset: "rect", fill: "brand.tint", layer: "behind" } as never,
+        { id: "s.body", type: "text", text: "Body text", style: "paragraph" },
+      ],
+    };
+    const list = shapes(slide);
+    const bg = find(list, "s.bg") as { xfrm?: { x: number; y: number; cx: number; cy: number } } | undefined;
+    const bgIdx = list.findIndex((s) => (s as { name?: string }).name?.endsWith("s.bg"));
+    const bodyIdx = list.findIndex((s) => (s as { name?: string }).name?.endsWith("s.body"));
+    expect(bg).toBeDefined();
+    expect(bgIdx).toBeLessThan(bodyIdx);
+    expect(bg!.xfrm!.x / EMU).toBeCloseTo(0, 2);
+    expect(bg!.xfrm!.y / EMU).toBeCloseTo(0, 2);
+    expect(bg!.xfrm!.cx / EMU).toBeCloseTo(25.4, 2);
+    expect(bg!.xfrm!.cy / EMU).toBeCloseTo(14.2875, 2);
+  });
+
   it("a node with at=[x,y,w,h] renders at exactly those coordinates", () => {
     const slide: SlideV2 = {
       id: "s",

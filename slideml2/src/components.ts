@@ -645,6 +645,7 @@ type TimelineItem = {
   content?: DomNode;
   shape?: string;
   icon?: string;
+  iconSrc?: string;
 };
 
 export function timelineBlock(slideId: string, id: string, options: {
@@ -760,7 +761,6 @@ function timelineHorizontalMarker(
 ): DomNode {
   const toneToken = timelineToneToken(item.tone);
   const shapePreset = item.shape || "ellipse";
-  const iconPreset = item.icon || "";
   const visualChildren: DomNode[] = [{
     id: `${slideId}.${id}.${index}.halo`,
     type: "shape",
@@ -772,28 +772,8 @@ function timelineHorizontalMarker(
     fixedHeight: 0.82,
     optional: true,
   }];
-  if (iconPreset) {
-    visualChildren.push({
-      id: `${slideId}.${id}.${index}.iconLayer`,
-      type: "stack",
-      direction: "horizontal",
-      justify: "center",
-      align: "center",
-      valign: "middle",
-      layer: "above",
-      children: [{
-        id: `${slideId}.${id}.${index}.icon`,
-        type: "shape",
-        preset: iconPreset,
-        fill: toneToken,
-        line: toneToken,
-        lineWidth: 0.018,
-        fixedWidth: 0.32,
-        fixedHeight: 0.32,
-        optional: true,
-      }],
-    });
-  }
+  const iconLayer = timelineIconLayer(slideId, id, index, item, toneToken, 0.44);
+  if (iconLayer) visualChildren.push(iconLayer);
   return {
     id: `${slideId}.${id}.${index}.marker`,
     type: "stack",
@@ -876,6 +856,52 @@ function timelineToneToken(tone: TimelineTone | undefined): string {
     case "neutral": return "text.muted";
     default: return "brand.primary";
   }
+}
+
+function timelineIconLayer(
+  slideId: string,
+  id: string,
+  index: number,
+  item: TimelineItem,
+  toneToken: string,
+  size: number,
+): DomNode | null {
+  const iconSrc = item.iconSrc?.trim();
+  const iconPreset = item.icon?.trim();
+  if (!iconSrc && !iconPreset) return null;
+  return {
+    id: `${slideId}.${id}.${index}.iconLayer`,
+    type: "stack",
+    direction: "horizontal",
+    justify: "center",
+    align: "center",
+    valign: "middle",
+    layer: "above",
+    children: [
+      iconSrc
+        ? {
+            id: `${slideId}.${id}.${index}.icon`,
+            type: "image",
+            src: iconSrc,
+            alt: item.title || item.time || "timeline icon",
+            fit: "contain",
+            fixedWidth: size,
+            fixedHeight: size,
+            optional: true,
+          }
+        : {
+            id: `${slideId}.${id}.${index}.icon`,
+            type: "shape",
+            preset: iconPreset || "ellipse",
+            fill: toneToken,
+            line: toneToken,
+            lineWidth: 0.018,
+            fixedWidth: size * 0.73,
+            fixedHeight: size * 0.73,
+            optional: true,
+          },
+    ],
+  };
 }
 
 function timelineStep(
@@ -978,6 +1004,29 @@ function timelineStep(
   // own segment; stacked rows form a continuous spine — no overlay
   // primitives needed. Without this, vertical timelines read as plain
   // tables of {time, title, body}. (96vi8n slide 7 regression.)
+  const verticalIconLayer = timelineIconLayer(slideId, id, index, item, toneToken, 0.3);
+  const verticalDot: DomNode = {
+    id: `${slideId}.${id}.${index}.dot`,
+    type: "shape",
+    preset: "ellipse",
+    fill: verticalIconLayer ? "surface" : toneToken,
+    line: toneToken,
+    fixedWidth: verticalIconLayer ? 0.36 : 0.24,
+    fixedHeight: verticalIconLayer ? 0.36 : 0.24,
+  };
+  const verticalMarker: DomNode = verticalIconLayer
+    ? {
+        id: `${slideId}.${id}.${index}.marker`,
+        type: "stack",
+        direction: "horizontal",
+        justify: "center",
+        align: "center",
+        valign: "middle",
+        fixedWidth: 0.4,
+        fixedHeight: 0.4,
+        children: [verticalDot, verticalIconLayer],
+      }
+    : verticalDot;
   rowChildren.push({
     id: `${slideId}.${id}.${index}.spine`,
     type: "stack",
@@ -988,15 +1037,7 @@ function timelineStep(
     valign: "top",
     fixedWidth: 0.4,
     children: [
-      {
-        id: `${slideId}.${id}.${index}.dot`,
-        type: "shape",
-        preset: "ellipse",
-        fill: toneToken,
-        line: toneToken,
-        fixedWidth: 0.24,
-        fixedHeight: 0.24,
-      },
+      verticalMarker,
       {
         id: `${slideId}.${id}.${index}.line`,
         type: "shape",

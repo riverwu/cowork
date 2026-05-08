@@ -12,6 +12,7 @@ describe("generate_icon_sheet tool", () => {
     expect(generateIconSheet.definition.name).toBe("generate_icon_sheet");
     expect(generateIconSheet.definition.description).toContain("deck planning archive");
     expect(generateIconSheet.definition.description).toContain("feature-card.iconSrc");
+    expect(generateIconSheet.definition.description).toContain("timeline.items[].iconSrc");
     expect(generateIconSheet.definition.description).toContain("image-card.src");
     expect(generateIconSheet.definition.parameters.required).toEqual(["icons", "output_dir"]);
     const props = generateIconSheet.definition.parameters.properties as Record<string, unknown>;
@@ -49,10 +50,42 @@ describe("generate_icon_sheet tool", () => {
     const prompt = String(imageSpy.mock.calls[0]?.[0]?.prompt || "");
     expect(prompt).toContain("front view bank building line icon");
     expect(prompt).toContain("dark blue");
+    expect(prompt).toContain("no title");
+    expect(prompt).toContain("no captions");
+    expect(prompt).toContain("no explanatory text");
     expect(prompt).not.toContain("#111827");
     expect(prompt).not.toContain("银行");
     expect(prompt).not.toContain("bank)");
     expect(prompt).not.toContain("r1c1");
+  });
+
+  it("slices around detected icon subjects instead of trusting only hard grid cells", async () => {
+    vi.spyOn(imageGen, "execute").mockResolvedValue("Image generated and saved to /tmp/icons/icon-sheet.png.");
+    const pythonSpy = vi.spyOn(runPython, "execute").mockResolvedValue(`ICON_SHEET_RESULT:${JSON.stringify({
+      sheetPath: "/tmp/icons/icon-sheet.png",
+      manifestPath: "/tmp/icons/manifest.json",
+      grid: { columns: 2, rows: 2 },
+      outputSize: 768,
+      icons: [
+        { name: "bank", label: "bank", description: "bank building", path: "/tmp/icons/bank.png" },
+        { name: "risk", label: "risk", description: "risk shield", path: "/tmp/icons/risk.png" },
+      ],
+    })}`);
+
+    await generateIconSheet.execute({
+      output_dir: "/tmp/icons",
+      icons: [
+        { name: "bank", description: "bank building" },
+        { name: "risk", description: "risk shield" },
+      ],
+      grid: { columns: 2, rows: 2 },
+    });
+
+    const script = String(pythonSpy.mock.calls[0]?.[0]?.code || "");
+    expect(script).toContain("expand_x = round(cell_w * 0.18)");
+    expect(script).toContain("expected = ((left + right) / 2 - search_left");
+    expect(script).toContain("bbox = icon_bbox(search, expected)");
+    expect(script).toContain("text_like = wide_flat");
   });
 
   it("splits large icon sets into square sheets of at most 3x3", async () => {

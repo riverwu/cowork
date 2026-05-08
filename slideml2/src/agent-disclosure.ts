@@ -1,6 +1,6 @@
 import { describeComponents, listComponents } from "./component-registry.js";
 import { describeDeck } from "./deck-disclosure.js";
-import { listPaletteColors } from "./theme.js";
+import { listPaletteColors, listSemanticTones } from "./theme.js";
 
 export interface AgentPromptPackOptions {
   intent?: string;
@@ -66,6 +66,7 @@ export function buildAgentPromptPack(options: AgentPromptPackOptions = {}): stri
   ]);
   const descriptions = describeComponents(components).found;
   const palette = listPaletteColors();
+  const tones = listSemanticTones();
   const lines: string[] = [
     "SlideML2 compact guide:",
     "- Output exactly one slide JSON: {id,title,children}.",
@@ -87,7 +88,7 @@ export function buildAgentPromptPack(options: AgentPromptPackOptions = {}): stri
     "    Product / identity → feature-card grid (capability/benefit), logo-strip (partners/customers), profile-card (person/role), tag-list (categories), badge (single status)",
     "    Layout / surface → split (primary/secondary region split), two-column (named narrative+visual regions), stack (sequence), grid (peer scan), panel/card/band/frame/inset (visual grouping)",
     "- Decorative containers (NOT layout): panel (tinted surface), card (panel + header/footer/accent), band (full-width strip), frame (border-only), inset (padding only). Wrap a stack/grid inside one when grouping needs visual separation. Never set fill/line/cornerRadius on stack/grid — wrap in panel/card instead.",
-    `- Color tokens: brand.primary, surface, surface.subtle, text.primary, text.muted, text.inverse, divider, success/warning/danger (+ .tint), brand.tint. Semantic palette for *categorical* meaning: ${palette.join(", ")} (each with .tint and .shade). DO NOT invent tokens like text-secondary, primary-color.`,
+    `- Color tokens: brand.primary, surface, surface.subtle, text.primary, text.muted, text.inverse, divider, success/warning/danger/info plus tone aliases positive/neutral/muted (+ .tint/.accent), brand.tint. Component tone values: ${tones.join(", ")}. Semantic palette for *categorical* meaning: ${palette.join(", ")} (each with .tint and .shade). DO NOT invent tokens like text-secondary, primary-color.`,
     "- Vary slide structure across a deck: insight-card is one option for standalone findings, not the default text container. Prefer executive-summary / explanation-block / comparison-list / fact-list whenever the content shape matches.",
     "- Use `optional: true` on captions/source-notes/secondary callouts so the layout can drop them when space is tight.",
     "- Minimal shape: {\"id\":\"s1\",\"title\":\"Title\",\"children\":[{\"id\":\"s1.lead\",\"type\":\"lead\",\"area\":\"content\",\"text\":\"One insight\"}]}",

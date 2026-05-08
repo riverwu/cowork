@@ -1,4 +1,4 @@
-import { buildTheme, listPaletteColors, listThemes } from "./theme.js";
+import { buildTheme, listPaletteColors, listSemanticTones, listThemes } from "./theme.js";
 
 export interface DeckFieldDescription {
   type: "string" | "number" | "boolean" | "enum" | "object";
@@ -22,7 +22,7 @@ export interface DeckDescription {
   themes: { available: string[]; default: string; description: string };
   brand: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
   chrome: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
-  colorTokens: { description: string; tokens: string[]; palette: { description: string; names: string[] } };
+  colorTokens: { description: string; tokens: string[]; tones: { description: string; names: string[] }; palette: { description: string; names: string[] } };
   textStyles: { description: string; styles: string[] };
   themeGuidance: {
     description: string;
@@ -97,6 +97,10 @@ export function describeDeck(): DeckDescription {
     colorTokens: {
       description: "Use these tokens anywhere a color is expected (fill, line, color). Avoid raw hex except for one-off accents. Tokens auto-update when theme or brand.primary changes.",
       tokens: colorTokens,
+      tones: {
+        description: "Semantic component tones. Components should use `tone` with these names; the theme owns each tone's foreground/background/line colors. Tone color tokens also expose base/.tint/.accent where applicable.",
+        names: listSemanticTones(),
+      },
       palette: {
         description: "Semantic palette names. Each resolves to a theme-defined hex; agents express intent ('red', 'lime') and the theme picks the exact value. Palette colors also expose .tint and .shade variants.",
         names: listPaletteColors(),
