@@ -7,9 +7,11 @@ export const createDeckTool: Tool = {
     description:
       `Create a fresh SlideML2 source deck JSON file at \`deckPath\`. Use once at the start of a deck task; the JSON is the source of truth.
 
-The deck-level visual identity should be installed in this initial call via \`themeOverride\`: pass colors (\`brand.primary\`, \`background\`, \`surface\`, \`text.primary\`, \`divider\`, ...), text styles (\`slide-title\`, \`paragraph\`, \`metric-value\`), component tuning (\`card\`, \`panel\`), effective layout fields (\`pageMarginX\`, \`titleTop\`, \`titleHeight\`, \`contentTop\`, \`contentBottom\`, \`defaultGap\`), fonts, and chrome (\`brandMark\`, \`pageNumber\`). \`contentTop\` and \`contentBottom\` are content-area y-coordinates; on 16:9, \`contentBottom\` is usually 13.0-13.5cm and content height is \`contentBottom - contentTop\`. Read the slideml2 SKILL.md for the style brief structure to derive these from the source content. For business/research-report decks, also read business.md completely first; its default is light analytical pages, not a full-deck dark theme.
+Do not call \`create_deck\` until you have saved a complete markdown planning archive, usually next to the deck as \`deck_plan.md\`, with \`write_file\`. That plan should include the deck contract, storyline, theme plan, slide-by-slide component plan, asset/icon plan, and exact icon/image/chart placements. \`create_deck\` starts implementation from that archived plan; it is not the planning step.
 
-After this call, add slides via \`replace_slide\` (when slideId equals current slide count, it appends) and refine deck-level fields via \`patch_deck\`.`,
+The deck-level visual identity should be installed in this initial call via \`themeOverride\`: pass colors (\`brand.primary\`, \`background\`, \`surface\`, \`text.primary\`, \`divider\`, ...), text styles (\`slide-title\`, \`section-title\`, \`card-title\`, \`paragraph\`, \`bullet\`, \`caption\`, \`label\`, \`table-header\`, \`table-cell\`, \`metric-value\`, \`metric-label\`), component tuning (\`card\`, \`panel\`), effective layout fields (\`pageMarginX\`, \`titleTop\`, \`titleHeight\`, \`contentTop\`, \`contentBottom\`, \`defaultGap\`), fonts, and chrome (\`brandMark\`, \`pageNumber\`). \`contentTop\` and \`contentBottom\` are content-area y-coordinates; on 16:9, \`contentBottom\` is usually 13.0-13.5cm and content height is \`contentBottom - contentTop\`. Read the slideml2 SKILL.md for the style brief structure to derive these from the source content. For business/research-report decks, also read business.md completely first; its default is light analytical pages, not a full-deck dark theme.
+
+After this call, add slides one at a time via \`replace_slide\` (when slideId equals current slide count, it appends). \`replace_slide\` runs per-slide validation and only commits a slide when it passes, so repair any rejected slide before authoring the next. After all slides are added, call \`validate_render({deckPath,render:true})\` once to render/export the full PPTX and run final deck QA. Use \`patch_deck\` only for focused deck-level or ordering edits, not as the normal slide authoring path.`,
     parameters: {
       type: "object",
       properties: {
@@ -42,7 +44,9 @@ After this call, add slides via \`replace_slide\` (when slideId equals current s
     // a long generation). Auto-parse before passing to native code so the
     // override actually takes effect instead of being silently dropped.
     const autoNotes: string[] = [];
-    const themeOverride = parseMaybeJsonObject(input.themeOverride, "themeOverride", autoNotes);
+    const parsedThemeOverride = parseMaybeJsonObject(input.themeOverride, "themeOverride", autoNotes);
+    if (typeof parsedThemeOverride === "string") return parsedThemeOverride;
+    const themeOverride = normalizeThemeOverride(parsedThemeOverride, autoNotes);
     if (typeof themeOverride === "string") return themeOverride;
     const brand = parseMaybeJsonObject(input.brand, "brand", autoNotes);
     if (typeof brand === "string") return brand;
@@ -54,7 +58,7 @@ After this call, add slides via \`replace_slide\` (when slideId equals current s
         themeOverride,
       });
       const notePrefix = autoNotes.length > 0 ? `${autoNotes.join("\n")}\n` : "";
-      return `${notePrefix}Deck created at ${result.deckPath}. Add slides via replace_slide (slideId = current slide count appends).`;
+      return `${notePrefix}Deck created at ${result.deckPath}. Add slides one at a time via replace_slide (slideId = current slide count appends and only commits after per-slide validation).`;
     } catch (err) {
       return `Error: create_deck failed.\n${err instanceof Error ? err.message : String(err)}`;
     }
@@ -91,4 +95,78 @@ function parseMaybeJsonObject(value: unknown, fieldName: string, notes: string[]
     }
   }
   return undefined;
+}
+
+const THEME_TEXT_STYLE_KEYS = new Set([
+  "fontSize",
+  "weight",
+  "fontWeight",
+  "color",
+  "lineHeight",
+  "margin",
+  "letterSpacing",
+  "fontFamily",
+  "fontFeatures",
+  "uppercase",
+  "italic",
+]);
+
+function normalizeThemeOverride(value: unknown, notes: string[]): unknown | string {
+  if (value == null) return undefined;
+  if (!isPlainObject(value)) return "Error: themeOverride must be an object literal.";
+  const root = value as Record<string, unknown>;
+  const text = root.text;
+  if (text == null) return value;
+  if (!isPlainObject(text)) return "Error: themeOverride.text must be an object keyed by text style name.";
+
+  let rootOut: Record<string, unknown> | undefined;
+  let textOut: Record<string, unknown> | undefined;
+  const ensureTextOut = (): Record<string, unknown> => {
+    if (!rootOut) rootOut = { ...root };
+    if (!textOut) {
+      textOut = { ...(text as Record<string, unknown>) };
+      rootOut.text = textOut;
+    }
+    return textOut;
+  };
+
+  for (const [styleName, rawStyle] of Object.entries(text as Record<string, unknown>)) {
+    if (rawStyle == null) continue;
+    if (!isPlainObject(rawStyle)) {
+      return `Error: themeOverride.text.${styleName} must be an object.`;
+    }
+
+    let style = rawStyle as Record<string, unknown>;
+    if ("tracking" in style) {
+      const tracking = style.tracking;
+      if (typeof tracking === "number" && Number.isFinite(tracking)) {
+        style = { ...style };
+        delete style.tracking;
+        if (style.letterSpacing == null) style.letterSpacing = tracking;
+        ensureTextOut()[styleName] = style;
+        notes.push(`Note: themeOverride.text.${styleName}.tracking was converted to letterSpacing; use letterSpacing next time.`);
+      } else if (style.letterSpacing != null) {
+        style = { ...style };
+        delete style.tracking;
+        ensureTextOut()[styleName] = style;
+        notes.push(`Note: themeOverride.text.${styleName}.tracking was removed because letterSpacing is already set; theme text styles use letterSpacing, not tracking.`);
+      } else {
+        return `Error: themeOverride.text.${styleName}.tracking is not supported in deck theme text styles. Use numeric letterSpacing instead.`;
+      }
+    }
+
+    const unknownKeys = Object.keys(style).filter((key) => !THEME_TEXT_STYLE_KEYS.has(key));
+    if (unknownKeys.length > 0) {
+      return [
+        `Error: unsupported themeOverride text field(s): ${unknownKeys.map((key) => `themeOverride.text.${styleName}.${key}`).join(", ")}.`,
+        "Use supported fields: fontSize, weight/fontWeight, color, lineHeight, margin, letterSpacing, fontFamily, fontFeatures, uppercase, italic.",
+      ].join("\n");
+    }
+  }
+
+  return rootOut || value;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }

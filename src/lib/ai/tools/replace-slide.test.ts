@@ -31,7 +31,7 @@ describe("replace_slide argument recovery", () => {
     });
 
     expect(String(result)).toContain("slide must be a JSON object");
-    expect(String(result)).toContain("Retry replace_slide");
+    expect(String(result)).toContain("object literal");
     expect(String(result)).toContain("Do not write the deck JSON");
     expect(mockReplace).not.toHaveBeenCalled();
   });
@@ -53,7 +53,7 @@ describe("replace_slide argument recovery", () => {
 });
 
 describe("replace_slide duplicate target notice", () => {
-  it("asks for a render checkpoint after two unvalidated slide writes", async () => {
+  it("tracks per-slide-validated writes and defers full render until all slides are added", async () => {
     const path = deckPath();
     mockRead
       .mockResolvedValueOnce({ slides: [] })
@@ -73,8 +73,77 @@ describe("replace_slide duplicate target notice", () => {
       slide: { id: "summary", children: [] },
     });
 
-    expect(String(second)).toContain("Checkpoint required");
-    expect(String(second)).toContain("Call validate_render({deckPath, render:true}) now");
+    expect(String(second)).toContain("pending final full-deck render");
+    expect(String(second)).toContain("After all slides are added");
+    expect(String(second)).toContain("validate_render({deckPath, render:true}) once");
+  });
+
+  it("does not record a slide write when native per-slide validation rejects the candidate", async () => {
+    const path = deckPath();
+    mockRead
+      .mockResolvedValueOnce({ slides: [] })
+      .mockResolvedValueOnce({ slides: [] });
+    mockReplace
+      .mockResolvedValueOnce({
+        ok: false,
+        error: "Slide render validation failed with 1 blocking diagnostic(s). Deck file was not modified.",
+        validation: { ok: true, errors: [] },
+        diagnostics: {
+          count: 1,
+          summary: { SQUASHED: 1 },
+          blockingCount: 1,
+          blocking: [{ code: "SQUASHED", severity: "error", nodeId: "s.card", message: "Too small" }],
+          qualityCount: 0,
+          quality: [],
+        },
+      })
+      .mockResolvedValueOnce({ ok: true, insertedAt: 0, slideCount: 1, validation: { ok: true, errors: [] }, diagnostics: { count: 0, summary: {}, blockingCount: 0, blocking: [], qualityCount: 0, quality: [] } });
+
+    const rejected = await replaceSlideTool.execute({
+      deckPath: path,
+      slideId: 0,
+      slide: { id: "bad", children: [] },
+    });
+    const accepted = await replaceSlideTool.execute({
+      deckPath: path,
+      slideId: 0,
+      slide: { id: "good", children: [] },
+    });
+
+    expect(String(rejected)).toContain("deck file was not modified");
+    expect(String(rejected)).toContain("renderBlocking=1");
+    expect(String(accepted)).toContain("1 SlideML2 slide write(s) are pending final full-deck render");
+  });
+
+  it("returns concrete schema error details when native validation rejects the candidate", async () => {
+    const path = deckPath();
+    mockRead.mockResolvedValue({ slides: [] });
+    mockReplace.mockResolvedValue({
+      ok: false,
+      error: "Candidate deck validation failed with 1 error(s).",
+      validation: {
+        ok: false,
+        errors: [
+          {
+            code: "UNKNOWN_THEME_TEXT_FIELD",
+            path: "deck.themeOverride.text.eyebrow.tracking",
+            message: "deck.themeOverride.text.eyebrow.tracking is not a supported text style field, so it would be ignored.",
+            suggestedFix: "Use letterSpacing.",
+          },
+        ],
+      },
+    });
+
+    const rejected = await replaceSlideTool.execute({
+      deckPath: path,
+      slideId: 0,
+      slide: { id: "cover", children: [] },
+    });
+
+    expect(String(rejected)).toContain("schemaErrorsDetail");
+    expect(String(rejected)).toContain("UNKNOWN_THEME_TEXT_FIELD");
+    expect(String(rejected)).toContain("deck.themeOverride.text.eyebrow.tracking");
+    expect(String(rejected)).toContain("Use letterSpacing");
   });
 
   it("allows replacing the same slide position twice and returns a warning", async () => {

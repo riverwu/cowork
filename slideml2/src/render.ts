@@ -55,9 +55,10 @@ function plainTextRun(theme: SimpleTheme, text: string, style: TextStyle, bold: 
   font?: "display" | "text" | "mono" | "cjk";
   weight?: FontWeight;
 } = {}): TextRun {
-  const face = pickRunFontFace(theme, text, style, { font: options.font, weight: options.weight ?? style.weight });
+  const runText = normalizeTextForPpt(text, options.font === "mono");
+  const face = pickRunFontFace(theme, runText, style, { font: options.font, weight: options.weight ?? style.weight });
   return {
-    text,
+    text: runText,
     sizeHalfPt: style.fontSize * 2,
     bold,
     color: colorHex,
@@ -67,6 +68,11 @@ function plainTextRun(theme: SimpleTheme, text: string, style: TextStyle, bold: 
     cjk: face.cjk,
     mono: face.mono,
   };
+}
+
+function normalizeTextForPpt(text: string, literal = false): string {
+  if (literal || !text) return text;
+  return text.replace(/([^\s\u2060])([，。！？；：、）》」』】〕〉》])/g, "$1\u2060$2");
 }
 
 export interface LayoutDecision {
@@ -1350,15 +1356,13 @@ function measureSubtree(theme: SimpleTheme, node: DomNode, rect: Rect, output: M
 }
 
 function decorativeInnerRect(theme: SimpleTheme, node: DomNode, rect: Rect): Rect {
-  const styleKey = node.type === "panel" ? "panel" : node.type === "card" ? "card" : node.type === "band" ? "band" : node.type === "frame" ? "frame" : "inset";
-  const style = theme.component[styleKey] || {};
-  const padding = optionalNumberProp(node, "padding") ?? style.padding ?? 0.4;
+  const padding = decorativePadding(theme, node, rect);
   let inner: Rect = { x: rect.x + padding, y: rect.y + padding, w: Math.max(0, rect.w - padding * 2), h: Math.max(0, rect.h - padding * 2) };
   if (node.type === "card") {
     const accent = node.accent === "left" || node.accent === "top" ? node.accent : "none";
     if (accent === "left") inner = { x: inner.x + 0.12, y: inner.y, w: Math.max(0, inner.w - 0.12), h: inner.h };
     else if (accent === "top") inner = { x: inner.x, y: inner.y + 0.12, w: inner.w, h: Math.max(0, inner.h - 0.12) };
-    const headerText = typeof node.header === "string" && node.header.trim() ? node.header.trim() : "";
+    const headerText = cardHeader(node)?.text || "";
     const footerText = typeof node.footer === "string" && node.footer.trim() ? node.footer.trim() : "";
     const headerHeight = headerText ? 0.7 + 0.15 : 0;
     const footerHeight = footerText ? 0.5 + 0.15 : 0;
@@ -1606,6 +1610,12 @@ function toneTokens(tone: unknown): { fill?: string; line?: string; fg?: string;
   return {};
 }
 
+function cardHeader(node: DomNode): { text: string; field: "header" | "title" } | null {
+  if (typeof node.header === "string" && node.header.trim()) return { text: node.header.trim(), field: "header" };
+  if (typeof node.title === "string" && node.title.trim()) return { text: node.title.trim(), field: "title" };
+  return null;
+}
+
 function readableTextColorForFill(theme: SimpleTheme, fillToken: string, preferredToken?: string): string {
   const fillHex = color(theme, fillToken, "surface");
   const candidates = [
@@ -1739,7 +1749,8 @@ function renderCard(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const accentColor = stringProp(node, "accentColor", tone.accent || "brand.primary");
   // Accent bar width — agents can thicken it with `accentWidth: 0.18`.
   const accentSize = optionalNumberProp(node, "accentWidth") ?? 0.12;
-  const headerText = typeof node.header === "string" && node.header.trim() ? node.header.trim() : "";
+  const header = cardHeader(node);
+  const headerText = header?.text || "";
   const footerText = typeof node.footer === "string" && node.footer.trim() ? node.footer.trim() : "";
   const shapes: ShapeList = [{
     type: "shape",
@@ -1779,7 +1790,7 @@ function renderCard(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const headerHeight = headerText ? 0.7 : 0;
   const footerHeight = footerText ? 0.5 : 0;
   if (headerText) {
-    shapes.push(textShape(theme, { id: `${node.id}.header`, type: "text", text: headerText, style: "card-title", color: tone.fg }, { x: inner.x, y: inner.y, w: inner.w, h: headerHeight }, ids));
+    shapes.push(textShape(theme, { id: `${node.id}.${header?.field || "header"}`, type: "text", text: headerText, style: "card-title", color: tone.fg }, { x: inner.x, y: inner.y, w: inner.w, h: headerHeight }, ids));
   }
   if (footerText) {
     shapes.push(textShape(theme, { id: `${node.id}.footer`, type: "text", text: footerText, style: "caption", color: "text.muted" }, { x: inner.x, y: inner.y + inner.h - footerHeight, w: inner.w, h: footerHeight }, ids));
@@ -1815,17 +1826,7 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const fillToken = stringProp(node, "fill", tone.fill || style.fill || "surface.subtle");
   const childFgToken = readableTextColorForFill(theme, fillToken, tone.fg);
   const cornerRadius = optionalCornerRadiusProp(node) ?? style.cornerRadius ?? 0;
-  // umzrkm fix: agents reach for `band` when they want a thin colored
-  // divider line ({ type:"band", tone:"brand", height:0.05 }) — `height`
-  // gets aliased to `fixedHeight` upstream, but the band still applied
-  // the default 0.6cm padding which made a 0.05cm-tall band invisible.
-  // When the band has no children AND a small fixedHeight (< 0.6cm), we
-  // treat it as a divider and zero out padding so the color shows.
-  const hasChildren = Array.isArray(node.children) && node.children.length > 0;
-  const fixedH = optionalNumberProp(node, "fixedHeight");
-  const isDividerBand = !hasChildren && typeof fixedH === "number" && fixedH < 0.6;
-  const defaultPadding = isDividerBand ? 0 : (style.padding ?? 0.6);
-  const padding = optionalNumberProp(node, "padding") ?? defaultPadding;
+  const padding = decorativePadding(theme, node, rect);
   // Optional agent overrides on bands.
   const lineToken = typeof node.line === "string" ? node.line : null;
   const lineWidth = normalizeStrokeCm(optionalNumberProp(node, "lineWidth") ?? optionalNumberProp(node, "borderWidth"), 0.02);
@@ -2298,8 +2299,8 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
 function bulletHangingIndent(node: DomNode): { marginLeft: number; hanging: number } {
   if (node.numbered === true) {
     return node.density === "compact"
-      ? { marginLeft: cm(0.58), hanging: -cm(0.34) }
-      : { marginLeft: cm(0.68), hanging: -cm(0.40) };
+      ? { marginLeft: cm(0.78), hanging: -cm(0.48) }
+      : { marginLeft: cm(0.88), hanging: -cm(0.54) };
   }
   return node.density === "compact"
     ? { marginLeft: cm(0.44), hanging: -cm(0.24) }
@@ -2308,6 +2309,7 @@ function bulletHangingIndent(node: DomNode): { marginLeft: number; hanging: numb
 
 function bulletSpaceAfterHalfPt(node: DomNode): number {
   if (typeof node.spaceAfter === "number" && Number.isFinite(node.spaceAfter) && node.spaceAfter >= 0) return node.spaceAfter * 2;
+  if (node.numbered === true) return node.density === "compact" ? 8 : 13;
   return node.density === "compact" ? 7 : 12;
 }
 
@@ -2686,8 +2688,9 @@ function makeTableCell(
 
 function richRunToTextRun(theme: SimpleTheme, raw: unknown, style: ReturnType<typeof textStyle>, defaultBold: boolean): TextRun {
   const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-  const text = typeof rec.text === "string" ? rec.text : "";
+  const rawText = typeof rec.text === "string" ? rec.text : "";
   const marks = Array.isArray(rec.marks) ? rec.marks.map(String) : [];
+  const text = normalizeTextForPpt(rawText, marks.includes("code") || rec.font === "mono");
   // Resolve a semantic emphasis word ("key", "muted", "danger", ...) into
   // a (color, weight, italic, letterSpacing) hint. Per-run explicit fields
   // still win — emphasis is the convenience layer, not the override layer.
@@ -3019,7 +3022,8 @@ function textRuns(theme: SimpleTheme, node: DomNode, style: ReturnType<typeof te
       });
     }
   }
-  const face = pickRunFontFace(theme, text, style, {
+  const runText = normalizeTextForPpt(text, styleKey === "code");
+  const face = pickRunFontFace(theme, runText, style, {
     font: styleKey === "code" ? "mono" : undefined,
   });
   // Node-level emphasis applies to the whole text shape when `node.emphasis`
@@ -3044,7 +3048,7 @@ function textRuns(theme: SimpleTheme, node: DomNode, style: ReturnType<typeof te
     }
   }
   return [{
-    text,
+    text: runText,
     sizeHalfPt: style.fontSize * 2,
     bold: nodeBold(node, isStyleBold(style.weight)) || emphasisBold,
     italic: node.italic === true || style.italic === true || nodeEmphasis?.italic === true,
@@ -3066,7 +3070,13 @@ function materializeNode(node: DomNode, slideId: string, fallbackPath = ""): Dom
   const safeNode: DomNode = node && typeof node === "object" ? node : { id: "", type: "" };
   const fallbackId = safeNode.id && typeof safeNode.id === "string" ? safeNode.id : `${slideId}.auto.${fallbackPath || "node"}`;
   const withId: DomNode = safeNode.id ? safeNode : { ...safeNode, id: fallbackId };
-  const expanded = isComponentTypedNode(withId) ? expandComponent(slideId, withId) : withId;
+  // Pre-pass: when a stack/grid has many callout siblings, the per-callout
+  // height/width budget collapses (5 callouts in 8cm vertical stack → 1.6cm
+  // each, but each callout's chrome alone wants 1.6cm). Stamp density:"compact"
+  // on those siblings BEFORE component expansion so calloutNode emits a
+  // tighter surface that actually fits.
+  const densified = densifyCalloutSiblings(withId);
+  const expanded = isComponentTypedNode(densified) ? expandComponent(slideId, densified) : densified;
   // `split` is sugar over `stack` with explicit layoutWeights. Lower it after
   // component expansion as well, since semantic components such as two-column
   // can expand to split.
@@ -3079,6 +3089,25 @@ function materializeNode(node: DomNode, slideId: string, fallbackPath = ""): Dom
     id: typeof lowered.id === "string" && lowered.id ? lowered.id : fallbackId,
     children,
   };
+}
+
+function densifyCalloutSiblings(node: DomNode): DomNode {
+  if (!node || typeof node !== "object") return node;
+  const isContainer = node.type === "stack" || node.type === "grid" || node.type === "split";
+  if (!isContainer || !Array.isArray(node.children) || node.children.length < 4) return node;
+  const calloutCount = node.children.filter((child) => child && typeof child === "object" && (child.type === "callout" || (child.type === "component" && child.component === "callout"))).length;
+  if (calloutCount < 4) return node;
+  const updatedChildren = node.children.map((child) => {
+    if (!child || typeof child !== "object") return child;
+    const isCallout = child.type === "callout" || (child.type === "component" && child.component === "callout");
+    if (!isCallout) return child;
+    // Respect explicit density choice — author may have set
+    // density:"comfortable" deliberately to fight the auto-densify, or
+    // density:"compact" already (no-op).
+    if (typeof child.density === "string") return child;
+    return { ...child, density: "compact", __densifiedBySiblings: true } as DomNode;
+  });
+  return { ...node, children: updatedChildren };
 }
 
 function splitToStack(node: DomNode): DomNode {
@@ -3381,7 +3410,7 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
   let cursor = (direction === "horizontal" ? rect.x : rect.y) + startOffset;
   const flowOut = children.map((child, index) => {
     const size = childSizes[index]!;
-    const cross = childCrossRect(child, direction === "horizontal" ? rect.y : rect.x, crossSize, node, child);
+    const cross = childCrossRect(theme, child, direction === "horizontal" ? rect.y : rect.x, crossSize, node, size, direction);
     const childRect = direction === "horizontal"
       ? { x: cursor, y: cross.start, w: size, h: cross.size }
       : { x: cross.start, y: cursor, w: cross.size, h: size };
@@ -3392,8 +3421,8 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
   return [...flowOut, ...layered.map((c) => ({ node: c, rect }))];
 }
 
-function childCrossRect(child: DomNode, parentCrossStart: number, parentCrossSize: number, parent: DomNode, _self: DomNode): { start: number; size: number } {
-  const isHorizontal = parent.direction === "horizontal";
+function childCrossRect(theme: SimpleTheme, child: DomNode, parentCrossStart: number, parentCrossSize: number, parent: DomNode, mainSize: number, parentDirection: "horizontal" | "vertical"): { start: number; size: number } {
+  const isHorizontal = parentDirection === "horizontal";
   const crossKey = isHorizontal ? "valign" : "align";
   const childExplicit = stringProp(child, crossKey, "");
   const parentExplicit = stringProp(parent, crossKey, "");
@@ -3401,13 +3430,31 @@ function childCrossRect(child: DomNode, parentCrossStart: number, parentCrossSiz
   // cross-axis size, that's a stronger declaration of intent than the
   // parent's stretch default — honor it (centering by default).
   const fixedCross = optionalNumberProp(child, isHorizontal ? "fixedHeight" : "fixedWidth");
+  const maxCross = optionalNumberProp(child, isHorizontal ? "maxHeight" : "maxWidth");
   let crossAlign: string;
   if (childExplicit) crossAlign = childExplicit;
   else if (parentExplicit && parentExplicit !== "stretch") crossAlign = parentExplicit;
-  else if (fixedCross !== undefined) crossAlign = "start";
+  else if (fixedCross !== undefined || maxCross !== undefined) crossAlign = "start";
   else crossAlign = "stretch";
-  if (fixedCross === undefined || crossAlign === "stretch") return { start: parentCrossStart, size: parentCrossSize };
-  const size = Math.min(fixedCross, parentCrossSize);
+  // Stretch path: full cross size goes to the child (default flex behavior).
+  if (crossAlign === "stretch") return { start: parentCrossStart, size: parentCrossSize };
+  // Pick the constrained size. fixed wins over max; max caps an otherwise
+  // intrinsic-sized child so a `process-step` with maxHeight:3.1 in a 10cm
+  // row collapses to 3.1cm and aligns per valign — without this, fill:
+  // "surface" was painting a 10cm grey card around 1.7cm of content. But
+  // the cap must NOT compress content below its intrinsic minimum, so when
+  // the child needs more than maxCross (rich step with title+meta+body+
+  // bullets), grow back to that intrinsic min — otherwise SQUASHED.
+  let size: number;
+  if (fixedCross !== undefined) size = Math.min(fixedCross, parentCrossSize);
+  else if (maxCross !== undefined) {
+    const childCrossDirection: "horizontal" | "vertical" = isHorizontal ? "vertical" : "horizontal";
+    const intrinsic = intrinsicMainSize(theme, child, childCrossDirection, mainSize);
+    const minCross = Math.max(intrinsicMinSize(theme, child, childCrossDirection, mainSize), 0);
+    const ceilBound = Math.min(parentCrossSize, Math.max(maxCross, minCross));
+    size = Math.min(parentCrossSize, Math.max(intrinsic, minCross, Math.min(maxCross, ceilBound)));
+  }
+  else return { start: parentCrossStart, size: parentCrossSize };
   if (crossAlign === "center" || crossAlign === "middle") return { start: parentCrossStart + (parentCrossSize - size) / 2, size };
   if (crossAlign === "end" || crossAlign === "bottom" || crossAlign === "right") return { start: parentCrossStart + parentCrossSize - size, size };
   return { start: parentCrossStart, size };
@@ -3667,12 +3714,10 @@ function intrinsicMainSize(theme: SimpleTheme, node: DomNode, direction: "horizo
 }
 
 function decorativeIntrinsicMain(theme: SimpleTheme, node: DomNode, direction: "horizontal" | "vertical", crossSize: number): number {
-  const styleKey = node.type === "panel" ? "panel" : node.type === "card" ? "card" : node.type === "band" ? "band" : node.type === "frame" ? "frame" : "inset";
-  const style = theme.component[styleKey] || {};
-  const padding = optionalNumberProp(node, "padding") ?? style.padding ?? 0.4;
+  const padding = decorativePadding(theme, node);
   let chromeMain = padding * 2;
   if (direction === "vertical" && node.type === "card") {
-    if (typeof node.header === "string" && node.header.trim()) chromeMain += 0.85;
+    if (cardHeader(node)) chromeMain += 0.85;
     if (typeof node.footer === "string" && node.footer.trim()) chromeMain += 0.65;
     if (node.accent === "top") chromeMain += 0.12;
   }
@@ -3683,11 +3728,39 @@ function decorativeIntrinsicMain(theme: SimpleTheme, node: DomNode, direction: "
   return chromeMain + intrinsicMainSize(theme, child, direction, innerCross);
 }
 
+function decorativePadding(theme: SimpleTheme, node: DomNode, rect?: Rect): number {
+  const styleKey = node.type === "panel" ? "panel" : node.type === "card" ? "card" : node.type === "band" ? "band" : node.type === "frame" ? "frame" : "inset";
+  const style = theme.component[styleKey] || {};
+  const explicit = optionalNumberProp(node, "padding");
+  if (explicit !== undefined) return explicit;
+  const base = style.padding ?? (node.type === "band" ? 0.6 : 0.4);
+  if (node.type !== "band") return base;
+
+  const childCount = Array.isArray(node.children) ? node.children.length : 0;
+  const bandHeight = rect?.h ?? optionalNumberProp(node, "fixedHeight");
+  if (typeof bandHeight !== "number" || !Number.isFinite(bandHeight)) return base;
+
+  // Thin band with no children is a decorative divider: padding would make the
+  // colored strip disappear. For text-bearing bands, auto-reduce padding on
+  // short fixed-height bands so label+paragraph strips remain renderable.
+  if (childCount === 0 && bandHeight < 0.6) return 0;
+  if (childCount > 1) {
+    if (bandHeight <= 1.55) return Math.min(base, 0.04);
+    if (bandHeight <= 1.8) return Math.min(base, 0.12);
+    if (bandHeight <= 2.2) return Math.min(base, 0.22);
+  } else if (childCount === 1) {
+    if (bandHeight <= 1.2) return Math.min(base, 0.08);
+    if (bandHeight <= 1.6) return Math.min(base, 0.22);
+    if (bandHeight <= 2.0) return Math.min(base, 0.32);
+  }
+  return base;
+}
+
 function intrinsicMinSize(theme: SimpleTheme, node: DomNode, direction: "horizontal" | "vertical", crossSize: number): number {
   const explicit = optionalNumberProp(node, direction === "horizontal" ? "minWidth" : "minHeight");
   if (explicit !== undefined) return explicit;
   if (direction === "horizontal") return Math.min(intrinsicMainSize(theme, node, direction, crossSize), node.type === "divider" ? 0.02 : 0.45);
-  if (node.type === "text") return singleLineTextHeight(theme, node);
+  if (node.type === "text") return textMinHeight(theme, node, crossSize);
   if (node.type === "bullets") return bulletsIntrinsicHeight(theme, node, crossSize);
   if (node.type === "divider") return normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.02;
   if (node.type === "spacer") return 0;
@@ -3812,7 +3885,7 @@ function contentHugSafetySlack(node: DomNode): number {
 function subtreeWeightedTextLength(node: DomNode): number {
   let total = weightedTextLength(renderedTextContent(node));
   if (node.type === "bullets" && Array.isArray(node.items)) {
-    total += node.items.reduce((sum, item) => sum + weightedTextLength(String(item ?? "")), 0);
+    total += node.items.reduce((sum, item) => sum + weightedTextLength(bulletItemText(item)), 0);
   }
   for (const child of node.children || []) total += subtreeWeightedTextLength(child);
   return total;
@@ -3926,9 +3999,14 @@ function textIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number)
   // fewer characters per cm than the latin estimate.
   const charWidthCm = isMostlyCjk ? fontPt * 0.0353 * 1.02 : avgCharWidthCm(theme, fontPt, isStyleBold(style.weight));
   const charsPerLine = Math.max(8, Math.floor(widthCm / charWidthCm));
-  const lines = Math.max(1, Math.ceil(weightedTextLength(text) / charsPerLine));
+  // Honor explicit `\n` breaks: a multi-line bullet-shaped string used to
+  // size as a single wrapped paragraph (≈1 line) and overflow silently.
+  // Sum per-segment wrap counts so the layout solver actually budgets
+  // enough vertical space for each hard line.
+  const segments = text.split(/\r?\n/);
+  const lines = segments.reduce((sum, seg) => sum + Math.max(1, Math.ceil(weightedTextLength(seg) / charsPerLine)), 0);
   const boxPadding = typeof node.fill === "string" || typeof node.line === "string" ? 0.28 : 0.18;
-  return Math.min(8, Math.max(fontPt * 0.0353 * style.lineHeight + boxPadding, lines * fontPt * 0.0353 * style.lineHeight + boxPadding));
+  return Math.min(8, Math.max(fontPt * 0.0353 * style.lineHeight + boxPadding, Math.max(1, lines) * fontPt * 0.0353 * style.lineHeight + boxPadding));
 }
 
 function cjkRatio(text: string): number {
@@ -4017,8 +4095,20 @@ function renderedTextContent(node: DomNode): string {
   return parts.join("");
 }
 
+function bulletItemText(raw: unknown): string {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const rec = raw as Record<string, unknown>;
+    if (typeof rec.text === "string") return rec.text;
+    if (Array.isArray(rec.runs)) {
+      return rec.runs.map((run) => run && typeof run === "object" && typeof (run as { text?: unknown }).text === "string" ? (run as { text: string }).text : "").join("");
+    }
+    return "";
+  }
+  return String(raw ?? "");
+}
+
 function bulletsIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number): number {
-  const items = Array.isArray(node.items) ? node.items.map(String) : [""];
+  const items = Array.isArray(node.items) ? node.items.map(bulletItemText) : [""];
   const baseStyle = textStyle(theme, node.density === "compact" ? "bullet-compact" : "bullet", "paragraph");
   const mult = sizeMultiplier(theme, node.size);
   const style = mult === 1 ? baseStyle : { ...baseStyle, fontSize: baseStyle.fontSize * mult };
@@ -4077,16 +4167,38 @@ function longestUnbreakableWidthCm(theme: SimpleTheme, text: string, fontPt: num
 }
 
 function estimatedGlyphWidthCm(theme: SimpleTheme, ch: string, fontPt: number, bold: boolean): number {
+  if (ch === "\u2060") return 0;
   if (/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch)) return fontPt * 0.0353 * 1.02;
   if (/\s/.test(ch)) return avgCharWidthCm(theme, fontPt, bold) * 0.45;
+  if (isWideVisualSymbol(ch)) return fontPt * 0.0353 * 0.9;
   if (/[ilI1|.,:;]/.test(ch)) return avgCharWidthCm(theme, fontPt, bold) * 0.55;
   if (/[MW@#%&]/.test(ch)) return avgCharWidthCm(theme, fontPt, bold) * 1.25;
   return avgCharWidthCm(theme, fontPt, bold);
 }
 
+function isWideVisualSymbol(ch: string): boolean {
+  return /[\u2605\u2606\u2713\u2714\u2717\u2715\u2716\u26a0\u25cf\u25cb\u25c6\u25c7\u25a0\u25a1\u25b2\u25b3\u25b6\u25b7\u25bc\u25bd]/.test(ch);
+}
+
 function singleLineTextHeight(theme: SimpleTheme, node: DomNode): number {
   const style = effectiveTextStyle(theme, node, "paragraph");
   return style.fontSize * 0.0353 * style.lineHeight + 0.16;
+}
+
+/**
+ * Vertical-direction min height for a text node, honoring hard `\n` breaks
+ * AND wrapped lines under the available cross size. Used by intrinsicMinSize
+ * so the flex solver allocates enough vertical space for multi-line content
+ * (otherwise a 5-bullet `• … \n • … \n …` blob is sized as 1 line and the
+ * overflow is silently swallowed by autoFit:"shrink").
+ */
+function textMinHeight(theme: SimpleTheme, node: DomNode, crossSize: number): number {
+  const style = effectiveTextStyle(theme, node, "paragraph");
+  const text = renderedTextContent(node);
+  if (!text || !text.includes("\n")) return singleLineTextHeight(theme, node);
+  const usable = Math.max(0.45, crossSize > 0 ? crossSize : 1);
+  const lines = Math.max(1, estimatedWrappedLineCount(theme, text, style.fontSize, isStyleBold(style.weight), usable));
+  return lines * style.fontSize * 0.0353 * style.lineHeight + 0.16;
 }
 
 function textStyleKey(node: DomNode): string {
@@ -4132,9 +4244,13 @@ function autoShrinkStyle(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
     const boldFactor = isStyleBold(style.weight) ? (fontPt >= 22 ? 1.32 : 1.22) : 1;
     const latinW = fontPt * 0.019 * boldFactor;
     const cjkW = fontPt * 0.0353 * 1.05;
+    const symbolW = fontPt * 0.0353 * 0.95;
     const measureLine = (line: string): number => {
       let w = 0;
-      for (const ch of line) w += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? cjkW : latinW;
+      for (const ch of line) {
+        if (ch === "\u2060") continue;
+        w += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? cjkW : isWideVisualSymbol(ch) ? symbolW : latinW;
+      }
       return w;
     };
     const measureUnbreakable = (line: string): number => {

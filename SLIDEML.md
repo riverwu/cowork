@@ -18,9 +18,9 @@ exact numbers), and `update_task_progress` (to surface progress in the panel).
 
 ```
 read_file (source) ─► describe_schema ─► style brief
-        ─► create_deck (with themeOverride) ─► replace_slide × N (append by passing slideId == slideCount)
-        ─► validate_render ─► fix blocking diagnostics with replace_slide / patch_deck
-        ─► validate_render again ─► done when blocking == 0
+        ─► create_deck (with themeOverride) ─► replace_slide × N (one slide at a time; each call validates before commit)
+        ─► validate_render once after all slides pass ─► repair final blocking diagnostics with replace_slide / patch_deck
+        ─► validate_render again if repaired ─► done when blocking == 0
 ```
 
 The deck JSON file you write to (`<name>.json`) is the **source of truth**.
@@ -66,11 +66,13 @@ to edit the deck later, read and patch the JSON, never the .pptx.
 5. **Author slides.** For each slide, build the JSON object
    `{id, title?, children, ...}` and call
    `replace_slide({ deckPath, slideId, slide })` — pass `slideId` equal to
-   the current slide count to **append**. For decks > 5 slides, do not try
-   to write all slides in one giant tool call; author them one at a time
-   so each gets its own validation cycle.
-6. **Validate and render.** `validate_render({ deckPath, outputPath })`.
-   It validates schema, renders the `.pptx`, writes the
+   the current slide count to **append**. `slide` must be a structured
+   object literal, never a stringified JSON blob. `replace_slide` validates
+   that single candidate slide and does not modify the deck file when it
+   fails; repair the same slide before authoring the next one.
+6. **Validate and render final deck.** After all slides pass `replace_slide`,
+   call `validate_render({ deckPath, outputPath })`. It validates schema,
+   renders the `.pptx`, writes the
    `.render-tree.json`, and returns a diagnostics summary plus a
    **blocking** list.
 7. **Repair.** Blocking diagnostics are hard failures: `FALLBACK_FAILED`,

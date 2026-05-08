@@ -639,10 +639,12 @@ Authoring tools in Cowork enforce this workflow:
 
 1. Create a fresh source deck with `create_deck`.
 2. Install subject-specific `themeOverride` at creation time whenever possible.
-3. Add or replace slides with `replace_slide`.
+3. Add or replace slides one at a time with `replace_slide`; pass the slide as
+   an object literal, not a stringified JSON blob. The call commits only after
+   that candidate slide passes per-slide validation.
 4. Use `patch_deck` for theme/chrome/ordering/path edits.
-5. Run `validate_render({render:true})` after every 1-2 successful slide
-   writes.
+5. Run `validate_render({render:true})` after all slides have passed
+   `replace_slide` to render/export the full PPTX and run final deck QA.
 6. If `validate_render` returns `ok:false`, call `read_deck` for the affected
    slide before repairing. Repair from current source JSON, not memory.
 7. Do not replace the same existing slide twice in one unvalidated edit window.

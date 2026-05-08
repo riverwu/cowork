@@ -121,7 +121,7 @@ describe("patch_deck v2 — unset group", () => {
 });
 
 describe("patch_deck v2 — insert group", () => {
-  it("warns against bulk slide authoring and asks for checkpoint validation", async () => {
+  it("warns against bulk slide authoring and defers full render until final QA", async () => {
     const result = await patchDeckTool.execute({
       deckPath: "/tmp/x.json",
       insert: {
@@ -132,8 +132,9 @@ describe("patch_deck v2 — insert group", () => {
     });
 
     expect(String(result)).toContain("Bulk slide patch touched 3 slide targets");
-    expect(String(result)).toContain("Checkpoint required");
-    expect(String(result)).toContain("Call validate_render({deckPath, render:true}) now");
+    expect(String(result)).toContain("replace_slide one page at a time");
+    expect(String(result)).toContain("pending final full-deck render");
+    expect(String(result)).toContain("After all slides are added");
   });
 
   it("insert with /slides/N emits add op (splice)", async () => {

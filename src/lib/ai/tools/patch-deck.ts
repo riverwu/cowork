@@ -21,7 +21,7 @@ export const patchDeckTool: Tool = {
     name: "patch_deck",
     description: `Edit any part of the deck DOM by JSON Pointer path. Unified primitive for theme tokens, brand fields, chrome settings, slide content, slide ordering, and slide insertion/deletion.
 
-Use patch_deck for focused repairs, deck-level theme/chrome edits, reorder/delete operations, and occasional slide replacement. Do not use it to bulk-author the full deck in one call; author 1-2 slides with replace_slide/insert_slide, run validate_render, then continue. If a whole-slide patch is mostly manually positioned \`text\`, the result includes a non-blocking semantic layout warning with better component candidates.
+Use patch_deck for focused repairs, deck-level theme/chrome edits, reorder/delete operations, and occasional slide replacement. Do not use it to bulk-author the full deck in one call. Normal slide authoring should go through \`replace_slide\`, which validates a single candidate slide and commits only when it passes. After all slides are added, run \`validate_render({render:true})\` once for full-deck PPTX export and final QA. If a whole-slide patch is mostly manually positioned \`text\`, the result includes a non-blocking semantic layout warning with better component candidates.
 
 You no longer write {op,path,value} ops. Put paths into the group whose name expresses the intent:
 
@@ -247,10 +247,10 @@ function patchSlideWriteLine(deckPath: string, slideTargets: string[], semanticH
     writes = recordSlideWrite(deckPath, target);
   }
   const bulkHint = slideTargets.length > 2
-    ? ` Bulk slide patch touched ${slideTargets.length} slide targets; next time write only 1-2 slides, validate, then continue.`
+    ? ` Bulk slide patch touched ${slideTargets.length} slide targets; normal slide authoring should use replace_slide one page at a time so each candidate is validated before commit.`
     : "";
   const semanticHint = semanticHints.length > 0 ? `\n${[...new Set(semanticHints)].slice(0, 3).join("\n")}` : "";
-  return ` unvalidatedSlideWrites=${writes}.${bulkHint}${semanticHint}\n${slideAuthoringCheckpointHint(deckPath, writes)}`;
+  return ` slideWritesSinceFinalRender=${writes}.${bulkHint}${semanticHint}\n${slideAuthoringCheckpointHint(deckPath, writes)}`;
 }
 
 function semanticHintsForSlideOps(ops: Slideml2JsonPatchOp[]): string[] {

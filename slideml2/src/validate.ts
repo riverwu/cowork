@@ -47,10 +47,11 @@ export function validateSlide(slide: SlideV2, deck?: Pick<Slideml2SourceDeck, "d
   slide.children?.forEach((node, index) => validateNode(node, `children[${index}]`, slide.id, issues));
   // Generic rule: a slide may carry exactly ONE visible hero title. `slide.title`
   // may duplicate the visible body hero title as metadata/navigation text; when
-  // it differs, the renderer would create two competing hero titles.
+  // it differs, the renderer would create two competing hero titles. `h1` is an
+  // in-content module heading, so it must not block ordinary slide titles.
   const bodyHeroTitle = Array.isArray(slide.children) ? findBodyHeroTitle(slide.children) : { found: false, titles: [] };
   if (typeof slide.title === "string" && slide.title.trim() && bodyHeroTitle.found && !bodyHeroTitleMatchesSlideTitle(slide.title, bodyHeroTitle.titles)) {
-    issues.push(issue("error", "DUPLICATE_HERO_TITLE", "slide.title is set AND the body already carries a hero title (section-break / deck-title / slide-title text). Only one — drop slide.title for cover/section pages, or remove the body title for ordinary pages.", {
+    issues.push(issue("error", "DUPLICATE_HERO_TITLE", "slide.title is set AND the body already carries a hero title (cover-composition / section-break / deck-title / slide-title text). Only one — drop slide.title for cover/section pages, or remove the body title for ordinary pages.", {
       slideId: slide.id,
       suggestedFix: "If this is a cover or chapter divider, either make slide.title match the body hero title exactly so it is treated as metadata, or drop slide.title and let the body's section-break/deck-title text be the headline.",
     }));
@@ -152,6 +153,25 @@ function addRepeatedCardAuthoringDiagnostics(deck: Slideml2SourceDeck, issues: V
       },
     ));
   }
+  const tableRuns = consecutiveRuns(deck.slides.map((slide) => ({
+    slide,
+    tableOnly: isSinglePrimaryComponentSlide(slide, "table-card"),
+  })), (item) => item.tableOnly);
+  const longTableRuns = tableRuns.filter((run) => run.length >= 3);
+  for (const longTableRun of longTableRuns) {
+    issues.push(issue(
+      "warning",
+      "REPEATED_TABLE_PAGE_ARCHETYPE",
+      `Deck uses ${longTableRun.length} consecutive table-card-only slides; this is an authoring choice, not a renderer fallback, but it may feel repetitive.`,
+      {
+        slideId: longTableRun[0]?.slide.id,
+        details: {
+          tableSlides: longTableRun.map((item) => item.slide.id),
+        },
+        suggestedFix: "Keep table-card for true lookup/reference pages. For guidance, ratings, or conclusions, vary the archetype with chart-with-rail, comparison-list, scorecard, bar-list, takeaway-list, or split panels with semantic lists.",
+      },
+    ));
+  }
 }
 
 function countNodesOfType(nodes: DomNode[], type: string): number {
@@ -172,6 +192,34 @@ function countEqualCardGrids(nodes: DomNode[]): number {
     if (Array.isArray(node.children)) count += countEqualCardGrids(node.children as DomNode[]);
   }
   return count;
+}
+
+function isSinglePrimaryComponentSlide(slide: SlideV2, type: string): boolean {
+  const primaryTypes = (slide.children || [])
+    .map((node) => directComponentType(node))
+    .filter((componentType): componentType is string => Boolean(componentType));
+  return primaryTypes.length === 1 && primaryTypes[0] === type;
+}
+
+function directComponentType(node: DomNode): string | undefined {
+  if (!node || typeof node !== "object") return undefined;
+  const componentType = getComponentName(node) || node.type;
+  if (componentType === "eyebrow" || componentType === "label" || componentType === "text" || componentType === "spacer" || componentType === "divider") return undefined;
+  return String(componentType || "");
+}
+
+function consecutiveRuns<T>(items: T[], predicate: (item: T) => boolean): T[][] {
+  const runs: T[][] = [];
+  let current: T[] = [];
+  for (const item of items) {
+    if (predicate(item)) current.push(item);
+    else if (current.length) {
+      runs.push(current);
+      current = [];
+    }
+  }
+  if (current.length) runs.push(current);
+  return runs;
 }
 
 function isEqualCardGrid(node: DomNode): boolean {
@@ -277,6 +325,7 @@ function validateNode(node: DomNode, path: string, slideId: string, issues: Vali
     if (!Array.isArray(node.children)) issues.push(issue("error", "MISSING_CONTAINER_CHILDREN", `${path}.children must be an array.`, { slideId, path, nodeName: node.id }));
     else if (node.children.length === 0) issues.push(issue("error", "EMPTY_CONTAINER", `${path}.children must include at least one child.`, { slideId, path, nodeName: node.id, suggestedFix: `Add at least one child node inside this ${node.type}.` }));
     else if (node.type === "split" && node.children.length < 2) issues.push(issue("warning", "SPLIT_NEEDS_TWO", `${path} split with fewer than 2 children behaves like a plain stack.`, { slideId, path, nodeName: node.id, suggestedFix: "Add the second region or use 'stack' instead." }));
+    if (node.type === "card") validateCardHeaderFields(node, path, slideId, issues);
   } else if (node.type === "text") {
     if (typeof node.text !== "string" && !Array.isArray(node.content) && typeof node.content !== "string") {
       issues.push(issue("error", "MISSING_TEXT_CONTENT", `${path}.text or .content is required for text.`, { slideId, path, nodeName: node.id }));
@@ -284,6 +333,17 @@ function validateNode(node: DomNode, path: string, slideId: string, issues: Vali
     if (!node.style) {
       const inferred = inferTextKind(node, parent);
       issues.push(issue("info", "TEXT_STYLE_INFERRED", `Text style inferred as ${inferred.kind}.`, { slideId, path, nodeName: node.id, details: { confidence: inferred.confidence, reason: inferred.reason } }));
+    }
+    if (typeof node.text === "string" && looksLikeBulletList(node.text) && !isCodeOrQuoteStyle(node.style)) {
+      issues.push(issue("warning", "TEXT_LOOKS_LIKE_BULLETS", `${path}.text contains bullet-shaped runs (•/·/numeric prefixes with line breaks). The renderer can estimate hard line breaks, but this remains one text box: individual bullets cannot be styled, dropped, measured, or repaired independently.`, {
+        slideId, path, nodeName: node.id,
+        suggestedFix: "Replace with {type:'bullets', items:[...]} (or numbered-list / warning-list) so each line is a semantic item with independent styling and diagnostics.",
+      }));
+    } else if (typeof node.text === "string" && looksLikeMultilineList(node.text) && !isCodeOrQuoteStyle(node.style)) {
+      issues.push(issue("warning", "TEXT_LOOKS_LIKE_MULTILINE_LIST", `${path}.text contains multiple hard-line list items inside one text box. This often passes validation but loses hierarchy and forces autoFit/truncation when placed inside cards.`, {
+        slideId, path, nodeName: node.id,
+        suggestedFix: "Use bullets/numbered-list/takeaway-list/fact-list/bar-list/comparison-table, or split the items across columns/components instead of embedding newline-separated records in text.",
+      }));
     }
   } else if (node.type === "spacer" || node.type === "divider") {
     // Layout-only primitives; fields are optional and renderer supplies defaults.
@@ -315,6 +375,39 @@ function validateNode(node: DomNode, path: string, slideId: string, issues: Vali
     }
   }
   node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node));
+}
+
+function validateCardHeaderFields(node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
+  const header = trimmedString(node.header);
+  const title = trimmedString(node.title);
+  if ("title" in node && node.title != null && typeof node.title !== "string") {
+    issues.push(issue("warning", "CARD_TITLE_NOT_STRING", `${path}.title should be a string. Primitive card.title is an alias for header and non-string values are ignored.`, {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "Use title:\"...\" or header:\"...\" for the card heading.",
+    }));
+  }
+  if ("header" in node && node.header != null && typeof node.header !== "string") {
+    issues.push(issue("warning", "CARD_HEADER_NOT_STRING", `${path}.header should be a string. Non-string card headers are ignored.`, {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "Use header:\"...\" or title:\"...\" for the card heading.",
+    }));
+  }
+  if (header && title && header !== title) {
+    issues.push(issue("warning", "CARD_TITLE_HEADER_CONFLICT", `${path} sets both card.header and card.title with different text; renderer uses header and ignores title.`, {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "Keep one heading field. Prefer title for authoring consistency, or make header and title identical.",
+    }));
+  }
+}
+
+function trimmedString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 /**
@@ -663,6 +756,19 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       suggestedFix: "Use legacy {type:'callout', text:'...'} or a rich callout with title/body/content/bullets.",
     }));
   }
+  if (name === "matrix-2x2") {
+    const itemsArr = Array.isArray(node.items) ? node.items : [];
+    const ql = node.quadrantLabels && typeof node.quadrantLabels === "object" ? node.quadrantLabels as Record<string, unknown> : null;
+    const hasQuadrantLabels = ql ? ["tl", "tr", "bl", "br"].some((key) => typeof ql[key] === "string" && String(ql[key]).trim() !== "") : false;
+    if (itemsArr.length === 0 && !hasQuadrantLabels) {
+      issues.push(issue("error", "MISSING_REQUIRED_FIELD", "matrix-2x2 requires items or quadrantLabels.", {
+        slideId,
+        path,
+        nodeName: node.id,
+        suggestedFix: "Either pass items[] (one entry per data point with x/y enum) or quadrantLabels {tl,tr,bl,br} for a label-only matrix.",
+      }));
+    }
+  }
   if (name === "numbered-list" && Array.isArray(node.items)) {
     node.items.forEach((raw, index) => {
       if (typeof raw === "string") return;
@@ -911,10 +1017,10 @@ function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[]
   for (const node of nodes) {
     if (!node || typeof node !== "object") continue;
     const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
-    if (componentName === "section-break" || componentName === "title-lockup") {
+    if (componentName === "section-break" || componentName === "title-lockup" || componentName === "cover-composition") {
       found = true;
       if (typeof node.title === "string" && node.title.trim()) titles.push(node.title);
-    } else if (node.type === "deck-title" || node.type === "slide-title" || node.type === "h1") {
+    } else if (node.type === "deck-title" || node.type === "slide-title") {
       found = true;
       if (typeof node.text === "string" && node.text.trim()) titles.push(node.text);
     } else if (node.type === "text" && (node.style === "deck-title" || node.style === "slide-title" || node.style === "section-title")) {
@@ -938,6 +1044,47 @@ function bodyHeroTitleMatchesSlideTitle(slideTitle: string, bodyTitles: string[]
 
 function normalizeHeroTitle(text: string): string {
   return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Detects when a `text` node's content is shaped like a bullet/numbered list.
+ * Specifically catches:
+ *   • / · / ★ / ▶ / – / - markers followed by a line break and another marker
+ *   1./2./3. or 一、二、 numeric prefixes on ≥2 separate lines
+ *   3+ runs separated by ；/; (Chinese semicolons used as in-line list separator)
+ * Plain prose with one stray newline does NOT trigger.
+ */
+export function looksLikeBulletList(text: string): boolean {
+  if (!text || typeof text !== "string") return false;
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length >= 2) {
+    const bulletRe = /^[•·★▶▪◆\-–]\s+\S/;
+    const numericRe = /^(?:\d+[.、)）]|[一二三四五六七八九十][、.])\s*\S/;
+    const bulletCount = lines.filter((line) => bulletRe.test(line)).length;
+    const numericCount = lines.filter((line) => numericRe.test(line)).length;
+    if (bulletCount >= 2 || numericCount >= 2) return true;
+  }
+  // Inline numbered runs without newlines, e.g. "1. A 2. B 3. C".
+  const inlineNumeric = text.match(/(?:^|\s)\d+[.、)）]\s+\S/g);
+  if (inlineNumeric && inlineNumeric.length >= 3) return true;
+  // Inline semicolon-separated runs, e.g. "私有化中台；跨平台中间件；开源出海"
+  const semiParts = text.split(/[；;]\s*/).filter((part) => part.trim().length > 1);
+  if (semiParts.length >= 3) return true;
+  return false;
+}
+
+export function looksLikeMultilineList(text: string): boolean {
+  if (!text || typeof text !== "string") return false;
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 3) return false;
+  const avgLen = lines.reduce((sum, line) => sum + line.length, 0) / lines.length;
+  const listLikePunctuation = lines.filter((line) => /[：:—–-]|[★⭐✗✓]|\s[/$¥$]?\d/.test(line)).length;
+  return avgLen >= 8 && listLikePunctuation >= Math.max(2, Math.ceil(lines.length * 0.4));
+}
+
+function isCodeOrQuoteStyle(style: unknown): boolean {
+  if (typeof style !== "string") return false;
+  return style === "code" || style === "quote" || style === "monospace" || style === "preformatted";
 }
 
 function hasArticleText(node: DomNode): boolean {

@@ -588,12 +588,86 @@ async function slideml2ReplaceSlide(deckPath, slideId, slide) {
     return { ok: false, error: `Slide validation failed with ${slideValidation.errors.length} error(s).`, validation: slideValidation };
   }
   const id = normalizeSlideId(slideId);
-  if (typeof id === "number" && id === deck.slides.length) {
-    deck.slides.push(slide);
-    await m.writeDeck(deckPath, deck);
-    return { ok: true, insertedAt: deck.slides.length - 1, slideCount: deck.slides.length };
+  const candidate = JSON.parse(JSON.stringify(deck));
+  let targetIndex = -1;
+  let insertedAt;
+  let replacedAt;
+  if (typeof id === "number") {
+    if (id === candidate.slides.length) {
+      targetIndex = id;
+      insertedAt = id;
+      candidate.slides.push(slide);
+    } else if (id >= 0 && id < candidate.slides.length) {
+      targetIndex = id;
+      replacedAt = id;
+      candidate.slides[id] = slide;
+    }
+  } else {
+    targetIndex = candidate.slides.findIndex((item) => item.id === id);
+    if (targetIndex >= 0) {
+      replacedAt = targetIndex;
+      candidate.slides[targetIndex] = slide;
+    }
   }
-  return m.replaceSlide(deckPath, id, slide);
+  if (targetIndex < 0) {
+    return { ok: false, error: `Slide not found: ${slideId}`, slideCount: deck.slides.length };
+  }
+
+  const deckValidation = m.validateDeck(candidate);
+  if (!deckValidation.ok) {
+    return {
+      ok: false,
+      error: `Candidate deck validation failed with ${deckValidation.errors.length} error(s).`,
+      validation: deckValidation,
+      slideCount: deck.slides.length,
+    };
+  }
+
+  const singleSlideDeck = { ...candidate, slides: [candidate.slides[targetIndex]] };
+  m.clearRenderDiagnostics();
+  try {
+    m.renderToAst(m.sourceToRenderedDeck(singleSlideDeck));
+  } catch (err) {
+    m.clearRenderDiagnostics();
+    return {
+      ok: false,
+      error: `Slide render validation crashed: ${err instanceof Error ? err.message : String(err)}`,
+      validation: deckValidation,
+      slideCount: deck.slides.length,
+    };
+  }
+  const diagnostics = m.getRenderDiagnostics();
+  m.clearRenderDiagnostics();
+  const blocking = blockingSlideml2Diagnostics(diagnostics);
+  const quality = qualityGateSlideml2Diagnostics(diagnostics);
+  const diagnosticsSummary = summarizeSlideml2Diagnostics(diagnostics);
+  const renderCheck = {
+    count: diagnostics.length,
+    summary: diagnosticsSummary,
+    blockingCount: blocking.length,
+    blocking: blocking.slice(0, 60),
+    qualityCount: quality.length,
+    quality: quality.slice(0, 60),
+  };
+  if (blocking.length > 0) {
+    return {
+      ok: false,
+      error: `Slide render validation failed with ${blocking.length} blocking diagnostic(s). Deck file was not modified.`,
+      validation: deckValidation,
+      diagnostics: renderCheck,
+      slideCount: deck.slides.length,
+    };
+  }
+
+  await m.writeDeck(deckPath, candidate);
+  return {
+    ok: true,
+    insertedAt,
+    replacedAt,
+    slideCount: candidate.slides.length,
+    validation: deckValidation,
+    diagnostics: renderCheck,
+  };
 }
 
 async function slideml2PatchDeck(deckPath, patch) {
@@ -632,6 +706,9 @@ async function slideml2ValidateRender(deckPath, outputPath, render) {
   const result = await m.renderToPptx(m.sourceToRenderedDeck(deck), out);
   const diagnostics = m.getRenderDiagnostics();
   const blocking = blockingSlideml2Diagnostics(diagnostics);
+  const quality = qualityGateSlideml2Diagnostics(diagnostics);
+  const diagnosticsPath = `${result.outputPath}.diagnostics.json`;
+  await fsp.writeFile(diagnosticsPath, JSON.stringify(diagnostics, null, 2), "utf8");
   const counts = {};
   for (const d of diagnostics) counts[d.code] = (counts[d.code] || 0) + 1;
   return {
@@ -639,12 +716,15 @@ async function slideml2ValidateRender(deckPath, outputPath, render) {
     error: blocking.length ? `${blocking.length} blocking render diagnostic(s) remain.` : undefined,
     outputPath: result.outputPath,
     domPath: result.domPath,
+    diagnosticsPath,
     validation,
     diagnostics: {
       count: diagnostics.length,
       summary: counts,
       blockingCount: blocking.length,
       blocking: blocking.slice(0, 60),
+      qualityCount: quality.length,
+      quality: quality.slice(0, 60),
     },
   };
 }
@@ -652,6 +732,17 @@ async function slideml2ValidateRender(deckPath, outputPath, render) {
 function blockingSlideml2Diagnostics(items) {
   const codes = new Set(["COLLISION", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "SQUASHED", "FALLBACK_FAILED", "LOW_CONTRAST", "SHAPE_INVISIBLE", "TITLE_OCCLUDED"]);
   return items.filter((d) => d.severity === "error" || codes.has(d.code));
+}
+
+function qualityGateSlideml2Diagnostics(items) {
+  const codes = new Set(["TRUNCATED", "OVERFLOW"]);
+  return items.filter((d) => codes.has(d.code));
+}
+
+function summarizeSlideml2Diagnostics(items) {
+  const counts = {};
+  for (const d of items) counts[d.code] = (counts[d.code] || 0) + 1;
+  return counts;
 }
 
 function normalizeSlideId(value) {

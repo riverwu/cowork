@@ -10,6 +10,9 @@ describe("generate_icon_sheet tool", () => {
 
   it("declares icon-sheet generation parameters", () => {
     expect(generateIconSheet.definition.name).toBe("generate_icon_sheet");
+    expect(generateIconSheet.definition.description).toContain("deck planning archive");
+    expect(generateIconSheet.definition.description).toContain("feature-card.iconSrc");
+    expect(generateIconSheet.definition.description).toContain("image-card.src");
     expect(generateIconSheet.definition.parameters.required).toEqual(["icons", "output_dir"]);
     const props = generateIconSheet.definition.parameters.properties as Record<string, unknown>;
     expect(props.icons).toBeDefined();
@@ -50,5 +53,47 @@ describe("generate_icon_sheet tool", () => {
     expect(prompt).not.toContain("银行");
     expect(prompt).not.toContain("bank)");
     expect(prompt).not.toContain("r1c1");
+  });
+
+  it("splits large icon sets into square sheets of at most 3x3", async () => {
+    const icons = Array.from({ length: 12 }, (_, index) => ({
+      name: `icon_${index + 1}`,
+      description: `simple symbolic icon ${index + 1}`,
+    }));
+    const imageSpy = vi.spyOn(imageGen, "execute")
+      .mockResolvedValueOnce("Image generated and saved to /tmp/icons/icon-sheet-1.png.")
+      .mockResolvedValueOnce("Image generated and saved to /tmp/icons/icon-sheet-2.png.");
+    vi.spyOn(runPython, "execute")
+      .mockResolvedValueOnce(`ICON_SHEET_RESULT:${JSON.stringify({
+        sheetPath: "/tmp/icons/icon-sheet-1.png",
+        manifestPath: "/tmp/icons/manifest-sheet-1.json",
+        grid: { columns: 3, rows: 3 },
+        outputSize: 768,
+        icons: icons.slice(0, 9).map((icon) => ({ ...icon, label: icon.name, path: `/tmp/icons/${icon.name}.png` })),
+      })}`)
+      .mockResolvedValueOnce(`ICON_SHEET_RESULT:${JSON.stringify({
+        sheetPath: "/tmp/icons/icon-sheet-2.png",
+        manifestPath: "/tmp/icons/manifest-sheet-2.json",
+        grid: { columns: 2, rows: 2 },
+        outputSize: 768,
+        icons: icons.slice(9).map((icon) => ({ ...icon, label: icon.name, path: `/tmp/icons/${icon.name}.png` })),
+      })}`)
+      .mockResolvedValueOnce("ICON_MANIFEST_WRITTEN:/tmp/icons/manifest.json");
+
+    const result = JSON.parse(String(await generateIconSheet.execute({
+      output_dir: "/tmp/icons",
+      icons,
+      grid: { columns: 4, rows: 3 },
+    })));
+
+    expect(imageSpy).toHaveBeenCalledTimes(2);
+    expect(imageSpy.mock.calls[0]?.[0]).toMatchObject({ output_path: "/tmp/icons/icon-sheet-1.png" });
+    expect(String(imageSpy.mock.calls[0]?.[0]?.prompt)).toContain("square 3 by 3 icon sheet");
+    expect(String(imageSpy.mock.calls[1]?.[0]?.prompt)).toContain("square 2 by 2 icon sheet");
+    expect(result.icons).toHaveLength(12);
+    expect(result.sheets).toMatchObject([
+      { sheetPath: "/tmp/icons/icon-sheet-1.png", grid: { columns: 3, rows: 3 } },
+      { sheetPath: "/tmp/icons/icon-sheet-2.png", grid: { columns: 2, rows: 2 } },
+    ]);
   });
 });

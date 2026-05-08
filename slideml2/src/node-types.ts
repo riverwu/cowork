@@ -259,7 +259,7 @@ const SHAPE_DETAILED: Record<string, NodeFieldInfo> = {
 };
 
 const PANEL_DETAILED: Record<string, NodeFieldInfo> = {
-  tone: { valueType: "enum", values: ["neutral", "brand", "positive", "warning", "danger", "tinted"], description: "Pre-mapped color set for fill/line/text. 'tinted' uses brand.tint. Aliases also accepted: success↔positive, error↔danger, caution↔warning, info↔brand, muted↔neutral." },
+  tone: { valueType: "enum", values: ["neutral", "muted", "brand", "positive", "warning", "danger", "tinted"], description: "Pre-mapped color set for fill/line/text. 'tinted' uses brand.tint; 'muted' uses a quieter neutral surface." },
   fill: { valueType: "string", description: "Override fill: theme token or hex." },
   line: { valueType: "string", description: "Override line: theme token or hex." },
   padding: { valueType: "number", description: "Inner padding in cm. Defaults to theme.component.panel.padding." },
@@ -272,14 +272,15 @@ const PANEL_DETAILED: Record<string, NodeFieldInfo> = {
 
 const CARD_DETAILED: Record<string, NodeFieldInfo> = {
   ...PANEL_DETAILED,
-  header: { valueType: "string", description: "Optional short header text (rendered as h2)." },
+  title: { valueType: "string", description: "Optional short card heading. Alias for header; preferred for authoring consistency." },
+  header: { valueType: "string", description: "Optional short header text. Same rendering as title; header wins if both differ." },
   footer: { valueType: "string", description: "Optional short footer text (rendered as caption)." },
   accent: { valueType: "enum", values: ["none", "left", "top"], description: "Optional brand-color accent bar position." },
   accentColor: { valueType: "string", description: "Theme token for the accent bar (default: brand.primary)." },
 };
 
 const BAND_DETAILED: Record<string, NodeFieldInfo> = {
-  tone: { valueType: "enum", values: ["neutral", "brand", "positive", "warning", "danger", "tinted"], description: "Pre-mapped color set. Aliases also accepted: success↔positive, error↔danger, caution↔warning, info↔brand, muted↔neutral." },
+  tone: { valueType: "enum", values: ["neutral", "muted", "brand", "positive", "warning", "danger", "tinted"], description: "Pre-mapped color set. Muted uses a quieter neutral surface; strong semantic tones use inverse text." },
   fill: { valueType: "string", description: "Override fill." },
   height: { valueType: "number", description: "Band height in cm. Default 1.6cm." },
   fixedHeight: { valueType: "number", description: "Alias of height." },

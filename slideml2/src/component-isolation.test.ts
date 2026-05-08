@@ -258,6 +258,9 @@ function isMinimumOneOf(componentName: string, fieldName: string): boolean {
   if (componentName === "article" && fieldName === "text") return true;
   if (componentName === "label" && fieldName === "text") return true;
   if (componentName === "callout" && fieldName === "text") return true;
+  // matrix-2x2 needs items OR quadrantLabels — exercise items in the
+  // minimum fixture so the validator's "either-or" rule passes.
+  if (componentName === "matrix-2x2" && fieldName === "items") return true;
   return false;
 }
 
@@ -268,6 +271,9 @@ function optionalShouldBeIncluded(componentName: string, fieldName: string): boo
   // article without text/paragraphs is not a useful fixture; opt the typical
   // profile in too so the test exercises the actual flow.
   if (componentName === "article" && fieldName === "text") return true;
+  // matrix-2x2 schema accepts items OR quadrantLabels (label-only mode); the
+  // typical profile must include items so the validator passes.
+  if (componentName === "matrix-2x2" && fieldName === "items") return true;
   return false;
 }
 

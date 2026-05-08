@@ -16,7 +16,7 @@ vi.mock("./mcp/loader", () => ({
 }));
 
 import { readFileText, writeFile } from "./tauri";
-import { getSkillInstallStatus, installCatalogSkill } from "./catalog-installer";
+import { getSkillInstallStatus, installCatalogSkill, syncInstalledCatalogSkills } from "./catalog-installer";
 
 const mockReadFileText = vi.mocked(readFileText);
 const mockWriteFile = vi.mocked(writeFile);
@@ -24,6 +24,8 @@ const mockWriteFile = vi.mocked(writeFile);
 describe("catalog skill installer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockReadFileText.mockReset();
+    mockWriteFile.mockReset();
   });
 
   it("marks an old no-manifest auxiliary-file install as needing update", async () => {
@@ -53,5 +55,26 @@ describe("catalog skill installer", () => {
       expect.stringContaining("business.md"),
     );
     expect(mockWriteFile.mock.calls.some(([path]) => String(path).includes(".test."))).toBe(false);
+  });
+
+  it("syncs only installed catalog skills that are stale", async () => {
+    mockReadFileText.mockImplementation(async (path: string) => {
+      if (path === "/skills/slideml2/SKILL.md") return "---\nversion: 1.0.15\n---\n";
+      throw new Error(`missing ${path}`);
+    });
+    mockWriteFile.mockResolvedValue(undefined);
+
+    const result = await syncInstalledCatalogSkills();
+
+    expect(result.updated).toEqual(["slideml2"]);
+    expect(result.failed).toEqual([]);
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      "/skills/slideml2/SKILL.md",
+      expect.stringContaining("Deck Planning Archive"),
+    );
+    expect(mockWriteFile).not.toHaveBeenCalledWith(
+      expect.stringContaining("/skills/deep-research/"),
+      expect.anything(),
+    );
   });
 });

@@ -961,6 +961,21 @@ describe("component regressions", () => {
       } as unknown as SlideV2["children"][number]],
     };
     const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    // ≥4 structured findings now auto-select the "board" variant — each
+    // finding renders as its own headline+detail card under a grid named
+    // ".findings". Earlier the default was "memo" (single bullet list);
+    // both treatments must preserve all 5 findings.
+    const collected: string[] = [];
+    for (let i = 1; i <= 5; i++) {
+      const headline = findRenderedByName(ast, `summary-many.exec.finding${i}.headline`) as { paragraphs?: Array<{ runs: Array<{ text?: string }> }> } | undefined;
+      if (headline) collected.push(headline.paragraphs?.[0]?.runs.map((r) => r.text || "").join("") || "");
+    }
+    if (collected.length === 5) {
+      expect(collected.join("|")).toContain("Memory原生搜索");
+      return;
+    }
+    // Fallback: explicit memo variant (or any path that emits a single
+    // bullet list under .findings) should still surface every entry.
     const findings = findRenderedByName(ast, "summary-many.exec.findings") as { paragraphs?: Array<{ runs: Array<{ text?: string }> }> } | undefined;
     const text = findings?.paragraphs?.map((p) => p.runs.map((r) => r.text || "").join("")).join("\n") || "";
     expect(findings?.paragraphs).toHaveLength(5);

@@ -439,7 +439,7 @@ export interface Slideml2CreateDeckResult {
 
 export interface Slideml2ValidationReport {
   ok: boolean;
-  errors?: { path?: string; message: string }[];
+  errors?: { code?: string; severity?: string; path?: string; message: string; suggestedFix?: string; [key: string]: unknown }[];
 }
 
 export interface Slideml2Diagnostic {
@@ -464,7 +464,16 @@ export interface Slideml2ReplaceSlideResult {
   ok: boolean;
   error?: string;
   validation?: Slideml2ValidationReport;
+  diagnostics?: {
+    count: number;
+    summary: Record<string, number>;
+    blockingCount: number;
+    blocking: Slideml2Diagnostic[];
+    qualityCount?: number;
+    quality?: Slideml2Diagnostic[];
+  };
   insertedAt?: number;
+  replacedAt?: number;
   slideCount?: number;
   [key: string]: unknown;
 }
@@ -482,11 +491,14 @@ export interface Slideml2ValidateRenderResult {
   validation: Slideml2ValidationReport;
   outputPath?: string;
   domPath?: string;
+  diagnosticsPath?: string;
   diagnostics?: {
     count: number;
     summary: Record<string, number>;
     blockingCount: number;
     blocking: Slideml2Diagnostic[];
+    qualityCount?: number;
+    quality?: Slideml2Diagnostic[];
   };
 }
 

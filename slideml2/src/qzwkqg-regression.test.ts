@@ -13,8 +13,9 @@ import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
 /**
  * Regressions for the agent-friendliness gaps surfaced by the qzwkqg debug log.
  * Each test pins one expectation: themeOverride.colors nested form works,
- * gradients render, CSS named colors resolve, "#hex" works, h1 counts as a
- * hero title, FALLBACK_FAILED carries the constraining ancestor, etc.
+ * gradients render, CSS named colors resolve, "#hex" works, body hero title
+ * detection is agent-friendly, FALLBACK_FAILED carries the constraining
+ * ancestor, etc.
  */
 
 const baseDeck = { deck: { size: "16x9" as const, theme: "default", brand: { primary: "8B6914" } } };
@@ -427,15 +428,15 @@ describe("composite components: dense-row + chrome+padding audit", () => {
   }
 });
 
-describe("DUPLICATE_HERO_TITLE includes h1 / title-lockup / section-title (P2)", () => {
-  it("flags slide.title + body h1 as duplicate", () => {
+describe("DUPLICATE_HERO_TITLE covers visible hero titles without blocking body h1 (P2)", () => {
+  it("allows slide.title + body h1 because h1 is an in-content module heading", () => {
     const slide: SlideV2 = {
       id: "rg-dup-h1",
       title: "封面",
       children: [{ id: "rg-dup-h1.h", type: "h1", text: "正文封面" } as unknown as DomNode],
     };
     const report = validateSlide(slide, baseDeck);
-    expect(report.errors.find((e) => e.code === "DUPLICATE_HERO_TITLE")).toBeDefined();
+    expect(report.errors.find((e) => e.code === "DUPLICATE_HERO_TITLE")).toBeUndefined();
   });
 
   it("flags slide.title + section-title styled text as duplicate", () => {
@@ -448,7 +449,7 @@ describe("DUPLICATE_HERO_TITLE includes h1 / title-lockup / section-title (P2)",
     expect(report.errors.find((e) => e.code === "DUPLICATE_HERO_TITLE")).toBeDefined();
   });
 
-  it("allows slide.title to duplicate the body hero title as metadata", () => {
+  it("allows slide.title to coexist with matching body h1", () => {
     const slide: SlideV2 = {
       id: "rg-dup-same-title",
       title: "封面",

@@ -39,9 +39,9 @@ import { validateRenderTool } from "./validate-render";
  * Decks (SlideML2):        describe_schema, create_deck, read_deck, replace_slide, insert_slide, delete_slide, patch_deck, validate_render
  *   Skill:                 read the slideml2 SKILL.md once per deck task; for business/research decks also read sibling business.md completely
  *   Discovery:             describe_schema({ components }) for focused prop schemas
- *   Typical authoring:     create_deck → replace_slide (append by passing slideId == slideCount)
+ *   Typical authoring:     write deck_plan.md → create_deck → replace_slide one slide at a time (append by passing slideId == slideCount; commits only after per-slide validation)
  *   Editing:               replace_slide (slide content) | insert_slide (new at index) | delete_slide (by id/index) | patch_deck (deck-level fields, reorder)
- *   Render & QA:           validate_render (schema + render + diagnostics; use periodically and before final delivery)
+ *   Render & QA:           validate_render (schema + render + diagnostics; final full-deck PPTX export after slides pass replace_slide)
  *   Do not bypass:          do not hand-edit SlideML2 deck JSON via write_file/run_node/run_python, and do not fallback to python-pptx after validate_render fails unless the user explicitly asks to abandon SlideML2.
  *
  * The agent must activate the slideml2 skill once at the start of any deck

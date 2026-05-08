@@ -10,7 +10,7 @@ export const writeFileSkill: Tool = {
 Use this to save generated reports, data exports, scripts, or any text content to disk.
 For large generated scripts or long documents, write the first chunk with mode "overwrite", then add later chunks with mode "append" so you do not need to produce the whole file in one model response.
 
-For SlideML2 deck authoring, do not use write_file to create or mutate the deck JSON or slide JSON. Use create_deck, replace_slide, insert_slide, patch_deck, and validate_render so schema validation and render diagnostics stay connected to the final PPTX.`,
+For SlideML2 deck authoring, write_file is the right tool for the markdown planning archive (normally deck_plan.md) and source notes. Do not use write_file to create or mutate the deck JSON or slide JSON. Use create_deck, replace_slide, insert_slide, patch_deck, and validate_render so schema validation and render diagnostics stay connected to the final PPTX.`,
     parameters: {
       type: "object",
       properties: {

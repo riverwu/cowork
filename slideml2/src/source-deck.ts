@@ -97,10 +97,10 @@ function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[]
   for (const node of nodes) {
     if (!node || typeof node !== "object") continue;
     const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
-    if (componentName === "section-break" || componentName === "title-lockup") {
+    if (componentName === "section-break" || componentName === "title-lockup" || componentName === "cover-composition") {
       found = true;
       if (typeof node.title === "string" && node.title.trim()) titles.push(node.title);
-    } else if (node.type === "deck-title" || node.type === "slide-title" || node.type === "h1") {
+    } else if (node.type === "deck-title" || node.type === "slide-title") {
       found = true;
       if (typeof node.text === "string" && node.text.trim()) titles.push(node.text);
     } else if (node.type === "text" && (node.style === "deck-title" || node.style === "slide-title" || node.style === "section-title")) {

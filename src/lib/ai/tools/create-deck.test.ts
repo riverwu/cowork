@@ -15,6 +15,13 @@ beforeEach(() => {
 });
 
 describe("createDeckTool argument coercion (288ryd regression)", () => {
+  it("tells agents to save the markdown deck plan before create_deck", () => {
+    expect(createDeckTool.definition.description).toContain("deck_plan.md");
+    expect(createDeckTool.definition.description).toContain("write_file");
+    expect(createDeckTool.definition.description).toContain("slide-by-slide component plan");
+    expect(createDeckTool.definition.description).toContain("exact icon/image/chart placements");
+  });
+
   it("auto-parses themeOverride when it arrives as a JSON-encoded string", async () => {
     const result = await createDeckTool.execute({
       deckPath: "/tmp/x.json",
@@ -33,6 +40,37 @@ describe("createDeckTool argument coercion (288ryd regression)", () => {
     await createDeckTool.execute({ deckPath: "/tmp/x.json", themeOverride: override });
     const callArg = mock.mock.calls[0]![1] as { themeOverride?: unknown };
     expect(callArg.themeOverride).toBe(override);
+  });
+
+  it("converts numeric theme text tracking to letterSpacing before creating the deck", async () => {
+    const result = await createDeckTool.execute({
+      deckPath: "/tmp/x.json",
+      themeOverride: {
+        text: {
+          eyebrow: { fontSize: 10, tracking: 2 },
+        },
+      },
+    });
+
+    const callArg = mock.mock.calls[0]![1] as { themeOverride?: { text?: Record<string, Record<string, unknown>> } };
+    expect(callArg.themeOverride?.text?.eyebrow).toMatchObject({ fontSize: 10, letterSpacing: 2 });
+    expect(callArg.themeOverride?.text?.eyebrow).not.toHaveProperty("tracking");
+    expect(String(result)).toContain("converted to letterSpacing");
+  });
+
+  it("rejects unsupported theme text fields before creating a bad deck", async () => {
+    const result = await createDeckTool.execute({
+      deckPath: "/tmp/x.json",
+      themeOverride: {
+        text: {
+          eyebrow: { fontSize: 10, tracking: "wide" },
+        },
+      },
+    });
+
+    expect(mock).not.toHaveBeenCalled();
+    expect(String(result)).toContain("themeOverride.text.eyebrow.tracking");
+    expect(String(result)).toContain("letterSpacing");
   });
 
   it("rejects a non-JSON themeOverride string instead of silently dropping it", async () => {

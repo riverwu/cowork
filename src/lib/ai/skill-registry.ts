@@ -21,6 +21,7 @@
  */
 
 import { loadSkillsFromFilesystem, type LoadedSkill } from "./skill-loader";
+import { syncInstalledCatalogSkills } from "@/lib/catalog-installer";
 import type { SkillRecord } from "@/types";
 
 class SkillRegistry {
@@ -43,6 +44,10 @@ class SkillRegistry {
   }
 
   async reload(): Promise<{ added: string[]; removed: string[]; total: number }> {
+    await syncInstalledCatalogSkills().catch((err) => {
+      console.warn("[Skills] Failed to sync bundled catalog skills:", err);
+    });
+
     const oldNames = new Set(this.skills.map((s) => s.record.name));
     const newSkills = await loadSkillsFromFilesystem();
     const newNames = new Set(newSkills.map((s) => s.record.name));

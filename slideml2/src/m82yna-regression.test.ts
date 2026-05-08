@@ -96,7 +96,7 @@ describe("m82yna visual regressions", () => {
     expect((quoteBg?.xfrm.cy || 0) / EMU_PER_CM).toBeLessThan(5.4);
   });
 
-  it("dense fact-list without interpretation/source renders as a two-column table", () => {
+  it("dense fact-list preserves fact item semantics and per-item tone", () => {
     const source = deck([{
       id: "valuations",
       title: "关键数据速查",
@@ -106,23 +106,60 @@ describe("m82yna visual regressions", () => {
         title: "全球头部公司估值",
         variant: "list",
         items: [
-          { label: "Glean", fact: "$7.2B / $200M ARR" },
-          { label: "Harvey", fact: "$11B（法律）" },
-          { label: "Sierra", fact: "$4B+" },
-          { label: "Browserbase", fact: "$300M / 70× ARR" },
-          { label: "Reducto", fact: "$600-900M est / $108M" },
-          { label: "Mistral OCR", fact: "$2/1000 页（商品化地板）" },
+          { label: "Web Search API", fact: "30% -> 10-15%", interpretation: "被默认值挤出", tone: "warning" },
+          { label: "IPO 锚点", fact: "Ocrolus / Glean", interpretation: "重定义 IDP / 知识层估值", tone: "positive" },
+          { label: "钉钉", fact: "2027 H1 港股递表", interpretation: "$5-8B 估值", tone: "positive" },
+          { label: "模型层", fact: "4-5 家寡头", interpretation: "OpenAI / Anthropic / DeepSeek", tone: "brand" },
+          { label: "长期输家", fact: "Copilot / Notion / Slack", interpretation: "被降级为数据后端", tone: "danger" },
+        ],
+      }],
+    }]);
+
+    clearRenderDiagnostics();
+    const rendered = sourceToRenderedDeck(source);
+    const ast = renderToAst(rendered);
+    const warningAccent = ast.slides[0]!.shapes.find((shape) => shape.name === "valuations.val.global.1.accent") as { type?: string; fill?: { color?: string } } | undefined;
+    const positiveAccent = ast.slides[0]!.shapes.find((shape) => shape.name === "valuations.val.global.2.accent") as { fill?: { color?: string } } | undefined;
+    const dangerAccent = ast.slides[0]!.shapes.find((shape) => shape.name === "valuations.val.global.5.accent") as { fill?: { color?: string } } | undefined;
+    const firstInterpretation = ast.slides[0]!.shapes.find((shape) => shape.name === "valuations.val.global.1.interpretation") as { type?: string; paragraphs?: Array<{ runs: Array<{ text?: string }> }> } | undefined;
+    const table = ast.slides[0]!.shapes.find((shape) => shape.type === "table" && shape.name === "valuations.val.global.items");
+    const names = ast.slides[0]!.shapes.map((shape) => shape.name || "");
+
+    expect(table).toBeUndefined();
+    expect(names.some((name) => name.includes("valuations.val.global.1."))).toBe(true);
+    expect(names.some((name) => name.includes("valuations.val.global.5."))).toBe(true);
+    expect(warningAccent?.type).toBe("shape");
+    expect(warningAccent?.fill?.color).toBe("F59E0B");
+    expect(positiveAccent?.fill?.color).toBe("10B981");
+    expect(dangerAccent?.fill?.color).toBe("EF4444");
+    expect(firstInterpretation?.type).toBe("text");
+    expect(firstInterpretation?.paragraphs?.[0]?.runs?.[0]?.text).toBe("被默认值挤出");
+  });
+
+  it("fact-list keeps label and value as separate text roles in dense grids", () => {
+    const source = deck([{
+      id: "fact-values",
+      title: "评分速查",
+      children: [{
+        id: "fv.list",
+        type: "fact-list",
+        variant: "list",
+        items: [
+          { label: "国内场景", value: "中国境内 ★★★★★", fact: "确定性高", tone: "positive" },
+          { label: "出海场景", value: "海外 ★★★★☆", fact: "赔率更高", tone: "brand" },
+          { label: "金融", value: "强监管", fact: "私有化优先", tone: "warning" },
+          { label: "通用工具", value: "低壁垒", fact: "被巨头挤压", tone: "danger" },
+          { label: "中间件", value: "中立位", fact: "跨平台互补", tone: "brand" },
         ],
       }],
     }]);
 
     clearRenderDiagnostics();
     const ast = renderToAst(sourceToRenderedDeck(source));
-    const table = ast.slides[0]!.shapes.find((shape) => shape.type === "table" && shape.name === "valuations.val.global.items");
+    const label = ast.slides[0]!.shapes.find((shape) => shape.name === "fact-values.fv.list.1.label") as { paragraphs?: Array<{ runs: Array<{ text?: string }> }> } | undefined;
+    const value = ast.slides[0]!.shapes.find((shape) => shape.name === "fact-values.fv.list.1.value") as { paragraphs?: Array<{ runs: Array<{ text?: string }> }> } | undefined;
 
-    expect(table?.type).toBe("table");
-    if (table?.type !== "table") throw new Error("Expected fact-list table shape");
-    expect(table.colWidths).toHaveLength(2);
-    expect(table.cells.every((row) => row.length === 2)).toBe(true);
+    expect(label?.paragraphs?.[0]?.runs?.[0]?.text).toBe("国内场景");
+    expect(value?.paragraphs?.[0]?.runs?.[0]?.text).toBe("中国境内 ★★★★★");
   });
 });

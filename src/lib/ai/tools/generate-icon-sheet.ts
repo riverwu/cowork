@@ -13,15 +13,33 @@ interface GridSpec {
   rows: number;
 }
 
+interface IconManifest {
+  sheetPath: string;
+  manifestPath: string;
+  grid: GridSpec;
+  outputSize: number;
+  makeTransparent?: boolean;
+  prompt?: string;
+  imageGenResult?: string;
+  icons: Array<IconRequest & { path: string }>;
+  sheets?: Array<{
+    sheetPath: string;
+    grid: GridSpec;
+    prompt?: string;
+    imageGenResult?: string;
+    icons: string[];
+  }>;
+}
+
 export const generateIconSheet: Tool = {
   definition: {
     name: "generate_icon_sheet",
     description:
-      `Generate a consistent icon set for a deck by creating one AI image icon sheet, slicing it into individual PNG icons, and writing a manifest.
+      `Generate a consistent icon set for a deck by creating one or more AI image icon sheets, slicing them into individual PNG icons, and writing a manifest.
 
-Use for semantic business/technical/education/science icon sets such as bank, finance, trend, risk, user, automation, database, workflow. The tool internally calls image_gen with a strict grid prompt, then uses Pillow to crop each grid cell into a named icon file under output_dir.
+Use for semantic business/technical/education/science icon sets such as bank, finance, trend, risk, user, automation, database, workflow. The tool internally calls image_gen with strict square grid prompts, then uses Pillow to crop each grid cell into a named icon file under output_dir. Generated sheets are constrained to NxN layouts only, max 3x3 per generated image; larger icon sets are split across multiple sheets automatically.
 
-Output icons are intended for SlideML2 image/image-card/feature-card iconSrc usage. After this tool returns, place icons by absolute path with fit:"contain"; for feature cards use iconSrc.
+Output icons are intended for SlideML2 image/image-card/feature-card iconSrc usage. Before calling this tool, the deck planning archive should already map each requested icon name to a slide and field such as feature-card.iconSrc or image-card.src. After this tool returns, place icons by absolute path with fit:"contain"; for feature cards use iconSrc. A later validate_render call warns if the current run has this manifest but the deck references none of its icon paths.
 
 Do not use for exact data charts or diagrams with text. Use structured SlideML2 charts/tables or run_python charting for precise numbers.`,
     parameters: {
@@ -50,7 +68,7 @@ Do not use for exact data charts or diagrams with text. Use structured SlideML2 
         palette: { type: "array", items: { type: "string" }, description: "Theme colors as hex/token-like strings, e.g. ['#111827','#2563EB','#94A3B8']." },
         grid: {
           type: "object",
-          description: "Optional {columns, rows}. Defaults to the smallest near-square grid.",
+          description: "Optional square {columns:n, rows:n} per generated sheet. Only 1x1, 2x2, or 3x3 are used; non-square values are normalized to a square grid.",
           properties: {
             columns: { type: "number" },
             rows: { type: "number" },
@@ -74,12 +92,7 @@ Do not use for exact data charts or diagrams with text. Use structured SlideML2 
     const icons = normalizeIcons(input.icons ?? input.concepts);
     if (typeof icons === "string") return icons;
     if (icons.length === 0) return "Error: icons is required and must contain at least one icon spec.";
-    if (icons.length > 25) return "Error: generate_icon_sheet supports at most 25 icons per sheet. Split larger sets into multiple calls.";
-
-    const grid = normalizeGrid(input.grid, icons.length);
-    if (grid.columns * grid.rows < icons.length) {
-      return `Error: grid ${grid.columns}x${grid.rows} has ${grid.columns * grid.rows} cells but ${icons.length} icons were requested.`;
-    }
+    if (icons.length > 25) return "Error: generate_icon_sheet supports at most 25 icons per call. Split larger sets into multiple calls.";
 
     const style = String(input.style || "premium standalone business line icons, rounded geometry, minimal, consistent stroke, no tile background").trim();
     const palette = normalizePalette(input.palette);
@@ -88,31 +101,49 @@ Do not use for exact data charts or diagrams with text. Use structured SlideML2 
     const seed = typeof input.seed === "number" ? Math.floor(input.seed) : undefined;
     const outputSize = clampInt(input.output_size, 256, 2048, 768);
     const makeTransparent = input.make_transparent !== false;
-    const sheetPath = `${outputDir.replace(/\/+$/, "")}/icon-sheet.png`;
-    const manifestPath = `${outputDir.replace(/\/+$/, "")}/manifest.json`;
-    const prompt = buildIconSheetPrompt({ icons, grid, style, palette, background });
+    const cleanOutputDir = outputDir.replace(/\/+$/, "");
+    const manifestPath = `${cleanOutputDir}/manifest.json`;
+    const batches = chunkIcons(icons, 9);
+    const batchManifests: IconManifest[] = [];
 
-    const genResult = await imageGen.execute({
-      prompt,
-      output_path: sheetPath,
-      size,
-      seed,
-    });
-    if (/^Error:/i.test(genResult)) return genResult;
+    for (const [batchIndex, batchIcons] of batches.entries()) {
+      const grid = normalizeGrid(batches.length === 1 ? input.grid : undefined, batchIcons.length);
+      const suffix = batches.length === 1 ? "" : `-${batchIndex + 1}`;
+      const sheetPath = `${cleanOutputDir}/icon-sheet${suffix}.png`;
+      const batchManifestPath = batches.length === 1 ? manifestPath : `${cleanOutputDir}/manifest-sheet${suffix}.json`;
+      const prompt = buildIconSheetPrompt({ icons: batchIcons, grid, style, palette, background });
 
-    const cropResult = await cropIconSheet({
-      sheetPath,
-      outputDir,
-      manifestPath,
-      icons,
-      grid,
-      outputSize,
-      makeTransparent,
-      prompt,
-      imageGenResult: genResult,
-    });
-    if (/^Error:/i.test(cropResult)) return cropResult;
-    return cropResult;
+      const genResult = await imageGen.execute({
+        prompt,
+        output_path: sheetPath,
+        size,
+        seed: seed === undefined ? undefined : seed + batchIndex,
+      });
+      if (/^Error:/i.test(genResult)) return genResult;
+
+      const cropResult = await cropIconSheet({
+        sheetPath,
+        outputDir,
+        manifestPath: batchManifestPath,
+        icons: batchIcons,
+        grid,
+        outputSize,
+        makeTransparent,
+        prompt,
+        imageGenResult: genResult,
+      });
+      if (/^Error:/i.test(cropResult)) return cropResult;
+      try {
+        batchManifests.push(JSON.parse(cropResult) as IconManifest);
+      } catch {
+        return `Error: slicing returned invalid manifest JSON.\n${cropResult}`;
+      }
+    }
+
+    const manifest = mergeBatchManifests(batchManifests, manifestPath, outputSize, makeTransparent);
+    const manifestWriteError = await writeFinalManifest(manifest);
+    if (manifestWriteError) return manifestWriteError;
+    return JSON.stringify(manifest, null, 2);
   },
 
   historySummarizer(rawResult, status) {
@@ -152,11 +183,46 @@ function normalizeGrid(value: unknown, count: number): GridSpec {
   const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const explicitColumns = typeof record.columns === "number" ? Math.floor(record.columns) : undefined;
   const explicitRows = typeof record.rows === "number" ? Math.floor(record.rows) : undefined;
-  if (explicitColumns && explicitRows) return { columns: Math.max(1, explicitColumns), rows: Math.max(1, explicitRows) };
-  if (explicitColumns) return { columns: Math.max(1, explicitColumns), rows: Math.ceil(count / Math.max(1, explicitColumns)) };
-  if (explicitRows) return { columns: Math.ceil(count / Math.max(1, explicitRows)), rows: Math.max(1, explicitRows) };
-  const columns = Math.ceil(Math.sqrt(count));
-  return { columns, rows: Math.ceil(count / columns) };
+  const needed = Math.max(1, Math.min(3, Math.ceil(Math.sqrt(Math.max(1, count)))));
+  const requestedSquare = explicitColumns && explicitRows && explicitColumns === explicitRows
+    ? Math.max(1, Math.min(3, explicitColumns))
+    : undefined;
+  const size = Math.max(needed, requestedSquare || needed);
+  return { columns: size, rows: size };
+}
+
+function chunkIcons(icons: IconRequest[], maxPerSheet: number): IconRequest[][] {
+  const batches: IconRequest[][] = [];
+  for (let index = 0; index < icons.length; index += maxPerSheet) {
+    batches.push(icons.slice(index, index + maxPerSheet));
+  }
+  return batches;
+}
+
+function mergeBatchManifests(
+  manifests: IconManifest[],
+  manifestPath: string,
+  outputSize: number,
+  makeTransparent: boolean,
+): IconManifest {
+  const first = manifests[0];
+  return {
+    sheetPath: first?.sheetPath || "",
+    manifestPath,
+    grid: first?.grid || { columns: 1, rows: 1 },
+    outputSize,
+    makeTransparent,
+    prompt: first?.prompt,
+    imageGenResult: first?.imageGenResult,
+    sheets: manifests.map((manifest) => ({
+      sheetPath: manifest.sheetPath,
+      grid: manifest.grid,
+      prompt: manifest.prompt,
+      imageGenResult: manifest.imageGenResult,
+      icons: (manifest.icons || []).map((icon) => icon.name),
+    })),
+    icons: manifests.flatMap((manifest) => manifest.icons || []),
+  };
 }
 
 function normalizePalette(value: unknown): string[] {
@@ -238,11 +304,11 @@ function buildIconSheetPrompt(input: {
   const blankCount = input.grid.columns * input.grid.rows - input.icons.length;
   const blanks = blankCount > 0 ? ` Leave the final ${blankCount} unused cell${blankCount === 1 ? "" : "s"} empty.` : "";
   return [
-    `Create a single ${input.grid.columns} by ${input.grid.rows} icon sheet for a PowerPoint deck.`,
+    `Create a single square ${input.grid.columns} by ${input.grid.rows} icon sheet for a PowerPoint deck.`,
     `Style: ${input.style}.`,
     `Palette: ${describePalette(input.palette)}. Use only these colors plus transparent/white negative space. Do not render color names, codes, swatches, or palette samples.`,
     `Background: ${input.background}.`,
-    "Critical layout rules: exact regular grid, one centered standalone icon per cell, generous padding inside every cell, all icons same visual weight, consistent stroke width, no cropping, no overlap between cells.",
+    "Critical layout rules: exact square regular grid, one centered standalone icon per cell, generous padding inside every cell, all icons same visual weight, consistent stroke width, no cropping, no overlap between cells.",
     "Do not place icons inside rounded-square app tiles, cards, boxes, circles, badges, frames, shadows, or button backgrounds. Each cell should contain only the symbolic icon on plain white/transparent negative space.",
     "Content rules: no words, no letters, no numbers, no row or column names, no labels, no watermarks, no UI mockups, no realistic photos. Use simple symbolic vector-like icons.",
     cells,
@@ -396,6 +462,24 @@ print("ICON_SHEET_RESULT:" + json.dumps(manifest, ensure_ascii=False))
   } catch {
     return `Error: slicing returned invalid manifest JSON.\n${result}`;
   }
+}
+
+async function writeFinalManifest(manifest: IconManifest): Promise<string | null> {
+  const script = `
+import json
+from pathlib import Path
+
+manifest = json.loads(${JSON.stringify(JSON.stringify(manifest))})
+manifest_path = Path(manifest["manifestPath"]).expanduser()
+manifest_path.parent.mkdir(parents=True, exist_ok=True)
+manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+print("ICON_MANIFEST_WRITTEN:" + str(manifest_path))
+`;
+  const result = await runPython.execute({ code: script, timeout: 30 });
+  if (/Process exited with code|Python execution error|Package installation failed/i.test(result)) {
+    return `Error: failed to write final icon manifest.\n${result}`;
+  }
+  return null;
 }
 
 function slugify(value: string): string {

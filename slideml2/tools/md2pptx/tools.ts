@@ -6,7 +6,7 @@
  * JSON Patch for small deck edits, render validation, and stop.
  */
 
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import {
   buildTheme,
@@ -253,18 +253,24 @@ export async function handleToolCall(name: string, input: Record<string, unknown
         const result = await renderToPptx(sourceToRenderedDeck(deck), outputPath);
         const diagnostics = getRenderDiagnostics();
         const blocking = blockingDiagnostics(diagnostics);
+        const quality = qualityGateDiagnostics(diagnostics);
+        const diagnosticsPath = `${result.outputPath}.diagnostics.json`;
+        await writeFile(diagnosticsPath, JSON.stringify(diagnostics, null, 2), "utf8");
         return {
           ok: blocking.length === 0,
           error: blocking.length ? `${blocking.length} blocking render diagnostic(s) remain.` : undefined,
           data: {
             outputPath: result.outputPath,
             domPath: result.domPath,
+            diagnosticsPath,
             validation,
             diagnostics: {
               count: diagnostics.length,
               summary: summarizeDiagnostics(diagnostics),
               blockingCount: blocking.length,
               blocking: blocking.slice(0, 60),
+              qualityCount: quality.length,
+              quality: quality.slice(0, 60),
             },
           },
         };
@@ -462,4 +468,9 @@ function blockingDiagnostics(items: LayoutDiagnostic[]): LayoutDiagnostic[] {
     "SHAPE_INVISIBLE",
   ]);
   return items.filter((item) => item.severity === "error" || blockingCodes.has(item.code));
+}
+
+function qualityGateDiagnostics(items: LayoutDiagnostic[]): LayoutDiagnostic[] {
+  const qualityCodes = new Set<LayoutDiagnostic["code"]>(["TRUNCATED", "OVERFLOW"]);
+  return items.filter((item) => qualityCodes.has(item.code));
 }

@@ -191,6 +191,46 @@ describe("typography — display / text font roles", () => {
   });
 });
 
+describe("typography — themeOverride derived component styles", () => {
+  it("derives key component text styles from the authored core text contract", () => {
+    const theme = buildTheme({}, "default", {
+      fonts: {
+        latin: { display: ["Bodoni"], text: ["Inter"] },
+        cjk: { display: ["Songti SC"], text: ["PingFang SC"] },
+      },
+      text: {
+        "slide-title": { fontSize: 31, fontWeight: 700, lineHeight: 1.12, fontFamily: "display" },
+        "section-title": { fontSize: 21, fontWeight: 700, lineHeight: 1.18, fontFamily: "display" },
+        paragraph: { fontSize: 12, lineHeight: 1.35, fontFamily: "text" },
+        caption: { fontSize: 9, lineHeight: 1.25 },
+        "metric-value": { fontSize: 34, fontWeight: 700, lineHeight: 1, fontFamily: "display" },
+      },
+    });
+
+    expect(theme.text["card-title"]?.fontSize).toBeCloseTo(15.3, 1);
+    expect(theme.text["card-title"]?.fontFamily).toBe("display");
+    expect(theme.text.label?.fontSize).toBeCloseTo(9.4, 1);
+    expect(theme.text.label?.fontFamily).toBe("text");
+    expect(theme.text["table-cell"]?.fontSize).toBeCloseTo(10.6, 1);
+    expect(theme.text["table-cell"]?.fontFamily).toBe("text");
+    expect(theme.text["table-header"]?.fontSize).toBeCloseTo(11.2, 1);
+    expect(theme.text["metric-label"]?.fontSize).toBeCloseTo(12.5, 1);
+  });
+
+  it("keeps explicit component text overrides stronger than derived defaults", () => {
+    const theme = buildTheme({}, "default", {
+      text: {
+        "section-title": { fontFamily: "display" },
+        paragraph: { fontSize: 12, fontFamily: "text" },
+        "card-title": { fontSize: 18, fontFamily: "text" },
+      },
+    });
+
+    expect(theme.text["card-title"]?.fontSize).toBe(18);
+    expect(theme.text["card-title"]?.fontFamily).toBe("text");
+  });
+});
+
 describe("typography — RichTextRun expressiveness", () => {
   it("per-run size override re-scales the half-points", () => {
     const deck = deckWith([

@@ -74,6 +74,11 @@ describe("slideml2 SKILL component reference", () => {
     expect(skill.indexOf("## Deck Structure — Earn Every Slide")).toBeGreaterThan(skill.indexOf("## Authoring Workflow"));
     expect(skill.indexOf("## Deck Structure — Earn Every Slide")).toBeLessThan(skill.indexOf("## Theme Contract — Define Before Components"));
     expect(skill.indexOf("## Theme Contract — Define Before Components")).toBeLessThan(skill.indexOf("## Component-First Slide Loop"));
+    expect(skill.indexOf("## Deck Planning Archive")).toBeLessThan(skill.indexOf("## Deck Structure — Earn Every Slide"));
+    expect(skill).toContain("Save a markdown file next to the future deck");
+    expect(skill).toContain("create it with `write_file`");
+    expect(skill).toContain("`## Asset Plan`");
+    expect(skill).toContain("For generated icons, `Asset Plan` must map icon names to actual component fields");
     expect(skill).toContain("`contentTop` and `contentBottom` are y-coordinates");
     expect(skill).toContain("Use `cornerRadius`, never `radius`");
     expect(skill).toContain("Do not use `position` as a placement field");
@@ -87,10 +92,12 @@ describe("slideml2 SKILL component reference", () => {
     expect(skillLineFor("grid")).toContain("avoid plain equal cards");
     expect(skillLineFor("chart-with-rail")).toContain("Page archetype");
 
-    expect(business.indexOf("## Business Authoring Loop")).toBeLessThan(business.indexOf("## Story Structure"));
+    expect(business.indexOf("## Business Planning Loop")).toBeLessThan(business.indexOf("## Story Structure"));
     expect(business.indexOf("light-first")).toBeLessThan(1200);
     expect(business.indexOf("Do not make a full business report dark by default")).toBeLessThan(1800);
     expect(business.indexOf("Component route comes before JSON")).toBeLessThan(1800);
+    expect(business).toContain("Save a complete `deck_plan.md` before `create_deck`");
+    expect(business).toContain("`Asset Route`");
     expect(business).toContain("| Executive answer | `executive-summary`");
     expect(business).toContain("not the default container for business prose");
   });

@@ -316,8 +316,8 @@ function shadedVariantForContrast(srcHex: string, bgHex: string, threshold: numb
 }
 
 function mergeTextStyles(base: Record<string, TextStyle>, override?: Record<string, Partial<TextStyle>>): Record<string, TextStyle> {
-  if (!override) return { ...base };
-  const out: Record<string, TextStyle> = { ...base };
+  const out: Record<string, TextStyle> = cloneTextStyles(base);
+  if (!override) return out;
   for (const [key, value] of Object.entries(override)) {
     const existing = out[key] || base.paragraph || { fontSize: 11, color: "text.primary", lineHeight: 1.4 };
     out[key] = {
@@ -333,6 +333,117 @@ function mergeTextStyles(base: Record<string, TextStyle>, override?: Record<stri
       italic: value.italic ?? existing.italic,
     };
   }
+  return completeDerivedTextStyles(out, base, override);
+}
+
+function cloneTextStyles(styles: Record<string, TextStyle>): Record<string, TextStyle> {
+  const out: Record<string, TextStyle> = {};
+  for (const [key, style] of Object.entries(styles)) {
+    out[key] = { ...style, ...(style.margin ? { margin: { ...style.margin } } : {}) };
+  }
+  return out;
+}
+
+function completeDerivedTextStyles(
+  out: Record<string, TextStyle>,
+  base: Record<string, TextStyle>,
+  override: Record<string, Partial<TextStyle>>,
+): Record<string, TextStyle> {
+  const touched = (key: string): boolean => Object.prototype.hasOwnProperty.call(override, key);
+  const anyTouched = (...keys: string[]): boolean => keys.some(touched);
+  const style = (key: string): TextStyle => out[key] || out.paragraph || base.paragraph;
+  const baseStyle = (key: string): TextStyle => base[key] || base.paragraph;
+  const has = (key: string, prop: keyof TextStyle): boolean => {
+    const value = override[key];
+    if (!value) return false;
+    if (prop === "weight") {
+      return Object.prototype.hasOwnProperty.call(value, "weight") || Object.prototype.hasOwnProperty.call(value, "fontWeight");
+    }
+    return Object.prototype.hasOwnProperty.call(value, prop);
+  };
+  const ensure = (key: string): TextStyle => {
+    out[key] = out[key] || { ...baseStyle(key) };
+    return out[key]!;
+  };
+  const scaled = (source: string, target: string, prop: "fontSize" | "lineHeight"): number => {
+    const src = style(source)[prop];
+    const srcBase = baseStyle(source)[prop];
+    const targetBase = baseStyle(target)[prop];
+    if (!Number.isFinite(src) || !Number.isFinite(srcBase) || !Number.isFinite(targetBase) || srcBase === 0) {
+      return targetBase;
+    }
+    const precision = prop === "fontSize" ? 10 : 100;
+    return Math.round(src * (targetBase / srcBase) * precision) / precision;
+  };
+  const deriveMetrics = (target: string, source: string, condition: boolean): void => {
+    if (!condition) return;
+    const t = ensure(target);
+    if (!has(target, "fontSize")) t.fontSize = scaled(source, target, "fontSize");
+    if (!has(target, "lineHeight")) t.lineHeight = scaled(source, target, "lineHeight");
+  };
+  const inheritFontRole = (target: string, source: string, condition: boolean): void => {
+    if (!condition) return;
+    const sourceFamily = style(source).fontFamily;
+    if (sourceFamily && !has(target, "fontFamily")) ensure(target).fontFamily = sourceFamily;
+  };
+  const inheritWeight = (target: string, source: string, condition: boolean): void => {
+    if (!condition) return;
+    const sourceWeight = style(source).weight ?? style(source).fontWeight;
+    if (sourceWeight !== undefined && !has(target, "weight")) ensure(target).weight = sourceWeight;
+  };
+  const inheritFeatures = (target: string, source: string, condition: boolean): void => {
+    if (!condition) return;
+    const sourceFeatures = style(source).fontFeatures;
+    if (sourceFeatures && !has(target, "fontFeatures")) ensure(target).fontFeatures = [...sourceFeatures];
+  };
+
+  const titleTouched = anyTouched("slide-title");
+  const sectionTouched = anyTouched("section-title") || titleTouched;
+  const paragraphTouched = anyTouched("paragraph");
+  const captionTouched = anyTouched("caption") || paragraphTouched;
+  const metricTouched = anyTouched("metric-value");
+
+  deriveMetrics("deck-title", "slide-title", titleTouched);
+  inheritFontRole("deck-title", "slide-title", titleTouched);
+  inheritWeight("deck-title", "slide-title", titleTouched);
+
+  deriveMetrics("section-title", "slide-title", titleTouched);
+  inheritFontRole("section-title", "slide-title", titleTouched);
+  inheritWeight("section-title", "slide-title", titleTouched);
+
+  deriveMetrics("card-title", paragraphTouched ? "paragraph" : "section-title", paragraphTouched || sectionTouched);
+  inheritFontRole("card-title", sectionTouched ? "section-title" : "paragraph", paragraphTouched || sectionTouched);
+  inheritWeight("card-title", "section-title", sectionTouched);
+
+  for (const key of ["lead", "article", "body", "bullet", "bullet-compact", "table-cell"]) {
+    deriveMetrics(key, "paragraph", paragraphTouched);
+    inheritFontRole(key, "paragraph", paragraphTouched);
+    inheritFeatures(key, "paragraph", paragraphTouched);
+  }
+
+  deriveMetrics("caption", "paragraph", paragraphTouched);
+  inheritFontRole("caption", "paragraph", paragraphTouched);
+
+  for (const key of ["figure-caption", "footnote", "axis-label", "legend-label", "tag"]) {
+    deriveMetrics(key, "caption", captionTouched);
+    inheritFontRole(key, "caption", captionTouched);
+    inheritFeatures(key, "caption", captionTouched);
+  }
+
+  deriveMetrics("label", touched("caption") ? "caption" : "paragraph", captionTouched);
+  inheritFontRole("label", touched("caption") ? "caption" : "paragraph", captionTouched);
+
+  deriveMetrics("badge", "label", captionTouched);
+  inheritFontRole("badge", "label", captionTouched);
+
+  deriveMetrics("table-header", "table-cell", paragraphTouched || touched("table-cell"));
+  inheritFontRole("table-header", "table-cell", paragraphTouched || touched("table-cell"));
+  inheritWeight("table-header", "card-title", sectionTouched);
+  inheritFeatures("table-header", "table-cell", paragraphTouched || touched("table-cell"));
+
+  deriveMetrics("metric-label", metricTouched ? "metric-value" : "caption", metricTouched || captionTouched);
+  inheritFontRole("metric-label", captionTouched ? "caption" : "paragraph", captionTouched || paragraphTouched);
+
   return out;
 }
 

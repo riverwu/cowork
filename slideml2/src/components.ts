@@ -127,6 +127,24 @@ function decorationMarkerDimensionsCm(shape: DecorationMarkerShape, size: number
   return { w: size, h: size };
 }
 
+export function textChipWidthCm(text: string, options: { min?: number; max?: number; padding?: number; cjk?: number; latin?: number } = {}): number {
+  const min = options.min ?? 1.0;
+  const max = options.max ?? 4.2;
+  const padding = options.padding ?? 0.62;
+  const cjk = options.cjk ?? 0.34;
+  const latin = options.latin ?? 0.18;
+  let width = padding;
+  for (const ch of text) {
+    if (/\s/.test(ch)) width += latin * 0.55;
+    else width += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? cjk : isWideVisualSymbol(ch) ? cjk * 0.86 : latin;
+  }
+  return Math.max(min, Math.min(max, width));
+}
+
+function isWideVisualSymbol(ch: string): boolean {
+  return /[\u2605\u2606\u2713\u2714\u2717\u2715\u2716\u26a0\u25cf\u25cb\u25c6\u25c7\u25a0\u25a1\u25b2\u25b3\u25b6\u25b7\u25bc\u25bd]/.test(ch);
+}
+
 /**
  * Merge agent-supplied surface options into a wrapper node. Only fields the
  * agent set are applied — defaults already on the wrapper survive.
@@ -439,7 +457,7 @@ export function comparisonCard(
   const crowded = points.length + (options.pros?.length || 0) + (options.cons?.length || 0) + (options.metrics?.length || 0) + (options.body ? 1 : 0) + (options.score ? 1 : 0) > 8;
   const visiblePoints = points.slice(0, crowded ? 3 : 6);
   const children: DomNode[] = [
-    ...(options.badge ? [{ id: `${slideId}.${id}.badge`, type: "text" as const, text: options.badge, style: "label" as const, uppercase: true, color: options.winner ? "text.inverse" : "text.primary", fill: options.winner ? "brand.primary" : "surface.subtle", cornerRadius: 0.18, align: "center" as const, fixedHeight: 0.34, fixedWidth: Math.max(1.2, Math.min(3.2, options.badge.length * 0.16 + 0.5)), autoFit: "shrink" as const }] : []),
+    ...(options.badge ? [{ id: `${slideId}.${id}.badge`, type: "text" as const, text: options.badge, style: "label" as const, uppercase: true, color: options.winner ? "text.inverse" : "text.primary", fill: options.winner ? "brand.primary" : "surface.subtle", cornerRadius: 0.18, align: "center" as const, fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1.2, max: 4.6, padding: 0.6 }), autoFit: "shrink" as const }] : []),
     { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.6, autoFit: "shrink" },
     ...(options.subtitle && !crowded ? [{ id: `${slideId}.${id}.subtitle`, type: "text" as const, text: options.subtitle, style: "label" as const, color: "text.muted", minHeight: 0.32, autoFit: "shrink" as const }] : []),
   ];
@@ -513,16 +531,26 @@ export interface NumberedListItem {
   description?: string;
 }
 
-function numberedListItemText(item: string | NumberedListItem): string {
+function numberedListItem(item: string | NumberedListItem): string | { text: string; runs: Array<{ text: string; marks?: string[] }> } {
   if (typeof item === "string") return item.trim();
   const title = String(item.title ?? item.headline ?? item.label ?? item.name ?? item.text ?? "").trim();
   const body = String(item.body ?? item.detail ?? item.description ?? "").trim();
-  if (title && body) return `${title}: ${body}`;
-  return title || body;
+  if (title && body) {
+    const separator = /[\u4e00-\u9fff\uff00-\uffef]$/.test(title) ? "\uff1a" : ": ";
+    return {
+      text: `${title}${separator}${body}`,
+      runs: [
+        { text: title, marks: ["bold"] },
+        { text: `${separator}${body}` },
+      ],
+    };
+  }
+  if (title) return { text: title, runs: [{ text: title, marks: ["bold"] }] };
+  return body;
 }
 
 export function numberedList(slideId: string, id: string, items: Array<string | NumberedListItem>, density: "comfortable" | "compact" = "comfortable"): DomNode {
-  return { id: `${slideId}.${id}`, type: "bullets", items: items.map(numberedListItemText).filter(Boolean), density, numbered: true };
+  return { id: `${slideId}.${id}`, type: "bullets", items: items.map(numberedListItem).filter(Boolean), density, numbered: true };
 }
 
 export function quoteBlock(
@@ -609,29 +637,85 @@ export function iconText(slideId: string, id: string, options: { icon: string; t
  * do not. Use vertical timeline for content-heavy items.
  */
 export function timelineBlock(slideId: string, id: string, options: {
-  items: Array<{ time?: string; title?: string; body?: string; content?: DomNode }>;
+  items: Array<{ time?: string; title?: string; body?: string; tone?: "brand" | "positive" | "warning" | "danger" | "neutral"; content?: DomNode }>;
   direction?: "horizontal" | "vertical";
 }): DomNode {
-  const direction = options.direction === "horizontal" ? "horizontal" : "vertical";
-  const simpleItems = options.items.every((item) => !item.content);
-  if (simpleItems && options.items.length > 6) {
+  const requested = options.direction === "horizontal" ? "horizontal" : "vertical";
+  const items = options.items;
+  const itemCount = items.length;
+  const simpleItems = items.every((item) => !item.content);
+  const richCount = items.filter((item) => item.content).length;
+
+  // Capacity decision tree (was: cap horizontal columns at 5 with no
+  // overflow path; produced 5+3 misaligned grids and aggressive autoFit
+  // shrink). Now:
+  //   • >6 simple items (regardless of requested direction) → 4-col grid
+  //     timeline. Vertical was the old fallback, but 7-8 short events stack
+  //     vertically use too much height; the grid gives 2 rows of compact cells.
+  //   • horizontal + rich content + items > 5 → flip to vertical (each row
+  //     gets full slide width, content can breathe).
+  //   • horizontal + simple items 5-6 → preserve auto 5-col single row
+  //     for tight horizontal flows, but allow 3-col 2-row when itemCount > 4
+  //     and < 7 — bigger cells, no shrink-to-7.2pt label.
+  //   • vertical → unchanged single-column rich timeline.
+  if (simpleItems && itemCount > 6) {
+    const columns = 4;
+    const rows: DomNode[] = [];
+    for (let start = 0; start < itemCount; start += columns) {
+      const rowIndex = Math.floor(start / columns);
+      const rowItems = items.slice(start, start + columns);
+      rows.push({
+        id: `${slideId}.${id}.row${rowIndex}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.12,
+        role: "timeline-row",
+        children: [
+          {
+            id: `${slideId}.${id}.row${rowIndex}.line`,
+            type: "divider",
+            orientation: "horizontal",
+            line: "brand.primary",
+            thickness: 0.035,
+            fixedHeight: 0.08,
+          },
+          {
+            id: `${slideId}.${id}.row${rowIndex}.items`,
+            type: "grid",
+            columns,
+            gap: 0.26,
+            children: rowItems.map((item, localIndex) => timelineStep(slideId, id, start + localIndex, item, "horizontal")),
+          },
+        ],
+      });
+    }
     return {
       id: `${slideId}.${id}`,
-      type: "grid",
-      columns: 4,
-      gap: 0.26,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.28,
       role: "timeline",
-      children: options.items.map((item, index) => timelineStep(slideId, id, index, item, "horizontal")),
+      children: rows,
     };
   }
-  if (direction === "horizontal") {
+  if (requested === "horizontal" && richCount > 0 && itemCount > 5) {
+    return {
+      id: `${slideId}.${id}`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.22,
+      role: "timeline",
+      children: items.map((item, index) => timelineStep(slideId, id, index, item, "vertical")),
+    };
+  }
+  if (requested === "horizontal") {
     return {
       id: `${slideId}.${id}`,
       type: "grid",
-      columns: Math.max(1, Math.min(5, options.items.length)),
-      gap: options.items.length >= 5 ? 0.24 : 0.32,
+      columns: Math.max(1, Math.min(5, itemCount)),
+      gap: itemCount >= 5 ? 0.24 : 0.32,
       role: "timeline",
-      children: options.items.map((item, index) => timelineStep(slideId, id, index, item, "horizontal")),
+      children: items.map((item, index) => timelineStep(slideId, id, index, item, "horizontal")),
     };
   }
   return {
@@ -640,7 +724,7 @@ export function timelineBlock(slideId: string, id: string, options: {
     direction: "vertical",
     gap: 0.22,
     role: "timeline",
-    children: options.items.map((item, index) => timelineStep(slideId, id, index, item, "vertical")),
+    children: items.map((item, index) => timelineStep(slideId, id, index, item, "vertical")),
   };
 }
 
@@ -648,12 +732,21 @@ function timelineStep(
   slideId: string,
   id: string,
   index: number,
-  item: { time?: string; title?: string; body?: string; content?: DomNode },
+  item: { time?: string; title?: string; body?: string; tone?: "brand" | "positive" | "warning" | "danger" | "neutral"; content?: DomNode },
   direction: "horizontal" | "vertical",
 ): DomNode {
   // 2pmnxh fix: time/title/body all use text.primary so contrast passes
   // on any agent-supplied theme.
   const titleStyle = "card-title";
+  const toneToken = (() => {
+    switch (item.tone) {
+      case "positive": return "success";
+      case "warning": return "warning";
+      case "danger": return "danger";
+      case "neutral": return "text.muted";
+      default: return "brand.primary";
+    }
+  })();
 
   // Stamp the content's id under the step's namespace if missing (so
   // layout / diagnostics can identify it).
@@ -670,7 +763,7 @@ function timelineStep(
   if (direction === "horizontal") {
     const children: DomNode[] = [];
     if (item.time && item.time.trim()) {
-      children.push({ id: `${slideId}.${id}.${index}.time`, type: "text", text: item.time.trim(), style: "label", color: "text.primary", minHeight: 0.32, autoFit: "shrink" });
+      children.push({ id: `${slideId}.${id}.${index}.time`, type: "text", text: item.time.trim(), style: "label", color: item.tone ? toneToken : "text.primary", weight: item.tone ? "bold" : undefined, minHeight: 0.32, autoFit: "shrink" });
     }
     if (item.title && item.title.trim()) {
       children.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title.trim(), style: titleStyle, color: "text.primary", minHeight: 0.42, autoFit: "shrink" });
@@ -678,7 +771,7 @@ function timelineStep(
     if (content) {
       children.push(content);
     } else if (item.body && item.body.trim()) {
-      children.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "caption", color: "text.primary", valign: "top", minHeight: 0.4, autoFit: "shrink", optional: true });
+      children.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "caption", color: "text.primary", valign: "top", minHeight: estimateTimelineBodyMinHeight(item.body, "horizontal"), autoFit: "shrink", optional: true });
     }
     return {
       id: `${slideId}.${id}.${index}`,
@@ -704,7 +797,7 @@ function timelineStep(
   if (content) {
     rightColChildren.push(content);
   } else if (item.body && item.body.trim()) {
-    rightColChildren.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "caption", color: "text.primary", valign: "top", minHeight: 0.4, autoFit: "shrink", optional: true });
+    rightColChildren.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "caption", color: "text.primary", valign: "top", minHeight: estimateTimelineBodyMinHeight(item.body, "vertical"), autoFit: "shrink", optional: true });
   }
   // Edge case: no title, no body, no content — emit a tiny placeholder
   // so the row still renders (rare; agent passed only `time`).
@@ -748,8 +841,8 @@ function timelineStep(
         id: `${slideId}.${id}.${index}.dot`,
         type: "shape",
         preset: "ellipse",
-        fill: "brand.primary",
-        line: "brand.primary",
+        fill: toneToken,
+        line: toneToken,
         fixedWidth: 0.24,
         fixedHeight: 0.24,
       },
@@ -757,8 +850,10 @@ function timelineStep(
         id: `${slideId}.${id}.${index}.line`,
         type: "shape",
         preset: "rect",
-        fill: "brand.primary",
-        line: "brand.primary",
+        // Per-row spine segment tracks the row's tone for visual coherence —
+        // a danger row's dot+line are both red, not red dot + blue line.
+        fill: toneToken,
+        line: toneToken,
         fixedWidth: 0.03,
         layoutWeight: 1,
       },
@@ -783,6 +878,15 @@ function timelineStep(
     valign: "top",
     children: rowChildren,
   };
+}
+
+function estimateTimelineBodyMinHeight(text: string, direction: "horizontal" | "vertical"): number {
+  const explicitLines = text.split(/\n+/).filter((line) => line.trim()).length;
+  const weighted = weightedTextLength(text);
+  const charsPerLine = direction === "horizontal" ? 24 : 46;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / charsPerLine));
+  const lineHeight = direction === "horizontal" ? 0.3 : 0.34;
+  return Math.max(direction === "horizontal" ? 0.48 : 0.42, Math.min(direction === "horizontal" ? 1.05 : 1.2, estimatedLines * lineHeight + 0.12));
 }
 
 export function profileCard(slideId: string, id: string, options: { image: string; name: string; role?: string; bio?: string }): DomNode {
@@ -1026,7 +1130,7 @@ export function featureCard(slideId: string, id: string, options: {
         titleNode,
       ];
   if (options.badge) {
-    children.unshift({ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", color: "text.primary", fill: "surface.subtle", cornerRadius: 0.18, fixedHeight: 0.36, fixedWidth: Math.max(1.0, Math.min(3.0, options.badge.length * 0.18 + 0.55)), align: "center", autoFit: "shrink" });
+    children.unshift({ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", color: "text.primary", fill: "surface.subtle", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1.0, max: 4.8, padding: 0.62 }), align: "center", autoFit: "shrink" });
   }
   const body = textWithRichContent(options.body?.trim() || "", options.content);
   if (body.text || body.content) {
@@ -1043,7 +1147,7 @@ export function featureCard(slideId: string, id: string, options: {
     });
   }
   if (options.metric) {
-    children.push({ ...metricCard(slideId, `${id}.metric`, options.metric.value, options.metric.label, { variant: "compact", status: options.metric.tone }), optional: true });
+    children.push({ ...featureMetricNode(slideId, id, options.metric, dense), optional: true });
   }
   if (options.proof) {
     children.push({ id: `${slideId}.${id}.proof`, type: "text", text: options.proof, style: "label", color: "text.muted", minHeight: 0.34, autoFit: "shrink", optional: true });
@@ -1092,6 +1196,62 @@ function estimateFeatureBodyMinHeight(text: string, dense: boolean): number {
   const explicitLines = text.split(/\n+/).filter((line) => line.trim()).length;
   const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weightedTextLength(text) / (dense ? 24 : 20)));
   return Math.max(dense ? 0.42 : 0.5, Math.min(dense ? 0.85 : 1.1, estimatedLines * (dense ? 0.34 : 0.4) + 0.14));
+}
+
+function featureMetricNode(
+  slideId: string,
+  id: string,
+  metric: { value: string; label: string; tone?: "brand" | "positive" | "warning" | "danger" | "neutral" },
+  dense: boolean,
+): DomNode {
+  if (isConciseNumericMetric(metric.value)) {
+    return metricCard(slideId, `${id}.metric`, metric.value, metric.label, { variant: "compact", status: metric.tone });
+  }
+  const tone = featureTitleColor(metric.tone || "brand");
+  const ratingLike = isRatingLikeMetric(metric.value);
+  const valueLines = Math.max(1, Math.ceil(weightedTextLength(metric.value) / (dense ? 22 : 26)));
+  return {
+    id: `${slideId}.${id}.metric`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.06,
+    fill: "surface.subtle",
+    line: "divider",
+    padding: dense ? 0.14 : 0.18,
+    cornerRadius: 0.08,
+    children: [
+      {
+        id: `${slideId}.${id}.metric.value`,
+        type: "text",
+        text: metric.value,
+        style: dense || ratingLike ? "label" : "card-title",
+        color: tone,
+        minHeight: Math.max(dense ? 0.32 : 0.42, Math.min(dense ? 0.78 : 0.95, valueLines * (dense ? 0.28 : 0.34) + 0.1)),
+        autoFit: "shrink",
+      },
+      ...(metric.label ? [{
+        id: `${slideId}.${id}.metric.label`,
+        type: "text" as const,
+        text: metric.label,
+        style: "caption" as const,
+        color: "text.muted",
+        minHeight: dense ? 0.28 : 0.32,
+        autoFit: "shrink" as const,
+      }] : []),
+    ],
+  };
+}
+
+function isConciseNumericMetric(value: string): boolean {
+  const text = value.trim();
+  if (!text || isRatingLikeMetric(text)) return false;
+  if (text.length > 14) return false;
+  if (!/[0-9]/.test(text)) return false;
+  return /^[+\-~≈¥$€£]?\s*\d[\d,.]*(?:\s*[-–]\s*\d[\d,.]*)?(?:\s*(?:%|x|X|k|K|m|M|b|B|万|亿|千|百|倍|人|家|项|年|月|天|小时|ms|s|秒|pt|pts))?\+?$/.test(text);
+}
+
+function isRatingLikeMetric(value: string): boolean {
+  return /[\u2605\u2606]/.test(value);
 }
 
 export function checklist(slideId: string, id: string, items: Array<{ text: string; status?: "checked" | "unchecked" | "warning" }>, density: "comfortable" | "compact" = "comfortable", opts: { markStyle?: "chip" | "plain" } = {}): DomNode {
@@ -1261,9 +1421,15 @@ export function processFlow(slideId: string, id: string, options: {
   options.steps.forEach((step, index) => {
     const statusColor = toneColor(step.status, "text.primary");
     const iconFill = statusColor === "text.primary" ? "surface.subtle" : statusColor;
-    const stepMinHeight = direction === "horizontal"
-      ? (dense ? 1.85 : 2.0)
-      : (verticalDense ? 1.0 : 1.4);
+    // Horizontal flow uses a maxHeight cap so the step card sizes to its
+    // content (typical 1.7–2.5cm) instead of stretching to the parent row's
+    // ~10cm cross axis. Without the cap, fill:"surface" painted a 10cm
+    // grey card with title/body squeezed into 1.6cm of intrinsic content
+    // centered in the middle, and the body's fixedHeight + autoFit:shrink
+    // pushed body text down to ~8pt. Vertical flow keeps minHeight (it
+    // grows with content vertically and competes with adjacent rows).
+    const horizontalMaxHeight = dense ? 2.5 : 3.1;
+    const verticalMinHeight = verticalDense ? 1.0 : 1.4;
     items.push({
       id: `${slideId}.${id}.step${index + 1}`,
       type: "stack",
@@ -1279,7 +1445,7 @@ export function processFlow(slideId: string, id: string, options: {
       align: "center",
       valign: "middle",
       justify: "center",
-      minHeight: stepMinHeight,
+      ...(direction === "horizontal" ? { maxHeight: horizontalMaxHeight } : { minHeight: verticalMinHeight }),
       children: [
         // umzrkm fix: step.title used brand.primary which fails 4.5:1 on
         // agent themes with mid-saturation brand colors (teal 5B8A8A on
@@ -1309,8 +1475,14 @@ export function processFlow(slideId: string, id: string, options: {
           style: "caption",
           align: "center" as const,
           valign: "top" as const,
+          // Horizontal: use min/max so the body grows for 1-2 lines instead
+          // of being pinned to a fixed 0.9cm slot that forced autoFit:"shrink"
+          // to drop body font to ~8pt. minHeight floor keeps 2-line bodies
+          // (96vi8n regression: short bodies < 2 lines reverted to 0.4cm).
+          // Combined with the step's maxHeight cap above, the card now sizes
+          // to actual content instead of stretching the row.
           ...(direction === "horizontal"
-            ? { fixedHeight: dense ? 0.5 : 0.9 }
+            ? { minHeight: dense ? 0.5 : 0.9, maxHeight: dense ? 1.4 : 1.8 }
             : { minHeight: verticalDense ? 0.5 : 0.9 }),
           autoFit: "shrink" as const,
           optional: true,
@@ -1519,9 +1691,18 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
   };
 }
 
-export function barList(slideId: string, id: string, options: { items: Array<{ label: string; value: number; max?: number; valueLabel?: string }>; tone?: "brand" | "positive" | "warning" | "danger"; sort?: "desc" | "asc" | "none" }): DomNode {
+export type BarListTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+
+function barListFillToken(tone: BarListTone | undefined): string {
+  if (tone === "positive") return "success";
+  if (tone === "warning") return "warning";
+  if (tone === "danger") return "danger";
+  if (tone === "neutral") return "divider";
+  return "brand.primary";
+}
+
+export function barList(slideId: string, id: string, options: { items: Array<{ label: string; value: number; max?: number; valueLabel?: string; tone?: BarListTone }>; tone?: BarListTone; sort?: "desc" | "asc" | "none" }): DomNode {
   const tone = options.tone || "brand";
-  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
   const trackToken = "surface.subtle";
   const declaredMax = options.items.reduce((m, item) => Math.max(m, item.max ?? item.value), 0);
   const max = declaredMax > 0 ? declaredMax : 1;
@@ -1536,6 +1717,7 @@ export function barList(slideId: string, id: string, options: { items: Array<{ l
     children: sorted.map((item, index) => {
       const ratio = Math.max(0.001, Math.min(1, item.value / max));
       const valueLabel = item.valueLabel || `${item.value}`;
+      const fillToken = barListFillToken(item.tone || tone);
       // Estimate value-label width: ~0.34cm per CJK glyph, ~0.18cm per
       // ASCII char, +0.3cm padding. Bounded 1.0..3.6cm — short numeric
       // values like "100" no longer waste 1.6cm of bar space, while
@@ -1668,7 +1850,7 @@ export function keyTakeaway(
 function weightedTextLength(text: string): number {
   let length = 0;
   for (const char of text) {
-    length += /[\u4e00-\u9fff]/.test(char) ? 1.05 : 0.58;
+    length += /[\u4e00-\u9fff]/.test(char) ? 1.05 : isWideVisualSymbol(char) ? 0.9 : 0.58;
   }
   return length;
 }
@@ -1721,8 +1903,8 @@ export function numberedGrid(
   const twoByTwo = options.items.length === 4 && cols === 2;
   const compactCell = dense || twoByTwo;
   const bodyStyle = dense ? "caption" : "paragraph";
-  const chipSize = dense ? 0.7 : twoByTwo ? 0.85 : 1.15;
-  const cellGap = dense ? 0.14 : twoByTwo ? 0.16 : 0.25;
+  const chipSize = dense ? 0.54 : twoByTwo ? 0.85 : 1.15;
+  const cellGap = dense ? 0.10 : twoByTwo ? 0.16 : 0.25;
   const gridGap = dense ? 0.32 : twoByTwo ? 0.4 : 0.55;
   const titleMinHeight = dense ? 0.42 : twoByTwo ? 0.48 : 0.55;
   return applyAgentSurface({
@@ -1732,12 +1914,15 @@ export function numberedGrid(
     gap: gridGap,
     role: "numbered-grid",
     children: options.items.map((item, index) => {
-      const marker = decorationMarkerNode(slideId, `${id}.${index}.marker`, item.marker || options.marker, {
+      const itemTone = item.tone || (tone === "brand" ? "brand" : "neutral");
+      const marker = dense && chipStyle ? null : decorationMarkerNode(slideId, `${id}.${index}.marker`, item.marker || options.marker, {
         shape: "dot",
-        tone: item.tone || (tone === "brand" ? "brand" : "neutral"),
+        tone: itemTone,
         variant: "tint",
         size: compactCell ? "xs" : "sm",
       });
+      const chipFill = dense ? toneAccentColor(itemTone, accentColor) : accentColor;
+      const chipTextColor = dense && (itemTone === "neutral" || itemTone === "muted") ? "text.primary" : "text.inverse";
       const titleNode: DomNode = {
         id: `${slideId}.${id}.${index}.title`,
         type: "text",
@@ -1780,8 +1965,8 @@ export function numberedGrid(
                     // larger chip for visual weight.
                     style: compactCell ? "label" : "card-title",
                     weight: "bold" as const,
-                    color: "text.inverse",
-                    fill: accentColor,
+                    color: chipTextColor,
+                    fill: chipFill,
                     align: "center" as const,
                     valign: "middle" as const,
                     cornerRadius: 0.5,
@@ -1959,11 +2144,7 @@ export function badge(slideId: string, id: string, options: { text: string; tone
   // size while latin runs ~0.18cm. Mixed-script labels mid-truncate or
   // overflow when packed into 1.62cm. Estimate per-char so a 4-char CJK
   // label gets ~3cm and "粮食"-style 2-char labels get ~2.2cm.
-  let charBudget = 0.9; // padding
-  for (const ch of options.text) {
-    charBudget += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? 0.55 : 0.18;
-  }
-  const intrinsic = Math.max(1.6, Math.min(6, charBudget));
+  const intrinsic = textChipWidthCm(options.text, { min: 1.6, max: 6, padding: 0.9, cjk: 0.55, latin: 0.18 });
   return {
     id: `${slideId}.${id}`,
     type: "text",
@@ -2404,7 +2585,7 @@ export function takeawayList(
             color: "text.muted",
             align: "left" as const,
             valign: "top" as const,
-            minHeight: dense ? 0.4 : 0.5,
+            minHeight: estimateTakeawayDetailMinHeight(item.detail.trim(), dense),
             autoFit: "shrink" as const,
             optional: true,
           }] : []),
@@ -3250,6 +3431,7 @@ export function matrix2x2(
     yAxis: { low: string; high: string };
     items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: "brand" | "positive" | "warning" | "danger" }>;
     quadrantLabels?: { tl?: string; tr?: string; bl?: string; br?: string };
+    quadrantTones?: { tl?: "brand" | "positive" | "warning" | "danger" | "neutral"; tr?: "brand" | "positive" | "warning" | "danger" | "neutral"; bl?: "brand" | "positive" | "warning" | "danger" | "neutral"; br?: "brand" | "positive" | "warning" | "danger" | "neutral" };
   } & { surface?: AgentSurface } & AgentSurface,
 ): DomNode {
   const items = options.items || [];
@@ -3260,56 +3442,108 @@ export function matrix2x2(
     const tone = it.tone || "brand";
     quadrants[key]!.push({ label: it.label, tone });
   }
-  const renderQuadrant = (key: "tl" | "tr" | "bl" | "br", qLabel?: string): DomNode => ({
-    id: `${slideId}.${id}.${key}`,
-    type: "card",
+  const ql = options.quadrantLabels || {};
+  const qt = options.quadrantTones || {};
+  // Label-only mode: when no items are placed, the quadrantLabels become the
+  // primary content of each cell — render them at section-title weight on a
+  // tinted surface so the matrix communicates the four-quadrant story even
+  // without per-item dots. Default per-quadrant tones differentiate the
+  // cells visually (BCG / 2x2 priority conventions): top-right is the
+  // headline quadrant (positive), top-left and bottom-right are caveats
+  // (warning), bottom-left is the de-prioritized cell (neutral). Authors
+  // override via quadrantTones.
+  const labelOnly = items.length === 0;
+  const tintFor = (tone: string | undefined): { fill: string; ink: string; line: string } => {
+    if (tone === "positive") return { fill: "success.tint", ink: "success", line: "success" };
+    if (tone === "warning") return { fill: "warning.tint", ink: "warning", line: "warning" };
+    if (tone === "danger") return { fill: "danger.tint", ink: "danger", line: "danger" };
+    if (tone === "neutral") return { fill: "surface.subtle", ink: "text.primary", line: "divider" };
+    if (tone === "brand") return { fill: "brand.tint", ink: "brand.primary", line: "brand.primary" };
+    return { fill: "surface.subtle", ink: "text.primary", line: "divider" };
+  };
+  const defaultLabelTone: Record<"tl" | "tr" | "bl" | "br", string> = {
+    tl: "warning",
+    tr: "positive",
+    bl: "neutral",
+    br: "warning",
+  };
+  const renderQuadrant = (key: "tl" | "tr" | "bl" | "br", qLabel?: string): DomNode => {
+    const cellTone = qt[key] || (labelOnly ? defaultLabelTone[key] : undefined);
+    const tint = labelOnly ? tintFor(cellTone) : { fill: "surface.subtle", ink: "text.primary", line: "divider" };
+    return {
+      id: `${slideId}.${id}.${key}`,
+      type: "card",
+      fill: tint.fill,
+      line: tint.line,
+      padding: 0.4,
+      elevation: "flat",
+      children: [{
+        id: `${slideId}.${id}.${key}.stack`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.15,
+        align: labelOnly ? "center" as const : "start" as const,
+        valign: labelOnly ? "middle" as const : "top" as const,
+        children: [
+          ...(qLabel ? [{
+            id: `${slideId}.${id}.${key}.qlabel`,
+            type: "text" as const,
+            text: qLabel,
+            style: labelOnly ? "section-title" : "label",
+            color: labelOnly ? tint.ink : "text.muted",
+            tracking: labelOnly ? undefined : "wide" as const,
+            weight: labelOnly ? "semibold" as const : undefined,
+            align: labelOnly ? "center" as const : "left" as const,
+            minHeight: labelOnly ? 0.6 : 0.32,
+            autoFit: "shrink" as const,
+          }] : []),
+          ...quadrants[key]!.map((it, idx) => {
+            const tone = it.tone;
+            const fill = tone === "positive" ? "success.tint" : tone === "warning" ? "warning.tint" : tone === "danger" ? "danger.tint" : "brand.tint";
+            const color = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "brand.primary";
+            return {
+              id: `${slideId}.${id}.${key}.${idx}`,
+              type: "text" as const,
+              text: it.label,
+              style: "label",
+              weight: "semibold" as const,
+              color,
+              fill,
+              align: "left" as const,
+              cornerRadius: 0.08,
+              minHeight: 0.45,
+              autoFit: "shrink" as const,
+            };
+          }),
+        ],
+      }],
+    } as unknown as DomNode;
+  };
+  // Y-axis labels rendered as a thin tinted band so they read as axis bands
+  // rather than free-floating muted text. Previously a 4-char Chinese label
+  // on a 22cm row read as a tiny caption that disappeared. The band uses
+  // `surface.subtle` (not brand.tint) so it doesn't compete with quadrant
+  // cards in label-only mode where the cells themselves are tone-tinted.
+  const yAxisBand = (text: string, idSuffix: string): DomNode => ({
+    id: `${slideId}.${id}.${idSuffix}`,
+    type: "panel",
     fill: "surface.subtle",
     line: "divider",
-    padding: 0.35,
-    elevation: "flat",
+    cornerRadius: 0.08,
+    padding: 0.10,
     children: [{
-      id: `${slideId}.${id}.${key}.stack`,
-      type: "stack",
-      direction: "vertical",
-      gap: 0.15,
-      children: [
-        ...(qLabel ? [{
-          id: `${slideId}.${id}.${key}.qlabel`,
-          type: "text" as const,
-          text: qLabel,
-          style: "label",
-          color: "text.muted",
-          tracking: "wide" as const,
-          align: "left" as const,
-          minHeight: 0.32,
-          autoFit: "shrink" as const,
-        }] : []),
-        ...quadrants[key]!.map((it, idx) => {
-          const tone = it.tone;
-          const fill = tone === "positive" ? "success.tint" : tone === "warning" ? "warning.tint" : tone === "danger" ? "danger.tint" : "brand.tint";
-          const color = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "brand.primary";
-          return {
-            id: `${slideId}.${id}.${key}.${idx}`,
-            type: "text" as const,
-            text: it.label,
-            style: "label",
-            weight: "semibold" as const,
-            color,
-            fill,
-            align: "left" as const,
-            cornerRadius: 0.08,
-            minHeight: 0.45,
-            autoFit: "shrink" as const,
-          };
-        }),
-      ],
+      id: `${slideId}.${id}.${idSuffix}.text`,
+      type: "text",
+      text,
+      style: "label",
+      weight: "semibold",
+      color: "text.primary",
+      align: "center",
+      tracking: "wide",
+      minHeight: 0.36,
+      autoFit: "shrink",
     }],
   } as unknown as DomNode);
-  // 3×3 grid: top has y-high label + tl + tr cells (skip first), middle row
-  // has yLow/yHigh axis label, then quadrants + xAxis labels at bottom.
-  // Simpler: 2×2 grid of quadrants with axis labels stacked above and
-  // beside.
-  const ql = options.quadrantLabels || {};
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
@@ -3317,9 +3551,7 @@ export function matrix2x2(
     gap: 0.18,
     role: "matrix-2x2",
     children: [
-      // y-axis high label (top)
-      { id: `${slideId}.${id}.yhi`, type: "text", text: options.yAxis.high, style: "label", color: "text.muted", align: "center", tracking: "wide", minHeight: 0.32, autoFit: "shrink" },
-      // 2×2 grid
+      yAxisBand(options.yAxis.high, "yhi"),
       {
         id: `${slideId}.${id}.grid`,
         type: "grid",
@@ -3333,8 +3565,7 @@ export function matrix2x2(
           renderQuadrant("br", ql.br),
         ],
       },
-      // y-axis low label (bottom)
-      { id: `${slideId}.${id}.ylo`, type: "text", text: options.yAxis.low, style: "label", color: "text.muted", align: "center", tracking: "wide", minHeight: 0.32, autoFit: "shrink" },
+      yAxisBand(options.yAxis.low, "ylo"),
       // x-axis labels row
       {
         id: `${slideId}.${id}.x-axis`,

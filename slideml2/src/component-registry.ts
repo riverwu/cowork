@@ -5,7 +5,7 @@ import {
   keyTakeaway, kpiGrid, legend, logoStrip, matrix2x2, metricCard, numberedGrid, numberedList,
   outline, pricingCard, processFlow, profileCard, prosCons, progressBar, qAndA, quizCard,
   pointerArrow, quoteBlock, rangePlot, scaleBar, scorecard, sectionBreak, statComparison, statFlow, statStrip,
-  stepCard, swotMatrix, tagList, takeawayList, timelineAxisBar, timelineBlock, trendLine,
+  stepCard, swotMatrix, tagList, takeawayList, textChipWidthCm, timelineAxisBar, timelineBlock, trendLine,
   watermark,
 } from "./components.js";
 import { listNodeTypes } from "./node-types.js";
@@ -72,6 +72,7 @@ export type ComponentName =
   | "quiz-card"
   | "q-and-a"
   | "takeaway-list"
+  | "warning-list"
   | "outline"
   | "glossary"
   | "comparison-table"
@@ -272,9 +273,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     iconBackground: { type: "string", description: "Icon background fill token." },
     tone: { type: "string", description: "Optional text color token." },
   }, "stack.horizontal(shape, text)", "stack"),
-  component("timeline", "Chronological sequence with dates, eras, milestones, or releases. Use when time is the organizing meaning. Each item supports rich content: a sub-headline (title), simple body text (body), OR a full embedded DomNode (content) such as a metric-card, image, insight-card, quote, or a stack of multiple blocks. Pass `content` when the moment deserves more than text — a launch screenshot, a fundraising metric, a key quote.", {
-    items: { type: "array", required: true, description: "Array of { time?/date?/year?, title?/label?/headline?/name?, body?/description? (text), content? (any DomNode — metric-card, image, insight-card, etc.) }. content takes priority over body when both are supplied. Use vertical direction when items have rich content." },
-    direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Layout direction. Defaults to horizontal — safe for short text items. Pass 'vertical' when items have rich content (each row gets ~12cm width vs ~4cm in horizontal)." },
+  component("timeline", "Chronological sequence with dates, eras, milestones, or releases. Use when time is the organizing meaning. Each item supports a sub-headline (title), simple body text (body), an optional tone (brand|positive|warning|danger|neutral) for accent color, OR a full embedded DomNode (content) such as a metric-card, image, insight-card, quote. Capacity caps (auto-applied): horizontal rich items > 5 auto-flip to vertical (each row gets full width); simple items > 6 auto-wrap to a 4-col grid; the renderer takes care of overflow but for histories beyond ~8 rich events you should split into two timeline slides.", {
+    items: { type: "array", required: true, description: "Array of { time?/date?/year?, title?/label?/headline?/name?, body?/description? (text), tone? (brand|positive|warning|danger|neutral), content? (any DomNode — metric-card, image, insight-card, etc.) }. content takes priority over body when both are supplied. Prefer body+tone for ordinary events; reserve content for moments that need a chart/image/quote." },
+    direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Layout direction. Defaults to horizontal — safe for short text items. Pass 'vertical' when items have rich content (each row gets ~12cm width vs ~4cm in horizontal). The component auto-flips to vertical when items > 5 with rich content, and auto-wraps simple items > 6 into a 4-col grid." },
     orientation: { type: "enum", enum: ["horizontal", "vertical"], description: "Alias for direction." },
   }, "grid|stack of timeline-step cards", "stack"),
   component("profile-card", "Person or role profile with photo, name, title, and short bio. Use when identity/ownership is the content.", {
@@ -314,7 +315,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     marker: { type: "object", description: "Optional semantic item marker that sits beside the title and replaces the large icon. String or {shape:'dot|ring|square|rounded-square|diamond|side-bar|slash|index-chip', variant?, tone?, size?}. Use when a small decorative cue is enough." },
     badge: { type: "string", description: "Optional category/status badge." },
     tags: { type: "array", description: "Optional compact tags." },
-    metric: { type: "object", description: "Optional proof metric {value,label,tone?}." },
+    metric: { type: "object", description: "Optional proof metric {value,label,tone?}. Concise numeric values render as compact KPI; prose/star-rating values render as supporting evidence to preserve card hierarchy." },
     proof: { type: "string", description: "Optional short evidence/source line." },
     ctaText: { type: "string", description: "Optional compact action label." },
     iconColor: { type: "string", description: "Icon line color (theme token)." },
@@ -370,9 +371,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     caption: { type: "string", semantic: "caption", description: "Optional supporting context (e.g. '+38% YoY')." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Color tone for the value." },
   }, "stack of metric-value(2xl) + card-title + caption", "stack"),
-  component("bar-list", "Ranked or sortable categorical numeric comparison. Use when the viewer should see who is bigger/smaller across 4-8 items.", {
-    items: { type: "array", required: true, description: "Array of { label/name/title, value/score/percent, max?, valueLabel? }. Numeric strings like '75%' are accepted." },
-    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Bar fill color." },
+  component("bar-list", "Ranked or sortable categorical numeric/rating comparison. Use when the viewer should see who is bigger/smaller across 4-8 items.", {
+    items: { type: "array", required: true, description: "Array of { label/name/title, value/score/percent, max?, valueLabel?, tone? }. Numeric strings like '75%' are accepted. Star strings like '★★★★' are rendered as rating labels and converted to numeric bar lengths." },
+    tone: { type: "enum", enum: ["brand", "positive", "neutral", "warning", "danger"], description: "Default bar fill color. 'neutral' renders de-emphasized gray bars." },
     sort: { type: "enum", enum: ["desc", "asc", "none"], description: "Sort items by value (default 'none' — keep input order)." },
   }, "stack of (label-row + horizontal-track) per item", "stack"),
   component("stat-strip", "Inline row of headline metrics with minimal chrome. Use when 3-6 numbers support one read and card frames would be too heavy.", {
@@ -431,10 +432,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   component("key-takeaway", "The slide's central conclusion or 'so what'. Use when the viewer should leave with one decision, implication, or verdict; one per slide.", {
     headline: { type: "string", required: true, semantic: "section-title", description: "The conclusion in one short sentence." },
     title: { type: "string", semantic: "section-title", description: "Alias for headline." },
-    detail: { type: "string", semantic: "lead", description: "Optional supporting sentence." },
+    detail: { type: "string", semantic: "lead", description: "Optional supporting **sentence**. For multiple implications, pass `bullets`/`points` instead — a `detail` that crams '1. … 2. … 3. …' or '；'-separated runs into one string is rendered as a single paragraph." },
     body: { type: "string", semantic: "lead", description: "Alias for detail." },
     content: { type: "array", description: "Optional rich text runs for detail copy." },
     bullets: { type: "array", semantic: "bullet", description: "Optional supporting implications." },
+    points: { type: "array", semantic: "bullet", description: "Alias for bullets — short list of supporting points." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Tone color (default brand)." },
     variant: { type: "enum", enum: ["panel", "banner", "minimal"], description: "Visual emphasis level." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
@@ -541,11 +543,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     variant: { type: "enum", enum: ["plain", "columns", "subtle"], description: "Visual treatment." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
   }, "stack(title?, grid(option stacks))", "stack"),
-  component("fact-list", "Evidence-first list of facts, data snippets, claims, or source-backed observations. Prefer this over insight-card when each item is a fact plus interpretation/source rather than a full standalone insight.", {
+  component("fact-list", "Evidence-first list of facts, data snippets, claims, or source-backed observations. Prefer this over insight-card when each item is a fact plus interpretation/source rather than a full standalone insight. Dense list variants auto-flow into a compact grid while preserving per-item tone.", {
     title: { type: "string", description: "Optional local heading." },
     items: { type: "array", required: true, description: "Array of {label/title/name, value?, fact/text/body?, interpretation/insight?, source?, tone?}." },
     columns: { type: "number", description: "Optional column count for grid layout." },
-    variant: { type: "enum", enum: ["list", "grid", "strip"], description: "list = vertical evidence list; grid = compact multi-column; strip = horizontal facts." },
+    variant: { type: "enum", enum: ["list", "grid", "strip"], description: "list = vertical evidence list (5+ items auto-flow to compact grid); grid = compact multi-column; strip = horizontal facts." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Default accent tone." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
   }, "stack/grid of fact rows(label,value,fact,interpretation,source)", "stack"),
@@ -559,7 +561,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     items: { type: "array", description: "Alias for findings." },
     implication: { type: "string", description: "Optional implication sentence." },
     action: { type: "string", description: "Optional recommended next action." },
-    variant: { type: "enum", enum: ["memo", "board", "compact"], description: "Visual treatment." },
+    variant: { type: "enum", enum: ["memo", "board", "compact"], description: "Visual treatment. Default auto-selects 'board' when ≥4 findings AND at least 3 carry both headline and detail (renders findings as a labeled grid with tone color); otherwise 'memo' (collapses findings to a bullet list — better for short prose summaries with ≤3 findings or headline-only items)." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Semantic accent tone." },
   }, "stack(thesis, summary?, findings?, implication/action?)", "stack"),
   component("hero-and-support", "Page archetype: one dominant claim/object plus 2-4 supporting modules. Use instead of an equal card grid when one idea should clearly lead and the rest are satellites.", {
@@ -616,6 +618,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Default accent tone for items that don't supply one. 'neutral' renders a divider-gray bar (de-emphasized)." },
     marker: { type: "object", description: "Optional list-wide item marker. String or {shape,variant,tone,size}. Replaces the default accent bar; use side-bar for a slimmer rail, ring/dot/diamond for lightweight bullets." },
   }, "stack(items:Array<marker/bar+stack(headline,detail)>)", "stack"),
+  component("warning-list", "Tone-coded list of warnings, risks, redlines, anti-patterns, or rule violations. Use for '5 things to avoid', '红线 / 警示 / 雷区', 'do-not-do' lists, threat enumeration. Default tone is `warning` (orange) but per-item tone supports a danger/warning mix. Sized for 3-8 items on a single slide WITHOUT degrading to a plain numbered-list — replaces the failure-prone pattern of stacking 4+ `callout` cards in a vertical stack.", {
+    items: { type: "array", required: true, description: "Array of {title|headline, body|detail?, tone?, marker?}. ≥3 items recommended; ≤8 supported on one slide." },
+    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Default tone (warning by default)." },
+    marker: { type: "object", description: "Optional list-wide marker shape." },
+  }, "stack(items:Array<marker/bar+stack(headline,detail)>)", "stack"),
   component("outline", "Table of contents / agenda. Vertical list of N chapters, each with optional number + title + optional 1-line body + optional page reference. Use for cover-following TOC slides, talk agendas, chapter indexes. Distinct from numbered-grid (parallel modules in a grid) and timeline (date-ordered events) — outline is for linear reading-order chapters with editorial spacing. Density adapts: 1-5 items show body, 6-9 are compact, 10-12 hide body. Numbering is NEVER auto-generated — pass `number` explicitly per item if you want chapter labels (e.g. \"01\", \"I\", \"Ch 1\"). When at least one item supplies number, a number column is reserved across all rows (blank cells for un-numbered items, so titles stay aligned).", {
     items: { type: "array", required: true, description: "Array of {title:string, number?:string (e.g. \"01\", \"I\", \"Ch 1\"; not auto-generated), body?:string, page?:string|number, tone?:enum[brand|positive|warning|danger]}." },
     showPages: { type: "boolean", description: "Right-align item.page as a page reference (default false)." },
@@ -658,11 +665,12 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     palette: { type: "enum", enum: ["warm", "cool", "diverging"], description: "Color palette (default cool)." },
     showValues: { type: "boolean", description: "Render numeric values inside cells (default auto by size)." },
   }, "grid of colored cells with axis labels", "stack"),
-  component("matrix-2x2", "2x2 quadrant matrix with labeled axes and items placed in quadrants. Use for risk-matrix (impact × probability), priority (effort × value), Boston matrix. Different from swot-matrix which has fixed S/W/O/T semantics.", {
+  component("matrix-2x2", "2x2 quadrant matrix with labeled axes. Use for risk-matrix (impact × probability), priority (effort × value), Boston matrix, market segmentation. Different from swot-matrix which has fixed S/W/O/T semantics. Two authoring modes: (1) item-style — pass `items` with each entry placed in a quadrant via x/y enum; (2) label-style — pass only `quadrantLabels {tl,tr,bl,br}` to render each quadrant as a tinted card carrying just the corner label/headline. At least one of `items` or `quadrantLabels` is required.", {
     xAxis: { type: "object", required: true, description: "{low:string, high:string} — x-axis labels." },
     yAxis: { type: "object", required: true, description: "{low:string, high:string} — y-axis labels." },
-    items: { type: "array", required: true, description: "Array of {label:string, x:enum[low|high], y:enum[low|high], tone?}." },
-    quadrantLabels: { type: "object", description: "Optional {tl?:string, tr?:string, bl?:string, br?:string} corner names (e.g. \"Quick Wins\")." },
+    items: { type: "array", description: "Array of {label:string, x:enum[low|high], y:enum[low|high], tone?}. Optional when quadrantLabels alone describes the matrix." },
+    quadrantLabels: { type: "object", description: "Optional {tl?:string, tr?:string, bl?:string, br?:string} corner names (e.g. \"Quick Wins\"). When provided without items, each quadrant renders as a tinted summary card." },
+    quadrantTones: { type: "object", description: "Optional {tl?,tr?,bl?,br?: enum[brand|positive|warning|danger|neutral]} — per-quadrant accent tone, applied in label-only mode (no items[]). In item-style mode set per-item `tone` instead — quadrant cells stay neutral there so the data points stand out." },
   }, "stack(yhi-label, 2x2 grid of quadrant cards, ylo-label, x-axis labels)", "stack"),
   component("trend-line", "Mini sparkline / trend visualization (bars whose height reflects values). Use as decoration next to a metric or under a heading. Different from chart-card (full chart with axes/legend) — trend-line is just the shape.", {
     values: { type: "array", required: true, description: "Array of numbers (max 24)." },
@@ -971,6 +979,9 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     }));
   }
   if (componentName === "timeline") {
+    type TLTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+    const toneOf = (raw: unknown): TLTone | undefined =>
+      raw === "brand" || raw === "positive" || raw === "warning" || raw === "danger" || raw === "neutral" ? raw : undefined;
     const items = Array.isArray(node.items) ? node.items.map((raw, index) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
       // `content` accepts any DomNode (registered component or
@@ -987,6 +998,7 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
         // omit it because the content carries its own headline.
         title: stringValue(rec.title, stringValue(rec.label, stringValue(rec.headline, stringValue(rec.name, "")))),
         body: stringValue(rec.body, stringValue(rec.description, "")),
+        tone: toneOf(rec.tone),
         content,
       };
     }) : [];
@@ -1169,15 +1181,22 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     }));
   }
   if (componentName === "bar-list") {
-    const toneRaw = node.tone;
-    const tone = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" ? toneRaw : undefined;
+    type BarTone = "brand" | "positive" | "neutral" | "warning" | "danger";
+    const coerceTone = (v: unknown): BarTone | undefined => {
+      const norm = normalizeToneAlias(v);
+      return norm === "brand" || norm === "positive" || norm === "neutral" || norm === "warning" || norm === "danger" ? norm : undefined;
+    };
+    const tone = coerceTone(node.tone);
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      const value = barListValue(rec.value, rec.score, rec.percent);
+      const valueLabel = barListValueLabel(rec.valueLabel, rec.value ?? rec.score ?? rec.percent, value);
       return {
         label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))),
-        value: numberValue(rec.value, numberValue(rec.score, numberValue(rec.percent, 0))),
+        value,
         max: rec.max === undefined ? undefined : numberValue(rec.max, undefined),
-        valueLabel: stringValue(rec.valueLabel, ""),
+        valueLabel,
+        tone: coerceTone(rec.tone),
       };
     }).filter((item) => item.label) : [];
     const sortRaw = node.sort;
@@ -1242,11 +1261,20 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
   if (componentName === "key-takeaway") {
     const toneRaw = node.tone;
     const tone = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" ? toneRaw : undefined;
+    // `points` is an alias for `bullets`; either resolves to the bulleted
+    // implications below the headline. When neither is set AND `detail` looks
+    // like a hand-rolled inline numbered/semicolon list, auto-split it so the
+    // takeaway renders structured rather than as a single wrapped paragraph.
+    const explicitBullets = stringArray(node.bullets).length ? stringArray(node.bullets) : stringArray(node.points);
+    const detailText = stringValue(node.detail, stringValue(node.body, stringValue(node.description, "")));
+    const splitBullets = explicitBullets.length === 0 ? splitInlineList(detailText) : null;
+    const finalDetail = splitBullets ? "" : detailText;
+    const finalBullets = splitBullets ? splitBullets : explicitBullets;
     return withComponentRoot(node, keyTakeaway(slideId, name, {
       headline: stringValue(node.headline, stringValue(node.title, "")),
-      detail: stringValue(node.detail, stringValue(node.body, stringValue(node.description, ""))),
+      detail: finalDetail,
       content: node.content,
-      bullets: stringArray(node.bullets),
+      bullets: finalBullets,
       tone,
       variant: node.variant === "banner" || node.variant === "minimal" || node.variant === "panel" ? node.variant : undefined,
       density: node.density === "compact" || node.density === "comfortable" ? node.density : undefined,
@@ -1384,18 +1412,22 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     }));
   }
   if (componentName === "matrix-2x2") {
-    type MatTone = "brand" | "positive" | "warning" | "danger";
+    type MatItemTone = "brand" | "positive" | "warning" | "danger";
+    type MatQuadrantTone = MatItemTone | "neutral";
     const xAxis = node.xAxis && typeof node.xAxis === "object" ? node.xAxis as { low: string; high: string } : { low: "Low", high: "High" };
     const yAxis = node.yAxis && typeof node.yAxis === "object" ? node.yAxis as { low: string; high: string } : { low: "Low", high: "High" };
-    const items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: MatTone }> = Array.isArray(node.items) ? node.items.map((raw) => {
+    const items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: MatItemTone }> = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
       const tRaw = rec.tone;
-      const tone: MatTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : undefined;
+      const tone: MatItemTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : undefined;
       const x: "low" | "high" = rec.x === "high" ? "high" : "low";
       const y: "low" | "high" = rec.y === "high" ? "high" : "low";
       return { label: stringValue(rec.label, ""), x, y, tone };
     }).filter((it) => it.label) : [];
     const ql = node.quadrantLabels && typeof node.quadrantLabels === "object" ? node.quadrantLabels as Record<string, unknown> : {};
+    const qt = node.quadrantTones && typeof node.quadrantTones === "object" ? node.quadrantTones as Record<string, unknown> : {};
+    const tone = (raw: unknown): MatQuadrantTone | undefined =>
+      raw === "brand" || raw === "positive" || raw === "warning" || raw === "danger" || raw === "neutral" ? raw : undefined;
     return withComponentRoot(node, matrix2x2(slideId, name, {
       xAxis: { low: stringValue(xAxis.low, "Low"), high: stringValue(xAxis.high, "High") },
       yAxis: { low: stringValue(yAxis.low, "Low"), high: stringValue(yAxis.high, "High") },
@@ -1405,6 +1437,12 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
         tr: stringValue(ql.tr, "") || undefined,
         bl: stringValue(ql.bl, "") || undefined,
         br: stringValue(ql.br, "") || undefined,
+      },
+      quadrantTones: {
+        tl: tone(qt.tl),
+        tr: tone(qt.tr),
+        bl: tone(qt.bl),
+        br: tone(qt.br),
       },
     }));
   }
@@ -1747,7 +1785,7 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       title: stringValue(node.title, "") || undefined,
     }));
   }
-  if (componentName === "takeaway-list") {
+  if (componentName === "takeaway-list" || componentName === "warning-list") {
     type TakeawayTone = "brand" | "positive" | "warning" | "danger" | "neutral";
     const allowed = new Set<string>(["brand", "positive", "warning", "danger", "neutral"]);
     const coerce = (v: unknown): TakeawayTone | undefined => {
@@ -1763,7 +1801,11 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
         marker: decorationMarker(rec.marker),
       };
     }).filter((item) => item.headline) : [];
-    const tone = coerce(node.tone);
+    // warning-list defaults to tone "warning"; takeaway-list keeps existing
+    // brand default. Both share the same render path so danger/warning mix
+    // works in either component.
+    const explicitTone = coerce(node.tone);
+    const tone: TakeawayTone | undefined = explicitTone || (componentName === "warning-list" ? "warning" : undefined);
     return withComponentRoot(node, takeawayList(slideId, name, { items, tone, marker: decorationMarker(node.marker), ...surfaceOptions(node) }));
   }
   return withComponentRoot(node, { id: node.id, type: "stack", direction: "vertical", children: [] });
@@ -1946,6 +1988,10 @@ function calloutNode(slideId: string, name: string, node: DomNode): DomNode {
   const variant = node.variant === "banner" || node.variant === "card" ? node.variant : (title || body || richContent || bullets.length ? "card" : "plain");
   const toneProps = tonePropsFrom(node.tone);
   const accent = toneAccent(node.tone);
+  // Compact density: tighter padding/gap and no decorative accent. Triggered
+  // either by explicit author choice (density:"compact") or by render's
+  // densifyCalloutSiblings pre-pass when ≥4 callouts share a stack/grid.
+  const compact = node.density === "compact";
   if (variant === "plain") {
     const expanded = insightCallout(slideId, name, text || title || body);
     return { ...expanded, ...toneProps, color: "text.primary" };
@@ -1958,9 +2004,10 @@ function calloutNode(slideId: string, name: string, node: DomNode): DomNode {
       id: `${slideId}.${name}.title`,
       type: "text",
       text: titleText,
-      style: "card-title",
+      style: compact ? "label" : "card-title",
       color: accent,
-      minHeight: 0.55,
+      ...(compact ? { weight: "semibold" } : {}),
+      minHeight: compact ? 0.32 : 0.55,
       autoFit: "shrink",
     });
   }
@@ -1972,37 +2019,41 @@ function calloutNode(slideId: string, name: string, node: DomNode): DomNode {
       type: "text",
       text: bodyText,
       ...(richContent ? { content: richContent } : {}),
-      style: variant === "banner" ? "lead" : "paragraph",
+      style: variant === "banner" ? "lead" : (compact ? "caption" : "paragraph"),
       color: "text.primary",
       autoFit: "shrink",
-      lineHeight: variant === "banner" ? 1.42 : 1.45,
-      minHeight: estimateCalloutBodyMinHeight(bodyPlain, variant === "banner"),
+      lineHeight: variant === "banner" ? 1.42 : (compact ? 1.28 : 1.45),
+      // Compact rows have ~1.2-1.6cm of vertical budget total; the body
+      // shouldn't claim more than ~0.5cm so the title stays visible.
+      minHeight: compact ? 0.42 : estimateCalloutBodyMinHeight(bodyPlain, variant === "banner"),
+      ...(compact ? { optional: true } : {}),
     });
   }
   if (bullets.length > 0) children.push(bulletList(slideId, `${name}.bullets`, bullets.slice(0, 5), "compact"));
   if (children.length === 0) children.push({ id: `${slideId}.${name}.body`, type: "text", text, style: "callout", color: "text.primary", autoFit: "shrink" });
   const surface = variant === "banner"
-    ? { fill: toneProps.fill || "brand.tint", line: toneProps.line || accent, padding: 0.75, cornerRadius: 0.08 }
-    : { fill: toneProps.fill || "surface", line: toneProps.line || "divider", padding: 0.72, cornerRadius: 0.12 };
+    ? { fill: toneProps.fill || "brand.tint", line: toneProps.line || accent, padding: compact ? 0.18 : 0.75, cornerRadius: 0.08 }
+    : { fill: toneProps.fill || "surface", line: toneProps.line || "divider", padding: compact ? 0.18 : 0.72, cornerRadius: compact ? 0.06 : 0.12 };
+  const accentChild: DomNode | null = compact ? null : {
+    id: `${slideId}.${name}.accent`,
+    type: "shape",
+    preset: "rect",
+    fill: accent,
+    line: accent,
+    fixedHeight: 0.12,
+    fixedWidth: 2.5,
+    align: "start",
+    optional: true,
+  };
   return {
     id: `${slideId}.${name}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.22,
+    gap: compact ? 0.10 : 0.22,
     role: "callout",
     ...surface,
     children: [
-      {
-        id: `${slideId}.${name}.accent`,
-        type: "shape",
-        preset: "rect",
-        fill: accent,
-        line: accent,
-        fixedHeight: 0.12,
-        fixedWidth: 2.5,
-        align: "start",
-        optional: true,
-      },
+      ...(accentChild ? [accentChild] : []),
       ...children,
     ],
   };
@@ -2570,7 +2621,7 @@ function imageCardNode(slideId: string, name: string, node: DomNode): DomNode {
       direction: "vertical",
       gap: node.variant === "compact" ? 0.16 : 0.25,
       children: [
-        ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.36, fixedWidth: Math.max(1.0, Math.min(3.0, badge.length * 0.18 + 0.55)), align: "center" as const, autoFit: "shrink" as const }] : []),
+        ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(badge, { min: 1.0, max: 4.8, padding: 0.62 }), align: "center" as const, autoFit: "shrink" as const }] : []),
         ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65 }] : []),
         {
           id: `${slideId}.${name}.image`,
@@ -2618,7 +2669,7 @@ function chartCardNode(slideId: string, name: string, node: DomNode): DomNode {
       direction: "vertical",
       gap,
       children: [
-        ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.36, fixedWidth: Math.max(1.0, Math.min(3.0, badge.length * 0.18 + 0.55)), align: "center" as const, autoFit: "shrink" as const }] : []),
+        ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(badge, { min: 1.0, max: 4.8, padding: 0.62 }), align: "center" as const, autoFit: "shrink" as const }] : []),
         ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65 }] : []),
         {
           id: `${slideId}.${name}.chart`,
@@ -2663,7 +2714,7 @@ function tableCardNode(slideId: string, name: string, node: DomNode): DomNode {
       direction: "vertical",
       gap: denseTable ? 0.16 : 0.25,
       children: [
-        ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.36, fixedWidth: Math.max(1.0, Math.min(3.0, badge.length * 0.18 + 0.55)), align: "center" as const, autoFit: "shrink" as const }] : []),
+        ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(badge, { min: 1.0, max: 4.8, padding: 0.62 }), align: "center" as const, autoFit: "shrink" as const }] : []),
         ...(title ? [denseTable
           ? { id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", minHeight: 0.45, autoFit: "shrink" as const, optional: true }
           : { id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65 }] : []),
@@ -2907,34 +2958,17 @@ function factListNode(slideId: string, name: string, node: DomNode): DomNode {
     source: stringValue(rec.source, ""),
     tone: componentTone(rec.tone) || defaultTone,
   })).filter((item) => item.label || item.value || item.fact || item.interpretation);
-  const denseList = requestedVariant === "list" && items.length >= 5;
   const compact = node.density === "compact" || items.length >= 5 || requestedVariant === "strip";
   // A single-column fact list with 5-8 rows routinely appears when agents
-  // turn a timeline or evidence list into facts. Preserve the user's
-  // evidence-list intent, but flow dense lists into two columns so a normal
-  // content slide can still render.
+  // turn a timeline or evidence list into facts. Preserve the fact-list item
+  // semantics and per-item tones, but flow dense lists into multiple columns
+  // so a normal content slide can still render.
   const variant = requestedVariant === "list" && items.length >= 5 ? "grid" : requestedVariant;
   const cells = items.map((item, index) => factItemNode(slideId, `${name}.${index + 1}`, item, compact, variant !== "list", variant));
   const children: DomNode[] = [];
   const title = stringValue(node.title, "");
   if (title) children.push({ id: `${slideId}.${name}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.5, autoFit: "shrink" });
-  if (denseList) {
-    const hasTertiaryColumn = items.some((item) => Boolean(item.interpretation || item.source));
-    children.push({
-      id: `${slideId}.${name}.items`,
-      type: "table",
-      rows: items.map((item) => {
-        const base = [item.label || item.value, item.fact];
-        return hasTertiaryColumn ? [...base, item.interpretation || item.source] : base;
-      }),
-      colWidths: hasTertiaryColumn ? [0.2, 0.34, 0.46] : [0.34, 0.66],
-      firstRowHeader: false,
-      bodyFill: "surface.subtle",
-      borderColor: "divider",
-      borderWidth: 0.5,
-      layoutWeight: 1,
-    });
-  } else if (variant === "list") {
+  if (variant === "list") {
     children.push({
       id: `${slideId}.${name}.items`,
       type: "stack",
@@ -2968,8 +3002,6 @@ function factListNode(slideId: string, name: string, node: DomNode): DomNode {
 
 function executiveSummaryNode(slideId: string, name: string, node: DomNode): DomNode {
   const tone = componentTone(node.tone) || "brand";
-  const variant = node.variant === "board" || node.variant === "compact" ? node.variant : "memo";
-  const compact = variant === "compact";
   const thesis = stringValue(node.thesis, stringValue(node.headline, stringValue(node.title, "")));
   const summary = stringValue(node.summary, stringValue(node.body, stringValue(node.detail, "")));
   const findings = recordItems(Array.isArray(node.findings) ? node.findings : node.items).map((rec) => ({
@@ -2977,6 +3009,17 @@ function executiveSummaryNode(slideId: string, name: string, node: DomNode): Dom
     detail: stringValue(rec.detail, stringValue(rec.body, stringValue(rec.description, ""))),
     tone: componentTone(rec.tone) || tone,
   })).filter((item) => item.headline || item.detail);
+  // Default variant: prefer "board" when there are ≥4 findings AND each
+  // finding carries structured detail (headline + detail). Collapsing a
+  // 4-finding executive-summary into a flat bullet list (memo) lost the
+  // per-finding tone color and headline emphasis the agent set. memo
+  // stays the default for ≤3 findings or for "headline-only" findings
+  // where bullets read tighter than card grids.
+  const explicitVariant = node.variant === "board" || node.variant === "compact" || node.variant === "memo" ? node.variant : null;
+  const structuredFindings = findings.filter((item) => item.headline && item.detail).length;
+  const autoVariant = findings.length >= 4 && structuredFindings >= 3 ? "board" : "memo";
+  const variant = explicitVariant ?? autoVariant;
+  const compact = variant === "compact";
   const children: DomNode[] = [{
     id: `${slideId}.${name}.thesis`,
     type: "text",
@@ -3051,10 +3094,18 @@ function factItemNode(
   framed: boolean,
   variant: "list" | "grid" | "strip",
 ): DomNode {
-  const topLine = [item.label, item.value].filter(Boolean).join("  ");
   const children: DomNode[] = [];
   const strip = variant === "strip";
-  if (topLine) children.push({ id: `${slideId}.${name}.label`, type: "text", text: topLine, style: "label", color: toneAccent(item.tone), minHeight: compact ? 0.24 : 0.3, autoFit: "shrink" });
+  if (item.label) children.push({ id: `${slideId}.${name}.label`, type: "text", text: item.label, style: "label", color: toneAccent(item.tone), minHeight: compact ? 0.28 : 0.34, autoFit: "shrink" });
+  if (item.value) children.push({
+    id: `${slideId}.${name}.value`,
+    type: "text",
+    text: item.value,
+    style: compact ? "label" : "card-title",
+    color: "text.primary",
+    minHeight: estimateFactValueMinHeight(item.value, compact),
+    autoFit: "shrink",
+  });
   if (item.fact) children.push({
     id: `${slideId}.${name}.fact`,
     type: "text",
@@ -3072,11 +3123,11 @@ function factItemNode(
       id: `${slideId}.${name}`,
       type: "stack",
       direction: "vertical",
-      gap: 0.03,
-      padding: framed ? 0.1 : 0,
+      gap: 0.08,
+      padding: framed ? 0.16 : 0,
       ...(framed ? { fill: "surface.subtle", line: "divider", cornerRadius: 0.06 } : {}),
       children: [
-        { id: `${slideId}.${name}.accent`, type: "shape", preset: "rect", fill: toneAccent(item.tone), line: toneAccent(item.tone), fixedHeight: 0.05, optional: true },
+        { id: `${slideId}.${name}.accent`, type: "shape", preset: "rect", fill: toneAccent(item.tone), line: toneAccent(item.tone), fixedHeight: 0.06, optional: true },
         ...children,
       ],
     };
@@ -3093,6 +3144,14 @@ function factItemNode(
       { id: `${slideId}.${name}.stack`, type: "stack", direction: "vertical", gap: compact ? 0.04 : 0.1, layoutWeight: 1, children },
     ],
   };
+}
+
+function estimateFactValueMinHeight(text: string, compact: boolean): number {
+  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const weighted = weightedTextLengthForComponent(text);
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / (compact ? 28 : 34)));
+  const lineHeight = compact ? 0.3 : 0.4;
+  return Math.max(compact ? 0.3 : 0.44, Math.min(compact ? 0.82 : 1.1, estimatedLines * lineHeight + 0.08));
 }
 
 function estimateCompactFactMinHeight(text: string): number {
@@ -3130,9 +3189,13 @@ function weightedTextLengthForComponent(text: string): number {
   let length = 0;
   for (const char of text) {
     if (char === "\n") continue;
-    length += /[\u4e00-\u9fff]/.test(char) ? 1.05 : 0.58;
+    length += /[\u4e00-\u9fff]/.test(char) ? 1.05 : isWideVisualSymbol(char) ? 0.9 : 0.58;
   }
   return length;
+}
+
+function isWideVisualSymbol(char: string): boolean {
+  return /[\u2605\u2606\u2713\u2714\u2717\u2715\u2716\u26a0\u25cf\u25cb\u25c6\u25c7\u25a0\u25a1\u25b2\u25b3\u25b6\u25b7\u25bc\u25bd]/.test(char);
 }
 
 function normalizeTimelineContent(slideId: string, name: string, index: number, content: DomNode): DomNode {
@@ -3206,7 +3269,7 @@ function primitiveExample(type: PrimitiveComponentType): DomNode {
   if (type === "table") return { id: "example.table", type: "table", headers: ["A", "B"], rows: [["1", "2"]], caption: "Optional caption" };
   if (type === "chart") return { id: "example.chart", type: "chart", chartType: "bar", labels: ["Q1", "Q2"], series: [{ name: "Revenue", values: [1, 2] }] };
   if (type === "panel") return { id: "example.panel", type: "panel", tone: "tinted", children: [{ id: "example.panel.body", type: "text", text: "Grouped content." }] };
-  if (type === "card") return { id: "example.card", type: "card", header: "Engagement", accent: "left", children: [{ id: "example.card.body", type: "text", text: "78% retention week one." }] };
+  if (type === "card") return { id: "example.card", type: "card", title: "Engagement", accent: "left", children: [{ id: "example.card.body", type: "text", text: "78% retention week one." }] };
   if (type === "band") return { id: "example.band", type: "band", tone: "brand", height: 1.6, children: [{ id: "example.band.text", type: "text", text: "Section: outlook", style: "section-title", color: "brand.primary" }] };
   if (type === "frame") return { id: "example.frame", type: "frame", dash: "dash", children: [{ id: "example.frame.body", type: "text", text: "TBD region" }] };
   if (type === "inset") return { id: "example.inset", type: "inset", padding: 0.5, children: [{ id: "example.inset.body", type: "text", text: "Indented child." }] };
@@ -3607,6 +3670,39 @@ function axisRulerNode(slideId: string, name: string, node: DomNode): DomNode {
       children: items.map((item, index) => axisRulerItem(slideId, name, item, index, "vertical")),
     };
   }
+  if (items.length > 6) {
+    const columns = 4;
+    const rows: DomNode[] = [];
+    for (let start = 0; start < items.length; start += columns) {
+      const rowIndex = Math.floor(start / columns);
+      const rowItems = items.slice(start, start + columns);
+      rows.push({
+        id: `${slideId}.${name}.row${rowIndex}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.16,
+        role: "axis-ruler-row",
+        children: [
+          { id: `${slideId}.${name}.row${rowIndex}.line`, type: "divider", orientation: "horizontal", line: toneToColors(node.tone).line || "brand.primary", thickness: 0.04, fixedHeight: 0.10 },
+          {
+            id: `${slideId}.${name}.row${rowIndex}.items`,
+            type: "grid",
+            columns,
+            gap: 0.32,
+            children: rowItems.map((item, localIndex) => axisRulerItem(slideId, name, item, start + localIndex, "horizontal")),
+          },
+        ],
+      });
+    }
+    return {
+      id: `${slideId}.${name}`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.28,
+      role: "axis-ruler",
+      children: rows,
+    };
+  }
   return {
     id: `${slideId}.${name}`,
     type: "stack",
@@ -3752,6 +3848,30 @@ function stringValue(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
+function barListValue(...values: unknown[]): number {
+  for (const value of values) {
+    const numeric = numberValue(value, undefined);
+    if (typeof numeric === "number") return numeric;
+    const rating = starRatingValue(value);
+    if (typeof rating === "number") return rating;
+  }
+  return 0;
+}
+
+function barListValueLabel(explicit: unknown, raw: unknown, numericValue: number): string {
+  const authored = stringValue(explicit, "");
+  if (authored) return authored;
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  if (typeof raw === "number" && Number.isFinite(raw)) return `${raw}`;
+  return `${numericValue}`;
+}
+
+function starRatingValue(value: unknown): number | undefined {
+  if (typeof value !== "string") return undefined;
+  const filled = Array.from(value).filter((ch) => ch === "★" || ch === "⭐").length;
+  return filled > 0 ? filled : undefined;
+}
+
 function numberValue(value: unknown, fallback: number): number;
 function numberValue(value: unknown, fallback: undefined): number | undefined;
 function numberValue(value: unknown, fallback: number | undefined): number | undefined {
@@ -3772,6 +3892,45 @@ function arrayValue(...values: unknown[]): unknown[] {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean) : [];
+}
+
+/**
+ * Best-effort split of an inline-list-shaped string into bullet items. Used
+ * when an agent piles "1. … 2. … 3. …" or "•/\n" runs into a single `detail`
+ * field on key-takeaway / callout: the renderer would otherwise render that
+ * as a single wrapped paragraph and the per-item structure is lost. Returns
+ * null when the string is plainly a sentence (so the caller keeps the prose
+ * shape).
+ */
+function splitInlineList(detail: string): string[] | null {
+  if (!detail || typeof detail !== "string") return null;
+  const trimmed = detail.trim();
+  if (!trimmed) return null;
+  // Multi-line bullet markers (•/·/★/numbered) — split on hard line breaks.
+  if (/\r?\n/.test(trimmed)) {
+    const lines = trimmed.split(/\r?\n+/).map((line) => line.trim()).filter(Boolean);
+    const bulletLines = lines.filter((line) => /^[•·★▶▪◆\-–]\s+\S/.test(line) || /^(?:\d+[.、)）]|[一二三四五六七八九十][、.])\s*\S/.test(line));
+    if (bulletLines.length >= 2 && bulletLines.length === lines.length) {
+      return lines.map((line) => line.replace(/^[•·★▶▪◆\-–]\s*/, "").replace(/^\d+[.、)）]\s*/, "").replace(/^[一二三四五六七八九十][、.]\s*/, "").trim()).filter(Boolean);
+    }
+  }
+  // Inline numeric list "1. A 2. B 3. C" without explicit newlines. Accept
+  // bare "<digits>." even without preceding whitespace — agents often write
+  // "...路径）2. 跨平台..." where the previous segment ends in punctuation
+  // and runs straight into the next number. Require whitespace AFTER the
+  // dot/paren so decimals like "10.5" do not parse as a list prefix. Use
+  // a lookahead-driven split so repeated digits don't confuse indexOf.
+  const numericPrefix = /(?:^|(?<=[\s）)\]、，,。.]))\d+[.、)）]\s+/;
+  const inlineMatches = trimmed.match(new RegExp(numericPrefix.source, "g"));
+  if (inlineMatches && inlineMatches.length >= 3) {
+    const segments = trimmed.split(new RegExp(`(?=${numericPrefix.source})`));
+    const stripped = segments.map((seg) => seg.replace(numericPrefix, "").trim()).filter(Boolean);
+    if (stripped.length >= 2) return stripped;
+  }
+  // Chinese semicolon-separated runs (≥3 segments).
+  const semiParts = trimmed.split(/[；;]\s*/).map((part) => part.trim()).filter((part) => part.length > 1);
+  if (semiParts.length >= 3) return semiParts;
+  return null;
 }
 
 function numberedListItems(value: unknown): Array<string | { title?: string; headline?: string; label?: string; name?: string; text?: string; body?: string; detail?: string; description?: string }> {

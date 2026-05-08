@@ -53,6 +53,8 @@ describe("slideml2 MVP", () => {
   it("describes the available semantic node types", () => {
     expect(listNodeTypesForTest().map((item) => item.type)).toEqual(["slide", "stack", "grid", "split", "spacer", "divider", "text", "bullets", "image", "table", "chart", "shape", "component", "panel", "card", "band", "frame", "inset"]);
     expect(describeNodeType("bullets").fields.items).toContain("string[]");
+    expect(describeNodeType("card").fields.title).toContain("Alias for header");
+    expect(describeNodeType("card").fields.header).toContain("Same rendering as title");
   });
 
   it("builds semantic DOM from simple layout specs", () => {
@@ -898,7 +900,9 @@ describe("slideml2 MVP", () => {
     const blocking = [...blockingCodes].flatMap((code) => getDiagnosticsByCode(code as Parameters<typeof getDiagnosticsByCode>[0]));
     expect(blocking.map((item) => `${item.code}:${item.nodeId}`)).toEqual([]);
     const names = ast.slides[0]!.shapes.map((shape) => shape.name || "");
-    expect(names.some((name) => name.includes("dense-facts.factlist.items"))).toBe(true);
+    expect(names.some((name) => name.includes("dense-facts.factlist.1."))).toBe(true);
+    expect(names.some((name) => name.includes("dense-facts.factlist.6."))).toBe(true);
+    expect(ast.slides[0]!.shapes.some((shape) => shape.type === "table" && shape.name === "dense-facts.factlist.items")).toBe(false);
   });
 
   it("adapts long key-takeaway headlines inside normal content flow", () => {
@@ -2472,6 +2476,55 @@ describe("slideml2 MVP", () => {
     expect(cardInner).toBeTruthy();
     expect(panelInner!.rect.w).toBeGreaterThan(0);
     expect(cardInner!.rect.h).toBeGreaterThan(0);
+  });
+
+  it("renders primitive card.title as the card heading alias", () => {
+    clearRenderDiagnostics();
+    const card = {
+      id: "card-title-alias.card",
+      type: "card" as const,
+      title: "Visible title",
+      accent: "left",
+      children: [{ id: "card-title-alias.card.body", type: "text" as const, style: "paragraph", text: "Body text remains below the heading." }],
+    };
+    const deck: ReturnType<typeof buildDom> = {
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "card-title-alias",
+        layout: "title-and-content",
+        dom: {
+          id: "card-title-alias.root",
+          type: "slide",
+          background: "background",
+          children: [{
+            id: "card-title-alias.content",
+            type: "stack",
+            area: "content",
+            children: [card],
+          }],
+        },
+      }],
+    };
+
+    const ast = renderToAst(deck);
+    const titleShape = ast.slides[0]!.shapes.find((shape) => shape.name === "card-title-alias.card.title");
+    expect(titleShape).toBeTruthy();
+    expect(JSON.stringify(titleShape)).toContain("Visible title");
+
+    const validation = validateSlide({ id: "card-title-alias", children: [card] } as never);
+    expect(validation.errors.map((item) => item.code)).not.toContain("UNKNOWN_NODE_TYPE");
+    expect(validation.warnings.map((item) => item.code)).not.toContain("CARD_TITLE_HEADER_CONFLICT");
+
+    const conflict = validateSlide({
+      id: "card-title-conflict",
+      children: [{
+        ...card,
+        id: "card-title-conflict.card",
+        title: "Title",
+        header: "Header",
+      }],
+    } as never);
+    expect(conflict.warnings.map((item) => item.code)).toContain("CARD_TITLE_HEADER_CONFLICT");
   });
 
   it("inspectLayout returns intrinsic specs and applied solver decisions", () => {

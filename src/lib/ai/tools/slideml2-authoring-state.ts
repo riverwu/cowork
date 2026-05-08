@@ -33,13 +33,10 @@ export function recordSlideWrite(deckPath: string, target?: string): number {
 }
 
 export function slideAuthoringCheckpointHint(deckPath: string, writes = getUnvalidatedSlideWrites(deckPath)): string {
-  if (writes < 2) {
-    return "Recommended: run validate_render with render=true before treating the PPTX as final.";
-  }
   return [
-    `Checkpoint required: ${writes} SlideML2 slide write(s) have not been render-validated.`,
-    "Call validate_render({deckPath, render:true}) now before adding more slides.",
-    "Use the diagnostics from this early render to adjust the next 1-2 slides; do not wait until the whole deck is written.",
+    `${writes} SlideML2 slide write(s) are pending final full-deck render in this authoring window.`,
+    "Continue adding slides one at a time with replace_slide.",
+    "After all slides are added, call validate_render({deckPath, render:true}) once for the full-deck PPTX export and cross-slide QA.",
   ].join(" ");
 }
 
