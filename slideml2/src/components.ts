@@ -136,7 +136,7 @@ export function textChipWidthCm(text: string, options: { min?: number; max?: num
   let width = padding;
   for (const ch of text) {
     if (/\s/.test(ch)) width += latin * 0.55;
-    else width += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? cjk : isWideVisualSymbol(ch) ? cjk * 0.86 : latin;
+    else width += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? cjk : isWideVisualSymbol(ch) ? cjk * 1.06 : latin;
   }
   return Math.max(min, Math.min(max, width));
 }
@@ -457,7 +457,7 @@ export function comparisonCard(
   const crowded = points.length + (options.pros?.length || 0) + (options.cons?.length || 0) + (options.metrics?.length || 0) + (options.body ? 1 : 0) + (options.score ? 1 : 0) > 8;
   const visiblePoints = points.slice(0, crowded ? 3 : 6);
   const children: DomNode[] = [
-    ...(options.badge ? [{ id: `${slideId}.${id}.badge`, type: "text" as const, text: options.badge, style: "label" as const, uppercase: true, color: options.winner ? "text.inverse" : "text.primary", fill: options.winner ? "brand.primary" : "surface.subtle", cornerRadius: 0.18, align: "center" as const, fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1.2, max: 4.6, padding: 0.6 }), autoFit: "shrink" as const }] : []),
+    ...(options.badge ? [{ id: `${slideId}.${id}.badge`, type: "text" as const, text: options.badge, style: "label" as const, uppercase: true, color: options.winner ? "text.inverse" : "text.primary", fill: options.winner ? "brand.primary" : "surface.subtle", cornerRadius: 0.18, align: "center" as const, fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1.2, max: 4.6, padding: 0.6 }), autoFit: "shrink" as const, noWrap: true }] : []),
     { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.6, autoFit: "shrink" },
     ...(options.subtitle && !crowded ? [{ id: `${slideId}.${id}.subtitle`, type: "text" as const, text: options.subtitle, style: "label" as const, color: "text.muted", minHeight: 0.32, autoFit: "shrink" as const }] : []),
   ];
@@ -1130,7 +1130,7 @@ export function featureCard(slideId: string, id: string, options: {
         titleNode,
       ];
   if (options.badge) {
-    children.unshift({ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", color: "text.primary", fill: "surface.subtle", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1.0, max: 4.8, padding: 0.62 }), align: "center", autoFit: "shrink" });
+    children.unshift({ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", color: "text.primary", fill: "surface.subtle", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1.0, max: 4.8, padding: 0.62 }), align: "center", autoFit: "shrink", noWrap: true });
   }
   const body = textWithRichContent(options.body?.trim() || "", options.content);
   if (body.text || body.content) {
@@ -1412,6 +1412,7 @@ export function processFlow(slideId: string, id: string, options: {
   const arrow = direction === "horizontal" ? "arrow-right" : "arrow-down";
   const compact = options.density === "compact";
   const dense = compact || options.steps.length >= 5;
+  const cardVariant = options.variant === "cards";
   const items: DomNode[] = [];
   // Vertical process-flow stacks step + arrow + step + arrow ... in one column
   // and competes with the slide's slide-title placeholder for the ~10cm content
@@ -1421,6 +1422,13 @@ export function processFlow(slideId: string, id: string, options: {
   options.steps.forEach((step, index) => {
     const statusColor = toneColor(step.status, "text.primary");
     const iconFill = statusColor === "text.primary" ? "surface.subtle" : statusColor;
+    const richHorizontalCard = direction === "horizontal" && cardVariant && (
+      Boolean(step.bullets && step.bullets.length) ||
+      Boolean(step.owner || step.time) ||
+      Boolean(step.body && (step.body.length > 28 || step.body.includes("\n")))
+    );
+    const stepAlign = cardVariant ? "start" : "center";
+    const textAlign = cardVariant ? "left" : "center";
     // Horizontal flow uses a maxHeight cap so the step card sizes to its
     // content (typical 1.7–2.5cm) instead of stretching to the parent row's
     // ~10cm cross axis. Without the cap, fill:"surface" painted a 10cm
@@ -1428,7 +1436,8 @@ export function processFlow(slideId: string, id: string, options: {
     // centered in the middle, and the body's fixedHeight + autoFit:shrink
     // pushed body text down to ~8pt. Vertical flow keeps minHeight (it
     // grows with content vertically and competes with adjacent rows).
-    const horizontalMaxHeight = dense ? 2.5 : 3.1;
+    const horizontalMaxHeight = richHorizontalCard ? 4.15 : cardVariant ? (dense ? 3.2 : 3.5) : (dense ? 2.5 : 3.1);
+    const horizontalMinHeight = richHorizontalCard ? 3.15 : cardVariant ? (dense ? 2.25 : 2.55) : undefined;
     const verticalMinHeight = verticalDense ? 1.0 : 1.4;
     items.push({
       id: `${slideId}.${id}.step${index + 1}`,
@@ -1442,25 +1451,25 @@ export function processFlow(slideId: string, id: string, options: {
       // without it, steps top-align in the slide content rect (~10cm) while
       // the arrows are vertically centered, creating disconnected layouts
       // (t25mft tang slide: steps at y=2.95, arrows at y=7.87).
-      align: "center",
+      align: stepAlign,
       valign: "middle",
-      justify: "center",
-      ...(direction === "horizontal" ? { maxHeight: horizontalMaxHeight } : { minHeight: verticalMinHeight }),
+      justify: cardVariant ? "start" : "center",
+      ...(direction === "horizontal" ? { maxHeight: horizontalMaxHeight, ...(horizontalMinHeight ? { minHeight: horizontalMinHeight } : {}) } : { minHeight: verticalMinHeight }),
       children: [
         // umzrkm fix: step.title used brand.primary which fails 4.5:1 on
         // agent themes with mid-saturation brand colors (teal 5B8A8A on
         // E8F3F3 ≈ 3.4:1). Mirror the 2pmnxh fix that already moved
         // timeline-step to text.primary. The arrow shape between steps
         // still carries brand.primary so the visual claim is preserved.
-        ...(step.icon ? [{ id: `${slideId}.${id}.step${index + 1}.icon`, type: "shape" as const, preset: step.icon, fill: iconFill, line: statusColor, fixedWidth: 0.46, fixedHeight: 0.46, align: "center" as const }] : []),
-        { id: `${slideId}.${id}.step${index + 1}.title`, type: "text", text: step.title, style: "card-title", color: statusColor, align: "center", minHeight: dense || verticalDense ? 0.42 : 0.6, autoFit: "shrink" },
+        ...(step.icon ? [{ id: `${slideId}.${id}.step${index + 1}.icon`, type: "shape" as const, preset: step.icon, fill: iconFill, line: statusColor, fixedWidth: cardVariant ? 0.58 : 0.46, fixedHeight: cardVariant ? 0.58 : 0.46, align: stepAlign as "start" | "center" }] : []),
+        { id: `${slideId}.${id}.step${index + 1}.title`, type: "text", text: step.title, style: "card-title", color: statusColor, align: textAlign, minHeight: dense || verticalDense ? 0.42 : 0.6, autoFit: "shrink" },
         ...((step.owner || step.time) ? [{
           id: `${slideId}.${id}.step${index + 1}.meta`,
           type: "text" as const,
           text: [step.owner, step.time].filter(Boolean).join(" · "),
           style: "label",
           color: "text.muted",
-          align: "center" as const,
+          align: textAlign as "left" | "center",
           minHeight: 0.28,
           autoFit: "shrink" as const,
           optional: true,
@@ -1473,7 +1482,7 @@ export function processFlow(slideId: string, id: string, options: {
           type: "text" as const,
           text: step.body.trim(),
           style: "caption",
-          align: "center" as const,
+          align: textAlign as "left" | "center",
           valign: "top" as const,
           // Horizontal: use min/max so the body grows for 1-2 lines instead
           // of being pinned to a fixed 0.9cm slot that forced autoFit:"shrink"
@@ -1490,7 +1499,7 @@ export function processFlow(slideId: string, id: string, options: {
         ...(step.bullets && step.bullets.length ? [{ ...bulletList(slideId, `${id}.step${index + 1}.bullets`, step.bullets.slice(0, 3), "compact"), optional: true }] : []),
       ],
       layoutWeight: 4,
-      ...(options.variant === "cards" ? { fill: "surface", line: "divider", padding: dense || verticalDense ? 0.24 : 0.35, cornerRadius: 0.08 } : {}),
+      ...(cardVariant ? { fill: "surface", line: "divider", padding: richHorizontalCard ? 0.34 : dense || verticalDense ? 0.26 : 0.35, cornerRadius: 0.08 } : {}),
     });
     if (index < options.steps.length - 1) {
       // 96vi8n slide 20: 0.7×0.5cm chevrons were nearly invisible. Bumped
@@ -1513,7 +1522,7 @@ export function processFlow(slideId: string, id: string, options: {
     id: `${slideId}.${id}`,
     type: "stack",
     direction,
-    gap: dense || verticalDense ? 0.18 : 0.4,
+    gap: cardVariant && direction === "horizontal" ? (dense ? 0.24 : 0.32) : dense || verticalDense ? 0.18 : 0.4,
     role: "process-flow",
     align: "center",
     valign: "middle",
@@ -2161,6 +2170,7 @@ export function badge(slideId: string, id: string, options: { text: string; tone
     cornerRadius: 0.5,
     fixedHeight: 0.7,
     fixedWidth: intrinsic,
+    noWrap: true,
     role: "badge",
   };
 }
@@ -2529,6 +2539,7 @@ export function takeawayList(
   // Density adapts gap + accent thickness to item count so 5 takeaways
   // still fit in a typical 8cm content area.
   const dense = items.length >= 4;
+  const detailedGrid = dense && items.some((item) => item.detail && item.detail.trim());
   const itemNodes: DomNode[] = items.map((item, idx) => {
     const tone: TakeawayTone = item.tone || baseTone;
     // Neutral lets the agent de-emphasize a less-load-bearing takeaway
@@ -2605,9 +2616,9 @@ export function takeawayList(
   });
   return applyAgentSurface({
     id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: dense ? 0.25 : 0.5,
+    type: detailedGrid ? "grid" : "stack",
+    ...(detailedGrid ? { columns: 2 } : { direction: "vertical" as const }),
+    gap: detailedGrid ? 0.32 : dense ? 0.25 : 0.5,
     role: "takeaway-list",
     children: itemNodes,
   } as DomNode, options);

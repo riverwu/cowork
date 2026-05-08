@@ -1102,10 +1102,32 @@ function autoOrientFlow(node: DomNode, rect: { w: number; h: number }): DomNode 
 
 function autoOrientProcessFlow(node: DomNode, rect: { w: number; h: number }): DomNode {
   if (node.direction !== "horizontal") return node;
-  const stepCount = (node.children || []).filter((child) => child.role === "process-step").length;
+  const steps = (node.children || []).filter((child) => child.role === "process-step");
+  const stepCount = steps.length;
   if (stepCount < 2) return node;
   const minPerStep = 2.6;
-  if (rect.w / stepCount >= minPerStep) return node;
+  const cardFlow = steps.some((step) => step.fill !== undefined || step.line !== undefined);
+  const longBodyPressure = stepCount >= 4 && rect.h / stepCount >= 1.45 && steps.some((step) => {
+    const body = (step.children || []).find((child) => child.id.endsWith(".body"));
+    const text = typeof body?.text === "string" ? body.text : "";
+    const hardLines = text.split(/\r?\n/).filter((line) => line.trim()).length;
+    return text.length > 34 || hardLines > 1;
+  });
+  if (cardFlow && longBodyPressure) {
+    const columns = 2;
+    const rows = Math.ceil(stepCount / columns);
+    if (rect.w / columns >= 5.2 && rect.h / rows >= 2.75) {
+      return {
+        ...node,
+        type: "grid" as const,
+        direction: undefined as never,
+        columns,
+        gap: stepCount >= 5 ? 0.24 : 0.32,
+        children: steps,
+      };
+    }
+  }
+  if (rect.w / stepCount >= minPerStep && !longBodyPressure) return node;
   const swappedChildren = (node.children || []).map((child) => {
     if (child.type === "shape" && (child.preset === "arrow-right" || child.preset === "arrow-down")) {
       return { ...child, preset: "arrow-down" as const, fixedWidth: 0.6, fixedHeight: 0.42 };
@@ -2084,6 +2106,7 @@ function textShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId:
     valign: valignProp(node, kind),
     paragraphs,
     margin: { l: cm(0.1), r: cm(0.1), t: cm(0.05), b: cm(0.05) },
+    wrap: node.wrap === "none" || node.noWrap === true ? "none" : undefined,
     fill: typeof node.fill === "string" ? { type: "solid", color: color(theme, node.fill) } : undefined,
     line: typeof node.line === "string" ? { color: color(theme, node.line), width: cm(0.02) } : undefined,
     cornerRadius,
@@ -3431,6 +3454,7 @@ function childCrossRect(theme: SimpleTheme, child: DomNode, parentCrossStart: nu
   // parent's stretch default — honor it (centering by default).
   const fixedCross = optionalNumberProp(child, isHorizontal ? "fixedHeight" : "fixedWidth");
   const maxCross = optionalNumberProp(child, isHorizontal ? "maxHeight" : "maxWidth");
+  const minCrossProp = optionalNumberProp(child, isHorizontal ? "minHeight" : "minWidth");
   let crossAlign: string;
   if (childExplicit) crossAlign = childExplicit;
   else if (parentExplicit && parentExplicit !== "stretch") crossAlign = parentExplicit;
@@ -3450,7 +3474,7 @@ function childCrossRect(theme: SimpleTheme, child: DomNode, parentCrossStart: nu
   else if (maxCross !== undefined) {
     const childCrossDirection: "horizontal" | "vertical" = isHorizontal ? "vertical" : "horizontal";
     const intrinsic = intrinsicMainSize(theme, child, childCrossDirection, mainSize);
-    const minCross = Math.max(intrinsicMinSize(theme, child, childCrossDirection, mainSize), 0);
+    const minCross = Math.max(intrinsicMinSize(theme, child, childCrossDirection, mainSize), minCrossProp ?? 0, 0);
     const ceilBound = Math.min(parentCrossSize, Math.max(maxCross, minCross));
     size = Math.min(parentCrossSize, Math.max(intrinsic, minCross, Math.min(maxCross, ceilBound)));
   }

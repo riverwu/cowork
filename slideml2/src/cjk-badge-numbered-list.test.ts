@@ -30,6 +30,17 @@ describe("CJK badges and numbered list formatting", () => {
     expect(badge?.fixedHeight).toBeGreaterThanOrEqual(0.42);
   });
 
+  it("keeps star-rating feature-card badges on one line", () => {
+    const node = featureCard("s", "f", {
+      title: "第一档机会",
+      badge: "★★★★★",
+    });
+    const badge = child(node, ".badge");
+
+    expect(badge?.fixedWidth).toBeGreaterThanOrEqual(2.3);
+    expect(badge?.noWrap).toBe(true);
+  });
+
   it("does not render prose or star-rating feature metrics as huge metric values", () => {
     const node = featureCard("s", "f", {
       title: "商业化确定性",

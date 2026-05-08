@@ -52,7 +52,7 @@ export function txBody(shape: TextShape, rels?: RunRels): string {
     shape.autoFit === "shrink" ? `<a:normAutofit/>` :
     shape.autoFit === "resize" ? `<a:spAutoFit/>` : "";
   const bodyPrAttrs =
-    attr("wrap", "square") +
+    attr("wrap", shape.wrap ?? "square") +
     attr("lIns", lIns) +
     attr("tIns", tIns) +
     attr("rIns", rIns) +

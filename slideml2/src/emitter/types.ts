@@ -135,6 +135,8 @@ export interface TextShape {
   margin?: { l?: number; t?: number; r?: number; b?: number };
   /** Vertical alignment of text within the box. */
   valign?: "top" | "middle" | "bottom";
+  /** Text wrapping policy. Defaults to "square"; chips/badges can use "none". */
+  wrap?: "square" | "none";
   /** Optional shape fill behind the text. */
   fill?: FillSpec;
   /** Optional border around the text box. */

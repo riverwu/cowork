@@ -517,6 +517,94 @@ describe("component regressions", () => {
     expect(Math.max(...(ys as number[])) - Math.min(...(ys as number[]))).toBeLessThan(0.05);
   });
 
+  it("process-flow card variant gives rich horizontal steps enough card height", () => {
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide({
+      id: "reg-rich-flow",
+      children: [{
+        id: "reg-rich-flow.p",
+        type: "process-flow",
+        direction: "horizontal",
+        variant: "cards",
+        density: "compact",
+        steps: [
+          { title: "基础设施层", body: "Runtime/Sandbox/Browser\nMemory/Eval/Identity/Router\n模型+Inference", icon: "ellipse", bullets: ["巨头垂直集成", "中国无独立SaaS"] },
+          { title: "平台层", body: "Agent OS/工作平台\nMCP Gateway/Tool市场", icon: "roundRect", bullets: ["生态主战场"] },
+          { title: "应用层", body: "通用 Office Agent\n垂直行业 Agent", icon: "triangle", bullets: ["用户付钱的地方"] },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    }));
+    const measured = measureDeck(rendered)[0]!.nodes;
+    const step = measured.find((entry) => entry.id === "reg-rich-flow.p.step1")?.rect;
+    const title = measured.find((entry) => entry.id === "reg-rich-flow.p.step1.title")?.rect;
+    const body = measured.find((entry) => entry.id === "reg-rich-flow.p.step1.body")?.rect;
+
+    expect(step?.h).toBeGreaterThanOrEqual(3.1);
+    expect(title?.x).toBeCloseTo(body?.x ?? 0, 1);
+  });
+
+  it("process-flow wraps rich 4-step card guidance into two readable rows", () => {
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide({
+      id: "reg-long-flow",
+      children: [{
+        id: "reg-long-flow.p",
+        type: "process-flow",
+        direction: "horizontal",
+        variant: "cards",
+        steps: [
+          { title: "地理选择", body: "优先出海，只有强政策红利和客户关系才留国内。" },
+          { title: "方向选择", body: "垂直行业、私有化中台、桌面工作台优先，避免横向通用工具。" },
+          { title: "GTM 节奏", body: "Day 1 海外架构，先做付费闭环，再扩大品类。" },
+          { title: "绝对不做", body: "不要做横向 Manus、纯基建 SaaS、模型 Router 或普通 wrapper。" },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    }));
+    const measured = measureDeck(rendered)[0]!.nodes;
+    const step1 = measured.find((entry) => entry.id === "reg-long-flow.p.step1")?.rect;
+    const step2 = measured.find((entry) => entry.id === "reg-long-flow.p.step2")?.rect;
+    const step3 = measured.find((entry) => entry.id === "reg-long-flow.p.step3")?.rect;
+    const step4 = measured.find((entry) => entry.id === "reg-long-flow.p.step4")?.rect;
+
+    expect(step1?.h).toBeGreaterThan(3.0);
+    expect((step2?.x ?? 0) - (step1?.x ?? 0)).toBeGreaterThan(5);
+    expect((step3?.y ?? 0) - (step1?.y ?? 0)).toBeGreaterThan(3);
+    expect(step4?.y).toBeCloseTo(step3?.y ?? 0, 1);
+  });
+
+  it("takeaway-list uses two columns for 4 detailed takeaways plus a closing quote", () => {
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide({
+      id: "reg-final-takeaways",
+      title: "最终建议与行动指南",
+      children: [
+        {
+          id: "reg-final-takeaways.list",
+          type: "takeaway-list",
+          items: [
+            { headline: "出海是最高赔率窗口", detail: "Day 1海外架构，避开国内围剿，享受海外高付费，先做付费闭环再扩大品类。" },
+            { headline: "国内走垂直行业", detail: "行业know-how、合规和数据壁垒共同形成护城河，不能套用美国SaaS逻辑。" },
+            { headline: "不要做横向基建", detail: "横向office Agent、独立Router和普通wrapper都会被平台或模型厂商压缩空间。" },
+            { headline: "聚焦五个方向", detail: "出海Productivity、垂直行业Agent、私有化中台、桌面工作台、跨平台中立中间件。" },
+          ],
+        } as unknown as SlideV2["children"][number],
+        {
+          id: "reg-final-takeaways.quote",
+          type: "quote",
+          text: "不要试图做最大，要试图做最深。",
+          source: "报告核心洞察",
+        } as unknown as SlideV2["children"][number],
+      ],
+    }));
+    clearRenderDiagnostics();
+    const measured = measureDeck(rendered)[0]!.nodes;
+    const blocking = getRenderDiagnostics().filter((d) => BLOCKING_CODES.has(d.code));
+    const first = measured.find((entry) => entry.id === "reg-final-takeaways.list.0")?.rect;
+    const second = measured.find((entry) => entry.id === "reg-final-takeaways.list.1")?.rect;
+    const third = measured.find((entry) => entry.id === "reg-final-takeaways.list.2")?.rect;
+
+    expect(blocking, blocking.map((d) => d.message).join("\n")).toHaveLength(0);
+    expect((second?.x ?? 0) - (first?.x ?? 0)).toBeGreaterThan(5);
+    expect((third?.y ?? 0) - (first?.y ?? 0)).toBeGreaterThan(1.5);
+  });
+
   it("comparison-table keeps feature labels in the left column", () => {
     const slide: SlideV2 = {
       id: "reg-cmp",

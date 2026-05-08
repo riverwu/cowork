@@ -342,12 +342,12 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     prosTitle: { type: "string", description: "Override 'Pros' label." },
     consTitle: { type: "string", description: "Override 'Cons' label." },
   }, "grid 2 columns of titled checklist", "stack"),
-  component("process-flow", "Connected process, workflow, recipe, pipeline, or causal sequence. Use when steps depend on each other or movement through stages is the main idea.", {
+  component("process-flow", "Connected process, workflow, recipe, pipeline, or causal sequence. Use when steps depend on each other or movement through stages is the main idea. Horizontal card flows are tuned for 2-3 readable stages; rich 4+ step card flows may auto-wrap into two readable rows on wide slides or auto-orient vertically in narrow columns instead of shrinking text.", {
     steps: { type: "array", required: true, description: "Array of { title, body?, status?, owner?, time?, icon?, bullets? } steps." },
     items: { type: "array", description: "Alias for steps." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Flow direction (default horizontal)." },
     variant: { type: "enum", enum: ["plain", "cards"], description: "Use cards when each stage needs its own surface." },
-    density: { type: "enum", enum: ["comfortable", "compact"], description: "Step density." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Step density. Use compact only for short step copy; rich card flows keep extra breathing room." },
     surface: { type: "object", description: "Optional surface override." },
   }, "stack of step blocks separated by arrow shapes", "stack"),
   component("logo-strip", "Set of logos representing customers, partners, integrations, sponsors, or tools. Use when recognition and affiliation are the evidence.", {
