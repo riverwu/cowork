@@ -103,7 +103,7 @@ export function describeDeck(): DeckDescription {
       },
     },
     textStyles: {
-      description: "Each text node has an inferred or explicit `style`. These names map to font sizes, weights, and colors managed by the theme — do NOT set fontSize on text nodes.",
+      description: "Each text node has an inferred or explicit `style`. These names map to font sizes, weights, and colors managed by the theme. Component text styles (for example timeline-body) are centrally derived from base tokens such as caption/label — do NOT set fontSize on component text nodes.",
       styles: textStyles,
     },
     themeGuidance: {
@@ -353,7 +353,7 @@ export function describeDeck(): DeckDescription {
       "Before/after KPI shift → `stat-comparison` (NOT two side-by-side metric-cards).",
     ],
     doNot: [
-      "Do not set fontSize, fontFace, or rgb-hex `color` on text nodes; use `style` and theme tokens.",
+      "Do not set fontSize, fontFace, or rgb-hex `color` on component text nodes; use `style` and theme tokens. If a component needs a default, add a centralized component typography token derived from caption/label/card-title/etc.",
       "Do not nest `type:'component'` + `component:'X'`; write `type:'X'` directly.",
       "Do not wrap node fields under `props` — fields are flat.",
       "Do not use pixel coordinates. Layout distances are cm; text fontSize is pt; stroke fields (`lineWidth`, `borderWidth`, rule/divider `thickness`) are point-like, so `thickness:1` is a 1pt line while `fixedHeight:1` is a 1cm region.",

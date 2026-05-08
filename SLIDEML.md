@@ -312,7 +312,16 @@ deck-title text) in the body.
 
 ## Three-axis text styling: `size` × `weight` × `tone`
 
-Every text node has three orthogonal levers:
+Deck typography is token-driven like color. Start by setting a small,
+coherent `themeOverride.text` scale (`slide-title`, `section-title`,
+`card-title`, `paragraph`, `caption`, `label`, `metric-value`,
+`metric-label`, `table-cell`). Components should inherit from that scale
+through semantic component tokens rather than inventing their own font
+defaults. For example, `timeline-time` derives from `label`,
+`timeline-title` derives from `card-title`, and `timeline-body` derives
+from `caption`.
+
+Primitive text nodes still have three orthogonal local levers:
 
 | Axis | Field | Values | Purpose |
 |---|---|---|---|
@@ -325,6 +334,11 @@ Plus shortcut booleans: `italic`, `underline`, `uppercase`, and
 
 **Rule**: prefer one axis at a time. Bold + brand-color + xl is design
 noise; bold + text.primary at md is enough emphasis for a headline.
+
+**Component rule**: do not use node-level `fontSize`, `lineHeight`,
+`fontFamily`, or `size` as routine component styling. Adjust the deck
+tokens, or a centralized component token, so related text moves together
+across the deck.
 
 ### Size dial — match font size to box width
 
@@ -451,8 +465,10 @@ is itself a `grid` of `feature-card`s reads as one composed thought.
   layout, wrap them in an explicit `stack` / `grid` / `split`.
 - All distance fields are in cm (`gap`, `padding`, `fixedHeight`,
   `fixedWidth`).
-- Color tokens only. Never set `fontSize`, `fontFace`, or raw hex `color`
-  on text nodes. Semantic palette names (`red`, `lime`, `blue`, …) carry
+- Color tokens only. Never set routine `fontSize`, `fontFace`, or raw hex `color`
+  on text nodes. Use `themeOverride.text` tokens for deck-wide typography;
+  reserve node-level font overrides for deliberate low-level/freeform escape
+  hatches. Semantic palette names (`red`, `lime`, `blue`, …) carry
   *categorical* meaning; max ~4 per slide.
 - Mark nice-to-have children with `optional: true` so the renderer can
   drop them when space is tight.

@@ -885,9 +885,9 @@ function timelineStep(
   item: TimelineItem,
   direction: "horizontal" | "vertical",
 ): DomNode {
-  // 2pmnxh fix: time/title/body all use text.primary so contrast passes
-  // on any agent-supplied theme.
-  const titleStyle = "card-title";
+  // Timeline typography resolves through centralized component text tokens.
+  // Theme authors can control the whole component by changing label/caption
+  // or the derived timeline-* tokens, without component-local font defaults.
   const toneToken = timelineToneToken(item.tone);
 
   // Stamp the content's id under the step's namespace if missing (so
@@ -910,9 +910,8 @@ function timelineStep(
         id: `${slideId}.${id}.${index}.time`,
         type: "text",
         text: item.time.trim(),
-        style: "label",
-        color: item.tone ? toneToken : "text.primary",
-        weight: "bold",
+        style: "timeline-time",
+        color: item.tone ? toneToken : undefined,
         align: "center",
         minHeight: 0.34,
         autoFit: "shrink",
@@ -920,12 +919,12 @@ function timelineStep(
       });
     }
     if (item.title && item.title.trim()) {
-      children.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title.trim(), style: titleStyle, color: "text.primary", align: "center", minHeight: 0.48, autoFit: "shrink" });
+      children.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title.trim(), style: "timeline-title", color: "text.primary", align: "center", minHeight: 0.48, autoFit: "shrink" });
     }
     if (content) {
       children.push(content);
     } else if (item.body && item.body.trim()) {
-      children.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "caption", color: "text.primary", align: "center", valign: "top", minHeight: estimateTimelineBodyMinHeight(item.body, "horizontal"), autoFit: "shrink", optional: true });
+      children.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "timeline-body", align: "center", valign: "top", minHeight: estimateTimelineBodyMinHeight(item.body, "horizontal"), autoFit: "shrink", optional: true });
     }
     return {
       id: `${slideId}.${id}.${index}`,
@@ -946,12 +945,12 @@ function timelineStep(
   // FALLBACK_FAILED on 8cm content area).
   const rightColChildren: DomNode[] = [];
   if (item.title && item.title.trim()) {
-    rightColChildren.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title.trim(), style: titleStyle, color: "text.primary", minHeight: 0.5, autoFit: "shrink" });
+    rightColChildren.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title.trim(), style: "timeline-title", color: "text.primary", minHeight: 0.5, autoFit: "shrink" });
   }
   if (content) {
     rightColChildren.push(content);
   } else if (item.body && item.body.trim()) {
-    rightColChildren.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "caption", color: "text.primary", valign: "top", minHeight: estimateTimelineBodyMinHeight(item.body, "vertical"), autoFit: "shrink", optional: true });
+    rightColChildren.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "timeline-body", valign: "top", minHeight: estimateTimelineBodyMinHeight(item.body, "vertical"), autoFit: "shrink", optional: true });
   }
   // Edge case: no title, no body, no content — emit a tiny placeholder
   // so the row still renders (rare; agent passed only `time`).
@@ -964,9 +963,7 @@ function timelineStep(
       id: `${slideId}.${id}.${index}.time`,
       type: "text",
       text: item.time.trim(),
-      style: "label",
-      weight: "bold",
-      color: "text.primary",
+      style: "timeline-time",
       align: "right",
       valign: "top",
       // Fixed width keeps time labels aligned across rows. 2.5cm fits

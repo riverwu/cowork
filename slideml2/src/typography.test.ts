@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildTheme, preferredFont, resolveFontWeight } from "./theme.js";
+import { readFileSync } from "node:fs";
 import { renderToAst } from "./render.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
 import type { Slideml2SourceDeck } from "./types.js";
@@ -217,6 +218,36 @@ describe("typography — themeOverride derived component styles", () => {
     expect(theme.text["metric-label"]?.fontSize).toBeCloseTo(12.5, 1);
   });
 
+  it("derives timeline component typography from label/caption tokens", () => {
+    const theme = buildTheme({}, "default", {
+      text: {
+        label: { fontSize: 10.5, lineHeight: 1.1, fontFamily: "text" },
+        caption: { fontSize: 9.5, lineHeight: 1.22, fontFamily: "text" },
+      },
+    });
+
+    expect(theme.text["timeline-time"]?.fontSize).toBe(10.5);
+    expect(theme.text["timeline-time"]?.lineHeight).toBe(1.1);
+    expect(theme.text["timeline-time"]?.color).toBe("text.primary");
+    expect(theme.text["timeline-body"]?.fontSize).toBe(9.5);
+    expect(theme.text["timeline-body"]?.lineHeight).toBe(1.22);
+    expect(theme.text["timeline-body"]?.color).toBe("text.primary");
+    expect(theme.text["timeline-title"]?.fontSize).toBe(theme.text["card-title"]?.fontSize);
+  });
+
+  it("keeps explicit timeline typography overrides stronger than derived defaults", () => {
+    const theme = buildTheme({}, "default", {
+      text: {
+        caption: { fontSize: 9.5 },
+        "timeline-body": { fontSize: 11, color: "danger" },
+      },
+    });
+
+    expect(theme.text["timeline-body"]?.fontSize).toBe(11);
+    expect(theme.text["timeline-body"]?.color).toBe("danger");
+    expect(theme.text["timeline-body"]?.lineHeight).toBe(theme.text.caption?.lineHeight);
+  });
+
   it("keeps explicit component text overrides stronger than derived defaults", () => {
     const theme = buildTheme({}, "default", {
       text: {
@@ -228,6 +259,25 @@ describe("typography — themeOverride derived component styles", () => {
 
     expect(theme.text["card-title"]?.fontSize).toBe(18);
     expect(theme.text["card-title"]?.fontFamily).toBe("text");
+  });
+});
+
+describe("typography — component factory policy", () => {
+  it("timeline factory uses semantic typography tokens rather than local font defaults", () => {
+    const source = readFileSync(new URL("./components.ts", import.meta.url), "utf8");
+    const start = source.indexOf("function timelineStep(");
+    const end = source.indexOf("function estimateTimelineBodyMinHeight", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const timelineStep = source.slice(start, end);
+
+    expect(timelineStep).toContain('style: "timeline-time"');
+    expect(timelineStep).toContain('style: "timeline-title"');
+    expect(timelineStep).toContain('style: "timeline-body"');
+    expect(timelineStep).not.toMatch(/\bfontSize\s*:/);
+    expect(timelineStep).not.toMatch(/\blineHeight\s*:/);
+    expect(timelineStep).not.toMatch(/\bfontFamily\s*:/);
+    expect(timelineStep).not.toMatch(/\bsize\s*:\s*["'](?:xs|sm|md|lg|xl|2xl)["']/);
   });
 });
 

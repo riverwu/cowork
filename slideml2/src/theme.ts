@@ -121,6 +121,25 @@ export interface ComponentStyle {
   elevation?: "flat" | "raised" | "floating" | "outlined";
 }
 
+type TextStyleDerivation = {
+  extends: string;
+  overrides?: Partial<TextStyle>;
+};
+
+export const COMPONENT_TEXT_STYLE_DERIVATIONS: Record<string, TextStyleDerivation> = {
+  "timeline-time": {
+    extends: "label",
+    overrides: { color: "text.primary", weight: "bold" },
+  },
+  "timeline-title": {
+    extends: "card-title",
+  },
+  "timeline-body": {
+    extends: "caption",
+    overrides: { color: "text.primary" },
+  },
+};
+
 export type ThemeFactory = (brandPrimary: string) => SimpleTheme;
 
 export function listThemes(): string[] {
@@ -317,7 +336,7 @@ function shadedVariantForContrast(srcHex: string, bgHex: string, threshold: numb
 
 function mergeTextStyles(base: Record<string, TextStyle>, override?: Record<string, Partial<TextStyle>>): Record<string, TextStyle> {
   const out: Record<string, TextStyle> = cloneTextStyles(base);
-  if (!override) return out;
+  if (!override) return completeDerivedTextStyles(out, base, {});
   for (const [key, value] of Object.entries(override)) {
     const existing = out[key] || base.paragraph || { fontSize: 11, color: "text.primary", lineHeight: 1.4 };
     out[key] = {
@@ -444,7 +463,36 @@ function completeDerivedTextStyles(
   deriveMetrics("metric-label", metricTouched ? "metric-value" : "caption", metricTouched || captionTouched);
   inheritFontRole("metric-label", captionTouched ? "caption" : "paragraph", captionTouched || paragraphTouched);
 
+  applyComponentTextStyleDerivations(out, base, override);
+
   return out;
+}
+
+function applyComponentTextStyleDerivations(
+  out: Record<string, TextStyle>,
+  base: Record<string, TextStyle>,
+  override: Record<string, Partial<TextStyle>>,
+): void {
+  for (const [target, def] of Object.entries(COMPONENT_TEXT_STYLE_DERIVATIONS)) {
+    const source = out[def.extends] || base[def.extends] || out.paragraph || base.paragraph;
+    const explicit = override[target] || {};
+    const derived: TextStyle = {
+      ...source,
+      ...def.overrides,
+    };
+    out[target] = {
+      fontSize: typeof explicit.fontSize === "number" ? explicit.fontSize : derived.fontSize,
+      weight: explicit.weight ?? explicit.fontWeight ?? derived.weight,
+      color: typeof explicit.color === "string" ? explicit.color : derived.color,
+      lineHeight: typeof explicit.lineHeight === "number" ? explicit.lineHeight : derived.lineHeight,
+      margin: explicit.margin ?? derived.margin,
+      letterSpacing: explicit.letterSpacing ?? derived.letterSpacing,
+      fontFamily: explicit.fontFamily ?? derived.fontFamily,
+      fontFeatures: explicit.fontFeatures ?? derived.fontFeatures,
+      uppercase: explicit.uppercase ?? derived.uppercase,
+      italic: explicit.italic ?? derived.italic,
+    };
+  }
 }
 
 /** Accept either the legacy `string[]` form or the new `{ display, text }`

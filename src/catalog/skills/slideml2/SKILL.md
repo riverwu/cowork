@@ -136,6 +136,7 @@ Critical semantics:
 - Use `anchor` for slide-level overlays. Use `corner` for `brand-mark` and `big-page-number`. Do not use `position` as a placement field.
 - Use `fontWeight`, not `bold`, in theme text styles. Use `lineHeight`, not `lineSpacing`, for theme typography.
 - Font chains are preference order; put the desired installed font first. SlideML2 emits the first face and does not embed fonts.
+- Typography is token-driven like color. Control the deck with a finite set of `themeOverride.text` base tokens (`slide-title`, `section-title`, `card-title`, `paragraph`, `caption`, `label`, `metric-value`, `metric-label`, `table-cell`, etc.). Component-specific tokens such as `timeline-time`, `timeline-title`, and `timeline-body` are derived from those base tokens in the theme layer.
 
 ## Component-First Slide Loop
 
@@ -172,8 +173,9 @@ Raw `text` is a residual primitive: short labels, captions, local notes, or a se
 - Tool arguments must stay structured. Never pass `slide` as a string such as `"{\"id\":\"s1\",...}"`, never wrap a whole slide in quotes, and never escape every quote in the slide object. `replace_slide({deckPath,slideId,slide:{...}})` is the canonical shape. If the slide object feels too long, simplify/split the slide rather than stringifying it.
 - Use theme tokens for text colors, never raw hex on slide nodes. Put hex values in `create_deck.themeOverride.colors`, then reference tokens such as `text.primary`, `text.inverse`, `brand.primary`, `success`, `warning`, or `danger`.
 - Use themeOverride text fields as `fontSize`, `fontWeight`, and `lineHeight`; do not use `bold` or `lineSpacing`.
-- Define the basic component text styles, not just page title/body: `section-title`, `card-title`, `label`, `bullet`, `table-header`, `table-cell`, `metric-value`, and `metric-label`. If omitted, SlideML2 derives these from `slide-title` / `paragraph` / `caption` / `metric-value` to keep the deck coherent, but explicit values make the intended visual system clearer.
-- Style precedence is explicit: theme/themeOverride defines deck defaults; a concrete slide node or component instance may override that default with fields such as `fontSize`, `fontFamily`, `fontWeight`, `lineHeight`, `color`, `size`, `tracking`, `italic`, `surface`, `fill`, `line`, or `cornerRadius`; rich text run fields override both for that run only. Instance overrides are local and do not change the theme for other components.
+- Define the core text scale, not per-component one-off sizes: `section-title`, `card-title`, `label`, `caption`, `bullet`, `table-header`, `table-cell`, `metric-value`, and `metric-label`. If omitted, SlideML2 derives these from `slide-title` / `paragraph` / `caption` / `metric-value` to keep the deck coherent.
+- Do not use node-level `fontSize`, `lineHeight`, `fontFamily`, or `size` as routine component styling. Those are low-level escape hatches for poster/freeform nodes and rich text runs. Prefer changing `themeOverride.text` base tokens, or an explicit component token such as `timeline-body`, so the whole deck remains typographically coherent.
+- Style precedence is explicit: theme/themeOverride defines deck defaults; centralized component typography derivations create tokens such as `timeline-body`; a concrete primitive node may override fields such as `fontSize`, `fontFamily`, `fontWeight`, `lineHeight`, `color`, `size`, `tracking`, or `italic`; rich text run fields override both for that run only. Instance overrides are local and do not change the theme for other components.
 - Avoid duplicate hero titles: if `slide.title` is set, do not also place a conflicting body `cover-composition`, `slide-title`, `deck-title`, or `section-break` title. For `cover-composition`, either omit `slide.title` or make it exactly match the cover title so it is treated as metadata. `h1` is allowed inside ordinary content as a module heading.
 - Preserve semantic sequence markers when repairing density: if the source chapter says "判断 1/2/3", "Step 1/2/3", or similar, keep that ordinal visible in the slide title, eyebrow, label, or first card headline. Shortening a title must not erase the only visible "判断1" marker while later slides still show "判断2/判断3".
 - Use component names directly in `type` with flat fields. Do not wrap components as `type:"component" + component:"X"` and do not put fields under `props`.
@@ -202,6 +204,7 @@ Raw `text` is a residual primitive: short labels, captions, local notes, or a se
 
 - One hero per slide. At most one element at hero / deck-title / cover-title / metric-value scale. Two heroes split attention.
 - Use ≤4 distinct font sizes per slide. theme.text already provides a calibrated scale (deck-title 48 / slide-title 29 / section-title 21 / h2 18 / paragraph 10.8 / caption 8.8); pick from those rather than inventing intermediate sizes.
+- Component typography is derived from the deck scale: for example, `timeline-time` follows `label`, `timeline-title` follows `card-title`, and `timeline-body` follows `caption`. When the deck's `caption` or `label` changes, timeline and other derived component text should move with it.
 - Adjacent size levels should differ by ≥1.3×. If you override `themeOverride.text` fontSize, keep the ratio between consecutive levels ≥1.3× — closer ratios read as visual noise.
 - Numbers must dominate their labels. metric-value vs metric-label is ~2.7× by default; preserve that gap on any data slide. Don't render a KPI with paragraph-style text.
 - CJK-heavy decks need +1pt: paragraph 12 / slide-title 32 reads better in Chinese than the Latin-tuned defaults.
@@ -252,7 +255,7 @@ Units:
 - Canvas is **25.4 × 14.29 cm** (16:9).
 - Layout geometry is cm: `at:[x,y,w,h]`, `gap`, `padding`, `fixedWidth`, `fixedHeight`, `width`, `height`, `length`, image/card/table/chart dimensions.
 - `cornerRadius` is not cm or px. It is a normalized roundRect fraction `0..0.5`; use `0.08`-`0.16`, never CSS-style `8` or `12`.
-- Text size is pt. Prefer semantic text styles and `size`; use raw `fontSize` only for intentional local overrides.
+- Text size is pt in `themeOverride.text`. Prefer semantic text styles; use `size` / raw `fontSize` only for intentional low-level local overrides, not as component defaults.
 - Stroke thickness is point-like: `lineWidth`, `borderWidth`, divider `thickness`, and `accent-rule.thickness` use `1` for normal 1pt and `2`-`3` for stronger rules.
 - Do not mix layout and stroke units: `fixedHeight:1` is a 1cm region; `thickness:1` is a 1pt rule.
 

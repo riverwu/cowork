@@ -28,6 +28,26 @@ function firstJsonBlock(markdown: string): unknown {
 }
 
 describe("slideml2 SKILL component reference", () => {
+  it("keeps typography token policy aligned with the engineering spec", () => {
+    const skill = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md"), "utf8");
+    const spec = readFileSync(resolve(repoRoot, "slideml2/SPEC.md"), "utf8");
+    const guide = readFileSync(resolve(repoRoot, "SLIDEML.md"), "utf8");
+
+    for (const doc of [skill, spec, guide]) {
+      const lower = doc.toLowerCase();
+      expect(lower).toContain("typography");
+      expect(lower).toContain("token");
+      expect(doc).toContain("timeline-body");
+      expect(doc).toContain("caption");
+      expect(doc).toContain("label");
+    }
+    expect(spec).toContain("COMPONENT_TEXT_STYLE_DERIVATIONS");
+    expect(spec).toContain("Component factories MUST NOT set `fontSize`");
+    expect(skill).toContain("Component-specific tokens such as `timeline-time`, `timeline-title`, and `timeline-body`");
+    expect(skill).toContain("Do not use node-level `fontSize`, `lineHeight`, `fontFamily`, or `size` as routine component styling");
+    expect(guide).toContain("Component rule");
+  });
+
   it("links the business research style reference for business deck tasks", () => {
     const skill = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md"), "utf8");
     const businessPath = resolve(repoRoot, "src/catalog/skills/slideml2/business.md");

@@ -71,8 +71,10 @@ pnpm md2pptx input.md output.pptx
   fields the agent can act on directly.
 - **Layout fallback ladder.** When children don't fit: shrink → demote
   density → drop optional → autoFit-shrink → emit FALLBACK_FAILED.
-- **Three-axis text styling.** `size` (xs..2xl) × `weight` (normal /
-  medium / bold) × `color` (theme tokens) — orthogonal, agent-tunable.
+- **Centralized typography tokens.** Deck authors tune a finite
+  `themeOverride.text` scale (`caption`, `label`, `card-title`, etc.).
+  Component-specific styles such as `timeline-body` are derived in the
+  theme layer, so component factories do not carry local font defaults.
 
 ## Known caveats
 

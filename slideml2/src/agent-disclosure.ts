@@ -72,6 +72,7 @@ export function buildAgentPromptPack(options: AgentPromptPackOptions = {}): stri
     "- Write the component name directly in `type`: {id,type:'callout',...fields}; never wrap as type:'component'+component:'X'.",
     "- Component nodes are flat; do not wrap fields in `props`.",
     "- Compose the page freely with top-level components, stack/grid/split, and anchored overlays. Use area:'content' when a node should occupy the standard content rect; it is not a required wrapper.",
+    "- Typography is token-driven like color. Tune deck-wide text through themeOverride.text base tokens (caption, label, card-title, paragraph, metric-value, etc.); component-specific text styles must derive centrally from those tokens, not from local fontSize/size defaults in component JSON.",
     "- Units: layout distances are cm (`at`, `gap`, `padding`, `fixedHeight`, `fixedWidth`, `width`, `height`, `length`). `cornerRadius` is a normalized roundRect fraction 0..0.5 (use 0.08-0.16 for subtle cards, never CSS-like 8/12). Text `fontSize` is pt. Stroke fields (`lineWidth`, `borderWidth`, divider/accent-rule `thickness`) are point-like: use 1 for a normal 1pt rule, 2-3 for emphasis; legacy tiny cm values like 0.02 still work.",
     "- Avoid page-level components: cover, section, dashboard, product-matrix, risk-list.",
     "- For each slide, reach for the *most semantic* component first. Use `callout` sparingly: at most one emphasized warning/rule per slide, never as repeated grid filler.",

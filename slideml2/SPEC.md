@@ -131,7 +131,7 @@ numbers to one unit.
 | Domain | Fields | Unit |
 |---|---|---|
 | Layout geometry | `at`, `gap`, `padding`, `fixedWidth`, `fixedHeight`, `minHeight`, `width`, `height`, `offsetX`, `offsetY`, `length` | cm |
-| Text size | `fontSize` in `themeOverride.text` or node overrides | pt |
+| Text size | `fontSize` in `themeOverride.text` | pt |
 | Stroke thickness | `lineWidth`, `borderWidth`, `divider.thickness`, `accent-rule.thickness` | point-like numbers |
 | Legacy tiny strokes | stroke values `<= 0.3` | preserved as cm for backward compatibility |
 | Corner radius | `cornerRadius` | fraction of shorter side, usually `0..0.5` |
@@ -141,10 +141,12 @@ numbers to one unit.
 
 Rules:
 
-- `fontSize: 24` means 24pt, not px.
+- `fontSize: 24` in `themeOverride.text` means 24pt, not px.
 - `fixedHeight: 1` means a 1cm region.
 - `thickness: 1` means about a 1pt rule.
-- Use semantic text `size` (`xs`..`2xl`) before raw `fontSize` on nodes.
+- Authored primitives may use semantic text `size` (`xs`..`2xl`) for local
+  emphasis, but component implementations MUST NOT use `size` as a hidden
+  default. Components use typography tokens instead.
 - Use `lineHeight` in theme text styles for paragraph rhythm; use
   paragraph-level `lineSpacing` only for low-level rich paragraphs.
 
@@ -175,11 +177,16 @@ Style precedence:
 
 1. Base theme.
 2. `themeOverride`.
-3. Component defaults.
-4. Concrete component or node instance fields (`fontSize`, `fontFamily`,
+3. Central component typography derivations, e.g. `timeline-body` extends
+   `caption`. These are resolved in the theme layer, not inside components.
+4. Component defaults for non-font visual structure such as surfaces, spacing,
+   markers, and layout.
+5. Concrete authored primitive node instance fields (`fontSize`, `fontFamily`,
    `fontWeight`, `lineHeight`, `color`, `size`, `tracking`, `surface`, `fill`,
-   `line`, `cornerRadius`, etc.).
-5. Rich text run overrides for a single run.
+   `line`, `cornerRadius`, etc.). These are escape hatches for low-level
+   nodes; semantic component factories MUST NOT rely on them for default
+   typography.
+6. Rich text run overrides for a single run.
 
 Instance overrides are local. They do not mutate the theme for other nodes.
 
@@ -234,6 +241,47 @@ Rules:
   blocking; `SHAPE_INVISIBLE_FIXED` is non-blocking.
 
 ## 7. Typography And Rich Text
+
+Typography is centralized like color. The deck's visible type system is
+controlled by a finite set of theme text tokens, not by per-component font
+constants.
+
+Base text tokens:
+
+- `deck-title`, `slide-title`, `section-title`, `card-title`
+- `lead`, `paragraph`, `article`, `caption`, `figure-caption`, `footnote`
+- `label`, `badge`, `tag`
+- `bullet`, `bullet-compact`
+- `metric-value`, `metric-label`
+- `table-header`, `table-cell`
+- `axis-label`, `legend-label`
+- `callout`, `quote`, `quote-source`
+- `code`, `code-caption`, `hero`, `title`, `body`
+
+Component text tokens:
+
+- Components MUST reference semantic typography tokens such as
+  `timeline-time`, `timeline-title`, and `timeline-body`.
+- Component text tokens MUST be declared in the centralized theme derivation
+  registry (`COMPONENT_TEXT_STYLE_DERIVATIONS` in `theme.ts`).
+- Each component token MUST derive from a base token with optional overrides
+  for color, weight, line-height, font role, or features. It MUST NOT invent a
+  new default font size inside the component implementation.
+- Deck authors MAY override a component token in `themeOverride.text` when a
+  component needs special treatment across the whole deck.
+
+Component implementation rules:
+
+- Component factories MUST NOT set `fontSize`, `lineHeight`, `fontFamily`, or
+  semantic `size` (`xs`..`2xl`) as local font defaults.
+- Component factories SHOULD NOT set `weight` for text whose weight is already
+  part of the style token. If a component needs a different default weight,
+  create or update a derived component token.
+- Component factories MAY set `color` for semantic state or tone when color is
+  data/meaning, but typography scale and rhythm still come from text tokens.
+- Raw primitive authoring MAY still use node-level typography overrides as an
+  escape hatch for poster layouts, annotations, or rich text runs. This does
+  not relax the component factory rule.
 
 Text node fields:
 
