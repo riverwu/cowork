@@ -273,10 +273,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     iconBackground: { type: "string", description: "Icon background fill token." },
     tone: { type: "string", description: "Optional text color token." },
   }, "stack.horizontal(shape, text)", "stack"),
-  component("timeline", "Chronological sequence with dates, eras, milestones, or releases. Use when time is the organizing meaning. Each item supports a sub-headline (title), simple body text (body), an optional tone (brand|positive|warning|danger|neutral) for accent color, OR a full embedded DomNode (content) such as a metric-card, image, insight-card, quote. Capacity caps (auto-applied): horizontal rich items > 5 auto-flip to vertical (each row gets full width); simple items > 6 auto-wrap to a 4-col grid; the renderer takes care of overflow but for histories beyond ~8 rich events you should split into two timeline slides.", {
-    items: { type: "array", required: true, description: "Array of { time?/date?/year?, title?/label?/headline?/name?, body?/description? (text), tone? (brand|positive|warning|danger|neutral), content? (any DomNode — metric-card, image, insight-card, etc.) }. content takes priority over body when both are supplied. Prefer body+tone for ordinary events; reserve content for moments that need a chart/image/quote." },
+  component("timeline", "Chronological sequence with dates, eras, milestones, or releases. Use when time is the organizing meaning. Each item supports a sub-headline (title), simple body text (body), an optional tone (brand|positive|warning|danger|neutral) for accent color, optional milestone shape/icon, OR a full embedded DomNode (content) such as a metric-card, image, insight-card, quote. Capacity caps (auto-applied): horizontal rich items > 5 auto-flip to vertical (each row gets full width); simple items > 6 auto-wrap to a 4-col grid; the renderer takes care of overflow but for histories beyond ~8 rich events you should split into two timeline slides.", {
+    items: { type: "array", required: true, description: "Array of { time?/date?/year?, title?/label?/headline?/name?, body?/description? (text), tone? (brand|positive|warning|danger|neutral), shape? (outer milestone OOXML preset: ellipse/diamond/cloud/star-5/etc.), icon? (optional inner OOXML preset), content? (any DomNode — metric-card, image, insight-card, etc.) }. content takes priority over body when both are supplied. Prefer body+tone for ordinary events; reserve content for moments that need a chart/image/quote." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Layout direction. Defaults to horizontal — safe for short text items. Pass 'vertical' when items have rich content (each row gets ~12cm width vs ~4cm in horizontal). The component auto-flips to vertical when items > 5 with rich content, and auto-wraps simple items > 6 into a 4-col grid." },
     orientation: { type: "enum", enum: ["horizontal", "vertical"], description: "Alias for direction." },
+    gap: { type: "number", description: "For wrapped horizontal timelines, vertical gap in cm between axis rows. Default 0.52; useful range 0.3-1.0." },
   }, "grid|stack of timeline-step cards", "stack"),
   component("profile-card", "Person or role profile with photo, name, title, and short bio. Use when identity/ownership is the content.", {
     image: { type: "image-ref", required: true, description: "Photo source path or URL." },
@@ -999,6 +1000,8 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
         title: stringValue(rec.title, stringValue(rec.label, stringValue(rec.headline, stringValue(rec.name, "")))),
         body: stringValue(rec.body, stringValue(rec.description, "")),
         tone: toneOf(rec.tone),
+        shape: stringValue(rec.shape, stringValue(rec.milestoneShape, stringValue(rec.markerShape, ""))),
+        icon: stringValue(rec.icon, ""),
         content,
       };
     }) : [];
@@ -1009,7 +1012,8 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     // can flip it back to vertical when the cell is genuinely too narrow.
     const rawDirection = node.direction || node.orientation;
     const direction = rawDirection === "vertical" ? "vertical" : "horizontal";
-    return withComponentRoot(node, timelineBlock(slideId, name, { items, direction }));
+    const gap = typeof node.gap === "number" && Number.isFinite(node.gap) ? node.gap : undefined;
+    return withComponentRoot(node, timelineBlock(slideId, name, { items, direction, gap }));
   }
   if (componentName === "profile-card") {
     return withComponentRoot(node, profileCard(slideId, name, {
@@ -1806,7 +1810,7 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     // works in either component.
     const explicitTone = coerce(node.tone);
     const tone: TakeawayTone | undefined = explicitTone || (componentName === "warning-list" ? "warning" : undefined);
-    return withComponentRoot(node, takeawayList(slideId, name, { items, tone, marker: decorationMarker(node.marker), ...surfaceOptions(node) }));
+    return withComponentRoot(node, takeawayList(slideId, name, { title: stringValue(node.title, ""), items, tone, marker: decorationMarker(node.marker), ...surfaceOptions(node) }));
   }
   return withComponentRoot(node, { id: node.id, type: "stack", direction: "vertical", children: [] });
 }
@@ -2756,18 +2760,42 @@ function insightCardNode(slideId: string, name: string, node: DomNode): DomNode 
   }
   children.push({ id: `${slideId}.${name}.headline`, type: "text", text: stringValue(node.headline, stringValue(node.title, "")), style: "card-title", color: "text.primary", minHeight: compact ? 0.38 : 0.48, autoFit: "shrink" });
   const detail = stringValue(node.detail, stringValue(node.body, stringValue(node.description, "")));
-  if (detail) {
+  const richContent = richTextRuns(node.content);
+  if (detail || richContent) {
+    const plainDetail = detail || richTextPlain(richContent);
     children.push({
       id: `${slideId}.${name}.detail`,
       type: "text",
       text: detail,
+      ...(richContent ? { content: richContent } : {}),
       style: compact ? "caption" : "paragraph",
       color: "text.primary",
-      minHeight: estimateInsightDetailMinHeight(detail, compact),
+      minHeight: estimateInsightDetailMinHeight(plainDetail, compact),
       layoutWeight: 1,
       autoFit: "shrink",
       optional: true,
     });
+  }
+  const metric = node.metric && typeof node.metric === "object" ? node.metric as Record<string, unknown> : undefined;
+  if (metric) {
+    const value = stringValue(metric.value, "");
+    const label = stringValue(metric.label, stringValue(metric.name, ""));
+    if (value || label) {
+      children.push({
+        id: `${slideId}.${name}.metric`,
+        type: "text",
+        text: [value, label].filter(Boolean).join(" · "),
+        style: "label",
+        color: tone === "neutral" ? "text.primary" : toneAccent(tone),
+        fill: "surface.subtle",
+        cornerRadius: 0.12,
+        align: "center",
+        valign: "middle",
+        minHeight: compact ? 0.32 : 0.42,
+        autoFit: "shrink",
+        optional: true,
+      });
+    }
   }
   const bullets = stringArray(node.bullets).length ? stringArray(node.bullets) : stringArray(node.items).length ? stringArray(node.items) : stringArray(node.points);
   if (bullets.length > 0) children.push({ ...bulletList(slideId, `${name}.bullets`, bullets.slice(0, compact ? 3 : 5), "compact"), optional: true });

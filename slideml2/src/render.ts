@@ -3893,6 +3893,9 @@ function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, 
 const CONTENT_HUG_STACK_ROLES = new Set([
   "callout",
   "quote",
+  "timeline",
+  "timeline-row",
+  "timeline-marker",
 ]);
 
 function contentHugSafetySlack(node: DomNode): number {
@@ -3919,6 +3922,7 @@ function canGrow(node: DomNode): boolean {
   if (optionalNumberProp(node, "layoutWeight") !== undefined) return true;
   if (node.fill === true) return true;
   if (node.type === "stack" && typeof node.role === "string" && CONTENT_HUG_STACK_ROLES.has(node.role)) return false;
+  if (node.type === "grid" && (node.role === "timeline-marker-row" || node.role === "timeline-item-row")) return false;
   return node.type === "image" || node.type === "grid" || node.type === "stack" || node.type === "table" || node.type === "chart" || node.type === "spacer" || node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset";
 }
 

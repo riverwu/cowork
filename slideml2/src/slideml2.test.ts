@@ -1997,6 +1997,31 @@ describe("slideml2 MVP", () => {
     expect(getDiagnosticsByCode("TRUNCATED").filter((d) => d.nodeId === "insight-fit.c1.detail")).toHaveLength(0);
   });
 
+  it("preserves insight-card rich content and metric fields", () => {
+    const deck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "insight-content",
+        children: [{
+          id: "insight-content.card",
+          type: "insight-card",
+          headline: "D 垂直 Agent",
+          badge: "Harvey / 迈富时 / 百望",
+          content: [{ text: "全部赢家！\n\n通用能力越强，垂直特殊性越值钱" }],
+          metric: { value: "Harvey $11B", label: "法律" },
+          tone: "positive",
+        }],
+      }],
+    } as const;
+    const rendered = sourceToRenderedDeck(deck);
+    const json = JSON.stringify(rendered);
+    expect(json).toContain("全部赢家");
+    expect(json).toContain("通用能力越强");
+    expect(json).toContain("Harvey $11B");
+    expect(json).toContain("法律");
+  });
+
   it("warns when a deck repeats insight-card grids across many slides", () => {
     const slides = Array.from({ length: 3 }, (_, slideIndex) => ({
       id: `repeat-${slideIndex + 1}`,

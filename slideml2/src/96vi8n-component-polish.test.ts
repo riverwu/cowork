@@ -89,7 +89,7 @@ describe("timeline visual spine (slide 7 fix)", () => {
     expect(dotToTitleGap).toBeLessThan(0.7);
   });
 
-  it("horizontal timeline does NOT emit dot/line spines (cells flow horizontally)", () => {
+  it("horizontal timeline emits axis markers without vertical row spines", () => {
     const slide: SlideV2 = {
       id: "s",
       title: "x",
@@ -104,8 +104,70 @@ describe("timeline visual spine (slide 7 fix)", () => {
       } as never],
     };
     const list = shapes(slide);
-    expect(filterEndingWith(list, ".dot").length).toBe(0);
+    expect(filterEndingWith(list, ".dot").length).toBe(2);
+    expect(filterEndingWith(list, ".halo").length).toBe(2);
     expect(filterEndingWith(list, ".line").length).toBe(0);
+  });
+
+  it("horizontal timeline keeps the node on the axis and supports milestone shape/icon", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.tl",
+        type: "timeline",
+        direction: "horizontal",
+        items: [
+          { time: "2024", title: "A", body: "Body", shape: "diamond", icon: "cloud" },
+          { time: "2025", title: "B", body: "Body", shape: "star-5", icon: "triangle" },
+        ],
+      } as never],
+    };
+    const list = shapes(slide);
+    const halo = findEndingWith(list, ".0.halo") as { preset?: string; xfrm?: { x: number; cx: number } };
+    const icon = findEndingWith(list, ".0.icon") as { preset?: string };
+    const dot = findEndingWith(list, ".0.dot") as { xfrm?: { x: number; y: number; cx: number; cy: number } };
+    const railRight = findEndingWith(list, ".0.railRight") as { xfrm?: { y: number; cy: number } };
+    const time = findEndingWith(list, ".0.time") as { xfrm?: { y: number } };
+    const body = findEndingWith(list, ".0.body") as { paragraphs?: Array<{ runs: Array<{ sizeHalfPt?: number }> }> };
+
+    expect(halo.preset).toBe("diamond");
+    expect(icon.preset).toBe("cloud");
+    const haloCenterX = (halo.xfrm!.x + halo.xfrm!.cx / 2) / EMU;
+    const dotCenterX = (dot.xfrm!.x + dot.xfrm!.cx / 2) / EMU;
+    expect(Math.abs(haloCenterX - dotCenterX)).toBeLessThan(0.05);
+    const dotCenter = (dot.xfrm!.y + dot.xfrm!.cy / 2) / EMU;
+    const railCenter = (railRight.xfrm!.y + railRight.xfrm!.cy / 2) / EMU;
+    expect(Math.abs(dotCenter - railCenter)).toBeLessThan(0.05);
+    const dotBottom = (dot.xfrm!.y + dot.xfrm!.cy) / EMU;
+    const timeTop = time.xfrm!.y / EMU;
+    expect(timeTop - dotBottom).toBeGreaterThanOrEqual(0);
+    expect(timeTop - dotBottom).toBeLessThan(0.35);
+    expect(body.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt).toBe(17.6);
+  });
+
+  it("wrapped horizontal timeline exposes row gap for spacing between axes", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.tl",
+        type: "timeline",
+        direction: "horizontal",
+        gap: 0.82,
+        items: Array.from({ length: 8 }, (_, index) => ({
+          time: `202${index}`,
+          body: `Milestone ${index + 1}`,
+        })),
+      } as never],
+    };
+    const list = shapes(slide);
+    const row0Dot = findEndingWith(list, ".3.dot") as { xfrm?: { y: number; cy: number } };
+    const row0Body = findEndingWith(list, ".3.body") as { xfrm?: { y: number; cy: number } };
+    const row1Dot = findEndingWith(list, ".4.dot") as { xfrm?: { y: number } };
+    const row0Bottom = Math.max(row0Dot.xfrm!.y + row0Dot.xfrm!.cy, row0Body.xfrm!.y + row0Body.xfrm!.cy) / EMU;
+    const rowGap = row1Dot.xfrm!.y / EMU - row0Bottom;
+    expect(rowGap).toBeGreaterThan(0.6);
   });
 });
 

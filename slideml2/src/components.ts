@@ -636,15 +636,30 @@ export function iconText(slideId: string, id: string, options: { icon: string; t
  * with bold value, short callout) fits; long bullet lists / kpi-grids
  * do not. Use vertical timeline for content-heavy items.
  */
+type TimelineTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+type TimelineItem = {
+  time?: string;
+  title?: string;
+  body?: string;
+  tone?: TimelineTone;
+  content?: DomNode;
+  shape?: string;
+  icon?: string;
+};
+
 export function timelineBlock(slideId: string, id: string, options: {
-  items: Array<{ time?: string; title?: string; body?: string; tone?: "brand" | "positive" | "warning" | "danger" | "neutral"; content?: DomNode }>;
+  items: TimelineItem[];
   direction?: "horizontal" | "vertical";
+  gap?: number;
 }): DomNode {
   const requested = options.direction === "horizontal" ? "horizontal" : "vertical";
   const items = options.items;
   const itemCount = items.length;
   const simpleItems = items.every((item) => !item.content);
   const richCount = items.filter((item) => item.content).length;
+  const rowGap = typeof options.gap === "number" && Number.isFinite(options.gap)
+    ? Math.max(0, Math.min(1.4, options.gap))
+    : 0.52;
 
   // Capacity decision tree (was: cap horizontal columns at 5 with no
   // overflow path; produced 5+3 misaligned grids and aggressive autoFit
@@ -664,36 +679,13 @@ export function timelineBlock(slideId: string, id: string, options: {
     for (let start = 0; start < itemCount; start += columns) {
       const rowIndex = Math.floor(start / columns);
       const rowItems = items.slice(start, start + columns);
-      rows.push({
-        id: `${slideId}.${id}.row${rowIndex}`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.12,
-        role: "timeline-row",
-        children: [
-          {
-            id: `${slideId}.${id}.row${rowIndex}.line`,
-            type: "divider",
-            orientation: "horizontal",
-            line: "brand.primary",
-            thickness: 0.035,
-            fixedHeight: 0.08,
-          },
-          {
-            id: `${slideId}.${id}.row${rowIndex}.items`,
-            type: "grid",
-            columns,
-            gap: 0.26,
-            children: rowItems.map((item, localIndex) => timelineStep(slideId, id, start + localIndex, item, "horizontal")),
-          },
-        ],
-      });
+      rows.push(timelineHorizontalRow(slideId, id, rowItems, start, columns, `${slideId}.${id}.row${rowIndex}`));
     }
     return {
       id: `${slideId}.${id}`,
       type: "stack",
       direction: "vertical",
-      gap: 0.28,
+      gap: rowGap,
       role: "timeline",
       children: rows,
     };
@@ -709,14 +701,7 @@ export function timelineBlock(slideId: string, id: string, options: {
     };
   }
   if (requested === "horizontal") {
-    return {
-      id: `${slideId}.${id}`,
-      type: "grid",
-      columns: Math.max(1, Math.min(5, itemCount)),
-      gap: itemCount >= 5 ? 0.24 : 0.32,
-      role: "timeline",
-      children: items.map((item, index) => timelineStep(slideId, id, index, item, "horizontal")),
-    };
+    return timelineHorizontalRow(slideId, id, items, 0, Math.max(1, Math.min(6, itemCount)), `${slideId}.${id}`, "timeline");
   }
   return {
     id: `${slideId}.${id}`,
@@ -728,25 +713,182 @@ export function timelineBlock(slideId: string, id: string, options: {
   };
 }
 
+function timelineHorizontalRow(
+  slideId: string,
+  id: string,
+  items: TimelineItem[],
+  startIndex: number,
+  columns: number,
+  nodeId: string,
+  role: string = "timeline-row",
+): DomNode {
+  const markerGridId = role === "timeline" ? `${slideId}.${id}.markers` : `${nodeId}.markers`;
+  const textGridId = role === "timeline" ? `${slideId}.${id}.items` : `${nodeId}.items`;
+  return {
+    id: nodeId,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.02,
+    role,
+    children: [
+      {
+        id: markerGridId,
+        type: "grid",
+        columns,
+        gap: 0,
+        role: "timeline-marker-row",
+        minHeight: 1.55,
+        children: items.map((item, localIndex) => timelineHorizontalMarker(slideId, id, startIndex + localIndex, item)),
+      },
+      {
+        id: textGridId,
+        type: "grid",
+        columns,
+        gap: columns >= 5 ? 0.2 : 0.3,
+        role: "timeline-item-row",
+        children: items.map((item, localIndex) => timelineStep(slideId, id, startIndex + localIndex, item, "horizontal")),
+      },
+    ],
+  };
+}
+
+function timelineHorizontalMarker(
+  slideId: string,
+  id: string,
+  index: number,
+  item: TimelineItem,
+): DomNode {
+  const toneToken = timelineToneToken(item.tone);
+  const shapePreset = item.shape || "ellipse";
+  const iconPreset = item.icon || "";
+  const visualChildren: DomNode[] = [{
+    id: `${slideId}.${id}.${index}.halo`,
+    type: "shape",
+    preset: shapePreset,
+    fill: "surface",
+    line: toneToken,
+    lineWidth: 0.018,
+    fixedWidth: 0.82,
+    fixedHeight: 0.82,
+    optional: true,
+  }];
+  if (iconPreset) {
+    visualChildren.push({
+      id: `${slideId}.${id}.${index}.iconLayer`,
+      type: "stack",
+      direction: "horizontal",
+      justify: "center",
+      align: "center",
+      valign: "middle",
+      layer: "above",
+      children: [{
+        id: `${slideId}.${id}.${index}.icon`,
+        type: "shape",
+        preset: iconPreset,
+        fill: toneToken,
+        line: toneToken,
+        lineWidth: 0.018,
+        fixedWidth: 0.32,
+        fixedHeight: 0.32,
+        optional: true,
+      }],
+    });
+  }
+  return {
+    id: `${slideId}.${id}.${index}.marker`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.02,
+    role: "timeline-marker",
+    align: "center",
+    valign: "bottom",
+    children: [
+      {
+        id: `${slideId}.${id}.${index}.visual`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0.08,
+        justify: "center",
+        align: "center",
+        valign: "middle",
+        fixedHeight: 0.84,
+        children: visualChildren,
+      },
+      {
+        id: `${slideId}.${id}.${index}.leader`,
+        type: "shape",
+        preset: "rect",
+        fill: "divider",
+        line: "divider",
+        fixedWidth: 0.04,
+        fixedHeight: 0.22,
+        optional: true,
+      },
+      {
+        id: `${slideId}.${id}.${index}.axis`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0,
+        role: "timeline-axis-node",
+        valign: "middle",
+        fixedHeight: 0.24,
+        children: [
+          {
+            id: `${slideId}.${id}.${index}.railLeft`,
+            type: "shape",
+            preset: "rect",
+            fill: "brand.primary",
+            line: "brand.primary",
+            fixedHeight: 0.04,
+            layoutWeight: 1,
+          },
+          {
+            id: `${slideId}.${id}.${index}.dot`,
+            type: "shape",
+            preset: "ellipse",
+            fill: "surface",
+            line: toneToken,
+            lineWidth: 0.035,
+            fixedWidth: 0.22,
+            fixedHeight: 0.22,
+            optional: true,
+          },
+          {
+            id: `${slideId}.${id}.${index}.railRight`,
+            type: "shape",
+            preset: "rect",
+            fill: "brand.primary",
+            line: "brand.primary",
+            fixedHeight: 0.04,
+            layoutWeight: 1,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function timelineToneToken(tone: TimelineTone | undefined): string {
+  switch (tone) {
+    case "positive": return "success";
+    case "warning": return "warning";
+    case "danger": return "danger";
+    case "neutral": return "text.muted";
+    default: return "brand.primary";
+  }
+}
+
 function timelineStep(
   slideId: string,
   id: string,
   index: number,
-  item: { time?: string; title?: string; body?: string; tone?: "brand" | "positive" | "warning" | "danger" | "neutral"; content?: DomNode },
+  item: TimelineItem,
   direction: "horizontal" | "vertical",
 ): DomNode {
   // 2pmnxh fix: time/title/body all use text.primary so contrast passes
   // on any agent-supplied theme.
   const titleStyle = "card-title";
-  const toneToken = (() => {
-    switch (item.tone) {
-      case "positive": return "success";
-      case "warning": return "warning";
-      case "danger": return "danger";
-      case "neutral": return "text.muted";
-      default: return "brand.primary";
-    }
-  })();
+  const toneToken = timelineToneToken(item.tone);
 
   // Stamp the content's id under the step's namespace if missing (so
   // layout / diagnostics can identify it).
@@ -758,20 +900,32 @@ function timelineStep(
     : null;
 
   /* ---------------- horizontal timeline (narrow cells) ---------------- */
-  // Each step is its own column (~4cm wide at 5 items). Stack everything
-  // vertically inside the cell: time → title → content.
+  // The parent horizontal row owns the continuous rail and milestone markers.
+  // Each step only renders the copy below that rail, so the timeline reads as
+  // one connected axis instead of a list of cards.
   if (direction === "horizontal") {
     const children: DomNode[] = [];
     if (item.time && item.time.trim()) {
-      children.push({ id: `${slideId}.${id}.${index}.time`, type: "text", text: item.time.trim(), style: "label", color: item.tone ? toneToken : "text.primary", weight: item.tone ? "bold" : undefined, minHeight: 0.32, autoFit: "shrink" });
+      children.push({
+        id: `${slideId}.${id}.${index}.time`,
+        type: "text",
+        text: item.time.trim(),
+        style: "label",
+        color: item.tone ? toneToken : "text.primary",
+        weight: "bold",
+        align: "center",
+        minHeight: 0.34,
+        autoFit: "shrink",
+        optional: true,
+      });
     }
     if (item.title && item.title.trim()) {
-      children.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title.trim(), style: titleStyle, color: "text.primary", minHeight: 0.42, autoFit: "shrink" });
+      children.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title.trim(), style: titleStyle, color: "text.primary", align: "center", minHeight: 0.48, autoFit: "shrink" });
     }
     if (content) {
       children.push(content);
     } else if (item.body && item.body.trim()) {
-      children.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "caption", color: "text.primary", valign: "top", minHeight: estimateTimelineBodyMinHeight(item.body, "horizontal"), autoFit: "shrink", optional: true });
+      children.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "caption", color: "text.primary", align: "center", valign: "top", minHeight: estimateTimelineBodyMinHeight(item.body, "horizontal"), autoFit: "shrink", optional: true });
     }
     return {
       id: `${slideId}.${id}.${index}`,
@@ -883,10 +1037,10 @@ function timelineStep(
 function estimateTimelineBodyMinHeight(text: string, direction: "horizontal" | "vertical"): number {
   const explicitLines = text.split(/\n+/).filter((line) => line.trim()).length;
   const weighted = weightedTextLength(text);
-  const charsPerLine = direction === "horizontal" ? 24 : 46;
+  const charsPerLine = direction === "horizontal" ? 20 : 46;
   const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / charsPerLine));
-  const lineHeight = direction === "horizontal" ? 0.3 : 0.34;
-  return Math.max(direction === "horizontal" ? 0.48 : 0.42, Math.min(direction === "horizontal" ? 1.05 : 1.2, estimatedLines * lineHeight + 0.12));
+  const lineHeight = direction === "horizontal" ? 0.34 : 0.34;
+  return Math.max(direction === "horizontal" ? 0.58 : 0.42, Math.min(direction === "horizontal" ? 1.52 : 1.2, estimatedLines * lineHeight + 0.14));
 }
 
 export function profileCard(slideId: string, id: string, options: { image: string; name: string; role?: string; bio?: string }): DomNode {
@@ -2532,7 +2686,7 @@ export type TakeawayTone = "brand" | "positive" | "warning" | "danger" | "neutra
 export function takeawayList(
   slideId: string,
   id: string,
-  options: { items: Array<{ headline: string; detail?: string; tone?: TakeawayTone; marker?: DecorationMarkerInput }>; tone?: TakeawayTone; marker?: DecorationMarkerInput } & { surface?: AgentSurface } & AgentSurface,
+  options: { title?: string; items: Array<{ headline: string; detail?: string; tone?: TakeawayTone; marker?: DecorationMarkerInput }>; tone?: TakeawayTone; marker?: DecorationMarkerInput } & { surface?: AgentSurface } & AgentSurface,
 ): DomNode {
   const baseTone: TakeawayTone = options.tone || "brand";
   const items = (options.items || []).slice(0, 6);
@@ -2614,13 +2768,36 @@ export function takeawayList(
       children,
     };
   });
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
+  const listNode: DomNode = {
+    id: `${slideId}.${id}.items`,
     type: detailedGrid ? "grid" : "stack",
     ...(detailedGrid ? { columns: 2 } : { direction: "vertical" as const }),
     gap: detailedGrid ? 0.32 : dense ? 0.25 : 0.5,
-    role: "takeaway-list",
+    role: "takeaway-list-items",
     children: itemNodes,
+  };
+  const title = options.title?.trim();
+  const children: DomNode[] = title
+    ? [
+        {
+          id: `${slideId}.${id}.title`,
+          type: "text",
+          text: title,
+          style: "card-title",
+          color: baseTone === "neutral" ? "text.primary" : toneAccentColor(baseTone, "brand.primary"),
+          minHeight: dense ? 0.38 : 0.48,
+          autoFit: "shrink",
+        },
+        listNode,
+      ]
+    : [listNode];
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: title ? 0.16 : 0,
+    role: "takeaway-list",
+    children,
   } as DomNode, options);
 }
 

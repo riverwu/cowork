@@ -399,6 +399,100 @@ def content_bbox(im, threshold=26):
                 dst[x,y] = 255
     return mask.getbbox()
 
+def foreground_mask(im, threshold=26):
+    bg = bg_from_corners(im)
+    mask = Image.new("L", im.size, 0)
+    src = im.load()
+    dst = mask.load()
+    for y in range(im.height):
+        for x in range(im.width):
+            r,g,b,a = src[x,y]
+            if not is_background_pixel(r, g, b, a, bg, threshold):
+                dst[x,y] = 255
+    return mask
+
+def component_boxes(mask):
+    w, h = mask.size
+    pix = mask.load()
+    seen = bytearray(w * h)
+    boxes = []
+    for y in range(h):
+        for x in range(w):
+            idx = y * w + x
+            if seen[idx] or pix[x, y] == 0:
+                continue
+            stack = [(x, y)]
+            seen[idx] = 1
+            min_x = max_x = x
+            min_y = max_y = y
+            area = 0
+            while stack:
+                cx, cy = stack.pop()
+                area += 1
+                min_x = min(min_x, cx); max_x = max(max_x, cx)
+                min_y = min(min_y, cy); max_y = max(max_y, cy)
+                for nx in (cx - 1, cx, cx + 1):
+                    for ny in (cy - 1, cy, cy + 1):
+                        if nx < 0 or ny < 0 or nx >= w or ny >= h:
+                            continue
+                        nidx = ny * w + nx
+                        if seen[nidx] or pix[nx, ny] == 0:
+                            continue
+                        seen[nidx] = 1
+                        stack.append((nx, ny))
+            boxes.append((min_x, min_y, max_x + 1, max_y + 1, area))
+    return boxes
+
+def merge_boxes(boxes):
+    if not boxes:
+        return None
+    return (
+        min(b[0] for b in boxes),
+        min(b[1] for b in boxes),
+        max(b[2] for b in boxes),
+        max(b[3] for b in boxes),
+    )
+
+def icon_bbox(im):
+    mask = foreground_mask(im)
+    boxes = component_boxes(mask)
+    if not boxes:
+        return None
+    cell_area = im.width * im.height
+    # AI image models sometimes ignore "no labels" and add words below the
+    # icon. Those letters become many small, low, wide components. Keep the
+    # primary visual components and ignore probable text so the output icon is
+    # centered on the symbol instead of being shrunk or sliced by stray labels.
+    min_area = max(10, int(cell_area * 0.00008))
+    candidates = []
+    for l,t,r,b,area in boxes:
+        bw = r - l
+        bh = b - t
+        if area < min_area:
+            continue
+        bottom_band = t > im.height * 0.60
+        text_like = bottom_band and bh < im.height * 0.18 and bw > bh * 1.25
+        if text_like:
+            continue
+        candidates.append((l,t,r,b,area))
+    if not candidates:
+        candidates = sorted(boxes, key=lambda box: box[4], reverse=True)[:3]
+    # Drop far-away tiny remnants after finding the main symbol center.
+    largest = max(candidates, key=lambda box: box[4])
+    lc_x = (largest[0] + largest[2]) / 2
+    lc_y = (largest[1] + largest[3]) / 2
+    filtered = []
+    for box in candidates:
+        l,t,r,b,area = box
+        cx = (l + r) / 2
+        cy = (t + b) / 2
+        far = abs(cx - lc_x) > im.width * 0.38 or abs(cy - lc_y) > im.height * 0.38
+        tiny = area < largest[4] * 0.12
+        if far and tiny:
+            continue
+        filtered.append(box)
+    return merge_boxes(filtered or [largest])
+
 for index, icon in enumerate(cfg["icons"]):
     col = index % cols
     row = index // cols
@@ -411,7 +505,7 @@ for index, icon in enumerate(cfg["icons"]):
     inset_y = max(0, round(cell.height * 0.055))
     cell = cell.crop((inset_x, inset_y, cell.width - inset_x, cell.height - inset_y))
     if transparent:
-        bbox = content_bbox(cell)
+        bbox = icon_bbox(cell)
         if bbox:
             pad = max(12, round(max(cell.width, cell.height) * 0.04))
             l,t,r,b = bbox
