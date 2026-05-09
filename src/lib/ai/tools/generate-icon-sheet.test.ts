@@ -50,9 +50,15 @@ describe("generate_icon_sheet tool", () => {
     const prompt = String(imageSpy.mock.calls[0]?.[0]?.prompt || "");
     expect(prompt).toContain("front view bank building line icon");
     expect(prompt).toContain("dark blue");
-    expect(prompt).toContain("no title");
-    expect(prompt).toContain("no captions");
-    expect(prompt).toContain("no explanatory text");
+    expect(prompt).toContain("absolutely no visible text");
+    expect(prompt).toContain("No words, no letters, no numbers, no digits");
+    expect(prompt).toContain("no title band");
+    expect(prompt).toContain("no header band");
+    expect(prompt).toContain("no footer band");
+    expect(prompt).toContain("square grid must fill the entire square image");
+    expect(prompt).toContain("Every grid cell must be the same square size");
+    expect(prompt).toContain("Every icon artwork must have a square visual bounding box");
+    expect(prompt).toContain("fill most of its square cell");
     expect(prompt).not.toContain("#111827");
     expect(prompt).not.toContain("银行");
     expect(prompt).not.toContain("bank)");
@@ -84,7 +90,11 @@ describe("generate_icon_sheet tool", () => {
     const script = String(pythonSpy.mock.calls[0]?.[0]?.code || "");
     expect(script).toContain("expand_x = round(cell_w * 0.18)");
     expect(script).toContain("expected = ((left + right) / 2 - search_left");
-    expect(script).toContain("bbox = icon_bbox(search, expected)");
+    expect(script).toContain("focus = (left - search_left, top - search_top, right - search_left, bottom - search_top)");
+    expect(script).toContain("bbox = icon_bbox(search, expected, focus)");
+    expect(script).toContain("meaningful_overlap = overlap >= min(area * 0.22");
+    expect(script).toContain("clipped = clip_box(merged, guard)");
+    expect(script).toContain("guard_x = max(4, round((focus[2] - focus[0]) * 0.025))");
     expect(script).toContain("text_like = wide_flat");
   });
 

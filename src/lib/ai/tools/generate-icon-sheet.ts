@@ -308,9 +308,12 @@ function buildIconSheetPrompt(input: {
     `Style: ${input.style}.`,
     `Palette: ${describePalette(input.palette)}. Use only these colors plus transparent/white negative space. Do not render color names, codes, swatches, or palette samples.`,
     `Background: ${input.background}.`,
-    "Critical layout rules: exact square regular grid, one centered standalone icon per cell, generous padding inside every cell, all icons same visual weight, consistent stroke width, no cropping, no overlap between cells, no title, no header, no footer, no captions.",
+    "Critical text ban: absolutely no visible text of any kind anywhere in the image. No words, no letters, no numbers, no digits, no dates, no labels, no captions, no headings, no row or column names, no watermarks, no signatures, no UI text.",
+    "Canvas and grid rules: the square grid must fill the entire square image from edge to edge, with no title band, no header band, no footer band, and no unused outer margin. Every grid cell must be the same square size and the grid lines/cell boundaries must align to a regular full-canvas layout.",
+    "Icon shape rules: one centered standalone icon per square cell. Every icon artwork must have a square visual bounding box with equal width and height, not a wide horizontal symbol or tall vertical symbol. If a concept is naturally wide or tall, simplify or arrange it into a square-proportioned symbol. All icons must use the same square footprint, same visual weight, and consistent stroke width.",
+    "Spacing rules: each icon should fill most of its square cell while leaving only modest even padding inside that cell. No cropping, no overlap between cells, no tiny icons floating in a mostly empty sheet.",
     "Do not place icons inside rounded-square app tiles, cards, boxes, circles, badges, frames, shadows, or button backgrounds. Each cell should contain only the symbolic icon on plain white/transparent negative space.",
-    "Content rules: no words, no letters, no numbers, no row or column names, no labels, no captions, no explanatory text, no watermarks, no UI mockups, no realistic photos. Use simple symbolic vector-like icons.",
+    "Content rules: use simple symbolic vector-like icons only. Do not include realistic photos, UI mockups, diagrams with required labels, charts, maps with labels, clock/date numerals, currency amounts, code, math notation, or any other readable glyphs.",
     cells,
     blanks,
   ].filter(Boolean).join("\n");
@@ -453,7 +456,21 @@ def merge_boxes(boxes):
         max(b[3] for b in boxes),
     )
 
-def icon_bbox(im, expected_center=None):
+def overlap_area(box, rect):
+    if rect is None:
+        return None
+    l,t,r,b = box[:4]
+    fl,ft,fr,fb = rect
+    return max(0, min(r, fr) - max(l, fl)) * max(0, min(b, fb) - max(t, ft))
+
+def clip_box(box, rect):
+    if rect is None:
+        return box
+    l,t,r,b = box
+    fl,ft,fr,fb = rect
+    return (max(l, fl), max(t, ft), min(r, fr), min(b, fb))
+
+def icon_bbox(im, expected_center=None, focus_rect=None):
     mask = foreground_mask(im)
     boxes = component_boxes(mask)
     if not boxes:
@@ -470,6 +487,19 @@ def icon_bbox(im, expected_center=None):
         bh = b - t
         if area < min_area:
             continue
+        if focus_rect is not None:
+            overlap = overlap_area((l,t,r,b,area), focus_rect)
+            if overlap is None or overlap == 0:
+                continue
+            cx = (l + r) / 2
+            cy = (t + b) / 2
+            fl,ft,fr,fb = focus_rect
+            focus_w = max(1, fr - fl)
+            focus_h = max(1, fb - ft)
+            within_focus = fl <= cx <= fr and ft <= cy <= fb
+            meaningful_overlap = overlap >= min(area * 0.22, focus_w * focus_h * 0.015)
+            if not within_focus and not meaningful_overlap:
+                continue
         top_band = b < im.height * 0.26
         bottom_band = t > im.height * 0.55
         shallow = bh < im.height * 0.20
@@ -480,18 +510,27 @@ def icon_bbox(im, expected_center=None):
             continue
         candidates.append((l,t,r,b,area))
     if not candidates:
-        candidates = sorted(boxes, key=lambda box: box[4], reverse=True)[:3]
+        if focus_rect is not None:
+            focus_boxes = [box for box in boxes if overlap_area(box, focus_rect)]
+            candidates = sorted(focus_boxes, key=lambda box: overlap_area(box, focus_rect) or 0, reverse=True)[:3]
+        else:
+            candidates = sorted(boxes, key=lambda box: box[4], reverse=True)[:3]
+    if not candidates:
+        return None
 
     def score(box):
         l,t,r,b,area = box
+        focus_bonus = 1
+        if focus_rect is not None:
+            focus_bonus += ((overlap_area(box, focus_rect) or 0) / max(1, area)) * 1.8
         if expected_center is None:
-            return area
+            return area * focus_bonus
         cx = (l + r) / 2
         cy = (t + b) / 2
         ex, ey = expected_center
         dx = abs(cx - ex) / max(1, im.width)
         dy = abs(cy - ey) / max(1, im.height)
-        return area / (1 + (dx + dy) * 2.4)
+        return area * focus_bonus / (1 + (dx + dy) * 2.4)
 
     # Drop far-away tiny remnants after finding the main symbol center.
     largest = max(candidates, key=score)
@@ -507,7 +546,20 @@ def icon_bbox(im, expected_center=None):
         if far and tiny:
             continue
         filtered.append(box)
-    return merge_boxes(filtered or [largest])
+    merged = merge_boxes(filtered or [largest])
+    if merged and focus_rect is not None:
+        gutter_x = max(4, round((focus_rect[2] - focus_rect[0]) * 0.025))
+        gutter_y = max(4, round((focus_rect[3] - focus_rect[1]) * 0.025))
+        guard = (
+            max(0, focus_rect[0] - gutter_x),
+            max(0, focus_rect[1] - gutter_y),
+            min(im.width, focus_rect[2] + gutter_x),
+            min(im.height, focus_rect[3] + gutter_y),
+        )
+        clipped = clip_box(merged, guard)
+        if clipped[2] > clipped[0] and clipped[3] > clipped[1]:
+            return clipped
+    return merged
 
 for index, icon in enumerate(cfg["icons"]):
     col = index % cols
@@ -524,12 +576,17 @@ for index, icon in enumerate(cfg["icons"]):
     search_bottom = min(h, bottom + expand_y)
     search = img.crop((search_left, search_top, search_right, search_bottom))
     expected = ((left + right) / 2 - search_left, (top + bottom) / 2 - search_top)
-    bbox = icon_bbox(search, expected)
+    focus = (left - search_left, top - search_top, right - search_left, bottom - search_top)
+    bbox = icon_bbox(search, expected, focus)
     if bbox:
         pad = max(12, round(max(search.width, search.height) * 0.035))
         l,t,r,b = bbox
         l = max(0, l - pad); t = max(0, t - pad)
         r = min(search.width, r + pad); b = min(search.height, b + pad)
+        guard_x = max(4, round((focus[2] - focus[0]) * 0.025))
+        guard_y = max(4, round((focus[3] - focus[1]) * 0.025))
+        l = max(l, focus[0] - guard_x); t = max(t, focus[1] - guard_y)
+        r = min(r, focus[2] + guard_x); b = min(b, focus[3] + guard_y)
         cell = search.crop((l,t,r,b))
     else:
         cell = img.crop((left, top, right, bottom))
