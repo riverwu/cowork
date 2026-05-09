@@ -14,9 +14,9 @@ and layout, not by writing OOXML.
 Current contract:
 
 - Source deck version: `slideml2: 2`.
-- Authoring deck size: `deck.size: "16x9"` only. Lower-level emitter code has
-  helpers for `16x10`, `4x3`, and `wide`, but source validation currently
-  accepts only `16x9`.
+- Authoring deck size: `deck.size` accepts `"16x9"`, `"16x10"`, `"4x3"`,
+  and `"wide"`. The renderer applies the selected canvas dimensions to theme
+  layout before measuring and emitting PPTX.
 - JSON deck file is the source of truth. PPTX and render-tree outputs are
   generated artifacts.
 - Component names are part of the schema. Use the component name directly in
@@ -58,7 +58,7 @@ Minimal deck:
 Deck fields:
 
 - `slideml2`: MUST be `2`.
-- `deck.size`: MUST be `"16x9"` in current authoring flows.
+- `deck.size`: MUST be one of `"16x9"`, `"16x10"`, `"4x3"`, or `"wide"`.
 - `deck.theme`: base scaffold name, normally `"default"`.
 - `deck.brand`: `{name?, primary?, logo?}`. `primary` is a 6-char hex without
   `#` and seeds `brand.primary`, `brand.tint`, and `brand.shade`.
@@ -66,6 +66,11 @@ Deck fields:
   numbers or logos per slide.
 - `deck.themeOverride`: deep-merged over the base theme. This is where the
   deck's visual identity belongs.
+- `deck.validation`: optional validation profile. `mode:"standard"` is the
+  default, `mode:"strict"` requires image alt text and chart/table source
+  metadata, and `mode:"experimental"` downgrades unknown node/component types
+  to warnings while prototyping schema extensions. Optional overrides:
+  `allowUnknownComponents`, `maxTextLength`, `requireAlt`, `requireSources`.
 - `deck.metadata`: arbitrary non-rendered metadata.
 
 Slide fields:
@@ -164,9 +169,11 @@ new deck task SHOULD install a subject-specific `themeOverride` in
   `color`, `fontFamily`, `letterSpacing`, `uppercase`, `italic`.
 - `component`: default component surfaces (`card`, `panel`, etc.).
 - `layout`: `pageMarginX`, `titleTop`, `titleHeight`, `contentTop`,
-  `contentBottom`, `defaultGap`, `columnGap`, `cardPadding`.
+  `contentBottom`, `defaultGap`, `columnGap`, `cardPadding`, `areas`.
   `contentTop` and `contentBottom` are content-area y-coordinates; content
-  height is `contentBottom - contentTop`.
+  height is `contentBottom - contentTop`. `areas` defines named top-level
+  slide rectangles, e.g. `{leftRail:{x:1,y:2.4,w:4,h:9}}` or
+  `{main:{left:5.4,top:2.4,right:12.6,bottom:12.6}}`.
 - `fonts`: latin/cjk display and text chains plus `mono`.
 - `chart`: chart color cycles.
 - `chrome`: brand mark, page number, footer behavior.
@@ -206,9 +213,10 @@ Surface override convention for composite components:
 }
 ```
 
-Top-level shortcuts are also accepted: `fill`, `border`, `borderColor`,
-`borderWidth`, `borderStyle`, `cornerRadius`, `padding`, `elevation`, `accent`,
-`accentColor`, `accentWidth`.
+Top-level shortcuts are also accepted: `fill`, `fillOpacity`, `line`,
+`lineOpacity`, `lineWidth`, `lineDash`, `border`, `borderColor`,
+`borderWidth`, `borderStyle`, `cornerRadius`, `padding`, `elevation`, `shadow`,
+`gradient`, `accent`, `accentColor`, `accentWidth`.
 
 ## 6. Color Contract
 
@@ -328,7 +336,9 @@ Coordinate system:
 
 - Origin is top-left.
 - Units are cm.
-- Standard 16:9 slide is 25.4cm x 14.288cm.
+- Supported canvas sizes are 16:9 (25.4cm x 14.288cm), 16:10
+  (25.4cm x 15.875cm), 4:3 (25.4cm x 19.05cm), and wide
+  (33.865cm x 19.05cm).
 - The theme defines a title rect and a content rect.
 
 Top-level placement:
@@ -337,11 +347,14 @@ Top-level placement:
 - Main content should normally be one `stack`, `grid`, or `split` in
   `area:"content"`. If omitted, source normalization wraps flow children into
   `${slideId}.content`.
+- `area:"full"` fills the canvas. Any other `area` string resolves against
+  `deck.themeOverride.layout.areas` and gives agents reusable named regions
+  such as `leftRail`, `chart`, `evidence`, or `appendixGrid`.
 - Slide-level `anchor`, `anchorTo`, and `at` nodes bypass flow and render as
   overlays.
-- Top-level children without `area:"content"` or overlay positioning fill the
-  full slide; use this intentionally only for color fields, covers, or
-  full-slide bands.
+- Top-level children without `area`, `area:"content"`, or overlay positioning
+  fill the full slide; use this intentionally only for color fields, covers,
+  or full-slide bands.
 
 Containers:
 
@@ -565,7 +578,7 @@ both primitives and semantic components. Detailed field descriptions are in
 | `checklist` | items | - |
 | `progress-bar` | label, value | max, valueLabel, tone |
 | `pros-cons` | pros, cons | prosTitle, consTitle |
-| `process-flow` | steps | items, direction, variant, density, surface |
+| `process-flow` | steps | items, direction, variant, density, marker, showNumbers, connector, connectorDash, connectorColor, placement, spread, stepAccent, stepSurface, surface |
 | `logo-strip` | logos | items, images, columns, caption |
 | `pricing-card` | plan, price, features | period, tone, ctaText |
 | `hero-stat` | value, label | caption, tone |

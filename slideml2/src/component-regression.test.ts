@@ -379,6 +379,25 @@ describe("component regressions", () => {
     expect(hit!.message).toContain("insight-card.tone must be one of");
   });
 
+  it("explanation-block accepts minimal as a no-chrome alias for plain", () => {
+    const slide: SlideV2 = {
+      id: "reg-explain-minimal",
+      children: [{
+        id: "reg-explain-minimal.exp",
+        type: "explanation-block",
+        title: "Why",
+        body: "Keep agent-authored minimal explanation blocks renderable.",
+        variant: "minimal",
+        tone: "brand",
+      } as unknown as SlideV2["children"][number]],
+    };
+    const report = validateSlide(slide, baseDeck);
+    expect(report.errors, JSON.stringify(report.errors)).toHaveLength(0);
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    expect(findRenderedByName(ast, "reg-explain-minimal.exp.rail")).toBeUndefined();
+    expect(findRenderedByName(ast, "reg-explain-minimal.exp.title")?.type).toBe("text");
+  });
+
   it("STYLE_AS_TYPE error includes the precise rewrite for {type:'paragraph'}", () => {
     const slide: SlideV2 = {
       id: "reg-style-as-type",
@@ -515,6 +534,74 @@ describe("component regressions", () => {
       .map((id) => measured.find((entry) => entry.id === id)?.rect.y);
     expect(ys.every((y) => typeof y === "number"), JSON.stringify(measured)).toBe(true);
     expect(Math.max(...(ys as number[])) - Math.min(...(ys as number[]))).toBeLessThan(0.05);
+  });
+
+  it("process-flow card variant renders numbered stage chips and per-card accent by default", () => {
+    const slide: SlideV2 = {
+      id: "reg-designed-flow",
+      title: "上线流程",
+      children: [{
+        id: "reg-designed-flow.p",
+        type: "process-flow",
+        direction: "horizontal",
+        variant: "cards",
+        steps: [
+          { title: "Plan", body: "Define scope" },
+          { title: "Build", body: "Ship the first version" },
+          { title: "Review", body: "Measure and iterate" },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const chip = findRenderedByName(ast, "reg-designed-flow.p.step1.number");
+    const accent = findRenderedByName(ast, "reg-designed-flow.p.step1.accent");
+    const blocking = getRenderDiagnostics().filter((d) => BLOCKING_CODES.has(d.code) && d.severity !== "info");
+
+    expect(chip?.type).toBe("text");
+    expect(chip && chip.type === "text" ? chip.paragraphs?.[0]?.runs?.[0]?.text : "").toBe("01");
+    expect(accent?.type).toBe("shape");
+    expect(blocking, JSON.stringify(blocking, null, 2)).toHaveLength(0);
+  });
+
+  it("process-flow supports generated iconSrc markers and configurable line connectors", () => {
+    const slide: SlideV2 = {
+      id: "reg-icon-flow",
+      title: "图标流程",
+      children: [{
+        id: "reg-icon-flow.p",
+        type: "process-flow",
+        direction: "horizontal",
+        variant: "cards",
+        marker: "icon",
+        connector: "line",
+        connectorDash: "dash",
+        connectorColor: "divider",
+        steps: [
+          { title: "Collect", body: "整理素材", iconSrc: TINY_PNG },
+          { title: "Analyze", body: "形成判断", iconSrc: TINY_PNG },
+          { title: "Deliver", body: "输出结论", iconSrc: TINY_PNG },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const icon = findRenderedByName(ast, "reg-icon-flow.p.step1.icon");
+    const connector = findRenderedByName(ast, "reg-icon-flow.p.arrow1");
+    const stepBackground = findRenderedByName(ast, "reg-icon-flow.p.step1-background");
+
+    expect(icon?.type).toBe("image");
+    expect((icon as { fit?: string } | undefined)?.fit).toBe("contain");
+    expect(connector?.type).toBe("shape");
+    expect((connector as { preset?: string } | undefined)?.preset).toBe("line");
+    expect((connector as { line?: { dash?: string } } | undefined)?.line?.dash).toBe("dash");
+    expect(stepBackground?.type).toBe("shape");
+    const connectorXfrm = (connector as { xfrm?: { y: number; cy: number } } | undefined)?.xfrm;
+    const stepXfrm = (stepBackground as { xfrm?: { y: number; cy: number } } | undefined)?.xfrm;
+    expect(connectorXfrm).toBeDefined();
+    expect(stepXfrm).toBeDefined();
+    const connectorCenterY = connectorXfrm!.y + connectorXfrm!.cy / 2;
+    const stepCenterY = stepXfrm!.y + stepXfrm!.cy / 2;
+    expect(Math.abs(connectorCenterY - stepCenterY)).toBeLessThan(180000);
   });
 
   it("process-flow card variant gives rich horizontal steps enough card height", () => {

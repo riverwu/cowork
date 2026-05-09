@@ -5,7 +5,14 @@ import { renderSourceDeckToPptx } from "./render.js";
 import { validateDeck } from "./validate.js";
 import type { DeckSpec, Slideml2SourceDeck, SlideV2 } from "./types.js";
 
-export async function createDeck(deckPath: string, options: { title?: string; theme?: string; brand?: DeckSpec["brand"] } = {}): Promise<DeckOpResult> {
+export async function createDeck(deckPath: string, options: {
+  title?: string;
+  size?: DeckSpec["size"];
+  theme?: string;
+  brand?: DeckSpec["brand"];
+  themeOverride?: DeckSpec["themeOverride"];
+  validation?: DeckSpec["validation"];
+} = {}): Promise<DeckOpResult> {
   const deck = createSourceDeck(options);
   await writeDeck(deckPath, deck);
   return summary(deck, { ok: true });

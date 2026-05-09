@@ -9,7 +9,7 @@ export const createDeckTool: Tool = {
 
 Do not call \`create_deck\` until you have saved a complete markdown planning archive, usually next to the deck as \`deck_plan.md\`, with \`write_file\`. That plan should include the deck contract, storyline, theme plan, slide-by-slide component plan, asset/icon plan, and exact icon/image/chart placements. \`create_deck\` starts implementation from that archived plan; it is not the planning step.
 
-The deck-level visual identity should be installed in this initial call via \`themeOverride\`: pass colors (\`brand.primary\`, \`background\`, \`surface\`, \`text.primary\`, \`divider\`, ...), text styles (\`slide-title\`, \`section-title\`, \`card-title\`, \`paragraph\`, \`bullet\`, \`caption\`, \`label\`, \`table-header\`, \`table-cell\`, \`metric-value\`, \`metric-label\`), component tuning (\`card\`, \`panel\`), effective layout fields (\`pageMarginX\`, \`titleTop\`, \`titleHeight\`, \`contentTop\`, \`contentBottom\`, \`defaultGap\`), fonts, and chrome (\`brandMark\`, \`pageNumber\`). \`contentTop\` and \`contentBottom\` are content-area y-coordinates; on 16:9, \`contentBottom\` is usually 13.0-13.5cm and content height is \`contentBottom - contentTop\`. Read the slideml2 SKILL.md for the style brief structure to derive these from the source content. For business/research-report decks, also read business.md completely first; its default is light analytical pages, not a full-deck dark theme.
+The deck-level visual identity should be installed in this initial call via \`themeOverride\`: pass colors (\`brand.primary\`, \`background\`, \`surface\`, \`text.primary\`, \`divider\`, ...), text styles (\`slide-title\`, \`section-title\`, \`card-title\`, \`paragraph\`, \`bullet\`, \`caption\`, \`label\`, \`table-header\`, \`table-cell\`, \`metric-value\`, \`metric-label\`), component tuning (\`card\`, \`panel\`, including surface fields like \`fillOpacity\`, \`lineOpacity\`, \`shadow\`, \`gradient\`), effective layout fields (\`pageMarginX\`, \`titleTop\`, \`titleHeight\`, \`contentTop\`, \`contentBottom\`, \`defaultGap\`, \`areas\`), fonts, and chrome (\`brandMark\`, \`pageNumber\`). \`contentTop\` and \`contentBottom\` are content-area y-coordinates; on 16:9, \`contentBottom\` is usually 13.0-13.5cm and content height is \`contentBottom - contentTop\`. Use \`size\` for the canvas (\`16x9\`, \`16x10\`, \`4x3\`, or \`wide\`) and \`validation\` for \`standard\`/\`strict\`/\`experimental\` policy. Read the slideml2 SKILL.md for the style brief structure to derive these from the source content. For business/research-report decks, also read business.md completely first; its default is light analytical pages, not a full-deck dark theme.
 
 After this call, add slides one at a time via \`replace_slide\` (when slideId equals current slide count, it appends). \`replace_slide\` runs per-slide validation and only commits a slide when it passes, so repair any rejected slide before authoring the next. After all slides are added, call \`validate_render({deckPath,render:true})\` once to render/export the full PPTX and run final deck QA. Use \`patch_deck\` only for focused deck-level or ordering edits, not as the normal slide authoring path.`,
     parameters: {
@@ -17,6 +17,7 @@ After this call, add slides one at a time via \`replace_slide\` (when slideId eq
       properties: {
         deckPath: { type: "string", description: "Absolute path for the deck JSON file (e.g. /abs/path/deck.json)." },
         title: { type: "string", description: "Deck title; sets initial deck.title." },
+        size: { type: "string", enum: ["16x9", "16x10", "4x3", "wide"], description: "Deck canvas size. Default 16x9." },
         theme: { type: "string", description: "Base theme scaffold name. Default 'default' (a neutral theme; use themeOverride to install a real visual identity)." },
         brand: {
           type: "object",
@@ -29,7 +30,11 @@ After this call, add slides one at a time via \`replace_slide\` (when slideId eq
         },
         themeOverride: {
           type: "object",
-          description: "Deck.themeOverride installed immediately: colors, text, component, layout, fonts, chart, chrome, sizeScale, guidance.",
+          description: "Deck.themeOverride installed immediately: colors, text, component, layout (including areas), fonts, chart, chrome, sizeScale, guidance.",
+        },
+        validation: {
+          type: "object",
+          description: "Optional deck.validation policy: {mode:'standard'|'strict'|'experimental', allowUnknownComponents?, maxTextLength?, requireAlt?, requireSources?}.",
         },
       },
       required: ["deckPath"],
@@ -50,12 +55,22 @@ After this call, add slides one at a time via \`replace_slide\` (when slideId eq
     if (typeof themeOverride === "string") return themeOverride;
     const brand = parseMaybeJsonObject(input.brand, "brand", autoNotes);
     if (typeof brand === "string") return brand;
+    const validation = parseMaybeJsonObject(input.validation, "validation", autoNotes);
+    if (typeof validation === "string") return validation;
+    const size = input.size === undefined || input.size === null || input.size === ""
+      ? undefined
+      : String(input.size);
+    if (size !== undefined && !SLIDEML2_SIZE_VALUES.has(size)) {
+      return `Error: size must be one of ${Array.from(SLIDEML2_SIZE_VALUES).join(", ")}.`;
+    }
     try {
       const result = await slideml2CreateDeck(deckPath, {
         title: typeof input.title === "string" ? input.title : undefined,
+        size: size as "16x9" | "16x10" | "4x3" | "wide" | undefined,
         theme: typeof input.theme === "string" ? input.theme : undefined,
         brand: brand && typeof brand === "object" ? brand as never : undefined,
         themeOverride,
+        validation: validation && typeof validation === "object" ? validation : undefined,
       });
       const notePrefix = autoNotes.length > 0 ? `${autoNotes.join("\n")}\n` : "";
       return `${notePrefix}Deck created at ${result.deckPath}. Add slides one at a time via replace_slide (slideId = current slide count appends and only commits after per-slide validation).`;
@@ -110,6 +125,8 @@ const THEME_TEXT_STYLE_KEYS = new Set([
   "uppercase",
   "italic",
 ]);
+
+const SLIDEML2_SIZE_VALUES = new Set(["16x9", "16x10", "4x3", "wide"]);
 
 function normalizeThemeOverride(value: unknown, notes: string[]): unknown | string {
   if (value == null) return undefined;

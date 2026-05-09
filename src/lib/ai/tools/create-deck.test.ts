@@ -22,6 +22,15 @@ describe("createDeckTool argument coercion (288ryd regression)", () => {
     expect(createDeckTool.definition.description).toContain("exact icon/image/chart placements");
   });
 
+  it("documents M1 deck size, validation, layout areas, and surface fields", () => {
+    expect(createDeckTool.definition.description).toContain("16x10");
+    expect(createDeckTool.definition.description).toContain("areas");
+    expect(createDeckTool.definition.description).toContain("fillOpacity");
+    expect(createDeckTool.definition.description).toContain("strict");
+    expect(createDeckTool.definition.parameters.properties).toHaveProperty("size");
+    expect(createDeckTool.definition.parameters.properties).toHaveProperty("validation");
+  });
+
   it("auto-parses themeOverride when it arrives as a JSON-encoded string", async () => {
     const result = await createDeckTool.execute({
       deckPath: "/tmp/x.json",
@@ -90,6 +99,23 @@ describe("createDeckTool argument coercion (288ryd regression)", () => {
     const callArg = mock.mock.calls[0]![1] as { brand?: { name?: string } };
     expect(callArg.brand).toMatchObject({ name: "Test", primary: "C41E3A" });
     expect(String(result)).toMatch(/auto-parsed/i);
+  });
+
+  it("passes size and validation through to the native deck creator", async () => {
+    await createDeckTool.execute({
+      deckPath: "/tmp/x.json",
+      size: "4x3",
+      validation: { mode: "strict", requireAlt: true, requireSources: true },
+    });
+    const callArg = mock.mock.calls[0]![1] as { size?: string; validation?: Record<string, unknown> };
+    expect(callArg.size).toBe("4x3");
+    expect(callArg.validation).toMatchObject({ mode: "strict", requireAlt: true, requireSources: true });
+  });
+
+  it("rejects unsupported deck sizes before creating a bad deck", async () => {
+    const result = await createDeckTool.execute({ deckPath: "/tmp/x.json", size: "square" });
+    expect(mock).not.toHaveBeenCalled();
+    expect(String(result)).toContain("size must be one of");
   });
 
   it("rejects malformed themeOverride JSON instead of creating an unthemed deck", async () => {

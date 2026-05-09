@@ -1,4 +1,5 @@
 import { buildTheme, listPaletteColors, listSemanticTones, listThemes } from "./theme.js";
+import { DECK_SIZE_VALUES, VALIDATION_MODE_VALUES } from "./schema.js";
 
 export interface DeckFieldDescription {
   type: "string" | "number" | "boolean" | "enum" | "object";
@@ -9,7 +10,7 @@ export interface DeckFieldDescription {
 }
 
 export interface DeckDescription {
-  size: { value: "16x9"; slideWidthCm: number; slideHeightCm: number };
+  size: { value: string; supported: string[]; slideWidthCm: number; slideHeightCm: number; description: string };
   contentArea: {
     marginX: number;
     titleTop: number;
@@ -22,6 +23,7 @@ export interface DeckDescription {
   themes: { available: string[]; default: string; description: string };
   brand: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
   chrome: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
+  validation: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
   colorTokens: { description: string; tokens: string[]; tones: { description: string; names: string[] }; palette: { description: string; names: string[] } };
   textStyles: { description: string; styles: string[] };
   themeGuidance: {
@@ -61,7 +63,13 @@ export function describeDeck(): DeckDescription {
   const colorTokens = Object.keys(sample.colors).sort();
   const textStyles = Object.keys(sample.text).sort();
   return {
-    size: { value: "16x9", slideWidthCm: layout.slideWidthCm, slideHeightCm: layout.slideHeightCm },
+    size: {
+      value: "16x9",
+      supported: [...DECK_SIZE_VALUES],
+      slideWidthCm: layout.slideWidthCm,
+      slideHeightCm: layout.slideHeightCm,
+      description: "Set deck.size to 16x9, 16x10, 4x3, or wide. The renderer applies the selected canvas before layout measurement.",
+    },
     contentArea: {
       marginX: layout.pageMarginX,
       titleTop: layout.titleTop,
@@ -93,6 +101,17 @@ export function describeDeck(): DeckDescription {
         footerText: { type: "string", description: "Optional footer text (left side)." },
       },
       example: { brandMark: "bottom-right", pageNumber: true, footerText: "Internal use" },
+    },
+    validation: {
+      description: "Optional deck-level validation policy. strict is for publication/research decks, experimental is for prototyping new schema without blocking unknown nodes.",
+      fields: {
+        mode: { type: "enum", enum: [...VALIDATION_MODE_VALUES], description: "Validation profile.", default: "standard" },
+        allowUnknownComponents: { type: "boolean", description: "Downgrade unknown node/component types to warnings.", default: false },
+        maxTextLength: { type: "number", description: "Maximum characters for raw text nodes." },
+        requireAlt: { type: "boolean", description: "Require image alt text.", default: false },
+        requireSources: { type: "boolean", description: "Require source/caption/citation metadata for chart/table evidence.", default: false },
+      },
+      example: { mode: "strict", maxTextLength: 260, requireAlt: true, requireSources: true },
     },
     colorTokens: {
       description: "Use these tokens anywhere a color is expected (fill, line, color). Avoid raw hex except for one-off accents. Tokens auto-update when theme or brand.primary changes.",

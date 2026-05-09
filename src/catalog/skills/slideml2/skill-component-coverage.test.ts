@@ -170,12 +170,13 @@ describe("slideml2 SKILL component reference", () => {
       "metric-card": ["delta:string", "status:enum[brand|positive|warning|danger|neutral]", "sparkline:array", "variant:enum[plain|card|compact]", "surface:object"],
       "kpi-grid": ["delta/status/comparison/source/sparkline", "variant:enum[plain|card|compact]", "surface:object"],
       "comparison-card": ["content:richTextRuns", "metrics:array", "pros:array", "winner:boolean", "variant:enum[plain|card|compact]", "surface:object"],
-      "process-flow": ["status?:enum[brand|positive|warning|danger|neutral]", "owner?:string", "variant:enum[plain|cards]", "surface:object"],
+      "process-flow": ["status?:enum[brand|positive|warning|danger|neutral]", "owner?:string", "iconSrc?:image-ref", "marker:enum[auto|number|dot|icon|none]", "connector:enum[arrow|chevron|line|none]", "spread:enum[compact|balanced|fill]", "stepSurface:object", "variant:enum[plain|cards]", "surface:object"],
       "feature-card": ["content:richTextRuns", "metric:object", "tags:array", "variant:enum[plain|card|compact]", "surface:object"],
       "image-card": ["insight:string", "annotations:array", "variant:enum[card|frameless|compact]", "surface:object"],
       "chart-card": ["insight:string", "variant:enum[card|frameless|compact]", "surface:object"],
       "table-card": ["insight:string", "variant:enum[card|frameless|compact]", "surface:object"],
       "key-takeaway": ["content:richTextRuns", "bullets:array", "variant:enum[panel|banner|minimal]", "surface:object"],
+      "explanation-block": ["content:richTextRuns", "bullets/items:array", "variant:enum[plain|minimal|rail|panel]", "surface:object"],
     };
     for (const [component, phrases] of Object.entries(expectations)) {
       const line = skillLineFor(component);

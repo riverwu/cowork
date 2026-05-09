@@ -135,10 +135,6 @@ export function CommandBar() {
   async function handleAttachFiles() {
     const result = await pickFiles({
       multiple: true,
-      filters: [
-        { name: "Documents", extensions: ["txt", "md", "pdf", "docx", "xlsx", "csv", "json"] },
-        { name: "All Files", extensions: ["*"] },
-      ],
     });
     if (!result) return;
     const paths = Array.isArray(result) ? result : [result];

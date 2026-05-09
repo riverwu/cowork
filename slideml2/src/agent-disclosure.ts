@@ -1,6 +1,5 @@
 import { describeComponents, listComponents } from "./component-registry.js";
 import { describeDeck } from "./deck-disclosure.js";
-import { listPaletteColors, listSemanticTones } from "./theme.js";
 
 export interface AgentPromptPackOptions {
   intent?: string;
@@ -65,38 +64,36 @@ export function buildAgentPromptPack(options: AgentPromptPackOptions = {}): stri
     ...explicit,
   ]);
   const descriptions = describeComponents(components).found;
-  const palette = listPaletteColors();
-  const tones = listSemanticTones();
   const lines: string[] = [
     "SlideML2 compact guide:",
     "- Output exactly one slide JSON: {id,title,children}.",
     "- Write the component name directly in `type`: {id,type:'callout',...fields}; never wrap as type:'component'+component:'X'.",
     "- Component nodes are flat; do not wrap fields in `props`.",
-    "- Compose the page freely with top-level components, stack/grid/split, and anchored overlays. Use area:'content' when a node should occupy the standard content rect; it is not a required wrapper.",
+    "- Compose with top-level components, stack/grid/split, named areas, and anchored overlays. area:'content' uses the standard content rect.",
     "- Typography is token-driven like color. Tune deck-wide text through themeOverride.text base tokens (caption, label, card-title, paragraph, metric-value, etc.); component-specific text styles must derive centrally from those tokens, not from local fontSize/size defaults in component JSON.",
-    "- Units: layout distances are cm (`at`, `gap`, `padding`, `fixedHeight`, `fixedWidth`, `width`, `height`, `length`). `cornerRadius` is a normalized roundRect fraction 0..0.5 (use 0.08-0.16 for subtle cards, never CSS-like 8/12). Text `fontSize` is pt. Stroke fields (`lineWidth`, `borderWidth`, divider/accent-rule `thickness`) are point-like: use 1 for a normal 1pt rule, 2-3 for emphasis; legacy tiny cm values like 0.02 still work.",
+    "- Units: layout is cm; text fontSize is pt; stroke fields use pt-like 1-3, while legacy tiny values <=0.3 stay cm. cornerRadius is 0..0.5.",
     "- Avoid page-level components: cover, section, dashboard, product-matrix, risk-list.",
     "- For each slide, reach for the *most semantic* component first. Use `callout` sparingly: at most one emphasized warning/rule per slide, never as repeated grid filler.",
     "- Text slide routing: answer/synthesis → executive-summary; why/how explanation → explanation-block; options/trade-offs → comparison-list; facts/source-backed observations → fact-list; standalone curated finding → insight-card.",
     "- Pick components by semantic job first, then layout. Component menu:",
-    "    Quantitative proof → hero-stat (one dominant number), kpi-grid (2-4 KPIs), stat-strip (3-6 light metrics), metric-card (one KPI inside grid), stat-comparison (before/after), bar-list (4-8 ranked values), progress-bar (completion/quota)",
-    "    Comparison / decision → comparison-card grid (2-4 peers), pros-cons (trade-off), swot-matrix (exact SWOT), pricing-card grid (tiers), table-card (feature/financial matrix)",
-    "    Sequence / causality → process-flow (connected pipeline), timeline (dated sequence), numbered-grid (ordered principles), numbered-list (ordered prose), step-card grid (stage cards), flow-arrow (single transition)",
-    "    Page archetypes → hero-and-support (one lead idea + satellites), chart-with-rail (dominant data + interpretation rail), snapshot-callouts (screenshot + numbered observations), evidence-layout (proof + meaning)",
-    "    Evidence / media → image-card (inspectable visual), chart-card (self-contained chart), table-card (structured evidence), quote (voice/evidence), source-note (provenance)",
-    "    Insight / narrative → executive-summary (thesis + findings), key-takeaway (final verdict), takeaway-list (3-5 conclusions), explanation-block (how/why), comparison-list (lightweight options), fact-list (facts + sources), lead (framing thesis), insight-card (finding + proof), callout (one warning/rule only), quote (voice/evidence), article/text (residual prose only)",
-    "    Product / identity → feature-card grid (capability/benefit), logo-strip (partners/customers), profile-card (person/role), tag-list (categories), badge (single status)",
-    "    Layout / surface → split (primary/secondary region split), two-column (named narrative+visual regions), stack (sequence), grid (peer scan), panel/card/band/frame/inset (visual grouping)",
-    "- Decorative containers (NOT layout): panel (tinted surface), card (panel + header/footer/accent), band (full-width strip), frame (border-only), inset (padding only). Wrap a stack/grid inside one when grouping needs visual separation. Never set fill/line/cornerRadius on stack/grid — wrap in panel/card instead.",
-    `- Color tokens: brand.primary, surface, surface.subtle, text.primary, text.muted, text.inverse, divider, success/warning/danger/info plus tone aliases positive/neutral/muted (+ .tint/.accent), brand.tint. Component tone values: ${tones.join(", ")}. Semantic palette for *categorical* meaning: ${palette.join(", ")} (each with .tint and .shade). DO NOT invent tokens like text-secondary, primary-color.`,
+    "    Quant proof → hero-stat, kpi-grid, stat-strip, metric-card, stat-comparison, bar-list, progress-bar",
+    "    Comparison → comparison-card, pros-cons, swot-matrix, pricing-card, table-card",
+    "    Sequence → process-flow, timeline, numbered-grid, numbered-list, step-card, flow-arrow",
+    "    Page archetypes → hero-and-support, chart-with-rail, snapshot-callouts, evidence-layout",
+    "    Evidence/media → image-card, chart-card, table-card, quote, source-note",
+    "    Narrative → executive-summary, key-takeaway, takeaway-list, explanation-block, comparison-list, fact-list, lead, insight-card, callout",
+    "    Product/identity → feature-card, logo-strip, profile-card, tag-list, badge",
+    "    Layout/surface → split, two-column, stack, grid, panel/card/band/frame/inset",
+    "- Decorative containers: panel/card/band/frame/inset. Wrap stack/grid when grouping needs visible chrome.",
+    "- Color tokens: brand.primary, brand.tint, surface, surface.subtle, text.primary/muted/inverse, divider, success/warning/danger/info, palette names red..pink with .tint/.shade. Do not invent tokens.",
     "- Vary slide structure across a deck: insight-card is one option for standalone findings, not the default text container. Prefer executive-summary / explanation-block / comparison-list / fact-list whenever the content shape matches.",
     "- Use `optional: true` on captions/source-notes/secondary callouts so the layout can drop them when space is tight.",
     "- Minimal shape: {\"id\":\"s1\",\"title\":\"Title\",\"children\":[{\"id\":\"s1.lead\",\"type\":\"lead\",\"area\":\"content\",\"text\":\"One insight\"}]}",
     "- Layout escape hatches (use sparingly, when components don't fit):",
-    "    `at:[x,y,w,h]` (cm against slide canvas) — slide-level absolute positioning. Pairs with `rotation` for diagonal headlines, hero numbers overlapping images, editorial covers, or section dividers that need real visual impact.",
-    "    `layer:\"behind\"|\"above\"` on a stack/grid child — the child fills the parent rect and renders below/above flow siblings. Use for backing images inside a card, scrim/ribbon overlays, decoration-grid behind text. Claims no flow space.",
-    "    `anchorTo:\"<targetId>\"` on a slide-level overlay — position relative to another node's rect. Use for a badge clipping over a card edge, a callout-marker pointing at a chart region, an arrow between two cards.",
-    "    Reach for these when the brief calls for visual impact (cover, section dividers, hero stat over photo). For ordinary content slides, components remain the right default.",
+    "    `at:[x,y,w,h]` — slide-level absolute positioning for covers, section dividers, hero numbers, rotated/overlap layouts.",
+    "    `layer:\"behind\"|\"above\"` — child fills parent rect behind/above flow; use for backing images, scrims, ribbons, decoration grids.",
+    "    `anchorTo:\"<targetId>\"` — overlay positioned relative to another node.",
+    "    Use escape hatches for visual impact; ordinary content should stay component-led.",
   ];
   if (includeDeckGuide) {
     const deck = describeDeck();

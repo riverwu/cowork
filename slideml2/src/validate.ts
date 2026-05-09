@@ -1,22 +1,29 @@
 import { describeComponents, getComponentName, isComponentName, isComponentTypedNode, type PropDefinition } from "./component-registry.js";
+import {
+  DECK_SIZE_VALUES,
+  isDeckSize,
+  normalizeValidationMode,
+  THEME_CHROME_FIELD_SET,
+  THEME_COMPONENT_STYLE_FIELD_SET,
+  THEME_FONT_FIELD_SET,
+  THEME_LAYOUT_FIELD_SET,
+  THEME_OVERRIDE_FIELD_SET,
+  THEME_SCRIPT_FONT_FIELD_SET,
+  THEME_TEXT_STYLE_FIELD_SET,
+  VALIDATION_MODE_VALUES,
+} from "./schema.js";
 // Single source of truth for the layout/container primitive types. Adding a
 // new layout primitive (e.g. another decorative wrapper) only requires
 // updating this set.
 const LAYOUT_CONTAINERS = new Set(["stack", "grid", "split", "panel", "card", "band", "frame", "inset", "fragment"]);
 import { buildTheme, textStyle } from "./theme.js";
 import { inferTextKind } from "./text-normalizer.js";
-import type { DomNode, RenderedDeck, Slideml2SourceDeck, SlideV2, ThemeOverride } from "./types.js";
+import type { DeckValidationSpec, DomNode, RenderedDeck, Slideml2SourceDeck, SlideV2, ThemeLayoutArea, ThemeOverride } from "./types.js";
 import { measureDeck } from "./render.js";
 import { sourceSlideToRendered, sourceToRenderedDeck } from "./source-deck.js";
+import { emuToCm, SLIDE_SIZES } from "./units.js";
 
 const RAW_HEX_RE = /^[0-9A-Fa-f]{6}$/;
-const THEME_OVERRIDE_KEYS = new Set(["colors", "text", "component", "tone", "layout", "fonts", "chart", "chrome", "imageGrowWeight", "sizeScale", "guidance"]);
-const THEME_TEXT_STYLE_KEYS = new Set(["fontSize", "weight", "fontWeight", "color", "lineHeight", "margin", "letterSpacing", "fontFamily", "fontFeatures", "uppercase", "italic"]);
-const THEME_COMPONENT_STYLE_KEYS = new Set(["fill", "line", "accent", "padding", "cornerRadius", "elevation"]);
-const THEME_LAYOUT_KEYS = new Set(["slideWidthCm", "slideHeightCm", "pageMarginX", "titleTop", "titleHeight", "contentTop", "contentBottom", "defaultGap", "columnGap", "cardPadding"]);
-const THEME_CHROME_KEYS = new Set(["brandMark", "pageNumber", "footerText", "footerLine", "footerHeight", "footerPadding"]);
-const THEME_FONT_KEYS = new Set(["latin", "cjk", "mono"]);
-const THEME_SCRIPT_FONT_KEYS = new Set(["display", "text"]);
 
 export interface ValidationIssue {
   level: "error" | "warning" | "info";
@@ -36,15 +43,35 @@ export interface ValidationReport {
   info: ValidationIssue[];
 }
 
+interface EffectiveValidationOptions {
+  mode: "strict" | "standard" | "experimental";
+  allowUnknownComponents: boolean;
+  maxTextLength?: number;
+  requireAlt: boolean;
+  requireSources: boolean;
+}
+
+function validationOptions(spec?: DeckValidationSpec): EffectiveValidationOptions {
+  const mode = normalizeValidationMode(spec?.mode);
+  return {
+    mode,
+    allowUnknownComponents: spec?.allowUnknownComponents === true || mode === "experimental",
+    maxTextLength: typeof spec?.maxTextLength === "number" && Number.isFinite(spec.maxTextLength) && spec.maxTextLength > 0 ? spec.maxTextLength : undefined,
+    requireAlt: spec?.requireAlt === true || mode === "strict",
+    requireSources: spec?.requireSources === true || mode === "strict",
+  };
+}
+
 export function validateSlide(slide: SlideV2, deck?: Pick<Slideml2SourceDeck, "deck">): ValidationReport {
   const issues: ValidationIssue[] = [];
+  const options = validationOptions(deck?.deck.validation);
   if (!slide || typeof slide !== "object") {
     issues.push(issue("error", "INVALID_SLIDE", "Slide must be an object."));
     return report(issues);
   }
   if (!slide.id) issues.push(issue("error", "MISSING_SLIDE_ID", "Slide id is required.", { suggestedFix: "Add a stable slide.id." }));
   if (!Array.isArray(slide.children)) issues.push(issue("error", "MISSING_CHILDREN", "Slide children must be an array.", { slideId: slide.id }));
-  slide.children?.forEach((node, index) => validateNode(node, `children[${index}]`, slide.id, issues));
+  slide.children?.forEach((node, index) => validateNode(node, `children[${index}]`, slide.id, issues, undefined, options));
   // Generic rule: a slide may carry exactly ONE visible hero title. `slide.title`
   // may duplicate the visible body hero title as metadata/navigation text; when
   // it differs, the renderer would create two competing hero titles. `h1` is an
@@ -63,7 +90,7 @@ export function validateSlide(slide: SlideV2, deck?: Pick<Slideml2SourceDeck, "d
   try {
     const rendered: RenderedDeck = {
       deck: {
-        size: "16x9",
+        size: isDeckSize(deck?.deck.size) ? deck.deck.size : "16x9",
         theme: deck?.deck.theme || "default",
         brand: deck?.deck.brand || {},
         themeOverride: deck?.deck.themeOverride,
@@ -87,7 +114,8 @@ export function validateDeck(deck: Slideml2SourceDeck): ValidationReport {
     return report(issues);
   }
   if (deck.slideml2 !== 2) issues.push(issue("error", "VERSION_MISMATCH", "Deck must declare slideml2: 2."));
-  if (!deck.deck || deck.deck.size !== "16x9") issues.push(issue("error", "INVALID_DECK_SIZE", "Only deck.size='16x9' is supported in MVP."));
+  if (!deck.deck || !isDeckSize(deck.deck.size)) issues.push(issue("error", "INVALID_DECK_SIZE", `deck.size must be one of: ${DECK_SIZE_VALUES.join(", ")}.`));
+  validateDeckValidationSpec(deck, issues);
   validateThemeOverride(deck, issues);
   validateDeckChrome(deck, issues);
   if (!Array.isArray(deck.slides)) {
@@ -110,6 +138,47 @@ export function validateDeck(deck: Slideml2SourceDeck): ValidationReport {
     }
   }
   return report(dedupeIssues(issues));
+}
+
+function validateDeckValidationSpec(deck: Slideml2SourceDeck, issues: ValidationIssue[]): void {
+  const spec = deck.deck?.validation;
+  if (spec === undefined) return;
+  if (!spec || typeof spec !== "object" || Array.isArray(spec)) {
+    issues.push(issue("error", "INVALID_DECK_VALIDATION", "deck.validation must be an object.", {
+      path: "deck.validation",
+      suggestedFix: "Use deck.validation:{mode:'standard'|'strict'|'experimental'} plus optional booleans such as requireAlt.",
+    }));
+    return;
+  }
+  const allowed = new Set(["mode", "allowUnknownComponents", "maxTextLength", "requireAlt", "requireSources"]);
+  for (const [key, value] of Object.entries(spec as Record<string, unknown>)) {
+    const path = `deck.validation.${key}`;
+    if (!allowed.has(key)) {
+      issues.push(issue("error", "UNKNOWN_DECK_VALIDATION_FIELD", `${path} is not a supported validation field.`, {
+        path,
+        suggestedFix: "Use mode, allowUnknownComponents, maxTextLength, requireAlt, or requireSources.",
+      }));
+      continue;
+    }
+    if (key === "mode" && value !== undefined && !(typeof value === "string" && (VALIDATION_MODE_VALUES as readonly string[]).includes(value))) {
+      issues.push(issue("error", "INVALID_DECK_VALIDATION_MODE", `${path} must be one of: ${VALIDATION_MODE_VALUES.join(", ")}.`, {
+        path,
+        suggestedFix: "Use mode:'standard' for normal delivery, 'strict' for publication/research decks, or 'experimental' while prototyping new components.",
+      }));
+    }
+    if ((key === "allowUnknownComponents" || key === "requireAlt" || key === "requireSources") && value !== undefined && typeof value !== "boolean") {
+      issues.push(issue("error", "INVALID_DECK_VALIDATION_VALUE", `${path} must be boolean.`, {
+        path,
+        suggestedFix: `Use ${key}:true or ${key}:false.`,
+      }));
+    }
+    if (key === "maxTextLength" && value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value <= 0)) {
+      issues.push(issue("error", "INVALID_DECK_VALIDATION_VALUE", `${path} must be a positive finite number.`, {
+        path,
+        suggestedFix: "Use a character cap such as maxTextLength:240, or omit the field.",
+      }));
+    }
+  }
 }
 
 function addRepeatedCardAuthoringDiagnostics(deck: Slideml2SourceDeck, issues: ValidationIssue[]): void {
@@ -261,7 +330,14 @@ const STYLE_TOKENS_OFTEN_USED_AS_TYPE = new Set([
 
 const TOKEN_SHAPED_RE = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9.-]*)+$/;
 
-function validateNode(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], parent?: DomNode): void {
+function validateNode(
+  node: DomNode,
+  path: string,
+  slideId: string,
+  issues: ValidationIssue[],
+  parent?: DomNode,
+  options: EffectiveValidationOptions = validationOptions(),
+): void {
   if (!node || typeof node !== "object") {
     issues.push(issue("error", "INVALID_NODE", `${path} must be a node object.`, { slideId, path }));
     return;
@@ -278,7 +354,7 @@ function validateNode(node: DomNode, path: string, slideId: string, issues: Vali
     // downstream branches all fall through to UNKNOWN_NODE_TYPE on
     // String(undefined), which the rm8s07 log showed as a confusing pair of
     // errors per node. Children are still walked.
-    node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node));
+    node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options));
     return;
   }
   // `name` and `props` are reserved on raw primitives, but components frequently
@@ -320,7 +396,7 @@ function validateNode(node: DomNode, path: string, slideId: string, issues: Vali
       suggestedFix: "Replace text.color hex with a theme color token. Hex on band/card/shape.fill is allowed — do not move the hex value to fill if the intent is to color text.",
     }));
   }
-  if (isComponentTypedNode(node)) validateComponentNode(node, path, slideId, issues);
+  if (isComponentTypedNode(node)) validateComponentNode(node, path, slideId, issues, options);
   else if (LAYOUT_CONTAINERS.has(String(node.type))) {
     if (!Array.isArray(node.children)) issues.push(issue("error", "MISSING_CONTAINER_CHILDREN", `${path}.children must be an array.`, { slideId, path, nodeName: node.id }));
     else if (node.children.length === 0) issues.push(issue("error", "EMPTY_CONTAINER", `${path}.children must include at least one child.`, { slideId, path, nodeName: node.id, suggestedFix: `Add at least one child node inside this ${node.type}.` }));
@@ -351,10 +427,13 @@ function validateNode(node: DomNode, path: string, slideId: string, issues: Vali
     if (!Array.isArray(node.items)) issues.push(issue("error", "INVALID_BULLETS_ITEMS", `${path}.items must be a string array.`, { slideId, path, nodeName: node.id }));
   } else if (node.type === "image") {
     if (typeof node.src !== "string" || !node.src) issues.push(issue("error", "MISSING_IMAGE_SRC", `${path}.src is required for image.`, { slideId, path, nodeName: node.id }));
+    if (options.requireAlt && (typeof node.alt !== "string" || !node.alt.trim())) issues.push(issue("error", "MISSING_IMAGE_ALT", `${path}.alt is required by deck.validation.requireAlt/strict mode.`, { slideId, path, nodeName: node.id, suggestedFix: "Add a concise alt string describing the visual evidence or mark this as decorative in a future a11y schema." }));
   } else if (node.type === "table") {
     if (!Array.isArray(node.rows) && !Array.isArray(node.headers)) issues.push(issue("error", "INVALID_TABLE_DATA", `${path} table needs headers and/or rows.`, { slideId, path, nodeName: node.id }));
+    if (options.requireSources && !hasSourceMetadata(node)) issues.push(issue("error", "MISSING_DATA_SOURCE", `${path} table requires source metadata by deck.validation.requireSources/strict mode.`, { slideId, path, nodeName: node.id, suggestedFix: "Add source:'...' or caption:'Source: ...' to make the evidence traceable." }));
   } else if (node.type === "chart") {
     if (!Array.isArray(node.labels) || !Array.isArray(node.series)) issues.push(issue("error", "INVALID_CHART_DATA", `${path} chart needs labels and series.`, { slideId, path, nodeName: node.id }));
+    if (options.requireSources && !hasSourceMetadata(node)) issues.push(issue("error", "MISSING_DATA_SOURCE", `${path} chart requires source metadata by deck.validation.requireSources/strict mode.`, { slideId, path, nodeName: node.id, suggestedFix: "Add source:'...' or caption:'Source: ...' to make the evidence traceable." }));
   } else if (node.type !== "shape") {
     if (typeof node.type === "string" && STYLE_TOKENS_OFTEN_USED_AS_TYPE.has(node.type)) {
       issues.push(issue("error", "STYLE_AS_TYPE", `${path}.type "${node.type}" is a text style token, not a node type. Use {type:"text", style:"${node.type}", text:"..."} instead.`, {
@@ -366,7 +445,7 @@ function validateNode(node: DomNode, path: string, slideId: string, issues: Vali
     } else {
       const nodeType = String(node.type);
       const customSuggestion = unknownTypeSuggestion(nodeType);
-      issues.push(issue("error", "UNKNOWN_NODE_TYPE", `${path}.type "${nodeType}" is not supported.`, {
+      issues.push(issue(options.allowUnknownComponents ? "warning" : "error", "UNKNOWN_NODE_TYPE", `${path}.type "${nodeType}" is not supported.`, {
         slideId,
         path,
         nodeName: node.id,
@@ -374,7 +453,31 @@ function validateNode(node: DomNode, path: string, slideId: string, issues: Vali
       }));
     }
   }
-  node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node));
+  if (options.maxTextLength && node.type === "text" && typeof node.text === "string" && node.text.length > options.maxTextLength) {
+    issues.push(issue("error", "TEXT_TOO_LONG", `${path}.text has ${node.text.length} characters; deck.validation.maxTextLength is ${options.maxTextLength}.`, {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "Shorten the text, split it into bullets/paragraphs, or raise deck.validation.maxTextLength for leave-behind decks.",
+    }));
+  }
+  node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options));
+}
+
+function hasSourceMetadata(node: DomNode): boolean {
+  const rec = node as Record<string, unknown>;
+  for (const key of ["source", "sourceNote", "caption", "citation", "footnote"]) {
+    const value = rec[key];
+    if (typeof value === "string" && value.trim()) return true;
+  }
+  const data = rec.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    for (const key of ["source", "sourceNote", "caption", "citation", "footnote"]) {
+      const value = (data as Record<string, unknown>)[key];
+      if (typeof value === "string" && value.trim()) return true;
+    }
+  }
+  return false;
 }
 
 function validateCardHeaderFields(node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
@@ -457,7 +560,7 @@ function validateThemeOverride(deck: Slideml2SourceDeck, issues: ValidationIssue
     if (!style || typeof style !== "object") continue;
     const path = `deck.themeOverride.text.${styleName}`;
     for (const key of Object.keys(style)) {
-      if (!THEME_TEXT_STYLE_KEYS.has(key)) {
+      if (!THEME_TEXT_STYLE_FIELD_SET.has(key)) {
         issues.push(issue("error", "UNKNOWN_THEME_TEXT_FIELD", `${path}.${key} is not a supported text style field, so it would be ignored.`, {
           path: `${path}.${key}`,
           suggestedFix: "Use supported fields: fontSize, weight/fontWeight, color, lineHeight, margin, letterSpacing, fontFamily, fontFeatures, uppercase, italic.",
@@ -514,7 +617,7 @@ function validateDeckChrome(deck: Slideml2SourceDeck, issues: ValidationIssue[])
 
 function validateThemeOverrideTopLevel(override: Record<string, unknown>, issues: ValidationIssue[]): void {
   for (const key of Object.keys(override)) {
-    if (!THEME_OVERRIDE_KEYS.has(key)) {
+    if (!THEME_OVERRIDE_FIELD_SET.has(key)) {
       issues.push(issue("error", "UNKNOWN_THEME_OVERRIDE_FIELD", `deck.themeOverride.${key} is not a supported themeOverride field, so it would be ignored.`, {
         path: `deck.themeOverride.${key}`,
         suggestedFix: "Use one of: colors, text, component, tone, layout, fonts, chart, chrome, imageGrowWeight, sizeScale, guidance.",
@@ -529,11 +632,16 @@ function validateThemeLayout(deck: Slideml2SourceDeck, override: Record<string, 
   const safeLayout: ThemeOverride["layout"] = {};
   for (const [key, value] of Object.entries(layout as Record<string, unknown>)) {
     const path = `deck.themeOverride.layout.${key}`;
-    if (!THEME_LAYOUT_KEYS.has(key)) {
+    if (!THEME_LAYOUT_FIELD_SET.has(key)) {
       issues.push(issue("error", "UNKNOWN_THEME_LAYOUT_FIELD", `${path} is not a supported layout field, so it would not affect rendering.`, {
         path,
-        suggestedFix: "Use effective layout fields: pageMarginX, titleTop, titleHeight, contentTop, contentBottom, defaultGap, columnGap, cardPadding, slideWidthCm, slideHeightCm. There is no pageMarginY.",
+        suggestedFix: "Use effective layout fields: pageMarginX, titleTop, titleHeight, contentTop, contentBottom, defaultGap, columnGap, cardPadding, slideWidthCm, slideHeightCm, areas. There is no pageMarginY.",
       }));
+      continue;
+    }
+    if (key === "areas") {
+      const areas = validateThemeLayoutAreas(value, path, issues);
+      if (areas) safeLayout.areas = areas;
       continue;
     }
     if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -543,9 +651,9 @@ function validateThemeLayout(deck: Slideml2SourceDeck, override: Record<string, 
       }));
       continue;
     }
-    safeLayout[key as keyof NonNullable<ThemeOverride["layout"]>] = value;
+    (safeLayout as Record<string, unknown>)[key] = value;
   }
-  const safeOverride = { ...override, layout: safeLayout } as ThemeOverride;
+  const safeOverride = withDeckSizeLayout(deck.deck?.size, { ...override, layout: safeLayout } as ThemeOverride);
   const theme = buildTheme(deck.deck?.brand || {}, deck.deck?.theme || "default", safeOverride);
   const minContentTop = theme.layout.titleTop + theme.layout.titleHeight + 0.25;
   if (theme.layout.contentTop < minContentTop) {
@@ -597,6 +705,70 @@ function validateThemeLayout(deck: Slideml2SourceDeck, override: Record<string, 
   }
 }
 
+function validateThemeLayoutAreas(value: unknown, path: string, issues: ValidationIssue[]): Record<string, ThemeLayoutArea> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    issues.push(issue("error", "INVALID_THEME_LAYOUT_AREAS", `${path} must be an object of named layout rectangles.`, {
+      path,
+      suggestedFix: "Use areas:{leftRail:{x:1.0,y:2.4,w:4,h:9}, main:{left:5.4,top:2.4,right:12.6,bottom:12.6}}.",
+    }));
+    return undefined;
+  }
+  const out: Record<string, ThemeLayoutArea> = {};
+  for (const [name, rawArea] of Object.entries(value as Record<string, unknown>)) {
+    const areaPath = `${path}.${name}`;
+    if (!/^[A-Za-z][A-Za-z0-9_.-]*$/.test(name)) {
+      issues.push(issue("error", "INVALID_THEME_LAYOUT_AREA_NAME", `${areaPath} must use a stable token name.`, {
+        path: areaPath,
+        suggestedFix: "Use names such as main, leftRail, evidence.panel, or figure1. Avoid spaces and leading numbers.",
+      }));
+      continue;
+    }
+    if (!rawArea || typeof rawArea !== "object" || Array.isArray(rawArea)) {
+      issues.push(issue("error", "INVALID_THEME_LAYOUT_AREA", `${areaPath} must be a rectangle object.`, {
+        path: areaPath,
+        suggestedFix: "Use {x,y,w,h} or {left,top,right,bottom}, all in centimeters.",
+      }));
+      continue;
+    }
+    const area = rawArea as Record<string, unknown>;
+    const xywh = ["x", "y", "w", "h"].every((key) => isFiniteNumber(area[key]));
+    const edges = ["left", "top", "right", "bottom"].every((key) => isFiniteNumber(area[key]));
+    if (!xywh && !edges) {
+      issues.push(issue("error", "INVALID_THEME_LAYOUT_AREA", `${areaPath} must use either {x,y,w,h} or {left,top,right,bottom}.`, {
+        path: areaPath,
+        suggestedFix: "Use centimeters, for example {x:1,y:2.4,w:4,h:9} or {left:5.4,top:2.4,right:12.6,bottom:12.6}.",
+      }));
+      continue;
+    }
+    if (xywh) {
+      const candidate = area as { x: number; y: number; w: number; h: number };
+      if (candidate.w <= 0 || candidate.h <= 0) {
+        issues.push(issue("error", "INVALID_THEME_LAYOUT_AREA", `${areaPath}.w and .h must be positive.`, {
+          path: areaPath,
+          suggestedFix: "Give the named area a positive width and height in centimeters.",
+        }));
+        continue;
+      }
+      out[name] = { x: candidate.x, y: candidate.y, w: candidate.w, h: candidate.h };
+      continue;
+    }
+    const candidate = area as { left: number; top: number; right: number; bottom: number };
+    if (candidate.right <= candidate.left || candidate.bottom <= candidate.top) {
+      issues.push(issue("error", "INVALID_THEME_LAYOUT_AREA", `${areaPath}.right/bottom must be greater than left/top.`, {
+        path: areaPath,
+        suggestedFix: "Use a non-empty rectangle, e.g. {left:1,top:2,right:6,bottom:12}.",
+      }));
+      continue;
+    }
+    out[name] = { left: candidate.left, top: candidate.top, right: candidate.right, bottom: candidate.bottom };
+  }
+  return out;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 function validateThemeComponentStyles(override: Record<string, unknown>, issues: ValidationIssue[]): void {
   const component = override.component;
   if (!component || typeof component !== "object" || Array.isArray(component)) return;
@@ -604,7 +776,7 @@ function validateThemeComponentStyles(override: Record<string, unknown>, issues:
     if (!rawStyle || typeof rawStyle !== "object" || Array.isArray(rawStyle)) continue;
     const style = rawStyle as Record<string, unknown>;
     for (const key of Object.keys(style)) {
-      if (!THEME_COMPONENT_STYLE_KEYS.has(key)) {
+      if (!THEME_COMPONENT_STYLE_FIELD_SET.has(key)) {
         const path = `deck.themeOverride.component.${componentName}.${key}`;
         issues.push(issue("error", "UNKNOWN_THEME_COMPONENT_FIELD", `${path} is not a supported component style field, so it would be ignored.`, {
           path,
@@ -622,7 +794,7 @@ function validateThemeFonts(override: Record<string, unknown>, issues: Validatio
   if (!fonts || typeof fonts !== "object" || Array.isArray(fonts)) return;
   for (const [key, value] of Object.entries(fonts as Record<string, unknown>)) {
     const path = `deck.themeOverride.fonts.${key}`;
-    if (!THEME_FONT_KEYS.has(key)) {
+    if (!THEME_FONT_FIELD_SET.has(key)) {
       issues.push(issue("error", "UNKNOWN_THEME_FONT_FIELD", `${path} is not a supported font field, so it would be ignored.`, {
         path,
         suggestedFix: "Use fonts.latin, fonts.cjk, and fonts.mono.",
@@ -646,7 +818,7 @@ function validateThemeFonts(override: Record<string, unknown>, issues: Validatio
     }
     for (const [role, chain] of Object.entries(value as Record<string, unknown>)) {
       const rolePath = `${path}.${role}`;
-      if (!THEME_SCRIPT_FONT_KEYS.has(role)) {
+      if (!THEME_SCRIPT_FONT_FIELD_SET.has(role)) {
         issues.push(issue("error", "UNKNOWN_THEME_FONT_ROLE", `${rolePath} is not a supported font role, so it would be ignored.`, {
           path: rolePath,
           suggestedFix: "Use display and/or text.",
@@ -672,7 +844,7 @@ function validateThemeChrome(override: Record<string, unknown>, issues: Validati
   if (!chrome || typeof chrome !== "object" || Array.isArray(chrome)) return;
   for (const [key, value] of Object.entries(chrome as Record<string, unknown>)) {
     const path = `deck.themeOverride.chrome.${key}`;
-    if (!THEME_CHROME_KEYS.has(key)) {
+    if (!THEME_CHROME_FIELD_SET.has(key)) {
       issues.push(issue("error", "UNKNOWN_THEME_CHROME_FIELD", `${path} is not a supported chrome field, so it would be ignored.`, {
         path,
         suggestedFix: "Use brandMark, pageNumber, footerText, footerLine, footerHeight, or footerPadding.",
@@ -727,10 +899,10 @@ function validateThemeColorsShape(deck: Slideml2SourceDeck, issues: ValidationIs
   }
 }
 
-function validateComponentNode(node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
+function validateComponentNode(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], options: EffectiveValidationOptions): void {
   const name = getComponentName(node) || node.component;
   if (!isComponentName(name)) {
-    issues.push(issue("error", "UNKNOWN_COMPONENT", `${path} component "${String(name)}" is not registered.`, {
+    issues.push(issue(options.allowUnknownComponents ? "warning" : "error", "UNKNOWN_COMPONENT", `${path} component "${String(name)}" is not registered.`, {
       slideId,
       path,
       nodeName: node.id,
@@ -864,7 +1036,7 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
         validateNode({
           ...rec,
           id: typeof rec.id === "string" && rec.id ? rec.id : `${slideId}.${node.id || "timeline"}.${i + 1}.content`,
-        } as DomNode, `${path}.items[${i}].content`, slideId, issues, node);
+        } as DomNode, `${path}.items[${i}].content`, slideId, issues, node, options);
       }
     }
   }
@@ -872,7 +1044,7 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
     for (const side of ["left", "right"] as const) {
       const content = (node as Record<string, unknown>)[side];
       if (content && typeof content === "object" && !Array.isArray(content)) {
-        validateNode(content as DomNode, `${path}.${side}`, slideId, issues, node);
+        validateNode(content as DomNode, `${path}.${side}`, slideId, issues, node, options);
       } else if (content !== undefined && content !== null && content !== "") {
         issues.push(issue("error", "INVALID_FIELD_USAGE", `two-column.${side} must be a DomNode object.`, {
           slideId,
@@ -886,34 +1058,42 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
   if (name === "evidence-layout") {
     for (const key of ["evidence", "insight"] as const) {
       const content = (node as Record<string, unknown>)[key];
-      if (content && typeof content === "object" && !Array.isArray(content)) validateNode(content as DomNode, `${path}.${key}`, slideId, issues, node);
+      if (content && typeof content === "object" && !Array.isArray(content)) validateNode(content as DomNode, `${path}.${key}`, slideId, issues, node, options);
     }
     if (Array.isArray(node.annotations)) {
       node.annotations.forEach((content, index) => {
-        if (content && typeof content === "object" && !Array.isArray(content)) validateNode(content as DomNode, `${path}.annotations[${index}]`, slideId, issues, node);
+        if (content && typeof content === "object" && !Array.isArray(content)) validateNode(content as DomNode, `${path}.annotations[${index}]`, slideId, issues, node, options);
       });
     }
   }
   if (name === "hero-and-support") {
     const hero = (node as Record<string, unknown>).hero;
-    if (hero && typeof hero === "object" && !Array.isArray(hero)) validateNode(hero as DomNode, `${path}.hero`, slideId, issues, node);
-    validateDomNodeArrayField(node, "supports", `${path}.supports`, slideId, issues);
-    validateDomNodeArrayField(node, "items", `${path}.items`, slideId, issues);
+    if (hero && typeof hero === "object" && !Array.isArray(hero)) validateNode(hero as DomNode, `${path}.hero`, slideId, issues, node, options);
+    validateDomNodeArrayField(node, "supports", `${path}.supports`, slideId, issues, options);
+    validateDomNodeArrayField(node, "items", `${path}.items`, slideId, issues, options);
   }
   if (name === "chart-with-rail") {
     for (const key of ["evidence", "rail"] as const) {
       const content = (node as Record<string, unknown>)[key];
-      if (content && typeof content === "object" && !Array.isArray(content)) validateNode(content as DomNode, `${path}.${key}`, slideId, issues, node);
+      if (content && typeof content === "object" && !Array.isArray(content)) validateNode(content as DomNode, `${path}.${key}`, slideId, issues, node, options);
     }
+  }
+  if (options.requireSources && (name === "chart-card" || name === "table-card") && !hasSourceMetadata(node)) {
+    issues.push(issue("error", "MISSING_DATA_SOURCE", `${definition.name} requires source metadata by deck.validation.requireSources/strict mode.`, {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "Add source:'...' or caption:'Source: ...' to make the chart/table evidence traceable.",
+    }));
   }
 }
 
-function validateDomNodeArrayField(node: DomNode, fieldName: string, path: string, slideId: string, issues: ValidationIssue[]): void {
+function validateDomNodeArrayField(node: DomNode, fieldName: string, path: string, slideId: string, issues: ValidationIssue[], options: EffectiveValidationOptions): void {
   const value = (node as Record<string, unknown>)[fieldName];
   if (!Array.isArray(value)) return;
   value.forEach((content, index) => {
     if (content && typeof content === "object" && !Array.isArray(content) && typeof (content as Record<string, unknown>).type === "string") {
-      validateNode(content as DomNode, `${path}[${index}]`, slideId, issues, node);
+      validateNode(content as DomNode, `${path}[${index}]`, slideId, issues, node, options);
     }
   });
 }
@@ -1093,7 +1273,7 @@ function hasArticleText(node: DomNode): boolean {
 }
 
 function validateLayout(deck: RenderedDeck, issues: ValidationIssue[]): void {
-  const theme = buildTheme(deck.deck.brand, deck.deck.theme, deck.deck.themeOverride);
+  const theme = buildTheme(deck.deck.brand, deck.deck.theme, withDeckSizeLayout(deck.deck.size, deck.deck.themeOverride));
   for (const slide of measureDeck(deck)) {
     for (const node of slide.nodes) {
       if (node.rect.x < -0.01 || node.rect.y < -0.01 || node.rect.x + node.rect.w > theme.layout.slideWidthCm + 0.01 || node.rect.y + node.rect.h > theme.layout.slideHeightCm + 0.01) {
@@ -1104,6 +1284,19 @@ function validateLayout(deck: RenderedDeck, issues: ValidationIssue[]): void {
       }
     }
   }
+}
+
+function withDeckSizeLayout(sizeValue: unknown, override?: ThemeOverride): ThemeOverride | undefined {
+  if (!isDeckSize(sizeValue)) return override;
+  const dims = SLIDE_SIZES[sizeValue];
+  return {
+    ...(override || {}),
+    layout: {
+      ...(override?.layout || {}),
+      slideWidthCm: override?.layout?.slideWidthCm ?? emuToCm(dims.width),
+      slideHeightCm: override?.layout?.slideHeightCm ?? emuToCm(dims.height),
+    },
+  };
 }
 
 function issue(level: ValidationIssue["level"], code: string, message: string, extra: Partial<ValidationIssue> = {}): ValidationIssue {

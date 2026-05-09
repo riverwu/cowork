@@ -10,7 +10,7 @@ import {
 } from "./components.js";
 import { listNodeTypes } from "./node-types.js";
 import type { DomNode, NodeType } from "./types.js";
-import type { DecorationMarkerInput } from "./components.js";
+import type { AgentSurface, DecorationMarkerInput } from "./components.js";
 import { normalizeStrokeCm } from "./units.js";
 
 export type ComponentName =
@@ -343,12 +343,21 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     prosTitle: { type: "string", description: "Override 'Pros' label." },
     consTitle: { type: "string", description: "Override 'Cons' label." },
   }, "grid 2 columns of titled checklist", "stack"),
-  component("process-flow", "Connected process, workflow, recipe, pipeline, or causal sequence. Use when steps depend on each other or movement through stages is the main idea. Horizontal card flows are tuned for 2-3 readable stages; rich 4+ step card flows may auto-wrap into two readable rows on wide slides or auto-orient vertically in narrow columns instead of shrinking text.", {
-    steps: { type: "array", required: true, description: "Array of { title, body?, status?, owner?, time?, icon?, bullets? } steps." },
+  component("process-flow", "Connected process, workflow, recipe, pipeline, or causal sequence. Use when steps depend on each other or movement through stages is the main idea. Card flows default to numbered stage chips and top accent rules so a single process component can carry a full slide. Horizontal card flows are tuned for 2-3 readable stages; rich 4+ step card flows may auto-wrap into two readable rows on wide slides or auto-orient vertically in narrow columns instead of shrinking text.", {
+    steps: { type: "array", required: true, description: "Array of { title/label, body?/description?, status?, owner?, time?/duration?, icon?, iconSrc?, number?/step?, marker?, accentColor?, bullets? } steps. Use iconSrc for generated icons." },
     items: { type: "array", description: "Alias for steps." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Flow direction (default horizontal)." },
     variant: { type: "enum", enum: ["plain", "cards"], description: "Use cards when each stage needs its own surface." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Step density. Use compact only for short step copy; rich card flows keep extra breathing room." },
+    marker: { type: "enum", enum: ["auto", "number", "dot", "icon", "none"], description: "Stage marker style. auto uses icon/iconSrc when supplied, otherwise numbered chips for card flows." },
+    showNumbers: { type: "boolean", description: "Alias control for numbered stage chips; marker takes precedence." },
+    connector: { type: "enum", enum: ["arrow", "chevron", "line", "none"], description: "Connector treatment between steps." },
+    connectorDash: { type: "enum", enum: ["solid", "dash", "dot"], description: "Line connector dash style." },
+    connectorColor: { type: "color-ref", description: "Theme token or hex for connectors (default brand.primary)." },
+    placement: { type: "enum", enum: ["top", "center"], description: "Cross-axis placement inside the available region. Card flows default top to avoid floating in empty pages." },
+    spread: { type: "enum", enum: ["compact", "balanced", "fill"], description: "Card visual mass. balanced is the card-flow default; fill creates taller stage cards for single-component slides." },
+    stepAccent: { type: "enum", enum: ["top", "none"], description: "Per-card accent rule (default top for card flows)." },
+    stepSurface: { type: "object", description: "Optional per-step card surface override (fill, borderColor, cornerRadius, padding, shadow)." },
     surface: { type: "object", description: "Optional surface override." },
   }, "stack of step blocks separated by arrow shapes", "stack"),
   component("logo-strip", "Set of logos representing customers, partners, integrations, sponsors, or tools. Use when recognition and affiliation are the evidence.", {
@@ -531,7 +540,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     items: { type: "array", semantic: "bullet", description: "Alias for bullets." },
     example: { type: "string", description: "Optional example sentence." },
     note: { type: "string", description: "Optional muted note or caveat." },
-    variant: { type: "enum", enum: ["plain", "rail", "panel"], description: "plain = no chrome; rail = accent spine; panel = subtle surface." },
+    variant: { type: "enum", enum: ["plain", "minimal", "rail", "panel"], description: "plain/minimal = no chrome; rail = accent spine; panel = subtle surface." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Semantic accent tone." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
     surface: { type: "object", description: "Optional surface override." },
@@ -1143,15 +1152,36 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
         owner: stringValue(rec.owner, ""),
         time: stringValue(rec.time, stringValue(rec.duration, "")),
         icon: stringValue(rec.icon, ""),
+        iconSrc: stringValue(rec.iconSrc, stringValue(rec.src, "")),
         bullets: stringArray(rec.bullets),
+        step: stringValue(rec.step, ""),
+        number: stringValue(rec.number, ""),
+        marker: processFlowMarker(rec.marker),
+        accentColor: stringValue(rec.accentColor, ""),
       };
     }).filter((step) => step.title);
     const direction = node.direction === "vertical" ? "vertical" : "horizontal";
+    const marker = processFlowMarker(node.marker);
+    const connector = node.connector === "arrow" || node.connector === "chevron" || node.connector === "line" || node.connector === "none" ? node.connector : undefined;
+    const connectorDash = node.connectorDash === "solid" || node.connectorDash === "dash" || node.connectorDash === "dot" ? node.connectorDash : undefined;
+    const placement = node.placement === "top" || node.placement === "center" ? node.placement : undefined;
+    const spread = node.spread === "compact" || node.spread === "balanced" || node.spread === "fill" ? node.spread : undefined;
+    const stepAccent = node.stepAccent === "top" || node.stepAccent === "none" ? node.stepAccent : undefined;
+    const stepSurface = node.stepSurface && typeof node.stepSurface === "object" && !Array.isArray(node.stepSurface) ? node.stepSurface as AgentSurface : undefined;
     return withComponentRoot(node, processFlow(slideId, name, {
       steps,
       direction,
       variant: node.variant === "cards" ? "cards" : undefined,
       density: node.density === "compact" || node.density === "comfortable" ? node.density : undefined,
+      marker,
+      showNumbers: typeof node.showNumbers === "boolean" ? node.showNumbers : undefined,
+      connector,
+      connectorDash,
+      connectorColor: stringValue(node.connectorColor, ""),
+      placement,
+      spread,
+      stepAccent,
+      stepSurface,
       ...surfaceOptions(node),
     }));
   }
@@ -2818,7 +2848,11 @@ function insightCardNode(slideId: string, name: string, node: DomNode): DomNode 
 
 function explanationBlockNode(slideId: string, name: string, node: DomNode): DomNode {
   const tone = componentTone(node.tone) || "brand";
-  const variant = node.variant === "plain" || node.variant === "panel" ? node.variant : "rail";
+  const variant = node.variant === "plain" || node.variant === "minimal"
+    ? "plain"
+    : node.variant === "panel"
+      ? "panel"
+      : "rail";
   const compact = node.density === "compact";
   const title = stringValue(node.title, stringValue(node.headline, ""));
   const body = stringValue(node.body, stringValue(node.detail, stringValue(node.description, "")));
@@ -3804,6 +3838,14 @@ function decorationMarker(value: unknown): DecorationMarkerInput | undefined {
   if (typeof value === "string" && value.trim()) return value.trim() as DecorationMarkerInput;
   if (value && typeof value === "object" && !Array.isArray(value)) return value as DecorationMarkerInput;
   return undefined;
+}
+
+type ProcessFlowMarker = "auto" | "number" | "dot" | "icon" | "none";
+
+function processFlowMarker(value: unknown): ProcessFlowMarker | undefined {
+  return value === "auto" || value === "number" || value === "dot" || value === "icon" || value === "none"
+    ? value
+    : undefined;
 }
 
 function surfaceOptions(node: DomNode): Record<string, unknown> {

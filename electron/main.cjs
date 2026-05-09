@@ -158,7 +158,7 @@ async function dispatch(command, args, sender) {
     case "get_node_path": return getNodePath();
     case "run_node_script": return runNodeScript(args.script, args.cwd, args.timeoutSecs);
     case "slideml2_describe_schema": return slideml2DescribeSchema(args.components);
-    case "slideml2_create_deck": return slideml2CreateDeck(args.deckPath, args.title, args.theme, args.brand, args.themeOverride);
+    case "slideml2_create_deck": return slideml2CreateDeck(args.deckPath, args.title, args.size, args.theme, args.brand, args.themeOverride, args.validation);
     case "slideml2_read_deck": return slideml2ReadDeck(args.deckPath);
     case "slideml2_replace_slide": return slideml2ReplaceSlide(args.deckPath, args.slideId, args.slide);
     case "slideml2_patch_deck": return slideml2PatchDeck(args.deckPath, args.patch);
@@ -556,19 +556,17 @@ async function slideml2DescribeSchema(componentNames) {
   };
 }
 
-async function slideml2CreateDeck(deckPath, title, theme, brand, themeOverride) {
+async function slideml2CreateDeck(deckPath, title, size, theme, brand, themeOverride, validation) {
   if (!deckPath) throw new Error("slideml2_create_deck: deckPath is required");
   const m = await slideml2();
   const result = await m.createDeck(deckPath, {
     title: typeof title === "string" ? title : undefined,
+    size: typeof size === "string" ? size : undefined,
     theme: typeof theme === "string" ? theme : "default",
     brand: brand && typeof brand === "object" ? brand : undefined,
+    themeOverride: themeOverride && typeof themeOverride === "object" ? themeOverride : undefined,
+    validation: validation && typeof validation === "object" ? validation : undefined,
   });
-  if (themeOverride && typeof themeOverride === "object") {
-    const deck = await m.readDeck(deckPath);
-    deck.deck.themeOverride = themeOverride;
-    await m.writeDeck(deckPath, deck);
-  }
   return { deckPath, ...result };
 }
 
@@ -705,12 +703,14 @@ async function slideml2ValidateRender(deckPath, outputPath, render) {
   m.clearRenderDiagnostics();
   const result = await m.renderToPptx(m.sourceToRenderedDeck(deck), out);
   const diagnostics = m.getRenderDiagnostics();
-  const blocking = blockingSlideml2Diagnostics(diagnostics);
-  const quality = qualityGateSlideml2Diagnostics(diagnostics);
+  const authoringDiagnostics = await slideml2AuthoringDiagnostics(deckPath, deck);
+  const allDiagnostics = diagnostics.concat(authoringDiagnostics);
+  const blocking = blockingSlideml2Diagnostics(allDiagnostics);
+  const quality = qualityGateSlideml2Diagnostics(allDiagnostics);
   const diagnosticsPath = `${result.outputPath}.diagnostics.json`;
-  await fsp.writeFile(diagnosticsPath, JSON.stringify(diagnostics, null, 2), "utf8");
+  await fsp.writeFile(diagnosticsPath, JSON.stringify(allDiagnostics, null, 2), "utf8");
   const counts = {};
-  for (const d of diagnostics) counts[d.code] = (counts[d.code] || 0) + 1;
+  for (const d of allDiagnostics) counts[d.code] = (counts[d.code] || 0) + 1;
   return {
     ok: blocking.length === 0,
     error: blocking.length ? `${blocking.length} blocking render diagnostic(s) remain.` : undefined,
@@ -719,7 +719,7 @@ async function slideml2ValidateRender(deckPath, outputPath, render) {
     diagnosticsPath,
     validation,
     diagnostics: {
-      count: diagnostics.length,
+      count: allDiagnostics.length,
       summary: counts,
       blockingCount: blocking.length,
       blocking: blocking.slice(0, 60),
@@ -729,13 +729,161 @@ async function slideml2ValidateRender(deckPath, outputPath, render) {
   };
 }
 
+async function slideml2AuthoringDiagnostics(deckPath, deck) {
+  const iconDiagnostic = await unusedGeneratedIconDiagnostic(deckPath, deck);
+  return [
+    ...sourceAuthoringDiagnostics(deck),
+    ...(iconDiagnostic ? [iconDiagnostic] : []),
+  ];
+}
+
+function sourceAuthoringDiagnostics(deck) {
+  const slides = Array.isArray(deck?.slides) ? deck.slides : [];
+  const diagnostics = [];
+  slides.forEach((slide, index) => {
+    if (!slide || typeof slide !== "object" || index === 0) return;
+    const children = Array.isArray(slide.children) ? slide.children : [];
+    if (children.length === 1) {
+      const only = children[0];
+      const type = nodeTypeOf(only);
+      const textChars = sourceTextLength(only);
+      if (["process-flow", "grid", "timeline", "axis-ruler"].includes(type) && textChars < 260) {
+        diagnostics.push({
+          code: "SPARSE_CONTENT_SLIDE",
+          severity: "warn",
+          slideId: slide.id,
+          nodeId: only?.id,
+          message: `Slide '${slide.id || index + 1}' has a single ${type} component with about ${textChars} text characters; it may render as visually sparse even when schema and layout checks pass.`,
+          measured: { available: 260, needed: textChars, childCount: children.length },
+          suggestion: "Add a supporting takeaway/evidence/chart/list, use a richer component variant, or split/reframe the page so the visual density matches the slide's promised information load.",
+        });
+      }
+    }
+    const plainFeatureGrid = findPlainFeatureCardGrid(children);
+    if (plainFeatureGrid) {
+      diagnostics.push({
+        code: "PLAIN_FEATURE_CARD_GRID",
+        severity: "warn",
+        slideId: slide.id,
+        nodeId: plainFeatureGrid.id,
+        message: `Slide '${slide.id || index + 1}' uses a plain feature-card grid without generated iconSrc assets or card surfaces; it can look empty despite containing text.`,
+        measured: { childCount: plainFeatureGrid.count },
+        suggestion: "Use feature-card variant:'card', place generated icons via iconSrc, add marker/metric/proof fields, or choose a denser semantic component such as comparison-list or explanation-block.",
+      });
+    }
+  });
+  return diagnostics;
+}
+
+function findPlainFeatureCardGrid(nodes) {
+  for (const node of nodes || []) {
+    if (!node || typeof node !== "object") continue;
+    const type = nodeTypeOf(node);
+    const children = Array.isArray(node.children) ? node.children : [];
+    if (type === "grid") {
+      const featureCards = children.filter((child) => nodeTypeOf(child) === "feature-card");
+      if (featureCards.length >= 3) {
+        const plain = featureCards.every((card) => {
+          const variant = typeof card.variant === "string" ? card.variant : "";
+          return variant !== "card" && !card.iconSrc && !card.marker && !card.metric && !card.proof && !card.badge && !card.tags;
+        });
+        if (plain) return { id: node.id, count: featureCards.length };
+      }
+    }
+    const nested = findPlainFeatureCardGrid(children);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+function nodeTypeOf(node) {
+  if (!node || typeof node !== "object") return "";
+  return typeof node.type === "string" ? node.type : typeof node.component === "string" ? node.component : "";
+}
+
+function sourceTextLength(value) {
+  if (typeof value === "string") return value.trim().length;
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + sourceTextLength(item), 0);
+  if (!value || typeof value !== "object") return 0;
+  let total = 0;
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "id" || key === "type" || key === "component" || key === "notes") continue;
+    total += sourceTextLength(item);
+  }
+  return total;
+}
+
+async function unusedGeneratedIconDiagnostic(deckPath, deck) {
+  try {
+    const manifestPath = path.join(path.dirname(deckPath), "assets", "icons", "manifest.json");
+    const manifestRaw = await fsp.readFile(manifestPath, "utf8").catch(() => "");
+    if (!manifestRaw) return undefined;
+    const manifest = JSON.parse(manifestRaw);
+    const icons = Array.isArray(manifest.icons)
+      ? manifest.icons
+        .map((icon) => ({
+          name: typeof icon?.name === "string" ? icon.name : "",
+          path: typeof icon?.path === "string" ? icon.path : "",
+        }))
+        .filter((icon) => icon.path)
+      : [];
+    const iconPaths = icons.map((icon) => icon.path);
+    if (!iconPaths.length) return undefined;
+    const iconPathSet = new Set(iconPaths);
+    const used = new Set();
+    collectStringValues(deck, (value) => {
+      if (iconPathSet.has(value)) used.add(value);
+    });
+    if (used.size >= iconPaths.length) return undefined;
+    const unused = icons.filter((icon) => !used.has(icon.path));
+    if (used.size > 0) {
+      return {
+        code: "PARTIAL_UNUSED_GENERATED_ICON_ASSETS",
+        severity: "warn",
+        message: `Generated icon manifest exists at ${manifestPath}; the deck references ${used.size} of ${iconPaths.length} returned icon path(s).`,
+        measured: {
+          available: used.size,
+          needed: iconPaths.length,
+          used: used.size,
+          unused: unused.slice(0, 12),
+          manifestPath,
+        },
+        suggestion: "Reference every planned generated icon path in the intended slide/component field, or remove unneeded icon requests from the asset plan.",
+      };
+    }
+    return {
+      code: "UNUSED_GENERATED_ICON_ASSETS",
+      severity: "warn",
+      message: `Generated icon manifest exists at ${manifestPath}, but the deck references none of its ${iconPaths.length} returned icon path(s).`,
+      measured: { available: 0, needed: iconPaths.length, used: 0, unused: unused.slice(0, 12), manifestPath },
+      suggestion: "Use manifest.icons[].path as feature-card.iconSrc or image/image-card src on slides that requested generated icons, or skip generate_icon_sheet when the final deck will not place the icons.",
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function collectStringValues(value, visit) {
+  if (typeof value === "string") {
+    visit(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectStringValues(item, visit);
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value)) collectStringValues(item, visit);
+  }
+}
+
 function blockingSlideml2Diagnostics(items) {
   const codes = new Set(["COLLISION", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "SQUASHED", "FALLBACK_FAILED", "LOW_CONTRAST", "SHAPE_INVISIBLE", "TITLE_OCCLUDED"]);
   return items.filter((d) => d.severity === "error" || codes.has(d.code));
 }
 
 function qualityGateSlideml2Diagnostics(items) {
-  const codes = new Set(["TRUNCATED", "OVERFLOW"]);
+  const codes = new Set(["TRUNCATED", "OVERFLOW", "UNUSED_GENERATED_ICON_ASSETS", "PARTIAL_UNUSED_GENERATED_ICON_ASSETS", "SPARSE_CONTENT_SLIDE", "PLAIN_FEATURE_CARD_GRID"]);
   return items.filter((d) => codes.has(d.code));
 }
 

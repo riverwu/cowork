@@ -5,7 +5,6 @@ import { useAppStore } from "@/stores/app-store";
 import { skillRegistry } from "@/lib/ai/skill-registry";
 import { getTool } from "@/lib/ai/tools/registry";
 import { resetAllSlideMl2AuthoringState } from "@/lib/ai/tools/slideml2-authoring-state";
-import { detectTaskBoundary } from "@/lib/ai/task-isolation";
 import type { LLMMessage, ToolCall } from "@/lib/ai/providers/types";
 import type { AgentEvent, Artifact, Message } from "@/types";
 import {
@@ -194,14 +193,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const explicitCompact = parseCompactCommand(content);
     const existingMessages = get().messages;
     const lastDividerIndexBefore = findLastDividerIndex(existingMessages);
-    const activeMessages = existingMessages.slice(lastDividerIndexBefore);
+    const activeMessages = activeContextMessages(existingMessages);
     let taskIsolationReason: string | undefined = lastDividerIndexBefore > 0 && activeMessages.length === 0
-      ? "manual context clear"
+      ? lastContextDividerReason(existingMessages) || "manual context clear"
       : undefined;
     if (explicitNew.isNewSession) {
       sessionId = await startFreshTaskSession(set, sessionId, activeMessages, "manual new session", {
         automatic: false,
         command: "/new",
+        reason: "manual new session",
       });
       taskIsolationReason = "manual new session";
       content = explicitNew.remainingContent;
@@ -233,21 +233,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     }
 
-    const boundary = explicitNew.isNewSession
-      ? { shouldIsolate: false, confidence: 0, reason: "manual new session already applied" }
-      : explicitCompact.isCompact
-        ? { shouldIsolate: false, confidence: 0, reason: "manual compact already applied" }
-      : detectTaskBoundary(activeMessages, content);
-    if (boundary.shouldIsolate) {
-      sessionId = await startFreshTaskSession(set, sessionId, activeMessages, boundary.reason, {
-        automatic: true,
-        reason: boundary.reason,
-        confidence: boundary.confidence,
-      });
-      taskIsolationReason = boundary.reason;
-      taskMode = "fresh";
-    }
-
     const userMsg = await createMessage({ sessionId, role: "user", content });
     set((s) => ({ messages: [...s.messages, userMsg] }));
 
@@ -256,8 +241,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // we don't truncate twice and we keep semantic shape (tool_use/tool_result
     // pairing) intact.
     const allMessages = get().messages;
-    const lastDividerIndex = findLastDividerIndex(allMessages);
-    const contextMessages = allMessages.slice(lastDividerIndex);
+    const contextMessages = activeContextMessages(allMessages);
 
     const llmMessages: LLMMessage[] = assembleLlmMessages(contextMessages);
     const contextSource = buildContextSource(contextMessages);
@@ -401,7 +385,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   clearContext: () => {
     resetAllSlideMl2AuthoringState();
     const sessionId = get().sessionId || "";
-    const activeMessages = get().messages.slice(findLastDividerIndex(get().messages));
+    const activeMessages = activeContextMessages(get().messages);
     const nextSessionPromise = sessionId
       ? startFreshTaskSession(set, sessionId, activeMessages, "manual context clear", { automatic: false })
       : createSession("Cowork").then((session) => {
@@ -412,7 +396,6 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     nextSessionPromise.then(() => {
       set({
         steps: [],
-        artifacts: [],
         knowledgeRefs: [],
         error: null,
         longTask: null,
@@ -441,8 +424,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // Build llmMessages exactly the way sendMessage would, so the dump reflects
     // what the next LLM call would actually receive.
     const allMessages = get().messages;
-    const lastDividerIndex = findLastDividerIndex(allMessages);
-    const contextMessages = allMessages.slice(lastDividerIndex);
+    const contextMessages = activeContextMessages(allMessages);
     const llmMessages: LLMMessage[] = assembleLlmMessages(contextMessages);
     const contextSource = buildContextSource(contextMessages);
     const hasHandoff = contextMessages.some(isContextSummary);
@@ -516,6 +498,23 @@ function findLastDividerIndex(messages: Message[]): number {
   return 0;
 }
 
+export function activeContextMessages(messages: Message[]): Message[] {
+  return messages.slice(findLastDividerIndex(messages));
+}
+
+function lastContextDividerReason(messages: Message[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || !isContextDivider(message)) continue;
+    const metadata = message.metadata && typeof message.metadata === "object"
+      ? message.metadata as Record<string, unknown>
+      : {};
+    const reason = metadata.reason;
+    return typeof reason === "string" && reason.trim() ? reason.trim() : undefined;
+  }
+  return undefined;
+}
+
 export function parseNewSessionCommand(content: string): { isNewSession: boolean; remainingContent: string } {
   const trimmed = content.trim();
   const match = trimmed.match(/^\/(?:new|new-session)(?:\s+([\s\S]*))?$/i);
@@ -540,22 +539,22 @@ async function startFreshTaskSession(
   dividerMetadata: Record<string, unknown>,
 ): Promise<string> {
   resetAllSlideMl2AuthoringState();
+  let boundaryMessages: Message[] = [];
   if (previousSessionId) {
-    await createTaskBoundaryMessages(previousSessionId, activeMessages, reason, dividerMetadata).catch(() => []);
+    boundaryMessages = await createTaskBoundaryMessages(previousSessionId, activeMessages, reason, dividerMetadata).catch(() => []);
   }
   const session = await createSession("Cowork");
-  set({
+  set((s) => ({
     sessionId: session.id,
     taskId: session.id,
-    messages: [],
+    messages: [...s.messages, ...boundaryMessages],
     steps: [],
-    artifacts: [],
     knowledgeRefs: [],
     error: null,
     longTask: null,
     streamingText: "",
     contextDump: null,
-  });
+  }));
   return session.id;
 }
 

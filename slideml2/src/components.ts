@@ -1,4 +1,4 @@
-import type { DomNode } from "./types.js";
+import type { DomNode, SurfaceOverride } from "./types.js";
 
 /**
  * Agent-facing surface customization. ANY composite component accepts these
@@ -15,8 +15,13 @@ export interface AgentBorder {
   cornerRadius?: number;
 }
 
-export interface AgentSurface {
+export interface AgentSurface extends SurfaceOverride {
   fill?: string;
+  fillOpacity?: number;
+  line?: string;
+  lineOpacity?: number;
+  lineWidth?: number;
+  lineDash?: "solid" | "dash" | "dashDot" | "dot";
   border?: AgentBorder | string;
   /** Shorthand for border.color when only the color matters. */
   borderColor?: string;
@@ -63,7 +68,7 @@ function decorationMarkerNode(
   slideId: string,
   id: string,
   marker: DecorationMarkerInput | undefined,
-  defaults: { shape?: DecorationMarkerShape; tone?: DecorationMarkerTone; variant?: DecorationMarkerVariant; size?: DecorationMarkerSize } = {},
+  defaults: { shape?: DecorationMarkerShape; tone?: DecorationMarkerTone; variant?: DecorationMarkerVariant; size?: DecorationMarkerSize; valign?: "top" | "middle" | "bottom" } = {},
 ): DomNode | undefined {
   const spec = normalizeDecorationMarker(marker, defaults);
   if (!spec) return undefined;
@@ -76,7 +81,7 @@ function decorationMarkerNode(
     fixedWidth: dims.w,
     fixedHeight: dims.h,
     align: "start",
-    valign: "middle",
+    valign: defaults.valign || "middle",
     optional: true,
   };
 }
@@ -161,6 +166,11 @@ export function applyAgentSurface<T extends DomNode>(node: T, options: { surface
   const merged: AgentSurface = { ...options, ...(options.surface || {}) };
   const out = { ...(node as DomNode) } as DomNode;
   if (typeof merged.fill === "string") out.fill = merged.fill;
+  if (typeof merged.fillOpacity === "number") out.fillOpacity = merged.fillOpacity;
+  if (typeof merged.line === "string") out.line = merged.line;
+  if (typeof merged.lineOpacity === "number") out.lineOpacity = merged.lineOpacity;
+  if (typeof merged.lineWidth === "number") out.lineWidth = merged.lineWidth;
+  if (merged.lineDash && merged.lineDash !== "solid") out.dash = merged.lineDash;
   // Apply flat shorthand first so the object form (`surface.border:{...}`)
   // can override on conflict — the object form is the explicit-wins variant.
   if (typeof merged.borderColor === "string") out.line = merged.borderColor;
@@ -177,6 +187,8 @@ export function applyAgentSurface<T extends DomNode>(node: T, options: { surface
   }
   if (typeof merged.padding === "number") out.padding = merged.padding;
   if (merged.elevation) out.elevation = merged.elevation;
+  if (merged.shadow && typeof merged.shadow === "object") out.shadow = merged.shadow;
+  if (merged.gradient && typeof merged.gradient === "object") out.gradient = merged.gradient;
   if (merged.accent && merged.accent !== "none") out.accent = merged.accent;
   if (typeof merged.accentColor === "string") out.accentColor = merged.accentColor;
   if (typeof merged.accentWidth === "number") out.accentWidth = merged.accentWidth;
@@ -738,7 +750,7 @@ function timelineHorizontalRow(
         columns,
         gap: 0,
         role: "timeline-marker-row",
-        minHeight: 1.55,
+        minHeight: 1.2,
         children: items.map((item, localIndex) => timelineHorizontalMarker(slideId, id, startIndex + localIndex, item)),
       },
       {
@@ -768,8 +780,8 @@ function timelineHorizontalMarker(
     fill: "surface",
     line: toneToken,
     lineWidth: 0.018,
-    fixedWidth: 0.82,
-    fixedHeight: 0.82,
+    fixedWidth: 0.7,
+    fixedHeight: 0.7,
     optional: true,
   }];
   const iconLayer = timelineIconLayer(slideId, id, index, item, toneToken, 0.44);
@@ -791,7 +803,7 @@ function timelineHorizontalMarker(
         justify: "center",
         align: "center",
         valign: "middle",
-        fixedHeight: 0.84,
+        fixedHeight: 0.72,
         children: visualChildren,
       },
       {
@@ -801,7 +813,7 @@ function timelineHorizontalMarker(
         fill: "divider",
         line: "divider",
         fixedWidth: 0.04,
-        fixedHeight: 0.22,
+        fixedHeight: 0.16,
         optional: true,
       },
       {
@@ -811,7 +823,7 @@ function timelineHorizontalMarker(
         gap: 0,
         role: "timeline-axis-node",
         valign: "middle",
-        fixedHeight: 0.24,
+        fixedHeight: 0.2,
         children: [
           {
             id: `${slideId}.${id}.${index}.railLeft`,
@@ -829,8 +841,8 @@ function timelineHorizontalMarker(
             fill: "surface",
             line: toneToken,
             lineWidth: 0.035,
-            fixedWidth: 0.22,
-            fixedHeight: 0.22,
+            fixedWidth: 0.18,
+            fixedHeight: 0.18,
             optional: true,
           },
           {
@@ -939,7 +951,7 @@ function timelineStep(
         style: "timeline-time",
         color: item.tone ? toneToken : undefined,
         align: "center",
-        minHeight: 0.34,
+        minHeight: 0.3,
         autoFit: "shrink",
         optional: true,
       });
@@ -1075,10 +1087,10 @@ function timelineStep(
 function estimateTimelineBodyMinHeight(text: string, direction: "horizontal" | "vertical"): number {
   const explicitLines = text.split(/\n+/).filter((line) => line.trim()).length;
   const weighted = weightedTextLength(text);
-  const charsPerLine = direction === "horizontal" ? 20 : 46;
+  const charsPerLine = direction === "horizontal" ? 22 : 46;
   const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / charsPerLine));
-  const lineHeight = direction === "horizontal" ? 0.34 : 0.34;
-  return Math.max(direction === "horizontal" ? 0.58 : 0.42, Math.min(direction === "horizontal" ? 1.52 : 1.2, estimatedLines * lineHeight + 0.14));
+  const lineHeight = direction === "horizontal" ? 0.29 : 0.34;
+  return Math.max(direction === "horizontal" ? 0.46 : 0.42, Math.min(direction === "horizontal" ? 1.2 : 1.2, estimatedLines * lineHeight + 0.12));
 }
 
 export function profileCard(slideId: string, id: string, options: { image: string; name: string; role?: string; bio?: string }): DomNode {
@@ -1592,10 +1604,32 @@ export function prosCons(slideId: string, id: string, options: { pros: string[];
 }
 
 export function processFlow(slideId: string, id: string, options: {
-  steps: Array<{ title: string; body?: string; status?: string; owner?: string; time?: string; icon?: string; bullets?: string[] }>;
+  steps: Array<{
+    title: string;
+    body?: string;
+    status?: string;
+    owner?: string;
+    time?: string;
+    icon?: string;
+    iconSrc?: string;
+    bullets?: string[];
+    step?: string;
+    number?: string;
+    marker?: "auto" | "number" | "dot" | "icon" | "none";
+    accentColor?: string;
+  }>;
   direction?: "horizontal" | "vertical";
   variant?: "plain" | "cards";
   density?: "comfortable" | "compact";
+  marker?: "auto" | "number" | "dot" | "icon" | "none";
+  showNumbers?: boolean;
+  connector?: "arrow" | "chevron" | "line" | "none";
+  connectorDash?: "solid" | "dash" | "dot";
+  connectorColor?: string;
+  placement?: "center" | "top";
+  spread?: "compact" | "balanced" | "fill";
+  stepAccent?: "none" | "top";
+  stepSurface?: AgentSurface;
 } & { surface?: AgentSurface } & AgentSurface): DomNode {
   // direction "auto" or undefined defers to layout: a hint we read at
   // measure time and flip to vertical when the flow is squeezed into a
@@ -1605,20 +1639,40 @@ export function processFlow(slideId: string, id: string, options: {
   const compact = options.density === "compact";
   const dense = compact || options.steps.length >= 5;
   const cardVariant = options.variant === "cards";
+  const markerMode = options.marker === "number" || options.marker === "dot" || options.marker === "icon" || options.marker === "none" ? options.marker : "auto";
+  const connectorMode = options.connector === "chevron" || options.connector === "line" || options.connector === "none" ? options.connector : "arrow";
+  const connectorDash = options.connectorDash === "dash" || options.connectorDash === "dot" ? options.connectorDash : undefined;
+  const connectorColor = typeof options.connectorColor === "string" && options.connectorColor.trim() ? options.connectorColor.trim() : "brand.primary";
+  const placement = options.placement === "center" || options.placement === "top" ? options.placement : cardVariant ? "top" : "center";
+  const spread = options.spread === "fill" || options.spread === "compact" || options.spread === "balanced"
+    ? options.spread
+    : cardVariant ? "balanced" : "compact";
+  const stepAccent = options.stepAccent === "none" ? "none" : "top";
   const items: DomNode[] = [];
   // Vertical process-flow stacks step + arrow + step + arrow ... in one column
   // and competes with the slide's slide-title placeholder for the ~10cm content
   // area. Density adapts to step count so 4-6 vertical steps fit without
   // FALLBACK_FAILED on a default deck.
   const verticalDense = direction === "vertical" && (compact || options.steps.length >= 4);
+  let horizontalBandMaxHeight = 0;
+  let horizontalBandMinHeight = 0;
+  let hasRichHorizontalCard = false;
   options.steps.forEach((step, index) => {
     const statusColor = toneColor(step.status, "text.primary");
     const iconFill = statusColor === "text.primary" ? "surface.subtle" : statusColor;
+    const accentColor = typeof step.accentColor === "string" && step.accentColor.trim()
+      ? step.accentColor.trim()
+      : statusColor === "text.primary"
+        ? "brand.primary"
+        : statusColor === "text.muted"
+          ? "divider"
+          : statusColor;
     const richHorizontalCard = direction === "horizontal" && cardVariant && (
       Boolean(step.bullets && step.bullets.length) ||
       Boolean(step.owner || step.time) ||
       Boolean(step.body && (step.body.length > 28 || step.body.includes("\n")))
     );
+    if (richHorizontalCard) hasRichHorizontalCard = true;
     const stepAlign = cardVariant ? "start" : "center";
     const textAlign = cardVariant ? "left" : "center";
     // Horizontal flow uses a maxHeight cap so the step card sizes to its
@@ -1628,10 +1682,98 @@ export function processFlow(slideId: string, id: string, options: {
     // centered in the middle, and the body's fixedHeight + autoFit:shrink
     // pushed body text down to ~8pt. Vertical flow keeps minHeight (it
     // grows with content vertically and competes with adjacent rows).
-    const horizontalMaxHeight = richHorizontalCard ? 4.15 : cardVariant ? (dense ? 3.2 : 3.5) : (dense ? 2.5 : 3.1);
-    const horizontalMinHeight = richHorizontalCard ? 3.15 : cardVariant ? (dense ? 2.25 : 2.55) : undefined;
+    const horizontalMaxHeight = richHorizontalCard
+      ? (spread === "fill" ? 5.6 : spread === "balanced" ? 4.9 : 4.45)
+      : cardVariant
+        ? spread === "fill"
+          ? (dense ? 4.2 : 4.6)
+          : spread === "balanced"
+            ? (dense ? 3.65 : 3.9)
+            : (dense ? 3.2 : 3.5)
+        : (dense ? 2.5 : 3.1);
+    const horizontalMinHeight = richHorizontalCard
+      ? (spread === "fill" ? 3.85 : spread === "balanced" ? 3.65 : 3.25)
+      : cardVariant
+        ? spread === "fill"
+          ? (dense ? 2.85 : 3.15)
+          : spread === "balanced"
+            ? (dense ? 2.45 : 2.75)
+            : (dense ? 2.25 : 2.55)
+        : undefined;
     const verticalMinHeight = verticalDense ? 1.0 : 1.4;
-    items.push({
+    if (direction === "horizontal") {
+      horizontalBandMaxHeight = Math.max(horizontalBandMaxHeight, horizontalMaxHeight);
+      horizontalBandMinHeight = Math.max(horizontalBandMinHeight, horizontalMinHeight || 0);
+    }
+    const rawMarker = step.marker === "number" || step.marker === "dot" || step.marker === "icon" || step.marker === "none" ? step.marker : markerMode;
+    const resolvedMarker = (() => {
+      if (rawMarker !== "auto") return rawMarker;
+      if (options.showNumbers === false) return step.icon || step.iconSrc ? "icon" : "none";
+      if (step.icon || step.iconSrc) return "icon";
+      if (options.showNumbers === true || cardVariant) return "number";
+      return "none";
+    })();
+    const markerNode: DomNode | undefined = (() => {
+      if (resolvedMarker === "none") return undefined;
+      if (resolvedMarker === "icon" && step.iconSrc && step.iconSrc.trim()) {
+        return {
+          id: `${slideId}.${id}.step${index + 1}.icon`,
+          type: "image",
+          src: step.iconSrc.trim(),
+          alt: step.title,
+          fit: "contain",
+          fixedWidth: cardVariant ? 0.64 : 0.48,
+          fixedHeight: cardVariant ? 0.64 : 0.48,
+          align: stepAlign,
+          optional: true,
+        };
+      }
+      if (resolvedMarker === "icon" && step.icon) {
+        return {
+          id: `${slideId}.${id}.step${index + 1}.icon`,
+          type: "shape",
+          preset: step.icon,
+          fill: iconFill,
+          line: statusColor,
+          fixedWidth: cardVariant ? 0.58 : 0.46,
+          fixedHeight: cardVariant ? 0.58 : 0.46,
+          align: stepAlign as "start" | "center",
+          optional: true,
+        };
+      }
+      if (resolvedMarker === "dot") {
+        return {
+          id: `${slideId}.${id}.step${index + 1}.marker`,
+          type: "shape",
+          preset: "ellipse",
+          fill: accentColor,
+          line: accentColor,
+          fixedWidth: cardVariant ? 0.34 : 0.28,
+          fixedHeight: cardVariant ? 0.34 : 0.28,
+          align: stepAlign as "start" | "center",
+          optional: true,
+        };
+      }
+      const label = (step.number || step.step || String(index + 1).padStart(options.steps.length >= 10 ? 2 : 2, "0")).trim();
+      return {
+        id: `${slideId}.${id}.step${index + 1}.number`,
+        type: "text",
+        text: label,
+        style: "label",
+        color: statusColor === "text.muted" ? "text.primary" : statusColor,
+        align: "center",
+        valign: "middle",
+        fill: "surface.subtle",
+        line: accentColor,
+        fixedWidth: dense || verticalDense ? 0.68 : 0.78,
+        fixedHeight: dense || verticalDense ? 0.42 : 0.5,
+        noWrap: true,
+        autoFit: "shrink",
+        cornerRadius: 0.16,
+        optional: true,
+      };
+    })();
+    const stepNode: DomNode = {
       id: `${slideId}.${id}.step${index + 1}`,
       type: "stack",
       direction: "vertical",
@@ -1648,12 +1790,21 @@ export function processFlow(slideId: string, id: string, options: {
       justify: cardVariant ? "start" : "center",
       ...(direction === "horizontal" ? { maxHeight: horizontalMaxHeight, ...(horizontalMinHeight ? { minHeight: horizontalMinHeight } : {}) } : { minHeight: verticalMinHeight }),
       children: [
+        ...(cardVariant && stepAccent !== "none" && !richHorizontalCard ? [{
+          id: `${slideId}.${id}.step${index + 1}.accent`,
+          type: "shape" as const,
+          preset: "rect",
+          fill: accentColor,
+          line: accentColor,
+          fixedHeight: dense || verticalDense ? 0.055 : 0.07,
+          optional: true,
+        }] : []),
         // umzrkm fix: step.title used brand.primary which fails 4.5:1 on
         // agent themes with mid-saturation brand colors (teal 5B8A8A on
         // E8F3F3 ≈ 3.4:1). Mirror the 2pmnxh fix that already moved
         // timeline-step to text.primary. The arrow shape between steps
         // still carries brand.primary so the visual claim is preserved.
-        ...(step.icon ? [{ id: `${slideId}.${id}.step${index + 1}.icon`, type: "shape" as const, preset: step.icon, fill: iconFill, line: statusColor, fixedWidth: cardVariant ? 0.58 : 0.46, fixedHeight: cardVariant ? 0.58 : 0.46, align: stepAlign as "start" | "center" }] : []),
+        ...(markerNode ? [markerNode] : []),
         { id: `${slideId}.${id}.step${index + 1}.title`, type: "text", text: step.title, style: "card-title", color: statusColor, align: textAlign, minHeight: dense || verticalDense ? 0.42 : 0.6, autoFit: "shrink" },
         ...((step.owner || step.time) ? [{
           id: `${slideId}.${id}.step${index + 1}.meta`,
@@ -1692,20 +1843,40 @@ export function processFlow(slideId: string, id: string, options: {
       ],
       layoutWeight: 4,
       ...(cardVariant ? { fill: "surface", line: "divider", padding: richHorizontalCard ? 0.34 : dense || verticalDense ? 0.26 : 0.35, cornerRadius: 0.08 } : {}),
-    });
+    };
+    items.push(cardVariant && options.stepSurface && typeof options.stepSurface === "object"
+      ? applyAgentSurface(stepNode, options.stepSurface)
+      : stepNode);
     if (index < options.steps.length - 1) {
+      if (connectorMode === "none") return;
       // 96vi8n slide 20: 0.7×0.5cm chevrons were nearly invisible. Bumped
       // to 1.1×0.7cm (h-flow) / 0.7×0.55cm (v-flow). Arrow keeps its
       // brand.primary fill — the agent's chromatic claim is here, not on
       // the title text (which uses text.primary for contrast safety).
-      items.push({
+      const lineConnector = connectorMode === "line";
+      const chevronConnector = connectorMode === "chevron";
+      items.push(lineConnector ? {
         id: `${slideId}.${id}.arrow${index + 1}`,
         type: "shape",
-        preset: arrow,
-        fill: "brand.primary",
-        line: "brand.primary",
-        fixedWidth: direction === "horizontal" ? (dense ? 0.7 : 1.1) : (verticalDense ? 0.55 : 0.7),
-        fixedHeight: direction === "horizontal" ? (dense ? 0.5 : 0.7) : (verticalDense ? 0.4 : 0.55),
+        role: "process-connector",
+        connector: "line",
+        preset: "line",
+        line: connectorColor,
+        lineWidth: cardVariant ? 0.035 : 0.025,
+        ...(connectorDash ? { lineDash: connectorDash } : {}),
+        fixedWidth: direction === "horizontal" ? (dense ? 0.7 : 1.0) : 0.05,
+        fixedHeight: direction === "horizontal" ? 0.05 : (verticalDense ? 0.46 : 0.6),
+        layoutWeight: 1,
+      } : {
+        id: `${slideId}.${id}.arrow${index + 1}`,
+        type: "shape",
+        role: "process-connector",
+        connector: chevronConnector ? "chevron" : "arrow",
+        preset: chevronConnector && direction === "horizontal" ? "chevron" : arrow,
+        fill: connectorColor,
+        line: connectorColor,
+        fixedWidth: direction === "horizontal" ? (dense ? 0.7 : chevronConnector ? 0.82 : 1.1) : (verticalDense ? 0.55 : 0.7),
+        fixedHeight: direction === "horizontal" ? (dense ? 0.5 : chevronConnector ? 0.62 : 0.7) : (verticalDense ? 0.4 : 0.55),
         layoutWeight: 1,
       });
     }
@@ -1718,6 +1889,12 @@ export function processFlow(slideId: string, id: string, options: {
     role: "process-flow",
     align: "center",
     valign: "middle",
+    ...(cardVariant && direction === "horizontal" && placement === "top" && horizontalBandMaxHeight > 0 && !(hasRichHorizontalCard && options.steps.length >= 4)
+      ? {
+          minHeight: horizontalBandMinHeight || undefined,
+          maxHeight: horizontalBandMaxHeight,
+        }
+      : {}),
     children: items,
     // No outer fixedHeight: process-flow lets the container above decide.
     // Layout falls back to vertical orientation when the cross-axis cell is
@@ -2745,6 +2922,7 @@ export function takeawayList(
       tone,
       variant: tone === "neutral" ? "outline" : "solid",
       size: dense ? "sm" : "md",
+      valign: "top",
     });
     const children: DomNode[] = [
       marker || {

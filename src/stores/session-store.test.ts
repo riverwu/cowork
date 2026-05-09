@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  activeContextMessages,
   assembleLlmMessages,
   isContextSummary,
   isSessionArchive,
@@ -176,6 +177,22 @@ describe("new-session slash command", () => {
       isNewSession: false,
       remainingContent: "please create a new slide",
     });
+  });
+});
+
+describe("/new context boundary", () => {
+  it("keeps visible history available while limiting LLM context to messages after the divider", () => {
+    const oldUser = userMsg("old request", "u-old");
+    const oldAssistant = assistantMsg("old output", []);
+    const divider = systemMsg("__CONTEXT_CLEARED__");
+    const newUser = userMsg("new request", "u-new");
+
+    const visibleHistory = [oldUser, oldAssistant, divider, newUser];
+    expect(visibleHistory).toHaveLength(4);
+    expect(activeContextMessages(visibleHistory)).toEqual([newUser]);
+    expect(assembleLlmMessages(activeContextMessages(visibleHistory))).toEqual([
+      { role: "user", content: "new request" },
+    ]);
   });
 });
 

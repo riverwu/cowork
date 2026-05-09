@@ -10,7 +10,7 @@ type AnyShape = {
   type: string;
   name?: string;
   preset?: string;
-  xfrm?: { x: number; cx: number; cy: number };
+  xfrm?: { x: number; y: number; cx: number; cy: number };
   fill?: { type: string; color?: string; alpha?: number };
   line?: { color: string; width: number; alpha?: number };
 };
@@ -126,6 +126,25 @@ describe("item-marker rendering", () => {
     expect(cm(marker?.xfrm?.cx)).toBeLessThan(0.12);
     expect(gap).toBeGreaterThanOrEqual(0.15);
     expect(gap).toBeLessThan(0.45);
+  });
+
+  it("takeaway-list markers stay attached to the headline in detailed grids", () => {
+    const shapes = renderShapes({
+      id: "s.takeaways",
+      type: "takeaway-list",
+      marker: { shape: "diamond", variant: "tint", tone: "warning", size: "sm" },
+      items: [
+        { headline: "Paid intent", detail: "Long validation question that makes the first row tall." },
+        { headline: "Search volume", detail: "Long validation question that makes the first row tall." },
+        { headline: "Index investment", detail: "Long validation question that makes the second row tall." },
+        { headline: "Platform entry", detail: "Long validation question that makes the second row tall." },
+      ],
+    } as unknown as DomNode);
+
+    const marker = byName(shapes, "s.takeaways.0.marker");
+    const headline = byName(shapes, "s.takeaways.0.headline");
+    expect(marker?.preset).toBe("diamond");
+    expect(cm(marker?.xfrm?.y)).toBeCloseTo(cm(headline?.xfrm?.y), 1);
   });
 
   it("numbered-grid can add item title markers without changing number chips", () => {

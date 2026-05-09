@@ -1,5 +1,5 @@
 import { pushDiagnostic } from "./diagnostics.js";
-import type { BrandSpec, ThemeOverride } from "./types.js";
+import type { BrandSpec, SurfaceOverride, ThemeLayoutArea, ThemeOverride } from "./types.js";
 
 export interface SimpleTheme {
   name: string;
@@ -37,6 +37,7 @@ export interface SimpleTheme {
     defaultGap: number;
     columnGap: number;
     cardPadding: number;
+    areas: Record<string, ThemeLayoutArea>;
   };
   chart: {
     series: string[];
@@ -112,7 +113,7 @@ export interface TextStyle {
   italic?: boolean;
 }
 
-export interface ComponentStyle {
+export interface ComponentStyle extends Omit<SurfaceOverride, "accent"> {
   fill?: string;
   line?: string;
   accent?: string;
@@ -236,7 +237,7 @@ function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOve
     text: mergeTextStyles(base.text, override?.text),
     component: mergeComponentStyles(base.component, override?.component),
     tone: { ...base.tone, ...(override?.tone || {}) },
-    layout: { ...base.layout, ...(override?.layout || {}) },
+    layout: { ...base.layout, ...(override?.layout || {}), areas: { ...base.layout.areas, ...(override?.layout?.areas || {}) } },
     fonts: mergeFonts(base.fonts, override?.fonts),
     chart: { series: override?.chart?.series ?? base.chart.series },
     guidance: {
@@ -1103,6 +1104,7 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       defaultGap: 0.5,
       columnGap: 0.7,
       cardPadding: 0.55,
+      areas: {},
     },
     chart: {
       series: ["brand.primary", "brand.primary.shade", "brand.primary.tint", "success", "warning", "danger"],

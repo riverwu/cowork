@@ -92,6 +92,9 @@ async function appendAuthoringDiagnostics(result: Slideml2ValidateRenderResult, 
     qualityCount: 0,
     quality: [],
   };
+  const alreadyReported = [...(diagnostics.blocking || []), ...(diagnostics.quality || [])]
+    .some((diagnostic) => diagnostic.code === iconDiagnostic.code);
+  if (alreadyReported) return result;
   const summary = { ...diagnostics.summary, [iconDiagnostic.code]: (diagnostics.summary?.[iconDiagnostic.code] || 0) + 1 };
   const quality = [...(diagnostics.quality || []), iconDiagnostic];
   return {
@@ -212,6 +215,9 @@ function softQualityAction(summary: Record<string, number> | undefined): string 
   }
   if (summary.UNUSED_GENERATED_ICON_ASSETS) {
     return "Quality advisory: generated icon assets were found but no returned icon paths are referenced by the deck. Use the manifest icon paths as feature-card.iconSrc or image src, or skip icon generation.";
+  }
+  if (summary.SPARSE_CONTENT_SLIDE || summary.PLAIN_FEATURE_CARD_GRID) {
+    return "Quality advisory: one or more slides may look visually sparse even though layout validation passed. Add supporting evidence/takeaways, use richer component variants, or place planned generated iconSrc assets before final delivery.";
   }
   const truncated = summary.TRUNCATED || 0;
   const overflow = summary.OVERFLOW || 0;

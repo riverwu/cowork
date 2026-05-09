@@ -33,6 +33,8 @@ export { describeDeck } from "./deck-disclosure.js";
 export type { DeckDescription, DeckFieldDescription } from "./deck-disclosure.js";
 export { listTextKinds, describeTextKind } from "./text-kinds.js";
 export { describeNodeType, listNodeTypes } from "./node-types.js";
+export { DECK_SIZE_VALUES, VALIDATION_MODE_VALUES } from "./schema.js";
+export type { ValidationMode } from "./schema.js";
 export { listPaletteColors, listSizeNames, listThemes } from "./theme.js";
 export type { PaletteColorName, SizeName } from "./theme.js";
 export { createDeck, setDeckProps, appendSlide, insertSlide, replaceSlide, deleteSlide, validateDeckPath, renderDeck, readDeck, writeDeck } from "./deck-ops.js";
@@ -44,6 +46,7 @@ export type {
   AuditIssue,
   AuditReport,
   BrandSpec,
+  DeckValidationSpec,
   DeckSpec,
   DomNode,
   EditOp,
@@ -55,6 +58,8 @@ export type {
   SlideSize,
   SlideSpec,
   Slideml2Deck,
+  SurfaceOverride,
+  ThemeLayoutArea,
 } from "./types.js";
 export type { MarkdownPlan, MarkdownPipelineResult, PlannedPage } from "./agent/markdown-pipeline.js";
 export type { AgentComponentNode, AgentNode, AgentPrimitiveNode, ComponentAgentPlan, ComponentAgentResult, ComponentAgentSlidePlan } from "./agent/component-agent.js";

@@ -1,17 +1,23 @@
-import type { DomNode, RenderedDeck, RenderedSlide, Slideml2SourceDeck, SlideV2 } from "./types.js";
+import type { DeckSpec, DomNode, RenderedDeck, RenderedSlide, Slideml2SourceDeck, SlideV2 } from "./types.js";
 import { buildTheme } from "./theme.js";
+import { isDeckSize } from "./schema.js";
 
 export function createSourceDeck(options: {
   title?: string;
+  size?: DeckSpec["size"];
   theme?: string;
   brand?: { name?: string; primary?: string; logo?: string };
+  themeOverride?: DeckSpec["themeOverride"];
+  validation?: DeckSpec["validation"];
 } = {}): Slideml2SourceDeck {
   return {
     slideml2: 2,
     deck: {
-      size: "16x9",
+      size: isDeckSize(options.size) ? options.size : "16x9",
       theme: options.theme || "default",
       brand: options.brand || { name: options.title, primary: "2563EB" },
+      themeOverride: options.themeOverride,
+      validation: options.validation,
       metadata: options.title ? { title: options.title } : {},
     },
     slides: [],
@@ -262,7 +268,23 @@ function ensureContentArea(slideId: string, children: DomNode[], hasSlideTitle =
   // content rect. Now we split overlay-style children out: they stay at
   // slide level so rectForSlideChild gives them a proper anchored rect.
   const overlays = children.filter(isOverlayChildAtSource);
-  const flow = children.filter((c) => !isOverlayChildAtSource(c));
+  const explicitAreas = children.filter((c) => !isOverlayChildAtSource(c) && isExplicitAreaChild(c));
+  const flow = children.filter((c) => !isOverlayChildAtSource(c) && !isExplicitAreaChild(c));
+  if (explicitAreas.length > 0) {
+    if (flow.length === 0) return [...explicitAreas, ...overlays];
+    return [
+      {
+        id: `${slideId}.content`,
+        type: "stack",
+        area: "content",
+        direction: "vertical",
+        gap: 0.35,
+        children: flow,
+      },
+      ...explicitAreas,
+      ...overlays,
+    ];
+  }
   const onlyFlow = flow[0];
   if (!hasSlideTitle && flow.length === 1 && onlyFlow?.type === "band" && onlyFlow.area === undefined && onlyFlow.fixedHeight === undefined && onlyFlow.height === undefined) {
     return [onlyFlow, ...overlays];
@@ -278,6 +300,10 @@ function ensureContentArea(slideId: string, children: DomNode[], hasSlideTitle =
     },
     ...overlays,
   ];
+}
+
+function isExplicitAreaChild(node: DomNode): boolean {
+  return typeof node.area === "string" && node.area.trim().length > 0;
 }
 
 function normalizeNode(slideId: string, node: DomNode, fallbackId: string): DomNode {

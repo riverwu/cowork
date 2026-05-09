@@ -65,7 +65,7 @@ describe("generate_icon_sheet tool", () => {
     expect(prompt).not.toContain("r1c1");
   });
 
-  it("slices around detected icon subjects instead of trusting only hard grid cells", async () => {
+  it("detects the actual generated grid and removes tile frames while slicing", async () => {
     vi.spyOn(imageGen, "execute").mockResolvedValue("Image generated and saved to /tmp/icons/icon-sheet.png.");
     const pythonSpy = vi.spyOn(runPython, "execute").mockResolvedValue(`ICON_SHEET_RESULT:${JSON.stringify({
       sheetPath: "/tmp/icons/icon-sheet.png",
@@ -88,13 +88,17 @@ describe("generate_icon_sheet tool", () => {
     });
 
     const script = String(pythonSpy.mock.calls[0]?.[0]?.code || "");
-    expect(script).toContain("expand_x = round(cell_w * 0.18)");
-    expect(script).toContain("expected = ((left + right) / 2 - search_left");
+    expect(script).toContain("def detect_grid_bbox(im, cols, rows):");
+    expect(script).toContain("caption_like = bw > bh * 2.8");
+    expect(script).toContain("grid_left, grid_top, grid_right, grid_bottom = detect_grid_bbox(img, cols, rows)");
+    expect(script).toContain("cell_w = (grid_right - grid_left) / cols");
+    expect(script).toContain("expand_x = round(cell_w * 0.10)");
     expect(script).toContain("focus = (left - search_left, top - search_top, right - search_left, bottom - search_top)");
-    expect(script).toContain("bbox = icon_bbox(search, expected, focus)");
-    expect(script).toContain("meaningful_overlap = overlap >= min(area * 0.22");
+    expect(script).toContain("def is_frame_like(box, im_width, im_height, focus_rect=None):");
+    expect(script).toContain("bbox = icon_bbox(search, expected, focus, drop_edge_frames=True)");
+    expect(script).toContain("bbox = icon_bbox(cell, drop_edge_frames=False)");
     expect(script).toContain("clipped = clip_box(merged, guard)");
-    expect(script).toContain("guard_x = max(4, round((focus[2] - focus[0]) * 0.025))");
+    expect(script).toContain("guard_x = max(4, round((focus[2] - focus[0]) * 0.10))");
     expect(script).toContain("text_like = wide_flat");
   });
 

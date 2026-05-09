@@ -37,7 +37,7 @@ export const generateIconSheet: Tool = {
     description:
       `Generate a consistent icon set for a deck by creating one or more AI image icon sheets, slicing them into individual PNG icons, and writing a manifest.
 
-Use for semantic business/technical/education/science icon sets such as bank, finance, trend, risk, user, automation, database, workflow. The tool internally calls image_gen with strict square grid prompts, then uses Pillow to crop each grid cell into a named icon file under output_dir. Generated sheets are constrained to NxN layouts only, max 3x3 per generated image; larger icon sets are split across multiple sheets automatically.
+Use for semantic business/technical/education/science icon sets such as bank, finance, trend, risk, user, automation, database, workflow. The tool internally calls image_gen with strict square grid prompts, then uses Pillow to detect the actual generated grid, remove stray labels/tile frames, and crop each icon into a named PNG file under output_dir. Generated sheets are constrained to NxN layouts only, max 3x3 per generated image; larger icon sets are split across multiple sheets automatically.
 
 Output icons are intended for SlideML2 image/image-card/feature-card/timeline iconSrc usage. Before calling this tool, the deck planning archive should already map each requested icon name to a slide and field such as feature-card.iconSrc, timeline.items[].iconSrc, or image-card.src. After this tool returns, place icons by absolute path with fit:"contain"; for feature cards and timeline milestones use iconSrc. A later validate_render call warns if the current run has this manifest but the deck references none of its icon paths.
 
@@ -369,17 +369,32 @@ img = Image.open(sheet_path).convert("RGBA")
 w, h = img.size
 cols = int(cfg["grid"]["columns"])
 rows = int(cfg["grid"]["rows"])
-cell_w = w / cols
-cell_h = h / rows
 out_size = int(cfg["outputSize"])
 transparent = bool(cfg["makeTransparent"])
 icons_out = []
 
 def bg_from_corners(im):
     px = im.load()
-    pts = [(0,0), (im.width-1,0), (0,im.height-1), (im.width-1,im.height-1)]
-    vals = [px[x,y] for x,y in pts]
-    return tuple(int(sum(v[i] for v in vals) / len(vals)) for i in range(3))
+    sample = max(1, round(min(im.width, im.height) * 0.015))
+    step = max(1, sample // 6)
+    pts = []
+    corner_ranges = [
+        (range(0, sample), range(0, sample)),
+        (range(max(0, im.width - sample), im.width), range(0, sample)),
+        (range(0, sample), range(max(0, im.height - sample), im.height)),
+        (range(max(0, im.width - sample), im.width), range(max(0, im.height - sample), im.height)),
+    ]
+    for xs, ys in corner_ranges:
+        for y in list(ys)[::step]:
+            for x in list(xs)[::step]:
+                pts.append(px[x, y])
+    if not pts:
+        pts = [px[0, 0]]
+    vals = []
+    for channel in range(3):
+        channel_values = sorted(p[channel] for p in pts)
+        vals.append(channel_values[len(channel_values) // 2])
+    return tuple(vals)
 
 def near_white_background(r, g, b):
     return r >= 218 and g >= 218 and b >= 218 and (max(r, g, b) - min(r, g, b)) <= 34
@@ -456,6 +471,87 @@ def merge_boxes(boxes):
         max(b[3] for b in boxes),
     )
 
+def expand_box(box, pad_x, pad_y, width, height):
+    l,t,r,b = box
+    return (
+        max(0, int(round(l - pad_x))),
+        max(0, int(round(t - pad_y))),
+        min(width, int(round(r + pad_x))),
+        min(height, int(round(b + pad_y))),
+    )
+
+def fit_aspect_expand(box, target_aspect, width, height):
+    l,t,r,b = [float(v) for v in box]
+    box_w = max(1, r - l)
+    box_h = max(1, b - t)
+    cx = (l + r) / 2
+    cy = (t + b) / 2
+    if box_w / box_h > target_aspect:
+        box_h = box_w / target_aspect
+    else:
+        box_w = box_h * target_aspect
+    l = cx - box_w / 2
+    r = cx + box_w / 2
+    t = cy - box_h / 2
+    b = cy + box_h / 2
+    if l < 0:
+        r -= l
+        l = 0
+    if r > width:
+        l -= r - width
+        r = width
+    if t < 0:
+        b -= t
+        t = 0
+    if b > height:
+        t -= b - height
+        b = height
+    return (
+        max(0, round(l)),
+        max(0, round(t)),
+        min(width, round(r)),
+        min(height, round(b)),
+    )
+
+def detect_grid_bbox(im, cols, rows):
+    max_dim = 768
+    scale = min(1.0, max_dim / max(im.width, im.height))
+    if scale < 1:
+        small = im.resize((round(im.width * scale), round(im.height * scale)), Image.Resampling.BILINEAR)
+    else:
+        small = im.copy()
+    mask = foreground_mask(small, threshold=28)
+    boxes = component_boxes(mask)
+    sw, sh = small.size
+    image_area = sw * sh
+    min_side = min(sw, sh)
+    layout_boxes = []
+    for box in boxes:
+        l,t,r,b,area = box
+        bw = r - l
+        bh = b - t
+        large_span = bw >= min_side * 0.10 and bh >= min_side * 0.10
+        large_area = area >= image_area * 0.0035
+        tall_enough = bh >= min_side * 0.055
+        caption_like = bw > bh * 2.8 and bh < min_side * 0.14 and t < sh * 0.24
+        if tall_enough and not caption_like and (large_span or large_area):
+            layout_boxes.append(box)
+    if not layout_boxes:
+        layout_boxes = [box for box in boxes if box[4] >= max(8, image_area * 0.0005)]
+    merged = merge_boxes(layout_boxes)
+    if not merged:
+        return (0, 0, im.width, im.height)
+    inv_scale = 1 / scale
+    grid = tuple(v * inv_scale for v in merged)
+    pad = max(im.width, im.height) * 0.012
+    grid = expand_box(grid, pad, pad, im.width, im.height)
+    grid = fit_aspect_expand(grid, cols / rows, im.width, im.height)
+    grid_w = grid[2] - grid[0]
+    grid_h = grid[3] - grid[1]
+    if grid_w > im.width * 0.92 and grid_h > im.height * 0.92:
+        return (0, 0, im.width, im.height)
+    return grid
+
 def overlap_area(box, rect):
     if rect is None:
         return None
@@ -470,7 +566,37 @@ def clip_box(box, rect):
     fl,ft,fr,fb = rect
     return (max(l, fl), max(t, ft), min(r, fr), min(b, fb))
 
-def icon_bbox(im, expected_center=None, focus_rect=None):
+def is_frame_like(box, im_width, im_height, focus_rect=None):
+    l,t,r,b,area = box
+    bw = r - l
+    bh = b - t
+    if focus_rect is None:
+        fl,ft,fr,fb = (0, 0, im_width, im_height)
+    else:
+        fl,ft,fr,fb = focus_rect
+    focus_w = max(1, fr - fl)
+    focus_h = max(1, fb - ft)
+    slop = max(4, round(min(focus_w, focus_h) * 0.045))
+    touches = [
+        l <= fl + slop,
+        r >= fr - slop,
+        t <= ft + slop,
+        b >= fb - slop,
+    ]
+    touch_count = sum(1 for value in touches if value)
+    span_w = bw >= focus_w * 0.68
+    span_h = bh >= focus_h * 0.68
+    wraps_center = (
+        l < fl + focus_w * 0.18 and
+        r > fr - focus_w * 0.18 and
+        t < ft + focus_h * 0.18 and
+        b > fb - focus_h * 0.18
+    )
+    edge_band = touch_count >= 2 and (span_w or span_h)
+    full_tile = span_w and span_h and touch_count >= 2
+    return full_tile or (wraps_center and edge_band)
+
+def icon_bbox(im, expected_center=None, focus_rect=None, drop_edge_frames=True):
     mask = foreground_mask(im)
     boxes = component_boxes(mask)
     if not boxes:
@@ -482,6 +608,7 @@ def icon_bbox(im, expected_center=None, focus_rect=None):
     # being shrunk or sliced by stray text.
     min_area = max(10, int(cell_area * 0.00008))
     candidates = []
+    frame_boxes = []
     for l,t,r,b,area in boxes:
         bw = r - l
         bh = b - t
@@ -500,6 +627,9 @@ def icon_bbox(im, expected_center=None, focus_rect=None):
             meaningful_overlap = overlap >= min(area * 0.22, focus_w * focus_h * 0.015)
             if not within_focus and not meaningful_overlap:
                 continue
+        if drop_edge_frames and is_frame_like((l,t,r,b,area), im.width, im.height, focus_rect):
+            frame_boxes.append((l,t,r,b,area))
+            continue
         top_band = b < im.height * 0.26
         bottom_band = t > im.height * 0.55
         shallow = bh < im.height * 0.20
@@ -510,11 +640,14 @@ def icon_bbox(im, expected_center=None, focus_rect=None):
             continue
         candidates.append((l,t,r,b,area))
     if not candidates:
-        if focus_rect is not None:
-            focus_boxes = [box for box in boxes if overlap_area(box, focus_rect)]
-            candidates = sorted(focus_boxes, key=lambda box: overlap_area(box, focus_rect) or 0, reverse=True)[:3]
-        else:
-            candidates = sorted(boxes, key=lambda box: box[4], reverse=True)[:3]
+        fallback = []
+        for box in boxes:
+            if focus_rect is not None and not overlap_area(box, focus_rect):
+                continue
+            if box in frame_boxes:
+                continue
+            fallback.append(box)
+        candidates = sorted(fallback or boxes, key=lambda box: box[4], reverse=True)[:6]
     if not candidates:
         return None
 
@@ -541,15 +674,15 @@ def icon_bbox(im, expected_center=None, focus_rect=None):
         l,t,r,b,area = box
         cx = (l + r) / 2
         cy = (t + b) / 2
-        far = abs(cx - lc_x) > im.width * 0.38 or abs(cy - lc_y) > im.height * 0.38
-        tiny = area < largest[4] * 0.12
+        far = abs(cx - lc_x) > im.width * 0.42 or abs(cy - lc_y) > im.height * 0.42
+        tiny = area < largest[4] * 0.10
         if far and tiny:
             continue
         filtered.append(box)
     merged = merge_boxes(filtered or [largest])
     if merged and focus_rect is not None:
-        gutter_x = max(4, round((focus_rect[2] - focus_rect[0]) * 0.025))
-        gutter_y = max(4, round((focus_rect[3] - focus_rect[1]) * 0.025))
+        gutter_x = max(4, round((focus_rect[2] - focus_rect[0]) * 0.08))
+        gutter_y = max(4, round((focus_rect[3] - focus_rect[1]) * 0.08))
         guard = (
             max(0, focus_rect[0] - gutter_x),
             max(0, focus_rect[1] - gutter_y),
@@ -561,40 +694,44 @@ def icon_bbox(im, expected_center=None, focus_rect=None):
             return clipped
     return merged
 
+grid_left, grid_top, grid_right, grid_bottom = detect_grid_bbox(img, cols, rows)
+cell_w = (grid_right - grid_left) / cols
+cell_h = (grid_bottom - grid_top) / rows
+
 for index, icon in enumerate(cfg["icons"]):
     col = index % cols
     row = index // cols
-    left = round(col * cell_w)
-    top = round(row * cell_h)
-    right = round((col + 1) * cell_w)
-    bottom = round((row + 1) * cell_h)
-    expand_x = round(cell_w * 0.18)
-    expand_y = round(cell_h * 0.24)
-    search_left = max(0, left - expand_x)
-    search_top = max(0, top - expand_y)
-    search_right = min(w, right + expand_x)
-    search_bottom = min(h, bottom + expand_y)
+    left = grid_left + col * cell_w
+    top = grid_top + row * cell_h
+    right = grid_left + (col + 1) * cell_w
+    bottom = grid_top + (row + 1) * cell_h
+    expand_x = round(cell_w * 0.10)
+    expand_y = round(cell_h * 0.10)
+    search_left = max(0, round(left - expand_x))
+    search_top = max(0, round(top - expand_y))
+    search_right = min(w, round(right + expand_x))
+    search_bottom = min(h, round(bottom + expand_y))
     search = img.crop((search_left, search_top, search_right, search_bottom))
     expected = ((left + right) / 2 - search_left, (top + bottom) / 2 - search_top)
     focus = (left - search_left, top - search_top, right - search_left, bottom - search_top)
-    bbox = icon_bbox(search, expected, focus)
+    bbox = icon_bbox(search, expected, focus, drop_edge_frames=True)
     if bbox:
         pad = max(12, round(max(search.width, search.height) * 0.035))
         l,t,r,b = bbox
         l = max(0, l - pad); t = max(0, t - pad)
         r = min(search.width, r + pad); b = min(search.height, b + pad)
-        guard_x = max(4, round((focus[2] - focus[0]) * 0.025))
-        guard_y = max(4, round((focus[3] - focus[1]) * 0.025))
-        l = max(l, focus[0] - guard_x); t = max(t, focus[1] - guard_y)
-        r = min(r, focus[2] + guard_x); b = min(b, focus[3] + guard_y)
+        guard_x = max(4, round((focus[2] - focus[0]) * 0.10))
+        guard_y = max(4, round((focus[3] - focus[1]) * 0.10))
+        l = max(l, round(focus[0] - guard_x)); t = max(t, round(focus[1] - guard_y))
+        r = min(r, round(focus[2] + guard_x)); b = min(b, round(focus[3] + guard_y))
         cell = search.crop((l,t,r,b))
     else:
-        cell = img.crop((left, top, right, bottom))
+        cell = img.crop((round(left), round(top), round(right), round(bottom)))
         inset_x = max(0, round(cell.width * 0.055))
         inset_y = max(0, round(cell.height * 0.055))
         cell = cell.crop((inset_x, inset_y, cell.width - inset_x, cell.height - inset_y))
     if transparent:
-        bbox = icon_bbox(cell)
+        bbox = icon_bbox(cell, drop_edge_frames=False)
         if bbox:
             pad = max(12, round(max(cell.width, cell.height) * 0.04))
             l,t,r,b = bbox

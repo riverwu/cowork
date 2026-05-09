@@ -28,6 +28,18 @@ function shapes(slide: SlideV2, themeOverride?: Record<string, unknown>) {
   return renderToAst(sourceToRenderedDeck(deck(slide, themeOverride))).slides[0].shapes;
 }
 
+function shapes4x3(slide: SlideV2) {
+  return renderToAst(sourceToRenderedDeck({
+    slideml2: 2,
+    deck: {
+      size: "4x3",
+      theme: "default",
+      brand: { primary: "2563EB" },
+    },
+    slides: [slide],
+  })).slides[0].shapes;
+}
+
 function findEndingWith(shapeList: ReturnType<typeof shapes>, suffix: string) {
   return shapeList.find((s) => typeof (s as { name?: string }).name === "string" && (s as { name: string }).name.endsWith(suffix));
 }
@@ -145,6 +157,59 @@ describe("timeline visual spine (slide 7 fix)", () => {
     expect(timeTop - dotBottom).toBeGreaterThanOrEqual(0);
     expect(timeTop - dotBottom).toBeLessThan(0.35);
     expect(body.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt).toBe(17.6);
+  });
+
+  it("horizontal timeline in a tight 4x3 stack keeps copy below the axis, not beside it", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [
+        {
+          id: "s.tl",
+          type: "timeline",
+          direction: "horizontal",
+          items: [
+            { time: "第一代", body: "CD3ζ信号domain，无增殖信号", tone: "neutral" },
+            { time: "第二代", body: "CD3ζ + CD28/4-1BB共刺激信号", tone: "brand" },
+            { time: "第三代", body: "多个共刺激信号，更强增殖", tone: "brand" },
+            { time: "第四代", body: "分泌IL-12/IL-15或开关功能", tone: "positive" },
+          ],
+        } as never,
+        {
+          id: "s.list",
+          type: "warning-list",
+          title: "FDA已批准CAR-T",
+          items: [
+            { headline: "Kymriah", detail: "急性淋巴细胞白血病ALL" },
+            { headline: "Yescarta", detail: "弥漫大B细胞淋巴瘤DLBCL" },
+          ],
+        } as never,
+        {
+          id: "s.challenges",
+          type: "warning-list",
+          title: "核心挑战",
+          items: [
+            { headline: "CRS", detail: "CAR-T大量增殖可危及生命" },
+            { headline: "实体瘤疗效有限", detail: "肿瘤微环境免疫抑制" },
+          ],
+        } as never,
+      ],
+    };
+    const list = shapes4x3(slide);
+    const dot = findEndingWith(list, ".0.dot") as { xfrm?: { x: number; y: number; cx: number; cy: number } };
+    const time = findEndingWith(list, ".0.time") as { xfrm?: { x: number; y: number; cx: number; cy: number } };
+    const body = findEndingWith(list, ".0.body") as { xfrm?: { x: number; y: number; cx: number; cy: number } };
+
+    const dotCenterX = (dot.xfrm!.x + dot.xfrm!.cx / 2) / EMU;
+    const timeCenterX = (time.xfrm!.x + time.xfrm!.cx / 2) / EMU;
+    const dotBottom = (dot.xfrm!.y + dot.xfrm!.cy) / EMU;
+    const timeTop = time.xfrm!.y / EMU;
+    const timeBottom = (time.xfrm!.y + time.xfrm!.cy) / EMU;
+    const bodyTop = body.xfrm!.y / EMU;
+
+    expect(Math.abs(dotCenterX - timeCenterX)).toBeLessThan(0.65);
+    expect(timeTop).toBeGreaterThanOrEqual(dotBottom - 0.12);
+    expect(bodyTop).toBeGreaterThanOrEqual(timeBottom);
   });
 
   it("horizontal timeline renders generated iconSrc inside the milestone marker", () => {

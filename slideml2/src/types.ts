@@ -1,4 +1,59 @@
-export type SlideSize = "16x9";
+import type { DeckSize } from "./units.js";
+import type { ValidationMode } from "./schema.js";
+
+export type SlideSize = DeckSize;
+
+export interface DeckValidationSpec {
+  mode?: ValidationMode;
+  allowUnknownComponents?: boolean;
+  maxTextLength?: number;
+  requireAlt?: boolean;
+  requireSources?: boolean;
+}
+
+export type ThemeLayoutArea =
+  | { x: number; y: number; w: number; h: number }
+  | { left: number; top: number; right: number; bottom: number };
+
+export interface SurfaceShadowOverride {
+  color?: string;
+  alpha?: number;
+  blur?: number;
+  dx?: number;
+  dy?: number;
+}
+
+export interface SurfaceGradientStopOverride {
+  color: string;
+  position?: number;
+  alpha?: number;
+}
+
+export interface SurfaceGradientOverride {
+  kind?: "linear" | "radial";
+  angle?: number;
+  stops: SurfaceGradientStopOverride[];
+}
+
+export interface SurfaceOverride {
+  fill?: string;
+  fillOpacity?: number;
+  line?: string;
+  lineOpacity?: number;
+  lineWidth?: number;
+  lineDash?: "solid" | "dash" | "dashDot" | "dot";
+  borderColor?: string;
+  borderWidth?: number;
+  borderStyle?: "solid" | "dash" | "dashDot" | "dot";
+  cornerRadius?: number;
+  padding?: number;
+  elevation?: "flat" | "raised" | "floating" | "outlined";
+  shadow?: SurfaceShadowOverride;
+  gradient?: SurfaceGradientOverride;
+  accent?: "none" | "left" | "top";
+  accentColor?: string;
+  accentWidth?: number;
+}
 
 export interface Slideml2Deck {
   slideml2: 1;
@@ -19,6 +74,7 @@ export interface DeckSpec {
   themeOverride?: ThemeOverride;
   brand?: BrandSpec;
   chrome?: ChromeSpec;
+  validation?: DeckValidationSpec;
   metadata?: Record<string, unknown>;
 }
 
@@ -50,9 +106,9 @@ export interface ThemeOverride {
     uppercase?: boolean;
     italic?: boolean;
   }>;
-  component?: Record<string, { fill?: string; line?: string; accent?: string; padding?: number; cornerRadius?: number; elevation?: "flat" | "raised" | "floating" | "outlined" }>;
+  component?: Record<string, Omit<SurfaceOverride, "accent"> & { accent?: string | SurfaceOverride["accent"] }>;
   tone?: Record<string, { fg: string; bg: string; line: string }>;
-  layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number }>;
+  layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number; areas: Record<string, ThemeLayoutArea> }>;
   /** Per-script font chains. `latin` and `cjk` accept either a single
    *  string[] (legacy: doubles as text + display) or `{ display?, text? }`
    *  for separate display + text faces. `mono` is always a single chain. */

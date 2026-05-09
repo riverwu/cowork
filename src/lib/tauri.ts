@@ -517,14 +517,16 @@ export async function slideml2DescribeSchema(components?: string[]): Promise<Sli
 /** Create a fresh SlideML2 source deck JSON file. */
 export async function slideml2CreateDeck(
   deckPath: string,
-  options: { title?: string; theme?: string; brand?: Slideml2BrandSpec; themeOverride?: unknown },
+  options: { title?: string; size?: "16x9" | "16x10" | "4x3" | "wide"; theme?: string; brand?: Slideml2BrandSpec; themeOverride?: unknown; validation?: unknown },
 ): Promise<Slideml2CreateDeckResult> {
   return invokeDesktop<Slideml2CreateDeckResult>("slideml2_create_deck", {
     deckPath,
     title: options.title,
+    size: options.size,
     theme: options.theme,
     brand: options.brand,
     themeOverride: options.themeOverride,
+    validation: options.validation,
   });
 }
 
