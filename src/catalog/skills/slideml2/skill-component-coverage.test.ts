@@ -73,10 +73,15 @@ describe("slideml2 SKILL component reference", () => {
 
     expect(existsSync(licensePath)).toBe(true);
     expect(packageScript).toContain('"SKILL.md", "business.md", "LICENSE.txt"');
+    expect(packageScript).toContain("requiredRuntimeFiles");
+    expect(packageScript).toContain("runtime/src/index.ts");
+    expect(packageScript).toContain("runtime/tools/md2pptx/tools.ts");
+    expect(packageScript).toContain("runtime/dist/index.js");
     expect(packageScript).toContain("manifest.json");
     expect(packageScript).toContain("README.md");
     expect(packageScript).toContain("zipinfo");
-    expect(license).toContain("Cowork tools");
+    expect(license).toContain("agent-native tools");
+    expect(license).toContain("runtime source/build artifacts");
   });
 
   it("keeps the business themeOverride example to effective SlideML2 fields", () => {
