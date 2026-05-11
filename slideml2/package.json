@@ -6,16 +6,15 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "prepare": "tsc",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
+    "prepare": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc",
     "test": "vitest run",
     "test:components": "vitest run src/component-isolation.test.ts src/llm-misuse.test.ts",
     "test:llm": "RUN_SLIDEML2_REAL_LLM=1 vitest run src/llm-authoring.test.ts",
     "test:llm:record": "SLIDEML2_LLM_RECORD=1 RUN_SLIDEML2_REAL_LLM=1 vitest run src/llm-authoring.test.ts",
     "check": "tsc --noEmit && vitest run",
     "snapshot": "pnpm exec jiti tools/render-snapshot.ts",
-    "snapshot:png": "pnpm exec jiti tools/render-snapshot.ts --png",
-    "md2pptx": "pnpm exec jiti tools/md2pptx/index.ts"
+    "snapshot:png": "pnpm exec jiti tools/render-snapshot.ts --png"
   },
   "dependencies": {
     "jszip": "^3.10.1"

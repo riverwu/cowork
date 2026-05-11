@@ -23,7 +23,6 @@ export { renderToAst, renderToPptx } from "./render.js";
 export { buildTheme } from "./theme.js";
 export type { ThemeOverride } from "./types.js";
 export { runSimpleAgentLoop } from "./agent/loop.js";
-export { deckFromPlan, generateFromMarkdown, planPagesFromMarkdown, planPagesFromMarkdownWithLlm } from "./agent/markdown-pipeline.js";
 export { deckFromComponentPlan, generateWithComponentAgent, planWithComponentAgent } from "./agent/component-agent.js";
 export { generateDeckWithBatchAgent, generateOneSlideWithLlm } from "./agent/batch-agent.js";
 export { buildAgentPromptPack, getAgentSystemPrompt } from "./agent-disclosure.js";
@@ -49,7 +48,7 @@ export type { PaletteColorName, SizeName } from "./theme.js";
 export { createDeck, setDeckProps, appendSlide, insertSlide, replaceSlide, deleteSlide, validateDeckPath, renderDeck, readDeck, writeDeck } from "./deck-ops.js";
 export { createSourceDeck, normalizeSlide, sourceToRenderedDeck } from "./source-deck.js";
 export { validateDeck, validateSlide } from "./validate.js";
-export { generateBriefLayoutDemo, generateComplexLayoutDemo, generateComponentLayoutDemo, generateMarkdownPipelineDemo } from "./demo.js";
+export { generateBriefLayoutDemo, generateComplexLayoutDemo, generateComponentLayoutDemo } from "./demo.js";
 export type {
   AgentTask,
   AuditIssue,
@@ -81,7 +80,6 @@ export type {
   SurfaceOverride,
   ThemeLayoutArea,
 } from "./types.js";
-export type { MarkdownPlan, MarkdownPipelineResult, PlannedPage } from "./agent/markdown-pipeline.js";
 export type { AgentComponentNode, AgentNode, AgentPrimitiveNode, ComponentAgentPlan, ComponentAgentResult, ComponentAgentSlidePlan } from "./agent/component-agent.js";
 export type { BatchAgentResult } from "./agent/batch-agent.js";
 export type { AgentPromptPackOptions } from "./agent-disclosure.js";

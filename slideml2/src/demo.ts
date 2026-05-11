@@ -1,7 +1,6 @@
 import { auditDeck } from "./audit.js";
 import { generateWithComponentAgent } from "./agent/component-agent.js";
 import { runSimpleAgentLoop } from "./agent/loop.js";
-import { generateFromMarkdown } from "./agent/markdown-pipeline.js";
 import { designComplexDeck, designDeckFromBrief } from "./agent/page-designer.js";
 import { buildDom } from "./layouts.js";
 import { renderToPptx } from "./render.js";
@@ -78,10 +77,6 @@ export async function generateComplexLayoutDemo(outputPath: string): Promise<voi
   await renderToPptx(deck, outputPath);
 }
 
-export async function generateMarkdownPipelineDemo(markdownPath: string, outputPath: string, useLlm = false): Promise<void> {
-  await generateFromMarkdown(markdownPath, outputPath, demoLogo(), { useLlm });
-}
-
 export async function generateComponentAgentDemo(markdownPath: string, outputPath: string): Promise<void> {
   await generateWithComponentAgent(markdownPath, outputPath, demoLogo());
 }
@@ -114,14 +109,13 @@ function demoLogo(): string {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const mode = process.argv[2] === "--complex" ? "complex" : process.argv[2] === "--markdown" ? "markdown" : process.argv[2] === "--markdown-llm" ? "markdown-llm" : process.argv[2] === "--component-agent" ? "component-agent" : "brief";
+  const mode = process.argv[2] === "--complex" ? "complex" : process.argv[2] === "--component-agent" ? "component-agent" : "brief";
   const outputPath = mode === "complex"
     ? (process.argv[3] || "/Users/river/Documents/Workspace/slideml2_complex_layout_demo.pptx")
-    : mode === "markdown" || mode === "markdown-llm" || mode === "component-agent"
-      ? (process.argv[4] || "/Users/river/Documents/Workspace/slideml2_markdown_pipeline_demo.pptx")
+    : mode === "component-agent"
+      ? (process.argv[4] || "/Users/river/Documents/Workspace/slideml2_component_agent_demo.pptx")
       : (process.argv[2] || "/Users/river/Documents/Workspace/slideml2_brief_layout_demo.pptx");
   if (mode === "complex") await generateComplexLayoutDemo(outputPath);
-  else if (mode === "markdown" || mode === "markdown-llm") await generateMarkdownPipelineDemo(process.argv[3] || "slideml2/examples/youdao_ai_learning.md", outputPath, mode === "markdown-llm");
   else if (mode === "component-agent") await generateComponentAgentDemo(process.argv[3] || "slideml2/examples/youdao_ai_learning.md", outputPath);
   else await generateBriefLayoutDemo(outputPath);
   console.log(outputPath);

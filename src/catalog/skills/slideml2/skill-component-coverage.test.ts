@@ -79,7 +79,7 @@ describe("slideml2 SKILL component reference", () => {
     expect(packageScript).toContain("runtime/dist/index.js");
     expect(packageScript).toContain("runtime/node_modules/jszip/package.json");
     expect(packageScript).toContain("create-deck create-deck.json");
-    expect(packageScript).not.toContain("md2pptx");
+    expect(packageScript).not.toContain("md2" + "pptx");
     expect(packageScript).not.toContain("render-source-deck");
     expect(packageScript).toContain("manifest.json");
     expect(packageScript).toContain("README.md");

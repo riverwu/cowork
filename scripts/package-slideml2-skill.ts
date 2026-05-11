@@ -214,6 +214,7 @@ async function copyPackageFiles(stageRoot: string): Promise<string[]> {
 }
 
 async function copyRuntimeFiles(stageRoot: string): Promise<string[]> {
+  await rm(join(runtimeSourceDir, "dist"), { recursive: true, force: true });
   await run("pnpm", ["--dir", "slideml2", "build"], repoRoot);
   const packageRoot = join(stageRoot, skillName);
   const runtimeRoot = join(packageRoot, "runtime");

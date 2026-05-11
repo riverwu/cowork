@@ -1,6 +1,5 @@
 export { auditDeck } from "./audit.js";
 export { designComparisonSlide, designComplexDeck, designDashboardSlide, designDeckFromBrief, designSlideFromBrief, designTimelineSlide } from "./agent/page-designer.js";
-export { deckFromPlan, generateFromMarkdown, planPagesFromMarkdown, planPagesFromMarkdownWithLlm } from "./agent/markdown-pipeline.js";
 export { deckFromComponentPlan, generateWithComponentAgent, planWithComponentAgent } from "./agent/component-agent.js";
 export { generateDeckWithBatchAgent, generateOneSlideWithLlm } from "./agent/batch-agent.js";
 export { buildAgentPromptPack } from "./agent-disclosure.js";

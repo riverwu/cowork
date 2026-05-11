@@ -24,7 +24,6 @@ import {
   findNodeForTest,
   generateDeckWithBatchAgent,
   generateOneSlideWithLlm,
-  generateFromMarkdown,
   generateWithComponentAgent,
   insertSlide,
   listNodeTypesForTest,
@@ -33,8 +32,6 @@ import {
   listThemes,
   measureDeck,
   normalizeSlide,
-  planPagesFromMarkdown,
-  planPagesFromMarkdownWithLlm,
   renderToAst,
   renderToPptx,
   replaceSlide,
@@ -551,92 +548,6 @@ describe("slideml2 MVP", () => {
     const sidecar = JSON.parse(await readFile(rendered.domPath, "utf8")) as { slides: unknown[] };
     expect(sidecar.slides).toHaveLength(2);
   });
-
-  it("plans pages from markdown, writes SlideML2 JSON, and renders", async () => {
-    const markdown = `# 有道智能学习业务分析
-
-品牌色：#E8382C
-
-## 业务经营概览
-
-学习服务、智能硬件与在线营销形成互补组合，增长质量取决于 AI 能力和硬件入口的协同。
-
-### 指标
-
-- 2024年营收：56.3亿
-- 全年盈利：首次
-- 月活用户：2.8亿+
-
-### 关键判断
-
-- 硬件承担高频学习入口
-- 大模型提升学习服务体验
-- 营销业务提供现金流支撑
-
-### 图片
-
-图题：品牌入口与学习场景
-
-## 从工具到 AI 学习平台
-
-页面需要同时容纳阶段说明和四个演进节点，自动布局要保留标题、导语和卡片间距。
-
-### 阶段
-
-1. 词典入口：用高频工具建立用户基础。
-2. 内容服务：扩展课程、翻译和学习资源。
-3. 智能硬件：用词典笔等设备进入学习现场。
-4. AI Agent：把大模型能力嵌入学习流程。
-
-## 三类业务的角色分工
-
-复杂页面不应该把所有信息挤成一组均分文本框，而应保留主结论和并列比较区。
-
-### 学习服务
-
-- 内容和订阅承接需求
-- AI 提升个性化体验
-
-### 智能硬件
-
-- 形成场景入口
-- 具备品牌可见度
-
-### 在线营销
-
-- 贡献现金流
-- 依托用户规模
-`;
-    const plan = planPagesFromMarkdown(markdown, sampleLogo());
-    expect(plan.pages.map((page) => page.kind)).toEqual(["dashboard", "timeline", "comparison"]);
-    expect(plan.pages.map((page) => page.structure)).toEqual([
-      "标题 + 主结论 + 三指标条 + 左侧关键判断 + 右侧图片与图题",
-      "标题 + 导语 + 横向阶段卡片",
-      "标题 + 主结论 + 并列比较卡片",
-    ]);
-
-    const dir = await mkdtemp(join(tmpdir(), "slideml2-md-"));
-    const markdownPath = join(dir, "input.md");
-    const outputPath = join(dir, "markdown-demo.pptx");
-    await writeFile(markdownPath, markdown, "utf8");
-    const result = await generateFromMarkdown(markdownPath, outputPath, sampleLogo());
-    expect(result.deck.slides).toHaveLength(3);
-    expect((await stat(result.outputPath)).size).toBeGreaterThan(1000);
-    expect(JSON.parse(await readFile(result.planPath, "utf8")).pages).toHaveLength(3);
-    expect(JSON.parse(await readFile(result.slideml2Path, "utf8")).slides).toHaveLength(3);
-    assertShapeBounds(renderToAst(result.deck));
-  });
-
-  it.skipIf(!runRealLlmTest)("plans pages from markdown with a real LLM", async () => {
-    const markdown = await readFile("examples/youdao_ai_learning.md", "utf8");
-    const plan = await planPagesFromMarkdownWithLlm(markdown, sampleLogo());
-    expect(plan.pages.length).toBeGreaterThanOrEqual(3);
-    expect(plan.pages.map((page) => page.kind)).toEqual(expect.arrayContaining(["dashboard", "timeline", "comparison"]));
-    for (const page of plan.pages) {
-      expect(page.title).toBeTruthy();
-      expect(page.structure).toBeTruthy();
-    }
-  }, 120_000);
 
   it("expands an agent component tree into renderable SlideML2 DOM", async () => {
     const deck = deckFromComponentPlan({
