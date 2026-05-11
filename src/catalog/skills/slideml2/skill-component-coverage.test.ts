@@ -76,7 +76,10 @@ describe("slideml2 SKILL component reference", () => {
     expect(packageScript).toContain("requiredRuntimeFiles");
     expect(packageScript).toContain("runtime/src/index.ts");
     expect(packageScript).toContain("runtime/tools/md2pptx/tools.ts");
+    expect(packageScript).toContain("runtime/bin/slideml2.js");
     expect(packageScript).toContain("runtime/dist/index.js");
+    expect(packageScript).toContain("runtime/node_modules/jszip/package.json");
+    expect(packageScript).toContain("node bin/slideml2.js create-deck");
     expect(packageScript).toContain("manifest.json");
     expect(packageScript).toContain("README.md");
     expect(packageScript).toContain("zipinfo");

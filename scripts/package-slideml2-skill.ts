@@ -20,8 +20,10 @@ const requiredRuntimeFiles = [
   "runtime/src/render.ts",
   "runtime/tools/render-source-deck.ts",
   "runtime/tools/md2pptx/tools.ts",
+  "runtime/bin/slideml2.js",
   "runtime/dist/index.js",
   "runtime/dist/render.js",
+  "runtime/node_modules/jszip/package.json",
 ] as const;
 
 interface SkillPackageManifest {
@@ -40,6 +42,7 @@ interface SkillPackageManifest {
   };
   runtime: {
     directory: string;
+    directCommand: string;
     installCommand: string;
     buildCommand: string;
     renderCommand: string;
@@ -145,7 +148,9 @@ slideml2/
     package.json
     src/
     dist/
+    node_modules/
     tools/
+    bin/slideml2.js
 \`\`\`
 
 For Codex-style local skill installs, place that \`slideml2\` directory under
@@ -158,13 +163,21 @@ runtime TypeScript source under \`runtime/src\`, compiled JavaScript under
 \`runtime/dist\`, authoring/rendering tools under \`runtime/tools\`, examples,
 and validation/render docs.
 
-After unzipping:
+After unzipping, production dependencies are already bundled. Basic runtime
+commands can run directly with Node.js:
 
 \`\`\`bash
 cd slideml2/runtime
+node bin/slideml2.js render examples/data-binding-business-analysis.json output/example.pptx
+\`\`\`
+
+Run \`npm install\` only when you need development dependencies such as
+TypeScript rebuilds, \`tsx\`, or tests:
+
+\`\`\`bash
 npm install
 npm run build
-npm run render -- examples/data-binding-business-analysis.json output/example.pptx
+npm run render -- examples/data-binding-business-analysis.json output/example-dev.pptx
 \`\`\`
 
 LLM-backed markdown-to-PPTX generation is also included:
@@ -178,6 +191,14 @@ For agents that need tool adapters, start from
 \`runtime/tools/md2pptx/tools.ts\`. It contains standalone implementations for
 \`describe_schema\`, \`create_deck\`, \`read_deck\`, \`replace_slide\`,
 \`patch_deck\`, and \`validate_render\` using the included SlideML2 runtime.
+
+For command-line use without an agent adapter, run:
+
+\`\`\`bash
+node runtime/bin/slideml2.js create-deck create-deck.args.json
+node runtime/bin/slideml2.js replace-slide replace-slide.args.json
+node runtime/bin/slideml2.js validate-render validate-render.args.json
+\`\`\`
 `;
 }
 
@@ -226,7 +247,13 @@ async function copyRuntimeFiles(stageRoot: string): Promise<string[]> {
   }
   await writeRuntimePackageJson(runtimeRoot);
   await writeRuntimeReadme(runtimeRoot);
-  return copiedRoots.map((name) => `${skillName}/runtime/${name}`);
+  await writeRuntimeCli(runtimeRoot);
+  await run("npm", ["install", "--omit=dev", "--ignore-scripts"], runtimeRoot);
+  return [
+    ...copiedRoots.map((name) => `${skillName}/runtime/${name}`),
+    `${skillName}/runtime/bin/slideml2.js`,
+    `${skillName}/runtime/node_modules`,
+  ];
 }
 
 function includeRuntimePath(relPath: string): boolean {
@@ -272,6 +299,16 @@ renderer and authoring loop without the full Cowork repository.
 
 ## Install
 
+Production dependencies are bundled in the package, so basic runtime commands
+can run immediately with Node.js:
+
+\`\`\`bash
+node bin/slideml2.js render examples/data-binding-business-analysis.json output/example.pptx
+\`\`\`
+
+Run \`npm install\` only when you need development dependencies such as
+TypeScript rebuilds, \`tsx\`, or tests:
+
 \`\`\`bash
 npm install
 npm run build
@@ -304,8 +341,149 @@ LLM_API=... LLM_API_KEY=... LLM_MODEL=... npm run md2pptx -- input.md output.ppt
 - validate_render
 
 Agents with their own tool/plugin systems can wrap those handlers directly.
+
+## Standalone CLI
+
+Use the CLI when the target agent does not expose native SlideML2 tools:
+
+\`\`\`bash
+node bin/slideml2.js create-deck create-deck.args.json
+node bin/slideml2.js replace-slide replace-slide.args.json
+node bin/slideml2.js validate-render validate-render.args.json
+\`\`\`
+
+Do not write a complete deck JSON and jump straight to \`render\` for normal
+deck creation. Use \`create-deck\` and per-slide \`replace-slide\` so validation
+can reject bad slides before they enter the source deck.
 `;
   await writeFile(join(runtimeRoot, "RUNTIME.md"), readme);
+}
+
+async function writeRuntimeCli(runtimeRoot: string): Promise<void> {
+  const binDir = join(runtimeRoot, "bin");
+  await mkdir(binDir, { recursive: true });
+  const cli = `#!/usr/bin/env node
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, resolve } from "node:path";
+import {
+  clearRenderDiagnostics,
+  createDeck,
+  getRenderDiagnostics,
+  isBlockingRenderDiagnostic,
+  readDeck,
+  renderToPptx,
+  replaceSlide,
+  sourceToRenderedDeck,
+  validateDeck,
+  validateSlide,
+  writeDeck,
+} from "../dist/index.js";
+
+function usage() {
+  console.error("usage: slideml2 <create-deck|replace-slide|read-deck|validate-render|render> <args.json> [output.pptx]");
+  process.exit(2);
+}
+
+async function readJson(path) {
+  return JSON.parse(await readFile(resolve(process.cwd(), path), "utf8"));
+}
+
+function abs(path) {
+  return isAbsolute(path) ? path : resolve(process.cwd(), path);
+}
+
+function blockingDiagnostics(items) {
+  return items.filter((item) => isBlockingRenderDiagnostic(item.code, item.severity));
+}
+
+async function main() {
+  const [command, argPath, outputArg] = process.argv.slice(2);
+  if (!command || !argPath) usage();
+  const input = command === "render" && outputArg
+    ? { deckPath: argPath, outputPath: outputArg }
+    : await readJson(argPath);
+
+  if (command === "create-deck") {
+    const deckPath = abs(input.deckPath);
+    const result = await createDeck(deckPath, input);
+    console.log(JSON.stringify({ ...result, deckPath }, null, 2));
+    process.exit(result.ok ? 0 : 1);
+  }
+
+  if (command === "read-deck") {
+    console.log(JSON.stringify(await readDeck(abs(input.deckPath)), null, 2));
+    return;
+  }
+
+  if (command === "replace-slide") {
+    const deckPath = abs(input.deckPath);
+    const deck = await readDeck(deckPath);
+    const slideValidation = validateSlide(input.slide, deck);
+    if (!slideValidation.ok) {
+      console.log(JSON.stringify({ ok: false, error: "slide validation failed", validation: slideValidation }, null, 2));
+      process.exit(1);
+    }
+    const slideId = typeof input.slideId === "string" && /^\\\\d+$/.test(input.slideId) ? Number(input.slideId) : input.slideId;
+    if (typeof slideId === "number" && slideId === deck.slides.length) {
+      deck.slides.push(input.slide);
+      const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
+      if (!validation.ok) {
+        console.log(JSON.stringify({ ok: false, error: "deck validation failed after append", validation }, null, 2));
+        process.exit(1);
+      }
+      await writeDeck(deckPath, deck);
+      console.log(JSON.stringify({ ok: true, insertedAt: deck.slides.length - 1, slideCount: deck.slides.length }, null, 2));
+      return;
+    }
+    const result = await replaceSlide(deckPath, slideId, input.slide);
+    console.log(JSON.stringify(result, null, 2));
+    process.exit(result.ok ? 0 : 1);
+  }
+
+  if (command === "validate-render" || command === "render") {
+    const deckPath = abs(input.deckPath);
+    const outputPath = abs(input.outputPath || input.out || deckPath.replace(/\\\\.json$/, ".pptx"));
+    const deck = await readDeck(deckPath);
+    const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
+    if (!validation.ok) {
+      console.log(JSON.stringify({ ok: false, error: "deck validation failed", validation }, null, 2));
+      process.exit(1);
+    }
+    if (command === "validate-render" && input.render === false) {
+      console.log(JSON.stringify({ ok: true, validation }, null, 2));
+      return;
+    }
+    await mkdir(dirname(outputPath), { recursive: true });
+    clearRenderDiagnostics();
+    const rendered = sourceToRenderedDeck(deck, { baseDir: dirname(deckPath) });
+    const result = await renderToPptx(rendered, outputPath);
+    const diagnostics = getRenderDiagnostics();
+    const blocking = blockingDiagnostics(diagnostics);
+    await writeFile(\`\${result.outputPath}.diagnostics.json\`, JSON.stringify(diagnostics, null, 2), "utf8");
+    console.log(JSON.stringify({
+      ok: blocking.length === 0,
+      outputPath: result.outputPath,
+      domPath: result.domPath,
+      diagnosticsPath: \`\${result.outputPath}.diagnostics.json\`,
+      validation,
+      diagnostics: {
+        count: diagnostics.length,
+        blockingCount: blocking.length,
+        blocking: blocking.slice(0, 60),
+      },
+    }, null, 2));
+    process.exit(blocking.length === 0 ? 0 : 1);
+  }
+
+  usage();
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.stack || error.message : String(error));
+  process.exit(1);
+});
+`;
+  await writeFile(join(binDir, "slideml2.js"), cli, { mode: 0o755 });
 }
 
 async function verifyZip(zipPath: string): Promise<string[]> {
@@ -320,7 +498,7 @@ async function verifyZip(zipPath: string): Promise<string[]> {
     if (!entries.includes(entry)) throw new Error(`Zip is missing ${entry}`);
   }
   if (entries.some((entry) =>
-    entry.includes("/node_modules/")
+    entry.includes("/node_modules/.cache/")
     || entry.includes("/outputs/")
     || entry.includes("/output/")
     || entry.includes("/reports/")
@@ -365,16 +543,18 @@ async function main(): Promise<void> {
         targetDirectory: "$CODEX_HOME/skills/slideml2",
         notes: [
           "Unzip preserving the slideml2 directory.",
-          "Run npm install in slideml2/runtime before using runtime CLI commands.",
+          "Production dependencies are bundled; basic runtime/bin/slideml2.js commands run with Node.js immediately after unzip.",
+          "Run npm install in slideml2/runtime only when rebuilding TypeScript, using tsx scripts, or running tests.",
           "Wrap runtime/tools/md2pptx/tools.ts for agent-native create_deck/replace_slide/validate_render tools.",
           "Generated PPT outputs and dependency caches are intentionally excluded.",
         ],
       },
       runtime: {
         directory: "slideml2/runtime",
+        directCommand: "cd slideml2/runtime && node bin/slideml2.js render examples/data-binding-business-analysis.json output/example.pptx",
         installCommand: "cd slideml2/runtime && npm install",
         buildCommand: "cd slideml2/runtime && npm run build",
-        renderCommand: "cd slideml2/runtime && npm run render -- deck.json output.pptx",
+        renderCommand: "cd slideml2/runtime && node bin/slideml2.js render deck.json output.pptx",
         md2pptxCommand: "cd slideml2/runtime && LLM_API=... LLM_API_KEY=... LLM_MODEL=... npm run md2pptx -- input.md output.pptx",
       },
     };

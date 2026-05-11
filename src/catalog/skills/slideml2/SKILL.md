@@ -7,6 +7,77 @@ license: Proprietary. LICENSE.txt has complete terms
 
 # SlideML2 Component Reference
 
+## Operating Contract
+
+SlideML2 is a toolchain, not a loose JSON format. The source deck is still JSON,
+but agents must create and mutate it through the SlideML2 authoring gates so
+schema validation, per-slide render validation, component guidance, and final
+PPTX diagnostics can steer the work.
+
+Never author a complete SlideML2 deck JSON by hand and then call a renderer as
+the normal workflow. That bypasses the per-slide validation loop and is invalid
+use of this skill. Direct `render` is only for an already validated existing
+deck, a regression check, or runtime debugging.
+
+### Tool Availability
+
+Use the first available route:
+
+1. **Native agent tools.** Prefer installed tools named `create_deck`,
+   `replace_slide`, `read_deck`, `patch_deck`, `validate_render`,
+   `generate_icon_sheet`, and related Cowork tools.
+2. **Packaged runtime tools.** If native tools are unavailable, use the
+   installed skill package runtime. The package includes `runtime/` with
+   SlideML2 source, compiled `dist`, and standalone tool handlers in
+   `runtime/tools/md2pptx/tools.ts`. Wrap those handlers in the target agent's
+   tool system, or run the runtime CLI if the package exposes one.
+3. **Stop if no toolchain can run.** If neither native tools nor packaged
+   runtime tools are available, report the missing runtime/tool condition. Do
+   not create an unvalidated deck file manually.
+
+### Task Modes
+
+- `create`: build a new deck from a prompt, notes, data files, markdown, images,
+  or research.
+- `modify`: edit an existing SlideML2 source deck or PPTX-derived source.
+- `repair`: fix a failed `replace_slide` or `validate_render` result.
+- `review`: inspect an existing deck/source/log and report issues without
+  changing files unless the user asks for implementation.
+
+### Mandatory Create Workflow
+
+1. Establish output paths: `deckPath`, final `outputPath`, and a run/workspace
+   directory for `deck_plan.md`, assets, generated charts/images, diagnostics,
+   and scratch files.
+2. Read source material and, for business/research decks, read `business.md`
+   completely before planning.
+3. Write `deck_plan.md` before deck creation. This is required planning
+   archive, not optional prose.
+4. Call `create_deck` with deck identity, canvas size, validation policy,
+   `themeOverride`, reusable `dataSources`, references, and footnotes.
+5. Add slides one at a time with `replace_slide`. To append, use `slideId`
+   equal to the current slide count. Repair a rejected slide before writing the
+   next slide.
+6. Use `read_deck` before targeted repair, and `patch_deck` only for focused
+   deck-level metadata/theme/order/data-source edits.
+7. Call `validate_render({deckPath, render:true, outputPath})` only after all
+   slides have passed `replace_slide`. Repair remaining blocking diagnostics
+   with `replace_slide` or `patch_deck`, then rerender.
+
+### Mandatory Modify Workflow
+
+1. Read the current deck/source before editing. Identify slide ids, deck-level
+   theme/data/references, and the user's requested change scope.
+2. For a slide-level change, use `replace_slide` with the current slide as the
+   base. Preserve unaffected content and component semantics.
+3. For deck metadata, theme, references, dataSources, or ordering, use
+   `patch_deck` with narrow operations. Do not rewrite the whole deck.
+4. For repair after validation failure, read the compiler-style diagnostics and
+   fix the named slide/node first. Prefer area, ratio, density, pagination,
+   rows/items/labels, or data grouping changes before changing component type.
+5. Run `validate_render` after the requested edits and report the resulting
+   PPTX path plus any remaining warnings.
+
 ## Domain Style References
 
 - **Business / research report decks**: If the request is about a company, industry, market, competitor, investment, strategy, operations, finance, KPI dashboard, consulting memo, executive briefing, or "research report" with a business audience, read [business.md](business.md) before planning the deck or calling `create_deck`. The `read_file` result for `business.md` must show `truncated:false`; if it shows `truncated:true`, continue with `next_offset` before planning. Use it to choose the storyline, visual tone, `themeOverride`, and component mix. Do not load it for unrelated education, medical, scientific, or product/technical decks unless the user's goal is a business decision.
