@@ -410,6 +410,29 @@ describe("M2 data binding", () => {
     expect(validation.errors.map((item) => item.code)).toEqual(expect.arrayContaining(["UNKNOWN_DATA_BIND_SOURCE", "UNKNOWN_DATA_BIND_FIELD", "UNKNOWN_DATA_FIELD"]));
   });
 
+  it("reports an empty bind source once without also reporting it as unknown", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          csv: { type: "inline-csv", csv: "segment,value\nEnterprise,42" },
+        },
+      },
+      slides: [{
+        id: "empty-source",
+        children: [
+          { id: "empty-source.table", type: "table-card", bind: { source: "" }, encoding: { columns: ["segment", "value"] } },
+        ] as unknown as DomNode[],
+      }],
+    };
+
+    const validation = validateDeck(deck);
+    const sourceErrors = validation.errors.filter((item) => item.path === "slides[0].children[0].bind.source");
+    expect(sourceErrors.map((item) => item.code)).toEqual(["INVALID_DATA_BIND_SOURCE"]);
+  });
+
   it("derives computed data sources and drives dual-axis bound charts", () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,

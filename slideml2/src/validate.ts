@@ -31,6 +31,7 @@ import { sourceSlideToRendered, sourceToRenderedDeck } from "./source-deck.js";
 import { emuToCm, SLIDE_SIZES } from "./units.js";
 import { unsupportedLatexCommands } from "./latex-omml.js";
 import { meaningfulSourceOverlap, rectContains } from "./layout/geometry.js";
+import { SOURCE_VALIDATION_CODE } from "./diagnostic-codes.js";
 
 const RAW_HEX_RE = /^[0-9A-Fa-f]{6}$/;
 const RESERVED_LAYOUT_AREAS = new Set(["content", "full"]);
@@ -2435,10 +2436,10 @@ function validateLayout(deck: RenderedDeck, issues: ValidationIssue[]): void {
     if (renderedSlide) validateTopLevelPlacementOverlaps(renderedSlide, slide, issues);
     for (const node of slide.nodes) {
       if (node.rect.x < -0.01 || node.rect.y < -0.01 || node.rect.x + node.rect.w > theme.layout.slideWidthCm + 0.01 || node.rect.y + node.rect.h > theme.layout.slideHeightCm + 0.01) {
-        issues.push(issue("error", "NODE_OUT_OF_BOUNDS", `${node.id} is outside the slide bounds.`, { slideId: slide.slideId, nodeName: node.id, details: { rect: node.rect }, suggestedFix: "Keep the slide semantics but use wider margins, fewer regions, or split dense content into another slide." }));
+        issues.push(issue("error", SOURCE_VALIDATION_CODE.NODE_OUT_OF_BOUNDS, `${node.id} is outside the slide bounds.`, { slideId: slide.slideId, nodeName: node.id, details: { rect: node.rect }, suggestedFix: "Keep the slide semantics but use wider margins, fewer regions, or split dense content into another slide." }));
       }
       if ((node.type === "text" || node.type === "bullets") && node.rect.h < 0.25) {
-        issues.push(issue("warning", "TEXT_BOX_TOO_SHORT", `${node.id} has very little vertical space.`, { slideId: slide.slideId, nodeName: node.id, details: { rect: node.rect }, suggestedFix: "Increase parent grid/stack height or reduce sibling count." }));
+        issues.push(issue("warning", SOURCE_VALIDATION_CODE.TEXT_BOX_TOO_SHORT, `${node.id} has very little vertical space.`, { slideId: slide.slideId, nodeName: node.id, details: { rect: node.rect }, suggestedFix: "Increase parent grid/stack height or reduce sibling count." }));
       }
     }
   }
@@ -2474,7 +2475,7 @@ function validateTopLevelPlacementOverlaps(
       const key = `${positioned.id}|${region.id}`;
       if (emitted.has(key)) continue;
       emitted.add(key);
-      issues.push(issue("error", "TOP_LEVEL_LAYOUT_OVERLAP", `Top-level positioned node ${positioned.id} overlaps region node ${region.id}.`, {
+      issues.push(issue("error", SOURCE_VALIDATION_CODE.TOP_LEVEL_LAYOUT_OVERLAP, `Top-level positioned node ${positioned.id} overlaps region node ${region.id}.`, {
         slideId: measuredSlide.slideId,
         nodeName: positioned.id,
         details: { positionedRect, regionRect, overlap: overlap.rect, overlapRatio, overlapAreaCm2: overlap.areaCm2 },

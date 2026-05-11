@@ -981,10 +981,10 @@ function detectCollisionsForSlide(slideId: string, measured: MeasuredNode[], sli
   const skipIds = collectCaptionPairs(measured);
   const layeredIds = collectLayeredIds(slideDom);
   const containerIds = collectContainerIds(slideDom);
-  detectSiblingContainerOverlaps(slideId, measured, slideDom, layeredIds, containerIds);
+  detectSiblingContainerOverlaps(slideId, measured, slideDom, overlayIds, layeredIds, containerIds);
   detectOverlayOcclusions(slideId, measured, slideDom, overlayIds);
   const candidates = measured.filter((node) =>
-    node.id !== slideDom.id && node.visualRole !== "container" && !overlayIds.has(node.id) && !skipIds.has(node.id) && !layeredIds.has(node.id),
+    node.id !== slideDom.id && node.visualRole !== "container" && !isUnderAnyRoot(node.id, overlayIds) && !skipIds.has(node.id) && !layeredIds.has(node.id),
   );
   for (let i = 0; i < candidates.length; i++) {
     for (let j = i + 1; j < candidates.length; j++) {
@@ -1001,7 +1001,7 @@ function detectCollisionsForSlide(slideId: string, measured: MeasuredNode[], sli
       const code = isDecorativeMeasuredNode(a) || isDecorativeMeasuredNode(b)
         ? "DECORATIVE_OVERLAP"
         : sibling ? "SIBLING_INK_OVERLAP" : "COLLISION";
-      pushCollisionDiagnostic(slideId, code, a, b, overlap, sibling ? "sibling-ink-overlap" : "leaf-ink-overlap");
+      pushCollisionDiagnostic(slideId, code, a, b, overlap, sibling ? "sibling-ink-overlap" : "leaf-ink-overlap", slideDom);
     }
   }
 }
@@ -1010,6 +1010,7 @@ function detectSiblingContainerOverlaps(
   slideId: string,
   measured: MeasuredNode[],
   slideDom: DomNode,
+  overlayIds: Set<string>,
   layeredIds: Set<string>,
   containerIds: Set<string>,
 ): void {
@@ -1017,6 +1018,7 @@ function detectSiblingContainerOverlaps(
     node.id !== slideDom.id
     && containerIds.has(node.id)
     && node.visualRect
+    && !isUnderAnyRoot(node.id, overlayIds)
     && !layeredIds.has(node.id),
   );
   for (let i = 0; i < containers.length; i++) {
@@ -1031,7 +1033,7 @@ function detectSiblingContainerOverlaps(
       if (!aRect || !bRect) continue;
       const overlap = meaningfulStructuralOverlap(aRect, bRect);
       if (!overlap) continue;
-      pushCollisionDiagnostic(slideId, "STRUCTURAL_OVERLAP", a, b, overlap, "sibling-container-overlap");
+      pushCollisionDiagnostic(slideId, "STRUCTURAL_OVERLAP", a, b, overlap, "sibling-container-overlap", slideDom);
     }
   }
 }
@@ -1052,12 +1054,12 @@ function detectOverlayOcclusions(
   const overlays = measured.filter((node) =>
     node.id !== slideDom.id
     && node.visualRole !== "container"
-    && Array.from(overlayRoots).some((root) => node.id === root || node.id.startsWith(`${root}.`)),
+    && isUnderAnyRoot(node.id, overlayRoots),
   );
   const flow = measured.filter((node) =>
     node.id !== slideDom.id
     && node.visualRole !== "container"
-    && !Array.from(overlayRoots).some((root) => node.id === root || node.id.startsWith(`${root}.`))
+    && !isUnderAnyRoot(node.id, overlayRoots)
     && !isMeasuredCaption(node),
   );
   for (const overlay of overlays) {
@@ -1075,6 +1077,7 @@ function detectOverlayOcclusions(
         target,
         overlap,
         "overlay-occludes-flow",
+        slideDom,
       );
     }
   }
@@ -1087,7 +1090,9 @@ function pushCollisionDiagnostic(
   b: MeasuredNode,
   overlap: OverlapMetrics,
   relationship: string,
+  slideDom?: DomNode,
 ): void {
+  const constrainedBy = slideDom ? findCollisionConstrainingAncestor(slideDom, a, b, overlap) : undefined;
   pushDiagnostic({
     severity: code === "STRUCTURAL_OVERLAP" ? "error" : code === "DECORATIVE_OVERLAP" ? "info" : "warn",
     code,
@@ -1116,6 +1121,7 @@ function pushCollisionDiagnostic(
       relationship,
       parentId: a.parentId,
     },
+    ...(constrainedBy ? { constrainedBy } : {}),
   });
 }
 
@@ -1123,6 +1129,13 @@ function collisionRect(node: MeasuredNode): Rect | undefined {
   const rect = node.visualRect || node.inkRect || node.rect;
   if (!rect || rect.w <= 0.01 || rect.h <= 0.01) return undefined;
   return rect;
+}
+
+function isUnderAnyRoot(id: string, roots: Set<string>): boolean {
+  for (const root of roots) {
+    if (id === root || id.startsWith(`${root}.`)) return true;
+  }
+  return false;
 }
 
 function isDecorativeMeasuredNode(node: MeasuredNode): boolean {
@@ -1196,6 +1209,42 @@ function findNodeById(root: DomNode, id: string): DomNode | null {
     if (found) return found;
   }
   return null;
+}
+
+function findNodePathById(root: DomNode, id: string, path: DomNode[] = []): DomNode[] | undefined {
+  const nextPath = [...path, root];
+  if (root.id === id) return nextPath;
+  for (const child of root.children || []) {
+    const found = findNodePathById(child, id, nextPath);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function findCollisionConstrainingAncestor(
+  slideDom: DomNode,
+  a: MeasuredNode,
+  b: MeasuredNode,
+  overlap: OverlapMetrics,
+): FallbackConstraint | undefined {
+  const direction: "horizontal" | "vertical" = overlap.rect.h >= overlap.rect.w ? "vertical" : "horizontal";
+  const axisProps = direction === "vertical"
+    ? (["fixedHeight", "minHeight", "height", "maxHeight"] as const)
+    : (["fixedWidth", "minWidth", "width", "maxWidth"] as const);
+  const isMeaningfulConstraint = (value: number) => value >= 0.8;
+  const paths = [findNodePathById(slideDom, a.id), findNodePathById(slideDom, b.id)].filter((item): item is DomNode[] => Boolean(item));
+  for (const path of paths) {
+    for (let i = path.length - 1; i >= 0; i--) {
+      const node = path[i]!;
+      for (const prop of axisProps) {
+        const value = (node as Record<string, unknown>)[prop];
+        if (typeof value === "number" && Number.isFinite(value) && isMeaningfulConstraint(value)) {
+          return { ancestorId: typeof node.id === "string" ? node.id : "?", prop, value };
+        }
+      }
+    }
+  }
+  return undefined;
 }
 
 function materializeAndCompactify(slideDom: DomNode, slideId: string): DomNode {
@@ -1906,7 +1955,11 @@ function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, s
     nodeId: node.id,
     message: `Node '${node.id}' was assigned a compressed rect ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm; it may technically render but is not visually usable.`,
     suggestion: capacitySuggestion(node, "Re-author the slide while preserving the current component's semantics: increase its region, adjust split/grid ratio, reduce sibling content, lower columns, or move supporting content to another slide. Do not rely on squeezed cards or tiny labels."),
-    measured: { rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h } },
+    measured: {
+      rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
+      minHeightCm: minHeight,
+      ...(node.type === "bullets" ? { minWidthCm: 1.4 } : {}),
+    },
   });
 }
 
@@ -3457,7 +3510,7 @@ function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   const dataLabels = normalizeChartDataLabels(node.dataLabels, { pieLike, showValues });
   const annotations = normalizeChartAnnotations(node.annotations);
   pushChartFitDiagnostics(node, rect, resolvedChartType, safeLabels.length, showLegend);
-  pushChartLabelDiagnostics(node, resolvedChartType, dataLabels);
+  pushChartLabelDiagnostics(node, rect, resolvedChartType, dataLabels);
   const barLike = resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "combo";
   return {
     type: "chart",
@@ -3544,7 +3597,7 @@ function normalizeChartDataLabels(
   return undefined;
 }
 
-function pushChartLabelDiagnostics(node: DomNode, resolvedChartType: ChartType, dataLabels: ChartDataLabels | undefined): void {
+function pushChartLabelDiagnostics(node: DomNode, rect: Rect, resolvedChartType: ChartType, dataLabels: ChartDataLabels | undefined): void {
   const pieLike = resolvedChartType === "pie" || resolvedChartType === "doughnut";
   if (!pieLike) return;
   if (dataLabels?.show !== false) return;
@@ -3555,6 +3608,7 @@ function pushChartLabelDiagnostics(node: DomNode, resolvedChartType: ChartType, 
     nodeId: nodeLabel(node),
     message: `Pie chart '${nodeLabel(node)}' hides slice labels; readers must infer values from the legend or surrounding text.`,
     suggestion: "For pie/doughnut charts, omit showValues:false or set dataLabels:{show:true, position:'bestFit', showCategoryName:true, showPercent:true}.",
+    measured: { rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h } },
   });
 }
 

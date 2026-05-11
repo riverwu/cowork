@@ -14,7 +14,21 @@ export interface OverlapMetrics {
 }
 
 export const GEOMETRY_EPSILON_CM = 0.02;
-export const MIN_MEANINGFUL_OVERLAP_AREA_CM2 = 0.05;
+/**
+ * Overlap thresholds are intentionally role-specific:
+ * - leaf-level collisions use the smallest area gate because text ink and
+ *   small marks can be real readability problems even when the area is tiny.
+ * - source-level placement detects explicit positioned nodes that collide
+ *   with declared regions before render, so it adds width/height and coverage
+ *   gates to avoid blocking harmless edge contact.
+ * - structural overlap is stricter because container backgrounds/panels may
+ *   touch or visually align without hiding content.
+ * - overlay occlusion is target-coverage based: a foreground annotation is
+ *   only actionable when it covers a meaningful share of readable flow.
+ * - title occlusion has its own coverage/area rule because title chrome is a
+ *   deck-wide affordance rather than an ordinary content node.
+ */
+export const LEAF_OVERLAP_MIN_AREA_CM2 = 0.05;
 export const SOURCE_OVERLAP_MIN_AREA_CM2 = 0.05;
 export const SOURCE_OVERLAP_MIN_POSITIONED_RATIO = 0.35;
 export const SOURCE_OVERLAP_MIN_WIDTH_CM = 0.5;
@@ -58,7 +72,7 @@ export function meaningfulOverlap(
   const epsilon = options.epsilonCm ?? GEOMETRY_EPSILON_CM;
   const metrics = overlapMetrics(a, b, epsilon);
   if (!metrics) return undefined;
-  if (metrics.areaCm2 < (options.minAreaCm2 ?? MIN_MEANINGFUL_OVERLAP_AREA_CM2)) return undefined;
+  if (metrics.areaCm2 < (options.minAreaCm2 ?? LEAF_OVERLAP_MIN_AREA_CM2)) return undefined;
   return metrics;
 }
 

@@ -247,6 +247,40 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(getRenderDiagnostics().filter((item) => item.code === "TRUNCATED" && item.nodeId === "autofit-ink.title")).toHaveLength(0);
   });
 
+  it("reports text and bullet squash diagnostics with minimum readable dimensions", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "squash-measured",
+        layout: "freeform",
+        dom: {
+          id: "squash-measured.root",
+          type: "slide",
+          children: [
+            {
+              id: "squash-measured.text",
+              type: "text",
+              at: [1, 1, 5, 0.2],
+              text: "This paragraph has too little height.",
+              style: "paragraph",
+            },
+            {
+              id: "squash-measured.bullets",
+              type: "bullets",
+              at: [7, 1, 1.0, 1.2],
+              items: ["First", "Second"],
+            },
+          ],
+        },
+      }],
+    });
+    const diagnostics = getRenderDiagnostics();
+    const text = diagnostics.find((item) => item.code === "SQUASHED" && item.nodeId === "squash-measured.text");
+    const bullets = diagnostics.find((item) => item.code === "SQUASHED" && item.nodeId === "squash-measured.bullets");
+    expect(text?.measured?.minHeightCm).toBeGreaterThan(0.2);
+    expect(bullets?.measured?.minWidthCm).toBe(1.4);
+  });
+
   it("uses the widest paragraph instead of concatenating paragraphs for ink width", () => {
     const measured = measureDeck({
       deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
@@ -375,7 +409,7 @@ describe("validation geometry and diagnostic contracts", () => {
       deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
       slides: [{
         id: "root-container-overlap",
-        layout: "freeform",
+        layout: "content",
         dom: {
           id: "root-container-overlap.root",
           type: "slide",
@@ -383,14 +417,18 @@ describe("validation geometry and diagnostic contracts", () => {
             {
               id: "root-container-overlap.cardA",
               type: "card",
-              at: [1, 1, 5, 3],
+              area: "content",
+              fixedWidth: 8,
+              fixedHeight: 4,
               fill: "F8FAFC",
               children: [{ id: "root-container-overlap.cardA.text", type: "text", text: "Card A", style: "paragraph" }],
             },
             {
               id: "root-container-overlap.cardB",
               type: "card",
-              at: [1.5, 1.4, 5, 3],
+              area: "content",
+              fixedWidth: 8,
+              fixedHeight: 4,
               fill: "FFFFFF",
               children: [{ id: "root-container-overlap.cardB.text", type: "text", text: "Card B", style: "paragraph" }],
             },
@@ -398,7 +436,50 @@ describe("validation geometry and diagnostic contracts", () => {
         },
       }],
     });
-    expect(getRenderDiagnostics().some((item) => item.code === "STRUCTURAL_OVERLAP" && item.nodeId === "root-container-overlap.cardA")).toBe(true);
+    const hit = getRenderDiagnostics().find((item) => item.code === "STRUCTURAL_OVERLAP" && item.nodeId === "root-container-overlap.cardA");
+    expect(hit).toBeDefined();
+    expect(hit?.constrainedBy?.ancestorId).toBe("root-container-overlap.cardA");
+  });
+
+  it("does not double-report overlay cards as structural overlap", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "overlay-container-overlap",
+        layout: "content",
+        dom: {
+          id: "overlay-container-overlap.root",
+          type: "slide",
+          children: [
+            {
+              id: "overlay-container-overlap.flow",
+              type: "card",
+              area: "content",
+              fill: "FFFFFF",
+              children: [{ id: "overlay-container-overlap.flow.text", type: "text", text: "Readable flow content", style: "paragraph" }],
+            },
+            {
+              id: "overlay-container-overlap.overlay",
+              type: "card",
+              at: [1.2, 1.4, 10, 3],
+              fill: "F8FAFC",
+              children: [
+                {
+                  id: "overlay-container-overlap.overlay.mask",
+                  type: "shape",
+                  fill: "F8FAFC",
+                  line: { color: "F8FAFC", width: 0 },
+                  fixedHeight: 2.2,
+                },
+              ],
+            },
+          ],
+        },
+      }],
+    });
+    const diagnostics = getRenderDiagnostics();
+    expect(diagnostics.some((item) => item.code === "STRUCTURAL_OVERLAP" && item.nodeId === "overlay-container-overlap.overlay")).toBe(false);
+    expect(diagnostics.some((item) => item.code === "OVERLAY_OCCLUDES_FLOW" && item.nodeId === "overlay-container-overlap.overlay.mask")).toBe(true);
   });
 
   it("downgrades decorative overlaps instead of blocking layout", () => {

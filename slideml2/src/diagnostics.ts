@@ -98,24 +98,28 @@ let diagnosticDedupKeys: Set<string> = new Set();
  * pass and render pass both call applyFallbackLadder/SQUASHED logic, which
  * historically caused the same FALLBACK_FAILED to fire twice (once with the
  * slide context set, once without — the rm8s07 log showed pairs of identical
- * diagnostics confusing the agent). The key is intentionally narrow: code +
- * nodeId + slideId + the rounded delta — so distinct issues on the same node
- * still surface, but exact duplicates from a second measure pass are dropped.
+ * diagnostics confusing the agent). The key includes the rounded quantitative
+ * fields that distinguish repeated issues on the same node, and omits empty
+ * optional fields so non-collision diagnostics do not carry noise from the
+ * collision-specific dimensions.
  */
 function diagnosticDedupKey(d: LayoutDiagnostic, includeSlide = true): string {
+  const key: Record<string, unknown> = { code: d.code };
   const slide = includeSlide ? d.slideId || "" : "";
-  const node = d.nodeId || "";
-  const delta = d.measured?.deltaCm !== undefined ? Math.round(d.measured.deltaCm * 100) : "";
-  const other = d.measured?.other?.nodeId || "";
-  const relationship = d.measured?.relationship || "";
-  const overlapArea = d.measured?.overlapAreaCm2 !== undefined ? Math.round(d.measured.overlapAreaCm2 * 100) : "";
-  const overlapRect = d.measured?.overlap
-    ? [d.measured.overlap.x, d.measured.overlap.y, d.measured.overlap.w, d.measured.overlap.h].map((value) => Math.round(value * 100)).join(",")
-    : "";
+  if (slide) key.slide = slide;
+  if (d.nodeId) key.node = d.nodeId;
+  if (d.measured?.deltaCm !== undefined) key.delta = Math.round(d.measured.deltaCm * 100);
+  if (d.measured?.other?.nodeId) key.other = d.measured.other.nodeId;
+  if (d.measured?.relationship) key.relationship = d.measured.relationship;
+  if (d.measured?.overlapAreaCm2 !== undefined) key.overlapArea = Math.round(d.measured.overlapAreaCm2 * 100);
+  if (d.measured?.overlap) {
+    key.overlapRect = [d.measured.overlap.x, d.measured.overlap.y, d.measured.overlap.w, d.measured.overlap.h]
+      .map((value) => Math.round(value * 100));
+  }
   // Cluster diagnostics encode the affected count; without that, identical
   // first-of-cluster messages from two passes would dedupe each other.
-  const clusterCount = d.aggregated?.count !== undefined ? d.aggregated.count : "";
-  return JSON.stringify([d.code, slide, node, other, relationship, delta, overlapArea, overlapRect, clusterCount]);
+  if (d.aggregated?.count !== undefined) key.clusterCount = d.aggregated.count;
+  return JSON.stringify(key);
 }
 
 export function pushDiagnostic(d: LayoutDiagnostic): void {

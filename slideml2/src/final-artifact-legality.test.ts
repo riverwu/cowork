@@ -510,6 +510,7 @@ describe("final artifact legality", () => {
 
     expect(hit, JSON.stringify(diagnostics)).toBeDefined();
     expect(hit?.severity).toBe("warn");
+    expect(hit?.measured?.rect).toMatchObject({ x: expect.any(Number), y: expect.any(Number), w: expect.any(Number), h: expect.any(Number) });
   });
 
   it("empty charts produce blocking diagnostics and still emit PowerPoint-safe chart XML", async () => {

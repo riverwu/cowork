@@ -29,6 +29,20 @@ export const RENDER_DIAGNOSTIC_CODES = [
 
 export type RenderDiagnosticCode = typeof RENDER_DIAGNOSTIC_CODES[number];
 
+export const SOURCE_VALIDATION_CODES = [
+  "NODE_OUT_OF_BOUNDS",
+  "TEXT_BOX_TOO_SHORT",
+  "TOP_LEVEL_LAYOUT_OVERLAP",
+] as const;
+
+export type SourceValidationCode = typeof SOURCE_VALIDATION_CODES[number];
+
+export const SOURCE_VALIDATION_CODE: { readonly [K in SourceValidationCode]: K } = {
+  NODE_OUT_OF_BOUNDS: "NODE_OUT_OF_BOUNDS",
+  TEXT_BOX_TOO_SHORT: "TEXT_BOX_TOO_SHORT",
+  TOP_LEVEL_LAYOUT_OVERLAP: "TOP_LEVEL_LAYOUT_OVERLAP",
+} as const;
+
 export const BLOCKING_RENDER_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
   "FALLBACK_FAILED",
   "CODE_BLOCK_OVERFLOW",
