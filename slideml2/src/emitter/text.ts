@@ -134,6 +134,11 @@ function paragraphPropsXml(p: Paragraph): string {
 
 /** `<a:r>` — one styled text run. */
 function runXml(run: TextRun, isLast: boolean, rels?: RunRels): string {
+  if (run.mathOmml) {
+    const softBreak = run.breakLine && !isLast ? `<a:br><a:rPr lang="en-US"/></a:br>` : "";
+    return `<a14:m xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">${run.mathOmml}</a14:m>${softBreak}`;
+  }
+
   if (run.color) assertHex(run.color, "TextRun.color");
 
   // `sz` attribute is in HUNDREDTHS of a point per OOXML spec

@@ -1,0 +1,14 @@
+{
+  "id": "latest-components",
+  "desktopDebugLog": true,
+  "expected": {
+    "requiredTools": ["read_file", "write_file", "create_deck", "replace_slide", "validate_render"],
+    "forbiddenTools": ["run_node"],
+    "minReplaceSlideCalls": 4,
+    "requireFinalValidateRender": true,
+    "requireProgressDone": true,
+    "requirePptxOutput": true,
+    "outputPath": "outputs/latest-components.pptx",
+    "maxBlockingDiagnostics": 0
+  }
+}

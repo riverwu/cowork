@@ -1,6 +1,7 @@
 import type { Tool } from "./types";
 import { slideml2ValidateRender, type Slideml2Diagnostic, type Slideml2ValidateRenderResult } from "@/lib/tauri";
 import { requireDeckReadBeforeWrite, resetSlideWritesAfterRender } from "./slideml2-authoring-state";
+import { compilerDiagnosticFromRenderDiagnostic } from "./slideml2-diagnostic-format";
 
 export const validateRenderTool: Tool = {
   definition: {
@@ -15,7 +16,7 @@ Returns a compact repair-focused report:
 - a list of BLOCKING diagnostics with slideId/nodeId/measured/suggestion
 - a list of quality diagnostics such as TRUNCATED/OVERFLOW when available
 
-Blocking diagnostic codes: \`FALLBACK_FAILED\`, \`COLLISION\`, \`TITLE_OCCLUDED\`, \`TINY_RECT\`, \`SQUASHED\`, \`LOW_CONTRAST\`, \`SHAPE_INVISIBLE\`, \`UNKNOWN_COLOR\`, \`UNKNOWN_STYLE\`, plus any diagnostic whose severity is \`error\`. \`DROP\` means optional content was removed by the fallback ladder; it is a repair hint, not a blocker unless paired with a blocking diagnostic on the same slide. Warn-level \`TRUNCATED\`/\`OVERFLOW\` diagnostics mean text was softly fit; improve them when the returned slideId/nodeId makes a concrete repair obvious, but they do not make \`ok:false\` by themselves.
+	Blocking diagnostic codes: \`FALLBACK_FAILED\`, \`CODE_BLOCK_OVERFLOW\`, \`COLLISION\`, \`STRUCTURAL_OVERLAP\`, \`SIBLING_INK_OVERLAP\`, \`OVERLAY_OCCLUDES_FLOW\`, \`TITLE_OCCLUDED\`, \`PIE_LABELS_HIDDEN\`, \`EMPTY_CHART_DATA\`, \`EMPTY_TABLE_DATA\`, \`TINY_RECT\`, \`SQUASHED\`, \`LOW_CONTRAST\`, \`SHAPE_INVISIBLE\`, \`UNKNOWN_COLOR\`, \`UNKNOWN_STYLE\`, plus any diagnostic whose severity is \`error\`. \`DROP\` means optional content was removed by the fallback ladder; it is a repair hint, not a blocker unless paired with a blocking diagnostic on the same slide. Warn-level \`TRUNCATED\`/\`OVERFLOW\` diagnostics mean text was softly fit; improve them when the returned slideId/nodeId makes a concrete repair obvious, but they do not make \`ok:false\` by themselves.
 
 Pass \`render: false\` for a fast schema-only dry run if explicitly needed; default is render=true.
 
@@ -236,6 +237,7 @@ function compactDiagnostic(d: Slideml2Diagnostic) {
     slideId: d.slideId,
     nodeId: d.nodeId,
     message: d.message,
+    compiler: compilerDiagnosticFromRenderDiagnostic(d),
     measured: d.measured,
     surfaceTrail: d.surfaceTrail,
     constrainedBy: d.constrainedBy,
@@ -253,6 +255,8 @@ function repairHint(d: Slideml2Diagnostic): string | undefined {
   switch (d.code) {
     case "FALLBACK_FAILED":
       return "Keep the selected slide semantics, but reduce item text/count, mark secondary details optional, split dense content into another slide, or give the failing region more height.";
+    case "CODE_BLOCK_OVERFLOW":
+      return "Paginate the code into multiple slides or multiple code-block components. Use columns/density/fontSize for readable compression, and use maxLines only for an intentional excerpt.";
     case "TINY_RECT":
     case "SQUASHED":
       return "Keep the selected component semantics, but reduce item text/count, lower columns, mark secondary details optional, or split dense content into another slide.";
@@ -267,9 +271,21 @@ function repairHint(d: Slideml2Diagnostic): string | undefined {
       return "Use a theme text style token defined in deck.themeOverride.text.";
     case "TITLE_OCCLUDED":
       return "Move the content region below the title (contentTop >= titleTop + titleHeight + 0.25), or move the covering decoration behind the title.";
-    default:
-      return undefined;
-  }
+    case "COLLISION":
+    case "SIBLING_INK_OVERLAP":
+    case "STRUCTURAL_OVERLAP":
+      return "Keep the same semantic components, but separate the overlapping regions with a stack/grid/split gap, adjust ratio/row/column spans, relax fixed sizes, or paginate dense content. Do not replace evidence components with generic text solely to pass validation.";
+    case "OVERLAY_OCCLUDES_FLOW":
+      return "Move or resize the overlay so it annotates without covering the evidence/body content, or place it behind only if it is decorative. Prefer adjusting the current area/anchor over changing component semantics.";
+	    case "PIE_LABELS_HIDDEN":
+	      return "For pie/doughnut charts, keep slice labels visible with dataLabels:{show:true,position:'bestFit',showCategoryName:true,showPercent:true}; do not rely on legend-only designs.";
+	    case "EMPTY_CHART_DATA":
+	      return "Keep the chart component and repair the data binding: check bind.filter still returns rows, use filter arrays or {in:[...]} for inclusion, and map encoding.x/encoding.y so labels are categorical and values are numeric. For horizontal ranked bars, use orientation:'horizontal' or x:numeric with y:category.";
+	    case "EMPTY_TABLE_DATA":
+	      return "Keep the table component and repair the row-to-column mapping: use encoding.columns with explicit {key,label}, or set headers to actual object row keys. Do not replace the table with blank prose.";
+	    default:
+	      return undefined;
+	  }
 }
 
 function nextRepairAction(result: Slideml2ValidateRenderResult): string | undefined {

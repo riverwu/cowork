@@ -16,6 +16,10 @@ function findError(report: ReturnType<typeof validateSlide>, codeMatch: RegExp):
   return report.errors.find((issue) => codeMatch.test(issue.code));
 }
 
+function findIssue(report: ReturnType<typeof validateSlide>, codeMatch: RegExp): { message: string; suggestedFix?: string } | undefined {
+  return [...report.errors, ...report.warnings, ...report.info].find((issue) => codeMatch.test(issue.code));
+}
+
 describe("validate flags common LLM misuses with actionable fixes", () => {
   it("type:'caption' (a style token) is flagged as STYLE_AS_TYPE with the correct rewrite", () => {
     const slide: SlideV2 = {
@@ -40,17 +44,17 @@ describe("validate flags common LLM misuses with actionable fixes", () => {
     expect(`${hit!.message} ${hit!.suggestedFix || ""}`).toMatch(/accent/i);
   });
 
-  it("text node with raw hex color is rejected with disambiguating message", () => {
+  it("text node with raw hex color is allowed with a disambiguating warning", () => {
     const slide: SlideV2 = {
       id: "misuse-hex",
       title: "封面",
       children: [{ id: "misuse-hex.t", type: "text", text: "中华文明", color: "FFFFFF", style: "slide-title" }],
     };
     const report = validateSlide(slide, baseDeck);
-    const hit = findError(report, /RAW_TEXT_HEX_COLOR/);
-    expect(hit, JSON.stringify(report.errors)).toBeDefined();
-    // Message must clarify that band/card/shape fills are NOT subject to this rule.
-    expect(`${hit!.message} ${hit!.suggestedFix || ""}`).toMatch(/text\.color|text node|band\.fill|fill.*hex|raw hex/i);
+    const hit = findIssue(report, /RAW_TEXT_HEX_COLOR/);
+    expect(hit, JSON.stringify([...report.errors, ...report.warnings, ...report.info])).toBeDefined();
+    expect(report.errors.find((issue) => issue.code === "RAW_TEXT_HEX_COLOR")).toBeUndefined();
+    expect(`${hit!.message} ${hit!.suggestedFix || ""}`).toMatch(/theme token|one-off|#RRGGBB|bare RRGGBB/i);
   });
 
   it("image-card as the slide's only top-level child still validates and renders cleanly", () => {

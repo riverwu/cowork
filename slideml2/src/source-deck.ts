@@ -1,6 +1,8 @@
 import type { DeckSpec, DomNode, RenderedDeck, RenderedSlide, Slideml2SourceDeck, SlideV2 } from "./types.js";
 import { buildTheme } from "./theme.js";
 import { isDeckSize } from "./schema.js";
+import { resolveDataBindings, type DataBindingOptions } from "./data-binding.js";
+import { resolveScientificReferences } from "./m3-references.js";
 
 export function createSourceDeck(options: {
   title?: string;
@@ -9,6 +11,9 @@ export function createSourceDeck(options: {
   brand?: { name?: string; primary?: string; logo?: string };
   themeOverride?: DeckSpec["themeOverride"];
   validation?: DeckSpec["validation"];
+  dataSources?: DeckSpec["dataSources"];
+  references?: DeckSpec["references"];
+  footnotes?: DeckSpec["footnotes"];
 } = {}): Slideml2SourceDeck {
   return {
     slideml2: 2,
@@ -18,13 +23,18 @@ export function createSourceDeck(options: {
       brand: options.brand || { name: options.title, primary: "2563EB" },
       themeOverride: options.themeOverride,
       validation: options.validation,
+      dataSources: options.dataSources,
+      references: options.references,
+      footnotes: options.footnotes,
       metadata: options.title ? { title: options.title } : {},
     },
     slides: [],
   };
 }
 
-export function sourceToRenderedDeck(source: Slideml2SourceDeck): RenderedDeck {
+export function sourceToRenderedDeck(source: Slideml2SourceDeck, options: DataBindingOptions = {}): RenderedDeck {
+  source = resolveDataBindings(source, options);
+  source = resolveScientificReferences(source);
   const themeOverride = mergeDeckChrome(source.deck.themeOverride, source.deck.chrome);
   const theme = buildTheme(source.deck.brand || {}, source.deck.theme || "default", themeOverride);
   const articleStyle = theme.text.article || theme.text.paragraph;
@@ -206,8 +216,30 @@ function isOverlayChildAtSource(node: DomNode): boolean {
   if (typeof node.anchor === "string" && OVERLAY_ANCHOR_POINTS.has(node.anchor)) return true;
   if (typeof node.anchorTo === "string" && node.anchorTo.length > 0) return true;
   if (isAbsoluteAt(node.at)) return true;
+  if (isOverlayWrapperAtSource(node)) return true;
   if (typeof node.type === "string" && OVERLAY_COMPONENT_TYPES.has(node.type)) return true;
   return false;
+}
+
+function isOverlayWrapperAtSource(node: DomNode): boolean {
+  if (node.type !== "stack" && node.type !== "freeform-group") return false;
+  if (!Array.isArray(node.children) || node.children.length === 0) return false;
+  if (node.area || node.at || node.anchor || node.anchorTo) return false;
+  if (hasVisibleWrapperSurface(node)) return false;
+  return node.children.every((child) => isOverlayChildAtSource(child));
+}
+
+function hasVisibleWrapperSurface(node: DomNode): boolean {
+  return [
+    "fill",
+    "background",
+    "line",
+    "borderColor",
+    "borderWidth",
+    "tone",
+    "title",
+    "header",
+  ].some((key) => node[key] !== undefined);
 }
 
 /**
@@ -285,6 +317,7 @@ function ensureContentArea(slideId: string, children: DomNode[], hasSlideTitle =
       ...overlays,
     ];
   }
+  if (flow.length === 0) return overlays;
   const onlyFlow = flow[0];
   if (!hasSlideTitle && flow.length === 1 && onlyFlow?.type === "band" && onlyFlow.area === undefined && onlyFlow.fixedHeight === undefined && onlyFlow.height === undefined) {
     return [onlyFlow, ...overlays];

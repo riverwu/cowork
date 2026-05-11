@@ -1,3 +1,6 @@
+import { rectsOverlap as geometryRectsOverlap, type RectLike } from "./layout/geometry.js";
+import type { RenderDiagnosticCode } from "./diagnostic-codes.js";
+
 /**
  * Render diagnostics: structured, agent-readable feedback from the layout solver
  * and renderer. Replaces the legacy Set<string> warning channels.
@@ -16,36 +19,15 @@
  *   TRUNCATED        text was clipped or autofit-shrunk to fit
  *   DEMOTED          density/style was demoted (e.g. bullets comfortable->compact)
  *   FALLBACK_FAILED  fallback ladder exhausted; content cannot fit
+ *   CODE_BLOCK_OVERFLOW full code listing cannot fit in its assigned area
  *   TITLE_OCCLUDED   slide title is covered by a later solid-fill shape
+ *   PIE_LABELS_HIDDEN pie/doughnut chart hides slice labels
+ *   EMPTY_CHART_DATA chart has no renderable labels/series after data binding
+ *   EMPTY_TABLE_DATA table has authored object rows but no body cell text matched columns/headers
  */
 export interface LayoutDiagnostic {
-  severity: "warn" | "error";
-  code:
-    | "OVERFLOW"
-    | "DROP"
-    | "COLLISION"
-    | "UNKNOWN_COLOR"
-    | "UNKNOWN_STYLE"
-    | "TINY_RECT"
-    | "SQUASHED"
-    | "TRUNCATED"
-    | "DEMOTED"
-    | "FALLBACK_FAILED"
-    | "TITLE_OCCLUDED"
-    | "LOW_CONTRAST"
-    /** LOW_CONTRAST that the renderer auto-rewrote to a contrasting hex. The
-     *  rendered PPTX is readable; the diagnostic remains so the agent can
-     *  decide to fix the underlying theme token, but it doesn't block. */
-    | "LOW_CONTRAST_FIXED"
-    /** A non-text shape (decorative rule, divider, accent stripe, dot) whose
-     *  fill matches its surface (slide bg or parent fill) is visually
-     *  invisible. Severity warn; it doesn't block render but hides the
-     *  agent's intended visual. */
-    | "SHAPE_INVISIBLE"
-    /** SHAPE_INVISIBLE that was small/decorative enough for the renderer to
-     *  auto-promote to a contrasting accent color. The rendered PPTX shows
-     *  the decoration; agent can override by setting an explicit fill. */
-    | "SHAPE_INVISIBLE_FIXED";
+  severity: "info" | "warn" | "error";
+  code: RenderDiagnosticCode;
   slideId?: string;
   nodeId?: string;
   message: string;
@@ -59,7 +41,26 @@ export interface LayoutDiagnostic {
     deltaCm?: number;
     rect?: { x: number; y: number; w: number; h: number };
     other?: { x: number; y: number; w: number; h: number; nodeId?: string };
-  };
+    overlap?: { x: number; y: number; w: number; h: number };
+    overlapAreaCm2?: number;
+    overlapRatio?: number;
+    relationship?: string;
+    parentId?: string;
+    lineCount?: number;
+	    renderedRows?: number;
+	    estimatedCapacityLines?: number;
+	    columns?: number;
+	    columnCount?: number;
+	    dataRowCount?: number;
+	    estimatedVisibleRowsFit?: number;
+	    minWidthCm?: number;
+	    minHeightCm?: number;
+	    labelCount?: number;
+	    showLegend?: boolean;
+	    worstRow?: { index: number; neededCm: number; availableCm: number };
+	    density?: string;
+	    fontSize?: number;
+	  };
   /**
    * For LOW_CONTRAST: ordered chain of surfaces that determined the comparison
    * background, e.g. ["slide.bg:FAF0E6", "band(s1.b).fill:2C1810",
@@ -133,7 +134,7 @@ export function clearRenderDiagnostics(): void {
 }
 
 /** Filter helpers for agents and tests. */
-export function getDiagnosticsBySeverity(severity: "warn" | "error"): LayoutDiagnostic[] {
+export function getDiagnosticsBySeverity(severity: "info" | "warn" | "error"): LayoutDiagnostic[] {
   return diagnostics.filter((d) => d.severity === severity);
 }
 
@@ -180,14 +181,8 @@ export function contrastThreshold(fontPt: number, bold: boolean): number {
 
 /** Two rects overlap if they share any interior. Tangent edges do not count. */
 export function rectsOverlap(
-  a: { x: number; y: number; w: number; h: number },
-  b: { x: number; y: number; w: number; h: number },
+  a: RectLike,
+  b: RectLike,
 ): boolean {
-  const epsilon = 0.005;
-  return (
-    a.x + a.w > b.x + epsilon &&
-    b.x + b.w > a.x + epsilon &&
-    a.y + a.h > b.y + epsilon &&
-    b.y + b.h > a.y + epsilon
-  );
+  return geometryRectsOverlap(a, b);
 }

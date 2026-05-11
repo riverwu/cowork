@@ -364,6 +364,59 @@ describe("emitter — package end-to-end", () => {
     expect(chartXml).toMatch(/<a:alpha val="\d+"\/>/);
   });
 
+  it("emits combo charts with secondary value axis", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "combo",
+          labels: ["Q1", "Q2", "Q3"],
+          series: [
+            { name: "Revenue", values: [100, 120, 140], type: "bar" },
+            { name: "Margin", values: [0.32, 0.36, 0.41], type: "line", axis: "secondary" },
+          ],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    expect(chartXml).toContain('<c:axPos val="r"/>');
+    expect(chartXml).toContain('<c:axId val="100000003"/>');
+    expect(chartXml).toContain('<c:crossAx val="100000001"/>');
+  });
+
+  it("emits native trend lines and error bars on chart series", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "line",
+          labels: ["W1", "W2", "W3"],
+          series: [{
+            name: "Mean",
+            values: [10, 12, 16],
+            trendLine: { type: "linear", label: "Trend" },
+            errorBars: { type: "fixed", value: 1.5 },
+          }],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    expect(chartXml).toContain("<c:trendline>");
+    expect(chartXml).toContain("<c:name>Trend</c:name>");
+    expect(chartXml).toContain('<c:trendlineType val="linear"/>');
+    expect(chartXml).toContain("<c:errBars>");
+    expect(chartXml).toContain('<c:errValType val="fixedVal"/>');
+    expect(chartXml).toContain('<c:val val="1.5"/>');
+  });
+
   it("emits chart graphicFrame with <a:graphicFrameLocks noGrp=\"1\"/> (PowerPoint requirement)", async () => {
     const deck: DeckAst = {
       size: "16x9",

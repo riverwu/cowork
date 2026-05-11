@@ -32,6 +32,7 @@ import {
   listTextKinds,
   listThemes,
   measureDeck,
+  normalizeSlide,
   planPagesFromMarkdown,
   planPagesFromMarkdownWithLlm,
   renderToAst,
@@ -764,6 +765,99 @@ describe("slideml2 MVP", () => {
     expect(describeComponents(["unknown-component"]).missing).toEqual(["unknown-component"]);
   });
 
+  it("exposes copyable schema examples that validate after normalization", () => {
+    const names = listComponents().map((item) => item.name);
+    const described = describeComponents(names).found;
+    const failures: Array<{ name: string; codes: string[] }> = [];
+    const blockingCodes = new Set(["FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "LOW_CONTRAST", "UNKNOWN_COLOR", "UNKNOWN_STYLE"]);
+    for (const [name, detail] of Object.entries(described)) {
+      for (const [index, example] of (detail.examples || []).entries()) {
+        const slide = normalizeSlide({ id: `example-${name}-${index}`, children: [example as never] } as never);
+        const validation = validateSlide(slide, { deck: { size: "16x9", theme: "default" } });
+        if (!validation.ok) failures.push({ name, codes: validation.errors.map((item) => item.code) });
+        clearRenderDiagnostics();
+        renderToAst(sourceToRenderedDeck({ slideml2: 2, deck: { size: "16x9", theme: "default" }, slides: [slide] } as never));
+        const blocking = [...blockingCodes].flatMap((code) => getDiagnosticsByCode(code as Parameters<typeof getDiagnosticsByCode>[0]));
+        if (blocking.length > 0) failures.push({ name, codes: blocking.map((item) => item.code) });
+      }
+    }
+    for (const node of listNodeTypesForTest()) {
+      const examples = Array.isArray((node as { examples?: unknown[] }).examples) ? (node as { examples: unknown[] }).examples : [];
+      for (const [index, example] of examples.entries()) {
+        const slide = normalizeSlide({ id: `node-example-${node.type}-${index}`, children: [example as never] } as never);
+        const validation = validateSlide(slide, { deck: { size: "16x9", theme: "default" } });
+        if (!validation.ok) failures.push({ name: node.type, codes: validation.errors.map((item) => item.code) });
+        clearRenderDiagnostics();
+        renderToAst(sourceToRenderedDeck({ slideml2: 2, deck: { size: "16x9", theme: "default" }, slides: [slide] } as never));
+        const blocking = [...blockingCodes].flatMap((code) => getDiagnosticsByCode(code as Parameters<typeof getDiagnosticsByCode>[0]));
+        if (blocking.length > 0) failures.push({ name: node.type, codes: blocking.map((item) => item.code) });
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("budgets wrapped in-card headings before body text to prevent visual overlap", () => {
+    const deck = createSourceDeck({ title: "Wrapped heading regression" });
+    deck.deck.themeOverride = { text: { paragraph: { fontSize: 11, lineHeight: 1.4 } } };
+    deck.slides.push({
+      id: "abstract",
+      background: "FAF9F6",
+      children: [{
+        id: "s2.card",
+        type: "card",
+        tone: "neutral",
+        fill: "surface",
+        line: "divider",
+        cornerRadius: 0.1,
+        elevation: "raised",
+        at: [10.5, 1, 13.8, 12.3],
+        padding: 0.6,
+        children: [
+          { id: "s2.eyebrow", type: "text", text: "ABSTRACT", color: "text.muted", style: "label" },
+          { id: "s2.h", type: "h1", text: "Truth or Image? Reputation Pressure and Student Honesty" },
+          { id: "s2.rule", type: "accent-rule", tone: "brand", length: 4, thickness: 1 },
+          { id: "s2.body", type: "text", text: "This study investigates how reputation pressure affects the tendency of Grade 8 students to lie in school-related situations. Twelve participants completed a fifteen-item anagram challenge framed as a competition. Students were divided into two groups of six, balanced by academic level, in separate classrooms. Group A worked under low reputation pressure (scores private); Group B worked under high reputation pressure (scores announced publicly). The difference between reported and actual score was used as the measure of dishonest inflation.", style: "paragraph" },
+          { id: "s2.findings", type: "text", text: "Group A's average inflation was 1.50 anagrams; Group B's was 7.17 — nearly five times larger. The two distributions did not overlap at any point (p ≈ 0.001). Actual performance between groups was nearly identical (mean actual scores differ by only 0.5), making performance differences an unlikely explanation.", style: "paragraph" },
+        ],
+      }],
+    });
+
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    const shapes = ast.slides[0]!.shapes;
+    const title = shapes.find((shape) => shape.name === "s2.h")!;
+    const rule = shapes.find((shape) => shape.name === "s2.rule")!;
+    const body = shapes.find((shape) => shape.name === "s2.body")!;
+    const findings = shapes.find((shape) => shape.name === "s2.findings")!;
+    const EMU_PER_CM = 360000;
+    expect(title.xfrm!.cy / EMU_PER_CM).toBeGreaterThan(1.35);
+    expect(rule.xfrm!.y).toBeGreaterThan(title.xfrm!.y + title.xfrm!.cy);
+    expect(body.xfrm!.cy / EMU_PER_CM).toBeGreaterThan(2.75);
+    expect(findings.xfrm!.y).toBeGreaterThan(body.xfrm!.y + body.xfrm!.cy);
+    expect(getDiagnosticsByCode("TRUNCATED").filter((item) => item.nodeId === "s2.h")).toEqual([]);
+    expect(getDiagnosticsByCode("FALLBACK_FAILED").filter((item) => item.nodeId === "s2.body" || item.nodeId === "s2.findings")).toEqual([]);
+  });
+
+  it("reports fixed-height paragraph boxes whose wrapped text would overlap nearby content", () => {
+    const deck = createSourceDeck({ title: "Paragraph fit regression" });
+    deck.slides.push({
+      id: "paragraph-fit",
+      children: [{
+        id: "paragraph-fit.body",
+        type: "text",
+        style: "paragraph",
+        at: [1, 1, 7.2, 1.0],
+        text: "This paragraph is intentionally too long for a shallow fixed-height text box. The validator should estimate the wrapped text height and fail before PowerPoint lets the overflowing lines draw over the next object.",
+      }],
+    });
+
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(deck));
+    const failures = getDiagnosticsByCode("FALLBACK_FAILED").filter((item) => item.nodeId === "paragraph-fit.body");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.message).toContain("PowerPoint would overflow");
+  });
+
   it("renders text narrative alternatives without falling back to repeated insight cards", () => {
     const sourceDeck = createSourceDeck({ title: "Narrative components" });
     sourceDeck.slides.push({
@@ -1061,6 +1155,7 @@ describe("slideml2 MVP", () => {
     expect(described.found["side-rail"]?.children.allowed).toBe(true);
     expect(described.found["accent-rule"]?.fields.direction.enum).toEqual(["horizontal", "vertical"]);
     expect(described.found["axis-ruler"]?.fields.items.required).toBe(true);
+    expect(describeComponents(["freeform-group"]).found["freeform-group"]?.children).toMatchObject({ allowed: true, required: true });
 
     const sourceDeck = createSourceDeck({ title: "Visual primitives" });
     sourceDeck.slides.push({
@@ -1180,29 +1275,24 @@ describe("slideml2 MVP", () => {
     expect(table!.borderWidth).toBeLessThan(30_000);
   });
 
-  it("treats severely compressed component regions as blocking render diagnostics", () => {
+  it("treats severely compressed text regions as blocking render diagnostics", () => {
     const sourceDeck = createSourceDeck({ title: "Squashed layout" });
     sourceDeck.slides.push({
       id: "squashed",
-      title: "Too many peer cards",
+      title: "Too little text room",
       children: [{
-        id: "squashed.content",
-        type: "grid",
-        area: "content",
-        columns: 10,
-        gap: 0.35,
-        children: Array.from({ length: 10 }, (_, index) => ({
-          id: `squashed.card${index + 1}`,
-          type: "card",
-          children: [{ id: `squashed.card${index + 1}.text`, type: "text", text: `Card ${index + 1}` }],
-        })),
+        id: "squashed.text",
+        type: "text",
+        at: [1, 3, 10, 0.22],
+        text: "This paragraph has enough content that a sub-line-height region is not usable.",
       }],
     });
     clearRenderDiagnostics();
     renderToAst(sourceToRenderedDeck(sourceDeck));
     const squashed = getDiagnosticsByCode("SQUASHED");
     expect(squashed.length).toBeGreaterThan(0);
-    expect(squashed[0]?.suggestion).toContain("reduce");
+    expect(squashed[0]?.severity).toBe("error");
+    expect(squashed[0]?.suggestion).toContain("increase");
   });
 
   it("preserves common layout and visual props when semantic components expand", () => {
@@ -1413,6 +1503,41 @@ describe("slideml2 MVP", () => {
     const validation = await validateDeckPath(deckPath);
     expect(validation.ok).toBe(true);
     expect(validation.errors).toHaveLength(0);
+  });
+
+  it("rejects invalid createDeck options before writing an unusable source deck", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "slideml2-ops-"));
+    const deckPath = join(dir, "invalid.slideml2.json");
+    const result = await createDeck(deckPath, {
+      title: "Invalid deck",
+      theme: "default",
+      themeOverride: {
+        layout: { contentTop: 1.4 },
+        chrome: { brandMark: false as never },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.validation?.errors.map((issue) => issue.code)).toEqual(expect.arrayContaining([
+      "INVALID_THEME_CHROME_VALUE",
+    ]));
+    expect(result.validation?.errors.map((issue) => issue.code)).not.toContain("THEME_LAYOUT_TITLE_OVERLAP");
+    await expect(stat(deckPath)).rejects.toThrow();
+  });
+
+  it("allows lowered contentTop for no-title or full-page layout decks", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "slideml2-ops-"));
+    const deckPath = join(dir, "full-page.slideml2.json");
+    const result = await createDeck(deckPath, {
+      title: "Full-page deck",
+      theme: "default",
+      themeOverride: {
+        layout: { contentTop: 1.4, contentBottom: 13.2 },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    await expect(stat(deckPath)).resolves.toBeDefined();
   });
 
   it("renders deck.chrome footer text and page numbers through the theme chrome path", () => {
@@ -2550,6 +2675,66 @@ describe("slideml2 MVP", () => {
       }],
     } as never);
     expect(conflict.warnings.map((item) => item.code)).toContain("CARD_TITLE_HEADER_CONFLICT");
+  });
+
+  it("allows decorative surface primitives without children for editorial backgrounds", () => {
+    const surfaceOnlyTypes = ["panel", "card", "band", "frame", "inset"] as const;
+    const validation = validateSlide({
+      id: "surface-only",
+      children: [
+        ...surfaceOnlyTypes.map((type, index) => ({
+          id: `surface-only.${type}`,
+          type,
+          at: [1 + index * 0.3, 1 + index * 0.3, 6, 2],
+          fill: type === "frame" ? undefined : "surface",
+          line: "divider",
+          padding: type === "inset" ? 0.2 : undefined,
+        })),
+        { id: "surface-only.copy", type: "text", text: "Visible content can sit above the surface.", at: [1.4, 1.4, 10, 1] },
+      ],
+    } as never);
+
+    const codes = validation.errors.map((item) => item.code);
+    expect(codes).not.toContain("MISSING_CONTAINER_CHILDREN");
+    expect(codes).not.toContain("EMPTY_CONTAINER");
+
+    const stackValidation = validateSlide({
+      id: "empty-stack",
+      children: [{ id: "empty-stack.stack", type: "stack" }],
+    } as never);
+    expect(stackValidation.errors.map((item) => item.code)).toContain("MISSING_CONTAINER_CHILDREN");
+
+    const freeformValidation = validateSlide({
+      id: "empty-freeform",
+      children: [{ id: "empty-freeform.group", type: "freeform-group" }],
+    } as never);
+    expect(freeformValidation.errors.map((item) => item.code)).toContain("EMPTY_CONTAINER_COMPONENT");
+  });
+
+  it("normalizes component examples with omitted child ids before tool validation", () => {
+    const raw = {
+      id: "example-normalize",
+      children: [{
+        id: "example-normalize.card",
+        type: "card",
+        children: [
+          { type: "label", text: "Literature 01" },
+          { type: "quote", text: "A quote can be copied from describe_schema without a node id." },
+          { type: "key-takeaway", headline: "The rendered deck still gets deterministic fallback ids." },
+        ],
+      }],
+    };
+
+    const strictValidation = validateSlide(raw as never);
+    expect(strictValidation.errors.map((item) => item.code)).toContain("MISSING_NODE_ID");
+
+    const normalized = normalizeSlide(raw as never);
+    expect(normalized.children[0]?.children?.map((child) => child.id)).toEqual([
+      "example-normalize.card.1",
+      "example-normalize.card.2",
+      "example-normalize.card.3",
+    ]);
+    expect(validateSlide(normalized).errors.map((item) => item.code)).not.toContain("MISSING_NODE_ID");
   });
 
   it("inspectLayout returns intrinsic specs and applied solver decisions", () => {

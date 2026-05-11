@@ -7,7 +7,7 @@
  */
 
 import { readFile, writeFile } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
 import {
   buildTheme,
   clearRenderDiagnostics,
@@ -74,6 +74,7 @@ export const tools: ToolDefinition[] = [
       properties: {
         deckPath: { type: "string" },
         title: { type: "string" },
+        size: { type: "string", enum: ["16x9", "16x10", "4x3", "wide"], description: "Deck canvas size. Defaults to 16x9." },
         theme: { type: "string", description: "Usually 'default'." },
         brand: {
           type: "object",
@@ -86,6 +87,14 @@ export const tools: ToolDefinition[] = [
         themeOverride: {
           type: "object",
           description: "Optional deck.themeOverride to install immediately: colors, text, component, layout, fonts, chart, chrome, sizeScale, guidance.",
+        },
+        validation: {
+          type: "object",
+          description: "Optional deck.validation, e.g. {mode:'standard'|'strict'|'experimental', requireSources?:true}.",
+        },
+        dataSources: {
+          type: "object",
+          description: "Optional deck.dataSources registry keyed by source id. Sources: {type:'inline-json', rows:[...]}, {type:'inline-csv', csv:'col,value\\nA,1'}, or {type:'file-csv', path:'data/file.csv'} relative to deckPath.",
         },
       },
       required: ["deckPath"],
@@ -198,15 +207,18 @@ export async function handleToolCall(name: string, input: Record<string, unknown
         const deckPath = resolvePath(ctx, String(input.deckPath || ""));
         const result = await createDeck(deckPath, {
           title: typeof input.title === "string" ? input.title : undefined,
+          size: typeof input.size === "string" ? input.size as never : undefined,
           theme: typeof input.theme === "string" ? input.theme : "default",
           brand: input.brand && typeof input.brand === "object" ? input.brand as never : undefined,
+          themeOverride: input.themeOverride && typeof input.themeOverride === "object" ? input.themeOverride as never : undefined,
+          validation: input.validation && typeof input.validation === "object" ? input.validation as never : undefined,
+          dataSources: input.dataSources && typeof input.dataSources === "object" ? input.dataSources as never : undefined,
+          references: Array.isArray(input.references) ? input.references as never : undefined,
+          footnotes: Array.isArray(input.footnotes) ? input.footnotes as never : undefined,
         });
-        if (input.themeOverride && typeof input.themeOverride === "object") {
-          const deck = await readDeck(deckPath);
-          deck.deck.themeOverride = input.themeOverride as never;
-          await writeDeck(deckPath, deck);
-        }
-        return { ok: true, data: { deckPath, ...result } };
+        return result.ok
+          ? { ok: true, data: { deckPath, ...result } }
+          : { ok: false, error: result.error, data: { deckPath, ...result } };
       }
       case "read_deck": {
         const deckPath = resolvePath(ctx, String(input.deckPath || ""));
@@ -235,7 +247,7 @@ export async function handleToolCall(name: string, input: Record<string, unknown
         const original = await readDeck(deckPath);
         const deck = deepClone(original);
         applyJsonPatch(deck as unknown, patch);
-        const validation = validateDeck(deck);
+        const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
         if (validation.ok) await writeDeck(deckPath, deck);
         return { ok: validation.ok, error: validation.ok ? undefined : `Deck validation failed with ${validation.errors.length} error(s).`, data: { summary: deckSummary(deck), validation } };
       }
@@ -243,14 +255,14 @@ export async function handleToolCall(name: string, input: Record<string, unknown
         const deckPath = resolvePath(ctx, String(input.deckPath || ""));
         const shouldRender = input.render !== false;
         const deck = await readDeck(deckPath);
-        const validation = validateDeck(deck);
+        const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
         if (!validation.ok || !shouldRender) {
           return { ok: validation.ok, error: validation.ok ? undefined : `Deck validation failed with ${validation.errors.length} error(s).`, data: { validation } };
         }
         const outputPathRaw = typeof input.outputPath === "string" && input.outputPath ? input.outputPath : `${deckPath.replace(/\.json$/, "")}.pptx`;
         const outputPath = resolvePath(ctx, outputPathRaw);
         clearRenderDiagnostics();
-        const result = await renderToPptx(sourceToRenderedDeck(deck), outputPath);
+        const result = await renderToPptx(sourceToRenderedDeck(deck, { baseDir: dirname(deckPath) }), outputPath);
         const diagnostics = getRenderDiagnostics();
         const blocking = blockingDiagnostics(diagnostics);
         const quality = qualityGateDiagnostics(diagnostics);

@@ -7,8 +7,8 @@ import { validateDeck } from "./validate.js";
 
 /**
  * Regressions for 2026-05-07T08-39-17-254-htdnvr:
- * - agent set contentTop inside the title band, so later card backgrounds
- *   covered every slide title;
+ * - with slide.title present, the renderer must protect the default title
+ *   band even when a deck lowers contentTop for full-page/no-title slides;
  * - contentBottom was too low for page-number chrome, so source notes
  *   collided with page numbers;
  * - validate_render returned ok:true despite the visible title occlusion.
@@ -41,7 +41,7 @@ const basicSlide: SlideV2 = {
 };
 
 describe("title/content vertical rhythm guard (htdnvr)", () => {
-  it("rejects themeOverride layout that starts content inside the title region", () => {
+  it("allows lowered contentTop but still rejects contentBottom entering footer chrome", () => {
     const deck = deckWith([basicSlide], {
       layout: {
         titleTop: 0.3,
@@ -52,8 +52,8 @@ describe("title/content vertical rhythm guard (htdnvr)", () => {
 
     const validation = validateDeck(deck);
     expect(validation.ok).toBe(false);
+    expect(validation.errors.map((e) => e.code)).not.toContain("THEME_LAYOUT_TITLE_OVERLAP");
     expect(validation.errors.map((e) => e.code)).toEqual(expect.arrayContaining([
-      "THEME_LAYOUT_TITLE_OVERLAP",
       "THEME_LAYOUT_FOOTER_OVERLAP",
     ]));
   });

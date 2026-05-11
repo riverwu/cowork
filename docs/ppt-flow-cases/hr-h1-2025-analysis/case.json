@@ -1,0 +1,14 @@
+{
+  "id": "hr-h1-2025-analysis",
+  "desktopDebugLog": true,
+  "expected": {
+    "requiredTools": ["read_file", "run_python", "write_file", "create_deck", "replace_slide", "validate_render"],
+    "forbiddenTools": ["web_search", "web_fetch"],
+    "minReplaceSlideCalls": 6,
+    "requireFinalValidateRender": true,
+    "requireProgressDone": true,
+    "requirePptxOutput": true,
+    "outputPath": "outputs/hr-h1-2025-analysis.pptx",
+    "maxBlockingDiagnostics": 0
+  }
+}

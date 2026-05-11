@@ -12,12 +12,14 @@ import type { RichTextRun } from "./types.js";
  *   ~~strike~~       → strikethrough run
  *   ==highlight==    → highlight run         (theme-default warning tint)
  *   `code`           → code run (font:"mono")
+ *   $math$           → {kind:"math",latex} inline Office Math
+ *   $$math$$         → {kind:"math",latex} display-style math run
  *   {{key:text}}     → emphasis:"key" run    — also supports muted/danger/success/accent/info/warning/lead/strong/subtle
  *   {{num:42%}}      → emphasis:"key" run with size:"lg" — agents reach for this to make a number visually pop
  *   [text](url)      → hyperlink run
  *
  * Escapes:
- *   \*  \_  \=  \`  \[ \{   — backslash defeats the next marker char.
+ *   \*  \_  \=  \`  \$  \[ \{   — backslash defeats the next marker char.
  *
  * Multi-mark interaction: marks nest left-to-right but don't mix; the parser
  * handles ***bold-italic*** by recognizing the longer marker first. Unbalanced
@@ -37,7 +39,7 @@ const NAMED_EMPHASIS = new Set([
 export function hasMarkdownMarkers(input: string): boolean {
   if (typeof input !== "string" || !input) return false;
   // Quick scan — avoid parser overhead when nothing looks marked.
-  return /(\*\*|__|~~|==|`|\{\{[a-z]+:|\[[^\]]+\]\(|(?:^|[^\w*])\*[^\s*])/.test(input);
+  return /(\*\*|__|~~|==|`|\{\{[a-z]+:|\[[^\]]+\]\(|(?:^|[^\w*])\*[^\s*])/.test(input) || hasMarkdownMath(input);
 }
 
 export function parseMarkdownInline(input: string): ParseResult {
@@ -125,6 +127,16 @@ export function parseMarkdownInline(input: string): ParseResult {
         continue;
       }
     }
+    if (ch === "$") {
+      const math = readMarkdownMath(input, i);
+      if (math) {
+        flushBuffer();
+        runs.push({ kind: "math", latex: math.latex, display: math.display } as RichTextRun);
+        matched = true;
+        i = math.end;
+        continue;
+      }
+    }
     // Single-asterisk italic — only when not adjacent to whitespace on the
     // outside (CommonMark's emphasis rules, simplified). Avoids matching "5*3".
     if (ch === "*") {
@@ -209,6 +221,45 @@ function findUnescaped(input: string, ch: string, from: number): number {
     if (input[j] === ch) return j;
   }
   return -1;
+}
+
+function hasMarkdownMath(input: string): boolean {
+  for (let i = 0; i < input.length; i++) {
+    if (input[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (input[i] === "$" && readMarkdownMath(input, i)) return true;
+  }
+  return false;
+}
+
+function readMarkdownMath(input: string, start: number): { latex: string; display: boolean; end: number } | null {
+  if (input[start] !== "$") return null;
+  if (start > 0 && input[start - 1] === "\\") return null;
+  const display = input[start + 1] === "$";
+  const marker = display ? "$$" : "$";
+  const bodyStart = start + marker.length;
+  const first = input[bodyStart];
+  if (!first || /\s/.test(first) || (!display && /[\d$]/.test(first))) return null;
+  for (let i = bodyStart; i < input.length; i++) {
+    if (input[i] === "\\") {
+      i++;
+      continue;
+    }
+    if (display) {
+      if (input[i] === "$" && input[i + 1] === "$") {
+        const latex = input.slice(bodyStart, i);
+        if (!latex.trim() || /\s$/.test(latex)) return null;
+        return { latex, display, end: i + 2 };
+      }
+    } else if (input[i] === "$") {
+      const latex = input.slice(bodyStart, i);
+      if (!latex.trim() || /\s$/.test(latex)) return null;
+      return { latex, display, end: i + 1 };
+    }
+  }
+  return null;
 }
 
 /**

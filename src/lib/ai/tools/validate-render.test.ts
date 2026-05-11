@@ -61,6 +61,11 @@ describe("validate_render quality diagnostics", () => {
       code: "TRUNCATED",
       slideId: "s8",
       nodeId: "s8.card.body",
+      compiler: {
+        code: "SLIDEML_TEXT_FIT",
+        sourceCode: "TRUNCATED",
+        location: { slideId: "s8", nodeId: "s8.card.body" },
+      },
     });
     expect(result.diagnostics.qualityAction).toContain("Quality advisory");
   });

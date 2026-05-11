@@ -1,0 +1,111 @@
+{
+  "slideml2": 2,
+  "deck": {
+    "size": "16x9",
+    "theme": "default",
+    "brand": {
+      "name": "Research Lab",
+      "primary": "2563EB"
+    },
+    "references": [
+      {
+        "id": "smith2024",
+        "authors": ["A. Smith", "L. Chen"],
+        "year": 2024,
+        "title": "Reputation pressure and reporting behavior",
+        "venue": "Journal of Classroom Methods",
+        "doi": "10.0000/example"
+      }
+    ],
+    "footnotes": [
+      {
+        "id": "privacy",
+        "text": "Scores were anonymized before aggregation."
+      }
+    ],
+    "themeOverride": {
+      "colors": {
+        "brand": {
+          "primary": "2454C5"
+        },
+        "background": "F8FAFC",
+        "surface": "FFFFFF",
+        "divider": "D8DEE9",
+        "text": {
+          "primary": "111827",
+          "muted": "64748B"
+        }
+      },
+      "layout": {
+        "pageMarginX": 1.15,
+        "contentTop": 2.1,
+        "contentBottom": 13.1,
+        "defaultGap": 0.32
+      }
+    }
+  },
+  "slides": [
+    {
+      "id": "m3-example",
+      "title": "Reputation Pressure Raises Misreporting",
+      "children": [
+        {
+          "id": "m3-example.stack",
+          "type": "stack",
+          "area": "content",
+          "gap": 0.34,
+          "children": [
+            {
+              "id": "m3-example.claim",
+              "type": "key-takeaway",
+              "headline": "High public ranking pressure increases reported scores without improving actual performance",
+              "content": [
+                { "text": "The reported gap " },
+                { "kind": "math", "latex": "\\Delta = 7.17" },
+                { "text": " is consistent with reputation-pressure findings " },
+                { "kind": "cite", "refId": "smith2024" },
+                { "text": "." }
+              ],
+              "variant": "banner",
+              "tone": "brand"
+            },
+            {
+              "id": "m3-example.eq",
+              "type": "equation",
+              "latex": "\\bar{x}=\\frac{1}{n}\\sum_{i=1}^{n} x_i",
+              "number": "1",
+              "caption": "Mean score calculation used for both reported and actual outcomes."
+            },
+            {
+              "id": "m3-example.table",
+              "type": "table-card",
+              "title": "Experimental summary",
+              "headers": ["Condition", "Reported mean", "Actual mean"],
+              "rows": [
+                ["Private scores", { "runs": [{ "kind": "math", "latex": "\\mu=1.83" }] }, "1.33"],
+                [{ "text": "Public scores", "footnoteRefs": ["privacy"] }, { "runs": [{ "kind": "math", "latex": "\\mu=9.00" }] }, "1.83"]
+              ],
+              "caption": "Source: classroom experiment transcript."
+            },
+            {
+              "id": "m3-example.code",
+              "type": "code-block",
+              "language": "python",
+              "title": "Reproducibility snippet",
+              "code": "reported_gap = public_reported.mean() - private_reported.mean()\nactual_gap = public_actual.mean() - private_actual.mean()\nprint(round(reported_gap, 2), round(actual_gap, 2))",
+              "showLineNumbers": true,
+              "highlightLines": [1],
+              "maxLines": 4
+            },
+            {
+              "id": "m3-example.refs",
+              "type": "bibliography",
+              "title": "References",
+              "style": "numeric"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

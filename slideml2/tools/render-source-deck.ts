@@ -18,14 +18,15 @@ async function main() {
   }
   const deckPath = isAbsolute(deckArg) ? deckArg : resolve(process.cwd(), deckArg);
   const outputPath = isAbsolute(outputArg) ? outputArg : resolve(process.cwd(), outputArg);
+  const baseDir = dirname(deckPath);
   const deck = await readDeck(deckPath);
-  const validation = validateDeck(deck);
+  const validation = validateDeck(deck, { baseDir });
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(`${outputPath}.validation.json`, JSON.stringify(validation, null, 2), "utf8");
   if (!validation.ok) throw new Error(`Deck validation failed with ${validation.errors.length} error(s)`);
 
   clearRenderDiagnostics();
-  const rendered = sourceToRenderedDeck(deck);
+  const rendered = sourceToRenderedDeck(deck, { baseDir });
   await writeFile(`${outputPath}.inspect-layout.json`, JSON.stringify(inspectLayout(rendered), null, 2), "utf8");
   clearRenderDiagnostics();
   const result = await renderToPptx(rendered, outputPath);

@@ -540,11 +540,28 @@ deck 级数据源 + 组件绑定，把数据转换集中在编译期完成。
 
 目标：让经营分析、投研、实验结果页不再手写散落数据。
 
+当前进展（2026-05-09）：
+
+- M2 已完成：`deck.dataSources` 支持 `inline-json` / `inline-csv` / `file-csv` / `computed`，`chart-card`、`table-card`、`metric-card`、`hero-stat`、`stat-strip`、primitive `chart` / `table` 可通过 `bind` + `encoding` 从同一数据源生成展示数据。`file-csv` 的相对路径按 deck JSON 所在目录解析；`computed` 使用受控表达式对象，不执行任意代码。
+- 已补数据视图：`filter`、`sort`、`limit`、`select`、`groupBy`、`aggregate`、`pivot` 覆盖常见商业分析读取、筛选、排序、汇总和长表转宽表需求；聚合支持 `sum`、`avg`、`min`、`max`、`count`、`first`、`last`。`pivot:{index,columns,values,aggregate?,fill?}` 可直接驱动宽表和多 series chart。
+- 已落地 B2 基础：native chart series 支持 `axis:"secondary"`、`trendLine`、`errorBars`；bound chart 可通过 `encoding.seriesOptions` 生成双轴 combo、回归趋势线和基础误差线。
+- 已落地 B5 第一阶段：绑定表格的 `encoding.columns` 支持 `{key,label,type,format,align,width}`；未显式声明 type 时会从字段名和值推断 `date` / `number` / `percent` / `currency` 并自动设置数字对齐和格式化。
+- 已补 validator：校验数据源类型、computed source/表达式字段、bind source、未知 bind/encoding 字段、聚合 op、pivot、seriesOptions、以及 bind/encoding 引用不存在的数据字段；空 `bind:{}` / `encoding:{}` 按未配置处理，避免组件 isolation 示例误报。
+- 已补 agent disclosure、SPEC、Skill 文档和 M2 data-binding regression test；bound node 的 render-tree 保留 `dataLineage` 与 `resolvedData:{rows,schema}`，并携带 `sourceLabel` / `citation` / `accessedAt` 等来源元数据，便于后续审计。
+
 ### M3：科研硬能力
 
 范围：A4 + B3 + B4 + B7。
 
 目标：公式、引用、代码块成为一等能力。
+
+当前进展（2026-05-09）：
+
+- 已落地 A4：`RichTextRun` 向后兼容地扩展为 RichInline，支持 legacy `{text,...}` 以及 `{kind:"math",latex}`、`{kind:"cite",refId,style?}`、`{kind:"footnoteRef",footnoteId}`、`{kind:"icon",src|marker,alt?}`、`{kind:"token",value,tone?,format?}`。`text`、paragraph runs、bullet runs、table cell runs、callout/content 类组件共享同一渲染和高度估算路径。
+- 已落地 B3 第二阶段：`equation` component 与 rich inline `{kind:"math",latex}` 已从可编辑文本 fallback 升级为受控 LaTeX -> 原生 Office Math (OMML) 输出，支持常见分式、根式、上下标、向量、框选、文本、希腊字母与基础运算符；不支持的 LaTeX 命令会在 validate/render 阶段报错，避免 `boxedvecI` 这类命令泄漏成普通文本。
+- 已落地 B4：`deck.references`、`deck.footnotes`、inline citation/footnote、table cell `footnoteRefs`、`bibliography` component 已可联动；引用按首次出现自动编号，bibliography 默认列出已引用项。validator 会诊断重复 ref id、缺失/未知 refId、脚注缺失、未引用 reference。
+- 已落地 B7：新增 `code-block` component，支持 language、title、caption、line numbers、highlightLines、maxLines、diff added/removed 行背景；内置轻量 tokenizer 覆盖 TS/JS、Python、SQL、Bash/shell。
+- 已补测试：`m3-scientific-capabilities.test.ts` 覆盖 text/callout/table 混合 math/cite/token/footnote、equation、bibliography、code-block、以及引用/脚注 validator 错误。
 
 ### M4：模板和可复现交付
 

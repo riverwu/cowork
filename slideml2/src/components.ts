@@ -199,7 +199,12 @@ type RichContentRun = Record<string, unknown>;
 
 function richContent(value: unknown): RichContentRun[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const runs = value.filter((run): run is RichContentRun => Boolean(run) && typeof run === "object" && typeof (run as Record<string, unknown>).text === "string");
+  const runs = value.filter((run): run is RichContentRun => {
+    if (!run || typeof run !== "object" || Array.isArray(run)) return false;
+    const rec = run as Record<string, unknown>;
+    if (typeof rec.text === "string") return true;
+    return rec.kind === "math" || rec.kind === "cite" || rec.kind === "footnoteRef" || rec.kind === "icon" || rec.kind === "token";
+  });
   return runs.length ? runs : undefined;
 }
 
@@ -270,6 +275,7 @@ export function metricCard(
     sparkline?: Array<number | string>;
     variant?: "plain" | "card" | "compact";
     density?: "comfortable" | "compact";
+    peerAligned?: boolean;
   } & { surface?: AgentSurface } & AgentSurface = {},
 ): DomNode {
   const trend = options.trend;
@@ -296,6 +302,11 @@ export function metricCard(
   // slide 3 review). We use a wrapping container with fixedHeight: 2.4
   // so the cap is actually enforced by layout, not just intent. The
   // value text inside still autoFit-shrinks to fit short strings.
+  const valueSize = metricValueSize(value, dense);
+  const peerAligned = options.peerAligned === true;
+  const valueBandHeight = peerAligned ? (dense ? 1.15 : 1.65) : undefined;
+  const labelBandHeight = peerAligned ? (dense ? 0.72 : 1.05) : undefined;
+  const deltaBandHeight = peerAligned ? (dense ? 0.3 : 0.36) : undefined;
   const valueNode: DomNode = {
     id: `${slideId}.${id}.value`,
     type: "text",
@@ -305,7 +316,7 @@ export function metricCard(
     align: "center",
     valign: "bottom",
     autoFit: "shrink",
-    ...(dense ? { size: "xs" as const } : {}),
+    ...(valueSize ? { size: valueSize } : {}),
     ...(content.length > 0 ? { content } : {}),
   };
   // maxHeight on the wrap stack flexes downward — tight rows (timeline
@@ -320,8 +331,9 @@ export function metricCard(
     gap: 0,
     align: "center",
     valign: "bottom",
-    maxHeight: dense ? 1.45 : 2.4,
-    layoutWeight: 2,
+    ...(valueBandHeight !== undefined
+      ? { fixedHeight: valueBandHeight, maxHeight: valueBandHeight }
+      : { maxHeight: dense ? 1.55 : metricValueNeedsCompactScale(value) ? 1.85 : 2.4, layoutWeight: 2 }),
     children: [valueNode],
   };
   const spark = (options.sparkline || []).map((v) => typeof v === "number" ? v : Number.parseFloat(String(v))).filter((v) => Number.isFinite(v));
@@ -338,7 +350,18 @@ export function metricCard(
   }));
   const children: DomNode[] = [
     valueWrap,
-    { id: `${slideId}.${id}.label`, type: "text", text: label, style: "metric-label", color: labelColor, align: "center", valign: "top", layoutWeight: 1, autoFit: "shrink", optional: true },
+    {
+      id: `${slideId}.${id}.label`,
+      type: "text",
+      text: label,
+      style: "metric-label",
+      color: labelColor,
+      align: "center",
+      valign: "top",
+      ...(labelBandHeight !== undefined ? { fixedHeight: labelBandHeight } : { layoutWeight: 1 }),
+      autoFit: "shrink",
+      optional: true,
+    },
   ];
   if (options.delta || options.comparison) {
     children.push({
@@ -348,7 +371,7 @@ export function metricCard(
       style: "label",
       color: valueColor,
       align: "center",
-      minHeight: dense ? 0.25 : 0.35,
+      ...(deltaBandHeight !== undefined ? { fixedHeight: deltaBandHeight } : { minHeight: dense ? 0.25 : 0.35 }),
       autoFit: "shrink",
       optional: true,
     });
@@ -379,6 +402,16 @@ export function metricCard(
     ...(options.variant === "card" ? { fill: "surface", line: "divider", padding: 0.45, cornerRadius: 0.1 } : {}),
     children,
   } as DomNode, options);
+}
+
+function metricValueNeedsCompactScale(value: string): boolean {
+  const weighted = weightedTextLength(value);
+  return weighted >= 4.2 || /[\u4e00-\u9fff]/.test(value) || /^[-+]/.test(value.trim());
+}
+
+function metricValueSize(value: string, dense: boolean): "xs" | "sm" | undefined {
+  if (dense) return "xs";
+  return metricValueNeedsCompactScale(value) ? "sm" : undefined;
 }
 
 export function stepCard(
@@ -1139,7 +1172,7 @@ export function kpiGrid(slideId: string, id: string, metrics: Array<{
     columns: cols,
     gap: dense ? 0.32 : 0.5,
     role: "kpi-grid",
-    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable" })),
+    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable", peerAligned: true })),
   } as DomNode, options);
 }
 
@@ -2237,8 +2270,14 @@ function richTextPlain(content: unknown): string {
   if (!Array.isArray(content)) return "";
   return content.map((run) => {
     if (!run || typeof run !== "object") return "";
-    const text = (run as Record<string, unknown>).text;
-    return typeof text === "string" ? text : "";
+    const rec = run as Record<string, unknown>;
+    if (typeof rec.text === "string") return rec.text;
+    if (rec.kind === "math") return typeof rec.latex === "string" ? rec.latex : "";
+    if (rec.kind === "cite") return "[cite]";
+    if (rec.kind === "footnoteRef") return "[note]";
+    if (rec.kind === "token") return String(rec.value ?? "");
+    if (rec.kind === "icon") return typeof rec.alt === "string" ? rec.alt : "";
+    return "";
   }).join("");
 }
 
@@ -2281,7 +2320,7 @@ export function numberedGrid(
   const twoByTwo = options.items.length === 4 && cols === 2;
   const compactCell = dense || twoByTwo;
   const bodyStyle = dense ? "caption" : "paragraph";
-  const chipSize = dense ? 0.54 : twoByTwo ? 0.85 : 1.15;
+  const chipSize = dense ? 0.54 : twoByTwo ? 0.78 : 1.15;
   const cellGap = dense ? 0.10 : twoByTwo ? 0.16 : 0.25;
   const gridGap = dense ? 0.32 : twoByTwo ? 0.4 : 0.55;
   const titleMinHeight = dense ? 0.42 : twoByTwo ? 0.48 : 0.55;
@@ -2371,6 +2410,7 @@ export function numberedGrid(
             direction: "horizontal" as const,
             gap: compactCell ? 0.14 : 0.18,
             valign: "middle" as const,
+            fixedHeight: compactCell ? titleMinHeight : undefined,
             children: [marker, titleNode],
           }] : [titleNode]),
           ...(item.body && item.body.trim() ? [{
@@ -2434,11 +2474,11 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
       align: "center",
       justify: "center",
       valign: "middle",
-      fixedHeight: 1.7,
+      fixedHeight: 2.05,
       layoutWeight: 4,
       children: [
-        { id: `${slideId}.${id}.${index}.value`, type: "text", text: item.value, style: "metric-value", color: valueColor, align: "center", valign: "bottom", autoFit: "shrink", minHeight: 0.85 },
-        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "metric-label", color: "text.muted", align: "center", valign: "top", uppercase: true, letterSpacing: 60 },
+        { id: `${slideId}.${id}.${index}.value`, type: "text", text: item.value, style: "metric-value", size: metricValueSize(item.value, false), color: valueColor, align: "center", valign: "bottom", autoFit: "shrink", minHeight: metricValueNeedsCompactScale(item.value) ? 1.0 : 0.9 },
+        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "metric-label", color: "text.muted", align: "center", valign: "top", uppercase: !/[\u4e00-\u9fff]/.test(item.label), letterSpacing: /[\u4e00-\u9fff]/.test(item.label) ? 0 : 60, autoFit: "shrink", minHeight: 0.36 },
       ],
     });
   });
@@ -2450,8 +2490,8 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
     role: "stat-strip",
     align: "stretch",
     valign: "middle",
-    minHeight: 1.7,
-    maxHeight: 1.95,
+    minHeight: 2.05,
+    maxHeight: 2.35,
     children: items,
   };
 }

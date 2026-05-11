@@ -840,7 +840,7 @@ export function color(theme: SimpleTheme, value: unknown, fallback = "text.prima
         severity: "warn",
         code: "UNKNOWN_COLOR",
         message: `Color value must be a string token or hex; got ${typeof value}. Falling back to '${fallback}'.`,
-        suggestion: "Use a flat token (e.g. \"brand.primary\", \"text.inverse\") or a hex string. themeOverride.colors should be flat keys, not nested objects.",
+        suggestion: "Use a flat token (e.g. \"brand.primary\", \"text.inverse\") or a hex string. themeOverride.colors may be flat or nested, but node color references must use flat token names.",
       });
     }
     return fallbackHex;

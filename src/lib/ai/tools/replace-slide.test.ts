@@ -112,6 +112,9 @@ describe("replace_slide duplicate target notice", () => {
 
     expect(String(rejected)).toContain("deck file was not modified");
     expect(String(rejected)).toContain("renderBlocking=1");
+    expect(String(rejected)).toContain("compilerDiagnostics");
+    expect(String(rejected)).toContain("SLIDEML_COMPONENT_CAPACITY");
+    expect(String(rejected)).toContain("Preserve the current component semantics");
     expect(String(accepted)).toContain("1 SlideML2 slide write(s) are pending final full-deck render");
   });
 
@@ -141,6 +144,8 @@ describe("replace_slide duplicate target notice", () => {
     });
 
     expect(String(rejected)).toContain("schemaErrorsDetail");
+    expect(String(rejected)).toContain("compilerSchemaDiagnostics");
+    expect(String(rejected)).toContain("SLIDEML_SCHEMA_FIELD");
     expect(String(rejected)).toContain("UNKNOWN_THEME_TEXT_FIELD");
     expect(String(rejected)).toContain("deck.themeOverride.text.eyebrow.tracking");
     expect(String(rejected)).toContain("Use letterSpacing");

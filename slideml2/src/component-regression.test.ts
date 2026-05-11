@@ -448,15 +448,16 @@ describe("component regressions", () => {
     expect(report.errors.find((e) => e.code === "LEGACY_NODE_NAME"), JSON.stringify(report.errors)).toBeDefined();
   });
 
-  it("text.color hex is rejected with a message clarifying band/card/shape fill is OK", () => {
+  it("text.color bare hex is allowed with a theme-token warning", () => {
     const slide: SlideV2 = {
       id: "reg-hex",
       children: [{ id: "reg-hex.t", type: "text", text: "红字", color: "FF0000", style: "paragraph" }],
     };
     const report = validateSlide(slide, baseDeck);
-    const hit = report.errors.find((e) => e.code === "RAW_TEXT_HEX_COLOR");
+    const hit = report.warnings.find((e) => e.code === "RAW_TEXT_HEX_COLOR");
     expect(hit).toBeDefined();
-    expect(hit!.message).toMatch(/band\/card\/shape/i);
+    expect(report.errors.find((e) => e.code === "RAW_TEXT_HEX_COLOR")).toBeUndefined();
+    expect(`${hit!.message} ${hit!.suggestedFix || ""}`).toMatch(/theme tokens|#RRGGBB|bare RRGGBB/i);
   });
 
   it("band.fill hex is allowed (no validation error)", () => {
@@ -491,6 +492,20 @@ describe("component regressions", () => {
     clearRenderDiagnostics();
     renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
     const squashed = getRenderDiagnostics().filter((d) => d.code === "SQUASHED" && d.nodeId === "reg-fixed-img.s.icon");
+    expect(squashed, squashed.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
+
+  it("explicit absolute image rects are allowed for small decorative ornaments", () => {
+    const slide: SlideV2 = {
+      id: "reg-ornament-img",
+      children: [
+        { id: "reg-ornament-img.top-left", type: "image", src: TINY_PNG, alt: "corner ornament", fit: "contain", layer: "behind", at: [0.2, 0.2, 2.4, 2.4] },
+        { id: "reg-ornament-img.top-right", type: "image", src: TINY_PNG, alt: "corner ornament", fit: "contain", layer: "behind", at: [22.8, 0.2, 2.4, 2.4] },
+      ],
+    };
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const squashed = getRenderDiagnostics().filter((d) => d.code === "SQUASHED" && d.nodeId?.startsWith("reg-ornament-img."));
     expect(squashed, squashed.map((d) => d.message).join("\n")).toHaveLength(0);
   });
 

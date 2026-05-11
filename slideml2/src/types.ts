@@ -11,6 +11,139 @@ export interface DeckValidationSpec {
   requireSources?: boolean;
 }
 
+export type DataSourceKind = "inline-json" | "inline-csv" | "file-csv" | "computed";
+
+export interface DataSourceSpec {
+  type?: DataSourceKind;
+  data?: unknown;
+  json?: unknown;
+  rows?: Array<Record<string, unknown>>;
+  csv?: string;
+  text?: string;
+  path?: string;
+  file?: string;
+  delimiter?: "," | ";" | "\t";
+  source?: string;
+  view?: DataViewSpec;
+  computed?: Record<string, DataComputedExpressionSpec>;
+  columns?: Record<string, DataComputedExpressionSpec>;
+  postComputed?: Record<string, DataComputedExpressionSpec>;
+  sourceLabel?: string;
+  citation?: string;
+  accessedAt?: string;
+}
+
+export type DataAggregateOp = "sum" | "avg" | "min" | "max" | "count" | "first" | "last";
+
+export type DataAggregateSpec = Record<string, DataAggregateOp | { op: DataAggregateOp; field?: string }>;
+
+export interface DataPivotSpec {
+  index: string | string[];
+  columns: string;
+  values: string;
+  aggregate?: DataAggregateOp;
+  fill?: string | number;
+}
+
+export type DataComputedOperand =
+  | string
+  | number
+  | boolean
+  | null
+  | { field: string }
+  | { value: unknown };
+
+export type DataComputedExpressionSpec =
+  | DataComputedOperand
+  | {
+      op:
+        | "field"
+        | "literal"
+        | "add"
+        | "sum"
+        | "subtract"
+        | "sub"
+        | "multiply"
+        | "mul"
+        | "divide"
+        | "div"
+        | "ratio"
+        | "percent-change"
+        | "percentChange"
+        | "negate"
+        | "abs"
+        | "round"
+        | "concat"
+        | "coalesce";
+      field?: string;
+      value?: unknown;
+      left?: DataComputedOperand;
+      right?: DataComputedOperand;
+      current?: DataComputedOperand;
+      previous?: DataComputedOperand;
+      values?: DataComputedOperand[];
+      digits?: number;
+      separator?: string;
+      empty?: unknown;
+    };
+
+export type DataColumnType = "text" | "number" | "percent" | "currency" | "date";
+
+export interface DataColumnEncodingSpec {
+  key: string;
+  label?: string;
+  type?: DataColumnType;
+  format?: "int" | "decimal" | "compact" | "percent" | "currency" | string;
+  align?: "left" | "center" | "right";
+  width?: number;
+}
+
+export interface DataStatItemEncodingSpec {
+  value: string;
+  key?: string;
+  field?: string;
+  label?: string;
+  labelField?: string;
+  valueLabel?: string;
+  tone?: string;
+  type?: DataColumnType;
+  format?: "int" | "decimal" | "compact" | "percent" | "currency" | string;
+}
+
+export interface DataBindSpec {
+  source: string;
+  select?: string[] | Record<string, string>;
+  filter?: Record<string, unknown>;
+  groupBy?: string | string[];
+  aggregate?: DataAggregateSpec;
+  pivot?: DataPivotSpec;
+  sort?: string | { by: string; direction?: "asc" | "desc" };
+  limit?: number;
+}
+
+export type DataViewSpec = Omit<DataBindSpec, "source">;
+
+export interface DataEncodingSpec {
+  x?: string;
+  y?: string | string[];
+  /** Optional orientation for bar-like bound charts. When omitted, SlideML2 can infer horizontal bars from x=numeric and y=categorical. */
+  orientation?: "vertical" | "horizontal";
+  series?: string;
+  label?: string;
+  value?: string;
+  delta?: string;
+  items?: DataStatItemEncodingSpec[];
+  columns?: Array<string | DataColumnEncodingSpec>;
+  seriesName?: string;
+  seriesOptions?: Record<string, {
+    name?: string;
+    type?: "bar" | "line";
+    axis?: "primary" | "secondary";
+    trendLine?: { type?: "linear" | "exp" | "log" | "poly"; order?: number; label?: string } | boolean;
+    errorBars?: { type?: "fixed" | "percent" | "stdDev" | "stdErr"; value?: number; direction?: "x" | "y" | "both" };
+  }>;
+}
+
 export type ThemeLayoutArea =
   | { x: number; y: number; w: number; h: number }
   | { left: number; top: number; right: number; bottom: number };
@@ -75,6 +208,9 @@ export interface DeckSpec {
   brand?: BrandSpec;
   chrome?: ChromeSpec;
   validation?: DeckValidationSpec;
+  dataSources?: Record<string, DataSourceSpec>;
+  references?: ReferenceSpec[];
+  footnotes?: FootnoteSpec[];
   metadata?: Record<string, unknown>;
 }
 
@@ -180,8 +316,39 @@ export type NodeType = "slide" | "stack" | "grid" | "split" | "spacer" | "divide
 
 export type TextContent = string | RichTextRun[];
 
-export interface RichTextRun {
+export interface ReferenceSpec {
+  id: string;
+  title?: string;
+  authors?: string[] | string;
+  year?: string | number;
+  venue?: string;
+  doi?: string;
+  url?: string;
+  citation?: string;
+}
+
+export interface FootnoteSpec {
+  id: string;
   text: string;
+}
+
+export interface RichTextRun {
+  /**
+   * RichInline discriminant. Omitted means legacy text run and remains
+   * backwards-compatible with older decks.
+   */
+  kind?: "text" | "math" | "cite" | "footnoteRef" | "icon" | "token";
+  text?: string;
+  latex?: string;
+  refId?: string;
+  footnoteId?: string;
+  style?: "numeric" | "author-year" | "short";
+  src?: string;
+  marker?: string;
+  alt?: string;
+  value?: unknown;
+  tone?: "neutral" | "brand" | "positive" | "warning" | "danger" | "info";
+  format?: "plain" | "int" | "number" | "decimal" | "percent" | "currency";
   /** Inline marks. `code` swaps to the mono font role; `emphasis` is a
    *  semantic alias for italic; `strikethrough` / `superscript` /
    *  `subscript` map to `<a:rPr strike|baseline>`. `highlight` requires
@@ -194,6 +361,10 @@ export interface RichTextRun {
    *  paragraph mix a hero number with normal copy without splitting into
    *  multiple text nodes. */
   size?: "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
+  /** Explicit per-run font size in points. Prefer semantic `size` for prose;
+   *  code/table components use this when dense monospace listings need a
+   *  precise fit. */
+  fontSize?: number;
   /** Per-run weight override. Accepts named CSS weights (light/regular/
    *  medium/semibold/bold/extrabold/black) or numeric 100..900. */
   weight?:
@@ -248,6 +419,7 @@ export type AnchorPoint =
 export interface CellSpec {
   text?: string;
   runs?: RichTextRun[];
+  footnoteRefs?: string[];
   align?: "left" | "center" | "right";
   valign?: "top" | "middle" | "bottom";
   fill?: string;

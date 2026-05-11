@@ -2,6 +2,7 @@ import type { Tool } from "./types";
 import { slideml2ReadDeck, slideml2ReplaceSlide, type Slideml2ReplaceSlideResult } from "@/lib/tauri";
 import { hasUnvalidatedSlideWriteTarget, recordSlideWrite, slideAuthoringCheckpointHint, slideSemanticLayoutHint } from "./slideml2-authoring-state";
 import { parseJsonLenient } from "./_json-repair";
+import { formatCompilerDiagnostics, formatCompilerValidationErrors } from "./slideml2-diagnostic-format";
 
 export const replaceSlideTool: Tool = {
   definition: {
@@ -45,8 +46,22 @@ After every slide has passed \`replace_slide\`, call \`validate_render({deckPath
           slide = parseJsonLenient(trimmed);
           autoParsedNote = "Warning: slide arrived as a JSON string and was auto-parsed as a recovery path. The canonical call is slide:{...} as an object literal; do not use slide:\"{...}\" again.\n";
         } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
           return [
-            `Error: slide must be a JSON object, not a malformed JSON string. The string passed could not be parsed (${err instanceof Error ? err.message : String(err)}).`,
+            `Error: slide must be a JSON object, not a malformed JSON string. The string passed could not be parsed (${message}).`,
+            `diagnostic=${JSON.stringify({
+              severity: "error",
+              code: "SLIDEML_JSON_PARSE",
+              message: "replace_slide.slide was a malformed JSON string.",
+              location: { jsonPath: "slide" },
+              expected: { type: "SlideV2 object literal" },
+              actual: { type: "string", parseError: message },
+              suggestions: [
+                "Pass slide as an object literal in the tool argument.",
+                "If the slide object is too long, split the page or reduce content before retrying; do not stringify the whole slide.",
+              ],
+              examplePatch: `replace_slide({deckPath, slideId: 0, slide: {id: "s1", children: [{id: "s1.main", type: "text", text: "..."}]}})`,
+            })}`,
             "Retry replace_slide with slide as an object literal in the tool argument: slide:{id,title?,children:[...]}. Do not quote or stringify the slide.",
             "Do not write the deck JSON with write_file/run_node/run_python; that bypasses SlideML2 validation and usually makes render failures harder to repair.",
           ].join("\n");
@@ -59,6 +74,19 @@ After every slide has passed \`replace_slide\`, call \`validate_render({deckPath
     if (rawColorPaths.length > 0) {
       return [
         "Slide validation failed: raw hex text colors are not allowed on slide nodes.",
+        `diagnostic=${JSON.stringify({
+          severity: "error",
+          code: "SLIDEML_SCHEMA_FIELD",
+          sourceCode: "RAW_TEXT_COLOR",
+          message: "Raw hex text colors on slide nodes are not portable across themes.",
+          location: { jsonPath: rawColorPaths[0] },
+          expected: { color: "theme token such as brand.primary or text.primary" },
+          actual: { paths: rawColorPaths.slice(0, 20) },
+          suggestions: [
+            "Define reusable hex values in create_deck.themeOverride.colors.",
+            "Reference the semantic token from slide nodes instead of using raw hex colors.",
+          ],
+        })}`,
         "Define hex values in create_deck.themeOverride.colors, then use semantic tokens such as brand.primary, text.primary, text.inverse, success, warning, danger, or palette names.",
         `Offending paths: ${rawColorPaths.slice(0, 20).join(", ")}`,
       ].join("\n");
@@ -119,7 +147,10 @@ function formatSlideValidationResult(result: Slideml2ReplaceSlideResult): string
   const blocking = blockingCount > 0
     ? `\nblocking=${JSON.stringify((diagnostics.blocking || []).slice(0, 12), null, 2)}`
     : "";
-  return `schemaOk=${String(validationOk)} schemaErrors=${errorCount}${schemaErrors} renderBlocking=${blockingCount} quality=${qualityCount}${summary}${blocking}`;
+  const compilerDiagnostics = blockingCount > 0
+    ? `\ncompilerDiagnostics=${JSON.stringify(formatCompilerDiagnostics(diagnostics.blocking, 12), null, 2)}`
+    : "";
+  return `schemaOk=${String(validationOk)} schemaErrors=${errorCount}${schemaErrors} renderBlocking=${blockingCount} quality=${qualityCount}${summary}${blocking}${compilerDiagnostics}`;
 }
 
 function formatValidationErrors(errors: NonNullable<Slideml2ReplaceSlideResult["validation"]>["errors"]): string {
@@ -135,7 +166,7 @@ function formatValidationErrors(errors: NonNullable<Slideml2ReplaceSlideResult["
     };
   });
   const more = errors.length > compact.length ? ` (${errors.length - compact.length} more)` : "";
-  return `\nschemaErrorsDetail=${JSON.stringify(compact, null, 2)}${more}`;
+  return `\nschemaErrorsDetail=${JSON.stringify(compact, null, 2)}${more}\ncompilerSchemaDiagnostics=${JSON.stringify(formatCompilerValidationErrors(errors, 12), null, 2)}`;
 }
 
 async function resolveReplaceTarget(

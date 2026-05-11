@@ -1,0 +1,13 @@
+{
+  "id": "youdao-company-profile",
+  "desktopDebugLog": true,
+  "expected": {
+    "requiredTools": ["web_search", "web_fetch", "write_file", "create_deck", "replace_slide", "validate_render"],
+    "minReplaceSlideCalls": 7,
+    "requireFinalValidateRender": true,
+    "requireProgressDone": true,
+    "requirePptxOutput": true,
+    "outputPath": "outputs/youdao-company-profile.pptx",
+    "maxBlockingDiagnostics": 0
+  }
+}

@@ -6,6 +6,14 @@ export {
   getRenderDiagnostics,
 } from "./diagnostics.js";
 export type { LayoutDiagnostic } from "./diagnostics.js";
+export {
+  BLOCKING_RENDER_DIAGNOSTIC_CODES,
+  QUALITY_RENDER_DIAGNOSTIC_CODES,
+  RENDER_DIAGNOSTIC_CODES,
+  isBlockingRenderDiagnostic,
+  isQualityRenderDiagnostic,
+} from "./diagnostic-codes.js";
+export type { RenderDiagnosticCode } from "./diagnostic-codes.js";
 export { applyEdits } from "./edit.js";
 export { inspectDeck } from "./inspect.js";
 export { inspectLayout } from "./layout-inspect.js";
@@ -33,12 +41,13 @@ export { describeDeck } from "./deck-disclosure.js";
 export type { DeckDescription, DeckFieldDescription } from "./deck-disclosure.js";
 export { listTextKinds, describeTextKind } from "./text-kinds.js";
 export { describeNodeType, listNodeTypes } from "./node-types.js";
-export { DECK_SIZE_VALUES, VALIDATION_MODE_VALUES } from "./schema.js";
+export { DECK_SIZE_VALUES, VALIDATION_MODE_VALUES, DATA_SOURCE_TYPE_VALUES, DATA_AGGREGATE_OP_VALUES, DATA_COLUMN_TYPE_VALUES, DATA_COLUMN_ALIGN_VALUES, DATA_BIND_FIELDS, DATA_ENCODING_FIELDS } from "./schema.js";
 export type { ValidationMode } from "./schema.js";
+export { resolveDataBindings, resolveDataSourceRows, resolveDataSources } from "./data-binding.js";
 export { listPaletteColors, listSizeNames, listThemes } from "./theme.js";
 export type { PaletteColorName, SizeName } from "./theme.js";
 export { createDeck, setDeckProps, appendSlide, insertSlide, replaceSlide, deleteSlide, validateDeckPath, renderDeck, readDeck, writeDeck } from "./deck-ops.js";
-export { createSourceDeck, sourceToRenderedDeck } from "./source-deck.js";
+export { createSourceDeck, normalizeSlide, sourceToRenderedDeck } from "./source-deck.js";
 export { validateDeck, validateSlide } from "./validate.js";
 export { generateBriefLayoutDemo, generateComplexLayoutDemo, generateComponentLayoutDemo, generateMarkdownPipelineDemo } from "./demo.js";
 export type {
@@ -48,13 +57,24 @@ export type {
   BrandSpec,
   DeckValidationSpec,
   DeckSpec,
+  DataAggregateOp,
+  DataAggregateSpec,
+  DataBindSpec,
+  DataColumnEncodingSpec,
+  DataColumnType,
+  DataEncodingSpec,
+  DataSourceKind,
+  DataSourceSpec,
   DomNode,
   EditOp,
+  FootnoteSpec,
   InsertPosition,
   LayoutName,
   NodeType,
+  ReferenceSpec,
   RenderedDeck,
   RenderedSlide,
+  RichTextRun,
   SlideSize,
   SlideSpec,
   Slideml2Deck,

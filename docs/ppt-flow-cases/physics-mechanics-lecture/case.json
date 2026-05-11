@@ -1,0 +1,13 @@
+{
+  "id": "physics-mechanics-lecture",
+  "desktopDebugLog": true,
+  "expected": {
+    "requiredTools": ["read_file", "write_file", "create_deck", "replace_slide", "validate_render"],
+    "minReplaceSlideCalls": 8,
+    "requireFinalValidateRender": true,
+    "requireProgressDone": true,
+    "requirePptxOutput": true,
+    "outputPath": "outputs/physics-mechanics-lecture.pptx",
+    "maxBlockingDiagnostics": 0
+  }
+}

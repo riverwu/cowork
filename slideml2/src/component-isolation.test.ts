@@ -70,6 +70,10 @@ function valuesForField(componentName: string, fieldName: string, fieldSchema: R
   if (fieldType === "color-ref") return "brand.primary";
   if (fieldType === "boolean") return false;
   if (fieldType === "number") {
+    if (componentName === "code-block" && fieldName === "columns") return profile === "dense" ? 2 : 1;
+    if (componentName === "code-block" && fieldName === "fontSize") return profile === "dense" ? 6.5 : 8;
+    if (componentName === "code-block" && fieldName === "maxLines") return profile === "dense" ? 18 : 8;
+    if (componentName === "equation" && fieldName === "fontSize") return profile === "dense" ? 11 : 14;
     if (fieldName === "value") return profile === "dense" ? 92 : 60;
     if (fieldName === "max") return 100;
     if (fieldName === "columns") return profile === "dense" ? 4 : 3;
@@ -87,6 +91,7 @@ function valuesForField(componentName: string, fieldName: string, fieldSchema: R
   }
   if (fieldType === "array") {
     const count = profile === "dense" ? 6 : profile === "typical" ? 3 : 2;
+    if (componentName === "code-block" && fieldName === "highlightLines") return profile === "dense" ? [2, { start: 4, end: 6 }] : [1];
     return arrayValueFor(componentName, fieldName, count);
   }
   if (fieldType === "object") {
@@ -110,6 +115,20 @@ function valuesForField(componentName: string, fieldName: string, fieldSchema: R
   if (fieldName === "headline") return "核心判断一句话讲清楚";
   if (fieldName === "definition") return PARAGRAPH_MID;
   if (fieldName === "body" || fieldName === "description" || fieldName === "bio" || fieldName === "caption" || fieldName === "detail") return PARAGRAPH_MID;
+  if (componentName === "code-block" && fieldName === "code") {
+    return [
+      "function score(items) {",
+      "  return items",
+      "    .filter((item) => item.active)",
+      "    .map((item) => item.value)",
+      "    .reduce((sum, value) => sum + value, 0);",
+      "}",
+    ].join("\n");
+  }
+  if (componentName === "equation" && fieldName === "latex") return "\\tan\\alpha = \\frac{\\sin\\alpha}{\\cos\\alpha}";
+  if (componentName === "equation" && fieldName === "style") return "body";
+  if (componentName === "equation" && fieldName === "size") return "md";
+  if (componentName === "equation" && fieldName === "align") return "center";
   if (fieldName === "source" || fieldName === "code") return "来源 / 引用";
   if (fieldName === "step" || fieldName === "number") return "01";
   if (fieldName === "plan") return "Pro";
@@ -280,11 +299,35 @@ function optionalShouldBeIncluded(componentName: string, fieldName: string): boo
 const COMPONENT_SKIPLIST: ReadonlySet<string> = new Set<string>();
 
 function nodeForComponent(componentName: string, slideId: string, fields: Record<string, unknown>): DomNode {
-  return {
+  const node = {
     id: `${slideId}.${componentName}`,
     type: componentName as DomNode["type"],
     ...fields,
-  };
+  } as DomNode;
+  const definition = COMPONENT_DEFINITIONS.find((item) => item.name === componentName);
+  if (definition?.children.required && (!Array.isArray(node.children) || node.children.length === 0)) {
+    node.children = requiredChildFixture(componentName, slideId);
+  }
+  return node;
+}
+
+function requiredChildFixture(componentName: string, slideId: string): DomNode[] {
+  if (componentName === "freeform-group") {
+    return [{
+      id: `${slideId}.${componentName}.mark`,
+      type: "shape",
+      preset: "ellipse",
+      anchor: "top-left",
+      offsetX: 1,
+      offsetY: 1,
+      width: 0.7,
+      height: 0.7,
+      fill: "brand.primary",
+      fillOpacity: 0.18,
+      line: "brand.primary",
+    } as DomNode];
+  }
+  return [{ id: `${slideId}.${componentName}.body`, type: "text", text: "Supporting context." } as DomNode];
 }
 
 function buildSourceDeck(slideId: string, child: DomNode, fillContent = true, themeOverride?: Slideml2SourceDeck["deck"]["themeOverride"]): Slideml2SourceDeck {

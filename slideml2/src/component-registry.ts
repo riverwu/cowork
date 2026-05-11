@@ -11,6 +11,7 @@ import {
 import { listNodeTypes } from "./node-types.js";
 import type { DomNode, NodeType } from "./types.js";
 import type { AgentSurface, DecorationMarkerInput } from "./components.js";
+import { latexToMathText, richRunsPlainText } from "./m3-rich-inline.js";
 import { normalizeStrokeCm } from "./units.js";
 
 export type ComponentName =
@@ -24,6 +25,9 @@ export type ComponentName =
   | "source-note"
   | "label"
   | "code"
+  | "code-block"
+  | "equation"
+  | "bibliography"
   | "metric-card"
   | "callout"
   | "comparison-card"
@@ -128,7 +132,7 @@ export interface ComponentDefinition {
   category: "content" | "collection" | "chrome";
   purpose: string;
   fields: Record<string, PropDefinition>;
-  children: { allowed: boolean };
+  children: { allowed: boolean; required?: boolean };
   layoutBehavior: {
     intrinsicSize: "text" | "card" | "media" | "collection" | "fill";
     canGrow: boolean;
@@ -139,6 +143,7 @@ export interface ComponentDefinition {
     themeTokens: string[];
   };
   examples: unknown[];
+  guidance?: string[];
 }
 
 export interface ComponentSummary {
@@ -172,10 +177,13 @@ export interface ComponentDescription {
   category?: ComponentDefinition["category"];
   layoutBehavior?: ComponentDefinition["layoutBehavior"];
   renderBehavior?: ComponentDefinition["renderBehavior"];
+  guidance?: string[];
 }
 
 const PRIMITIVE_COMPONENT_TYPES = ["stack", "grid", "split", "spacer", "divider", "bullets", "image", "table", "chart", "shape", "panel", "card", "band", "frame", "inset"] as const satisfies readonly NodeType[];
 type PrimitiveComponentType = typeof PRIMITIVE_COMPONENT_TYPES[number];
+
+const EXAMPLE_IMAGE_DATA_URL = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iMTIwIj48cmVjdCB3aWR0aD0iMjQwIiBoZWlnaHQ9IjEyMCIgZmlsbD0iIzI1NjNFQiIvPjwvc3ZnPg==";
 
 export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   textComponent("deck-title", "Deck-level title for covers and section openers. Use when the title itself is the dominant semantic object, not for normal slide headings.", "deck-title"),
@@ -195,6 +203,36 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     language: { type: "string", description: "Optional language label." },
     caption: { type: "string", description: "Optional code caption." },
   }),
+  component("code-block", "First-class code listing for research, engineering, SQL, or appendix slides. Supports language-aware highlighting, line numbers, diff line styling, highlighted lines, wrapping, captions, and maxLines truncation.", {
+    code: { type: "string", required: true, description: "Source code or diff text." },
+    language: { type: "string", description: "Language label such as ts, python, sql, bash, c, cpp, diff, or text." },
+    title: { type: "string", description: "Optional code block title." },
+    caption: { type: "string", description: "Optional code caption or source." },
+    showLineNumbers: { type: "boolean", description: "Show stable line numbers." },
+    highlightLines: { type: "array", description: "Line numbers or ranges such as [2,{start:4,end:6}] to tint." },
+    wrap: { type: "boolean", description: "Wrap long lines instead of preserving a single visual line." },
+    density: { type: "enum", enum: ["compact", "dense", "tiny"], description: "Code-specific vertical density. Use dense/tiny for long listings instead of truncating." },
+    columns: { type: "number", description: "Split code into 2 or 3 vertical columns for long listings while preserving line numbers." },
+    fontSize: { type: "number", description: "Explicit monospace code font size in points." },
+    maxLines: { type: "number", description: "Maximum rendered lines; excess is truncated with an ellipsis row." },
+  }, "stack(title?, table(lineNo, highlighted code lines), caption?)", "stack"),
+  component("equation", "Display equation for scientific and analytical decks. Accepts supported LaTeX input and renders native Office Math (OMML) with optional label, number, alignment, and caption.", {
+    latex: { type: "string", required: true, description: "LaTeX equation body, e.g. \\frac{a}{b}=c or \\sum_i x_i." },
+    label: { type: "string", description: "Optional equation label for authoring references." },
+    number: { type: "string", description: "Optional equation number rendered as (number)." },
+    align: { type: "enum", enum: ["left", "center", "right"], description: "Equation alignment." },
+    caption: { type: "string", description: "Optional explanatory caption." },
+    style: { type: "string", description: "Text style for the equation body. Defaults to body so page-level typography stays respected; use section-title/slide-title only for hero equations." },
+    size: { type: "string", description: "Optional semantic size dial (xs/sm/md/lg/xl/2xl) applied to the equation body." },
+    fontSize: { type: "number", description: "Optional explicit equation body font size in points." },
+    renderMode: { type: "enum", enum: ["omml"], description: "Native Office Math renderer. Unsupported LaTeX commands are rejected instead of emitted as plain text." },
+  }, "stack(label?, split(math text, number?), caption?)", "stack"),
+  component("bibliography", "Auto bibliography for cited references in deck.references. Lists only cited items by default, or every reference with includeAll:true.", {
+    title: { type: "string", description: "Optional heading." },
+    style: { type: "enum", enum: ["numeric", "author-year", "short"], description: "Citation list style." },
+    includeAll: { type: "boolean", description: "List all deck.references even if not cited." },
+    items: { type: "array", description: "Internal resolved items; normally populated by SlideML2 from deck.references." },
+  }, "stack(title?, bibliography items)", "stack"),
   component("metric-card", "Single compact KPI: one short numeric value plus label, usually as part of a grid or comparison. Do not use for prose, product names, or step text.", {
     value: { type: "string", required: true, semantic: "metric-value", description: "Short numeric or ranked value." },
     label: { type: "string", required: true, semantic: "metric-label", description: "Short metric label." },
@@ -205,6 +243,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     comparison: { type: "string", description: "Optional benchmark / target / peer note." },
     source: { type: "string", description: "Optional compact source note." },
     sparkline: { type: "array", description: "Optional tiny trend sequence; numeric values render as a micro-bar sparkline." },
+    bind: { type: "object", description: "Optional deck data binding {source, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; with encoding.value/label it resolves value and label from deck.dataSources." },
+    encoding: { type: "object", description: "Optional binding encoding {value, label, delta} for data-bound metric cards." },
     variant: { type: "enum", enum: ["plain", "card", "compact"], description: "Visual treatment." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
     surface: { type: "object", description: "Optional surface override {fill,border,cornerRadius,padding,elevation,accent}." },
@@ -379,6 +419,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     value: { type: "string", required: true, semantic: "metric-value", description: "Short number+unit, e.g. '$12.4M' or '500亿+'." },
     label: { type: "string", required: true, semantic: "card-title", description: "What the number measures." },
     caption: { type: "string", semantic: "caption", description: "Optional supporting context (e.g. '+38% YoY')." },
+    bind: { type: "object", description: "Optional deck data binding {source, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; with encoding.value/label it resolves value and label from deck.dataSources." },
+    encoding: { type: "object", description: "Optional binding encoding {value, label, delta}." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Color tone for the value." },
   }, "stack of metric-value(2xl) + card-title + caption", "stack"),
   component("bar-list", "Ranked or sortable categorical numeric/rating comparison. Use when the viewer should see who is bigger/smaller across 4-8 items.", {
@@ -388,6 +430,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   }, "stack of (label-row + horizontal-track) per item", "stack"),
   component("stat-strip", "Inline row of headline metrics with minimal chrome. Use when 3-6 numbers support one read and card frames would be too heavy.", {
     items: { type: "array", required: true, description: "Array of { value, label, tone? } items. Per-item tone (brand|positive|neutral|warning|danger) sets that cell's value color and overrides the strip default — useful for mixed signals (good/risk/bad in one row)." },
+    bind: { type: "object", description: "Optional deck data binding {source, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; resolves items from deck.dataSources." },
+    encoding: { type: "object", description: "Binding encoding {value, label}." },
     tone: { type: "enum", enum: ["brand", "positive", "neutral", "warning", "danger"], description: "Default value color tone for cells without their own tone." },
   }, "horizontal stack of (value+label) cells with thin divider rules", "stack"),
   component("legend", "Color/category key for a chart, diagram, map, or coded table. Use when colors or symbols need semantic decoding.", {
@@ -490,25 +534,33 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     chartType: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], required: true, description: "Chart type." },
     chart: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], description: "Alias for chartType." },
     labels: { type: "array", required: true, description: "Category labels." },
-    series: { type: "array", required: true, description: "Chart series." },
+    series: { type: "array", required: true, description: "Chart series. Series may set type:'bar'|'line' for combo, axis:'primary'|'secondary', trendLine, or errorBars." },
     data: { type: "object", description: "Optional { labels, series } alias bundle." },
+    bind: { type: "object", description: "Optional deck data binding {source, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; resolves labels/series from deck.dataSources." },
+    encoding: { type: "object", description: "Binding encoding: {x, y, orientation?, series?, seriesName?, seriesOptions?}. y may be a string or string[]; seriesOptions can set bar/line type, secondary axis, trendLine, and errorBars per output series. For horizontal bars, use orientation:'horizontal' or x=numeric/y=categorical." },
     title: { type: "string", description: "Optional card/chart title." },
     badge: { type: "string", description: "Optional status/category badge." },
     insight: { type: "string", description: "Optional conclusion sentence." },
     caption: { type: "string", description: "Optional source or interpretation note." },
     showLegend: { type: "boolean", description: "Show chart legend." },
     showValues: { type: "boolean", description: "Show values on chart marks." },
+    orientation: { type: "enum", enum: ["vertical", "horizontal"], description: "Bar-like chart orientation. Horizontal bars are useful for ranked categories with long labels." },
+    dataLabels: { type: "object", description: "Optional data-label controls {show, position:'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue, showCategoryName, showSeriesName, showPercent, showLegendKey, showLeaderLines}. Pie/doughnut default to category+percent labels." },
+    positiveColor: { type: "color-ref", description: "Optional color for positive bar/stacked-bar/combo points." },
+    negativeColor: { type: "color-ref", description: "Optional color for negative bar/stacked-bar/combo points. Defaults to theme danger." },
     yFormat: { type: "enum", enum: ["int", "decimal", "percent", "wanyuan", "yi"], description: "Y-axis number format." },
     tone: { type: "enum", enum: ["neutral", "brand", "tinted"], description: "Card surface tone." },
     variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
     surface: { type: "object", description: "Optional surface override." },
   }, "card(stack(title?, chart, caption?))", "grid"),
-  component("table-card", "Titled structured comparison or lookup table. Use for financials, feature matrices, risks, guidance, and compact data summaries.", {
+  component("table-card", "Titled structured comparison or lookup table. Use for financials, feature matrices, risks, guidance, and compact data summaries. Hand-authored cells can carry rich runs and footnoteRefs.", {
     title: { type: "string", description: "Optional table title." },
-    headers: { type: "array", description: "Header row labels." },
-    columns: { type: "array", description: "Alternative column definitions { header, width? }." },
-    rows: { type: "array", required: true, description: "Table rows. Supports cell objects with text/runs/fill/color/bold/align/valign/colspan/rowspan." },
+    headers: { type: "array", description: "Header row labels. For object rows, headers can also act as row keys when labels and keys match." },
+    columns: { type: "array", description: "Alternative column definitions { key?|field?, header?|label?, width? }. Use key/field when display header differs from object row key." },
+    rows: { type: "array", required: true, description: "Table rows. Rows may be arrays, {cells:[...]}, or objects keyed by columns/header names; common aliases like Metric→label and Amount→value are tolerated. Supports cell objects with text/value/runs/footnoteRefs/fill/color/tone/bold/align/valign/colspan/rowspan; runs accepts RichInline math/cite/token." },
     data: { type: "object", description: "Optional { headers, rows } alias bundle." },
+    bind: { type: "object", description: "Optional deck data binding {source, select?, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; resolves headers/rows from deck.dataSources." },
+    encoding: { type: "object", description: "Binding encoding {columns:[key|{key|field,label|header,type,format,align,width}]} to choose, label, format, align, and size table columns." },
     badge: { type: "string", description: "Optional status/category badge." },
     insight: { type: "string", description: "Optional conclusion sentence." },
     caption: { type: "string", description: "Optional source note below the table." },
@@ -788,7 +840,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   }, "stack(ticks, baseline, labels)", "stack"),
   containerComponent("freeform-group", "Slide-level composition group for anchored overlays. Use when a cover, section opener, annotation layer, or editorial page needs several independently positioned objects without abandoning validation. Children should set anchor/offsetX/offsetY/width/height/zIndex; the component expands them as direct slide children.", {
     mode: { type: "enum", enum: ["overlay", "background"], description: "overlay (default) keeps authored zIndex; background defaults child zIndex to -1." },
-  }, "fragment(children as slide-level overlays)", "stack"),
+  }, "fragment(children as slide-level overlays)", "stack", true),
   component("cover-composition", "Editorial cover layout: optional full-bleed visual/background, decorative motif, dominant title lockup, and optional hero stat. Use instead of loose deck-title/text nodes when a cover needs richer composition.", {
     title: { type: "string", required: true, description: "Cover title." },
     subtitle: { type: "string", description: "Optional subtitle." },
@@ -855,8 +907,9 @@ export function listComponents(): ComponentSummary[] {
 
 function describeOne(name: string): ComponentDescription | null {
   const primitive = primitiveComponentDescription(name);
-  if (primitive) return primitive;
-  return COMPONENT_DEFINITIONS.find((item) => item.name === name) || null;
+  if (primitive) return withUsabilityGuidance(name, primitive);
+  const definition = COMPONENT_DEFINITIONS.find((item) => item.name === name) || null;
+  return definition ? withUsabilityGuidance(name, definition) : null;
 }
 
 export interface DescribeComponentsResult {
@@ -878,6 +931,62 @@ export function describeComponents(names: readonly string[]): DescribeComponents
     else missing.push(name);
   }
   return { found, missing };
+}
+
+function withUsabilityGuidance<T extends ComponentDescription>(name: string, desc: T): T {
+  const guidance = componentUsabilityGuidance(name);
+  return guidance.length ? { ...desc, guidance } : desc;
+}
+
+function componentUsabilityGuidance(name: string): string[] {
+  switch (name) {
+    case "chart-card":
+      return [
+        "Reserve a real chart body: bar/line/combo charts need roughly >=4.8x3.0cm inside the card; pie/doughnut with labels/legend need roughly >=5.2x4.4cm before title/caption chrome.",
+        "Give the chart full width or about 60-75% of a split/chart-with-rail/evidence-layout region; move KPI/table/commentary to a rail or follow-up slide before changing component.",
+        "After body area is adequate, reduce categories/series/legend/label density. Pie/doughnut charts must keep slice labels/dataLabels visible.",
+      ];
+    case "table-card":
+      return [
+        "Reserve table body height before adding other evidence: a compact 6-8 row business table often needs about 4.5-6cm plus title/caption chrome, and text-heavy tables may need more.",
+        "For dense tables, widen text-heavy columns with encoding.columns/colWidths, use density:'compact', shorten cells, or set rowHeights before removing evidence.",
+        "If the row-height floor cannot be met, paginate the same table across slides or split exact table and interpretation into separate regions.",
+      ];
+    case "kpi-grid":
+    case "stat-strip":
+      return [
+        "Short labels and 2-6 metrics work best; reduce metrics per row or widen the metric region before replacing numbers with prose cards.",
+        "Use stat-strip for a tighter supporting row and kpi-grid for headline metric cards.",
+      ];
+    case "code-block":
+      return [
+        "Long required code should paginate across code-blocks/slides; maxLines is only for intentional excerpts.",
+        "Use columns:2/3, density:'tiny', and smaller readable fontSize before truncating.",
+      ];
+    case "equation":
+      return [
+        "Display math respects deck typography; use size/fontSize for dense formula grids.",
+        "Split derivation steps across slides before converting equations to plain text/screenshots.",
+      ];
+    case "process-flow":
+      return [
+        "Horizontal rich flows work best with 2-3 stages; use vertical direction or split slides for rich 4+ stages.",
+        "Reduce per-step body/bullets and increase component area before changing away from process-flow.",
+      ];
+    case "donut-summary":
+      return [
+        "Reserve about 5x4cm for the donut ring plus legend; do not stack it with a long table or fact-list in a shallow region.",
+        "Use it for one dominant share story. Reduce minor slices or move interpretation to a rail/follow-up slide before replacing the component.",
+      ];
+    case "evidence-layout":
+    case "chart-with-rail":
+      return [
+        "Use one dominant evidence object plus one concise interpretation rail; avoid putting a second full table/chart/KPI stack inside the rail.",
+        "When capacity fails, increase the evidence ratio/area or move secondary support to a follow-up slide before changing the evidence component.",
+      ];
+    default:
+      return [];
+  }
 }
 
 export function isComponentName(name: unknown): name is string {
@@ -904,6 +1013,15 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
   const name = componentLocalId(slideId, node.id);
   const textStyle = semanticTextStyle(componentName);
   if (textStyle) return withComponentRoot(node, textComponentNode(slideId, name, stringValue(node.text, ""), textStyle, node));
+  if (componentName === "code-block") {
+    return withComponentRoot(node, codeBlockNode(slideId, name, node));
+  }
+  if (componentName === "equation") {
+    return withComponentRoot(node, equationNode(slideId, name, node));
+  }
+  if (componentName === "bibliography") {
+    return withComponentRoot(node, bibliographyNode(slideId, name, node));
+  }
   if (componentName === "metric-card") {
     const unit = stringValue(node.unit, "");
     const trend = node.trend === "up" || node.trend === "down" || node.trend === "flat" ? node.trend : undefined;
@@ -1862,7 +1980,7 @@ function primitiveComponentDescription(name: string): ComponentDescription | nul
     children: {
       allowed: Boolean(node.acceptsChildren?.length),
       accepts: node.acceptsChildren,
-      required: primitiveType === "stack" || primitiveType === "grid",
+      required: primitiveType === "stack" || primitiveType === "grid" || primitiveType === "split",
     },
     examples: [primitiveExample(primitiveType)],
     layoutBehavior: primitiveLayoutBehavior(primitiveType),
@@ -2017,10 +2135,9 @@ function calloutNode(slideId: string, name: string, node: DomNode): DomNode {
   const text = stringValue(node.text, "");
   const body = stringValue(node.body, stringValue(node.detail, ""));
   const bullets = stringArray(node.bullets).length ? stringArray(node.bullets) : stringArray(node.items);
-  const richContent = Array.isArray(node.content)
-    ? node.content.filter((run) => run && typeof run === "object" && typeof (run as Record<string, unknown>).text === "string")
-    : undefined;
-  const variant = node.variant === "banner" || node.variant === "card" ? node.variant : (title || body || richContent || bullets.length ? "card" : "plain");
+  const richContent = richTextRuns(node.content);
+  const normalizedVariant = normalizeComponentEnumValue("callout", "variant", node.variant);
+  const variant = normalizedVariant === "banner" || normalizedVariant === "card" ? normalizedVariant : (title || body || richContent || bullets.length ? "card" : "plain");
   const toneProps = tonePropsFrom(node.tone);
   const accent = toneAccent(node.tone);
   // Compact density: tighter padding/gap and no decorative accent. Triggered
@@ -2714,6 +2831,10 @@ function chartCardNode(slideId: string, name: string, node: DomNode): DomNode {
           series: arrayValue(node.series, data.series),
           showLegend: node.showLegend,
           showValues: node.showValues,
+          orientation: node.orientation,
+          dataLabels: node.dataLabels,
+          positiveColor: node.positiveColor,
+          negativeColor: node.negativeColor,
           yFormat: node.yFormat,
           colors: node.colors,
           annotations: node.annotations,
@@ -2757,7 +2878,8 @@ function tableCardNode(slideId: string, name: string, node: DomNode): DomNode {
           id: `${slideId}.${name}.table`,
           type: "table",
           headers: node.headers || data.headers,
-          columns: node.columns,
+          columns: node.columns || data.columns,
+          encoding: node.encoding,
           rows: node.rows || data.rows || node.items,
           firstRowHeader: node.firstRowHeader,
           colWidths: node.colWidths,
@@ -3119,6 +3241,7 @@ function executiveSummaryNode(slideId: string, name: string, node: DomNode): Dom
   const implication = stringValue(node.implication, "");
   const action = stringValue(node.action, "");
   if (implication || action) {
+    const implicationOnly = Boolean(implication && !action);
     children.push({
       id: `${slideId}.${name}.next`,
       type: "stack",
@@ -3130,7 +3253,15 @@ function executiveSummaryNode(slideId: string, name: string, node: DomNode): Dom
       cornerRadius: 0.08,
       optional: true,
       children: [
-        ...(implication ? [{ id: `${slideId}.${name}.implication`, type: "text" as const, text: implication, style: "paragraph", color: "text.primary", minHeight: 0.42, autoFit: "shrink" as const }] : []),
+        ...(implication ? [{
+          id: `${slideId}.${name}.implication`,
+          type: "text" as const,
+          text: implication,
+          style: implicationOnly ? "card-title" : "paragraph",
+          color: implicationOnly ? toneAccent(tone) : "text.primary",
+          minHeight: implicationOnly ? 0.5 : 0.42,
+          autoFit: "shrink" as const,
+        }] : []),
         ...(action ? [{ id: `${slideId}.${name}.action`, type: "text" as const, text: action, style: "card-title", color: toneAccent(tone), minHeight: 0.42, autoFit: "shrink" as const }] : []),
       ],
     });
@@ -3365,17 +3496,117 @@ function component(name: ComponentName, purpose: string, fields: Record<string, 
     children: { allowed: false },
     layoutBehavior: { intrinsicSize: "card", canGrow: true, preferredParent },
     renderBehavior: { expandsTo, themeTokens: ["surface", "divider", "brand.primary", "text.primary", "text.muted"] },
-    examples: [{ type: name, ...Object.fromEntries(Object.entries(fields).filter(([, prop]) => prop.required).map(([key]) => [key, key])) }],
+    examples: [componentExample(name, fields)],
   };
 }
 
-function containerComponent(name: ComponentName, purpose: string, fields: Record<string, PropDefinition>, expandsTo: string, preferredParent: "stack" | "grid"): ComponentDefinition {
+function componentExample(name: ComponentName, fields: Record<string, PropDefinition>): Record<string, unknown> {
+  const example: Record<string, unknown> = { type: name };
+  for (const [key, prop] of Object.entries(fields)) {
+    if (prop.required || minimumExampleField(name, key)) {
+      example[key] = exampleValueForField(name, key, prop);
+    }
+  }
+  return example;
+}
+
+function minimumExampleField(name: ComponentName, key: string): boolean {
+  if (name === "article" && key === "text") return true;
+  if (name === "callout" && key === "text") return true;
+  if (name === "matrix-2x2" && key === "items") return true;
+  return false;
+}
+
+function exampleValueForField(name: ComponentName, key: string, prop: PropDefinition): unknown {
+  if (prop.type === "image-ref") return EXAMPLE_IMAGE_DATA_URL;
+  if (prop.type === "color-ref") return "brand.primary";
+  if (prop.type === "boolean") return false;
+  if (prop.type === "number") {
+    if (key === "current" || key === "min") return 0;
+    if (key === "max") return 100;
+    if (key === "columns" || key === "rows" || key === "ticks") return 3;
+    if (key === "value") return 60;
+    return 1;
+  }
+  if (prop.type === "enum") {
+    const values = prop.enum || prop.values || [];
+    return values.find((value) => value !== "inverse") || values[0] || "brand";
+  }
+  if (prop.type === "array") return exampleArrayValue(name, key);
+  if (prop.type === "object" || prop.type === "table" || prop.type === "chart") return exampleObjectValue(name, key);
+  if (key === "value" || key === "beforeValue" || key === "afterValue" || key === "price") return "60%";
+  if (key === "latex") return "\\frac{x_1}{\\sigma^2}=\\mu";
+  if (key === "code") return "const value = 1;";
+  if (key === "current") return "01";
+  if (key === "max") return "100";
+  if (key === "label" || key === "name" || key === "term") return "Label";
+  if (key === "title" || key === "headline" || key === "question") return "Core finding";
+  if (key === "definition" || key === "body" || key === "detail" || key === "insight" || key === "summary") return "A concise explanation of the evidence.";
+  if (key === "beforeLabel") return "Before";
+  if (key === "afterLabel") return "After";
+  if (key === "plan") return "Pro";
+  if (key === "text") return "Key message";
+  return "Example";
+}
+
+function exampleArrayValue(name: ComponentName, key: string): unknown[] {
+  if (key === "labels" || key === "sections" || key === "features" || key === "xLabels" || key === "yLabels") return ["A", "B", "C"];
+  if (key === "series") return [{ name: "Series", values: [10, 20, 30] }];
+  if (key === "rows" && name === "factorial-matrix") return ["Row A", "Row B"];
+  if (key === "columns" && name === "factorial-matrix") return ["Col A", "Col B"];
+  if (key === "cells" && name === "factorial-matrix") return [["A1", "A2"], ["B1", "B2"]];
+  if (key === "rows") return [["A", "10"], ["B", "20"]];
+  if (key === "values" && name === "heatmap") return [[1, 2, 3], [2, 3, 4]];
+  if (key === "values") return [10, 20, 30];
+  if (key === "metrics") return [{ value: "42%", label: "Adoption" }, { value: "18%", label: "Growth" }];
+  if (key === "logos") return [{ src: EXAMPLE_IMAGE_DATA_URL, alt: "Logo" }];
+  if (key === "callouts") return [{ title: "Observation", body: "Important region." }, { title: "Change", body: "Notable difference." }];
+  if (key === "stages") return [{ label: "Lead", value: 100 }, { label: "Qualified", value: 64 }, { label: "Closed", value: 28 }];
+  if (key === "options") return [{ name: "Option A", values: ["Yes", "No", "Yes"] }];
+  if (key === "steps") {
+    if (name === "stat-flow") return [{ value: "$12", label: "CAC" }, { connector: "x" }, { value: "4.2", label: "LTV" }];
+    return [{ title: "Step 1", body: "Define the input." }, { title: "Step 2", body: "Run the process." }];
+  }
+  if (key === "items") {
+    if (name === "timeline") return [{ time: "2026", title: "Launch", body: "First milestone." }];
+    if (name === "numbered-list") return ["First point", "Second point"];
+    if (name === "bar-list") return [{ label: "A", value: 42 }, { label: "B", value: 28 }];
+    if (name === "legend") return [{ label: "Segment A", color: "brand.primary" }];
+    if (name === "range-plot") return [{ label: "Market", min: 10, max: 60, point: 42 }];
+    if (name === "matrix-2x2") return [{ label: "Quick win", x: "high", y: "high", tone: "positive" }];
+    if (name === "failure-taxonomy") return [{ title: "Missing data", rate: "18%", examples: ["No source", "No date"] }];
+    if (name === "scorecard") return [{ label: "Accuracy", value: "92%", status: "good" }];
+    return [{ title: "Item 1", body: "Short supporting detail." }, { title: "Item 2", body: "Second detail." }];
+  }
+  if (key === "pros") return ["Fast setup", "Lower cost"];
+  if (key === "cons") return ["Less flexible", "Needs review"];
+  if (key === "strengths" || key === "weaknesses" || key === "opportunities" || key === "threats") return ["Point 1", "Point 2"];
+  return ["Item 1", "Item 2"];
+}
+
+function exampleObjectValue(name: ComponentName, key: string): unknown {
+  if (key === "left") return { id: "example.left", type: "text", text: "Left argument" };
+  if (key === "right") return { id: "example.right", type: "text", text: "Right argument" };
+  if (key === "evidence") return { id: "example.evidence", type: "chart-card", chartType: "bar", labels: ["A", "B"], series: [{ name: "Series", values: [10, 20] }] };
+  if (key === "insight") return { id: "example.insight", type: "key-takeaway", headline: "Interpret the evidence" };
+  if (key === "hero") return { id: "example.hero", type: "key-takeaway", headline: "Dominant conclusion" };
+  if (key === "rail") return { id: "example.rail", type: "side-rail", title: "Lens", body: "How to read this evidence." };
+  if (key === "primary") return { label: "Primary", value: 62 };
+  if (key === "xAxis" || key === "yAxis") return { low: "Low", high: "High" };
+  if (key === "data" && name === "chart-card") return { labels: ["A", "B"], series: [{ name: "Series", values: [10, 20] }] };
+  if (key === "data" && name === "table-card") return { headers: ["Name", "Value"], rows: [["A", "10"], ["B", "20"]] };
+  if (key === "visual") return { src: EXAMPLE_IMAGE_DATA_URL, fit: "cover" };
+  if (key === "heroStat") return { value: "42%", label: "Adoption" };
+  return {};
+}
+
+function containerComponent(name: ComponentName, purpose: string, fields: Record<string, PropDefinition>, expandsTo: string, preferredParent: "stack" | "grid", childrenRequired = false): ComponentDefinition {
   return {
     name,
     category: "chrome",
     purpose,
     fields,
-    children: { allowed: true },
+    children: { allowed: true, required: childrenRequired },
     layoutBehavior: { intrinsicSize: "card", canGrow: true, preferredParent },
     renderBehavior: { expandsTo, themeTokens: ["surface", "divider", "brand.primary", "text.primary", "text.muted"] },
     examples: [{ type: name, title: "Context", children: [{ id: "example.rail.note", type: "text", text: "Supporting context" }] }],
@@ -3457,6 +3688,7 @@ function textComponentNode(slideId: string, name: string, text: string, style: s
   const title = style === "code" ? stringValue(fields.title, stringValue(fields.language, "")) : "";
   const visualStyle = style === "label" && (fields.variant === "badge" || fields.variant === "tag") ? String(fields.variant) : style;
   const resolvedColor = resolveTextColor(fields.color, fields.tone);
+  const wrapMinHeight = style === "deck-title" || style === "slide-title" || style === "section-title";
   if (!caption && !title) {
     return {
       id: `${slideId}.${name}`,
@@ -3467,6 +3699,7 @@ function textComponentNode(slideId: string, name: string, text: string, style: s
       color: resolvedColor,
       fixedHeight: fields.fixedHeight,
       layoutWeight: fields.layoutWeight,
+      ...(wrapMinHeight ? { wrapMinHeight: true } : {}),
     };
   }
   return {
@@ -3503,6 +3736,323 @@ function textComponentNode(slideId: string, name: string, text: string, style: s
       }] : []),
     ],
   };
+}
+
+function equationNode(slideId: string, name: string, node: DomNode): DomNode {
+  const latex = stringValue(node.latex, stringValue(node.text, ""));
+  const align = node.align === "left" || node.align === "right" || node.align === "center" ? node.align : "center";
+  const label = stringValue(node.label, "");
+  const number = stringValue(node.number, "");
+  const caption = stringValue(node.caption, "");
+  const style = typeof node.style === "string" && node.style.trim() ? node.style : "body";
+  const equationText: DomNode = {
+    id: `${slideId}.${name}.math`,
+    type: "text",
+    style,
+    align,
+    content: [{ kind: "math", latex }],
+    autoFit: "shrink",
+    noWrap: true,
+    wrapMinHeight: true,
+  };
+  const main: DomNode = number ? {
+    id: `${slideId}.${name}.line`,
+    type: "split",
+    direction: "horizontal",
+    ratio: [0.86, 0.14],
+    gap: 0.2,
+    children: [
+      equationText,
+      {
+        id: `${slideId}.${name}.number`,
+        type: "text",
+        text: `(${number.replace(/^\(|\)$/g, "")})`,
+        style: "label",
+        color: "text.muted",
+        align: "right",
+        valign: "middle",
+        minHeight: 0.48,
+        noWrap: true,
+        autoFit: "shrink",
+      },
+    ],
+  } : equationText;
+  const children: DomNode[] = [
+    ...(label ? [{
+      id: `${slideId}.${name}.label`,
+        type: "text" as const,
+        text: label,
+        style: "label",
+        color: "text.muted",
+        // Keep above the renderer's text squash threshold under theme
+        // overrides. A 0.36cm label technically fits small default labels, but
+        // custom business/science themes commonly raise label typography and
+        // then the equation component trips blocking SQUASHED diagnostics.
+        fixedHeight: 0.52,
+        autoFit: "shrink" as const,
+      }] : []),
+    main,
+    ...(caption ? [{
+      id: `${slideId}.${name}.caption`,
+      type: "text" as const,
+      text: caption,
+      style: "figure-caption",
+      align,
+      fixedHeight: 0.58,
+      autoFit: "shrink" as const,
+    }] : []),
+  ];
+  return {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: caption ? 0.16 : 0.08,
+    role: "equation",
+    mathFallback: "office-math",
+    renderMode: "omml",
+    mathText: latexToMathText(latex),
+    children,
+  };
+}
+
+function bibliographyNode(slideId: string, name: string, node: DomNode): DomNode {
+  const title = stringValue(node.title, "References");
+  const items = bibliographyItemRows(node.items);
+  return {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.18,
+    role: "bibliography",
+    children: [
+      ...(title ? [{
+        id: `${slideId}.${name}.title`,
+        type: "text" as const,
+        text: title,
+        style: "card-title",
+        fixedHeight: 0.52,
+      }] : []),
+      items.length ? {
+        id: `${slideId}.${name}.items`,
+        type: "text" as const,
+        style: "footnote",
+        paragraphs: items.map((item) => ({
+          runs: [
+            { text: item.label ? `${item.label} ` : "", marks: ["bold"], color: "brand.primary" },
+            { text: item.text },
+          ],
+          style: "footnote",
+          spaceAfter: 3,
+        })),
+      } : {
+        id: `${slideId}.${name}.empty`,
+        type: "text" as const,
+        text: "No cited references.",
+        style: "source-note",
+        color: "text.muted",
+      },
+    ],
+  };
+}
+
+function codeBlockNode(slideId: string, name: string, node: DomNode): DomNode {
+  const language = stringValue(node.language, "text").trim().toLowerCase() || "text";
+  const code = stringValue(node.code, stringValue(node.text, ""));
+  const showLineNumbers = node.showLineNumbers !== false;
+  const density = codeBlockDensity(node.density, code);
+  const fontSize = numberValue(node.fontSize, undefined);
+  const requestedColumns = numberValue(node.columns, undefined);
+  const columns = requestedColumns === undefined ? 1 : Math.max(1, Math.min(3, Math.floor(requestedColumns)));
+  const originalLineCount = code.replace(/\r\n/g, "\n").split("\n").length;
+  const maxLines = typeof node.maxLines === "number" && Number.isFinite(node.maxLines) && node.maxLines > 0
+    ? Math.floor(node.maxLines)
+    : Number.POSITIVE_INFINITY;
+  const highlightSet = codeHighlightLines(node.highlightLines);
+  let lines = code.replace(/\r\n/g, "\n").split("\n");
+  const truncated = lines.length > maxLines;
+  if (truncated) lines = lines.slice(0, maxLines);
+  const rowGroups = splitCodeLinesIntoColumns(lines, columns);
+  const tables = rowGroups.map((group, groupIndex) => {
+    const startLine = groupIndex * Math.ceil(lines.length / columns) + 1;
+    const rows = group.map((line, index) => codeBlockRow(line, startLine + index, language, showLineNumbers, highlightSet.has(startLine + index), fontSize));
+    if (truncated && groupIndex === rowGroups.length - 1) {
+      rows.push(showLineNumbers
+        ? [{ text: "", fill: "surface.subtle" }, { text: "...", color: "text.muted", fill: "surface.subtle", runs: codeLineRuns("...", language, fontSize) }]
+        : [{ text: "...", color: "text.muted", fill: "surface.subtle", runs: codeLineRuns("...", language, fontSize) }]);
+    }
+    return {
+      id: `${slideId}.${name}.table${columns > 1 ? groupIndex + 1 : ""}`,
+      type: "table" as const,
+      role: "code-block-table",
+      rows,
+      colWidths: showLineNumbers ? [0.08, 0.92] : [1],
+      density,
+      codeTotalLines: originalLineCount,
+      codeRenderedLines: lines.length,
+      codeColumns: columns,
+      codeColumnIndex: groupIndex + 1,
+      codeDensity: density,
+      codeFontSize: fontSize,
+      codeTruncated: truncated,
+      borderColor: "divider",
+      bodyFill: "surface.subtle",
+    };
+  });
+  const title = stringValue(node.title, "");
+  const caption = stringValue(node.caption, "");
+  const codeBody: DomNode = columns > 1
+    ? {
+        id: `${slideId}.${name}.columns`,
+        type: "grid",
+        columns,
+        gap: 0.18,
+        children: tables,
+      }
+    : tables[0]!;
+  return {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: density === "code-tiny" ? 0.08 : 0.12,
+    role: "code-block",
+    children: [
+      ...(title || language !== "text" ? [{
+        id: `${slideId}.${name}.title`,
+        type: "text" as const,
+        text: title || language,
+        style: "label",
+        color: "text.muted",
+        fixedHeight: 0.36,
+      }] : []),
+      codeBody,
+      ...(caption ? [{
+        id: `${slideId}.${name}.caption`,
+        type: "text" as const,
+        text: caption,
+        style: "code-caption",
+        fixedHeight: 0.42,
+      }] : []),
+    ],
+  };
+}
+
+function codeBlockDensity(raw: unknown, code: string): "code" | "code-dense" | "code-tiny" {
+  if (raw === "tiny") return "code-tiny";
+  if (raw === "dense") return "code-dense";
+  if (raw === "compact") return "code";
+  const lineCount = code.replace(/\r\n/g, "\n").split("\n").length;
+  if (lineCount >= 34) return "code-tiny";
+  if (lineCount >= 22) return "code-dense";
+  return "code";
+}
+
+function splitCodeLinesIntoColumns(lines: string[], columns: number): string[][] {
+  if (columns <= 1 || lines.length === 0) return [lines];
+  const perColumn = Math.ceil(lines.length / columns);
+  const groups: string[][] = [];
+  for (let index = 0; index < columns; index++) {
+    const group = lines.slice(index * perColumn, (index + 1) * perColumn);
+    if (group.length > 0) groups.push(group);
+  }
+  return groups.length ? groups : [[]];
+}
+
+function bibliographyItemRows(raw: unknown): Array<{ label: string; text: string }> {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item, index) => {
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      const rec = item as Record<string, unknown>;
+      const label = stringValue(rec.label, "");
+      const text = stringValue(rec.text, stringValue(rec.citation, stringValue(rec.title, "")));
+      return { label, text };
+    }
+    return { label: `[${index + 1}]`, text: String(item ?? "") };
+  }).filter((item) => item.label || item.text);
+}
+
+function codeBlockRow(line: string, lineNumber: number, language: string, showLineNumbers: boolean, highlighted: boolean, fontSize?: number): unknown[] {
+  const diffKind = line.startsWith("+") && !line.startsWith("+++") ? "added" : line.startsWith("-") && !line.startsWith("---") ? "removed" : "";
+  const fill = diffKind === "added" ? "success.tint" : diffKind === "removed" ? "danger.tint" : highlighted ? "warning.tint" : "surface.subtle";
+  const codeCell = {
+    runs: codeLineRuns(line, language, fontSize),
+    fill,
+    valign: "top",
+  };
+  if (!showLineNumbers) return [codeCell];
+  return [
+    {
+      runs: [{ text: String(lineNumber), font: "mono", color: "text.muted", ...(fontSize !== undefined ? { fontSize } : {}) }],
+      color: "text.muted",
+      fill,
+      align: "right",
+      valign: "top",
+    },
+    codeCell,
+  ];
+}
+
+function codeLineRuns(line: string, language: string, fontSize?: number): Array<Record<string, unknown>> {
+  if (!line) return [codeRun(" ", "text.primary", fontSize)];
+  const commentStart = commentIndex(line, language);
+  if (commentStart >= 0) {
+    return [
+      ...codeTokens(line.slice(0, commentStart), language, fontSize),
+      codeRun(line.slice(commentStart), "text.muted", fontSize, { italic: true }),
+    ];
+  }
+  return codeTokens(line, language, fontSize);
+}
+
+function codeTokens(line: string, language: string, fontSize?: number): Array<Record<string, unknown>> {
+  const keywordRe = keywordRegex(language);
+  if (!keywordRe) return [codeRun(line, "text.primary", fontSize)];
+  const runs: Array<Record<string, unknown>> = [];
+  const re = /("[^"]*"|'[^']*'|`[^`]*`|\b\d+(?:\.\d+)?\b|\b[A-Za-z_][A-Za-z0-9_]*\b|\s+|.)/g;
+  for (const match of line.matchAll(re)) {
+    const token = match[0];
+    if (!token) continue;
+    if (/^["'`]/.test(token)) runs.push(codeRun(token, "success", fontSize));
+    else if (/^\d/.test(token)) runs.push(codeRun(token, "brand.primary", fontSize));
+    else if (keywordRe.test(token)) runs.push(codeRun(token, "brand.primary", fontSize, { marks: ["bold"] }));
+    else runs.push(codeRun(token, "text.primary", fontSize));
+    keywordRe.lastIndex = 0;
+  }
+  return runs.length ? runs : [codeRun(line, "text.primary", fontSize)];
+}
+
+function codeRun(text: string, color: string, fontSize?: number, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return { text, font: "mono", color, ...(fontSize !== undefined ? { fontSize } : {}), ...extra };
+}
+
+function keywordRegex(language: string): RegExp | null {
+  if (["ts", "tsx", "js", "jsx", "typescript", "javascript"].includes(language)) return /\b(?:const|let|var|function|return|if|else|for|while|class|interface|type|import|export|from|async|await|new|extends|implements)\b/g;
+  if (["py", "python"].includes(language)) return /\b(?:def|return|if|elif|else|for|while|class|import|from|as|with|try|except|finally|lambda|yield|async|await|True|False|None)\b/g;
+  if (["c", "cc", "cpp", "c++", "h", "hpp"].includes(language)) return /\b(?:auto|bool|break|case|char|class|const|continue|double|else|enum|false|float|for|if|include|int|long|namespace|return|short|sizeof|static|struct|switch|true|using|void|while)\b/g;
+  if (["sql", "postgres", "mysql"].includes(language)) return /\b(?:select|from|where|join|left|right|inner|outer|group|by|order|having|limit|with|as|case|when|then|else|end|sum|avg|count|min|max|insert|update|delete)\b/gi;
+  if (["sh", "bash", "shell", "zsh"].includes(language)) return /\b(?:if|then|else|fi|for|in|do|done|case|esac|function|export|echo|cd|pwd|grep|rg|awk|sed)\b/g;
+  return null;
+}
+
+function commentIndex(line: string, language: string): number {
+  if (["sql", "postgres", "mysql"].includes(language)) return line.indexOf("--");
+  if (["py", "python", "sh", "bash", "shell", "zsh"].includes(language)) return line.indexOf("#");
+  const slash = line.indexOf("//");
+  return slash >= 0 ? slash : -1;
+}
+
+function codeHighlightLines(raw: unknown): Set<number> {
+  const out = new Set<number>();
+  if (!Array.isArray(raw)) return out;
+  for (const item of raw) {
+    if (typeof item === "number" && Number.isFinite(item)) out.add(Math.floor(item));
+    else if (item && typeof item === "object") {
+      const rec = item as Record<string, unknown>;
+      const start = typeof rec.start === "number" ? Math.floor(rec.start) : typeof rec.from === "number" ? Math.floor(rec.from) : 0;
+      const end = typeof rec.end === "number" ? Math.floor(rec.end) : typeof rec.to === "number" ? Math.floor(rec.to) : start;
+      for (let line = start; line <= end; line++) if (line > 0) out.add(line);
+    }
+  }
+  return out;
 }
 
 function definitionCard(slideId: string, name: string, term: string, definition: string): DomNode {
@@ -3906,6 +4456,17 @@ export function normalizeToneAlias(tone: unknown): string | undefined {
   return t; // pass through unknowns; caller decides whether to accept.
 }
 
+export function normalizeComponentEnumValue(componentName: string, propName: string, value: unknown): string | undefined {
+  if (propName === "tone" || propName === "status") return normalizeToneAlias(value);
+  if (typeof value !== "string") return undefined;
+  const v = value.trim().toLowerCase();
+  if (!v) return undefined;
+  if (componentName === "callout" && propName === "variant") {
+    if (v === "panel" || v === "surface") return "card";
+  }
+  return v;
+}
+
 function tonePropsFrom(tone: unknown): Record<string, unknown> {
   const mapped = toneToColors(tone);
   const out: Record<string, unknown> = {};
@@ -4033,10 +4594,15 @@ function recordItems(value: unknown): Array<Record<string, unknown>> {
 
 function richTextRuns(value: unknown): Array<Record<string, unknown>> | undefined {
   if (!Array.isArray(value)) return undefined;
-  const runs = value.filter((run): run is Record<string, unknown> => run && typeof run === "object" && typeof (run as Record<string, unknown>).text === "string");
+  const runs = value.filter((run): run is Record<string, unknown> => {
+    if (!run || typeof run !== "object" || Array.isArray(run)) return false;
+    const rec = run as Record<string, unknown>;
+    if (typeof rec.text === "string") return true;
+    return rec.kind === "math" || rec.kind === "cite" || rec.kind === "footnoteRef" || rec.kind === "icon" || rec.kind === "token";
+  });
   return runs.length ? runs : undefined;
 }
 
 function richTextPlain(runs: Array<Record<string, unknown>> | undefined): string {
-  return runs ? runs.map((run) => String(run.text ?? "")).join("") : "";
+  return runs ? richRunsPlainText(runs) : "";
 }

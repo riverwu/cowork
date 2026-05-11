@@ -106,7 +106,7 @@ const GRID_DETAILED: Record<string, NodeFieldInfo> = {
 
 const SPLIT_DETAILED: Record<string, NodeFieldInfo> = {
   direction: { valueType: "enum", values: ["horizontal", "vertical"], description: "horizontal: primary on the left, secondary on the right. vertical: primary on top, secondary on the bottom." },
-  ratio: { valueType: "array", description: "number[]; explicit weights for the children (default [0.62, 0.38] for 2 children — golden-ratio split). Length must equal children.length." },
+  ratio: { valueType: "array", description: "number[]; explicit target proportions for the children (default [0.62, 0.38] for 2 children — golden-ratio split). Length must equal children.length; minimum viable child sizes can still cap the result." },
   gap: { valueType: "number", description: "number in cm; spacing between primary and secondary." },
   area: { valueType: "string", description: "Slide-level area: content, full, or a deck.themeOverride.layout.areas name." },
   padding: { valueType: "number", description: "number in cm; inner padding." },
@@ -148,7 +148,7 @@ const TEXT_DETAILED: Record<string, NodeFieldInfo> = {
   uppercase: { valueType: "boolean", description: "Render text in uppercase (CSS text-transform style)." },
   letterSpacing: { valueType: "number", description: "Letter spacing in pt × 100 (OOXML <a:rPr spc='X'> field). Negative tightens, positive opens; usually -50 to 200." },
   paragraphs: { valueType: "array", description: "Paragraph[]: { text|runs, align?, indentLevel?, lineSpacing?, spaceAfter?, bullet? } for multi-paragraph rich text." },
-  content: { valueType: "array", description: "RichTextRun[]: low-level run array with marks (bold/italic/underline/code/emphasis), color, link, breakLine." },
+  content: { valueType: "array", description: "RichInline[]: legacy text runs {text,marks?,color?,link?} plus {kind:'math',latex} rendered as native Office Math for supported LaTeX, {kind:'cite',refId,style?}, {kind:'footnoteRef',footnoteId}, {kind:'icon',src|marker,alt?}, or {kind:'token',value,tone?,format?}. Markdown-enabled strings also recognize $...$ / $$...$$ as math segments." },
   style: { valueType: "string", description: "theme text style; usually omitted for agents" },
   color: { valueType: "string", description: "theme token or 6-char hex" },
   align: { valueType: "enum", values: ["left", "center", "right", "justify"], description: "left | center | right | justify" },
@@ -211,7 +211,9 @@ const IMAGE_DETAILED: Record<string, NodeFieldInfo> = {
 
 const TABLE_DETAILED: Record<string, NodeFieldInfo> = {
   headers: { valueType: "array", description: "string[]" },
-  rows: { valueType: "array", required: true, description: "string[][] for plain rows; or TableCell[][]: { text|runs, align?, valign?, fill?, color?, bold?, colspan?, rowspan? }" },
+  rows: { valueType: "array", required: true, description: "string[][] for plain rows; or TableCell[][]: { text|runs, footnoteRefs?, align?, valign?, fill?, color?, bold?, colspan?, rowspan? }. runs accepts RichInline including math/cite/token." },
+  bind: { valueType: "object", description: "Data binding {source, select?, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; resolves rows from deck.dataSources" },
+  encoding: { valueType: "object", description: "Binding encoding {columns:[key|{key,label,type,format,align,width}]} for table fields, formatting, alignment, and widths" },
   caption: { valueType: "string", description: "optional string rendered below the table" },
   align: { valueType: "enum", values: ["left", "center", "right"], description: "default cell alignment" },
   firstRowHeader: { valueType: "boolean", description: "optional: treat first row as header (default true when headers present)" },
@@ -230,7 +232,9 @@ const CHART_DETAILED: Record<string, NodeFieldInfo> = {
     description: "bar | stacked-bar | line | pie | doughnut | area | combo | scatter | waterfall",
   },
   labels: { valueType: "array", required: true, description: "string[]" },
-  series: { valueType: "array", required: true, description: "array of {name?, values:number[], type?: 'bar'|'line' (combo), points?: {x,y}[] (scatter)}" },
+  series: { valueType: "array", required: true, description: "array of {name?, values:number[], type?: 'bar'|'line' (combo), axis?: 'primary'|'secondary', trendLine?, errorBars?, points?: {x,y}[] (scatter)}" },
+  bind: { valueType: "object", description: "Data binding {source, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; resolves labels/series from deck.dataSources" },
+  encoding: { valueType: "object", description: "Binding encoding {x, y, orientation?, series?, seriesName?, seriesOptions?}; y may be a string or string[]. seriesOptions can set combo type, secondary axis, trendLine, and errorBars per output series." },
   title: { valueType: "string", description: "string" },
   yFormat: { valueType: "enum", values: ["int", "decimal", "percent", "wanyuan", "yi"], description: "Y-axis number format" },
   axis: { valueType: "object", description: "optional object for axis labels or formatting" },
@@ -238,6 +242,10 @@ const CHART_DETAILED: Record<string, NodeFieldInfo> = {
   caption: { valueType: "string", description: "optional string rendered below the chart" },
   showValues: { valueType: "boolean", description: "boolean" },
   showLegend: { valueType: "boolean", description: "boolean (default true when series.length > 1)" },
+  orientation: { valueType: "enum", values: ["vertical", "horizontal"], description: "bar-like chart orientation; horizontal is useful for ranked categories with long labels" },
+  dataLabels: { valueType: "object", description: "{show?, position?: 'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue?, showCategoryName?, showSeriesName?, showPercent?, showLegendKey?, showLeaderLines?}; pie/doughnut default to category+percent labels" },
+  positiveColor: { valueType: "string", description: "theme token or hex for positive bar/stacked-bar/combo points" },
+  negativeColor: { valueType: "string", description: "theme token or hex for negative bar/stacked-bar/combo points; defaults to theme danger" },
   colors: { valueType: "array", description: "hex[] without # prefix; series color cycle (overrides theme palette)" },
   annotations: { valueType: "array", description: "ChartAnnotation[]: { at?, range?, label, style?: 'callout'|'marker'|'band' }" },
   fixedHeight: { valueType: "number", description: "number in cm; explicit height" },
@@ -329,7 +337,7 @@ const FRAME_DETAILED: Record<string, NodeFieldInfo> = {
 };
 
 const INSET_DETAILED: Record<string, NodeFieldInfo> = {
-  padding: { valueType: "number", required: true, description: "Inner padding in cm. The whole point of inset." },
+  padding: { valueType: "number", description: "Inner padding in cm. Defaults to theme.component.inset.padding." },
   fixedHeight: { valueType: "number", description: "Explicit height in cm." },
   fixedWidth: { valueType: "number", description: "Explicit width in cm." },
 };

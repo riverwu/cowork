@@ -1,0 +1,386 @@
+{
+  "slideml2": 2,
+  "deck": {
+    "size": "16x9",
+    "theme": "default",
+    "brand": {
+      "name": "Northwind Analytics",
+      "primary": "1F6FEB"
+    },
+    "validation": {
+      "mode": "strict"
+    },
+    "chrome": {
+      "pageNumber": true,
+      "footerText": "Illustrative data binding example"
+    },
+    "themeOverride": {
+      "colors": {
+        "brand.primary": "1F6FEB",
+        "brand.tint": "E8F1FF",
+        "brand.shade": "174EA6",
+        "surface": "FFFFFF",
+        "surface.subtle": "F6F8FA",
+        "text.primary": "1F2328",
+        "text.muted": "656D76",
+        "divider": "D0D7DE"
+      },
+      "layout": {
+        "contentTop": 2.65,
+        "contentBottom": 12.85,
+        "defaultGap": 0.42,
+        "areas": {
+          "leftRail": { "x": 0.9, "y": 2.5, "w": 4.1, "h": 9.9 },
+          "main": { "x": 5.35, "y": 2.5, "w": 17.4, "h": 9.9 }
+        }
+      },
+      "component": {
+        "card": { "cornerRadius": 0.1, "padding": 0.42 },
+        "chart-card": { "cornerRadius": 0.1, "padding": 0.42 },
+        "table-card": { "cornerRadius": 0.1, "padding": 0.38 }
+      }
+    },
+    "dataSources": {
+      "sales": {
+        "type": "inline-json",
+        "sourceLabel": "Illustrative CRM export",
+        "rows": [
+          { "quarter": "Q2", "month": "Apr", "region": "North America", "segment": "Enterprise", "revenue": 860, "margin": 0.31, "deals": 18, "winRate": 0.34 },
+          { "quarter": "Q2", "month": "May", "region": "North America", "segment": "SMB", "revenue": 410, "margin": 0.25, "deals": 31, "winRate": 0.28 },
+          { "quarter": "Q2", "month": "Jun", "region": "Europe", "segment": "Enterprise", "revenue": 520, "margin": 0.29, "deals": 14, "winRate": 0.31 },
+          { "quarter": "Q3", "month": "Jul", "region": "North America", "segment": "Enterprise", "revenue": 920, "margin": 0.34, "deals": 21, "winRate": 0.37 },
+          { "quarter": "Q3", "month": "Jul", "region": "Europe", "segment": "Enterprise", "revenue": 610, "margin": 0.32, "deals": 16, "winRate": 0.35 },
+          { "quarter": "Q3", "month": "Jul", "region": "APAC", "segment": "SMB", "revenue": 340, "margin": 0.23, "deals": 29, "winRate": 0.26 },
+          { "quarter": "Q3", "month": "Aug", "region": "North America", "segment": "SMB", "revenue": 510, "margin": 0.27, "deals": 34, "winRate": 0.3 },
+          { "quarter": "Q3", "month": "Aug", "region": "Europe", "segment": "SMB", "revenue": 390, "margin": 0.24, "deals": 27, "winRate": 0.27 },
+          { "quarter": "Q3", "month": "Aug", "region": "APAC", "segment": "Enterprise", "revenue": 470, "margin": 0.28, "deals": 12, "winRate": 0.33 },
+          { "quarter": "Q3", "month": "Sep", "region": "North America", "segment": "Enterprise", "revenue": 1030, "margin": 0.36, "deals": 23, "winRate": 0.4 },
+          { "quarter": "Q3", "month": "Sep", "region": "Europe", "segment": "Enterprise", "revenue": 680, "margin": 0.33, "deals": 17, "winRate": 0.36 },
+          { "quarter": "Q3", "month": "Sep", "region": "APAC", "segment": "SMB", "revenue": 380, "margin": 0.25, "deals": 32, "winRate": 0.28 }
+        ]
+      },
+      "salesDerived": {
+        "type": "computed",
+        "source": "sales",
+        "computed": {
+          "profit": { "op": "multiply", "values": ["revenue", "margin"] },
+          "revenuePerDeal": { "op": "divide", "left": "revenue", "right": "deals" }
+        },
+        "sourceLabel": "Illustrative CRM export"
+      },
+      "pipeline": {
+        "type": "inline-csv",
+        "csv": "stage,value,conversion,owner\nDiscovery,1250,0.42,Sales Dev\nEvaluation,930,0.31,Account Team\nProcurement,620,0.21,Deal Desk\nCommit,410,0.14,Regional VP"
+      }
+    },
+    "metadata": {
+      "example": "M2 data binding: inline-json, inline-csv, computed, filter, groupBy, aggregate, pivot, sort, limit, encoding.columns, inferred table schema, seriesOptions"
+    }
+  },
+  "slides": [
+    {
+      "id": "cover",
+      "children": [
+        {
+          "id": "cover.stack",
+          "type": "stack",
+          "area": "content",
+          "direction": "vertical",
+          "gap": 0.45,
+          "justify": "center",
+          "children": [
+            {
+              "id": "cover.eyebrow",
+              "type": "text",
+              "text": "SlideML2 M2 example",
+              "style": "label",
+              "color": "brand.shade",
+              "tracking": "wide"
+            },
+            {
+              "id": "cover.headline",
+              "type": "text",
+              "text": "One data registry drives every slide view.",
+              "style": "section-title",
+              "autoFit": "shrink"
+            },
+            {
+              "id": "cover.body",
+              "type": "bullets",
+              "items": [
+                "sales uses inline-json rows reused across Q3 trend, regional table, metric cards, and segment views",
+                "salesDerived is a computed source for profit and revenue-per-deal without arbitrary formulas",
+                "pipeline uses inline-csv text and feeds a chart, table, and hero stat",
+                "groupBy + aggregate + seriesOptions centralize calculations and chart styling before layout"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q3-dashboard",
+      "title": "Q3 dashboard",
+      "children": [
+        {
+          "id": "q3.grid",
+          "type": "grid",
+          "area": "content",
+          "columns": 2,
+          "columnWeights": [0.9, 1.35],
+          "gap": 0.45,
+          "children": [
+            {
+              "id": "q3.left",
+              "type": "stack",
+              "direction": "vertical",
+              "gap": 0.35,
+              "children": [
+                {
+                  "id": "q3.topRegion",
+                  "type": "metric-card",
+                  "bind": {
+                    "source": "sales",
+                    "filter": { "quarter": "Q3" },
+                    "groupBy": "region",
+                    "aggregate": {
+                      "Revenue": { "op": "sum", "field": "revenue" },
+                      "Deals": { "op": "sum", "field": "deals" }
+                    },
+                    "sort": "-Revenue",
+                    "limit": 1
+                  },
+                  "encoding": { "label": "region", "value": "Revenue" },
+                  "comparison": "Revenue in $000s",
+                  "status": "brand",
+                  "variant": "card"
+                },
+                {
+                  "id": "q3.regionStrip",
+                  "type": "stat-strip",
+                  "bind": {
+                    "source": "sales",
+                    "filter": { "quarter": "Q3" },
+                    "groupBy": "region",
+                    "aggregate": { "Revenue": { "op": "sum", "field": "revenue" } },
+                    "sort": "-Revenue",
+                    "limit": 2
+                  },
+                  "encoding": { "label": "region", "value": "Revenue" }
+                }
+              ]
+            },
+            {
+              "id": "q3.trend",
+              "type": "chart-card",
+              "chartType": "combo",
+              "title": "Q3 revenue and margin trend",
+              "bind": {
+                "source": "salesDerived",
+                "filter": { "quarter": "Q3" },
+                "groupBy": "month",
+                "aggregate": {
+                  "Revenue": { "op": "sum", "field": "revenue" },
+                  "Margin": { "op": "avg", "field": "margin" }
+                },
+                "sort": "month"
+              },
+              "encoding": {
+                "x": "month",
+                "y": ["Revenue", "Margin"],
+                "seriesOptions": {
+                  "Revenue": { "type": "bar" },
+                  "Margin": { "type": "line", "axis": "secondary", "trendLine": { "type": "linear", "label": "Margin trend" }, "errorBars": { "type": "fixed", "value": 0.02 } }
+                }
+              },
+              "insight": "September closes the quarter above July and August.",
+              "caption": "Source: deck.dataSources.salesDerived"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "regional-breakdown",
+      "title": "Regional aggregates",
+      "children": [
+        {
+          "id": "regional.stack",
+          "type": "stack",
+          "area": "content",
+          "direction": "vertical",
+          "gap": 0.35,
+          "children": [
+            {
+              "id": "regional.chart",
+              "type": "chart-card",
+              "chartType": "bar",
+              "title": "Revenue and deal volume by region",
+              "bind": {
+                "source": "sales",
+                "filter": { "quarter": "Q3" },
+                "groupBy": "region",
+                "aggregate": {
+                  "Revenue": { "op": "sum", "field": "revenue" },
+                  "Deals": { "op": "sum", "field": "deals" }
+                },
+                "sort": "-Revenue"
+              },
+              "encoding": { "x": "region", "y": ["Revenue", "Deals"] },
+              "showLegend": true
+            },
+            {
+              "id": "regional.table",
+              "type": "table-card",
+              "title": "Formatted bound table",
+              "badge": "B5",
+              "bind": {
+                "source": "sales",
+                "filter": { "quarter": "Q3" },
+                "groupBy": "region",
+                "aggregate": {
+                  "Revenue": { "op": "sum", "field": "revenue" },
+                  "Margin": { "op": "avg", "field": "margin" },
+                  "Deals": { "op": "sum", "field": "deals" },
+                  "WinRate": { "op": "avg", "field": "winRate" }
+                },
+                "sort": "-Revenue"
+              },
+              "encoding": {
+                "columns": [
+                  { "key": "region", "label": "Region", "type": "text", "width": 2.0 },
+                  { "key": "Revenue", "label": "Revenue", "type": "currency", "format": "int", "align": "right", "width": 1.6 },
+                  { "key": "Margin", "label": "Avg margin", "type": "percent", "align": "right", "width": 1.4 },
+                  { "key": "Deals", "label": "Deals", "type": "number", "format": "int", "align": "right", "width": 1.2 },
+                  { "key": "WinRate", "label": "Win rate", "type": "percent", "align": "right", "width": 1.4 }
+                ]
+              },
+              "caption": "Formatting and alignment are produced by encoding.columns, not preformatted cell strings."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "segment-view",
+      "title": "Segment drilldown",
+      "children": [
+        {
+          "id": "segment.grid",
+          "type": "grid",
+          "area": "content",
+          "columns": 2,
+          "columnWeights": [1.0, 1.2],
+          "gap": 0.45,
+          "children": [
+            {
+              "id": "segment.chart",
+              "type": "chart-card",
+              "chartType": "bar",
+              "title": "Q3 revenue by segment",
+              "bind": {
+                "source": "sales",
+                "filter": { "quarter": "Q3" },
+                "groupBy": "segment",
+                "aggregate": {
+                  "Revenue": { "op": "sum", "field": "revenue" },
+                  "WinRate": { "op": "avg", "field": "winRate" }
+                },
+                "sort": "-Revenue"
+              },
+              "encoding": { "x": "segment", "y": "Revenue", "seriesName": "Revenue" },
+              "caption": "Aggregated from raw sales rows."
+            },
+            {
+              "id": "segment.table",
+              "type": "table-card",
+              "title": "North America detail rows",
+              "bind": {
+                "source": "sales",
+                "filter": { "quarter": "Q3", "region": "North America" },
+                "sort": "-revenue",
+                "limit": 5
+              },
+              "encoding": {
+                "columns": [
+                  { "key": "month", "label": "Month", "type": "date", "width": 1.1 },
+                  { "key": "segment", "label": "Segment", "type": "text", "width": 1.8 },
+                  { "key": "revenue", "label": "Revenue", "type": "currency", "format": "int", "align": "right", "width": 1.4 },
+                  { "key": "margin", "label": "Margin", "type": "percent", "align": "right", "width": 1.2 },
+                  { "key": "deals", "label": "Deals", "type": "number", "format": "int", "align": "right", "width": 1.0 }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pipeline-csv",
+      "title": "CSV pipeline view",
+      "children": [
+        {
+          "id": "pipeline.stack",
+          "type": "stack",
+          "area": "content",
+          "direction": "vertical",
+          "gap": 0.35,
+          "children": [
+            {
+              "id": "pipeline.top",
+              "type": "grid",
+              "columns": 2,
+              "columnWeights": [0.6, 1.4],
+              "gap": 0.45,
+              "fixedHeight": 3.2,
+              "children": [
+                {
+                  "id": "pipeline.hero",
+                  "type": "hero-stat",
+                  "bind": {
+                    "source": "pipeline",
+                    "sort": "-value",
+                    "limit": 1
+                  },
+                  "encoding": { "label": "stage", "value": "value" },
+                  "caption": "Largest open stage."
+                },
+                {
+                  "id": "pipeline.chart",
+                  "type": "chart-card",
+                  "chartType": "bar",
+                  "title": "Pipeline value by stage",
+                  "bind": {
+                    "source": "pipeline",
+                    "sort": "-value"
+                  },
+                  "encoding": { "x": "stage", "y": "value", "seriesName": "Pipeline value" },
+                  "showValues": true,
+                  "caption": "Source: deck.dataSources.pipeline inline-csv"
+                }
+              ]
+            },
+            {
+              "id": "pipeline.table",
+              "type": "table-card",
+              "title": "Pipeline stages",
+              "density": "compact",
+              "bind": {
+                "source": "pipeline",
+                "sort": "-value"
+              },
+              "encoding": {
+                "columns": [
+                  { "key": "stage", "label": "Stage", "type": "text", "width": 2.0 },
+                  { "key": "value", "label": "Value", "type": "currency", "format": "int", "align": "right", "width": 1.5 },
+                  { "key": "conversion", "label": "Conversion", "type": "percent", "align": "right", "width": 1.5 },
+                  { "key": "owner", "label": "Owner", "type": "text", "width": 2.1 }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

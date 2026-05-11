@@ -77,6 +77,20 @@ the user to configure it.`,
         },
         size: {
           type: "string",
+          enum: [
+            "4096x4096",
+            "2048x2048",
+            "3840x2160",
+            "2560x1440",
+            "2160x3840",
+            "1440x2560",
+            "3072x2304",
+            "2304x1728",
+            "2304x3072",
+            "1728x2304",
+            "3840x1644",
+            "2560x1080",
+          ],
           description:
             "Output size as \"WIDTHxHEIGHT\". Default 4096x4096 (4K square). Pick a preset by aspect ratio: " +
             "1:1 → 4096x4096 or 2048x2048; 16:9 → 3840x2160 or 2560x1440; 9:16 → 2160x3840 or 1440x2560; " +

@@ -4,6 +4,7 @@ import { createSourceDeck, normalizeSlide } from "./source-deck.js";
 import { renderSourceDeckToPptx } from "./render.js";
 import { validateDeck } from "./validate.js";
 import type { DeckSpec, Slideml2SourceDeck, SlideV2 } from "./types.js";
+import type { ValidationReport } from "./validate.js";
 
 export async function createDeck(deckPath: string, options: {
   title?: string;
@@ -12,8 +13,17 @@ export async function createDeck(deckPath: string, options: {
   brand?: DeckSpec["brand"];
   themeOverride?: DeckSpec["themeOverride"];
   validation?: DeckSpec["validation"];
+  dataSources?: DeckSpec["dataSources"];
+  references?: DeckSpec["references"];
+  footnotes?: DeckSpec["footnotes"];
 } = {}): Promise<DeckOpResult> {
   const deck = createSourceDeck(options);
+  const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
+  if (!validation.ok) return summary(deck, {
+    ok: false,
+    error: `Deck creation rejected by validation with ${validation.errors.length} error(s).`,
+    validation,
+  });
   await writeDeck(deckPath, deck);
   return summary(deck, { ok: true });
 }
@@ -28,6 +38,12 @@ export async function setDeckProps(deckPath: string, props: Partial<DeckSpec>): 
     delete (allowed as { themeOverride?: unknown }).themeOverride;
   }
   deck.deck = { ...deck.deck, ...allowed };
+  const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
+  if (!validation.ok) return summary(deck, {
+    ok: false,
+    error: `Deck props rejected by validation with ${validation.errors.length} error(s).`,
+    validation,
+  });
   await writeDeck(deckPath, deck);
   return summary(deck, { ok: true });
 }
@@ -95,13 +111,13 @@ export async function deleteSlide(deckPath: string, slideIdOrIndex: string | num
 }
 
 export async function validateDeckPath(deckPath: string) {
-  return validateDeck(await readDeck(deckPath));
+  return validateDeck(await readDeck(deckPath), { baseDir: dirname(deckPath) });
 }
 
 export async function renderDeck(deckPath: string, outputPath: string) {
   const deck = await readDeck(deckPath);
-  const validation = validateDeck(deck);
-  const rendered = await renderSourceDeckToPptx(deck, outputPath);
+  const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
+  const rendered = await renderSourceDeckToPptx(deck, outputPath, { baseDir: dirname(deckPath) });
   return { ...rendered, validation };
 }
 
@@ -119,6 +135,7 @@ export async function writeDeck(deckPath: string, deck: Slideml2SourceDeck): Pro
 export interface DeckOpResult {
   ok: boolean;
   error?: string;
+  validation?: ValidationReport;
   slideCount: number;
   insertedAt?: number;
   replacedAt?: number;
@@ -130,6 +147,7 @@ function summary(deck: Slideml2SourceDeck, extra: Partial<DeckOpResult>): DeckOp
   return {
     ok: extra.ok ?? true,
     error: extra.error,
+    validation: extra.validation,
     slideCount: deck.slides.length,
     insertedAt: extra.insertedAt,
     replacedAt: extra.replacedAt,

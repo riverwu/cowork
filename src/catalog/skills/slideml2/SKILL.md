@@ -24,7 +24,7 @@ license: Proprietary. LICENSE.txt has complete terms
 2. **Write the complete planning archive before JSON.** Save a markdown file next to the future deck, usually `/.../.cowork-runs/run_x/deck_plan.md`, before calling `create_deck`. This is not chat prose: create it with `write_file`. The plan must include story structure, slide-by-slide content, primary/support components, icon/illustration/chart assets, intended `iconSrc`/image placements, and density risks. Use the template in **Deck Planning Archive** below.
 3. **Component plan before JSON.** For each slide in the archive, decide the page job and primary component before writing `children`. If unsure, call `describe_schema({components:[...]})` for the 2-4 candidate components and revise the markdown plan before authoring JSON. Do not start from `text` boxes and coordinates.
 4. **Asset pass follows the plan.** Generate or prepare only assets already listed in `deck_plan.md`, save them under the current run assets directory, and reference absolute paths. For icon sets, call `generate_icon_sheet` only after the plan maps each icon name to a slide/component field; see **Generated Icon Assets** below. Use SlideML2 structured charts/tables when precision matters; when a MatPilot/Canvas/chart-rendering tool is available and the chart is visually complex, generate a chart image there, then place it via `image-card`/`chart-with-rail` with `fit:"contain"`.
-5. **Create deck.** Use `create_deck({deckPath,title,size?,theme,brand,themeOverride,validation?})`; do not hand-write the full deck JSON. Source decks are `slideml2:2`, `deck:{size,theme,brand,themeOverride,validation?}`, and `slides`. `size` may be `16x9`, `16x10`, `4x3`, or `wide`.
+5. **Create deck.** Use `create_deck({deckPath,title,size?,theme,brand,themeOverride,validation?,dataSources?,references?,footnotes?})`; do not hand-write the full deck JSON. Source decks are `slideml2:2`, `deck:{size,theme,brand,themeOverride,validation?,dataSources?,references?,footnotes?}`, and `slides`. `create_deck` validates before writing; if it rejects, fix the options and call `create_deck` again. `size` may be `16x9`, `16x10`, `4x3`, or `wide`. If you discover reusable data after creation, add or replace `/deck/dataSources`, `/deck/references`, or `/deck/footnotes` with `patch_deck` before authoring bound slides.
 6. **Write slides one at a time from the archived plan.** Use `replace_slide` as the normal authoring primitive. To append a new slide, pass `slideId` equal to the current slide count. `replace_slide.slide` must be an object literal `{id,title?,background?,children,notes?,metadata?}`, never a quoted/stringified JSON blob. The tool validates the candidate slide and only commits it if it passes single-slide schema/render validation. If it rejects the slide, repair that same slide and retry before adding the next one. Use `insert_slide` only for exceptional mid-deck splices and focused `patch_deck({set?,unset?,insert?,move?,copy?})` only for repairs/theme/order edits.
 7. **Final render after all slides pass.** `validate_render({deckPath,render:true})` is the final full-deck render/export and QA tool. Do not call it as the normal per-slide loop; `replace_slide` already gates each page. Do not rely on final render to discover basic slide structure, component choice, icon placement, or asset usage; those must already be resolved in `deck_plan.md`.
 
@@ -80,20 +80,29 @@ Pre-validate self-check:
 
 Install a concrete `themeOverride` in `create_deck` before writing slides. The default theme is only a neutral scaffold.
 
-Use these effective theme fields:
+Use these effective `themeOverride` fields. Flat color keys are shown because they are easiest to diff; nested color objects are also accepted and auto-flattened.
 
 ```json
 {
   "colors": {
     "background": "FFFFFF",
     "surface": "F8FAFC",
+    "surface.subtle": "F1F5F9",
     "text.primary": "111827",
     "text.muted": "6B7280",
+    "text.inverse": "FFFFFF",
     "divider": "E5E7EB",
     "brand.primary": "2563EB",
+    "brand.tint": "E8F1FF",
+    "brand.shade": "174EA6",
     "success": "16A34A",
+    "success.tint": "DCFCE7",
     "warning": "D97706",
-    "danger": "DC2626"
+    "warning.tint": "FEF3C7",
+    "danger": "DC2626",
+    "danger.tint": "FEE2E2",
+    "info": "2563EB",
+    "info.tint": "DBEAFE"
   },
   "fonts": {
     "latin": { "display": ["Helvetica Neue"], "text": ["Arial"] },
@@ -109,8 +118,8 @@ Use these effective theme fields:
     "caption": { "fontSize": 8.8, "lineHeight": 1.25, "fontFamily": "text" },
     "label": { "fontSize": 9.2, "fontWeight": 700, "lineHeight": 1.08, "fontFamily": "text" },
     "table-header": { "fontSize": 10.8, "fontWeight": 700, "lineHeight": 1.18, "fontFamily": "text" },
-    "table-cell": { "fontSize": 10.2, "lineHeight": 1.24, "fontFamily": "text" },
-    "metric-value": { "fontSize": 34, "fontWeight": 700, "lineHeight": 1.0, "fontFamily": "display" },
+    "table-cell": { "fontSize": 10.2, "lineHeight": 1.24, "fontFamily": "text", "fontFeatures": ["tnum"] },
+    "metric-value": { "fontSize": 34, "fontWeight": 700, "lineHeight": 1.0, "fontFamily": "display", "fontFeatures": ["tnum"] },
     "metric-label": { "fontSize": 12, "lineHeight": 1.12, "fontFamily": "text" }
   },
   "layout": {
@@ -118,12 +127,36 @@ Use these effective theme fields:
     "titleTop": 0.75,
     "titleHeight": 1.35,
     "contentTop": 2.6,
-    "contentBottom": 13.35,
-    "defaultGap": 0.48
+    "contentBottom": 13.1,
+    "defaultGap": 0.48,
+    "columnGap": 0.7,
+    "cardPadding": 0.45,
+    "areas": {
+      "leftRail": { "x": 1.25, "y": 2.6, "w": 4.2, "h": 9.8 },
+      "main": { "left": 5.8, "top": 2.6, "right": 24.1, "bottom": 12.8 }
+    }
   },
   "component": {
-    "card": { "cornerRadius": 0.12, "padding": 0.45 },
-    "panel": { "cornerRadius": 0.12, "padding": 0.55 }
+    "card": { "fill": "surface", "line": "divider", "cornerRadius": 0.12, "padding": 0.45 },
+    "panel": { "fill": "surface.subtle", "line": "divider", "cornerRadius": 0.12, "padding": 0.55 },
+    "chart-card": { "fill": "surface", "line": "divider", "cornerRadius": 0.1, "padding": 0.42 },
+    "table-card": { "fill": "surface", "line": "divider", "cornerRadius": 0.08, "padding": 0.35 }
+  },
+  "chrome": {
+    "pageNumber": true,
+    "footerText": "Internal",
+    "footerLine": true,
+    "footerHeight": 0.55,
+    "footerPadding": 0.25
+  },
+  "chart": {
+    "series": ["2563EB", "16A34A", "D97706", "DC2626"]
+  },
+  "sizeScale": {
+    "sm": 0.9,
+    "md": 1,
+    "lg": 1.15,
+    "xl": 1.35
   }
 }
 ```
@@ -131,16 +164,125 @@ Use these effective theme fields:
 Critical semantics:
 
 - `deck.size` controls the canvas: `16x9` (default), `16x10`, `4x3`, or `wide`. Use the user's required output format instead of forcing 16:9.
+- Supported top-level `themeOverride` keys are `colors`, `text`, `component`, `tone`, `layout`, `fonts`, `chart`, `chrome`, `imageGrowWeight`, `sizeScale`, and `guidance`. `guidance` is prompt-facing metadata and does not render directly.
+- `themeOverride.colors` accepts flat dot keys such as `"brand.primary"` and nested objects such as `{ "brand": { "primary": "2563EB" } }`; the renderer flattens nested colors before use.
 - `contentTop` and `contentBottom` are y-coordinates for the usable content area. Formula: `contentHeight = contentBottom - contentTop`. On 16:9, `contentBottom` is usually `13.0`-`13.5`, not `0.8`.
-- `themeOverride.layout.areas` defines reusable named top-level regions: `{leftRail:{x,y,w,h}, main:{left,top,right,bottom}}`. A slide-level node can set `area:"leftRail"` or `area:"main"` instead of hand-writing `at`.
+- `themeOverride.layout.areas` defines reusable named top-level regions: `{leftRail:{x,y,w,h}, main:{left,top,right,bottom}}`. A slide-level node can set `area:"leftRail"` or `area:"main"` instead of hand-writing `at`. Do not define areas named `content` or `full`; those are built-in protected areas.
+- Layout accepts `slideWidthCm`, `slideHeightCm`, `pageMarginX`, `titleTop`, `titleHeight`, `contentTop`, `contentBottom`, `defaultGap`, `columnGap`, `cardPadding`, and `areas`; there is no `pageMarginY`.
+- `themeOverride.chrome` configures theme-level chrome: `brandMark`, `pageNumber`, `footerText`, `footerLine`, `footerHeight`, and `footerPadding`. `brandMark` must be `"none"`, `"top-right"`, or `"bottom-right"`; use `"none"` instead of `false`. `deck.chrome` remains the shorter deck-level entry point for `brandMark`, `pageNumber`, and `footerText`.
 - `deck.validation.mode` may be `standard`, `strict`, or `experimental`. Use `strict` for publication/business/research decks that need alt text and chart/table source metadata; use `experimental` only while trying new schema.
-- Surface fields are unified across components, primitive containers, and `themeOverride.component.*`: `fill`, `fillOpacity`, `line`, `lineOpacity`, `lineWidth`, `lineDash`, `cornerRadius`, `padding`, `elevation`, `shadow`, `gradient`, `accent*`.
-- There is no `pageMarginY`; vertical rhythm uses `titleTop`, `titleHeight`, `contentTop`, and `contentBottom`.
+- For repeated business/science data, put rows in `deck.dataSources` and use `bind:{source, select?, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}` plus `encoding` on `chart-card`, `table-card`, `metric-card`, `hero-stat`, `stat-strip`, `chart`, or `table`. Supported sources are `inline-json` rows, `inline-csv` text, `file-csv` local CSV paths relative to the deck JSON, and `computed` sources derived from another source with controlled expression objects; supported aggregate ops are `sum`, `avg`, `min`, `max`, `count`, `first`, and `last`.
+- Binding resolves before rendering. Order is `filter` → `groupBy/aggregate` → `pivot` → `sort` → `limit` → component `encoding`. `bind.source` must match a key in `deck.dataSources`; validator flags missing sources, unknown fields, invalid aggregate ops, invalid pivot specs, and encoding references to non-existent fields.
+- `bind.filter` supports scalar equality, array inclusion such as `{metric:["Revenue","Cost"]}`, and operator objects `{in:[...], eq, ne, contains, gt, gte, lt, lte}`. If a bound chart reports empty chart data, repair the source/filter/encoding or page split; do not switch to a weaker component just to pass validation.
+- Use `bind.pivot:{index, columns, values, aggregate?, fill?}` for long-to-wide views such as region x product or cohort x metric. `index` can be a field or field array; `columns` values become output field names; `values` is aggregated into those fields; `aggregate` defaults to `sum`. Do not combine `pivot` with `groupBy`/`aggregate` in the same bind view.
+- Use `computed` sources for safe derived fields such as margin, conversion, deltas, ratios, and labels. Example: `{type:"computed",source:"actuals",computed:{profit:{op:"subtract",left:"revenue",right:"cost"},marginPct:{op:"divide",left:"profit",right:"revenue"}},view:{sort:"quarter"}}`. Supported ops are `field`, `literal`, `add`/`sum`, `subtract`, `multiply`, `divide`/`ratio`, `percent-change`, `negate`, `abs`, `round`, `concat`, and `coalesce`; do not write JavaScript or formula strings.
+- For `chart-card` / `chart`, use `encoding:{x,y,orientation?,series?,seriesName?,seriesOptions?}`. `y` may be one field or an array of fields. When `series` is set, rows are grouped into chart series by that field; when `groupBy/aggregate` is set, encode against the aggregated output field names. For ranked horizontal bars, use `encoding:{x:"numericMeasure",y:"category",orientation:"horizontal"}`; SlideML2 also infers horizontal bars when x is numeric and y is text. `seriesOptions` is keyed by output series name/field and supports `{name,type:"bar"|"line",axis:"primary"|"secondary",trendLine?,errorBars?}` for combo charts, secondary axes, trend lines, and simple error bars. Pie/doughnut charts must show slice labels; omit `showValues:false` or set `dataLabels:{show:true,position:"bestFit",showCategoryName:true,showPercent:true}`. Bar/stacked-bar/combo charts color negative points with the theme danger color by default; override with `negativeColor`/`positiveColor` when needed.
+- For business comparison pages, do not let `table-card` become the only evidence object when the slide job is ranking, variance, YoY, contribution, or ROI. Use `chart-card` bar/stacked-bar/combo or `bar-list` as the primary readout, and put the exact table in a side rail, appendix, or a second slide. Give charts a dominant region with `split`, `chart-with-rail`, or a full-width chart; do not vertically stack a chart above a long table unless the chart still has at least ~4.5cm height.
+- For bound tables, prefer `encoding.columns:[{key,label,type,format,align,width}]` instead of pre-formatting numbers into strings. Column objects also accept `field` as a key alias and `header`/`title` as label aliases, but `key`/`label` are clearest. Use `type:"currency"`, `type:"percent"`, or `type:"number"` when the intended display is clear; if omitted, SlideML2 infers number/percent/currency/date and applies default alignment.
+- For bound KPI components, use `metric-card` / `hero-stat` with `encoding:{label,value,delta?}`. For `stat-strip`, use `encoding:{label,value}` to turn each row into one item, or `encoding:{items:[{label,value,type?,format?,tone?}]}` to turn multiple fields from the selected row into one KPI strip. `label` inside `encoding.items` is literal text; use `labelField` only when the label itself comes from data. Keep `caption`, `sourceLabel`, `citation`, or `source` for provenance when `deck.validation.mode:"strict"` is used. Render-tree output includes `dataLineage` and `resolvedData:{rows,schema}` for bound nodes.
+- For research/commercial provenance, put bibliography records in `deck.references:[{id,title?,authors?,year?,venue?,doi?,url?,citation?}]` and footnotes in `deck.footnotes:[{id,text}]`. Use rich inline runs `{kind:"cite",refId,style?}` and `{kind:"footnoteRef",footnoteId}` inside `content`/`runs`; table cell objects may use `footnoteRefs:["note-id"]`. Add `{type:"bibliography",style:"numeric"|"author-year"|"short"}` where the reference list should appear.
+- Rich text `content`/`runs` can mix legacy `{text,marks?,color?,link?}` with `{kind:"math",latex}` rendered as native Office Math for supported LaTeX, `{kind:"cite",refId}`, `{kind:"footnoteRef",footnoteId}`, `{kind:"icon",src|marker,alt?}`, and `{kind:"token",value,tone?,format?}`. Use explicit JSON for math/citations when possible. Ordinary markdown-enabled strings in text, paragraph, bullets, and table cells also recognize `$...$` / `$$...$$` as math segments; `markdown:false` and code/code-block keep content literal. Unsupported LaTeX commands fail validation instead of being emitted as plain text.
+- Do not promise external live queries or arbitrary spreadsheet formulas yet; preprocess externally fetched data before placing it in `deck.dataSources`.
+- Surface fields are shared across components and primitive containers. In `themeOverride.component.*`, use `fill`, `fillOpacity`, `line`, `lineOpacity`, `lineWidth`, `lineDash`, `borderColor`, `borderWidth`, `borderStyle`, `cornerRadius`, `padding`, `elevation`, `shadow`, `gradient`, `accent`, `accentColor`, or `accentWidth`; prefer `line` / `borderColor` / `borderWidth` over the node-level `border` alias.
 - Use `cornerRadius`, never `radius`; it is a normalized roundRect fraction `0..0.5`, not px/cm.
 - Use `anchor` for slide-level overlays. Use `corner` for `brand-mark` and `big-page-number`. Do not use `position` as a placement field.
-- Use `fontWeight`, not `bold`, in theme text styles. Use `lineHeight`, not `lineSpacing`, for theme typography.
+- Use `fontWeight` or `weight`, not `bold`, in theme text styles. Current validation accepts `"normal"`, `"bold"`, or numeric `100`-`900`; numeric weights are best for agent-controlled hierarchy. Use `lineHeight`, not `lineSpacing`, for theme typography.
 - Font chains are preference order; put the desired installed font first. SlideML2 emits the first face and does not embed fonts.
 - Typography is token-driven like color. Control the deck with a finite set of `themeOverride.text` base tokens (`slide-title`, `section-title`, `card-title`, `paragraph`, `caption`, `label`, `metric-value`, `metric-label`, `table-cell`, etc.). Component-specific tokens such as `timeline-time`, `timeline-title`, and `timeline-body` are derived from those base tokens in the theme layer.
+
+## Data Binding Pattern
+
+Use this pattern when a deck has repeated business/science data. Keep raw rows in one source, then bind multiple components to views of that source.
+
+```json
+{
+  "dataSources": {
+    "sales": {
+      "type": "inline-json",
+      "rows": [
+        { "quarter": "Q3", "month": "Jul", "region": "NA", "revenue": 920, "cost": 607, "margin": 0.34 },
+        { "quarter": "Q3", "month": "Aug", "region": "EU", "revenue": 390, "cost": 296, "margin": 0.24 }
+      ]
+    },
+    "pipeline": {
+      "type": "inline-csv",
+      "csv": "stage,value,conversion\nDiscovery,1250,0.42\nCommit,410,0.14"
+    },
+    "actuals": {
+      "type": "file-csv",
+      "path": "data/actuals.csv"
+    },
+    "margins": {
+      "type": "computed",
+      "source": "sales",
+      "computed": {
+        "profit": { "op": "subtract", "left": "revenue", "right": "cost" },
+        "marginPct": { "op": "divide", "left": "profit", "right": "revenue" }
+      }
+    }
+  }
+}
+```
+
+Bound chart:
+
+```json
+{
+  "id": "s.trend",
+  "type": "chart-card",
+  "chartType": "bar",
+  "title": "Q3 revenue",
+  "bind": {
+    "source": "sales",
+    "filter": { "quarter": "Q3" },
+    "groupBy": "month",
+    "aggregate": { "Revenue": { "op": "sum", "field": "revenue" } },
+    "sort": "month"
+  },
+  "encoding": { "x": "month", "y": "Revenue", "seriesName": "Revenue" },
+  "caption": "Source: deck.dataSources.sales"
+}
+```
+
+Bound table / KPI:
+
+```json
+{
+  "type": "table-card",
+  "bind": { "source": "sales", "groupBy": "region", "aggregate": { "Revenue": { "op": "sum", "field": "revenue" }, "Margin": { "op": "avg", "field": "margin" } }, "sort": "-Revenue" },
+  "encoding": { "columns": [{ "key": "region", "label": "Region" }, { "key": "Revenue", "type": "currency", "format": "int", "align": "right" }, { "key": "Margin", "type": "percent", "align": "right" }] }
+}
+```
+
+Pivoted table/chart example:
+
+```json
+{
+  "type": "table-card",
+  "title": "Revenue by region and product",
+  "bind": { "source": "sales", "pivot": { "index": "region", "columns": "product", "values": "revenue", "aggregate": "sum", "fill": 0 }, "sort": "region" },
+  "encoding": { "columns": [{ "key": "region", "label": "Region" }, { "key": "Core", "type": "currency", "format": "int", "align": "right" }, { "key": "Plus", "type": "currency", "format": "int", "align": "right" }] }
+}
+```
+
+Computed dual-axis chart:
+
+```json
+{
+  "type": "chart-card",
+  "chartType": "combo",
+  "bind": { "source": "margins" },
+  "encoding": {
+    "x": "quarter",
+    "y": ["revenue", "marginPct"],
+    "seriesOptions": {
+      "revenue": { "name": "Revenue", "type": "bar" },
+      "marginPct": { "name": "Margin", "type": "line", "axis": "secondary", "trendLine": { "type": "linear" }, "errorBars": { "type": "fixed", "value": 0.02 } }
+    }
+  },
+  "caption": "Source: Finance model"
+}
+```
 
 ## Component-First Slide Loop
 
@@ -168,6 +310,9 @@ Fast routing:
 | Screenshot / visual walkthrough | `snapshot-callouts` | `annotation`, `pointer-arrow`, `callout-marker` | separate image plus unrelated bullets |
 | One idea plus satellites | `hero-and-support` | `feature-card`, `metric-card` | flat 2x2 grid where one item leads |
 | Long article / reading passage | `article` | `quote`, `glossary` | shrinking paragraphs into one slide |
+| Formula / derivation / model definition | `equation` | inline `{kind:"math"}` runs | screenshot of formula text |
+| Code / SQL / reproducible method | `code-block` | `code` for one short command | generic paragraph in mono text |
+| References / bibliography | `bibliography` + rich `{kind:"cite"}` | `source-note` for one-off provenance | manually numbered text boxes |
 
 Raw `text` is a residual primitive: short labels, captions, local notes, or a sentence inside a designed container. It is not a page layout strategy.
 
@@ -175,8 +320,8 @@ Raw `text` is a residual primitive: short labels, captions, local notes, or a se
 
 - JSON must be valid. Use Chinese quotation marks inside Chinese prose, or escape inner English quotes.
 - Tool arguments must stay structured. Never pass `slide` as a string such as `"{\"id\":\"s1\",...}"`, never wrap a whole slide in quotes, and never escape every quote in the slide object. `replace_slide({deckPath,slideId,slide:{...}})` is the canonical shape. If the slide object feels too long, simplify/split the slide rather than stringifying it.
-- Use theme tokens for text colors, never raw hex on slide nodes. Put hex values in `create_deck.themeOverride.colors`, then reference tokens such as `text.primary`, `text.inverse`, `brand.primary`, `success`, `positive`, `neutral`, `muted`, `warning`, or `danger`.
-- Use centralized component tones instead of inventing per-component color words: `brand`, `tinted`, `neutral`, `muted`, `positive`/`success`, `warning`/`caution`, `danger`/`error`/`negative`, and `info`. If a new semantic tone is needed, add it to the theme layer first.
+- Prefer theme tokens for text colors. Put reusable hex values in `create_deck.themeOverride.colors`, then reference tokens such as `text.primary`, `text.inverse`, `brand.primary`, `success`, `positive`, `neutral`, `muted`, `warning`, or `danger`. For a deliberate one-off text color, `#RRGGBB` or bare `RRGGBB` is accepted, but the validator warns because raw text colors will not automatically restyle with the theme.
+- Use centralized component tones instead of inventing per-component color words: canonical tones are `brand`, `neutral`, `positive`, `warning`, and `danger` for most semantic components. Common aliases are accepted: `success`/`good` -> `positive`, `caution`/`warn` -> `warning`, `error`/`negative` -> `danger`, `info`/`primary` -> `brand`, and `muted`/`subtle` -> `neutral`. Prefer canonical values in new slides, but do not rewrite a good layout only because it used one of these aliases.
 - Use themeOverride text fields as `fontSize`, `fontWeight`, and `lineHeight`; do not use `bold` or `lineSpacing`.
 - Define the core text scale, not per-component one-off sizes: `section-title`, `card-title`, `label`, `caption`, `bullet`, `table-header`, `table-cell`, `metric-value`, and `metric-label`. If omitted, SlideML2 derives these from `slide-title` / `paragraph` / `caption` / `metric-value` to keep the deck coherent.
 - Do not use node-level `fontSize`, `lineHeight`, `fontFamily`, or `size` as routine component styling. Those are low-level escape hatches for poster/freeform nodes and rich text runs. Prefer changing `themeOverride.text` base tokens, or an explicit component token such as `timeline-body`, so the whole deck remains typographically coherent.
@@ -187,14 +332,27 @@ Raw `text` is a residual primitive: short labels, captions, local notes, or a se
 - Never mutate the SlideML2 source deck with `write_file`, `run_node`, or `run_python`. If a slide write fails, retry `replace_slide` with `slide` as an object literal; do not switch to stringified JSON, direct file writes, or python-pptx. If final `validate_render` fails, repair the SlideML2 source with `replace_slide` or focused `patch_deck` instead of generating a separate PPTX with python-pptx.
 - Prefer semantic components over plain `card`/`text` when the content has a clear meaning: metrics, timeline, process, comparison, insight, quote, table, chart, image, or takeaway.
 - Keep density renderable: most slides should have either one hero module, one data/evidence module, or 2-4 peer modules. Long prose belongs in shorter bullets, a split slide, or another slide.
-- Treat `FALLBACK_FAILED`, `COLLISION`, `TITLE_OCCLUDED`, `TINY_RECT`, `SQUASHED`, `LOW_CONTRAST`, `SHAPE_INVISIBLE`, `UNKNOWN_COLOR`, `UNKNOWN_STYLE`, and any `severity:"error"` diagnostic as blockers. `DROP` means optional content was removed to keep the slide renderable; treat it as a repair hint, not a blocker, unless the missing content is critical. Warn-level `TRUNCATED`/`OVERFLOW` means soft fitting happened; improve it when the returned slideId/nodeId gives a clear repair target, but a non-actionable soft-fit count is not a blocking error and should not trigger blind global truncation.
+- Treat `FALLBACK_FAILED`, `CODE_BLOCK_OVERFLOW`, `COLLISION`, `TITLE_OCCLUDED`, `TINY_RECT`, `LOW_CONTRAST`, `SHAPE_INVISIBLE`, `UNKNOWN_COLOR`, `UNKNOWN_STYLE`, and any `severity:"error"` diagnostic as blockers. Warn-level `SQUASHED` and `PIE_LABELS_HIDDEN` are quality diagnostics: first preserve the same chart/metric/component semantics and adjust area, ratio, density, labels, legend, or pagination; do not switch to an easier component just to silence the warning. `CODE_BLOCK_OVERFLOW` means the full code listing cannot fit in the assigned area; paginate the code into multiple slides/components instead of hiding required code with `maxLines`. `DROP` means optional content was removed to keep the slide renderable; treat it as a repair hint, not a blocker, unless the missing content is critical. Warn-level `TRUNCATED`/`OVERFLOW` means soft fitting happened; improve it when the returned slideId/nodeId gives a clear repair target, but a non-actionable soft-fit count is not a blocking error and should not trigger blind global truncation.
+- When `replace_slide` returns `compilerDiagnostics`, read `location`, `expected`, `actual`, and `suggestions` like compiler output. Repair the named slide/node first. Suggestions are ordered to preserve the current component and semantic intent: change area, ratio, density, pagination, rows/items/labels, or data grouping before changing components. Use an alternative component only when it better represents the content, not merely because it is easier to pass validation.
+
+## Targeted Component Capacity Guidance
+
+Keep this guidance in mind for high-friction components; use `describe_schema` for exact fields when needed.
+
+- `chart-card`: reserve a real chart body. Bar/line/combo charts need roughly >=4.8x3.0cm inside the card; pie/doughnut with labels/legend need roughly >=5.2x4.4cm before title/caption/card chrome. Use full width or ~60-75% of a `split` / `chart-with-rail` / `evidence-layout` region; move KPI/table/commentary to a rail or next slide before changing components. After area is adequate, reduce category/series/legend/label density, and keep pie/doughnut slice labels visible.
+- `table-card`: dense tables should usually own a half/full slide or be paginated. A compact 6-8 row business table often needs about 4.5-6cm table body height plus title/caption/card chrome; text-heavy cells need more. Use `encoding.columns`/`colWidths`, compact density, shorter cells, or `rowHeights` for tall rows before dropping columns/rows. Three or more table-only pages are acceptable only for true reference/appendix material.
+- `kpi-grid` / `stat-strip`: use `kpi-grid` for 2-6 headline metrics and `stat-strip` for a tighter supporting row. Shorten labels/units, reduce metrics per row, or widen the metric region before replacing numbers with prose cards.
+- `code-block`: long listings must either fit or fail with `CODE_BLOCK_OVERFLOW`. Use `columns:2/3`, `density:"tiny"`, and a readable smaller `fontSize`; paginate required code across slides/components. `maxLines` is only for intentional excerpts.
+- `equation`: display math respects the deck typography and renders supported LaTeX as native Office Math (OMML). For dense formula grids, use explicit `fontSize`/`size`, reduce formulas per slide, or split derivation steps. Unsupported LaTeX commands fail validation instead of being emitted as plain text.
+- `process-flow`: use horizontal flow for 2-3 rich stages; use vertical direction or split slides for rich 4+ stages. Reduce per-step body/bullets and increase the component area before changing away from process-flow.
+- `donut-summary` / `evidence-layout` / `chart-with-rail`: these are large evidence patterns. Reserve one dominant evidence object plus a concise interpretation rail. Do not stack a full table/chart/KPI dashboard into the rail; move secondary support to a follow-up slide when capacity fails.
 - **Bullets must be a `bullets` component, not embedded `\n`/`•` inside `text`.** A `text` node containing `"• A\n• B\n• C"` or `"1. A\n2. B"` is still one text box even though the renderer estimates hard line breaks: each bullet cannot be styled, dropped, measured, or repaired independently. The validator flags this as `TEXT_LOOKS_LIKE_BULLETS` — replace with `{type:"bullets", items:[...]}` (or `numbered-list` / `warning-list` / `takeaway-list`).
 - **Do not use newline-separated records inside generic `text` cards.** `"A — ...\nB — ...\nC — ..."` inside a `card` looks compact in JSON but usually destroys hierarchy and triggers autoFit. Use `bullets`, `fact-list`, `bar-list`, `scorecard`, `comparison-table`, `takeaway-list`, or a multi-column `grid` of semantic items.
 - **`key-takeaway.detail` is a single supporting sentence, not a list.** Multi-implication content goes in `bullets:[...]` or `points:[...]`. The renderer auto-splits a `detail` shaped like "1. A 2. B 3. C" or "A；B；C" as a graceful repair, but you should not rely on that — author the bullets array directly.
 - **5+ warnings/red-lines/anti-patterns belong in `warning-list`, not stacked `callout` cards.** Vertical stacks of 4+ callouts trigger `FALLBACK_FAILED` on the standard 8cm content area because each callout's chrome (padding + border + accent) consumes >1.5cm before the body even renders. `warning-list` (or `takeaway-list` for non-warning conclusions) is sized for 3-8 items on one slide and supports per-item tone for danger/warning mix.
 - **Timeline capacity:** horizontal rich-content items > 5 auto-flip to vertical layout (each row gets full width); horizontal simple items > 6 auto-wrap into stacked 4-column timeline rows with a rule per row. Prefer `timeline` for dated milestones. Use `axis-ruler` for conceptual scales/stages or ≤6 very short milestones; longer horizontal axis-rulers also wrap into 4-column rows. Prefer `body` (+ optional `tone`) over nested `metric-card` for ordinary events.
 - **`matrix-2x2` accepts two authoring modes:** (1) `items:[{label,x,y,tone?}, ...]` for data-points placed in quadrants; (2) `quadrantLabels:{tl,tr,bl,br}` (with optional `quadrantTones`) for label-only matrices where each corner *is* the headline. Pass at least one. Mixing both is fine — labels render above the data points in each quadrant.
-- **`process-flow direction:"horizontal"` is best for 2-3 stages.** With `variant:"cards"`, stages default to numbered chips plus a top accent rule, are left-aligned, and get enough card height for body+bullets. Use `marker:"icon"` + per-step `iconSrc` when generated icons should appear in the flow, `connector:"line"|"chevron"|"arrow"|"none"` to tune the rhythm, and `spread:"fill"` for a single-component process slide that needs more visual mass. For 4+ rich stages or long step bodies (>30 chars), the renderer may wrap card flows into two readable rows on wide slides; in narrow columns it may auto-orient vertically. Use explicit `direction:"vertical"` when a single-column step narrative is the intended visual.
+- **`process-flow direction:"horizontal"` is best for 2-3 stages.** With `variant:"cards"`, stages default to numbered chips plus a top accent rule, are left-aligned, and get enough card height for body+bullets. Use `marker:"icon"` + per-step `iconSrc` when generated icons should appear in the flow, `connector:"line"|"chevron"|"arrow"|"none"` to tune the rhythm, and `spread:"fill"` for a single-component process slide that needs more visual mass. For 4+ rich stages or long step bodies (>30 chars), the renderer may wrap card flows into two readable rows on wide slides; in narrow columns it may auto-orient vertically. Use explicit `direction:"vertical"` when a single-column step narrative is the intended visual. If validation reports process bullets or formula cards are cramped, first reduce step detail, increase the component area, use vertical direction, or split the flow across slides; do not keep adding fixed heights.
 
 ## Generated Icon Assets
 
@@ -214,8 +372,12 @@ Raw `text` is a residual primitive: short labels, captions, local notes, or a se
 - Numbers must dominate their labels. metric-value vs metric-label is ~2.7× by default; preserve that gap on any data slide. Don't render a KPI with paragraph-style text.
 - CJK-heavy decks need +1pt: paragraph 12 / slide-title 32 reads better in Chinese than the Latin-tuned defaults.
 - Manage fonts at deck level with `themeOverride.fonts`: `latin` and `cjk` each support `{display:[...], text:[...]}`, and `mono` is an array. Text styles pick the role with `fontFamily:"display"|"text"|"mono"`. Font chains are preference order: put the font you most want to use first. PPTX emits that first face for each script/role and does not embed fonts, so choose a first face that is both desired and available when fidelity matters; later items are documentation/fallback intent, not guaranteed runtime substitution.
-- Keep title and footer clear in `themeOverride.layout`: `contentTop` must be at least `titleTop + titleHeight + 0.25`; when page numbers or footer text are enabled, keep `contentBottom` above the footer chrome. Do not use `pageMarginY`.
+- Keep footer chrome clear in `themeOverride.layout`: when page numbers or footer text are enabled, keep `contentBottom` above the footer chrome. Do not use `pageMarginY`.
+- `contentTop` may be above/inside the default title band for full-page, cover, poster, or custom no-title layouts. When a slide sets `slide.title`, SlideML2 injects the default title and protects `area:"content"` by starting it below `titleTop + titleHeight + 0.25`; without `slide.title`, `area:"content"` starts at `contentTop`.
+- `patch_deck` paths are JSON Pointers from the source deck root: use `/deck/themeOverride/layout/contentTop`, `/deck/themeOverride/chrome/brandMark`, `/deck/dataSources`, `/deck/references`, `/deck/footnotes`, or `/slides/0/children/1`. Do not use `/themeOverride/...`; it will edit the wrong level.
 - Keep tables readable. A 6-column table with 6+ body rows usually needs its own slide or a split across slides; the renderer blocks rows that fall below the PowerPoint-readable row-height floor even if the outer table technically fits.
+- Reuse data instead of copying numbers. If the same table/chart/KPI value appears on multiple slides, put the rows in `deck.dataSources` and bind each component; do not manually duplicate final chart arrays and table rows unless the data is truly one-off.
+- For citations, never manually type `[1]` unless it is literal prose from the source. Use `{kind:"cite",refId:"..."}` so SlideML2 can number citations, populate `bibliography`, validate missing/duplicate ids, and keep references in deck order.
 
 ## Component Selection — Pick the Most Semantic
 
@@ -255,14 +417,53 @@ Use this file as the primary component-selection reference. Pick the component w
 
 Components handle ~90% of slides cleanly. The remaining 10% is editorial moments: covers, section openers, hero stat pages over photography, or "wow" pages where the brief calls for visual impact. Use escape hatches when components are too weak for that moment, not as a default content layout.
 
+Use `area` as the named layout-region contract before reaching for raw escape hatches.
+
 Units:
 
-- Canvas is **25.4 × 14.29 cm** (16:9).
-- Layout geometry is cm: `at:[x,y,w,h]`, `gap`, `padding`, `fixedWidth`, `fixedHeight`, `width`, `height`, `length`, image/card/table/chart dimensions.
+- Canvas is **25.4 × 14.29 cm** for `16x9`; other `deck.size` values change the canvas.
+- Layout geometry is cm: `themeOverride.layout.areas`, `at:[x,y,w,h]`, `gap`, `padding`, `fixedWidth`, `fixedHeight`, `width`, `height`, `length`, image/card/table/chart dimensions.
 - `cornerRadius` is not cm or px. It is a normalized roundRect fraction `0..0.5`; use `0.08`-`0.16`, never CSS-style `8` or `12`.
 - Text size is pt in `themeOverride.text`. Prefer semantic text styles; use `size` / raw `fontSize` only for intentional low-level local overrides, not as component defaults.
 - Stroke thickness is point-like: `lineWidth`, `borderWidth`, divider `thickness`, and `accent-rule.thickness` use `1` for normal 1pt and `2`-`3` for stronger rules.
 - Do not mix layout and stroke units: `fixedHeight:1` is a 1cm region; `thickness:1` is a 1pt rule.
+
+`area` assigns a **direct slide child** to a reusable slide region without hand-writing coordinates. Use it before reaching for `at`.
+
+- `area:"content"` uses the protected content rect from `themeOverride.layout.contentTop/contentBottom`; with `slide.title` it stays below the injected default title, and without `slide.title` it may use the full-page `contentTop`.
+- `area:"full"` uses the whole slide.
+- `area:"leftRail"` / `area:"main"` / any named token uses `deck.themeOverride.layout.areas[name]`. Named areas accept `{x,y,w,h}` or `{left,top,right,bottom}`, all in cm. `content` and `full` are reserved built-ins and cannot be redefined in `themeOverride.layout.areas`.
+- `area` is for top-level containers or semantic components. Inside an existing `stack`/`grid`/`split`, use the parent flow layout instead.
+- Do not combine `area` with `at`, `anchor`, or `anchorTo` on the same node; overlay placement wins and the area intent becomes ambiguous.
+- Do not place separate `at` text boxes on top of an `area:"content"` node. If a custom eyebrow, chapter label, pull quote, or side note must sit above the main content, either move `themeOverride.layout.contentTop` below it, define named areas that reserve space for both regions, or put the label and content inside one `stack`/`split`.
+- For a "novel", editorial, or asymmetric layout, prefer defining named `themeOverride.layout.areas` (`leftRail`, `main`, `quoteBand`, `sourceBand`) and assigning top-level nodes to those areas. Use raw `at` only for a true poster element, not as the normal way to position every region.
+- If you use your own visible title/eyebrow system with `at` or named areas, omit `slide.title`; otherwise SlideML2 will render `slide.title` at the top and the slide will show duplicate titles.
+- For a full-page poster slide where every meaningful region is intentionally positioned with `at`, keep those nodes as direct slide children and omit `area:"content"`. SlideML2 will not auto-create a content stack when all top-level content is absolute or decorative overlay content.
+
+```json
+{
+  "id": "s1",
+  "title": "Claim plus evidence",
+  "children": [
+    {
+      "id": "s1.rail",
+      "type": "stack",
+      "area": "leftRail",
+      "gap": 0.35,
+      "children": [{ "id": "s1.rail.lens", "type": "side-rail", "title": "Lens", "body": "Read the chart as a channel-mix shift." }]
+    },
+    {
+      "id": "s1.main",
+      "type": "chart-card",
+      "area": "main",
+      "title": "Revenue mix",
+      "chartType": "bar",
+      "labels": ["Q1", "Q2"],
+      "series": [{ "name": "Revenue", "values": [10, 18] }]
+    }
+  ]
+}
+```
 
 `at:[x,y,w,h]` is slide-relative absolute positioning. Use it for deliberate poster composition, diagonal covers, hero stats, or precise overlays. Do not use it for ordinary content slides or corner placement. For footer/source/logo/badge bottom-right edits use `brand-mark` or `anchor:"bottom-right"` with `width`/`height`/`offsetX`/`offsetY`; `[12,13.5,...]` is near page middle, not the bottom-right corner.
 
@@ -298,6 +499,7 @@ When to use which:
 
 | Goal | Tool |
 | --- | --- |
+| Reusable side rail, main evidence pane, or fixed repeated region | `themeOverride.layout.areas` + top-level `area:"name"` |
 | Diagonal headline, hero number on cover, custom poster page | `at` + `rotation` |
 | Image as card background, scrim on top of content, deco-grid behind text | `layer` on a flow child |
 | Badge/flag/callout-marker attached to another element | `anchorTo` |
@@ -307,14 +509,14 @@ These primitives keep renderer contrast / shape-visibility / text-overflow guard
 
 ## Layout Containers
 
-- stack: Flow container for a single semantic group whose children should read in sequence. Use for ordered narrative, grouped support points, or a module's internal layout; do not use as a generic page made of unrelated text. kind=container parent=any children=required type='stack' optional={direction:enum[vertical|horizontal], gap:number, area:enum[content|full], justify:enum[start|center|end], align:enum[start|center|end], valign:enum[top|middle|bottom], padding:number} example={"id":"example.stack","type":"stack","direction":"vertical","gap":0.4,"children":[{"id":"example.stack.text","type":"text","text":"One key message"}]}
-- grid: Matrix container for peer modules that should be compared or scanned together. Children may set colSpan/rowSpan to make one semantic hero cell plus smaller satellites; avoid plain equal cards when a chart/table/process component describes the meaning better. kind=container parent=any children=required type='grid' optional={columns:number, gap:number, area:enum[content|full], columnWeights:array, rowWeights:array, rows:number, fixedHeight:number} example={"id":"example.grid","type":"grid","columns":2,"gap":0.5,"children":[{"id":"example.grid.left","type":"comparison-card","title":"Option A","points":["Fast","Low risk"]},{"id":"example.grid.right","type":"comparison-card","title":"Option B","points":["Flexible","Higher effort"]}]}
-- split: Primary/secondary composition for one dominant idea plus support. Use for claim+proof, chart+commentary, image+interpretation, before+after, or side-rail pages; prefer it over equal grids when one region should lead. kind=container parent=any children=required type='split' optional={direction:enum[horizontal|vertical], ratio:array, gap:number, area:enum[content|full], padding:number, align:enum[start|center|end], valign:enum[top|middle|bottom]} example={"id":"example.split","type":"split","direction":"horizontal","ratio":[0.68,0.32],"gap":0.55,"children":[{"id":"example.split.chart","type":"chart-card","chartType":"bar","labels":["A","B"],"series":[{"name":"Series","values":[10,20]}]},{"id":"example.split.rail","type":"side-rail","title":"Interpretation","body":"Explain the read."}]}
+- stack: Flow container for a single semantic group whose children should read in sequence. Use for ordered narrative, grouped support points, or a module's internal layout; do not use as a generic page made of unrelated text. kind=container parent=any children=required type='stack' optional={direction:enum[vertical|horizontal], gap:number, area:string(content|full|named theme area), justify:enum[start|center|end], align:enum[start|center|end], valign:enum[top|middle|bottom], padding:number} example={"id":"example.stack","type":"stack","direction":"vertical","gap":0.4,"area":"content","children":[{"id":"example.stack.text","type":"text","text":"One key message"}]}
+- grid: Matrix container for peer modules that should be compared or scanned together. Children may set colSpan/rowSpan to make one semantic hero cell plus smaller satellites; avoid plain equal cards when a chart/table/process component describes the meaning better. kind=container parent=any children=required type='grid' optional={columns:number, gap:number, area:string(content|full|named theme area), columnWeights:array, rowWeights:array, rows:number, fixedHeight:number} example={"id":"example.grid","type":"grid","columns":2,"gap":0.5,"area":"content","children":[{"id":"example.grid.left","type":"comparison-card","title":"Option A","points":["Fast","Low risk"]},{"id":"example.grid.right","type":"comparison-card","title":"Option B","points":["Flexible","Higher effort"]}]}
+- split: Primary/secondary composition for one dominant idea plus support. Use for claim+proof, chart+commentary, image+interpretation, before+after, or side-rail pages; prefer it over equal grids when one region should lead. `ratio` is an explicit target proportion for child sizes, not just a growth hint; minimum viable child sizes can still cap the exact result. kind=container parent=any children=required type='split' optional={direction:enum[horizontal|vertical], ratio:array, gap:number, area:string(content|full|named theme area), padding:number, align:enum[start|center|end], valign:enum[top|middle|bottom]} example={"id":"example.split","type":"split","direction":"horizontal","ratio":[0.68,0.32],"gap":0.55,"area":"content","children":[{"id":"example.split.chart","type":"chart-card","chartType":"bar","labels":["A","B"],"series":[{"name":"Series","values":[10,20]}]},{"id":"example.split.rail","type":"side-rail","title":"Interpretation","body":"Explain the read."}]}
 - panel: Surface wrapper for one related semantic group that needs visual separation. Pair with stack/grid for the child layout; do not use as the page's default way to make prose look designed. kind=container parent=grid children=optional type='panel' optional={tone:enum[neutral|muted|brand|positive|warning|danger|tinted], fill:string, line:string, padding:number, cornerRadius:number, elevation:enum[flat|raised|outlined], fixedHeight:number} example={"id":"example.panel","type":"panel","tone":"tinted","children":[{"id":"example.panel.body","type":"text","text":"Grouped content."}]}
 - card: Reusable contained module with optional title/header/footer/accent. Use only when the content is naturally card-like (metric, definition, comparison item, evidence tile); prefer richer semantic components first. `title` and `header` render the same card-title heading; prefer `title` for authoring consistency and do not set both differently. kind=container parent=any children=optional type='card' optional={title:string, header:string alias, footer:string, accent:enum[none|left|top], accentColor:string, tone:enum[neutral|muted|brand|positive|warning|danger|tinted], fill:string, line:string, padding:number, cornerRadius:number, elevation:enum[flat|raised|outlined], fixedHeight:number, fixedWidth:number} example={"id":"example.card","type":"card","title":"Engagement","accent":"left","children":[{"id":"example.card.body","type":"text","text":"78% retention week one."}]}
 - band: Wide emphasis band for a section break, thesis, verdict, or hero quote that should interrupt the flow. It carries one strong idea, not dense body content. Short fixed-height bands auto-reduce default padding; use explicit `padding` only when you need a deliberate inset. kind=container parent=stack children=optional type='band' optional={tone:enum[neutral|muted|brand|positive|warning|danger|tinted], fill:string, height:number, fixedHeight:number, cornerRadius:number, padding:number} example={"id":"example.band","type":"band","tone":"brand","height":1.6,"children":[{"id":"example.band.text","type":"text","text":"Section: outlook","style":"section-title","color":"brand.primary"}]}
 - frame: Border-only wrapper for an artifact, placeholder, or lightly emphasized region. Use when containment matters but fill would compete with content. `lineWidth` is stroke thickness: use 1 for a normal 1pt border, not cm. kind=container parent=stack children=optional type='frame' optional={line:string, lineWidth:number, dash:enum[solid|dash|dashDot|dot], cornerRadius:number, padding:number, fixedHeight:number, fixedWidth:number} example={"id":"example.frame","type":"frame","lineWidth":1,"dash":"dash","children":[{"id":"example.frame.body","type":"text","text":"TBD region"}]}
-- inset: Invisible padding wrapper that gives one semantic child breathing room. Use for spacing inside a surface, not as a visible module. kind=container parent=stack children=optional type='inset' required={padding:number} optional={fixedHeight:number, fixedWidth:number} example={"id":"example.inset","type":"inset","padding":0.5,"children":[{"id":"example.inset.body","type":"text","text":"Indented child."}]}
+- inset: Invisible padding wrapper that gives one semantic child breathing room. Use for spacing inside a surface, not as a visible module. kind=container parent=stack children=optional type='inset' optional={padding:number, fixedHeight:number, fixedWidth:number} example={"id":"example.inset","type":"inset","padding":0.5,"children":[{"id":"example.inset.body","type":"text","text":"Indented child."}]}
 - two-column: Semantic two-region layout for narrative + visual, evidence + commentary, or before + after. Use when both sides have named roles, not as a generic equal split. kind=semantic parent=stack children=none type='two-column' required={left:object, right:object} optional={ratio:array, gap:number} example={"type":"two-column","left":{"id":"s.left","type":"text","text":"Left argument"},"right":{"id":"s.right","type":"image-card","src":"/abs/path/evidence.png","fit":"contain"}}
 - freeform-group: Slide-level composition group for anchored overlays. Use when a cover, section opener, annotation layer, or editorial page needs several independently positioned objects without abandoning validation. Children should set anchor/offsetX/offsetY/width/height/zIndex; mode:"background" defaults children behind content. kind=semantic parent=slide children=required type='freeform-group' optional={mode:enum[overlay|background]} example={"type":"freeform-group","children":[{"id":"s.mark","type":"pointer-arrow","anchor":"middle-right","direction":"left","label":"关键变化","zIndex":5}]}
 - cover-composition: Editorial cover layout with optional full-bleed visual, decoration, dominant title lockup, and hero stat. Use instead of loose deck-title/text nodes when the first slide needs rich composition. Long titles auto-use a wider lockup when no hero stat is present. kind=semantic parent=slide children=none type='cover-composition' required={title:string} optional={subtitle:string, eyebrow:string, visual:object {src,fit,anchor?,width?,height?,opacity?}, heroStat:object {value,label,caption}, tone:enum[neutral|inverse|brand], decor:enum[none|grid|shapes], titleSize:enum[deck-title|slide-title|section-title], lockupWidth:number, lockupHeight:number} example={"type":"cover-composition","eyebrow":"DIAGNOSIS","title":"LLM Agent Memory Diagnosis","subtitle":"Task isolation strategy","heroStat":{"value":"22","label":"slides compared"},"tone":"neutral","decor":"shapes"}
@@ -326,14 +528,14 @@ These primitives keep renderer contrast / shape-visibility / text-overflow guard
 
 ## Quantitative Proof
 
-- hero-stat: Slide-defining number: one very large metric that carries the main message. Use for cover stats, market size, landmark deltas, or decisive proof; one per slide max. kind=semantic parent=stack children=none type='hero-stat' required={value:string, label:string} optional={caption:string, tone:enum[brand|positive|warning|danger|neutral]} example={"type":"hero-stat","value":"value","label":"label"}
+- hero-stat: Slide-defining number: one very large metric that carries the main message. Use for cover stats, market size, landmark deltas, or decisive proof; one per slide max. Can be data-bound from `deck.dataSources` instead of hand-authored. kind=semantic parent=stack children=none type='hero-stat' required={value+label OR bind:{source,...}+encoding:{value,label,delta?}} optional={caption:string, tone:enum[brand|positive|warning|danger|neutral], bind:object, encoding:object} example={"type":"hero-stat","bind":{"source":"pipeline","sort":"-value","limit":1},"encoding":{"label":"stage","value":"value"},"caption":"Largest open stage."}
 - kpi-grid: 2-6 related headline metrics; prefer chart/bar-list for ranking or trend. Metrics may include delta/status/comparison/source/sparkline. kind=semantic parent=stack children=none type='kpi-grid' required={metrics:array of {value:string, label/name/title:string}} optional={items:array alias for metrics, columns:number, variant:enum[plain|card|compact], density:enum[comfortable|compact], surface:object} example={"type":"kpi-grid","variant":"card","metrics":[{"value":"42%","label":"Adoption","delta":"+8pp","status":"positive","sparkline":[10,18,42]}]}
-- metric-card: Single compact KPI; not for prose. kind=semantic parent=grid children=none type='metric-card' required={value:string, label:string} optional={unit:string, trend:enum[up|down|flat], delta:string, status:enum[brand|positive|warning|danger|neutral], comparison:string, source:string, sparkline:array, variant:enum[plain|card|compact], density:enum[comfortable|compact], surface:object} example={"type":"metric-card","value":"42%","label":"Adoption","delta":"+8pp","status":"positive","sparkline":[10,18,42],"variant":"card"}
-- stat-strip: Inline row of headline metrics with minimal chrome. Use when 3-6 numbers support one read and card frames would be too heavy. kind=semantic parent=stack children=none type='stat-strip' required={items:array of {value:string, label/name/title:string}} optional={tone:enum[brand|positive|neutral]} example={"type":"stat-strip","items":[{"value":"42%","label":"Adoption"}]}
+- metric-card: Single compact KPI; not for prose. Can be data-bound from `deck.dataSources` instead of hand-authored; use aggregate + sort + limit for "top region", "latest value", or "largest stage" cards. kind=semantic parent=grid children=none type='metric-card' required={value+label OR bind:{source,...}+encoding:{value,label,delta?}} optional={unit:string, trend:enum[up|down|flat], delta:string, status:enum[brand|positive|warning|danger|neutral], comparison:string, source:string, sparkline:array, variant:enum[plain|card|compact], density:enum[comfortable|compact], surface:object, bind:object, encoding:object} example={"type":"metric-card","bind":{"source":"sales","filter":{"quarter":"Q3"},"groupBy":"region","aggregate":{"Revenue":{"op":"sum","field":"revenue"}},"sort":"-Revenue","limit":1},"encoding":{"label":"region","value":"Revenue"},"comparison":"Revenue in $000s","variant":"card"}
+- stat-strip: Inline row of headline metrics with minimal chrome. Use when 3-6 numbers support one read and card frames would be too heavy. CJK units and signed percentages are supported; keep labels short. Can be data-bound into `items` from rows with `encoding:{label,value}`, or from multiple fields on the selected row with `encoding:{items:[{label,value,type?,format?,tone?}]}`. kind=semantic parent=stack children=none type='stat-strip' required={items OR bind:{source,...}+encoding:{value,label OR items:[{label,value}]}} optional={tone:enum[brand|positive|neutral|warning|danger], bind:object, encoding:object} example={"type":"stat-strip","bind":{"source":"segments","sort":"-arr","limit":1},"encoding":{"items":[{"label":"ARR","value":"arr","type":"currency","format":"decimal","tone":"brand"},{"label":"Retention","value":"retention","type":"percent","tone":"positive"}]}}
 - stat-comparison: Before/after or current/target numeric change with delta. Use when the transformation is the point and two values must be read together. kind=semantic parent=stack children=none type='stat-comparison' required={beforeLabel:string, beforeValue:string, afterLabel:string, afterValue:string} optional={trend:enum[up|down|flat], deltaLabel:string} example={"type":"stat-comparison","beforeLabel":"beforeLabel","beforeValue":"beforeValue","afterLabel":"afterLabel","afterValue":"afterValue"}
 - bar-list: Ranked or sortable categorical numeric/rating comparison. Use when the viewer should see who is bigger/smaller across 4-8 items. `value` may be a number, percent string, or star rating string such as "★★★★"; star strings stay visible as labels and drive bar length. Use `valueLabel` when the display label differs from the numeric score. kind=semantic parent=stack children=none type='bar-list' required={items:array of {label/name/title:string, value/score/percent:number|string, valueLabel?:string, tone?:enum[brand|positive|neutral|warning|danger]}} optional={tone:enum[brand|positive|neutral|warning|danger], sort:enum[desc|asc|none]} example={"type":"bar-list","tone":"neutral","items":[{"label":"High conviction","value":"★★★★★","tone":"positive"},{"label":"Watch list","score":3,"valueLabel":"★★★","tone":"neutral"}]}
 - progress-bar: Single progress-to-target measure. Use for completion, quota, adoption, or capacity where the percent/ratio is the semantic point. kind=semantic parent=stack children=none type='progress-bar' required={label:string, value:number|string} optional={max:number|string, valueLabel:string, tone:enum[brand|positive|warning|danger]} example={"type":"progress-bar","label":"Done","value":"75%"}
-- chart-card: Titled quantitative evidence module. Use when the chart is a self-contained proof object with interpretation/source, not just a raw plot. Add insight for the readout, caption for provenance. kind=semantic parent=grid children=none type='chart-card' required={chartType:enum[bar|stacked-bar|line|pie|doughnut|area|combo|scatter|waterfall] or chart, labels:array or data.labels, series:array or data.series} optional={title:string, badge:string, insight:string, caption:string, showLegend:boolean, showValues:boolean, yFormat:enum[int|decimal|percent|wanyuan|yi], tone:enum[neutral|brand|tinted], variant:enum[card|frameless|compact], surface:object} example={"type":"chart-card","title":"Conversion","badge":"Finding","chartType":"bar","labels":["A"],"series":[{"name":"X","values":[1]}],"insight":"A is the bottleneck."}
+- chart-card: Titled quantitative evidence module. Use when the chart is a self-contained proof object with interpretation/source, not just a raw plot. Add insight for the readout, caption for provenance. Prefer `bind` for reusable business/science data; hand-authored `labels/series` are still fine for one-off charts. Pie/doughnut default to category+percent slice labels; keep them visible with `dataLabels` instead of hiding them. Bar-like charts default negative bars to danger color; use `negativeColor`/`positiveColor` to tune point polarity colors. For ranked horizontal bars, bind numeric measure to `x`, category to `y`, and set `orientation:"horizontal"` when you want the intent explicit. Capacity: reserve roughly >=4.8x3.0cm chart body for bar/line/combo and >=5.2x4.4cm for pie/doughnut with labels/legend before title/caption/card chrome; use split/chart-with-rail/evidence-layout and move support content out before changing components. kind=semantic parent=grid children=none type='chart-card' required={chartType:enum[bar|stacked-bar|line|pie|doughnut|area|combo|scatter|waterfall] or chart, labels+series OR data.{labels,series} OR bind:{source,...}+encoding:{x,y,orientation?,series?,seriesName?}} optional={title:string, badge:string, insight:string, caption:string, showLegend:boolean, showValues:boolean, dataLabels:object{show,position,bestFit|center|insideEnd|insideBase|outsideEnd,showValue,showCategoryName,showSeriesName,showPercent,showLegendKey,showLeaderLines}, positiveColor:color-ref, negativeColor:color-ref, yFormat:enum[int|decimal|percent|wanyuan|yi], tone:enum[neutral|brand|tinted], variant:enum[card|frameless|compact], surface:object, bind:object, encoding:object, orientation:enum[vertical|horizontal]} example={"type":"chart-card","title":"Q3 revenue trend","chartType":"bar","bind":{"source":"sales","filter":{"quarter":"Q3"},"groupBy":"month","aggregate":{"Revenue":{"op":"sum","field":"revenue"}},"sort":"month"},"encoding":{"x":"month","y":"Revenue","seriesName":"Revenue"},"caption":"Source: deck.dataSources.sales"}
 
 ## Comparison And Decisions
 
@@ -341,7 +543,7 @@ These primitives keep renderer contrast / shape-visibility / text-overflow guard
 - pros-cons: Two-sided trade-off frame. Use when the meaning is explicitly benefits vs drawbacks, not for any two-column layout. kind=semantic parent=stack children=none type='pros-cons' required={pros:array, cons:array} optional={prosTitle:string, consTitle:string} example={"type":"pros-cons","pros":["Lower cost","Faster launch"],"cons":["Less control","Migration risk"]}
 - swot-matrix: Four-quadrant strategic diagnosis: strengths, weaknesses, opportunities, threats. Use only when this exact SWOT semantic frame fits. kind=semantic parent=stack children=none type='swot-matrix' required={strengths:array, weaknesses:array, opportunities:array, threats:array} example={"type":"swot-matrix","strengths":["Brand trust"],"weaknesses":["Manual process"],"opportunities":["New channel"],"threats":["Price pressure"]}
 - pricing-card: One commercial/package tier with price and included features. Use inside a pricing comparison; mark the recommended tier semantically. kind=semantic parent=grid children=none type='pricing-card' required={plan:string, price:string, features:array} optional={period:string, tone:enum[neutral|brand], ctaText:string} example={"type":"pricing-card","plan":"Pro","price":"$29","features":["Unlimited seats","Priority support"],"tone":"brand"}
-- table-card: Titled structured comparison or lookup table. Use for financials, feature matrices, risks, guidance, and compact data summaries. Add insight for the readout, caption for provenance. Cells may be plain strings or objects `{text,runs,fill,color,bold,align,valign,colspan,rowspan}` when you need per-cell color or emphasis; otherwise table defaults apply `table-header` / `table-cell` fonts and neutral/tone-derived fills. Avoid three or more table-only pages in a row unless they are true reference/appendix pages; ratings often read better as `scorecard`/`bar-list`/`comparison-list`. kind=semantic parent=stack children=none type='table-card' required={rows:array or data.rows} optional={title:string, badge:string, insight:string, headers:array or data.headers, columns:array of {header,width?}, colWidths:array, rowHeights:array, density:enum[comfortable|compact], caption:string, tone:enum[neutral|brand|tinted], variant:enum[card|frameless|compact], surface:object} example={"type":"table-card","title":"Risk Matrix","badge":"Audit","headers":["Risk","Level"],"rows":[["Memory carryover",{"text":"High","fill":"danger","color":"text.inverse","bold":true}]],"insight":"Context isolation is the main control."}
+- table-card: Titled structured comparison or lookup table. Use for financials, feature matrices, risks, guidance, and compact data summaries. Add insight for the readout, caption for provenance. Prefer `bind` + `encoding.columns` for reusable data; use hand-authored rows only for one-off matrices or rich cells. Hand-authored rows may be arrays, `{cells:[...]}`, or objects. Object rows may use `headers:["key"]` when headers are row keys; common aliases like `Metric`→`label`, `Amount`→`value`, `HC`→`headcount`, and `Rev`→`revenue` are tolerated, but if display labels differ materially from row keys, use `encoding.columns:[{key,label}]` or `columns:[{key,header}]`. Cells may be plain strings or objects `{text,value,runs,footnoteRefs,fill,color,tone,bold,align,valign,colspan,rowspan}` when you need per-cell color, rich inline math/citation/token runs, or table footnotes; bound numeric columns use `type/format/align/width` instead. Capacity: compact 6-8 row business tables often need about 4.5-6cm table body height plus title/caption/card chrome; use half/full-slide regions, colWidths/rowHeights, compact density, or paginate before dropping rows/columns. Avoid three or more table-only pages in a row unless they are true reference/appendix pages. kind=semantic parent=stack children=none type='table-card' required={rows OR data.rows OR bind:{source,...}+encoding:{columns?}} optional={title:string, badge:string, insight:string, headers:array or data.headers, columns:array of {key?|field?,header?|label?,width?}, colWidths:array, rowHeights:array, density:enum[comfortable|compact], caption:string, tone:enum[neutral|brand|tinted], variant:enum[card|frameless|compact], surface:object, bind:object, encoding:object} example={"type":"table-card","title":"Regional table","bind":{"source":"sales","filter":{"quarter":"Q3"},"groupBy":"region","aggregate":{"Revenue":{"op":"sum","field":"revenue"},"Margin":{"op":"avg","field":"margin"}},"sort":"-Revenue"},"encoding":{"columns":[{"key":"region","label":"Region","type":"text","width":2},{"key":"Revenue","label":"Revenue","type":"currency","format":"int","align":"right"},{"key":"Margin","label":"Avg margin","type":"percent","align":"right"}]},"caption":"Source: deck.dataSources.sales"}
 
 ## Sequence And Causality
 
@@ -359,6 +561,8 @@ These primitives keep renderer contrast / shape-visibility / text-overflow guard
 - image-card: Inspectable image evidence/subject with title/caption; add insight and annotations/callouts when viewer needs direction. kind=semantic parent=grid children=none type='image-card' required={src:image-ref} optional={alt:string, title:string, badge:string, insight:string, annotations:array, callouts:array, caption:string, fit:enum[cover|contain|fill], imageWidth:number, tone:enum[neutral|brand|tinted], variant:enum[card|frameless|compact], surface:object} example={"type":"image-card","src":"/abs/img.png","insight":"Look here","annotations":["A"]}
 - quote: Verbatim or voice-like statement with optional attribution. Use when authority, emotion, or wording is the evidence. kind=semantic parent=stack children=none type='quote' required={text:string} optional={source:string} example={"type":"quote","text":"text"}
 - source-note: Quiet source, citation, caveat, or disclaimer. Use for provenance and constraints, not for live-read content. kind=semantic parent=stack children=none type='source-note' required={text:string} optional={align:enum[left|center|right]} example={"type":"source-note","text":"Text"}
+- equation: Display equation for scientific or analytical decks. Use for derivations, model definitions, hypotheses, numbered formulas, and compact formula cards; inline math belongs in rich runs `{kind:"math",latex:"..."}`. Supported LaTeX renders as native Office Math (OMML), so formulas remain structured in PowerPoint; unsupported commands fail validation instead of being emitted as plain text. Supported common commands include `\\frac`, `\\sqrt`, `\\vec`, `\\boxed`, `\\text`, Greek letters, arrows/operators, and super/subscripts. It respects `style`, `size`, and `fontSize`; use explicit sizing for dense grids. kind=semantic parent=stack children=none type='equation' required={latex:string} optional={label:string, number:string, align:enum[left|center|right], caption:string, style:string, size:string, fontSize:number, renderMode:enum[omml]} example={"type":"equation","latex":"\\frac{x_1}{\\sigma^2}=\\mu","number":"1","caption":"Sample mean definition.","fontSize":14}
+- bibliography: Auto bibliography from `deck.references`; by default lists cited references in first-appearance order. Use with rich `{kind:"cite",refId:"..."}` runs; set `includeAll:true` only for appendix/reference decks. kind=semantic parent=stack children=none type='bibliography' optional={title:string, style:enum[numeric|author-year|short], includeAll:boolean} example={"type":"bibliography","title":"References","style":"numeric"}
 - legend: Color/category key for a chart, diagram, map, or coded table. Use when colors or symbols need semantic decoding. kind=semantic parent=stack children=none type='legend' required={items:array of {label:string, color:string}} optional={direction:enum[horizontal|vertical]} example={"type":"legend","items":[{"label":"A","color":"brand.primary"}]}
 
 ## Insight And Narrative
@@ -371,7 +575,7 @@ These primitives keep renderer contrast / shape-visibility / text-overflow guard
 - comparison-list: FIRST CHOICE for lightweight before/after/options/positions/trade-offs when a matrix is too heavy. kind=semantic parent=stack children=none type='comparison-list' required={items:array of {title/name/label, body/description, points/items/bullets, badge, tone}} optional={title:string, basis:string, columns:number, variant:enum[plain|columns|subtle], density:enum[comfortable|compact]} example={"type":"comparison-list","basis":"两种处理方式","items":[{"title":"compact","body":"旧决策可能残留"},{"title":"reset","body":"只保留稳定信息"}]}
 - fact-list: FIRST CHOICE for facts/claims/data snippets/source-backed rows as fact → interpretation; use insight-card only after synthesis. Dense list variants with 5+ items auto-flow into a compact grid while preserving each item's tone; use `columns` when you need a specific grid count. kind=semantic parent=stack children=none type='fact-list' required={items:array of {label/title/name, value, fact/text/body, interpretation/insight, source, tone}} optional={title:string, columns:number, variant:enum[list|grid|strip], tone:enum[neutral|brand|positive|warning|danger], density:enum[comfortable|compact]} example={"type":"fact-list","items":[{"label":"日志","fact":"风格沿用","interpretation":"上下文未重置","tone":"warning"}]}
 - insight-card: One curated finding/recommendation/risk/opportunity in a peer set; not the default text container. Check executive-summary, explanation-block, comparison-list, fact-list, key-takeaway, chart-card, table-card, evidence-layout first. kind=semantic parent=grid children=none type='insight-card' required={headline:string or title:string} optional={badge:string, detail:string, body:string, description:string, bullets/items/points:array, tone:enum[neutral|brand|positive|warning|danger]} example={"type":"insight-card","headline":"Finding","bullets":["Proof"]}
-- callout: Highlighted rule/warning/recommendation. Supports legacy text plus rich text runs with `marks:["bold"]`, colored title, body, and bullets; use sparingly. kind=semantic parent=stack children=none type='callout' required={text OR title/body/content/bullets} optional={title:string, body:string, content:richTextRuns, bullets:array, variant:enum[plain|card|banner], tone:enum[neutral|brand|positive|warning|danger]} example={"type":"callout","title":"警示","body":"不要继承旧风格","content":[{"text":"必须重置","marks":["bold"]}],"variant":"card"}
+- callout: Highlighted rule/warning/recommendation. Supports legacy text plus rich text runs with `marks:["bold"]`, colored title, body, and bullets; use sparingly. Prefer canonical `variant:"card"` for panel-like callouts; `variant:"panel"` is accepted as a legacy alias for `card`. kind=semantic parent=stack children=none type='callout' required={text OR title/body/content/bullets} optional={title:string, body:string, content:richTextRuns, bullets:array, variant:enum[plain|card|banner], tone:enum[neutral|brand|positive|warning|danger]} example={"type":"callout","title":"警示","body":"不要继承旧风格","content":[{"text":"必须重置","marks":["bold"]}],"variant":"card","tone":"warning"}
 - lead: Short thesis, framing sentence, or transition line that tells the viewer how to read the slide. kind=semantic parent=stack children=none type='lead' required={text:string} optional={align:enum[left|center|right]} example={"type":"lead","text":"Text"}
 - h1: Primary in-content heading for a major module or section inside the slide body. kind=semantic parent=stack children=none type='h1' required={text:string} optional={align:enum[left|center|right]} example={"type":"h1","text":"Text"}
 - h2: Secondary heading for a local group, card, panel, or evidence module. kind=semantic parent=stack children=none type='h2' required={text:string} optional={align:enum[left|center|right]} example={"type":"h2","text":"Text"}
@@ -384,6 +588,7 @@ These primitives keep renderer contrast / shape-visibility / text-overflow guard
 - quiz-card: Question card for MCQ/T-F/answer pages; `correct` highlights the right item, omit it on question-only slides. kind=semantic parent=stack children=none type='quiz-card' required={question:string} optional={items:array of strings (max 6), correct:string letter "A".."F" or 0-based index, explanation:string, number:string, questionType:string, tone:enum[brand|neutral|tinted]} examples=[{"type":"quiz-card","question":"What follows?","items":["A","B"],"correct":"B","explanation":"Because..."}]
 - article: Long-form article that automatically paginates across multiple slides. The renderer measures the typography of style:"article" against the available content area, splits paragraphs at safe boundaries, and emits one rendered slide per page (titled "{Title} (1/N)", "{Title} (2/N)", ...). Use for reading passages, magazine prose, case studies, transcripts, or any single body of text that exceeds one slide. Do not wrap a body in `paragraph` + `text` blocks just to fit — let the article flow. kind=semantic parent=stack children=none type='article' required={text:string OR paragraphs:array} optional={title:string (falls back to slide title), source:string (rendered on the last page)} example={"type":"article","title":"Reading Passage","paragraphs":["Paragraph one...","Paragraph two..."],"source":"Adapted from ETS sample"}
 - code: Preformatted code or command excerpt where syntax and monospace alignment are the content. Use for code samples, shell commands, JSON snippets, or anything that should render in a monospace font. kind=semantic parent=stack children=none type='code' required={text:string} optional={align:enum[left|center|right], title:string, language:string} example={"type":"code","language":"ts","text":"const sum = (a: number, b: number) => a + b;"}
+- code-block: First-class code listing for research, engineering, SQL, or appendix slides. Use instead of `code` when line numbers, syntax color, diff lines, highlightLines, title, or caption matter. Supports TS/JS, Python, SQL, Bash/shell, C/C++, diff-like added/removed line backgrounds, and stable line numbers. For long code, prefer `density:"dense"` or `"tiny"`, `fontSize:6-7`, and `columns:2` before using `maxLines`; `maxLines` means intentional excerpt/truncation and renders an ellipsis. kind=semantic parent=stack children=none type='code-block' required={code:string} optional={language:string, title:string, caption:string, showLineNumbers:boolean, highlightLines:array of numbers or {start,end}, wrap:boolean, density:enum[compact|dense|tiny], columns:number, fontSize:number, maxLines:number} example={"type":"code-block","language":"cpp","title":"N-Queens solver","code":"#include <iostream>\\nint main(){ return 0; }","showLineNumbers":true,"density":"dense","fontSize":6.5,"columns":2}
 - deck-title: Deck-level title for covers and section openers. Use when the title itself is the dominant semantic object, not for normal slide headings (use slide.title or h1/h2 for those). kind=semantic parent=stack children=none type='deck-title' required={text:string} optional={align:enum[left|center|right]} example={"type":"deck-title","text":"Cover Title"}
 - slide-title: Canonical title slot for ordinary content slides. Almost never authored directly — set `slide.title` instead so the renderer can place the title in its dedicated rect. Only use this when overriding placement for a specific decorative composition. kind=semantic parent=stack children=none type='slide-title' required={text:string} optional={align:enum[left|center|right]} example={"type":"slide-title","text":"Slide Title"}
 
@@ -422,7 +627,7 @@ These primitives keep renderer contrast / shape-visibility / text-overflow guard
 
 ## Product, Identity, And Markers
 
-- feature-card: One feature, capability, benefit, or ingredient of an offer. Use for modular value propositions, not for arbitrary bullet paragraphs. Can include generated iconSrc, badge, rich body, tags, proof metric, source/proof line, and compact CTA. Use marker for a subtle title cue; use icon only when a larger symbol is part of the story. `badge` is a short single-line chip and can hold star ratings such as `★★★★★`; use `metric.value` for concise numeric proof (`-68%`, `3.2x`, `¥5亿`) or rating evidence that needs a label. Short prose/star metrics render as compact supporting evidence, not as a huge KPI. `tone` is semantic (brand/positive/warning/danger/neutral); use `titleColor` only for an explicit theme color token. kind=semantic parent=grid children=none type='feature-card' required={title:string} optional={icon:enum[rect|roundRect|ellipse|triangle|rightTriangle|pentagon|diamond], iconSrc:image-ref, marker:markerSpec, body:string, content:richTextRuns, badge:string, tags:array, metric:object, proof:string, ctaText:string, iconColor:string, iconBackground:string, tone:enum[brand|positive|warning|danger|neutral], titleColor:color-ref, variant:enum[plain|card|compact], density:enum[comfortable|compact], surface:object} example={"type":"feature-card","variant":"card","iconSrc":"/abs/assets/icons/memory.png","marker":{"shape":"rounded-square","variant":"tint","tone":"brand","size":"sm"},"title":"Task isolation","content":[{"text":"Resets style memory","marks":["bold"]},{"text":" before authoring."}],"metric":{"value":"-68%","label":"carryover","tone":"positive"},"tags":["memory","style"]}
+- feature-card: One feature, capability, benefit, or ingredient of an offer. Use for modular value propositions, not for arbitrary bullet paragraphs. Can include generated iconSrc, badge, rich body, tags, proof metric, source/proof line, and compact CTA. Use marker for a subtle title cue; use icon only when a larger symbol is part of the story. `badge` is a short single-line chip and can hold star ratings such as `★★★★★`; use `metric.value` for concise numeric proof (`-68%`, `3.2x`, `¥5亿`) or rating evidence that needs a label. Short prose/star metrics render as compact supporting evidence, not as a huge KPI. `tone` is semantic (canonical brand/positive/warning/danger/neutral; aliases such as success/info are accepted); use `titleColor` only for an explicit theme color token. kind=semantic parent=grid children=none type='feature-card' required={title:string} optional={icon:enum[rect|roundRect|ellipse|triangle|rightTriangle|pentagon|diamond], iconSrc:image-ref, marker:markerSpec, body:string, content:richTextRuns, badge:string, tags:array, metric:object, proof:string, ctaText:string, iconColor:string, iconBackground:string, tone:enum[brand|positive|warning|danger|neutral], titleColor:color-ref, variant:enum[plain|card|compact], density:enum[comfortable|compact], surface:object} example={"type":"feature-card","variant":"card","iconSrc":"/abs/assets/icons/memory.png","marker":{"shape":"rounded-square","variant":"tint","tone":"brand","size":"sm"},"title":"Task isolation","content":[{"text":"Resets style memory","marks":["bold"]},{"text":" before authoring."}],"metric":{"value":"-68%","label":"carryover","tone":"positive"},"tags":["memory","style"]}
 - logo-strip: Set of logos representing customers, partners, integrations, sponsors, or tools. Use when recognition and affiliation are the evidence. kind=semantic parent=stack children=none type='logo-strip' required={logos:array of {src:string, alt:string} or items/images} optional={columns:number, caption:string} example={"type":"logo-strip","logos":[{"src":"/path/logo.png","alt":"Logo"}]}
 - tag-list: Set of short keywords, categories, feature flags, or filters. Use for compact classification; not for sentences or long labels. kind=semantic parent=stack children=none type='tag-list' required={items:array} optional={tone:enum[neutral|brand|positive|warning|danger]} example={"type":"tag-list","items":["AI","Memory","Workflow"],"tone":"brand"}
 - badge: Single short status/category marker such as NEW, RISK, BETA, or DRAFT. Use as metadata on another module; use tag-list for multiple chips. kind=semantic parent=stack children=none type='badge' required={text:string} optional={tone:enum[brand|positive|warning|danger|neutral]} example={"type":"badge","text":"text"}

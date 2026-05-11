@@ -54,6 +54,11 @@ export interface LineSpec {
  */
 export interface TextRun {
   text: string;
+  /** Optional native Office math payload. When present, the text emitter
+   *  writes an `<a14:m><m:oMathPara>…</m:oMathPara></a14:m>` run instead of
+   *  plain DrawingML text. `text` remains a fallback/measurement label. */
+  mathOmml?: string;
+  mathLatex?: string;
   bold?: boolean;
   italic?: boolean;
   /** Font size in HALF-POINTS (PowerPoint convention: `<a:rPr sz="2400">` = 24pt). */
@@ -311,12 +316,35 @@ export interface ChartSeries {
    * ignores this field.
    */
   type?: "bar" | "line";
+  /** Draw this series against the primary left Y axis or secondary right Y axis. */
+  axis?: "primary" | "secondary";
+  /**
+   * Native chart trend line. Supported by line/bar/scatter OOXML series.
+   * Boolean true means a linear trend line.
+   */
+  trendLine?: true | { type?: "linear" | "exp" | "log" | "poly"; order?: number; label?: string };
+  /**
+   * Native symmetric error bars. This intentionally starts with the simple
+   * OOXML forms rather than custom per-point ranges.
+   */
+  errorBars?: { type?: "fixed" | "percent" | "stdDev" | "stdErr"; value?: number; direction?: "x" | "y" | "both" };
   /**
    * Per-series xy data — only consumed when parent `chartType` is
    * "scatter". When present, `values` is ignored. Each point is a
    * literal {x,y} pair; the emitter writes both into the OOXML.
    */
   points?: Array<{ x: number; y: number }>;
+}
+
+export interface ChartDataLabels {
+  show?: boolean;
+  position?: "bestFit" | "center" | "insideEnd" | "insideBase" | "outsideEnd";
+  showValue?: boolean;
+  showCategoryName?: boolean;
+  showSeriesName?: boolean;
+  showPercent?: boolean;
+  showLegendKey?: boolean;
+  showLeaderLines?: boolean;
 }
 
 /**
@@ -364,6 +392,14 @@ export interface ChartShape {
   showLegend?: boolean;
   /** Show data values on each point. Default false. */
   showValues?: boolean;
+  /** Bar-like chart orientation. `horizontal` renders OOXML barDir="bar"; default vertical. */
+  orientation?: "vertical" | "horizontal";
+  /** Data-label controls. Supersedes showValues when provided. */
+  dataLabels?: ChartDataLabels;
+  /** Optional color for positive bar points. Defaults to series color. */
+  positiveColor?: HexColor;
+  /** Optional color for negative bar points. Defaults to the theme danger color. */
+  negativeColor?: HexColor;
   /**
    * Annotations attached to this chart. Carried on the shape so layouts
    * can render them as overlay text shapes layered over the chart frame.

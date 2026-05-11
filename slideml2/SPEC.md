@@ -71,6 +71,16 @@ Deck fields:
   metadata, and `mode:"experimental"` downgrades unknown node/component types
   to warnings while prototyping schema extensions. Optional overrides:
   `allowUnknownComponents`, `maxTextLength`, `requireAlt`, `requireSources`.
+- `deck.dataSources`: optional deck-level data registry. M2 sources support
+  `{type:"inline-json", rows:[...]}`, `{type:"inline-csv", csv}`,
+  `{type:"file-csv", path:"data/file.csv"}`, and
+  `{type:"computed", source:"base", computed:{...}, view?}`. Relative
+  `file-csv` paths are resolved against the deck JSON directory by the deck
+  tools and renderer. `computed` uses controlled expression objects only; it
+  never executes arbitrary code.
+  Components and chart/table primitives can reference these rows with
+  `bind:{source, select?, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}` plus
+  `encoding`.
 - `deck.metadata`: arbitrary non-rendered metadata.
 
 Slide fields:
@@ -98,6 +108,51 @@ Source normalization:
 - `height`/`width` on non-media, non-anchored nodes are aliased to
   `fixedHeight`/`fixedWidth` for layout compatibility.
 - `article` children paginate into multiple slides before rendering.
+
+Data binding:
+
+- `bind.source` MUST reference a key in `deck.dataSources`.
+- `inline-json` rows MUST be an array of objects. `inline-csv` and `file-csv`
+  MUST include a header row.
+- Render-tree output preserves `dataLineage` and
+  `resolvedData:{rows,schema}` for bound nodes so chart/table/KPI values can
+  be audited back to the source. Data source metadata `sourceLabel`,
+  `citation`, and `accessedAt` is carried into lineage.
+- `computed` data sources derive rows from another source. Use
+  `computed`/`columns` for row-level derived fields before the optional
+  `view`, and `postComputed` for derived fields after the view. Supported
+  expression ops: `field`, `literal`, `add`/`sum`, `subtract`, `multiply`,
+  `divide`/`ratio`, `percent-change`, `negate`, `abs`, `round`, `concat`,
+  and `coalesce`. Example:
+  `computed:{marginPct:{op:"divide",left:"profit",right:"revenue"}}`.
+- `filter` supports exact matches and simple operators:
+  `{field:{eq|ne|gt|gte|lt|lte|contains|in:value}}`.
+- `groupBy` accepts one field or a field array.
+- `aggregate` accepts output fields mapped to an op string or `{op, field?}`.
+  Supported ops are `sum`, `avg`, `min`, `max`, `count`, `first`, and `last`.
+  Example: `aggregate:{Revenue:{op:"sum",field:"revenue"}, rows:"count"}`.
+- `pivot` transforms long-form rows into wide rows:
+  `pivot:{index, columns, values, aggregate?, fill?}`. `index` is one field
+  or a field array, `columns` supplies the output column names, `values` is
+  aggregated into those columns, and `aggregate` defaults to `sum`. Do not
+  combine `pivot` with `groupBy`/`aggregate` in the same bind view.
+- `sort` accepts `"field"`, `"-field"`, or `{by, direction:"asc"|"desc"}`.
+  Sorting happens after filter and aggregate.
+- `limit` keeps the first N rows after filter/sort.
+- `chart` / `chart-card` use
+  `encoding:{x,y,series?,seriesName?,seriesOptions?}`. `y` may be one field
+  or an array of fields. `seriesOptions` is keyed by output series/field name
+  and can set `{name,type:"bar"|"line",axis:"primary"|"secondary",
+  trendLine?,errorBars?}` for combo charts, secondary axes, linear/polynomial
+  trend lines, and simple native error bars.
+- `table` / `table-card` use
+  `encoding:{columns:[key|{key,label,type,format,align,width}]}` or
+  `bind.select` to select columns. Column `type` may be `text`, `number`,
+  `percent`, `currency`, or `date`; numeric/currency/percent columns default
+  to right alignment. When type is omitted for bound tables, SlideML2 infers
+  date/number/percent/currency from field names and values.
+- `metric-card` / `hero-stat` use `encoding:{value,label,delta?}`.
+- `stat-strip` uses `encoding:{value,label}`.
 
 ## 3. Identity, IDs, And Field Shape
 

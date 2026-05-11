@@ -9,7 +9,7 @@ export { describeDeck } from "./deck-disclosure.js";
 export { listTextKinds, describeTextKind } from "./text-kinds.js";
 export { listThemes } from "./theme.js";
 export { createDeck, setDeckProps, appendSlide, insertSlide, replaceSlide, deleteSlide, validateDeckPath, renderDeck } from "./deck-ops.js";
-export { createSourceDeck, sourceToRenderedDeck } from "./source-deck.js";
+export { createSourceDeck, normalizeSlide, sourceToRenderedDeck } from "./source-deck.js";
 export { validateDeck, validateSlide } from "./validate.js";
 export { bulletList, companyOverviewLayout, comparisonCard, imageBlock, imageWithCaptionPanel, insightCallout, metricCard, paragraphText, stepCard, titleText } from "./components.js";
 export { applyEdits } from "./edit.js";

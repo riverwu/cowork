@@ -29,6 +29,11 @@ describe("createDeckTool argument coercion (288ryd regression)", () => {
     expect(createDeckTool.definition.description).toContain("strict");
     expect(createDeckTool.definition.parameters.properties).toHaveProperty("size");
     expect(createDeckTool.definition.parameters.properties).toHaveProperty("validation");
+    expect(createDeckTool.definition.parameters.properties).toHaveProperty("dataSources");
+    expect(createDeckTool.definition.parameters.properties).toHaveProperty("references");
+    expect(createDeckTool.definition.parameters.properties).toHaveProperty("footnotes");
+    expect(createDeckTool.definition.description).toContain("file-csv");
+    expect(createDeckTool.definition.description).toContain("bibliography");
   });
 
   it("auto-parses themeOverride when it arrives as a JSON-encoded string", async () => {
@@ -110,6 +115,49 @@ describe("createDeckTool argument coercion (288ryd regression)", () => {
     const callArg = mock.mock.calls[0]![1] as { size?: string; validation?: Record<string, unknown> };
     expect(callArg.size).toBe("4x3");
     expect(callArg.validation).toMatchObject({ mode: "strict", requireAlt: true, requireSources: true });
+  });
+
+  it("passes dataSources through to the native deck creator", async () => {
+    await createDeckTool.execute({
+      deckPath: "/tmp/x.json",
+      dataSources: { sales: { type: "file-csv", path: "data/sales.csv" } },
+    });
+    const callArg = mock.mock.calls[0]![1] as { dataSources?: Record<string, unknown> };
+    expect(callArg.dataSources).toEqual({ sales: { type: "file-csv", path: "data/sales.csv" } });
+  });
+
+  it("passes references and footnotes through to the native deck creator", async () => {
+    await createDeckTool.execute({
+      deckPath: "/tmp/x.json",
+      references: [{ id: "smith2024", title: "Study", authors: ["Smith"], year: 2024 }],
+      footnotes: [{ id: "n1", text: "Anonymized sample." }],
+    });
+    const callArg = mock.mock.calls[0]![1] as { references?: unknown[]; footnotes?: unknown[] };
+    expect(callArg.references).toEqual([{ id: "smith2024", title: "Study", authors: ["Smith"], year: 2024 }]);
+    expect(callArg.footnotes).toEqual([{ id: "n1", text: "Anonymized sample." }]);
+  });
+
+  it("does not report success when native createDeck rejects validation and writes no file", async () => {
+    mock.mockResolvedValueOnce({
+      deckPath: "/tmp/x.json",
+      ok: false,
+      error: "Deck creation rejected by validation with 1 error(s).",
+      validation: {
+        errors: [{
+          code: "THEME_LAYOUT_FOOTER_OVERLAP",
+          path: "deck.themeOverride.layout.contentBottom",
+          message: "contentBottom enters the footer chrome zone.",
+          suggestedFix: "Set contentBottom lower than the footer top.",
+        }],
+      },
+    });
+
+    const result = await createDeckTool.execute({ deckPath: "/tmp/x.json" });
+
+    expect(String(result)).toMatch(/^Error: create_deck failed; deck file was not written/);
+    expect(String(result)).toContain("THEME_LAYOUT_FOOTER_OVERLAP");
+    expect(String(result)).toContain("Do not use write_file");
+    expect(String(result)).not.toContain("Deck created at");
   });
 
   it("rejects unsupported deck sizes before creating a bad deck", async () => {

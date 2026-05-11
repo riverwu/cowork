@@ -158,7 +158,7 @@ async function dispatch(command, args, sender) {
     case "get_node_path": return getNodePath();
     case "run_node_script": return runNodeScript(args.script, args.cwd, args.timeoutSecs);
     case "slideml2_describe_schema": return slideml2DescribeSchema(args.components);
-    case "slideml2_create_deck": return slideml2CreateDeck(args.deckPath, args.title, args.size, args.theme, args.brand, args.themeOverride, args.validation);
+    case "slideml2_create_deck": return slideml2CreateDeck(args.deckPath, args.title, args.size, args.theme, args.brand, args.themeOverride, args.validation, args.dataSources);
     case "slideml2_read_deck": return slideml2ReadDeck(args.deckPath);
     case "slideml2_replace_slide": return slideml2ReplaceSlide(args.deckPath, args.slideId, args.slide);
     case "slideml2_patch_deck": return slideml2PatchDeck(args.deckPath, args.patch);
@@ -556,7 +556,7 @@ async function slideml2DescribeSchema(componentNames) {
   };
 }
 
-async function slideml2CreateDeck(deckPath, title, size, theme, brand, themeOverride, validation) {
+async function slideml2CreateDeck(deckPath, title, size, theme, brand, themeOverride, validation, dataSources) {
   if (!deckPath) throw new Error("slideml2_create_deck: deckPath is required");
   const m = await slideml2();
   const result = await m.createDeck(deckPath, {
@@ -566,6 +566,7 @@ async function slideml2CreateDeck(deckPath, title, size, theme, brand, themeOver
     brand: brand && typeof brand === "object" ? brand : undefined,
     themeOverride: themeOverride && typeof themeOverride === "object" ? themeOverride : undefined,
     validation: validation && typeof validation === "object" ? validation : undefined,
+    dataSources: dataSources && typeof dataSources === "object" ? dataSources : undefined,
   });
   return { deckPath, ...result };
 }
@@ -581,7 +582,8 @@ async function slideml2ReplaceSlide(deckPath, slideId, slide) {
   if (slide == null || typeof slide !== "object") throw new Error("slideml2_replace_slide: slide must be an object");
   const m = await slideml2();
   const deck = await m.readDeck(deckPath);
-  const slideValidation = m.validateSlide(slide, deck);
+  const normalizedSlide = m.normalizeSlide(slide);
+  const slideValidation = m.validateSlide(normalizedSlide, deck);
   if (!slideValidation.ok) {
     return { ok: false, error: `Slide validation failed with ${slideValidation.errors.length} error(s).`, validation: slideValidation };
   }
@@ -594,24 +596,24 @@ async function slideml2ReplaceSlide(deckPath, slideId, slide) {
     if (id === candidate.slides.length) {
       targetIndex = id;
       insertedAt = id;
-      candidate.slides.push(slide);
+      candidate.slides.push(normalizedSlide);
     } else if (id >= 0 && id < candidate.slides.length) {
       targetIndex = id;
       replacedAt = id;
-      candidate.slides[id] = slide;
+      candidate.slides[id] = normalizedSlide;
     }
   } else {
     targetIndex = candidate.slides.findIndex((item) => item.id === id);
     if (targetIndex >= 0) {
       replacedAt = targetIndex;
-      candidate.slides[targetIndex] = slide;
+      candidate.slides[targetIndex] = normalizedSlide;
     }
   }
   if (targetIndex < 0) {
     return { ok: false, error: `Slide not found: ${slideId}`, slideCount: deck.slides.length };
   }
 
-  const deckValidation = m.validateDeck(candidate);
+  const deckValidation = m.validateDeck(candidate, { baseDir: path.dirname(deckPath) });
   if (!deckValidation.ok) {
     return {
       ok: false,
@@ -624,7 +626,7 @@ async function slideml2ReplaceSlide(deckPath, slideId, slide) {
   const singleSlideDeck = { ...candidate, slides: [candidate.slides[targetIndex]] };
   m.clearRenderDiagnostics();
   try {
-    m.renderToAst(m.sourceToRenderedDeck(singleSlideDeck));
+    m.renderToAst(m.sourceToRenderedDeck(singleSlideDeck, { baseDir: path.dirname(deckPath) }));
   } catch (err) {
     m.clearRenderDiagnostics();
     return {
@@ -636,8 +638,8 @@ async function slideml2ReplaceSlide(deckPath, slideId, slide) {
   }
   const diagnostics = m.getRenderDiagnostics();
   m.clearRenderDiagnostics();
-  const blocking = blockingSlideml2Diagnostics(diagnostics);
-  const quality = qualityGateSlideml2Diagnostics(diagnostics);
+  const blocking = blockingSlideml2Diagnostics(diagnostics, m);
+  const quality = qualityGateSlideml2Diagnostics(diagnostics, m);
   const diagnosticsSummary = summarizeSlideml2Diagnostics(diagnostics);
   const renderCheck = {
     count: diagnostics.length,
@@ -675,7 +677,10 @@ async function slideml2PatchDeck(deckPath, patch) {
   const original = await m.readDeck(deckPath);
   const deck = JSON.parse(JSON.stringify(original));
   applyJsonPatch(deck, patch);
-  const validation = m.validateDeck(deck);
+  if (Array.isArray(deck.slides)) {
+    deck.slides = deck.slides.map((slide) => m.normalizeSlide(slide));
+  }
+  const validation = m.validateDeck(deck, { baseDir: path.dirname(deckPath) });
   if (validation.ok) await m.writeDeck(deckPath, deck);
   return {
     ok: validation.ok,
@@ -690,7 +695,7 @@ async function slideml2ValidateRender(deckPath, outputPath, render) {
   const m = await slideml2();
   const shouldRender = render !== false;
   const deck = await m.readDeck(deckPath);
-  const validation = m.validateDeck(deck);
+  const validation = m.validateDeck(deck, { baseDir: path.dirname(deckPath) });
   if (!validation.ok || !shouldRender) {
     return {
       ok: validation.ok,
@@ -701,12 +706,12 @@ async function slideml2ValidateRender(deckPath, outputPath, render) {
   const out = (typeof outputPath === "string" && outputPath) || `${deckPath.replace(/\.json$/, "")}.pptx`;
   await fsp.mkdir(path.dirname(out), { recursive: true });
   m.clearRenderDiagnostics();
-  const result = await m.renderToPptx(m.sourceToRenderedDeck(deck), out);
+  const result = await m.renderToPptx(m.sourceToRenderedDeck(deck, { baseDir: path.dirname(deckPath) }), out);
   const diagnostics = m.getRenderDiagnostics();
   const authoringDiagnostics = await slideml2AuthoringDiagnostics(deckPath, deck);
   const allDiagnostics = diagnostics.concat(authoringDiagnostics);
-  const blocking = blockingSlideml2Diagnostics(allDiagnostics);
-  const quality = qualityGateSlideml2Diagnostics(allDiagnostics);
+  const blocking = blockingSlideml2Diagnostics(allDiagnostics, m);
+  const quality = qualityGateSlideml2Diagnostics(allDiagnostics, m);
   const diagnosticsPath = `${result.outputPath}.diagnostics.json`;
   await fsp.writeFile(diagnosticsPath, JSON.stringify(allDiagnostics, null, 2), "utf8");
   const counts = {};
@@ -877,14 +882,14 @@ function collectStringValues(value, visit) {
   }
 }
 
-function blockingSlideml2Diagnostics(items) {
-  const codes = new Set(["COLLISION", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "SQUASHED", "FALLBACK_FAILED", "LOW_CONTRAST", "SHAPE_INVISIBLE", "TITLE_OCCLUDED"]);
-  return items.filter((d) => d.severity === "error" || codes.has(d.code));
+function blockingSlideml2Diagnostics(items, slideml2Module) {
+  const codes = slideml2Module?.BLOCKING_RENDER_DIAGNOSTIC_CODES || new Set(["COLLISION", "STRUCTURAL_OVERLAP", "SIBLING_INK_OVERLAP", "OVERLAY_OCCLUDES_FLOW", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "SQUASHED", "FALLBACK_FAILED", "CODE_BLOCK_OVERFLOW", "LOW_CONTRAST", "SHAPE_INVISIBLE", "TITLE_OCCLUDED", "PIE_LABELS_HIDDEN", "EMPTY_CHART_DATA", "EMPTY_TABLE_DATA", "OFF_SLIDE"]);
+  return items.filter((d) => typeof slideml2Module?.isBlockingRenderDiagnostic === "function" ? slideml2Module.isBlockingRenderDiagnostic(d.code, d.severity) : d.severity === "error" || codes.has(d.code));
 }
 
-function qualityGateSlideml2Diagnostics(items) {
-  const codes = new Set(["TRUNCATED", "OVERFLOW", "UNUSED_GENERATED_ICON_ASSETS", "PARTIAL_UNUSED_GENERATED_ICON_ASSETS", "SPARSE_CONTENT_SLIDE", "PLAIN_FEATURE_CARD_GRID"]);
-  return items.filter((d) => codes.has(d.code));
+function qualityGateSlideml2Diagnostics(items, slideml2Module) {
+  const localCodes = new Set(["UNUSED_GENERATED_ICON_ASSETS", "PARTIAL_UNUSED_GENERATED_ICON_ASSETS", "SPARSE_CONTENT_SLIDE", "PLAIN_FEATURE_CARD_GRID"]);
+  return items.filter((d) => localCodes.has(d.code) || (typeof slideml2Module?.isQualityRenderDiagnostic === "function" ? slideml2Module.isQualityRenderDiagnostic(d.code) : new Set(["TRUNCATED", "OVERFLOW", "DROP", "DEMOTED", "LOW_CONTRAST_FIXED", "SHAPE_INVISIBLE_FIXED", "DECORATIVE_OVERLAP", "EDGE_CLIPPED", "TIGHT_GAP"]).has(d.code)));
 }
 
 function summarizeSlideml2Diagnostics(items) {
