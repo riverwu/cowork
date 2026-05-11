@@ -350,9 +350,11 @@ import {
   createDeck,
   getRenderDiagnostics,
   isBlockingRenderDiagnostic,
+  isQualityRenderDiagnostic,
+  normalizeSlide,
   readDeck,
+  renderToAst,
   renderToPptx,
-  replaceSlide,
   sourceToRenderedDeck,
   validateDeck,
   validateSlide,
@@ -380,6 +382,23 @@ function blockingDiagnostics(items) {
   return items.filter((item) => isBlockingRenderDiagnostic(item.code, item.severity));
 }
 
+function qualityDiagnostics(items) {
+  return items.filter((item) => isQualityRenderDiagnostic(item.code));
+}
+
+function diagnosticsSummary(items) {
+  return items.reduce((acc, item) => {
+    const key = item.code || "UNKNOWN";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function findSlideIndex(deck, slideId) {
+  if (typeof slideId === "number") return slideId >= 0 && slideId < deck.slides.length ? slideId : -1;
+  return deck.slides.findIndex((slide) => slide.id === slideId);
+}
+
 async function main() {
   const [command, argPath] = process.argv.slice(2);
   if (!command || !argPath) usage();
@@ -400,26 +419,73 @@ async function main() {
   if (command === "replace-slide") {
     const deckPath = deckPathFrom(input);
     const deck = await readDeck(deckPath);
-    const slideValidation = validateSlide(input.slide, deck);
+    const normalizedSlide = normalizeSlide(input.slide);
+    const slideValidation = validateSlide(normalizedSlide, deck);
     if (!slideValidation.ok) {
       console.log(JSON.stringify({ ok: false, error: "slide validation failed", validation: slideValidation }, null, 2));
       process.exit(1);
     }
     const slideId = typeof input.slideId === "string" && /^\\\\d+$/.test(input.slideId) ? Number(input.slideId) : input.slideId;
-    if (typeof slideId === "number" && slideId === deck.slides.length) {
-      deck.slides.push(input.slide);
-      const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
-      if (!validation.ok) {
-        console.log(JSON.stringify({ ok: false, error: "deck validation failed after append", validation }, null, 2));
+    const candidate = JSON.parse(JSON.stringify(deck));
+    let targetIndex = -1;
+    let insertedAt;
+    let replacedAt;
+    if (typeof slideId === "number" && slideId === candidate.slides.length) {
+      candidate.slides.push(normalizedSlide);
+      targetIndex = candidate.slides.length - 1;
+      insertedAt = targetIndex;
+    } else {
+      targetIndex = findSlideIndex(candidate, slideId);
+      if (targetIndex < 0) {
+        console.log(JSON.stringify({ ok: false, error: "slide not found", slideId, slideCount: candidate.slides.length }, null, 2));
         process.exit(1);
       }
-      await writeDeck(deckPath, deck);
-      console.log(JSON.stringify({ ok: true, insertedAt: deck.slides.length - 1, slideCount: deck.slides.length }, null, 2));
-      return;
+      candidate.slides[targetIndex] = normalizedSlide;
+      replacedAt = targetIndex;
     }
-    const result = await replaceSlide(deckPath, slideId, input.slide);
-    console.log(JSON.stringify(result, null, 2));
-    process.exit(result.ok ? 0 : 1);
+    const validation = validateDeck(candidate, { baseDir: dirname(deckPath) });
+    if (!validation.ok) {
+      console.log(JSON.stringify({ ok: false, error: "deck validation failed after candidate apply", validation }, null, 2));
+      process.exit(1);
+    }
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck({ ...candidate, slides: [candidate.slides[targetIndex]] }, { baseDir: dirname(deckPath) }));
+    const diagnostics = getRenderDiagnostics();
+    const blocking = blockingDiagnostics(diagnostics);
+    const quality = qualityDiagnostics(diagnostics);
+    clearRenderDiagnostics();
+    if (blocking.length > 0) {
+      console.log(JSON.stringify({
+        ok: false,
+        error: "render validation failed for candidate slide",
+        validation,
+        diagnostics: {
+          count: diagnostics.length,
+          summary: diagnosticsSummary(diagnostics),
+          blockingCount: blocking.length,
+          blocking: blocking.slice(0, 60),
+          qualityCount: quality.length,
+          quality: quality.slice(0, 20),
+        },
+      }, null, 2));
+      process.exit(1);
+    }
+    await writeDeck(deckPath, candidate);
+    console.log(JSON.stringify({
+      ok: true,
+      insertedAt,
+      replacedAt,
+      slideCount: candidate.slides.length,
+      validation,
+      diagnostics: {
+        count: diagnostics.length,
+        summary: diagnosticsSummary(diagnostics),
+        blockingCount: blocking.length,
+        qualityCount: quality.length,
+        quality: quality.slice(0, 20),
+      },
+    }, null, 2));
+    return;
   }
 
   if (command === "validate-render") {

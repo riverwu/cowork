@@ -825,7 +825,7 @@ function collectStringValues(value: unknown, visit: (value: string) => void): vo
 function blockingSlideml2Diagnostics(items: Slideml2DiagnosticLike[], slideml2Module?: Record<string, unknown>): Slideml2DiagnosticLike[] {
   const codes = slideml2Module?.BLOCKING_RENDER_DIAGNOSTIC_CODES instanceof Set
     ? slideml2Module.BLOCKING_RENDER_DIAGNOSTIC_CODES
-    : new Set(["COLLISION", "STRUCTURAL_OVERLAP", "SIBLING_INK_OVERLAP", "OVERLAY_OCCLUDES_FLOW", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "SQUASHED", "FALLBACK_FAILED", "CODE_BLOCK_OVERFLOW", "LOW_CONTRAST", "SHAPE_INVISIBLE", "TITLE_OCCLUDED", "PIE_LABELS_HIDDEN", "EMPTY_CHART_DATA", "EMPTY_TABLE_DATA", "OFF_SLIDE"]);
+    : new Set(["COLLISION", "STRUCTURAL_OVERLAP", "SIBLING_INK_OVERLAP", "OVERLAY_OCCLUDES_FLOW", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "FALLBACK_FAILED", "CODE_BLOCK_OVERFLOW", "LOW_CONTRAST", "SHAPE_INVISIBLE", "TITLE_OCCLUDED", "EMPTY_CHART_DATA", "EMPTY_TABLE_DATA", "OFF_SLIDE"]);
   const checker = typeof slideml2Module?.isBlockingRenderDiagnostic === "function" ? slideml2Module.isBlockingRenderDiagnostic as (code: unknown, severity?: unknown) => boolean : undefined;
   return items.filter((d) => checker ? checker(d.code, d.severity) : d.severity === "error" || codes.has(d.code));
 }
@@ -833,7 +833,7 @@ function blockingSlideml2Diagnostics(items: Slideml2DiagnosticLike[], slideml2Mo
 function qualityGateSlideml2Diagnostics(items: Slideml2DiagnosticLike[], slideml2Module?: Record<string, unknown>): Slideml2DiagnosticLike[] {
   const localCodes = new Set(["UNUSED_GENERATED_ICON_ASSETS", "PARTIAL_UNUSED_GENERATED_ICON_ASSETS", "SPARSE_CONTENT_SLIDE", "PLAIN_FEATURE_CARD_GRID"]);
   const checker = typeof slideml2Module?.isQualityRenderDiagnostic === "function" ? slideml2Module.isQualityRenderDiagnostic as (code: unknown) => boolean : undefined;
-  const fallback = new Set(["TRUNCATED", "OVERFLOW", "DROP", "DEMOTED", "LOW_CONTRAST_FIXED", "SHAPE_INVISIBLE_FIXED", "DECORATIVE_OVERLAP", "EDGE_CLIPPED", "TIGHT_GAP"]);
+  const fallback = new Set(["TRUNCATED", "OVERFLOW", "DROP", "DEMOTED", "LOW_CONTRAST_FIXED", "SHAPE_INVISIBLE_FIXED", "DECORATIVE_OVERLAP", "EDGE_CLIPPED", "TIGHT_GAP", "SQUASHED", "PIE_LABELS_HIDDEN"]);
   return items.filter((d) => localCodes.has(d.code) || (checker ? checker(d.code) : fallback.has(d.code)));
 }
 

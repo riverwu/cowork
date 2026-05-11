@@ -15,6 +15,16 @@ export interface OverlapMetrics {
 
 export const GEOMETRY_EPSILON_CM = 0.02;
 export const MIN_MEANINGFUL_OVERLAP_AREA_CM2 = 0.05;
+export const SOURCE_OVERLAP_MIN_AREA_CM2 = 0.05;
+export const SOURCE_OVERLAP_MIN_POSITIONED_RATIO = 0.35;
+export const SOURCE_OVERLAP_MIN_WIDTH_CM = 0.5;
+export const SOURCE_OVERLAP_MIN_HEIGHT_CM = 0.18;
+export const STRUCTURAL_OVERLAP_MIN_AREA_CM2 = 0.12;
+export const STRUCTURAL_OVERLAP_MIN_RATIO_OF_SMALLER = 0.08;
+export const OVERLAY_OCCLUSION_MIN_AREA_CM2 = 0.08;
+export const OVERLAY_OCCLUSION_MIN_TARGET_COVERAGE = 0.25;
+export const TITLE_OCCLUSION_MIN_AREA_CM2 = 0.5;
+export const TITLE_OCCLUSION_MIN_RATIO_OF_TITLE = 0.12;
 
 export function intersectionRect(a: RectLike, b: RectLike, epsilon = 0): RectLike | undefined {
   const x1 = Math.max(a.x, b.x);
@@ -49,6 +59,33 @@ export function meaningfulOverlap(
   const metrics = overlapMetrics(a, b, epsilon);
   if (!metrics) return undefined;
   if (metrics.areaCm2 < (options.minAreaCm2 ?? MIN_MEANINGFUL_OVERLAP_AREA_CM2)) return undefined;
+  return metrics;
+}
+
+export function meaningfulSourceOverlap(positioned: RectLike, region: RectLike): OverlapMetrics | undefined {
+  const metrics = meaningfulOverlap(positioned, region, { minAreaCm2: SOURCE_OVERLAP_MIN_AREA_CM2 });
+  if (!metrics) return undefined;
+  if (metrics.rect.w < SOURCE_OVERLAP_MIN_WIDTH_CM || metrics.rect.h < SOURCE_OVERLAP_MIN_HEIGHT_CM) return undefined;
+  if (metrics.ratioOfA < SOURCE_OVERLAP_MIN_POSITIONED_RATIO) return undefined;
+  return metrics;
+}
+
+export function meaningfulStructuralOverlap(a: RectLike, b: RectLike): OverlapMetrics | undefined {
+  const metrics = meaningfulOverlap(a, b, { minAreaCm2: STRUCTURAL_OVERLAP_MIN_AREA_CM2 });
+  if (!metrics || metrics.ratioOfSmaller < STRUCTURAL_OVERLAP_MIN_RATIO_OF_SMALLER) return undefined;
+  return metrics;
+}
+
+export function meaningfulOverlayOcclusion(overlay: RectLike, target: RectLike): OverlapMetrics | undefined {
+  const metrics = meaningfulOverlap(overlay, target, { minAreaCm2: OVERLAY_OCCLUSION_MIN_AREA_CM2 });
+  if (!metrics || metrics.ratioOfB < OVERLAY_OCCLUSION_MIN_TARGET_COVERAGE) return undefined;
+  return metrics;
+}
+
+export function meaningfulTitleOcclusion(title: RectLike, cover: RectLike): OverlapMetrics | undefined {
+  const metrics = overlapMetrics(title, cover);
+  if (!metrics) return undefined;
+  if (metrics.ratioOfA < TITLE_OCCLUSION_MIN_RATIO_OF_TITLE && metrics.areaCm2 < TITLE_OCCLUSION_MIN_AREA_CM2) return undefined;
   return metrics;
 }
 

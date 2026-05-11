@@ -102,14 +102,20 @@ let diagnosticDedupKeys: Set<string> = new Set();
  * nodeId + slideId + the rounded delta — so distinct issues on the same node
  * still surface, but exact duplicates from a second measure pass are dropped.
  */
-function diagnosticDedupKey(d: LayoutDiagnostic): string {
-  const slide = d.slideId || "";
+function diagnosticDedupKey(d: LayoutDiagnostic, includeSlide = true): string {
+  const slide = includeSlide ? d.slideId || "" : "";
   const node = d.nodeId || "";
   const delta = d.measured?.deltaCm !== undefined ? Math.round(d.measured.deltaCm * 100) : "";
+  const other = d.measured?.other?.nodeId || "";
+  const relationship = d.measured?.relationship || "";
+  const overlapArea = d.measured?.overlapAreaCm2 !== undefined ? Math.round(d.measured.overlapAreaCm2 * 100) : "";
+  const overlapRect = d.measured?.overlap
+    ? [d.measured.overlap.x, d.measured.overlap.y, d.measured.overlap.w, d.measured.overlap.h].map((value) => Math.round(value * 100)).join(",")
+    : "";
   // Cluster diagnostics encode the affected count; without that, identical
   // first-of-cluster messages from two passes would dedupe each other.
   const clusterCount = d.aggregated?.count !== undefined ? d.aggregated.count : "";
-  return `${d.code}|${slide}|${node}|${delta}|${clusterCount}`;
+  return JSON.stringify([d.code, slide, node, other, relationship, delta, overlapArea, overlapRect, clusterCount]);
 }
 
 export function pushDiagnostic(d: LayoutDiagnostic): void {
@@ -117,7 +123,7 @@ export function pushDiagnostic(d: LayoutDiagnostic): void {
   // Dedupe across (slide,node,code) AND across (any-slide,node,code) — the
   // second emission from the render pass often has slideId="" while the first
   // has the real slideId. We treat them as the same issue.
-  const sansSlide = `${d.code}||${d.nodeId || ""}|${d.measured?.deltaCm !== undefined ? Math.round(d.measured.deltaCm * 100) : ""}|${d.aggregated?.count !== undefined ? d.aggregated.count : ""}`;
+  const sansSlide = diagnosticDedupKey(d, false);
   if (diagnosticDedupKeys.has(key) || diagnosticDedupKeys.has(sansSlide)) return;
   diagnosticDedupKeys.add(key);
   diagnosticDedupKeys.add(sansSlide);

@@ -30,7 +30,7 @@ import { measureDeck } from "./render.js";
 import { sourceSlideToRendered, sourceToRenderedDeck } from "./source-deck.js";
 import { emuToCm, SLIDE_SIZES } from "./units.js";
 import { unsupportedLatexCommands } from "./latex-omml.js";
-import { intersectionRect, rectContains } from "./layout/geometry.js";
+import { meaningfulSourceOverlap, rectContains } from "./layout/geometry.js";
 
 const RAW_HEX_RE = /^[0-9A-Fa-f]{6}$/;
 const RESERVED_LAYOUT_AREAS = new Set(["content", "full"]);
@@ -2468,18 +2468,16 @@ function validateTopLevelPlacementOverlaps(
       if (region.id === positioned.id) continue;
       const regionRect = region.rect;
       if (!regionRect) continue;
-      const overlap = intersectionRect(positionedRect, regionRect);
+      const overlap = meaningfulSourceOverlap(positionedRect, regionRect);
       if (!overlap) continue;
-      const positionedArea = Math.max(0.001, positionedRect.w * positionedRect.h);
-      const overlapRatio = (overlap.w * overlap.h) / positionedArea;
-      if (overlap.h < 0.18 || overlap.w < 0.5 || overlapRatio < 0.35) continue;
+      const overlapRatio = overlap.ratioOfA;
       const key = `${positioned.id}|${region.id}`;
       if (emitted.has(key)) continue;
       emitted.add(key);
       issues.push(issue("error", "TOP_LEVEL_LAYOUT_OVERLAP", `Top-level positioned node ${positioned.id} overlaps region node ${region.id}.`, {
         slideId: measuredSlide.slideId,
         nodeName: positioned.id,
-        details: { positionedRect, regionRect, overlap, overlapRatio },
+        details: { positionedRect, regionRect, overlap: overlap.rect, overlapRatio, overlapAreaCm2: overlap.areaCm2 },
         suggestedFix: "Do not place at/anchor/anchorTo hero content over area:'content' or a named area. Move the region, put the items inside one stack/grid/split, or mark truly decorative layers as behind/negative zIndex.",
       }));
     }
@@ -2573,7 +2571,7 @@ function report(issues: ValidationIssue[]): ValidationReport {
 function dedupeIssues(issues: ValidationIssue[]): ValidationIssue[] {
   const seen = new Set<string>();
   return issues.filter((item) => {
-    const key = `${item.level}:${item.code}:${item.slideId}:${item.path}:${item.nodeName}:${item.message}`;
+    const key = JSON.stringify([item.level, item.code, item.slideId, item.path, item.nodeName, item.message]);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

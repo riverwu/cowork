@@ -194,6 +194,8 @@ agent 保留原语义并修正布局，而不是简单降级组件。
 | 路径 | 函数 | 范围 | 严重度 |
 |---|---|---|---|
 | leaf slot collision | `detectCollisionsForSlide` | 非 overlay、非 layered、非 caption、非容器、非祖孙节点两两 AABB | `COLLISION` warn，但工具层 blocker |
+| sibling container overlap | `detectSiblingContainerOverlaps` | 同父容器的可见背景/边框区域，包含 slide root 直挂容器 | `STRUCTURAL_OVERLAP` error |
+| overlay occlusion | `detectOverlayOcclusions` | slide-level `at/anchor/anchorTo/layer:"above"` overlay 覆盖 flow 内容 | `OVERLAY_OCCLUDES_FLOW` warn，但工具层 blocker |
 | title occlusion | `runTitleOcclusionCheck` | slide title 被后续 solid shape 覆盖 | `TITLE_OCCLUDED` error |
 | top-level region overlap | `validateTopLevelPlacementOverlaps` | 顶层 `area` region vs 顶层 `at/anchor/anchorTo` 或展开 overlay | `TOP_LEVEL_LAYOUT_OVERLAP` error |
 
@@ -204,10 +206,10 @@ agent 保留原语义并修正布局，而不是简单降级组件。
 会跳过：
 
 1. slide root；
-2. 顶层 overlay：`anchor` / `anchorTo` / `at` / `layer`；
-3. id 以 `.caption` 结尾的 caption；
-4. 任意 `layer:"behind"|"above"`；
-5. 任意有 children 的容器；
+2. leaf collision 池里的顶层 overlay：`anchor` / `anchorTo` / `at` / `layer`；
+3. `relation:"caption-of"` 或 id 以 `.caption` 结尾的 caption；
+4. leaf collision 池里的任意 `layer:"behind"|"above"`；
+5. leaf collision 池里的任意有 children 的容器；容器背景/外框由 sibling container overlap 单独检测；
 6. 祖孙关系。
 
 剩下的 leaf 两两使用统一 `meaningfulOverlap`。当前主路径不再直接使用 layout
@@ -272,8 +274,10 @@ slot rect，而是优先使用 `visualRect`，其次 `inkRect`，最后才回退
 
 ### L2. 容器整体碰撞漏检
 
-当前 `collectContainerIds` 直接跳过所有容器。两张 card/panel/container 的
+早期 `collectContainerIds` 直接跳过所有容器。两张 card/panel/container 的
 背景或外框重叠时，只比较内部 leaf，可能漏掉“卡片压卡片”的真实视觉问题。
+当前已用 `detectSiblingContainerOverlaps` 补上同父容器的 `visualRect` 检测，
+并覆盖 slide root 直挂容器。
 
 ### L3. overlay 逻辑不统一
 
@@ -282,7 +286,8 @@ overlay 大多从碰撞池排除，只有 title occlusion 和顶层 area overlap
 
 - `at` 文本/shape 覆盖 chart/table 正文可能漏检。
 - pointer-arrow、annotation、decorative layer 的遮挡语义没有统一模型。
-- `layer:"above"` 被全部豁免，即使它实际挡住关键内容。
+- `layer:"above"` 必须参与 overlay occlusion 检测；只有 `layer:"behind"`
+  作为背景层豁免。
 
 ### L4. 文本估算仍无法等同 PowerPoint
 

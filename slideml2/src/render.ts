@@ -3,8 +3,8 @@ import { dirname } from "node:path";
 import { emitPackage } from "./emitter/package.js";
 import type { ChartAnnotation, ChartDataLabels, ChartNumberFormat, ChartSeries, ChartType, DeckAst, FillSpec, ImageShape, LineSpec, Paragraph, ShapeList, SlideAst, TableCell, TextRun, ShapePreset } from "./emitter/types.js";
 import { expandComponent, isComponentTypedNode } from "./component-registry.js";
-import { contrastRatio, contrastThreshold, getRenderDiagnostics, pushDiagnostic, relativeLuminance } from "./diagnostics.js";
-import { coverageRatio, meaningfulOverlap, rectOverlapArea, type OverlapMetrics } from "./layout/geometry.js";
+import { clearRenderDiagnostics, contrastRatio, contrastThreshold, getRenderDiagnostics, pushDiagnostic, relativeLuminance } from "./diagnostics.js";
+import { coverageRatio, meaningfulOverlap, meaningfulOverlayOcclusion, meaningfulStructuralOverlap, meaningfulTitleOcclusion, type OverlapMetrics } from "./layout/geometry.js";
 import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
 import type { Slideml2SourceDeck } from "./types.js";
@@ -156,6 +156,7 @@ export async function renderSourceDeckToPptx(deck: Slideml2SourceDeck, outputPat
 }
 
 export function renderToAst(deck: RenderedDeck): DeckAst {
+  clearRenderDiagnostics();
   const { theme, size } = buildThemeForDeck(deck);
   layoutDecisionsBySlide.clear();
   squashedWarnings.clear();
@@ -256,17 +257,15 @@ function runTitleOcclusionCheck(slideId: string, slideDom: DomNode, slide: { sha
   if (titleIndex < 0) return;
   const titleShape = slide.shapes[titleIndex]!;
   const titleRect = { x: titleShape.xfrm.x, y: titleShape.xfrm.y, w: titleShape.xfrm.cx, h: titleShape.xfrm.cy };
-  const titleArea = Math.max(0.1, titleRect.w * titleRect.h);
   for (let i = titleIndex + 1; i < slide.shapes.length; i++) {
     const shape = slide.shapes[i]!;
     if (shape.type !== "shape") continue;
     const fill = shape.fill;
     if (!fill || fill.type !== "solid" || fill.alpha !== undefined && fill.alpha < 0.25) continue;
     const rect = { x: shape.xfrm.x, y: shape.xfrm.y, w: shape.xfrm.cx, h: shape.xfrm.cy };
-    const overlap = rectOverlapArea(titleRect, rect);
-    if (overlap <= 0) continue;
-    const ratio = overlap / titleArea;
-    if (ratio < 0.12 && overlap < 0.5) continue;
+    const overlap = meaningfulTitleOcclusion(titleRect, rect);
+    if (!overlap) continue;
+    const ratio = overlap.ratioOfA;
     pushDiagnostic({
       severity: "error",
       code: "TITLE_OCCLUDED",
@@ -982,8 +981,8 @@ function detectCollisionsForSlide(slideId: string, measured: MeasuredNode[], sli
   const skipIds = collectCaptionPairs(measured);
   const layeredIds = collectLayeredIds(slideDom);
   const containerIds = collectContainerIds(slideDom);
-  detectSiblingContainerOverlaps(slideId, measured, slideDom, overlayIds, layeredIds, containerIds);
-  detectOverlayOcclusions(slideId, measured, slideDom, overlayIds, layeredIds);
+  detectSiblingContainerOverlaps(slideId, measured, slideDom, layeredIds, containerIds);
+  detectOverlayOcclusions(slideId, measured, slideDom, overlayIds);
   const candidates = measured.filter((node) =>
     node.id !== slideDom.id && node.visualRole !== "container" && !overlayIds.has(node.id) && !skipIds.has(node.id) && !layeredIds.has(node.id),
   );
@@ -1011,29 +1010,27 @@ function detectSiblingContainerOverlaps(
   slideId: string,
   measured: MeasuredNode[],
   slideDom: DomNode,
-  overlayIds: Set<string>,
   layeredIds: Set<string>,
   containerIds: Set<string>,
 ): void {
   const containers = measured.filter((node) =>
     node.id !== slideDom.id
-    && node.parentId
-    && node.parentId !== slideDom.id
     && containerIds.has(node.id)
     && node.visualRect
-    && !overlayIds.has(node.id)
     && !layeredIds.has(node.id),
   );
   for (let i = 0; i < containers.length; i++) {
     for (let j = i + 1; j < containers.length; j++) {
       const a = containers[i]!;
       const b = containers[j]!;
-      if (!a.parentId || a.parentId !== b.parentId) continue;
+      const aParent = a.parentId || slideDom.id;
+      const bParent = b.parentId || slideDom.id;
+      if (aParent !== bParent) continue;
       const aRect = collisionRect(a);
       const bRect = collisionRect(b);
       if (!aRect || !bRect) continue;
-      const overlap = meaningfulOverlap(aRect, bRect, { minAreaCm2: 0.12 });
-      if (!overlap || overlap.ratioOfSmaller < 0.08) continue;
+      const overlap = meaningfulStructuralOverlap(aRect, bRect);
+      if (!overlap) continue;
       pushCollisionDiagnostic(slideId, "STRUCTURAL_OVERLAP", a, b, overlap, "sibling-container-overlap");
     }
   }
@@ -1044,7 +1041,6 @@ function detectOverlayOcclusions(
   measured: MeasuredNode[],
   slideDom: DomNode,
   overlayIds: Set<string>,
-  layeredIds: Set<string>,
 ): void {
   const overlayRoots = new Set(Array.from(overlayIds).filter((id) => {
     const node = findNodeById(slideDom, id);
@@ -1056,14 +1052,13 @@ function detectOverlayOcclusions(
   const overlays = measured.filter((node) =>
     node.id !== slideDom.id
     && node.visualRole !== "container"
-    && !layeredIds.has(node.id)
     && Array.from(overlayRoots).some((root) => node.id === root || node.id.startsWith(`${root}.`)),
   );
   const flow = measured.filter((node) =>
     node.id !== slideDom.id
     && node.visualRole !== "container"
     && !Array.from(overlayRoots).some((root) => node.id === root || node.id.startsWith(`${root}.`))
-    && node.relation !== "caption-of",
+    && !isMeasuredCaption(node),
   );
   for (const overlay of overlays) {
     const overlayRect = collisionRect(overlay);
@@ -1071,8 +1066,8 @@ function detectOverlayOcclusions(
     for (const target of flow) {
       const targetRect = collisionRect(target);
       if (!targetRect) continue;
-      const overlap = meaningfulOverlap(overlayRect, targetRect, { minAreaCm2: 0.08 });
-      if (!overlap || overlap.ratioOfB < 0.25) continue;
+      const overlap = meaningfulOverlayOcclusion(overlayRect, targetRect);
+      if (!overlap) continue;
       pushCollisionDiagnostic(
         slideId,
         isDecorativeMeasuredNode(overlay) ? "DECORATIVE_OVERLAP" : "OVERLAY_OCCLUDES_FLOW",
@@ -1125,7 +1120,9 @@ function pushCollisionDiagnostic(
 }
 
 function collisionRect(node: MeasuredNode): Rect | undefined {
-  return node.visualRect || node.inkRect || node.rect;
+  const rect = node.visualRect || node.inkRect || node.rect;
+  if (!rect || rect.w <= 0.01 || rect.h <= 0.01) return undefined;
+  return rect;
 }
 
 function isDecorativeMeasuredNode(node: MeasuredNode): boolean {
@@ -1177,10 +1174,13 @@ function collectContainerIds(root: DomNode): Set<string> {
 function collectCaptionPairs(measured: MeasuredNode[]): Set<string> {
   const ids = new Set<string>();
   for (const node of measured) {
-    if (node.relation === "caption-of") ids.add(node.id);
-    else if (typeof node.id === "string" && node.id.endsWith(".caption")) ids.add(node.id);
+    if (isMeasuredCaption(node)) ids.add(node.id);
   }
   return ids;
+}
+
+function isMeasuredCaption(node: MeasuredNode): boolean {
+  return node.relation === "caption-of" || (typeof node.id === "string" && node.id.endsWith(".caption"));
 }
 
 function isAncestorOf(root: DomNode, ancestorId: string, descendantId: string): boolean {

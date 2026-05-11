@@ -55,6 +55,64 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(hit?.measured?.other?.nodeId).toBe("collision.b");
   });
 
+  it("clears render diagnostics at the start of each renderToAst run", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "diagnostic-state",
+        layout: "freeform",
+        dom: {
+          id: "diagnostic-state.root",
+          type: "slide",
+          children: [
+            { id: "diagnostic-state.a", type: "text", text: "A", style: "paragraph" },
+            { id: "diagnostic-state.b", type: "text", text: "B", style: "paragraph" },
+          ],
+        },
+      }],
+    });
+    expect(getRenderDiagnostics().some((item) => item.code === "COLLISION")).toBe(true);
+
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "diagnostic-state-clean",
+        layout: "content",
+        dom: {
+          id: "diagnostic-state-clean.root",
+          type: "slide",
+          children: [
+            { id: "diagnostic-state-clean.body", type: "text", area: "content", text: "A clean slide.", style: "paragraph" },
+          ],
+        },
+      }],
+    });
+    expect(getRenderDiagnostics().some((item) => item.code === "COLLISION")).toBe(false);
+  });
+
+  it("keeps separate collision diagnostics for one node overlapping multiple peers", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "multi-collision",
+        layout: "freeform",
+        dom: {
+          id: "multi-collision.root",
+          type: "slide",
+          children: [
+            { id: "multi-collision.a", type: "text", text: "A", style: "paragraph" },
+            { id: "multi-collision.b", type: "text", text: "B", style: "paragraph" },
+            { id: "multi-collision.c", type: "text", text: "C", style: "paragraph" },
+          ],
+        },
+      }],
+    });
+    const peers = getRenderDiagnostics()
+      .filter((item) => item.code === "COLLISION" && item.nodeId === "multi-collision.a")
+      .map((item) => item.measured?.other?.nodeId);
+    expect(new Set(peers)).toEqual(new Set(["multi-collision.b", "multi-collision.c"]));
+  });
+
   it("writes measured nodes and slide diagnostics into the render tree", async () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,
@@ -278,6 +336,69 @@ describe("validation geometry and diagnostic contracts", () => {
       }],
     });
     expect(getRenderDiagnostics().some((item) => item.code === "OVERLAY_OCCLUDES_FLOW" && item.nodeId === "overlay-occlusion.blocker")).toBe(true);
+  });
+
+  it("reports layer-above overlays that cover flow content", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "above-occlusion",
+        layout: "freeform",
+        dom: {
+          id: "above-occlusion.root",
+          type: "slide",
+          children: [
+            {
+              id: "above-occlusion.body",
+              type: "text",
+              area: "content",
+              text: "Readable flow text should not be covered by a foreground layer.",
+              style: "paragraph",
+            },
+            {
+              id: "above-occlusion.blocker",
+              type: "shape",
+              layer: "above",
+              at: [1.6, 2.4, 8, 1.6],
+              fill: "FFFFFF",
+              line: { color: "FFFFFF", width: 0 },
+            },
+          ],
+        },
+      }],
+    });
+    expect(getRenderDiagnostics().some((item) => item.code === "OVERLAY_OCCLUDES_FLOW" && item.nodeId === "above-occlusion.blocker")).toBe(true);
+  });
+
+  it("reports direct slide-root sibling container overlap", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "root-container-overlap",
+        layout: "freeform",
+        dom: {
+          id: "root-container-overlap.root",
+          type: "slide",
+          children: [
+            {
+              id: "root-container-overlap.cardA",
+              type: "card",
+              at: [1, 1, 5, 3],
+              fill: "F8FAFC",
+              children: [{ id: "root-container-overlap.cardA.text", type: "text", text: "Card A", style: "paragraph" }],
+            },
+            {
+              id: "root-container-overlap.cardB",
+              type: "card",
+              at: [1.5, 1.4, 5, 3],
+              fill: "FFFFFF",
+              children: [{ id: "root-container-overlap.cardB.text", type: "text", text: "Card B", style: "paragraph" }],
+            },
+          ],
+        },
+      }],
+    });
+    expect(getRenderDiagnostics().some((item) => item.code === "STRUCTURAL_OVERLAP" && item.nodeId === "root-container-overlap.cardA")).toBe(true);
   });
 
   it("downgrades decorative overlaps instead of blocking layout", () => {
