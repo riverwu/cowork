@@ -75,11 +75,12 @@ describe("slideml2 SKILL component reference", () => {
     expect(packageScript).toContain('"SKILL.md", "business.md", "LICENSE.txt"');
     expect(packageScript).toContain("requiredRuntimeFiles");
     expect(packageScript).toContain("runtime/src/index.ts");
-    expect(packageScript).toContain("runtime/tools/md2pptx/tools.ts");
     expect(packageScript).toContain("runtime/bin/slideml2.js");
     expect(packageScript).toContain("runtime/dist/index.js");
     expect(packageScript).toContain("runtime/node_modules/jszip/package.json");
-    expect(packageScript).toContain("node bin/slideml2.js create-deck");
+    expect(packageScript).toContain("create-deck create-deck.json");
+    expect(packageScript).not.toContain("md2pptx");
+    expect(packageScript).not.toContain("render-source-deck");
     expect(packageScript).toContain("manifest.json");
     expect(packageScript).toContain("README.md");
     expect(packageScript).toContain("zipinfo");
@@ -116,8 +117,8 @@ describe("slideml2 SKILL component reference", () => {
     expect(skill.indexOf("## Deck Structure — Earn Every Slide")).toBeLessThan(skill.indexOf("## Theme Contract — Define Before Components"));
     expect(skill.indexOf("## Theme Contract — Define Before Components")).toBeLessThan(skill.indexOf("## Component-First Slide Loop"));
     expect(skill.indexOf("## Deck Planning Archive")).toBeLessThan(skill.indexOf("## Deck Structure — Earn Every Slide"));
-    expect(skill).toContain("Save a markdown file next to the future deck");
-    expect(skill).toContain("create it with `write_file`");
+    expect(skill).toContain("Save `deck_plan.md` in the deck workspace");
+    expect(skill).toContain("create it as a real file");
     expect(skill).toContain("`## Asset Plan`");
     expect(skill).toContain("For generated icons, `Asset Plan` must map icon names to actual component fields");
     expect(skill).toContain("timeline.items[].iconSrc");
@@ -138,7 +139,7 @@ describe("slideml2 SKILL component reference", () => {
     expect(business.indexOf("light-first")).toBeLessThan(1200);
     expect(business.indexOf("Do not make a full business report dark by default")).toBeLessThan(1800);
     expect(business.indexOf("Component route comes before JSON")).toBeLessThan(1800);
-    expect(business).toContain("Save a complete `deck_plan.md` before `create_deck`");
+    expect(business).toContain("Save a complete `deck_plan.md` before `create-deck`");
     expect(business).toContain("`Asset Route`");
     expect(business).toContain("| Executive answer | `executive-summary`");
     expect(business).toContain("not the default container for business prose");

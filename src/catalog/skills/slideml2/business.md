@@ -6,17 +6,17 @@ The goal is a decision-quality business deck, not a decorative article. The view
 
 ## First-Read Non-Negotiables
 
-These rules must be applied before `create_deck`. If this file was opened with `read_file` and the header says `truncated:true`, continue reading from `next_offset` before planning; do not infer business style from a partial read.
+These rules must be applied before `create-deck`. If this file was opened with `read_file` and the header says `truncated:true`, continue reading from `next_offset` before planning; do not infer business style from a partial read.
 
 - Business research decks are **light-first**. Use white or near-white backgrounds for most analysis pages. Reserve dark or saturated backgrounds for covers, chapter resets, hero-stat pages, or an explicit dark-theme user request.
-- Install a light analytical `themeOverride` at `create_deck` time: `background:"FFFFFF"`, `surface:"F8FAFC"`, `text.primary:"111827"`, `text.muted:"6B7280"`, `divider:"E5E7EB"`, plus one brand accent and stable status colors.
+- Install a light analytical `themeOverride` in `create-deck.json`: `background:"FFFFFF"`, `surface:"F8FAFC"`, `text.primary:"111827"`, `text.muted:"6B7280"`, `divider:"E5E7EB"`, plus one brand accent and stable status colors.
 - Do not make a full business report dark by default. Dense tables, charts, source notes, and bullets need high-contrast light surfaces unless the user explicitly asks otherwise.
 - Component route comes before JSON. Prefer `executive-summary`, `chart-with-rail`, `evidence-layout`, `bar-list`, `scorecard`, `comparison-table`, `matrix-2x2`, `process-flow`, `axis-ruler`, and `failure-taxonomy` over generic `grid` + `insight-card` pages.
 - `insight-card` is only for curated peer findings. If a slide has 3-4 `insight-card`s and no dominant evidence object or decision frame, redesign it with a more semantic component.
 - Use cards only for modular objects such as options, metrics, or evidence tiles. Do not turn every paragraph into a card.
-- Generate icons only when they will be placed in the deck. `generate_icon_sheet` uses square 1x1/2x2/3x3 sheets and auto-splits sets above 9 icons; do not request rectangular icon grids. After generation, use returned `manifest.icons[].path` as `feature-card.iconSrc`, `process-flow.steps[].iconSrc` with `marker:"icon"`, `timeline.items[].iconSrc`, or image-card/image source; unused assets do not improve the slide and `validate_render` will warn if a current-run icon manifest is unused or partially used. If no slide will reference the icon paths, skip icon generation.
+- Generate icons only when they will be placed in the deck and the host environment provides image/icon generation. Use individual icon image paths as `feature-card.iconSrc`, `process-flow.steps[].iconSrc` with `marker:"icon"`, `timeline.items[].iconSrc`, or image-card/image source; unused assets do not improve the slide and `validate-render` will warn if a current-run icon manifest is unused or partially used. If no slide will reference the icon paths, skip icon generation.
 - Tables are evidence objects, not a default page template. For table cells that need semantic color or emphasis, pass cell objects such as `{text, fill, color, bold}`; otherwise `table-card` will correctly use theme `table-header`/`table-cell` styles and tone-derived fills. Three or more table-only pages in a row should be intentional reference material, not a substitute for scorecards, ranked lists, or decision components.
-- Save a complete `deck_plan.md` before `create_deck`. For business decks this archive must include the storyline, slide-by-slide claim/evidence/component route, table/chart plan, and explicit icon/image placements. Add each page with `replace_slide` as an object-literal `slide:{...}` call; it validates and commits one slide at a time. Use `validate_render({render:true})` only after all slides pass `replace_slide`, not to discover the story or component plan.
+- Save a complete `deck_plan.md` before `create-deck`. For business decks this archive must include the storyline, slide-by-slide claim/evidence/component route, table/chart plan, and explicit icon/image placements. Add each page with `replace-slide` as an object-literal `slide:{...}` argument file; it validates and commits one slide at a time. Use `validate-render` with `{ "render": true }` only after all slides pass `replace-slide`, not to discover the story or component plan.
 
 ## Core Principle
 
@@ -46,7 +46,7 @@ Before writing any SlideML2 JSON, save the business plan to markdown. For each b
 | Risks / mitigations | `failure-taxonomy` | `matrix-2x2`, `scorecard`, `checklist` | red cards without probability/impact |
 | Warnings / red lines / anti-patterns | `warning-list` | `failure-taxonomy`, `checklist`, `takeaway-list` | 4+ stacked `callout` cards (triggers `FALLBACK_FAILED`) |
 
-If the slide plan cannot be expressed by one row above, split the slide or call `describe_schema` for 2-4 candidate components, then update `deck_plan.md` before using manual `text`/`at`. `insight-card` is for curated findings in a peer set; it is not the default container for business prose.
+If the slide plan cannot be expressed by one row above, split the slide or look up 2-4 candidate components in `SKILL.md`, then update `deck_plan.md` before using manual `text`/`at`. `insight-card` is for curated findings in a peer set; it is not the default container for business prose.
 
 The business `deck_plan.md` should make the answer/proof relationship explicit:
 
@@ -176,7 +176,7 @@ Business research decks are light-first. Use dark or saturated backgrounds only 
 
 ### Theme
 
-Set `themeOverride` at `create_deck` time. A safe default:
+Set `themeOverride` in `create-deck.json`. A safe default:
 
 ```json
 {
@@ -235,7 +235,7 @@ Set `themeOverride` at `create_deck` time. A safe default:
 
 Adjust the accent color to the company/industry if the brief provides one. Keep semantic status colors stable: green = good/upside, amber = caution, red = risk.
 
-Use only effective theme fields. Vertical page rhythm is controlled by `titleTop`, `titleHeight`, `contentTop`, and `contentBottom`; do not invent `pageMarginY`. `contentTop` and `contentBottom` are y-coordinates for the content area; on 16:9 business decks, `contentBottom` is usually `13.0`-`13.5`. For fixed client templates, set `create_deck.size` to `16x10`, `4x3`, or `wide` when needed, and use `themeOverride.layout.areas` for reusable analytical regions such as `leftRail`, `chartMain`, or `sourceBand`. Component borders use the `divider` token by default; advanced surfaces may use `fillOpacity`, `lineOpacity`, `shadow`, or `gradient` through `themeOverride.component.*`. Define core component text styles (`card-title`, `label`, `table-header`, `table-cell`, `metric-label`) so tables/cards/KPIs do not feel like a different deck; SlideML2 derives omitted component styles from the authored title/body/caption contract, but explicit values are preferable. Font chains are preference order: put the font you most want to use first. PPTX OOXML emits that first face for each script/role and SlideML2 does not embed fonts, so the first face should also be available in the render/viewing environment when fidelity matters.
+Use only effective theme fields. Vertical page rhythm is controlled by `titleTop`, `titleHeight`, `contentTop`, and `contentBottom`; do not invent `pageMarginY`. `contentTop` and `contentBottom` are y-coordinates for the content area; on 16:9 business decks, `contentBottom` is usually `13.0`-`13.5`. For fixed client templates, set `size` in `create-deck.json` to `16x10`, `4x3`, or `wide` when needed, and use `themeOverride.layout.areas` for reusable analytical regions such as `leftRail`, `chartMain`, or `sourceBand`. Component borders use the `divider` token by default; advanced surfaces may use `fillOpacity`, `lineOpacity`, `shadow`, or `gradient` through `themeOverride.component.*`. Define core component text styles (`card-title`, `label`, `table-header`, `table-cell`, `metric-label`) so tables/cards/KPIs do not feel like a different deck; SlideML2 derives omitted component styles from the authored title/body/caption contract, but explicit values are preferable. Font chains are preference order: put the font you most want to use first. PPTX OOXML emits that first face for each script/role and SlideML2 does not embed fonts, so the first face should also be available in the render/viewing environment when fidelity matters.
 
 ### Composition
 

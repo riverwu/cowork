@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: "Use this skill whenever the user asks to create, edit, render, review, or export slide decks, presentations, PPT, PPTX, or SlideML2 decks. This skill is the component reference for Cowork's SlideML2 deck tools."
-version: 1.0.23
+version: 1.0.24
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -14,94 +14,159 @@ but agents must create and mutate it through the SlideML2 authoring gates so
 schema validation, per-slide render validation, component guidance, and final
 PPTX diagnostics can steer the work.
 
-Never author a complete SlideML2 deck JSON by hand and then call a renderer as
-the normal workflow. That bypasses the per-slide validation loop and is invalid
-use of this skill. Direct `render` is only for an already validated existing
-deck, a regression check, or runtime debugging.
+Never author a complete SlideML2 deck JSON by hand and then call the final
+renderer as the normal workflow. That bypasses the per-slide validation loop
+and is invalid use of this skill.
 
-### Tool Availability
+### CLI Interface Contract
 
-Use the first available route:
+The only supported authoring interface exposed by this skill package is the
+SlideML2 CLI:
 
-1. **Native agent tools.** Prefer installed tools named `create_deck`,
-   `replace_slide`, `read_deck`, `patch_deck`, `validate_render`,
-   `generate_icon_sheet`, and related Cowork tools.
-2. **Packaged runtime tools.** If native tools are unavailable, use the
-   installed skill package runtime. The package includes `runtime/` with
-   SlideML2 source, compiled `dist`, and standalone tool handlers in
-   `runtime/tools/md2pptx/tools.ts`. Wrap those handlers in the target agent's
-   tool system, or run the runtime CLI if the package exposes one.
-3. **Stop if no toolchain can run.** If neither native tools nor packaged
-   runtime tools are available, report the missing runtime/tool condition. Do
-   not create an unvalidated deck file manually.
+```bash
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> <args.json>
+```
+
+`$SLIDEML2_SKILL_DIR` is the installed skill directory that contains this
+`SKILL.md`. Run every command from the deck workspace, not from the skill
+directory. Unless an argument file explicitly sets `deckPath`, the CLI reads
+and writes `./deck.json` in the current working directory. Put argument files,
+`deck_plan.md`, assets, diagnostics, and generated PPTX files in that same
+workspace.
+
+Supported CLI commands:
+
+- `create-deck`: create or reinitialize the workspace deck.
+- `read-deck`: inspect the current workspace deck.
+- `replace-slide`: append or replace exactly one slide and validate it before
+  writing.
+- `validate-render`: validate the whole deck and optionally render the PPTX.
+
+Do not call TypeScript handlers, npm scripts, native tool wrappers, or other
+SlideML2 command surfaces as the agent interface. Do not hand-write the full
+`deck.json` and jump straight to final rendering; that skips the per-slide
+validation loop.
+
+Production dependencies are bundled in the package. `npm install` is not
+required for normal CLI use. Run `npm install` in `runtime/` only when
+rebuilding TypeScript or doing runtime development.
+
+Canonical argument files:
+
+```json
+// create-deck.json
+{
+  "title": "Deck title",
+  "size": "16x9",
+  "theme": "default",
+  "themeOverride": {},
+  "validation": {}
+}
+```
+
+```json
+// replace-slide-01.json
+{
+  "slideId": 0,
+  "slide": {
+    "id": "cover",
+    "title": "Deck title",
+    "children": []
+  }
+}
+```
+
+```json
+// read-deck.json
+{}
+```
+
+```json
+// validate-render.json
+{
+  "render": true,
+  "outputPath": "deck.pptx"
+}
+```
+
+Example workspace loop:
+
+```bash
+cd "$DECK_WORKDIR"
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" create-deck create-deck.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" replace-slide replace-slide-01.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-render validate-render.json
+```
 
 ### Task Modes
 
 - `create`: build a new deck from a prompt, notes, data files, markdown, images,
   or research.
 - `modify`: edit an existing SlideML2 source deck or PPTX-derived source.
-- `repair`: fix a failed `replace_slide` or `validate_render` result.
+- `repair`: fix a failed `replace-slide` or `validate-render` result.
 - `review`: inspect an existing deck/source/log and report issues without
   changing files unless the user asks for implementation.
 
 ### Mandatory Create Workflow
 
-1. Establish output paths: `deckPath`, final `outputPath`, and a run/workspace
-   directory for `deck_plan.md`, assets, generated charts/images, diagnostics,
-   and scratch files.
+1. Establish the deck workspace directory, final `outputPath`, and locations
+   for `deck_plan.md`, assets, generated charts/images, diagnostics, and
+   scratch files. Run the CLI from this workspace; default deck source is
+   `./deck.json`.
 2. Read source material and, for business/research decks, read `business.md`
    completely before planning.
 3. Write `deck_plan.md` before deck creation. This is required planning
    archive, not optional prose.
-4. Call `create_deck` with deck identity, canvas size, validation policy,
+4. Run `create-deck` with deck identity, canvas size, validation policy,
    `themeOverride`, reusable `dataSources`, references, and footnotes.
-5. Add slides one at a time with `replace_slide`. To append, use `slideId`
+5. Add slides one at a time with `replace-slide`. To append, use `slideId`
    equal to the current slide count. Repair a rejected slide before writing the
    next slide.
-6. Use `read_deck` before targeted repair, and `patch_deck` only for focused
-   deck-level metadata/theme/order/data-source edits.
-7. Call `validate_render({deckPath, render:true, outputPath})` only after all
-   slides have passed `replace_slide`. Repair remaining blocking diagnostics
-   with `replace_slide` or `patch_deck`, then rerender.
+6. Run `read-deck` before targeted repair. For deck-level metadata, theme,
+   references, dataSources, or ordering, rewrite through the smallest valid
+   `create-deck` / `replace-slide` sequence that preserves unaffected slides.
+7. Run `validate-render` only after all slides have passed `replace-slide`.
+   Repair remaining blocking diagnostics with `replace-slide`, then rerender.
 
 ### Mandatory Modify Workflow
 
 1. Read the current deck/source before editing. Identify slide ids, deck-level
    theme/data/references, and the user's requested change scope.
-2. For a slide-level change, use `replace_slide` with the current slide as the
+2. For a slide-level change, use `replace-slide` with the current slide as the
    base. Preserve unaffected content and component semantics.
 3. For deck metadata, theme, references, dataSources, or ordering, use
-   `patch_deck` with narrow operations. Do not rewrite the whole deck.
+   `read-deck` and the smallest valid CLI rewrite needed. Do not bypass the
+   CLI by editing `deck.json` directly.
 4. For repair after validation failure, read the compiler-style diagnostics and
    fix the named slide/node first. Prefer area, ratio, density, pagination,
    rows/items/labels, or data grouping changes before changing component type.
-5. Run `validate_render` after the requested edits and report the resulting
+5. Run `validate-render` after the requested edits and report the resulting
    PPTX path plus any remaining warnings.
 
 ## Domain Style References
 
-- **Business / research report decks**: If the request is about a company, industry, market, competitor, investment, strategy, operations, finance, KPI dashboard, consulting memo, executive briefing, or "research report" with a business audience, read [business.md](business.md) before planning the deck or calling `create_deck`. The `read_file` result for `business.md` must show `truncated:false`; if it shows `truncated:true`, continue with `next_offset` before planning. Use it to choose the storyline, visual tone, `themeOverride`, and component mix. Do not load it for unrelated education, medical, scientific, or product/technical decks unless the user's goal is a business decision.
+- **Business / research report decks**: If the request is about a company, industry, market, competitor, investment, strategy, operations, finance, KPI dashboard, consulting memo, executive briefing, or "research report" with a business audience, read [business.md](business.md) before planning the deck or running `create-deck`. The `read_file` result for `business.md` must show `truncated:false`; if it shows `truncated:true`, continue with `next_offset` before planning. Use it to choose the storyline, visual tone, `themeOverride`, and component mix. Do not load it for unrelated education, medical, scientific, or product/technical decks unless the user's goal is a business decision.
 
 ## Business Deck Defaults
 
 - Business / research report decks are **light-first by default**. Use white or near-white backgrounds for most analysis pages. Reserve dark or saturated backgrounds for covers, chapter resets, hero-stat pages, or an explicit user request for a dark theme. Do not make a full analytical report dark just because the topic is strategic or technical.
-- For business decks, install a light analytical `themeOverride` in `create_deck` unless the user explicitly asks otherwise: `background:"FFFFFF"`, `surface:"F8FAFC"`, `text.primary:"111827"`, `text.muted:"6B7280"`, `divider:"E5E7EB"`, one brand accent, and stable success/warning/danger colors.
+- For business decks, install a light analytical `themeOverride` in the `create-deck` argument file unless the user explicitly asks otherwise: `background:"FFFFFF"`, `surface:"F8FAFC"`, `text.primary:"111827"`, `text.muted:"6B7280"`, `divider:"E5E7EB"`, one brand accent, and stable success/warning/danger colors.
 - The `deck_plan.md` must actively decide icon usage, not default to `Icons: none`. When slides contain recurring categories, players, opportunity types, process stages, timelines, or feature cards, plan a small generated icon set unless the page is dominated by exact tables/charts. Every icon still needs an exact target field such as `feature-card.iconSrc`, `timeline.items[].iconSrc`, `image-card.src`, or a planned compact visual cue.
 - If no icons are generated, state the reason in `Asset Plan` (for example: "all evidence pages are exact tables/charts and icons would be decorative"). Do not skip icons merely because the user did not explicitly ask for them.
 
 ## Authoring Workflow
 
-1. **Task contract first.** Before `create_deck`, write a compact contract in your reasoning: audience, decision/job, source material, slide count, tone/theme, required assets, chart plan, and validation bar. For business / research report decks, read [business.md](business.md) completely before planning; do not infer business style from a partial read. If the request is business/research and the user did not request a dark theme, choose the light-first analytical default above.
-2. **Write the complete planning archive before JSON.** Save a markdown file next to the future deck, usually `/.../.cowork-runs/run_x/deck_plan.md`, before calling `create_deck`. This is not chat prose: create it with `write_file`. The plan must include story structure, slide-by-slide content, primary/support components, icon/illustration/chart assets, intended `iconSrc`/image placements, and density risks. Use the template in **Deck Planning Archive** below.
-3. **Component plan before JSON.** For each slide in the archive, decide the page job and primary component before writing `children`. If unsure, call `describe_schema({components:[...]})` for the 2-4 candidate components and revise the markdown plan before authoring JSON. Do not start from `text` boxes and coordinates.
-4. **Asset pass follows the plan.** Generate or prepare only assets already listed in `deck_plan.md`, save them under the current run assets directory, and reference absolute paths. For icon sets, call `generate_icon_sheet` only after the plan maps each icon name to a slide/component field; see **Generated Icon Assets** below. Use SlideML2 structured charts/tables when precision matters; when a MatPilot/Canvas/chart-rendering tool is available and the chart is visually complex, generate a chart image there, then place it via `image-card`/`chart-with-rail` with `fit:"contain"`.
-5. **Create deck.** Use `create_deck({deckPath,title,size?,theme,brand,themeOverride,validation?,dataSources?,references?,footnotes?})`; do not hand-write the full deck JSON. Source decks are `slideml2:2`, `deck:{size,theme,brand,themeOverride,validation?,dataSources?,references?,footnotes?}`, and `slides`. `create_deck` validates before writing; if it rejects, fix the options and call `create_deck` again. `size` may be `16x9`, `16x10`, `4x3`, or `wide`. If you discover reusable data after creation, add or replace `/deck/dataSources`, `/deck/references`, or `/deck/footnotes` with `patch_deck` before authoring bound slides.
-6. **Write slides one at a time from the archived plan.** Use `replace_slide` as the normal authoring primitive. To append a new slide, pass `slideId` equal to the current slide count. `replace_slide.slide` must be an object literal `{id,title?,background?,children,notes?,metadata?}`, never a quoted/stringified JSON blob. The tool validates the candidate slide and only commits it if it passes single-slide schema/render validation. If it rejects the slide, repair that same slide and retry before adding the next one. Use `insert_slide` only for exceptional mid-deck splices and focused `patch_deck({set?,unset?,insert?,move?,copy?})` only for repairs/theme/order edits.
-7. **Final render after all slides pass.** `validate_render({deckPath,render:true})` is the final full-deck render/export and QA tool. Do not call it as the normal per-slide loop; `replace_slide` already gates each page. Do not rely on final render to discover basic slide structure, component choice, icon placement, or asset usage; those must already be resolved in `deck_plan.md`.
+1. **Task contract first.** Before `create-deck`, write a compact contract in your reasoning: audience, decision/job, source material, slide count, tone/theme, required assets, chart plan, and validation bar. For business / research report decks, read [business.md](business.md) completely before planning; do not infer business style from a partial read. If the request is business/research and the user did not request a dark theme, choose the light-first analytical default above.
+2. **Write the complete planning archive before JSON.** Save `deck_plan.md` in the deck workspace before running `create-deck`. This is not chat prose: create it as a real file. The plan must include story structure, slide-by-slide content, primary/support components, icon/illustration/chart assets, intended `iconSrc`/image placements, and density risks. Use the template in **Deck Planning Archive** below.
+3. **Component plan before JSON.** For each slide in the archive, decide the page job and primary component before writing `children`. Use this `SKILL.md` component reference for exact field names and revise the markdown plan before authoring JSON. Do not start from `text` boxes and coordinates.
+4. **Asset pass follows the plan.** Generate or prepare only assets already listed in `deck_plan.md`, save them under the current workspace assets directory, and reference absolute paths. For icon sets, use whatever image/icon generation capability the host agent provides only after the plan maps each icon name to a slide/component field; see **Generated Icon Assets** below. Use SlideML2 structured charts/tables when precision matters; when a chart-rendering tool is available and the chart is visually complex, generate a chart image there, then place it via `image-card`/`chart-with-rail` with `fit:"contain"`.
+5. **Create deck.** Write `create-deck.json`, then run `node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" create-deck create-deck.json` from the deck workspace. Omit `deckPath` unless intentionally editing another file; default is `./deck.json`. The command validates before writing; if it rejects, fix the options and run `create-deck` again. `size` may be `16x9`, `16x10`, `4x3`, or `wide`. If you discover reusable data after creation, include it in a corrected `create-deck.json` and preserve existing slides via the CLI workflow rather than editing `deck.json` directly.
+6. **Write slides one at a time from the archived plan.** Use `replace-slide` as the normal authoring primitive. To append a new slide, pass `slideId` equal to the current slide count. `replace-slide` argument files must contain `slide` as an object literal `{id,title?,background?,children,notes?,metadata?}`, never a quoted/stringified JSON blob. The command validates the candidate slide and only commits it if it passes single-slide schema/render validation. If it rejects the slide, repair that same slide and retry before adding the next one.
+7. **Final render after all slides pass.** `validate-render` with `{ "render": true }` is the final full-deck render/export and QA command. Do not call it as the normal per-slide loop; `replace-slide` already gates each page. Do not rely on final render to discover basic slide structure, component choice, icon placement, or asset usage; those must already be resolved in `deck_plan.md`.
 
 ## Deck Planning Archive
 
-Before `create_deck`, save a markdown planning archive. It should be concise but complete enough that another agent could author the deck without re-reading the full source.
+Before `create-deck`, save a markdown planning archive. It should be concise but complete enough that another agent could author the deck without re-reading the full source.
 
 Required sections:
 
@@ -118,7 +183,7 @@ Minimal slide row shape:
 |---|---|---|---|---|---|---|---|
 | 3 | `exec_summary` | executive answer | four investable wedges | `executive-summary` | `feature-card.iconSrc` grid | `industry.png`, `globe.png` | low |
 
-For generated icons, `Asset Plan` must map icon names to actual component fields before `generate_icon_sheet`, e.g. `globe -> slide exec_summary / feature-card "出海 Productivity SaaS" / iconSrc` or `launch -> slide roadmap / timeline item "2026 Q1" / iconSrc`. Do not write `generate icons for decoration`; every requested icon should have a planned component field.
+For generated icons, `Asset Plan` must map icon names to actual component fields before generating assets, e.g. `globe -> slide exec_summary / feature-card "出海 Productivity SaaS" / iconSrc` or `launch -> slide roadmap / timeline item "2026 Q1" / iconSrc`. Do not write `generate icons for decoration`; every requested icon should have a planned component field.
 
 ## Deck Structure — Earn Every Slide
 
@@ -149,7 +214,7 @@ Pre-validate self-check:
 
 ## Theme Contract — Define Before Components
 
-Install a concrete `themeOverride` in `create_deck` before writing slides. The default theme is only a neutral scaffold.
+Install a concrete `themeOverride` in `create-deck.json` before writing slides. The default theme is only a neutral scaffold.
 
 Use these effective `themeOverride` fields. Flat color keys are shown because they are easiest to diff; nested color objects are also accepted and auto-flattened.
 
@@ -357,13 +422,13 @@ Computed dual-axis chart:
 
 ## Component-First Slide Loop
 
-Use this loop for every content slide before calling `replace_slide`:
+Use this loop for every content slide before running `replace-slide`:
 
 1. Name the page job in one phrase: answer, proof, comparison, process, timeline, risk, roadmap, metric snapshot, screenshot walkthrough, or long reading.
 2. Pick one primary semantic component from the routing table below. Add at most 1-2 support components.
 3. Only then write JSON. The first child should usually be the primary semantic component, not a `grid` of `card`s or many `text` nodes.
-4. If the exact fields are unclear, call `describe_schema({components:["primary","support"]})`. Schema lookup is cheaper than rebuilding a broken hand-authored layout.
-5. Call `replace_slide` for this one slide only. If it returns a validation/render rejection, keep the same slide id/index, repair the page, and retry `replace_slide` before writing the next slide.
+4. If the exact fields are unclear, look up the 2-4 candidate components in this `SKILL.md` reference before writing JSON. Schema lookup is cheaper than rebuilding a broken hand-authored layout.
+5. Run `replace-slide` for this one slide only. If it returns a validation/render rejection, keep the same slide id/index, repair the page, and retry `replace-slide` before writing the next slide.
 
 Fast routing:
 
@@ -390,8 +455,8 @@ Raw `text` is a residual primitive: short labels, captions, local notes, or a se
 ## Hard Rules
 
 - JSON must be valid. Use Chinese quotation marks inside Chinese prose, or escape inner English quotes.
-- Tool arguments must stay structured. Never pass `slide` as a string such as `"{\"id\":\"s1\",...}"`, never wrap a whole slide in quotes, and never escape every quote in the slide object. `replace_slide({deckPath,slideId,slide:{...}})` is the canonical shape. If the slide object feels too long, simplify/split the slide rather than stringifying it.
-- Prefer theme tokens for text colors. Put reusable hex values in `create_deck.themeOverride.colors`, then reference tokens such as `text.primary`, `text.inverse`, `brand.primary`, `success`, `positive`, `neutral`, `muted`, `warning`, or `danger`. For a deliberate one-off text color, `#RRGGBB` or bare `RRGGBB` is accepted, but the validator warns because raw text colors will not automatically restyle with the theme.
+- Tool arguments must stay structured. Never pass `slide` as a string such as `"{\"id\":\"s1\",...}"`, never wrap a whole slide in quotes, and never escape every quote in the slide object. `replace-slide` argument files use the canonical shape `{ "slideId": 0, "slide": {...} }`. If the slide object feels too long, simplify/split the slide rather than stringifying it.
+- Prefer theme tokens for text colors. Put reusable hex values in `create-deck.json` under `themeOverride.colors`, then reference tokens such as `text.primary`, `text.inverse`, `brand.primary`, `success`, `positive`, `neutral`, `muted`, `warning`, or `danger`. For a deliberate one-off text color, `#RRGGBB` or bare `RRGGBB` is accepted, but the validator warns because raw text colors will not automatically restyle with the theme.
 - Use centralized component tones instead of inventing per-component color words: canonical tones are `brand`, `neutral`, `positive`, `warning`, and `danger` for most semantic components. Common aliases are accepted: `success`/`good` -> `positive`, `caution`/`warn` -> `warning`, `error`/`negative` -> `danger`, `info`/`primary` -> `brand`, and `muted`/`subtle` -> `neutral`. Prefer canonical values in new slides, but do not rewrite a good layout only because it used one of these aliases.
 - Use themeOverride text fields as `fontSize`, `fontWeight`, and `lineHeight`; do not use `bold` or `lineSpacing`.
 - Define the core text scale, not per-component one-off sizes: `section-title`, `card-title`, `label`, `caption`, `bullet`, `table-header`, `table-cell`, `metric-value`, and `metric-label`. If omitted, SlideML2 derives these from `slide-title` / `paragraph` / `caption` / `metric-value` to keep the deck coherent.
@@ -400,15 +465,15 @@ Raw `text` is a residual primitive: short labels, captions, local notes, or a se
 - Avoid duplicate hero titles: if `slide.title` is set, do not also place a conflicting body `cover-composition`, `slide-title`, `deck-title`, or `section-break` title. For `cover-composition`, either omit `slide.title` or make it exactly match the cover title so it is treated as metadata. `h1` is allowed inside ordinary content as a module heading.
 - Preserve semantic sequence markers when repairing density: if the source chapter says "判断 1/2/3", "Step 1/2/3", or similar, keep that ordinal visible in the slide title, eyebrow, label, or first card headline. Shortening a title must not erase the only visible "判断1" marker while later slides still show "判断2/判断3".
 - Use component names directly in `type` with flat fields. Do not wrap components as `type:"component" + component:"X"` and do not put fields under `props`.
-- Never mutate the SlideML2 source deck with `write_file`, `run_node`, or `run_python`. If a slide write fails, retry `replace_slide` with `slide` as an object literal; do not switch to stringified JSON, direct file writes, or python-pptx. If final `validate_render` fails, repair the SlideML2 source with `replace_slide` or focused `patch_deck` instead of generating a separate PPTX with python-pptx.
+- Never mutate the SlideML2 source deck with file writes or ad hoc scripts. If a slide write fails, retry `replace-slide` with `slide` as an object literal; do not switch to stringified JSON, direct file writes, or python-pptx. If final `validate-render` fails, repair the SlideML2 source through `replace-slide` instead of generating a separate PPTX with python-pptx.
 - Prefer semantic components over plain `card`/`text` when the content has a clear meaning: metrics, timeline, process, comparison, insight, quote, table, chart, image, or takeaway.
 - Keep density renderable: most slides should have either one hero module, one data/evidence module, or 2-4 peer modules. Long prose belongs in shorter bullets, a split slide, or another slide.
 - Treat `FALLBACK_FAILED`, `CODE_BLOCK_OVERFLOW`, `COLLISION`, `TITLE_OCCLUDED`, `TINY_RECT`, `LOW_CONTRAST`, `SHAPE_INVISIBLE`, `UNKNOWN_COLOR`, `UNKNOWN_STYLE`, and any `severity:"error"` diagnostic as blockers. Warn-level `SQUASHED` and `PIE_LABELS_HIDDEN` are quality diagnostics: first preserve the same chart/metric/component semantics and adjust area, ratio, density, labels, legend, or pagination; do not switch to an easier component just to silence the warning. `CODE_BLOCK_OVERFLOW` means the full code listing cannot fit in the assigned area; paginate the code into multiple slides/components instead of hiding required code with `maxLines`. `DROP` means optional content was removed to keep the slide renderable; treat it as a repair hint, not a blocker, unless the missing content is critical. Warn-level `TRUNCATED`/`OVERFLOW` means soft fitting happened; improve it when the returned slideId/nodeId gives a clear repair target, but a non-actionable soft-fit count is not a blocking error and should not trigger blind global truncation.
-- When `replace_slide` returns `compilerDiagnostics`, read `location`, `expected`, `actual`, and `suggestions` like compiler output. Repair the named slide/node first. Suggestions are ordered to preserve the current component and semantic intent: change area, ratio, density, pagination, rows/items/labels, or data grouping before changing components. Use an alternative component only when it better represents the content, not merely because it is easier to pass validation.
+- When `replace-slide` or `validate-render` returns `compilerDiagnostics`, read `location`, `expected`, `actual`, and `suggestions` like compiler output. Repair the named slide/node first. Suggestions are ordered to preserve the current component and semantic intent: change area, ratio, density, pagination, rows/items/labels, or data grouping before changing components. Use an alternative component only when it better represents the content, not merely because it is easier to pass validation.
 
 ## Targeted Component Capacity Guidance
 
-Keep this guidance in mind for high-friction components; use `describe_schema` for exact fields when needed.
+Keep this guidance in mind for high-friction components; use this component reference for exact fields when needed.
 
 - `chart-card`: reserve a real chart body. Bar/line/combo charts need roughly >=4.8x3.0cm inside the card; pie/doughnut with labels/legend need roughly >=5.2x4.4cm before title/caption/card chrome. Use full width or ~60-75% of a `split` / `chart-with-rail` / `evidence-layout` region; move KPI/table/commentary to a rail or next slide before changing components. After area is adequate, reduce category/series/legend/label density, and keep pie/doughnut slice labels visible.
 - `table-card`: dense tables should usually own a half/full slide or be paginated. A compact 6-8 row business table often needs about 4.5-6cm table body height plus title/caption/card chrome; text-heavy cells need more. Use `encoding.columns`/`colWidths`, compact density, shorter cells, or `rowHeights` for tall rows before dropping columns/rows. Three or more table-only pages are acceptable only for true reference/appendix material.
@@ -427,11 +492,11 @@ Keep this guidance in mind for high-friction components; use `describe_schema` f
 
 ## Generated Icon Assets
 
-- Use `generate_icon_sheet` for a reusable icon set, not one icon at a time. Call it before `create_deck` or before writing slides that need icons. If you generate icons, plan which slides/components will reference them before marking the asset step complete.
+- Prefer a reusable icon set, not one icon at a time, when the host environment provides image/icon generation. Generate it before `create-deck` or before writing slides that need icons. If you generate icons, plan which slides/components will reference them before marking the asset step complete.
 - `output_dir` must be an absolute folder inside the current run, usually `/.../.cowork-runs/run_x/assets/icons`. Do not use a relative path, the repo, or the final PPTX folder unless that is the run assets folder.
 - Pass `icons` as named objects with stable ASCII filename stems and visual-only English descriptions: `[{name:"bank",label:"银行",description:"front view bank building line icon"}]`. Names become `bank.png`; avoid Chinese names, spaces, punctuation, duplicate stems, or descriptions that ask for visible words.
 - Pass `style` and `palette` from the deck theme, e.g. `premium standalone business line icons, rounded geometry, consistent stroke, no tile/card background` and `["#111827","#2563EB","#94A3B8"]`. The tool uses square sheets only: 1x1, 2x2, or 3x3. Do not request 3x2/4x3 layouts; icon sets above 9 are automatically split into multiple square sheets.
-- After the tool returns, use the returned manifest paths, not the sheet image. Place icons as `feature-card.iconSrc:"/abs/.../assets/icons/bank.png"`, `process-flow.steps[].iconSrc:"/abs/.../assets/icons/review.png"` with `marker:"icon"`, `timeline.items[].iconSrc:"/abs/.../assets/icons/launch.png"`, or as `image`/`image-card` with `fit:"contain"`. Do not generate icons unless final slides reference the returned icon paths; `validate_render` will warn when a current-run icon manifest is unused or only partially used.
+- After generation, use the individual icon file paths, not the sheet image. Place icons as `feature-card.iconSrc:"/abs/.../assets/icons/bank.png"`, `process-flow.steps[].iconSrc:"/abs/.../assets/icons/review.png"` with `marker:"icon"`, `timeline.items[].iconSrc:"/abs/.../assets/icons/launch.png"`, or as `image`/`image-card` with `fit:"contain"`. Do not generate icons unless final slides reference the returned icon paths; `validate-render` will warn when a current-run icon manifest is unused or only partially used.
 - Do not use generated icons for precise data charts, readable text, logos requiring exact brand geometry, or diagrams with required labels. Use structured charts/tables or deterministic chart rendering for those.
 
 ## Typography Rhythm
@@ -445,7 +510,7 @@ Keep this guidance in mind for high-friction components; use `describe_schema` f
 - Manage fonts at deck level with `themeOverride.fonts`: `latin` and `cjk` each support `{display:[...], text:[...]}`, and `mono` is an array. Text styles pick the role with `fontFamily:"display"|"text"|"mono"`. Font chains are preference order: put the font you most want to use first. PPTX emits that first face for each script/role and does not embed fonts, so choose a first face that is both desired and available when fidelity matters; later items are documentation/fallback intent, not guaranteed runtime substitution.
 - Keep footer chrome clear in `themeOverride.layout`: when page numbers or footer text are enabled, keep `contentBottom` above the footer chrome. Do not use `pageMarginY`.
 - `contentTop` may be above/inside the default title band for full-page, cover, poster, or custom no-title layouts. When a slide sets `slide.title`, SlideML2 injects the default title and protects `area:"content"` by starting it below `titleTop + titleHeight + 0.25`; without `slide.title`, `area:"content"` starts at `contentTop`.
-- `patch_deck` paths are JSON Pointers from the source deck root: use `/deck/themeOverride/layout/contentTop`, `/deck/themeOverride/chrome/brandMark`, `/deck/dataSources`, `/deck/references`, `/deck/footnotes`, or `/slides/0/children/1`. Do not use `/themeOverride/...`; it will edit the wrong level.
+- Deck source paths are JSON Pointers from the source deck root: `/deck/themeOverride/layout/contentTop`, `/deck/themeOverride/chrome/brandMark`, `/deck/dataSources`, `/deck/references`, `/deck/footnotes`, and `/slides/0/children/1` are valid source locations. Do not reason as if `/themeOverride/...` were top-level; the correct source level is `/deck/themeOverride/...`.
 - Keep tables readable. A 6-column table with 6+ body rows usually needs its own slide or a split across slides; the renderer blocks rows that fall below the PowerPoint-readable row-height floor even if the outer table technically fits.
 - Reuse data instead of copying numbers. If the same table/chart/KPI value appears on multiple slides, put the rows in `deck.dataSources` and bind each component; do not manually duplicate final chart arrays and table rows unless the data is truly one-off.
 - For citations, never manually type `[1]` unless it is literal prose from the source. Use `{kind:"cite",refId:"..."}` so SlideML2 can number citations, populate `bibliography`, validate missing/duplicate ids, and keep references in deck order.
