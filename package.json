@@ -16,7 +16,8 @@
     "test:watch": "vitest",
     "check": "tsc --noEmit && vitest run",
     "gen:skill": "npx tsx scripts/gen-catalog-entry.ts skill",
-    "gen:mcp": "npx tsx scripts/gen-catalog-entry.ts mcp"
+    "gen:mcp": "npx tsx scripts/gen-catalog-entry.ts mcp",
+    "package:slideml2-skill": "npx tsx scripts/package-slideml2-skill.ts"
   },
   "dependencies": {
     "@tanstack/react-router": "^1.120.0",

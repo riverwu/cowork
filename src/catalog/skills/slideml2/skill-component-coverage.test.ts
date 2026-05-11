@@ -66,6 +66,19 @@ describe("slideml2 SKILL component reference", () => {
     expect(business).toContain("truncated:true");
   });
 
+  it("keeps the distributable skill package self-contained", () => {
+    const packageScript = readFileSync(resolve(repoRoot, "scripts/package-slideml2-skill.ts"), "utf8");
+    const licensePath = resolve(repoRoot, "src/catalog/skills/slideml2/LICENSE.txt");
+    const license = readFileSync(licensePath, "utf8");
+
+    expect(existsSync(licensePath)).toBe(true);
+    expect(packageScript).toContain('"SKILL.md", "business.md", "LICENSE.txt"');
+    expect(packageScript).toContain("manifest.json");
+    expect(packageScript).toContain("README.md");
+    expect(packageScript).toContain("zipinfo");
+    expect(license).toContain("Cowork tools");
+  });
+
   it("keeps the business themeOverride example to effective SlideML2 fields", () => {
     const business = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/business.md"), "utf8");
     const theme = firstJsonBlock(business) as Record<string, Record<string, unknown>>;
