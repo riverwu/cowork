@@ -15,9 +15,6 @@ const defaultOutDir = resolve(repoRoot, "releases/skills/slideml2");
 const requiredFiles = ["SKILL.md", "business.md", "LICENSE.txt"] as const;
 const requiredRuntimeFiles = [
   "runtime/package.json",
-  "runtime/tsconfig.json",
-  "runtime/src/index.ts",
-  "runtime/src/render.ts",
   "runtime/bin/slideml2.js",
   "runtime/dist/index.js",
   "runtime/dist/render.js",
@@ -82,7 +79,9 @@ function printHelp(): void {
 
 Creates a zip package for installing the SlideML2 skill in another agent.
 The package includes the skill docs plus a runtime/ directory containing
-SlideML2 TypeScript source, compiled dist files, CLI tools, examples, and docs.
+only the executable runtime: compiled dist files, the CLI entrypoint, a minimal
+ESM package.json, and production node_modules. TypeScript source, tests,
+examples, and development scripts are intentionally excluded.
 
 Output:
   releases/skills/slideml2/slideml2-skill-v<version>.zip
@@ -149,9 +148,9 @@ slideml2/
   manifest.json
   runtime/
     package.json
-    src/
     dist/
     node_modules/
+    RUNTIME.md
     bin/slideml2.js
 \`\`\`
 
@@ -160,10 +159,10 @@ the agent's skills directory, for example \`$CODEX_HOME/skills/slideml2\`.
 
 ## Runtime
 
-The \`runtime/\` directory is a standalone SlideML2 package. It includes all
-runtime TypeScript source under \`runtime/src\`, compiled JavaScript under
-\`runtime/dist\`, examples, and validation/render docs. The agent-facing
-entrypoint remains the CLI below.
+The \`runtime/\` directory is a standalone executable SlideML2 package. It
+includes compiled JavaScript under \`runtime/dist\`, production dependencies
+under \`runtime/node_modules\`, and the CLI entrypoint below. It intentionally
+does not include TypeScript source, tests, examples, or development scripts.
 
 After unzipping, production dependencies are already bundled. Normal deck
 authoring runs directly with Node.js; do not run \`npm install\` for ordinary
@@ -189,14 +188,8 @@ Supported agent-facing commands are:
 - \`validate-render\`
 
 Do not call TypeScript handlers, npm scripts, or tool adapters as the agent
-interface. Run \`npm install\` only when you need development dependencies for
-TypeScript rebuilds:
-
-\`\`\`bash
-cd "$SLIDEML2_SKILL_DIR/runtime"
-npm install
-npm run build
-\`\`\`
+interface. Rebuilds must happen from the upstream SlideML2 repository; this
+install package is runtime-only.
 `;
 }
 
@@ -219,70 +212,49 @@ async function copyRuntimeFiles(stageRoot: string): Promise<string[]> {
   const packageRoot = join(stageRoot, skillName);
   const runtimeRoot = join(packageRoot, "runtime");
   await mkdir(runtimeRoot, { recursive: true });
-  const copiedRoots = [
-    "README.md",
-    "PLAN.md",
-    "ROADMAP.md",
-    "SPEC.md",
-    "VALIDATE.md",
-    "package.json",
-    "tsconfig.json",
-    "src",
-    "dist",
-    "examples",
-  ];
-  for (const name of copiedRoots) {
-    const source = join(runtimeSourceDir, name);
-    if (!existsSync(source)) continue;
-    await cp(source, join(runtimeRoot, name), {
-      recursive: true,
-      filter: (src) => {
-        const rel = relative(runtimeSourceDir, src);
-        if (!rel) return true;
-        return includeRuntimePath(rel);
-      },
-    });
-  }
+  await cp(join(runtimeSourceDir, "dist"), join(runtimeRoot, "dist"), {
+    recursive: true,
+    filter: (src) => includeRuntimeDistPath(relative(join(runtimeSourceDir, "dist"), src)),
+  });
   await writeRuntimePackageJson(runtimeRoot);
   await writeRuntimeReadme(runtimeRoot);
   await writeRuntimeCli(runtimeRoot);
   await run("npm", ["install", "--omit=dev", "--ignore-scripts"], runtimeRoot);
+  await pruneNonExecutableRuntimeFiles(runtimeRoot);
+  const distFiles = await listFiles(join(runtimeRoot, "dist"), `${skillName}/runtime/dist`);
   return [
-    ...copiedRoots.map((name) => `${skillName}/runtime/${name}`),
+    `${skillName}/runtime/package.json`,
+    ...distFiles,
+    `${skillName}/runtime/RUNTIME.md`,
     `${skillName}/runtime/bin/slideml2.js`,
     `${skillName}/runtime/node_modules`,
   ];
 }
 
-function includeRuntimePath(relPath: string): boolean {
+function includeRuntimeDistPath(relPath: string): boolean {
   const normalized = relPath.split("\\").join("/");
+  if (!normalized || normalized === ".") return true;
   if (normalized === ".DS_Store" || normalized.endsWith("/.DS_Store")) return false;
-  if (normalized.includes("/node_modules/")) return false;
-  if (normalized === "node_modules" || normalized.startsWith("node_modules/")) return false;
-  if (normalized === "output" || normalized.startsWith("output/")) return false;
-  if (normalized === "outputs" || normalized.startsWith("outputs/")) return false;
-  if (normalized === "snapshots" || normalized.startsWith("snapshots/")) return false;
-  if (normalized === "slideml2" || normalized.startsWith("slideml2/")) return false;
-  if (normalized.endsWith(".test.ts") || normalized.endsWith(".test.js")) return false;
-  if (normalized.endsWith(".render-tree.json")) return false;
-  if (normalized.split("/").some((part) => /\s+\d+$/.test(part))) return false;
-  if (/\s+\d+\.(?:js|ts)$/.test(normalized)) return false;
-  if (/\.d\s+\d+\.ts$/.test(normalized)) return false;
-  return true;
+  if (normalized.endsWith(".d.ts") || normalized.endsWith(".map")) return false;
+  if (normalized.endsWith(".test.js") || normalized.includes(".test.")) return false;
+  const leaf = normalized.split("/").pop() || "";
+  return !leaf.includes(".") || normalized.endsWith(".js") || normalized.endsWith(".json");
 }
 
 async function writeRuntimePackageJson(runtimeRoot: string): Promise<void> {
-  const raw = await readFile(join(runtimeRoot, "package.json"), "utf8");
+  const raw = await readFile(join(runtimeSourceDir, "package.json"), "utf8");
   const pkg = JSON.parse(raw) as Record<string, unknown>;
-  pkg.private = true;
-  pkg.scripts = { build: "tsc" };
-  const devDependencies = pkg.devDependencies && typeof pkg.devDependencies === "object"
-    ? pkg.devDependencies as Record<string, unknown>
-    : {};
-  pkg.devDependencies = Object.fromEntries(
-    Object.entries(devDependencies).filter(([name]) => name === "typescript" || name === "@types/node"),
-  );
-  await writeFile(join(runtimeRoot, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
+  const runtimePackage = {
+    name: pkg.name,
+    version: pkg.version,
+    description: pkg.description,
+    private: true,
+    type: pkg.type || "module",
+    main: pkg.main || "dist/index.js",
+    dependencies: pkg.dependencies || {},
+    license: pkg.license,
+  };
+  await writeFile(join(runtimeRoot, "package.json"), `${JSON.stringify(runtimePackage, null, 2)}\n`);
 }
 
 async function writeRuntimeReadme(runtimeRoot: string): Promise<void> {
@@ -304,13 +276,10 @@ node /path/to/slideml2/runtime/bin/slideml2.js replace-slide replace-slide-01.js
 node /path/to/slideml2/runtime/bin/slideml2.js validate-render validate-render.json
 \`\`\`
 
-Run \`npm install\` only when you need development dependencies for TypeScript
-rebuilds:
-
-\`\`\`bash
-npm install
-npm run build
-\`\`\`
+This package is runtime-only: it intentionally omits TypeScript source,
+tests, examples, and development scripts. Rebuilds must happen from the
+upstream SlideML2 repository, then the compiled \`dist/\` output can be
+packaged again.
 
 ## Agent-Facing CLI
 
@@ -547,6 +516,9 @@ async function verifyZip(zipPath: string): Promise<string[]> {
   }
   if (entries.some((entry) =>
     entry.includes("/node_modules/.cache/")
+    || entry.includes("/runtime/src/")
+    || entry.endsWith(".ts")
+    || entry.includes(".test.")
     || entry.includes("/outputs/")
     || entry.includes("/output/")
     || entry.includes("/reports/")
@@ -555,6 +527,48 @@ async function verifyZip(zipPath: string): Promise<string[]> {
     throw new Error("Zip contains dependency caches or generated output files");
   }
   return entries;
+}
+
+async function listFiles(root: string, zipPrefix: string): Promise<string[]> {
+  const { readdir } = await import("node:fs/promises");
+  const out: string[] = [];
+  const walk = async (dir: string, prefix: string) => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      const nextPrefix = `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) {
+        await walk(full, nextPrefix);
+      } else if (entry.isFile()) {
+        out.push(nextPrefix);
+      }
+    }
+  };
+  await walk(root, zipPrefix);
+  return out;
+}
+
+async function pruneNonExecutableRuntimeFiles(root: string): Promise<void> {
+  const { readdir } = await import("node:fs/promises");
+  const walk = async (dir: string) => {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "__tests__" || entry.name === "test" || entry.name === "tests") {
+          await rm(full, { recursive: true, force: true });
+          continue;
+        }
+        await walk(full);
+      } else if (
+        entry.isFile()
+        && (entry.name.endsWith(".d.ts") || entry.name.endsWith(".map") || entry.name.includes(".test."))
+      ) {
+        await rm(full, { force: true });
+      }
+    }
+  };
+  await walk(root);
 }
 
 async function main(): Promise<void> {
@@ -593,7 +607,7 @@ async function main(): Promise<void> {
           "Unzip preserving the slideml2 directory.",
           "Production dependencies are bundled; basic runtime/bin/slideml2.js commands run with Node.js immediately after unzip.",
           "Run CLI commands from the deck workspace; omitted deckPath defaults to ./deck.json.",
-          "Run npm install in slideml2/runtime only when rebuilding TypeScript.",
+          "The runtime package is executable-only and intentionally omits TypeScript source, tests, examples, and development scripts.",
           "The agent-facing interface is the CLI only; do not expose TypeScript handlers or npm scripts as separate command interfaces.",
           "Generated PPT outputs and dependency caches are intentionally excluded.",
         ],
@@ -608,8 +622,8 @@ async function main(): Promise<void> {
           replaceSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js replace-slide replace-slide-01.json",
           validateRender: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js validate-render validate-render.json",
         },
-        devInstallCommand: "cd slideml2/runtime && npm install",
-        devBuildCommand: "cd slideml2/runtime && npm run build",
+        devInstallCommand: "not supported in the skill package; rebuild from the upstream SlideML2 repository",
+        devBuildCommand: "not supported in the skill package; rebuild from the upstream SlideML2 repository",
       },
     };
     await writeFile(join(packageRoot, "README.md"), await createReadme(version, frontmatter.description));
