@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: "Use this skill whenever the user asks to create, edit, render, review, or export slide decks, presentations, PPT, PPTX, or SlideML2 decks. This skill is the component reference for Cowork's SlideML2 deck tools."
-version: 1.0.22
+version: 1.0.23
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
