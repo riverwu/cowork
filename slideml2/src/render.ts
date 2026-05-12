@@ -16,6 +16,7 @@ import { formatRichToken, latexToMathText, richInlinePlainText, richRunsPlainTex
 import { latexToOmml } from "./latex-omml.js";
 import { emuToCm, normalizeStrokeCm, SLIDE_SIZES } from "./units.js";
 import { isDeckSize } from "./schema.js";
+import { createTextMeasurer, PT_TO_CM } from "./text-measure.js";
 
 /** Resolve a TextStyle's weight (string or numeric) into the boolean
  *  emitter flag. Anything ≥ 600 reads as bold so the OOXML `b` attribute
@@ -87,6 +88,11 @@ export interface LayoutDecision {
 }
 
 const layoutDecisionsBySlide = new Map<string, Map<string, LayoutDecision>>();
+
+const TEXT_SHAPE_MARGIN_X_CM = 0.1;
+const TEXT_SHAPE_MARGIN_Y_CM = 0.05;
+const TEXT_VERTICAL_SAFETY_CM = 0.05;
+const TEXT_SURFACE_EXTRA_VERTICAL_SAFETY_CM = 0.08;
 
 function recordDecision(slideId: string, nodeId: string, decision: LayoutDecision): void {
   let map = layoutDecisionsBySlide.get(slideId);
@@ -353,6 +359,33 @@ function buildSurfaceTrail(slideBg: string, picked: { color: string; nodeId?: st
   return trail;
 }
 
+type SurfaceCover = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  kind: "solid" | "image";
+  color?: string;
+  alpha?: number;
+  nodeId?: string;
+};
+
+function surfaceCoverFromShape(shape: ShapeList[number], _slideBg: string): SurfaceCover | null {
+  if (shape.type === "image") {
+    return { x: shape.xfrm.x, y: shape.xfrm.y, w: shape.xfrm.cx, h: shape.xfrm.cy, kind: "image", nodeId: shape.name };
+  }
+  const fill = (shape as { fill?: FillSpec }).fill;
+  if (!fill || fill.type !== "solid" || typeof fill.color !== "string") return null;
+  const alpha = typeof fill.alpha === "number" && Number.isFinite(fill.alpha) ? clamp(fill.alpha, 0, 1) : undefined;
+  if (alpha !== undefined && alpha < 0.25) return null;
+  const color = fill.color;
+  return { x: shape.xfrm.x, y: shape.xfrm.y, w: shape.xfrm.cx, h: shape.xfrm.cy, kind: "solid", color, alpha, nodeId: shape.name };
+}
+
+function isScrimLikeShapeName(name: unknown): boolean {
+  return typeof name === "string" && /(^|[.:-])(scrim|overlay|backdrop|veil|shade)([.:-]|$)/i.test(name);
+}
+
 /**
  * Hex values that match common "muted" theme tokens (text.muted, text.secondary,
  * default body grays). When body text resolves to one of these and the surface
@@ -605,7 +638,7 @@ function pickShadedVariantForContrast(srcHex: string, bgHex: string, threshold: 
 
 function runContrastCheck(slideId: string, slide: { shapes: ShapeList; background?: { type: string; color?: string; stops?: Array<{ color: string }> } }, theme?: SimpleTheme): void {
   const slideBg = pickContrastBackgroundColor(slide.background);
-  const fillShapes: Array<{ x: number; y: number; w: number; h: number; color: string; nodeId?: string }> = [];
+  const surfaceCovers: SurfaceCover[] = [];
   type Hit = {
     fg: string;
     bg: string;
@@ -620,26 +653,36 @@ function runContrastCheck(slideId: string, slide: { shapes: ShapeList; backgroun
   };
   const hits: Hit[] = [];
   for (const shape of slide.shapes) {
-    if (shape.type === "shape" && shape.fill && shape.fill.type === "solid" && typeof shape.fill.color === "string") {
-      fillShapes.push({ x: shape.xfrm.x, y: shape.xfrm.y, w: shape.xfrm.cx, h: shape.xfrm.cy, color: shape.fill.color, nodeId: shape.name });
-    }
+    const cover = surfaceCoverFromShape(shape, slideBg);
+    if (cover) surfaceCovers.push(cover);
     if (shape.type === "text") {
       const trect = { x: shape.xfrm.x, y: shape.xfrm.y, w: shape.xfrm.cx, h: shape.xfrm.cy };
       let bg = slideBg;
       let picked: { color: string; nodeId?: string } | null = null;
+      let pickedImageSurface = false;
       if (shape.fill && shape.fill.type === "solid" && typeof shape.fill.color === "string") {
         bg = shape.fill.color;
         picked = { color: shape.fill.color, nodeId: shape.name };
       } else {
-        for (let i = fillShapes.length - 1; i >= 0; i--) {
-          const f = fillShapes[i]!;
+        for (let i = surfaceCovers.length - 1; i >= 0; i--) {
+          const f = surfaceCovers[i]!;
           if (fillCoversText(f, trect)) {
-            bg = f.color;
-            picked = { color: f.color, nodeId: f.nodeId };
+            if (f.kind === "solid" && f.color) {
+              bg = f.color;
+              picked = { color: f.color, nodeId: f.nodeId };
+            } else {
+              pickedImageSurface = true;
+            }
             break;
           }
         }
       }
+      // A bitmap/photo surface has no reliable single contrast color. Avoid
+      // false auto-fixes (e.g. turning white hero text black because the
+      // slide's fallback bg is white). If the author wants deterministic
+      // contrast, a solid/scrim/panel surface above the image will be picked
+      // by the branch above and checked normally.
+      if (pickedImageSurface) continue;
       const paragraphs = shape.paragraphs || [];
       for (let pi = 0; pi < paragraphs.length; pi++) {
         const para = paragraphs[pi]!;
@@ -802,18 +845,14 @@ function isSubtleByDesignToken(theme: SimpleTheme, hex: string): boolean {
 
 function runShapeVisibilityCheck(slideId: string, slide: { shapes: ShapeList; background?: { type: string; color?: string; stops?: Array<{ color: string }> } }, theme: SimpleTheme): void {
   const slideBg = pickContrastBackgroundColor(slide.background);
-  const fillCovers: Array<{ x: number; y: number; w: number; h: number; color: string; nodeId?: string }> = [];
+  const fillCovers: SurfaceCover[] = [];
   for (const shape of slide.shapes) {
     if (shape.type !== "shape") {
       // Track filled non-shape regions too (text shapes with fill,
       // image shapes); they form parent surfaces for any subsequent
       // shape sitting on top.
-      if ((shape.type === "text" || shape.type === "image") && (shape as { fill?: { type: string; color?: string } }).fill) {
-        const f = (shape as { fill?: { type: string; color?: string } }).fill;
-        if (f && f.type === "solid" && typeof f.color === "string") {
-          fillCovers.push({ x: shape.xfrm.x, y: shape.xfrm.y, w: shape.xfrm.cx, h: shape.xfrm.cy, color: f.color, nodeId: shape.name });
-        }
-      }
+      const cover = surfaceCoverFromShape(shape, slideBg);
+      if (cover) fillCovers.push(cover);
       continue;
     }
     // Solid-fill preset shape with no/weak border.
@@ -838,16 +877,23 @@ function runShapeVisibilityCheck(slideId: string, slide: { shapes: ShapeList; ba
     const myRect = { x: shape.xfrm.x, y: shape.xfrm.y, w: shape.xfrm.cx, h: shape.xfrm.cy };
     let surfaceColor = slideBg;
     let surfaceLabel = `slide.bg:${slideBg}`;
+    let surfaceIsImage = false;
     for (let i = fillCovers.length - 1; i >= 0; i--) {
       const f = fillCovers[i]!;
       if (fillCoversText(f, myRect)) {
-        surfaceColor = f.color;
-        surfaceLabel = `surface(${f.nodeId || "?"}).fill:${f.color}`;
+        if (f.kind === "image") {
+          surfaceIsImage = true;
+          surfaceLabel = `surface(${f.nodeId || "?"}).image`;
+        } else if (f.color) {
+          surfaceColor = f.color;
+          surfaceLabel = `surface(${f.nodeId || "?"}).fill:${f.color}`;
+        }
         break;
       }
     }
     // Track this shape as a surface for descendants too.
-    fillCovers.push({ ...myRect, color: fillHex, nodeId: shape.name });
+    fillCovers.push(surfaceCoverFromShape(shape, slideBg) || { ...myRect, kind: "solid", color: fillHex, nodeId: shape.name });
+    if (surfaceIsImage || isScrimLikeShapeName(shape.name)) continue;
     // If line provides visible border (contrast ≥ 2:1 vs surface), the
     // shape is still discernible — skip.
     if (shape.line && typeof shape.line.color === "string") {
@@ -1820,7 +1866,8 @@ function rectForSlideChild(theme: SimpleTheme, node: DomNode, slideDom?: DomNode
     // Allow a generous slack: the intrinsic estimate includes padding for box
     // chrome that the slide-title rect already accounts for. Only flag titles
     // that would clearly take 2 lines (height grows by a full line).
-    const lineHeight = textStyle(theme, "slide-title", "paragraph").fontSize * 0.0353;
+    const titleStyle = textStyle(theme, "slide-title", "paragraph");
+    const lineHeight = textLineMetrics(theme, titleStyle, undefined, renderedTextContent(node)).lineHeightCm;
     // Suppress OVERFLOW when the title carries autoFit:"shrink" — the
     // renderer pre-shrinks the title's font size in textShape to fit the
     // rect, so a long title is no longer broken visually. Without this gate
@@ -1999,7 +2046,13 @@ function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, s
   const hasAnchoredSize = (typeof node.anchor === "string" || typeof node.anchorTo === "string")
     && ((typeof node.width === "number" && Number.isFinite(node.width)) || (typeof node.height === "number" && Number.isFinite(node.height)));
   if (node.type === "image" && (hasFixedWidth || hasFixedHeight || hasAbsoluteRect || hasAnchoredSize)) return;
-  const minHeight = node.type === "text" ? textSquashMinHeight(theme, node) : node.type === "bullets" ? 1.0 : 0.5;
+  if (node.type === "text") {
+    const baseStyle = effectiveTextStyle(theme, node, "paragraph");
+    const style = measuredTextStyleForInk(theme, node, rect, baseStyle);
+    const visibleInkHeight = textVisibleInkHeight(theme, node, rect.w, style);
+    if (visibleInkHeight <= rect.h + 0.04) return;
+  }
+  const minHeight = node.type === "text" ? textSquashMinHeight(theme, node, rect) : node.type === "bullets" ? 1.0 : 0.5;
   const shortContent = (node.type === "text" || node.type === "bullets") && rect.h < minHeight;
   const narrowContent = node.type === "bullets" && rect.w < 1.4;
   if (!shortContent && !narrowContent) return;
@@ -2048,7 +2101,7 @@ function capacitySuggestion(node: DomNode | undefined, fallback: string): string
     return "Process-flow is over capacity: keep the sequence component, reduce per-step body/bullets, use vertical direction for rich stages, increase the component area, or split the flow across slides.";
   }
   if (role === "feature-card") {
-    return "Feature-card content is over capacity: use fewer columns, set density:'compact', shorten body/proof/tags, or split feature groups across slides instead of relying on dropped optional content.";
+    return "Feature-card content is over capacity: preserve title+body semantics, increase the card height/region, use fewer grid columns, set density:'compact', shorten proof/tags/secondary details, or split feature groups across slides. Do not fix this by deleting the body or replacing the component with generic text.";
   }
   if (role === "donut-summary") {
     return "Donut-summary is over capacity: reserve about 5x4cm for the ring plus legend. Keep the share-summary semantics, reduce minor slices, move explanatory facts to a side rail/follow-up slide, or give the donut a dominant split region before changing components.";
@@ -2068,9 +2121,11 @@ function capacitySuggestion(node: DomNode | undefined, fallback: string): string
   return fallback;
 }
 
-function textSquashMinHeight(theme: SimpleTheme, node: DomNode): number {
-  const style = effectiveTextStyle(theme, node, "paragraph");
-  return Math.max(0.32, style.fontSize * 0.0353 * Math.max(1, style.lineHeight) * 0.8);
+function textSquashMinHeight(theme: SimpleTheme, node: DomNode, rect?: Rect): number {
+  const baseStyle = effectiveTextStyle(theme, node, "paragraph");
+  const style = rect ? measuredTextStyleForInk(theme, node, rect, baseStyle) : baseStyle;
+  const metrics = textLineMetrics(theme, style, undefined, renderedTextContent(node));
+  return Math.max(0.32, metrics.naturalHeightCm * 0.85 + textInkVerticalReserveCm(theme, node, style));
 }
 
 /** Decorative wrapper renderers. Each paints chrome and delegates layout to its
@@ -2638,7 +2693,7 @@ function textShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId:
     xfrm: xfrm(rect, node),
     valign: valignProp(node, kind),
     paragraphs,
-    margin: { l: cm(0.1), r: cm(0.1), t: cm(0.05), b: cm(0.05) },
+    margin: { l: cm(TEXT_SHAPE_MARGIN_X_CM), r: cm(TEXT_SHAPE_MARGIN_X_CM), t: cm(TEXT_SHAPE_MARGIN_Y_CM), b: cm(TEXT_SHAPE_MARGIN_Y_CM) },
     wrap: node.wrap === "none" || node.noWrap === true ? "none" : undefined,
     fill: typeof node.fill === "string" ? { type: "solid", color: color(theme, node.fill) } : undefined,
     line: typeof node.line === "string" ? { color: color(theme, node.line), width: cm(0.02) } : undefined,
@@ -4353,6 +4408,7 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
     const specs = current.map((child) => childMainSpec(theme, child, direction, crossSize));
     return specs.reduce((sum, spec) => sum + spec.min, 0) + gap * Math.max(0, current.length - 1);
   };
+  const parentRole = typeof parent.role === "string" ? parent.role : "";
 
   // Stage 1 covered by solver; we only act when min sum exceeds available.
   if (sumMin() <= availableMain + 0.001) return;
@@ -4390,6 +4446,7 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
   const before = children().length;
   const remaining = children().filter((child) => {
     if (child.optional === true) {
+      if (parentRole === "feature-card" && isFeatureCardSemanticChild(child)) return true;
       pushDiagnostic({
         severity: "warn",
         code: "DROP",
@@ -4426,6 +4483,15 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
   }
   if (truncated > 0 && sumMin() <= availableMain + 0.001) return;
 
+  if (parentRole === "feature-card") {
+    const neededForReadableCard = sumMin();
+    const deltaForReadableCard = neededForReadableCard - availableMain;
+    if (deltaForReadableCard > 0.001) {
+      pushFeatureCardCapacityDiagnostic(parent, direction, availableMain, neededForReadableCard, deltaForReadableCard);
+      return;
+    }
+  }
+
   // Stage 5: hard fail — but with a tolerance band. When `needed` exceeds
   // `available` by < 5% (or < 0.1cm absolute), the renderer's autoFit shrink
   // and inter-line slack absorb the difference; emitting a blocking
@@ -4460,6 +4526,38 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
       ? `Drop or raise ${constraint.ancestorId}.${constraint.prop} (currently ${constraint.value}cm) so the children have ≥${needed.toFixed(2)}cm. Alternatively, split content across slides or remove a child.`
       : capacitySuggestion(parent, "Split content across slides, remove a child, or increase the parent's allotted height."),
     measured: { available: availableMain, needed, deltaCm: delta },
+    ...(constraint ? { constrainedBy: constraint } : {}),
+  });
+}
+
+function isFeatureCardSemanticChild(child: DomNode): boolean {
+  const id = typeof child.id === "string" ? child.id : "";
+  return id.endsWith(".title")
+    || id.endsWith(".titleRow")
+    || id.endsWith(".body")
+    || child.__featureCardSemanticChild === true;
+}
+
+function pushFeatureCardCapacityDiagnostic(parent: DomNode, direction: "horizontal" | "vertical", availableMain: number, needed: number, delta: number): void {
+  const constraint = findConstrainingAncestor(direction, parent);
+  const axisLabel = direction === "vertical" ? "height" : "width";
+  const constraintHint = constraint
+    ? ` Constrained by ${constraint.ancestorId}.${constraint.prop} = ${constraint.value}cm; relax that ancestor or give the card a larger region.`
+    : "";
+  pushDiagnostic({
+    severity: "error",
+    code: "FEATURE_CARD_OVER_CAPACITY",
+    slideId: currentSlideId || undefined,
+    nodeId: parent.id,
+    message: `Feature-card '${parent.id}' cannot keep its title and body readable in the assigned ${axisLabel} (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm).${constraintHint}`,
+    suggestion: capacitySuggestion(parent, "Increase the feature-card region, reduce sibling content, or split the feature group across slides."),
+    measured: {
+      available: availableMain,
+      needed,
+      deltaCm: delta,
+      minHeightCm: direction === "vertical" ? needed : undefined,
+      minWidthCm: direction === "horizontal" ? needed : undefined,
+    },
     ...(constraint ? { constrainedBy: constraint } : {}),
   });
 }
@@ -4990,14 +5088,25 @@ function tableCellIntrinsicHeight(theme: SimpleTheme, raw: unknown, widthCm: num
   const isCode = density === "code" || density === "code-dense" || density === "code-tiny";
   const contentWidth = Math.max(0.8, widthCm - (isCode ? 0.18 : density === "compact" ? 0.38 : 0.52));
   const fontPt = tableCellEffectiveFontPt(raw, style.fontSize);
-  const lines = estimatedWrappedLineCount(theme, text, fontPt, isStyleBold(style.weight), contentWidth);
+  const measurer = createTextMeasurer(theme);
+  const lines = measurer.wrapLines(text, fontPt, style.weight, contentWidth).lines;
   // Native PowerPoint table cells reserve top/bottom inset and tend to look
   // cramped before geometric overflow is visible in our outer layout. Keep a
   // conservative readable floor so dense 6x7 comparison tables fail validation
   // instead of shipping rows that visually collide in PowerPoint.
-  const verticalPadding = isCode ? 0.254 : density === "compact" ? (isHeader ? 0.24 : 0.28) : (isHeader ? 0.38 : 0.42);
   const lineHeight = isCode ? Math.max(style.lineHeight, 1.18) : style.lineHeight;
-  return lines * fontPt * 0.0353 * lineHeight + verticalPadding;
+  const measuredStyle = { ...style, fontSize: fontPt, lineHeight };
+  const lineMetrics = textLineMetrics(theme, measuredStyle, undefined, text);
+  const verticalPadding = tableCellVerticalPaddingCm(lineMetrics.naturalHeightCm, isHeader, density);
+  return lines * lineMetrics.lineHeightCm + verticalPadding;
+}
+
+function tableCellVerticalPaddingCm(naturalLineHeightCm: number, isHeader: boolean, density: TableDensity): number {
+  if (density === "code-tiny") return Math.max(0.12, naturalLineHeightCm * 0.32);
+  if (density === "code-dense") return Math.max(0.14, naturalLineHeightCm * 0.36);
+  if (density === "code") return Math.max(0.18, naturalLineHeightCm * 0.42);
+  if (density === "compact") return Math.max(isHeader ? 0.22 : 0.24, naturalLineHeightCm * (isHeader ? 0.50 : 0.55));
+  return Math.max(isHeader ? 0.32 : 0.34, naturalLineHeightCm * (isHeader ? 0.68 : 0.72));
 }
 
 function tableCellEffectiveFontPt(raw: unknown, fallbackPt: number): number {
@@ -5027,16 +5136,27 @@ function tableCellText(raw: unknown): string {
 
 function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, rows: unknown[][], colWidths: number[], rowHeights: number[], firstRowHeader: boolean): void {
   const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, tableDensity(node.density));
+  const totalNeeded = needed.reduce((sum, h) => sum + h, 0);
   const shortRows = needed
     .map((height, index) => ({ index, needed: height, available: rowHeights[index] || 0 }))
     .filter((row) => row.needed > row.available + 0.08);
+  if (node.role === "code-block-table" && totalNeeded > rect.h + 0.08) {
+    pushCodeBlockOverflowDiagnostic(
+      node,
+      rect,
+      rows,
+      needed,
+      rowHeights,
+      shortRows.length > 0 ? shortRows : [{ index: countRowsThatFit(needed, Math.max(0, rect.h)), needed: totalNeeded, available: rect.h }],
+    );
+    return;
+  }
   if (shortRows.length === 0) return;
   if (node.role === "code-block-table") {
     pushCodeBlockOverflowDiagnostic(node, rect, rows, needed, rowHeights, shortRows);
     return;
   }
   const worst = shortRows.reduce((max, row) => row.needed - row.available > max.needed - max.available ? row : max, shortRows[0]!);
-  const totalNeeded = needed.reduce((sum, h) => sum + h, 0);
   const estimatedRowsFit = countRowsThatFit(needed, Math.max(0, rect.h));
   const visibleRowsFit = firstRowHeader ? Math.max(0, estimatedRowsFit - 1) : estimatedRowsFit;
   const dataRowCount = firstRowHeader ? Math.max(0, rows.length - 1) : rows.length;
@@ -5291,17 +5411,6 @@ function textIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number)
   return textNeededHeight(theme, node, widthCm, style);
 }
 
-function cjkRatio(text: string): number {
-  let cjk = 0;
-  let total = 0;
-  for (const char of text) {
-    if (/\s/.test(char)) continue;
-    total++;
-    if (/[\u4e00-\u9fff]/.test(char)) cjk++;
-  }
-  return total === 0 ? 0 : cjk / total;
-}
-
 function componentStyle(theme: SimpleTheme, node: DomNode) {
   return typeof node.role === "string" ? theme.component[node.role] || {} : {};
 }
@@ -5315,29 +5424,10 @@ function paddingCm(theme: SimpleTheme, node: DomNode): number {
   return numberProp(node, "padding", style.padding ?? 0);
 }
 
-function avgCharWidthCm(theme: SimpleTheme, fontPt: number, bold = false): number {
-  const latin = preferredFont(theme, "latin").toLowerCase();
-  // Calibrated against LibreOffice headless renders. Aptos/Calibri at small
-  // body sizes is ~0.0185 cm/pt, but bold display sizes (>= 22pt) widen to
-  // ~0.022 cm/pt due to heavier strokes and looser kerning in headless mode.
-  const base = latin.includes("aptos") || latin.includes("calibri") ? 0.019 : latin.includes("arial") ? 0.0195 : 0.019;
-  const boldFactor = bold ? (fontPt >= 22 ? 1.18 : 1.10) : 1;
-  return fontPt * base * boldFactor;
-}
-
 function textIntrinsicWidth(theme: SimpleTheme, node: DomNode): number {
   const style = effectiveTextStyle(theme, node, "paragraph");
   const text = renderedTextContent(node).replace(/\n/g, " ");
-  // CJK glyphs render roughly 1pt × 1pt (square em-box) regardless of latin
-  // metrics; mixed-script strings need per-glyph estimation, not the latin-
-  // only avg charWidth × weighted-count formula (which underestimates by
-  // ~30% on pages with currency-prefixed CJK like "$500亿+" or "500亿美元+").
-  const latinChars = avgCharWidthCm(theme, style.fontSize, isStyleBold(style.weight));
-  const cjkChars = style.fontSize * 0.0353 * 1.02;
-  let width = 0;
-  for (const ch of text) {
-    width += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? cjkChars : latinChars;
-  }
+  const width = createTextMeasurer(theme).textWidth(text, style.fontSize, style.weight);
   return Math.min(8, Math.max(0.45, width + 0.35));
 }
 
@@ -5387,13 +5477,14 @@ function bulletsIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: numb
   const mult = sizeMultiplier(theme, node.size);
   const style = mult === 1 ? baseStyle : { ...baseStyle, fontSize: baseStyle.fontSize * mult };
   const contentWidth = Math.max(0.8, widthCm - 0.85);
-  const lineCount = items.reduce((sum, item) => sum + estimatedWrappedLineCount(theme, item, style.fontSize, isStyleBold(style.weight), contentWidth), 0);
-  const lineHeight = style.fontSize * 0.0353 * style.lineHeight;
-  const spaceAfter = bulletSpaceAfterHalfPt(node) * 0.5 * 0.0353;
+  const measurer = createTextMeasurer(theme);
+  const lineCount = items.reduce((sum, item) => sum + measurer.wrapLines(item, style.fontSize, style.weight, contentWidth).lines, 0);
+  const lineHeight = textLineMetrics(theme, style, undefined, items.join("\n")).lineHeightCm;
+  const spaceAfter = bulletSpaceAfterHalfPt(node) * 0.5 * PT_TO_CM;
   const titleHeight = typeof node.title === "string" && node.title.trim()
-    ? theme.text["card-title"].fontSize * 0.0353 * theme.text["card-title"].lineHeight + 6 * 0.5 * 0.0353
+    ? textLineMetrics(theme, theme.text["card-title"], undefined, node.title).lineHeightCm + 6 * 0.5 * PT_TO_CM
     : 0;
-  return Math.max(1.05, titleHeight + lineCount * lineHeight + items.length * spaceAfter + 0.16);
+  return Math.max(1.05, titleHeight + lineCount * lineHeight + items.length * spaceAfter + textVerticalReserveCm(theme, node, style));
 }
 
 interface TextParagraphEstimate {
@@ -5407,13 +5498,14 @@ interface TextParagraphEstimate {
 function textNeededHeight(theme: SimpleTheme, node: DomNode, widthCm: number, baseStyle = effectiveTextStyle(theme, node, "paragraph")): number {
   const bodyHeight = textBodyHeightForEstimate(theme, node, widthCm, baseStyle);
   if (bodyHeight <= 0) return singleLineTextHeight(theme, node);
-  return Math.min(12, Math.max(minTextLineHeightCm(baseStyle), bodyHeight + textVerticalReserveCm(node)));
+  return Math.min(12, Math.max(minTextLineHeightCm(theme, baseStyle, renderedTextContent(node)), bodyHeight + textVerticalReserveCm(theme, node, baseStyle)));
 }
 
 function textVisibleInkHeight(theme: SimpleTheme, node: DomNode, widthCm: number, baseStyle = effectiveTextStyle(theme, node, "paragraph")): number {
   const bodyHeight = textBodyHeightForEstimate(theme, node, widthCm, baseStyle);
   if (bodyHeight <= 0) return singleLineTextHeight(theme, node);
-  return Math.min(12, Math.max(baseStyle.fontSize * 0.0353 * baseStyle.lineHeight, bodyHeight + 0.03));
+  const metrics = textLineMetrics(theme, baseStyle, undefined, renderedTextContent(node));
+  return Math.min(12, Math.max(metrics.naturalHeightCm, bodyHeight + textInkVerticalReserveCm(theme, node, baseStyle)));
 }
 
 function textBodyHeightForEstimate(theme: SimpleTheme, node: DomNode, widthCm: number, baseStyle: ReturnType<typeof textStyle>): number {
@@ -5446,8 +5538,8 @@ function textParagraphsForEstimate(theme: SimpleTheme, node: DomNode, baseStyle:
         text,
         fontSize: paraStyle.fontSize,
         bold: isStyleBold(paraStyle.weight),
-        lineHeightCm: lineSpacingCmForEstimate(rec.lineSpacing, paraStyle),
-        spaceAfterCm: typeof rec.spaceAfter === "number" && Number.isFinite(rec.spaceAfter) ? rec.spaceAfter * 0.0353 : 0,
+        lineHeightCm: lineSpacingCmForEstimate(theme, rec.lineSpacing, paraStyle, text),
+        spaceAfterCm: typeof rec.spaceAfter === "number" && Number.isFinite(rec.spaceAfter) ? rec.spaceAfter * PT_TO_CM : 0,
       });
     }
     return out;
@@ -5458,8 +5550,8 @@ function textParagraphsForEstimate(theme: SimpleTheme, node: DomNode, baseStyle:
     text,
     fontSize: baseStyle.fontSize,
     bold: isStyleBold(baseStyle.weight),
-    lineHeightCm: lineSpacingCmForEstimate(node.lineSpacing, baseStyle),
-    spaceAfterCm: typeof node.spaceAfter === "number" && Number.isFinite(node.spaceAfter) ? node.spaceAfter * 0.0353 : 0,
+    lineHeightCm: lineSpacingCmForEstimate(theme, node.lineSpacing, baseStyle, text),
+    spaceAfterCm: typeof node.spaceAfter === "number" && Number.isFinite(node.spaceAfter) ? node.spaceAfter * PT_TO_CM : 0,
   }];
 }
 
@@ -5467,26 +5559,77 @@ function richRunsTextForEstimate(runs: unknown[]): string {
   return richRunsPlainText(runs);
 }
 
-function lineSpacingCmForEstimate(rawLineSpacing: unknown, style: ReturnType<typeof textStyle>): number {
-  if (typeof rawLineSpacing === "number" && Number.isFinite(rawLineSpacing) && rawLineSpacing > 0) {
-    return rawLineSpacing * 0.0353;
-  }
-  return style.fontSize * 0.0353 * style.lineHeight;
+function lineSpacingCmForEstimate(theme: SimpleTheme, rawLineSpacing: unknown, style: ReturnType<typeof textStyle>, text = ""): number {
+  return textLineMetrics(theme, style, rawLineSpacing, text).lineHeightCm;
 }
 
-function minTextLineHeightCm(style: ReturnType<typeof textStyle>): number {
-  return style.fontSize * 0.0353 * style.lineHeight + 0.16;
+function textLineMetrics(theme: SimpleTheme, style: TextStyle, rawLineSpacing?: unknown, text = ""): {
+  ascentCm: number;
+  descentCm: number;
+  leadingCm: number;
+  lineHeightCm: number;
+  naturalHeightCm: number;
+} {
+  const measurer = createTextMeasurer(theme);
+  const family = textMetricsFamily(theme, style, text);
+  const primary = measurer.ascentDescent(style.fontSize, family);
+  const cjkFamily = containsCjk(text) ? preferredFont(theme, "cjk", style.fontFamily === "display" ? "display" : "text", style.weight) : undefined;
+  const cjk = cjkFamily && cjkFamily !== family ? measurer.ascentDescent(style.fontSize, cjkFamily) : undefined;
+  let ascentCm = Math.max(primary.ascentCm, cjk?.ascentCm ?? 0);
+  let descentCm = Math.max(primary.descentCm, cjk?.descentCm ?? 0);
+  const rawNaturalHeightCm = Math.max(0.01, ascentCm + descentCm);
+  const naturalCap = style.fontSize * PT_TO_CM * (containsCjk(text) ? 1.12 : 1.16);
+  const naturalHeightCm = Math.min(rawNaturalHeightCm, naturalCap);
+  if (rawNaturalHeightCm > naturalHeightCm) {
+    const scale = naturalHeightCm / rawNaturalHeightCm;
+    ascentCm *= scale;
+    descentCm *= scale;
+  }
+  const requested = explicitLineSpacingCm(rawLineSpacing) ?? measurer.lineHeight(style.fontSize, style.lineHeight, family);
+  const lineHeightCm = Math.max(naturalHeightCm, requested);
+  return {
+    ascentCm,
+    descentCm,
+    leadingCm: Math.max(0, lineHeightCm - naturalHeightCm),
+    lineHeightCm,
+    naturalHeightCm,
+  };
+}
+
+function textMetricsFamily(theme: SimpleTheme, style: TextStyle, text = ""): string {
+  if (style.fontFamily === "mono") return preferredFont(theme, "mono", "text", style.weight);
+  const role: FontRole = style.fontFamily === "display" ? "display" : "text";
+  return containsCjk(text) ? preferredFont(theme, "cjk", role, style.weight) : preferredFont(theme, "latin", role, style.weight);
+}
+
+function explicitLineSpacingCm(rawLineSpacing: unknown): number | undefined {
+  if (typeof rawLineSpacing === "number" && Number.isFinite(rawLineSpacing) && rawLineSpacing > 0) {
+    return rawLineSpacing * PT_TO_CM;
+  }
+  return undefined;
+}
+
+function minTextLineHeightCm(theme: SimpleTheme, style: ReturnType<typeof textStyle>, text = ""): number {
+  return textLineMetrics(theme, style, undefined, text).naturalHeightCm;
 }
 
 function textHorizontalReserveCm(node: DomNode): number {
-  // textShape emits 0.1cm left/right margins. The extra 0.15cm is deliberate:
+  // textShape emits left/right margins. The extra width is deliberate:
   // PowerPoint/LibreOffice line breaking is slightly wider than our glyph
   // estimate, especially for Helvetica/Arial body text.
-  return typeof node.fill === "string" || typeof node.line === "string" ? 0.45 : 0.35;
+  return (TEXT_SHAPE_MARGIN_X_CM * 2) + (hasPaintedTextSurface(node) ? 0.25 : 0.15);
 }
 
-function textVerticalReserveCm(node: DomNode): number {
-  return typeof node.fill === "string" || typeof node.line === "string" ? 0.28 : 0.18;
+function textVerticalReserveCm(theme: SimpleTheme, node: DomNode, style: TextStyle): number {
+  const surfaceExtra = hasPaintedTextSurface(node) ? TEXT_SURFACE_EXTRA_VERTICAL_SAFETY_CM : 0;
+  const metrics = textLineMetrics(theme, style, undefined, renderedTextContent(node));
+  return TEXT_SHAPE_MARGIN_Y_CM * 2 + TEXT_VERTICAL_SAFETY_CM + surfaceExtra + Math.min(0.05, metrics.leadingCm * 0.25);
+}
+
+function textInkVerticalReserveCm(theme: SimpleTheme, node: DomNode, style: TextStyle): number {
+  const surfaceExtra = hasPaintedTextSurface(node) ? TEXT_SURFACE_EXTRA_VERTICAL_SAFETY_CM * 0.35 : 0;
+  const metrics = textLineMetrics(theme, style, undefined, renderedTextContent(node));
+  return 0.015 + surfaceExtra + Math.min(0.02, metrics.leadingCm * 0.12);
 }
 
 function fullHeightTextStyle(styleKey: string): boolean {
@@ -5538,52 +5681,16 @@ function pushBulletsFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect
 }
 
 function estimatedWrappedLineCount(theme: SimpleTheme, text: string, fontPt: number, bold: boolean, contentWidthCm: number): number {
-  const usable = Math.max(0.25, contentWidthCm);
-  const lines = String(text || "").split(/\r?\n/);
-  return lines.reduce((sum, line) => {
-    const totalWidth = estimatedTextWidthCm(theme, line, fontPt, bold);
-    const unbreakableWidth = longestUnbreakableWidthCm(theme, line, fontPt, bold);
-    return sum + Math.max(1, Math.ceil(totalWidth / usable), Math.ceil(unbreakableWidth / usable));
-  }, 0);
+  return createTextMeasurer(theme).wrapLines(text, fontPt, bold ? "bold" : undefined, contentWidthCm).lines;
 }
 
 function estimatedTextWidthCm(theme: SimpleTheme, text: string, fontPt: number, bold: boolean): number {
-  let width = 0;
-  for (const ch of text) width += estimatedGlyphWidthCm(theme, ch, fontPt, bold);
-  return width;
-}
-
-function longestUnbreakableWidthCm(theme: SimpleTheme, text: string, fontPt: number, bold: boolean): number {
-  let longest = 0;
-  let current = 0;
-  for (const ch of text) {
-    if (/\s/.test(ch) || /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch)) {
-      longest = Math.max(longest, current);
-      current = 0;
-      continue;
-    }
-    current += estimatedGlyphWidthCm(theme, ch, fontPt, bold);
-  }
-  return Math.max(longest, current);
-}
-
-function estimatedGlyphWidthCm(theme: SimpleTheme, ch: string, fontPt: number, bold: boolean): number {
-  if (ch === "\u2060") return 0;
-  if (/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch)) return fontPt * 0.0353 * 1.02;
-  if (/\s/.test(ch)) return avgCharWidthCm(theme, fontPt, bold) * 0.45;
-  if (isWideVisualSymbol(ch)) return fontPt * 0.0353 * 0.9;
-  if (/[ilI1|.,:;]/.test(ch)) return avgCharWidthCm(theme, fontPt, bold) * 0.55;
-  if (/[MW@#%&]/.test(ch)) return avgCharWidthCm(theme, fontPt, bold) * 1.25;
-  return avgCharWidthCm(theme, fontPt, bold);
-}
-
-function isWideVisualSymbol(ch: string): boolean {
-  return /[\u2605\u2606\u2713\u2714\u2717\u2715\u2716\u26a0\u25cf\u25cb\u25c6\u25c7\u25a0\u25a1\u25b2\u25b3\u25b6\u25b7\u25bc\u25bd]/.test(ch);
+  return createTextMeasurer(theme).textWidth(text, fontPt, bold ? "bold" : undefined);
 }
 
 function singleLineTextHeight(theme: SimpleTheme, node: DomNode): number {
   const style = effectiveTextStyle(theme, node, "paragraph");
-  return style.fontSize * 0.0353 * style.lineHeight + 0.16;
+  return textLineMetrics(theme, style, node.lineSpacing, renderedTextContent(node)).lineHeightCm + textVerticalReserveCm(theme, node, style);
 }
 
 /**
@@ -5601,14 +5708,8 @@ function textMinHeight(theme: SimpleTheme, node: DomNode, crossSize: number): nu
   const effectiveAutoFit = node.autoFit ?? defaultAutoFitForStyle(styleKey);
   if (effectiveAutoFit === "shrink" && node.__fallbackAutoFitShrink === true) {
     const width = Math.max(0.45, crossSize > 0 ? crossSize : 1);
-    const shrunkStyle = autoShrinkStyle(
-      theme,
-      node,
-      style,
-      { x: 0, y: 0, w: width, h: 12 },
-      styleKey,
-      { emitDiagnostics: false },
-    );
+    const minPt = Math.max(8, style.fontSize * 0.7);
+    const shrunkStyle = { ...style, fontSize: Math.min(style.fontSize, minPt) };
     return textVisibleInkHeight(theme, node, width, shrunkStyle);
   }
   const needsFullHeight = node.wrapMinHeight === true || (fullHeightTextStyle(styleKey) && effectiveAutoFit !== "shrink");
@@ -5660,45 +5761,27 @@ function autoShrinkStyle(
   const inner = Math.max(0.1, rect.w - 0.35);
   const innerHeight = Math.max(0.12, rect.h - 0.12);
   const textLines = text.split("\n");
+  const measurer = createTextMeasurer(theme);
   const computeFit = (fontPt: number): { fits: boolean; widthNeeded: number; heightNeeded: number; unbreakableNeeded: number } => {
-    // Bold display text in LibreOffice consistently rendered ~12-15% wider
-    // than the cm/pt × char-count estimate; bake that in here so autoShrink
-    // errs toward smaller-but-fits rather than estimated-fits-but-wraps.
-    const boldFactor = isStyleBold(style.weight) ? (fontPt >= 22 ? 1.32 : 1.22) : 1;
-    const latinW = fontPt * 0.019 * boldFactor;
-    const cjkW = fontPt * 0.0353 * 1.05;
-    const symbolW = fontPt * 0.0353 * 0.95;
-    const measureLine = (line: string): number => {
-      let w = 0;
-      for (const ch of line) {
-        if (ch === "\u2060") continue;
-        w += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? cjkW : isWideVisualSymbol(ch) ? symbolW : latinW;
-      }
-      return w;
-    };
-    const measureUnbreakable = (line: string): number => {
-      if (cjkRatio(line) > 0.3) {
-        const latinSegments = line.match(/[A-Za-z0-9_.:/@#%+\-]+/g) || [];
-        return Math.max(cjkW, ...latinSegments.map(measureLine));
-      }
-      const tokens = line.trim().split(/\s+/).filter(Boolean);
-      return Math.max(0, ...tokens.map(measureLine));
-    };
     let widthNeeded = 0;
     let unbreakableNeeded = 0;
     let wrappedLines = 0;
     for (const line of textLines) {
-      const measured = measureLine(line);
-      widthNeeded = Math.max(widthNeeded, measured);
-      unbreakableNeeded = Math.max(unbreakableNeeded, measureUnbreakable(line));
-      wrappedLines += Math.max(1, Math.ceil(measured / inner));
+      const metrics = measurer.wrapLines(line, fontPt, style.weight, inner);
+      widthNeeded = Math.max(widthNeeded, metrics.widthCm);
+      unbreakableNeeded = Math.max(unbreakableNeeded, metrics.unbreakableCm);
+      wrappedLines += metrics.lines;
     }
-    const lineHeightCm = typeof node.lineSpacing === "number" && Number.isFinite(node.lineSpacing) && node.lineSpacing > 0
-      ? node.lineSpacing * 0.0353
-      : fontPt * 0.0353 * style.lineHeight;
-    const heightNeeded = wrappedLines * lineHeightCm;
+    const measuredStyle = { ...style, fontSize: fontPt };
+    const lineHeightCm = textLineMetrics(theme, measuredStyle, node.lineSpacing, text).lineHeightCm;
+    const heightReserve = wrappedLines > 1
+      ? textVerticalReserveCm(theme, node, measuredStyle)
+      : textInkVerticalReserveCm(theme, node, measuredStyle);
+    const heightNeeded = wrappedLines * lineHeightCm + heightReserve;
+    const mustFitSingleLineHeight = wrappedLines > 1
+      || ((styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") && rect.h <= 0.5);
     return {
-      fits: unbreakableNeeded <= inner && (wrappedLines === 1 || heightNeeded <= innerHeight + 0.08),
+      fits: unbreakableNeeded <= inner && (!mustFitSingleLineHeight || heightNeeded <= innerHeight + 0.08),
       widthNeeded,
       heightNeeded,
       unbreakableNeeded,
@@ -5717,8 +5800,10 @@ function autoShrinkStyle(
       hi = mid;
     }
   }
-  // Round to a half-pt to keep nice numbers.
-  fitted = Math.round(fitted * 2) / 2;
+  // Prefer clean half-pt values, but never round upward across the fit
+  // threshold after the binary search has found the largest fitting value.
+  const rounded = Math.round(fitted * 2) / 2;
+  fitted = computeFit(rounded).fits ? rounded : Math.floor(fitted * 2) / 2;
   if (fitted >= style.fontSize - 0.25) return style;
   const severe = isSevereTextShrink(node, styleKey, style.fontSize, fitted);
   if (emitDiagnostics && (severe || fitted <= 9 || fitted <= style.fontSize * 0.78)) {
@@ -5740,9 +5825,10 @@ function autoShrinkStyle(
 function isSevereTextShrink(node: DomNode, styleKey: string, originalPt: number, fittedPt: number): boolean {
   if (node.optional === true) return false;
   if (styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") return false;
-  const bodyLike = styleKey === "paragraph" || styleKey === "caption" || styleKey === "figure-caption" || styleKey === "article" || styleKey === "lead";
+  if (styleKey === "caption" || styleKey === "figure-caption") return fittedPt < 8 || fittedPt <= originalPt * 0.72;
+  const bodyLike = styleKey === "paragraph" || styleKey === "article" || styleKey === "lead";
   if (!bodyLike) return false;
-  return fittedPt < 9.5 || fittedPt <= originalPt * 0.72;
+  return fittedPt < 9 || fittedPt <= originalPt * 0.72;
 }
 
 /**

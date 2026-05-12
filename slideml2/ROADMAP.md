@@ -1,6 +1,6 @@
 # SlideML2 Roadmap
 
-Last updated: 2026-05-11
+Last updated: 2026-05-12
 
 This roadmap tracks the current SlideML2 implementation and the remaining work
 needed for reliable commercial, research, and technical presentation delivery.
@@ -286,8 +286,78 @@ Priority: P0/P1.
 - Prefer diagnostics and suggestions that preserve semantic component choice:
   adjust area, ratio, density, pagination, labels, legend, columns, rows, or
   data grouping before changing components.
-- Avoid hard-coded capacity limits where real content measurement is available.
+- Replace hard-coded capacity limits with real measurement wherever content,
+  style, and area are known. Hard thresholds are acceptable only as non-blocking
+  quality guidance for objects that cannot yet be measured accurately.
+- Treat false positives as product defects: a diagnostic that interrupts the
+  agent must prove the problem with measured rects, needed/available dimensions,
+  or final-render evidence.
+- Build a single text measurement path shared by measure, auto-fit shrink,
+  table cells, code blocks, and text diagnostics. The path should return
+  line count, needed width/height, unbreakable width, ink rect, and fitted font
+  size so every diagnostic uses the same numbers.
+- Implement that path in phases: first extract a `TextMeasurer` interface and
+  remove the duplicate auto-fit calibration table without changing behavior;
+  then add an OpenType-based measurer PoC; then add real line breaking and
+  vertical metrics.
+- P7-A/P7-B/P7-C/P7-D are implemented as the current baseline. `text-measure.ts` owns the
+  measurement interface, `render.ts` uses it for text width, wrapping, table
+  cell height, bullet height, and auto-fit shrink, and
+  `tools/generate-font-metrics-pack.mjs` generates `font-metrics-pack.ts`.
+  Runtime measurement reads the generated metrics pack; it does not parse or
+  redistribute font files. Wrapping now uses greedy break segments with CJK
+  punctuation guards and Latin technical breakpoints instead of raw
+  `ceil(totalWidth / width)` estimation. Vertical measurement now uses
+  font-derived ascent/descent/leading with a PowerPoint-like line-box cap for
+  tall CJK font bboxes, separates text box reserve from `inkRect`, and remeasures
+  fallback-applied shrink with the fitted font size.
+- Treat LibreOffice PDF bbox as the automated calibration target for now, with
+  PowerPoint kept as sampled release validation. Do not block fast
+  `replace-slide` on PDF/PNG artifact QA.
+- Move component body/detail min-height from hand-written weighted-length
+  estimates to declarative constraints plus the shared measurement model.
+- Make `TINY_RECT` and `SQUASHED` role-specific: text uses measured text fit,
+  chart/table/code use component readable area, marker/rule/decorative nodes do
+  not inherit body-text thresholds.
 - Add focused tests whenever an E2E case exposes component degradation.
+
+### Component Semantic Contract
+
+Priority: P0.
+
+- Component behavior must match the public registry/SKILL/SPEC contract. If a
+  field says it controls semantic tone, layout, density, or data binding, the
+  implementation must preserve that meaning.
+- Do not change component semantics to pass validation. Fix the measurement,
+  token mapping, contrast handling, capacity diagnostic, or layout strategy
+  instead.
+- Fallback may drop decoration and secondary evidence, but it must not silently
+  remove core semantic content. When core content cannot fit, emit a
+  component-level capacity diagnostic with a concrete measured deficit.
+- Add internal semantic importance metadata for expanded nodes:
+  `core`, `supporting`, or `decorative`. Fallback may drop decorative nodes,
+  may warn on supporting drops, and must reject with a component-level capacity
+  diagnostic when core content cannot fit.
+- First coverage target: feature-card, insight-card, numbered-grid,
+  explanation-block, timeline, process-flow, and image-card.
+- Add contract tests for every semantic correction: one test for the declared
+  interface behavior, one test for the validate/render diagnostic behavior, and
+  one test that guards against component degradation in a realistic layout.
+
+### Compiler-Style Fix Hints
+
+Priority: P1.
+
+- Keep natural-language suggestions, but add machine-readable `fixHints` to
+  diagnostics where the repair is structured:
+  `increase-area`, `reduce-columns`, `set-density`, `paginate`,
+  `shorten-secondary`, `move-supporting-content`.
+- Hints must prefer preserving the current semantic component. They should not
+  steer the agent toward easier generic components unless the replacement is
+  semantically more accurate.
+- Include concrete fields where possible: target node/path, axis, current value,
+  minimum delta, candidate values, and whether the hint preserves component
+  semantics.
 
 ### E2E Case Process
 

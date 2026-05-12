@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 import { createHash } from "node:crypto";
-import { copyFile, cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -17,8 +17,6 @@ const requiredRuntimeFiles = [
   "runtime/package.json",
   "runtime/bin/slideml2.js",
   "runtime/dist/index.js",
-  "runtime/dist/render.js",
-  "runtime/node_modules/jszip/package.json",
 ] as const;
 
 interface SkillPackageManifest {
@@ -78,10 +76,10 @@ function printHelp(): void {
   console.log(`Usage: npx tsx scripts/package-slideml2-skill.ts [--out-dir path] [--version x.y.z]
 
 Creates a zip package for installing the SlideML2 skill in another agent.
-The package includes the skill docs plus a runtime/ directory containing
-only the executable runtime: compiled dist files, the CLI entrypoint, a minimal
-ESM package.json, and production node_modules. TypeScript source, tests,
-examples, and development scripts are intentionally excluded.
+The package includes the skill docs plus a runtime/ directory containing only
+the executable runtime: one bundled dist file, the CLI entrypoint, and a
+minimal ESM package.json. TypeScript source, tests, examples, development
+scripts, and node_modules are intentionally excluded.
 
 Output:
   releases/skills/slideml2/slideml2-skill-v<version>.zip
@@ -149,7 +147,6 @@ slideml2/
   runtime/
     package.json
     dist/
-    node_modules/
     RUNTIME.md
     bin/slideml2.js
 \`\`\`
@@ -160,13 +157,12 @@ the agent's skills directory, for example \`$CODEX_HOME/skills/slideml2\`.
 ## Runtime
 
 The \`runtime/\` directory is a standalone executable SlideML2 package. It
-includes compiled JavaScript under \`runtime/dist\`, production dependencies
-under \`runtime/node_modules\`, and the CLI entrypoint below. It intentionally
-does not include TypeScript source, tests, examples, or development scripts.
+includes bundled compiled JavaScript under \`runtime/dist\` and the CLI
+entrypoint below. It intentionally does not include TypeScript source, tests,
+examples, development scripts, or node_modules.
 
-After unzipping, production dependencies are already bundled. Normal deck
-authoring runs directly with Node.js; do not run \`npm install\` for ordinary
-use.
+After unzipping, normal deck authoring runs directly with Node.js; do not run
+\`npm install\` for ordinary use.
 
 \`\`\`bash
 export SLIDEML2_SKILL_DIR=/path/to/slideml2
@@ -211,34 +207,28 @@ async function copyRuntimeFiles(stageRoot: string): Promise<string[]> {
   await run("pnpm", ["--dir", "slideml2", "build"], repoRoot);
   const packageRoot = join(stageRoot, skillName);
   const runtimeRoot = join(packageRoot, "runtime");
-  await mkdir(runtimeRoot, { recursive: true });
-  await cp(join(runtimeSourceDir, "dist"), join(runtimeRoot, "dist"), {
-    recursive: true,
-    filter: (src) => includeRuntimeDistPath(relative(join(runtimeSourceDir, "dist"), src)),
-  });
+  const runtimeDistRoot = join(runtimeRoot, "dist");
+  await mkdir(runtimeDistRoot, { recursive: true });
+  await run("pnpm", [
+    "exec",
+    "esbuild",
+    join(runtimeSourceDir, "dist/index.js"),
+    "--bundle",
+    "--platform=node",
+    "--format=esm",
+    "--target=node20",
+    `--outfile=${join(runtimeDistRoot, "index.js")}`,
+  ], repoRoot);
   await writeRuntimePackageJson(runtimeRoot);
   await writeRuntimeReadme(runtimeRoot);
   await writeRuntimeCli(runtimeRoot);
-  await run("npm", ["install", "--omit=dev", "--ignore-scripts"], runtimeRoot);
-  await pruneNonExecutableRuntimeFiles(runtimeRoot);
   const distFiles = await listFiles(join(runtimeRoot, "dist"), `${skillName}/runtime/dist`);
   return [
     `${skillName}/runtime/package.json`,
     ...distFiles,
     `${skillName}/runtime/RUNTIME.md`,
     `${skillName}/runtime/bin/slideml2.js`,
-    `${skillName}/runtime/node_modules`,
   ];
-}
-
-function includeRuntimeDistPath(relPath: string): boolean {
-  const normalized = relPath.split("\\").join("/");
-  if (!normalized || normalized === ".") return true;
-  if (normalized === ".DS_Store" || normalized.endsWith("/.DS_Store")) return false;
-  if (normalized.endsWith(".d.ts") || normalized.endsWith(".map")) return false;
-  if (normalized.endsWith(".test.js") || normalized.includes(".test.")) return false;
-  const leaf = normalized.split("/").pop() || "";
-  return !leaf.includes(".") || normalized.endsWith(".js") || normalized.endsWith(".json");
 }
 
 async function writeRuntimePackageJson(runtimeRoot: string): Promise<void> {
@@ -251,7 +241,6 @@ async function writeRuntimePackageJson(runtimeRoot: string): Promise<void> {
     private: true,
     type: pkg.type || "module",
     main: pkg.main || "dist/index.js",
-    dependencies: pkg.dependencies || {},
     license: pkg.license,
   };
   await writeFile(join(runtimeRoot, "package.json"), `${JSON.stringify(runtimePackage, null, 2)}\n`);
@@ -265,9 +254,10 @@ renderer and authoring loop without the full Cowork repository.
 
 ## Install
 
-Production dependencies are bundled in the package, so agent-facing CLI
-commands can run immediately with Node.js. Run the commands from the deck
-workspace; omitted \`deckPath\` defaults to \`./deck.json\`.
+Runtime dependencies are bundled into \`runtime/dist/index.js\`, so
+agent-facing CLI commands can run immediately with Node.js without
+\`npm install\`. Run the commands from the deck workspace; omitted \`deckPath\`
+defaults to \`./deck.json\`.
 
 \`\`\`bash
 node /path/to/slideml2/runtime/bin/slideml2.js create-deck create-deck.json
@@ -276,10 +266,10 @@ node /path/to/slideml2/runtime/bin/slideml2.js replace-slide replace-slide-01.js
 node /path/to/slideml2/runtime/bin/slideml2.js validate-render validate-render.json
 \`\`\`
 
-This package is runtime-only: it intentionally omits TypeScript source,
-tests, examples, and development scripts. Rebuilds must happen from the
-upstream SlideML2 repository, then the compiled \`dist/\` output can be
-packaged again.
+This package is runtime-only: it intentionally omits TypeScript source, tests,
+examples, development scripts, and node_modules. Rebuilds must happen from the
+upstream SlideML2 repository, then a fresh bundled \`runtime/dist/index.js\` can
+be packaged again.
 
 ## Agent-Facing CLI
 
@@ -312,7 +302,7 @@ async function writeRuntimeCli(runtimeRoot: string): Promise<void> {
   const binDir = join(runtimeRoot, "bin");
   await mkdir(binDir, { recursive: true });
   const cli = `#!/usr/bin/env node
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import {
   clearRenderDiagnostics,
@@ -363,9 +353,44 @@ function diagnosticsSummary(items) {
   }, {});
 }
 
+async function pathExists(path) {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function deckSummary(deck) {
+  const slides = Array.isArray(deck?.slides) ? deck.slides : [];
+  return {
+    slideCount: slides.length,
+    slides: slides.map((slide, index) => ({ index, id: slide?.id, title: slide?.title })).filter((item) => item.id || item.title),
+  };
+}
+
+function renderValidationPayload(diagnostics, blocking, quality) {
+  return {
+    ok: blocking.length === 0,
+    diagnostics: {
+      count: diagnostics.length,
+      summary: diagnosticsSummary(diagnostics),
+      blockingCount: blocking.length,
+      blocking: blocking.slice(0, 60),
+      qualityCount: quality.length,
+      quality: quality.slice(0, 20),
+    },
+  };
+}
+
 function findSlideIndex(deck, slideId) {
   if (typeof slideId === "number") return slideId >= 0 && slideId < deck.slides.length ? slideId : -1;
   return deck.slides.findIndex((slide) => slide.id === slideId);
+}
+
+function isAppendSlideId(slideId) {
+  return slideId === "append" || slideId === "$append" || slideId === "next";
 }
 
 async function main() {
@@ -375,8 +400,37 @@ async function main() {
 
   if (command === "create-deck") {
     const deckPath = deckPathFrom(input);
+    let existingDeck;
+    if (await pathExists(deckPath)) {
+      try {
+        existingDeck = deckSummary(await readDeck(deckPath));
+      } catch {
+        existingDeck = { slideCount: undefined, slides: [] };
+      }
+    }
     const result = await createDeck(deckPath, input);
-    console.log(JSON.stringify({ ...result, deckPath }, null, 2));
+    const warnings = [];
+    if (result.ok && existingDeck) {
+      warnings.push({
+        code: "DECK_REINITIALIZED",
+        severity: "warning",
+        message: "create-deck replaced an existing deck.json in this workspace.",
+        previousDeck: existingDeck,
+        suggestion: "For normal repairs, prefer read-deck followed by replace-slide so existing slides are preserved.",
+      });
+    }
+    console.log(JSON.stringify({
+      ...result,
+      phase: result.ok ? "committed" : "source-validation",
+      deckPath,
+      deckModified: result.ok,
+      overwroteExistingDeck: Boolean(result.ok && existingDeck),
+      warnings,
+      previousDeck: existingDeck,
+      nextAction: result.ok && existingDeck
+        ? "Continue only if the reset was intentional. Otherwise reconstruct the affected slides through replace-slide from the latest valid source or plan."
+        : undefined,
+    }, null, 2));
     process.exit(result.ok ? 0 : 1);
   }
 
@@ -391,22 +445,40 @@ async function main() {
     const normalizedSlide = normalizeSlide(input.slide);
     const slideValidation = validateSlide(normalizedSlide, deck);
     if (!slideValidation.ok) {
-      console.log(JSON.stringify({ ok: false, error: "slide validation failed", validation: slideValidation }, null, 2));
+      console.log(JSON.stringify({
+        ok: false,
+        phase: "slide-source-validation",
+        error: "slide source validation failed",
+        deckModified: false,
+        sourceValidation: slideValidation,
+        validation: slideValidation,
+        nextAction: "Repair this same slide and retry replace-slide before adding the next slide.",
+      }, null, 2));
       process.exit(1);
     }
-    const slideId = typeof input.slideId === "string" && /^\\\\d+$/.test(input.slideId) ? Number(input.slideId) : input.slideId;
+    const slideId = typeof input.slideId === "string" && /^\\d+$/.test(input.slideId) ? Number(input.slideId) : input.slideId;
     const candidate = JSON.parse(JSON.stringify(deck));
     let targetIndex = -1;
     let insertedAt;
     let replacedAt;
-    if (typeof slideId === "number" && slideId === candidate.slides.length) {
+    if (isAppendSlideId(slideId) || (typeof slideId === "number" && slideId === candidate.slides.length)) {
       candidate.slides.push(normalizedSlide);
       targetIndex = candidate.slides.length - 1;
       insertedAt = targetIndex;
     } else {
       targetIndex = findSlideIndex(candidate, slideId);
       if (targetIndex < 0) {
-        console.log(JSON.stringify({ ok: false, error: "slide not found", slideId, slideCount: candidate.slides.length }, null, 2));
+        console.log(JSON.stringify({
+          ok: false,
+          phase: "target-resolution",
+          error: "slide not found",
+          deckModified: false,
+          slideId,
+          slideCount: candidate.slides.length,
+          nextAppendIndex: candidate.slides.length,
+          slides: deckSummary(candidate).slides,
+          nextAction: "If you expected this index to exist, a previous replace-slide failed and left the deck unchanged. Repair that failed slide first, or append with slideId:'append'.",
+        }, null, 2));
         process.exit(1);
       }
       candidate.slides[targetIndex] = normalizedSlide;
@@ -414,7 +486,15 @@ async function main() {
     }
     const validation = validateDeck(candidate, { baseDir: dirname(deckPath) });
     if (!validation.ok) {
-      console.log(JSON.stringify({ ok: false, error: "deck validation failed after candidate apply", validation }, null, 2));
+      console.log(JSON.stringify({
+        ok: false,
+        phase: "deck-source-validation",
+        error: "deck source validation failed after candidate apply",
+        deckModified: false,
+        sourceValidation: validation,
+        validation,
+        nextAction: "Repair this same slide and retry replace-slide before adding the next slide.",
+      }, null, 2));
       process.exit(1);
     }
     clearRenderDiagnostics();
@@ -423,36 +503,33 @@ async function main() {
     const blocking = blockingDiagnostics(diagnostics);
     const quality = qualityDiagnostics(diagnostics);
     clearRenderDiagnostics();
+    const renderValidation = renderValidationPayload(diagnostics, blocking, quality);
     if (blocking.length > 0) {
       console.log(JSON.stringify({
         ok: false,
+        phase: "render-validation",
         error: "render validation failed for candidate slide",
+        deckModified: false,
+        sourceValidation: validation,
         validation,
-        diagnostics: {
-          count: diagnostics.length,
-          summary: diagnosticsSummary(diagnostics),
-          blockingCount: blocking.length,
-          blocking: blocking.slice(0, 60),
-          qualityCount: quality.length,
-          quality: quality.slice(0, 20),
-        },
+        renderValidation,
+        diagnostics: renderValidation.diagnostics,
+        nextAction: "Source schema is valid, but rendering would fail or degrade. Repair the named render diagnostics on this same slide and retry replace-slide before adding the next slide.",
       }, null, 2));
       process.exit(1);
     }
     await writeDeck(deckPath, candidate);
     console.log(JSON.stringify({
       ok: true,
+      phase: "committed",
+      deckModified: true,
       insertedAt,
       replacedAt,
       slideCount: candidate.slides.length,
+      sourceValidation: validation,
       validation,
-      diagnostics: {
-        count: diagnostics.length,
-        summary: diagnosticsSummary(diagnostics),
-        blockingCount: blocking.length,
-        qualityCount: quality.length,
-        quality: quality.slice(0, 20),
-      },
+      renderValidation,
+      diagnostics: renderValidation.diagnostics,
     }, null, 2));
     return;
   }
@@ -463,11 +540,18 @@ async function main() {
     const deck = await readDeck(deckPath);
     const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
     if (!validation.ok) {
-      console.log(JSON.stringify({ ok: false, error: "deck validation failed", validation }, null, 2));
+      console.log(JSON.stringify({
+        ok: false,
+        phase: "deck-source-validation",
+        error: "deck source validation failed",
+        deckModified: false,
+        sourceValidation: validation,
+        validation,
+      }, null, 2));
       process.exit(1);
     }
     if (command === "validate-render" && input.render === false) {
-      console.log(JSON.stringify({ ok: true, validation }, null, 2));
+      console.log(JSON.stringify({ ok: true, phase: "source-validation", deckModified: false, sourceValidation: validation, validation }, null, 2));
       return;
     }
     await mkdir(dirname(outputPath), { recursive: true });
@@ -476,18 +560,20 @@ async function main() {
     const result = await renderToPptx(rendered, outputPath);
     const diagnostics = getRenderDiagnostics();
     const blocking = blockingDiagnostics(diagnostics);
+    const quality = qualityDiagnostics(diagnostics);
+    const renderValidation = renderValidationPayload(diagnostics, blocking, quality);
     await writeFile(\`\${result.outputPath}.diagnostics.json\`, JSON.stringify(diagnostics, null, 2), "utf8");
     console.log(JSON.stringify({
       ok: blocking.length === 0,
+      phase: blocking.length === 0 ? "rendered" : "render-validation",
+      deckModified: false,
       outputPath: result.outputPath,
       domPath: result.domPath,
       diagnosticsPath: \`\${result.outputPath}.diagnostics.json\`,
+      sourceValidation: validation,
       validation,
-      diagnostics: {
-        count: diagnostics.length,
-        blockingCount: blocking.length,
-        blocking: blocking.slice(0, 60),
-      },
+      renderValidation,
+      diagnostics: renderValidation.diagnostics,
     }, null, 2));
     process.exit(blocking.length === 0 ? 0 : 1);
   }
@@ -516,6 +602,7 @@ async function verifyZip(zipPath: string): Promise<string[]> {
   }
   if (entries.some((entry) =>
     entry.includes("/node_modules/.cache/")
+    || entry.includes("/runtime/node_modules/")
     || entry.includes("/runtime/src/")
     || entry.endsWith(".ts")
     || entry.includes(".test.")
@@ -546,29 +633,6 @@ async function listFiles(root: string, zipPrefix: string): Promise<string[]> {
   };
   await walk(root, zipPrefix);
   return out;
-}
-
-async function pruneNonExecutableRuntimeFiles(root: string): Promise<void> {
-  const { readdir } = await import("node:fs/promises");
-  const walk = async (dir: string) => {
-    const entries = await readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (entry.name === "__tests__" || entry.name === "test" || entry.name === "tests") {
-          await rm(full, { recursive: true, force: true });
-          continue;
-        }
-        await walk(full);
-      } else if (
-        entry.isFile()
-        && (entry.name.endsWith(".d.ts") || entry.name.endsWith(".map") || entry.name.includes(".test."))
-      ) {
-        await rm(full, { force: true });
-      }
-    }
-  };
-  await walk(root);
 }
 
 async function main(): Promise<void> {
@@ -605,9 +669,9 @@ async function main(): Promise<void> {
         targetDirectory: "$CODEX_HOME/skills/slideml2",
         notes: [
           "Unzip preserving the slideml2 directory.",
-          "Production dependencies are bundled; basic runtime/bin/slideml2.js commands run with Node.js immediately after unzip.",
+          "Runtime dependencies are bundled into runtime/dist/index.js; basic runtime/bin/slideml2.js commands run with Node.js immediately after unzip.",
           "Run CLI commands from the deck workspace; omitted deckPath defaults to ./deck.json.",
-          "The runtime package is executable-only and intentionally omits TypeScript source, tests, examples, and development scripts.",
+          "The runtime package is executable-only and intentionally omits TypeScript source, tests, examples, development scripts, and node_modules.",
           "The agent-facing interface is the CLI only; do not expose TypeScript handlers or npm scripts as separate command interfaces.",
           "Generated PPT outputs and dependency caches are intentionally excluded.",
         ],

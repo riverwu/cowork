@@ -212,6 +212,127 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(label?.inkRect?.h).toBeLessThan(0.72);
   });
 
+  it("does not treat tall CJK font bboxes as squashed in normal label slots", () => {
+    renderToAst({
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "2563EB" },
+        themeOverride: {
+          fonts: { cjk: { text: ["Microsoft YaHei"], display: ["Microsoft YaHei"] } },
+        },
+      },
+      slides: [{
+        id: "cjk-label-fit",
+        layout: "freeform",
+        dom: {
+          id: "cjk-label-fit.root",
+          type: "slide",
+          children: [{
+            id: "cjk-label-fit.label",
+            type: "text",
+            at: [1, 1, 4, 0.5],
+            text: "香格里拉",
+            style: "label",
+            autoFit: "shrink",
+          }],
+        },
+      }],
+    });
+    const diagnostics = getRenderDiagnostics();
+    expect(diagnostics.some((item) => item.code === "SQUASHED" && item.nodeId === "cjk-label-fit.label")).toBe(false);
+  });
+
+  it("still reports genuinely too-short CJK text using measured ink fit", () => {
+    renderToAst({
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "2563EB" },
+        themeOverride: {
+          fonts: { cjk: { text: ["Microsoft YaHei"], display: ["Microsoft YaHei"] } },
+        },
+      },
+      slides: [{
+        id: "cjk-label-short",
+        layout: "freeform",
+        dom: {
+          id: "cjk-label-short.root",
+          type: "slide",
+          children: [{
+            id: "cjk-label-short.label",
+            type: "text",
+            at: [1, 1, 4, 0.16],
+            text: "香格里拉",
+            style: "label",
+            autoFit: "shrink",
+          }],
+        },
+      }],
+    });
+    const hit = getRenderDiagnostics().find((item) => item.code === "SQUASHED" && item.nodeId === "cjk-label-short.label");
+    expect(hit?.measured?.minHeightCm).toBeGreaterThan(0.16);
+  });
+
+  it("keeps one-line display text size when only the slot height is tight", () => {
+    const ast = renderToAst({
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "2563EB" },
+        themeOverride: { text: { "card-title": { fontSize: 16, lineHeight: 1.15, weight: 700 } } },
+      },
+      slides: [{
+        id: "display-height-only",
+        layout: "freeform",
+        dom: {
+          id: "display-height-only.root",
+          type: "slide",
+          children: [{
+            id: "display-height-only.title",
+            type: "text",
+            at: [1, 1, 5, 0.5],
+            text: "Revenue",
+            style: "card-title",
+            autoFit: "shrink",
+          }],
+        },
+      }],
+    });
+    const shape = ast.slides[0]?.shapes.find((item) => item.name === "display-height-only.title");
+    if (shape?.type !== "text") throw new Error("expected rendered text shape");
+    expect(shape.paragraphs[0]?.runs[0]?.sizeHalfPt).toBe(32);
+    expect(getRenderDiagnostics().some((item) => item.code === "TRUNCATED" && item.nodeId === "display-height-only.title")).toBe(false);
+  });
+
+  it("uses textbox reserve for needed-height but not for painted text ink", () => {
+    const measured = measureDeck({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "surface-ink",
+        layout: "freeform",
+        dom: {
+          id: "surface-ink.root",
+          type: "slide",
+          children: [{
+            id: "surface-ink.badge",
+            type: "text",
+            at: [1, 1, 4, 0.46],
+            text: "STATUS",
+            style: "label",
+            fill: "surface.subtle",
+            cornerRadius: 0.16,
+            autoFit: "shrink",
+          }],
+        },
+      }],
+    });
+    const badge = measured[0]?.nodes.find((node) => node.id === "surface-ink.badge");
+    expect(badge?.visualRect?.h).toBeCloseTo(badge?.rect.h ?? 0, 6);
+    expect(badge?.inkRect?.h).toBeLessThan((badge?.rect.h ?? 0) + 0.04);
+    expect(getRenderDiagnostics().some((item) => item.code === "SQUASHED" && item.nodeId === "surface-ink.badge")).toBe(false);
+  });
+
   it("applies autoFit shrink to measured ink rects without emitting duplicate diagnostics", () => {
     clearRenderDiagnostics();
     const measured = measureDeck({

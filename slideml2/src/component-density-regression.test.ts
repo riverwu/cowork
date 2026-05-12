@@ -187,8 +187,11 @@ describe("dense data component regressions from live PPT flow", () => {
       } as never],
     };
     const diagnostics = allDiagnostics(slide);
-    const featureGuidance = diagnostics.find((d) => /feature-card/i.test(d.suggestion || ""));
+    const featureGuidance = diagnostics.find((d) => d.code === "FEATURE_CARD_OVER_CAPACITY");
     expect(featureGuidance, diagnostics.map((d) => `${d.code}:${d.nodeId}:${d.suggestion}`).join("\n")).toBeDefined();
     expect(featureGuidance?.suggestion).toMatch(/fewer columns|split feature groups|density:'compact'/i);
+    expect(featureGuidance?.nodeId).toBe("feature.card");
+    const bodyDrop = diagnostics.find((d) => d.code === "DROP" && d.nodeId === "feature-overload.feature.card.body");
+    expect(bodyDrop, diagnostics.map((d) => `${d.code}:${d.nodeId}`).join("\n")).toBeUndefined();
   });
 });

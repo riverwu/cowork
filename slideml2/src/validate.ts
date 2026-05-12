@@ -22,7 +22,7 @@ import {
 // new layout primitive (e.g. another decorative wrapper) only requires
 // updating this set.
 const LAYOUT_CONTAINERS = new Set(["stack", "grid", "split", "panel", "card", "band", "frame", "inset", "fragment"]);
-import { buildTheme, textStyle } from "./theme.js";
+import { buildTheme, parseCssColor, textStyle } from "./theme.js";
 import { resolveDataSourceRowsById, type DataBindingOptions } from "./data-binding.js";
 import { inferTextKind } from "./text-normalizer.js";
 import type { DeckValidationSpec, DomNode, RenderedDeck, RenderedSlide, Slideml2SourceDeck, SlideV2, ThemeLayoutArea, ThemeOverride } from "./types.js";
@@ -2008,16 +2008,22 @@ function validateThemeColorsShape(deck: Slideml2SourceDeck, issues: ValidationIs
   let hasNested = false;
   for (const [key, value] of Object.entries(colors as Record<string, unknown>)) {
     const path = `deck.themeOverride.colors.${key}`;
-    if (typeof value === "string") continue;
+    if (typeof value === "string") {
+      validateThemeColorString(value, path, issues);
+      continue;
+    }
     if (value && typeof value === "object" && !Array.isArray(value)) {
       hasNested = true;
       // Drill once to check leaves are strings — diagnose anything else.
       for (const [subKey, subValue] of Object.entries(value as Record<string, unknown>)) {
-        if (typeof subValue === "string") continue;
+        if (typeof subValue === "string") {
+          validateThemeColorString(subValue, `${path}.${subKey}`, issues);
+          continue;
+        }
         if (subValue && typeof subValue === "object" && !Array.isArray(subValue)) continue;
         issues.push(issue("error", "INVALID_COLOR_VALUE", `${path}.${subKey} must be a hex string or theme token, got ${typeof subValue}.`, {
           path: `${path}.${subKey}`,
-          suggestedFix: "Use a 6-char hex (with or without '#') or a theme token like 'brand.primary'.",
+          suggestedFix: "Use a 6-char hex (with or without '#'), a CSS rgb()/rgba()/hsl()/hsla() color, or a theme token like 'brand.primary'. For translucency, rgba() is accepted for fill tokens and alpha is preserved when used by fills.",
         }));
       }
       continue;
@@ -2033,6 +2039,66 @@ function validateThemeColorsShape(deck: Slideml2SourceDeck, issues: ValidationIs
       suggestedFix: "Both shapes are accepted: nested {brand:{primary}} and flat {\"brand.primary\":...}. Pick whichever is more readable.",
     }));
   }
+}
+
+function validateThemeColorString(value: string, path: string, issues: ValidationIssue[]): void {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    issues.push(issue("error", "INVALID_COLOR_VALUE", `${path} must not be empty.`, {
+      path,
+      suggestedFix: "Use a 6-char hex, CSS rgb()/rgba()/hsl()/hsla(), or a theme token.",
+    }));
+    return;
+  }
+  if (/^(rgba?|hsla?)\s*\(/i.test(trimmed) && !parseCssColor(trimmed)) {
+    issues.push(issue("error", "INVALID_COLOR_VALUE", `${path} has an invalid CSS color function.`, {
+      path,
+      suggestedFix: "Use valid rgb(r,g,b), rgba(r,g,b,a), hsl(h,s%,l%), or hsla(h,s%,l%,a).",
+    }));
+  }
+}
+
+function validateFreeformGroupIntent(node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
+  const children = Array.isArray(node.children) ? node.children as DomNode[] : [];
+  if (children.length === 0) return;
+  const backgroundLike = children.filter(isLikelyFreeformBackgroundChild);
+  if (backgroundLike.length === 0) return;
+  const allBackgroundLike = backgroundLike.length === children.length;
+  if (allBackgroundLike && node.mode !== "background") {
+    issues.push(issue("warning", "FREEFORM_BACKGROUND_MODE_INFERRED", `${path} looks like a background layer but does not set mode:"background".`, {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "Set mode:'background' on freeform-group, or set each background/scrim child to area:'full' or fillSlide:true with explicit zIndex. The renderer infers this for all-background groups, but explicit mode is clearer and more portable.",
+    }));
+  }
+  backgroundLike.forEach((child, index) => {
+    if (node.mode === "background" || allBackgroundLike) return;
+    if (hasExplicitBackgroundPlacement(child)) return;
+    issues.push(issue("warning", "FREEFORM_BACKGROUND_CHILD_NEEDS_SIZE", `${path}.children[${index}] looks like a background/scrim layer but has no full-slide placement.`, {
+      slideId,
+      path: `${path}.children[${index}]`,
+      nodeName: child.id,
+      suggestedFix: "For a full-slide background layer, set the parent freeform-group mode:'background', or set this child to fillSlide:true / area:'full' / at:[0,0,slideW,slideH]. Otherwise it will use the small anchored default size.",
+    }));
+  });
+}
+
+function isLikelyFreeformBackgroundChild(child: DomNode): boolean {
+  if (!child || typeof child !== "object") return false;
+  const id = typeof child.id === "string" ? child.id.toLowerCase() : "";
+  const type = typeof child.type === "string" ? child.type : "";
+  if (child.layer === "behind" || (typeof child.zIndex === "number" && child.zIndex < 0) || child.fillSlide === true || child.area === "full") return true;
+  if (type === "image" && /(^|[.:-])(bg|background|hero|cover)([.:-]|$)/.test(id)) return true;
+  if (type === "shape" && /(^|[.:-])(scrim|overlay|backdrop|veil|shade)([.:-]|$)/.test(id)) return true;
+  return false;
+}
+
+function hasExplicitBackgroundPlacement(child: DomNode): boolean {
+  if (child.fillSlide === true || child.area === "full") return true;
+  if (Array.isArray(child.at) && child.at.length === 4 && child.at.every((value) => typeof value === "number" && Number.isFinite(value))) return true;
+  if (typeof child.anchor === "string" && (typeof child.width === "number" || typeof child.height === "number")) return true;
+  return false;
 }
 
 function validateComponentNode(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], options: EffectiveValidationOptions): void {
@@ -2064,6 +2130,7 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       suggestedFix: "Use legacy {type:'callout', text:'...'} or a rich callout with title/body/content/bullets.",
     }));
   }
+  if (name === "freeform-group") validateFreeformGroupIntent(node, path, slideId, issues);
   if (name === "matrix-2x2") {
     const itemsArr = Array.isArray(node.items) ? node.items : [];
     const ql = node.quadrantLabels && typeof node.quadrantLabels === "object" ? node.quadrantLabels as Record<string, unknown> : null;

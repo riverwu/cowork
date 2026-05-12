@@ -13,6 +13,7 @@
     "test:llm": "RUN_SLIDEML2_REAL_LLM=1 vitest run src/llm-authoring.test.ts",
     "test:llm:record": "SLIDEML2_LLM_RECORD=1 RUN_SLIDEML2_REAL_LLM=1 vitest run src/llm-authoring.test.ts",
     "check": "tsc --noEmit && vitest run",
+    "generate:font-metrics": "node tools/generate-font-metrics-pack.mjs --download-missing",
     "snapshot": "pnpm exec jiti tools/render-snapshot.ts",
     "snapshot:png": "pnpm exec jiti tools/render-snapshot.ts --png"
   },
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.12.0",
+    "fontkit": "^2.0.4",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"
   },

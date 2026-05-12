@@ -278,6 +278,12 @@ describe("run_python skill", () => {
 });
 
 describe("run_node skill", () => {
+  it("does not advertise wrapping installed skill CLIs", () => {
+    const description = runNode.definition.description;
+    expect(description).toContain("Do not use `run_node` to wrap an installed skill CLI");
+    expect(description).toContain("runtime/bin/slideml2.js");
+  });
+
   it("installs comma-separated packages one by one", async () => {
     mockInitNodeEnv.mockResolvedValue("ready");
     mockInstallNodePackage.mockResolvedValue("Successfully installed");
@@ -293,6 +299,15 @@ describe("run_node skill", () => {
     expect(mockInstallNodePackage).toHaveBeenNthCalledWith(1, "pptxgenjs");
     expect(mockInstallNodePackage).toHaveBeenNthCalledWith(2, "react");
     expect(mockInstallNodePackage).toHaveBeenNthCalledWith(3, "react-dom");
+  });
+});
+
+describe("shell skill", () => {
+  it("allows documented installed skill CLIs while discouraging generated Node scripts", () => {
+    const description = shellExecSkill.definition.description;
+    expect(description).toContain("Do NOT use shell to run generated Node.js deliverable scripts");
+    expect(description).toContain("It is correct to use shell for installed skill CLI entrypoints");
+    expect(description).toContain("runtime/bin/slideml2.js");
   });
 });
 

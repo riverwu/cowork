@@ -51,7 +51,13 @@ A failing final result is repair guidance: inspect the affected slide with \`rea
       const resultWithAuthoringDiagnostics = render ? await appendAuthoringDiagnostics(result, deckPath) : result;
       const compact = compactValidateRenderResult(resultWithAuthoringDiagnostics);
       if (render && compact.ok === false) {
-        const slideIds = resultWithAuthoringDiagnostics.diagnostics?.blocking
+        const qualityGateFailed = compact.diagnostics?.qualityOk === false;
+        const slideIds = (qualityGateFailed
+          ? [
+              ...(resultWithAuthoringDiagnostics.diagnostics?.blocking || []),
+              ...(resultWithAuthoringDiagnostics.diagnostics?.quality || []),
+            ]
+          : resultWithAuthoringDiagnostics.diagnostics?.blocking || [])
           ?.map((d) => d.slideId)
           .filter((id): id is string => typeof id === "string" && id.length > 0);
         const uniqueSlideIds = [...new Set(slideIds)].slice(0, 6);
@@ -181,9 +187,11 @@ function collectStringValues(value: unknown, visit: (value: string) => void): vo
 function compactValidateRenderResult(result: Slideml2ValidateRenderResult) {
   const validation = result.validation;
   const diagnostics = result.diagnostics;
+  const qualityGate = qualityGateFor(diagnostics?.summary);
+  const ok = result.ok && qualityGate.ok;
   return {
-    ok: result.ok,
-    error: result.error,
+    ok,
+    error: result.error || (qualityGate.ok ? undefined : qualityGate.reason),
     outputPath: result.outputPath,
     domPath: result.domPath,
     diagnosticsPath: result.diagnosticsPath,
@@ -202,15 +210,38 @@ function compactValidateRenderResult(result: Slideml2ValidateRenderResult) {
           blocking: diagnostics.blocking.slice(0, 40).map(compactDiagnostic),
           qualityCount: diagnostics.qualityCount ?? diagnostics.quality?.length ?? 0,
           quality: (diagnostics.quality || []).slice(0, 40).map(compactDiagnostic),
-          nextAction: diagnostics.blockingCount > 0 ? nextRepairAction(result) : undefined,
-          qualityAction: diagnostics.blockingCount === 0 ? softQualityAction(diagnostics.summary) : undefined,
+          nextAction: diagnostics.blockingCount > 0 || !qualityGate.ok ? nextRepairAction(result) : undefined,
+          qualityOk: qualityGate.ok,
+          qualityGate: qualityGate.ok ? undefined : qualityGate,
+          qualityAction: diagnostics.blockingCount === 0 ? softQualityAction(diagnostics.summary, qualityGate) : undefined,
         }
       : undefined,
   };
 }
 
-function softQualityAction(summary: Record<string, number> | undefined): string | undefined {
+function qualityGateFor(summary: Record<string, number> | undefined): { ok: true } | { ok: false; reason: string; autoFixCount: number; threshold: number; codes: Record<string, number> } {
+  const lowContrast = summary?.LOW_CONTRAST_FIXED || 0;
+  const invisible = summary?.SHAPE_INVISIBLE_FIXED || 0;
+  const autoFixCount = lowContrast + invisible;
+  const codes = {
+    LOW_CONTRAST_FIXED: lowContrast,
+    SHAPE_INVISIBLE_FIXED: invisible,
+  };
+  if (lowContrast >= 6 || invisible >= 3 || autoFixCount >= 8) {
+    return {
+      ok: false,
+      reason: `Quality gate failed: renderer applied ${autoFixCount} visual auto-fix(es) (${lowContrast} contrast, ${invisible} invisible-shape). This usually means the deck theme/surface model is inconsistent; repair the theme or affected slides instead of accepting renderer repairs as final.`,
+      autoFixCount,
+      threshold: 8,
+      codes,
+    };
+  }
+  return { ok: true };
+}
+
+function softQualityAction(summary: Record<string, number> | undefined, qualityGate: ReturnType<typeof qualityGateFor> = { ok: true }): string | undefined {
   if (!summary) return undefined;
+  if (!qualityGate.ok) return `${qualityGate.reason} Inspect diagnostics.quality grouped by slideId/nodeId, then fix deck.themeOverride colors/surfaces or add proper scrim/panel surfaces. Do not work around this by removing semantic components or accepting auto-recolored text.`;
   if (summary.PARTIAL_UNUSED_GENERATED_ICON_ASSETS) {
     return "Quality advisory: some generated icon assets are not referenced by the deck. Use the remaining manifest icon paths in planned feature-card.iconSrc/image fields, or remove unused icon requests from the asset plan.";
   }

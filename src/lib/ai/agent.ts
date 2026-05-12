@@ -735,8 +735,9 @@ Required recovery behavior:
 2. Keep each write_file content payload under 12,000 characters.
 3. Use write_file mode "overwrite" for the first chunk and mode "append" for later chunks.
 4. Keep the next tool call small enough to fit comfortably; write only the next coherent chunk.
-5. For PPTX generation, do not use shell for node. After the script is complete, run it with run_node using a short loader: require("/absolute/path/to/script.js").
-6. Do not claim completion until a tool confirms the final output file exists or was created.
+5. For PPTX generation, keep using the active deck skill/toolchain if one is active. For SlideML2, continue with its direct CLI/tool calls and inspect each validation result; do not wrap the CLI loop in run_node.
+6. If no deck skill/toolchain is active and you are using a generated Node script, do not use shell for node. After the script is complete, run it with run_node using a short loader: require("/absolute/path/to/script.js").
+7. Do not claim completion until a tool confirms the final output file exists or was created.
 
 Recovery attempt: ${attempt}/${MAX_TRUNCATION_RECOVERIES}.`;
 }

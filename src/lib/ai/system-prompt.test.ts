@@ -57,6 +57,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("mode `append`");
     expect(prompt).toContain("short loader");
     expect(prompt).toContain("Do not use `shell` to run `node script.js`");
+    expect(prompt).toContain("Installed skill CLIs");
   });
 
   it("keeps domain-specific toolchains ahead of generic scripts", () => {

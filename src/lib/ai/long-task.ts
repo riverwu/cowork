@@ -87,12 +87,13 @@ Required workflow:
 2. For large inputs, build an inventory before analysis. Save it as \`${context.workspaceDir}/inventory.json\` or \`${context.workspaceDir}/inventory.md\`.
 3. Summarize source files in batches. Save per-source and aggregate summaries in the workspace; do not load all raw content into chat at once.
 4. For large outputs, write a compact specification first, such as \`${context.workspaceDir}/deck_spec.json\`, \`report_outline.md\`, or \`site_spec.json\`.
-5. For PowerPoint/deck tasks, create a \`deck_spec.json\` with slide records first, then write a pptxgenjs script under the run workspace and generate the .pptx with \`run_node\`.
-6. Keep each \`write_file\` content payload under 12,000 characters. If the pptxgenjs script is large, write it in chunks with \`write_file\`: first chunk uses mode \`overwrite\`, later chunks use mode \`append\`. Keep chunks ordered as imports/helpers, content/layout sections, then final writeFile call.
-7. Execute generated Node scripts with \`run_node\` using a short loader such as \`require("${context.workspaceDir}/scripts/build_deck.js")\`. Do not use \`shell\` to run \`node\` for generated deliverables.
-8. Generate final deliverables from the saved spec using tools. Prefer templates, arrays, helper functions, and loops over repeated generated code.
-9. Call \`update_task_progress\` whenever a step starts or finishes. Always send the full current \`steps[]\` list with updated statuses, and include any important output paths.
-10. Before final response, verify final files exist or were successfully written, then report only the useful paths and completion status.
+5. For PowerPoint/deck tasks, prefer the active deck skill or toolchain. When SlideML2 is active, write \`deck_plan.md\`, then use its direct CLI/tool calls one slide at a time; do not wrap that CLI loop in generated scripts.
+6. Use generic pptxgenjs/\`run_node\` scripts only when no deck skill/toolchain is active or when the user explicitly asks for that custom path.
+7. Keep each \`write_file\` content payload under 12,000 characters. If a generated script is large, write it in chunks with \`write_file\`: first chunk uses mode \`overwrite\`, later chunks use mode \`append\`. Keep chunks ordered as imports/helpers, content/layout sections, then final writeFile call.
+8. Execute generated Node scripts with \`run_node\` using a short loader such as \`require("${context.workspaceDir}/scripts/build_deck.js")\`. Do not use \`shell\` to run \`node\` for generated deliverables; installed skill CLIs documented as shell commands are not generated deliverable scripts.
+9. Generate final deliverables from the saved spec using tools. Prefer templates, arrays, helper functions, and loops over repeated generated code.
+10. Call \`update_task_progress\` whenever a step starts or finishes. Always send the full current \`steps[]\` list with updated statuses, and include any important output paths.
+11. Before final response, verify final files exist or were successfully written, then report only the useful paths and completion status.
 
 Do not put large source extracts, giant scripts, or full generated documents in assistant text. Store them in workspace files and only summarize progress to the user.`;
 }

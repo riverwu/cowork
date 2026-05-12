@@ -51,8 +51,17 @@ describe("catalog skill installer", () => {
       expect.stringContaining("Business research decks are light-first"),
     );
     expect(mockWriteFile).toHaveBeenCalledWith(
+      "/skills/slideml2/runtime/bin/slideml2.js",
+      expect.stringContaining("usage: slideml2 <create-deck|replace-slide|read-deck|validate-render> <args.json>"),
+    );
+    expect(mockWriteFile).toHaveBeenCalledWith(
+      "/skills/slideml2/runtime/dist/index.js",
+      expect.stringContaining("renderToPptx"),
+    );
+    expect(mockWriteFile.mock.calls.some(([path]) => String(path).includes("/runtime/node_modules/"))).toBe(false);
+    expect(mockWriteFile).toHaveBeenCalledWith(
       "/skills/slideml2/.cowork-skill-manifest.json",
-      expect.stringContaining("business.md"),
+      expect.stringContaining("runtime/bin/slideml2.js"),
     );
     expect(mockWriteFile.mock.calls.some(([path]) => String(path).includes(".test."))).toBe(false);
   });

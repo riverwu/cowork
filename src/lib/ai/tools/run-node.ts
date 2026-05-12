@@ -15,11 +15,12 @@ Use this for:
 - Generating files with JavaScript libraries when that is the most direct path for the current task
 
 For standard editable PPTX authoring, prefer the SlideML2 tools because they provide schema validation and render diagnostics. Use \`run_node\` for PPTX only when the user asks for a custom script/library path, when an existing workflow already depends on it, or when SlideML2 is not the right fit for the requested output.
+Do not use \`run_node\` to wrap an installed skill CLI such as \`runtime/bin/slideml2.js\`; run the CLI directly with the \`shell\` tool as an argv command so each authoring result and validation diagnostic stays visible.
 
 The script runs with a 60-second timeout by default. Use console.log() for output.
 If you need packages, use the install_package parameter — it installs to the isolated environment. You may pass one package or a comma/space-separated list.
 
-IMPORTANT: This is the correct way to run Node.js scripts. Do NOT use shell to run "node" directly.
+IMPORTANT: This is the correct way to run generated Node.js scripts. Do NOT use shell to run "node" directly for generated deliverable scripts. This does not apply to installed skill CLIs that are explicitly documented as shell commands.
 IMPORTANT FOR LARGE OUTPUTS: Keep code compact and data-driven. Define arrays of data and helper functions, then loop. Do not pass thousands of lines of repeated code as a tool argument.
 If a script is too large for one tool call, write it to a workspace file with write_file chunks, then call run_node with a short loader: require("/absolute/path/to/script.js").`,
     parameters: {

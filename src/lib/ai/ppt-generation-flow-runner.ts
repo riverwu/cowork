@@ -1527,7 +1527,7 @@ export async function writePptGenerationFlowReport(path: string, result: PptGene
   }, null, 2));
 }
 
-function summarizePptGenerationFlow(events: AgentEvent[], toolRecords: PptGenerationFlowToolRecord[]): PptGenerationFlowSummary {
+export function summarizePptGenerationFlow(events: AgentEvent[], toolRecords: PptGenerationFlowToolRecord[]): PptGenerationFlowSummary {
   const finalValidateRender = lastValidateRenderResult(toolRecords);
   const outputPaths = new Set<string>();
   collectValidateOutputPaths(finalValidateRender, outputPaths);
@@ -1536,9 +1536,15 @@ function summarizePptGenerationFlow(events: AgentEvent[], toolRecords: PptGenera
       for (const output of event.outputs) if (output.path) outputPaths.add(output.path);
     }
   }
+  const toolNames = new Set<string>();
+  for (const record of toolRecords.filter((record) => record.result !== undefined || record.input !== undefined)) {
+    toolNames.add(record.name);
+    const cliAlias = slideml2CliToolAlias(record);
+    if (cliAlias) toolNames.add(cliAlias);
+  }
   return {
-    toolNames: toolRecords.filter((record) => record.result !== undefined || record.input !== undefined).map((record) => record.name),
-    replaceSlideCount: toolRecords.filter((record) => record.name === "replace_slide" && record.success !== false).length,
+    toolNames: [...toolNames],
+    replaceSlideCount: toolRecords.filter((record) => isSuccessfulReplaceSlideRecord(record)).length,
     outputPaths: [...outputPaths],
     finalValidateRender,
     finalText: events.filter((event): event is Extract<AgentEvent, { type: "text-delta" }> => event.type === "text-delta").map((event) => event.text).join(""),
@@ -1550,10 +1556,10 @@ function summarizePptGenerationFlow(events: AgentEvent[], toolRecords: PptGenera
 function lastValidateRenderResult(toolRecords: PptGenerationFlowToolRecord[]): Record<string, unknown> | undefined {
   for (let index = toolRecords.length - 1; index >= 0; index--) {
     const record = toolRecords[index]!;
-    if (record.name !== "validate_render" || record.success !== true || !record.result) continue;
+    if (!isValidateRenderRecord(record) || record.success !== true || !record.result) continue;
     const parsed = parseJsonObject(record.result);
     if (!parsed) continue;
-    const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
+    const input = validateRenderInput(record);
     if (input.render === false) continue;
     return parsed;
   }
@@ -1586,12 +1592,63 @@ function finalValidateOutputPath(value: Record<string, unknown> | undefined): st
 function finalValidateDeckPath(toolRecords: PptGenerationFlowToolRecord[]): string | undefined {
   for (let index = toolRecords.length - 1; index >= 0; index--) {
     const record = toolRecords[index]!;
-    if (record.name !== "validate_render" || record.success !== true) continue;
-    const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
+    if (!isValidateRenderRecord(record) || record.success !== true) continue;
+    const input = validateRenderInput(record);
     if (input.render === false) continue;
-    return typeof input.deckPath === "string" ? input.deckPath : undefined;
+    if (typeof input.deckPath === "string") return nodePath.isAbsolute(input.deckPath) ? input.deckPath : nodePath.resolve(slideml2CliCwd(record) || ".", input.deckPath);
+    if (slideml2CliToolAlias(record) === "validate_render") return nodePath.join(slideml2CliCwd(record) || ".", "deck.json");
+    return undefined;
   }
   return undefined;
+}
+
+function isSuccessfulReplaceSlideRecord(record: PptGenerationFlowToolRecord): boolean {
+  return record.success !== false && (record.name === "replace_slide" || slideml2CliToolAlias(record) === "replace_slide");
+}
+
+function isValidateRenderRecord(record: PptGenerationFlowToolRecord): boolean {
+  return record.name === "validate_render" || slideml2CliToolAlias(record) === "validate_render";
+}
+
+function slideml2CliToolAlias(record: PptGenerationFlowToolRecord): "create_deck" | "replace_slide" | "validate_render" | "read_deck" | undefined {
+  if (record.name !== "shell") return undefined;
+  const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
+  const command = Array.isArray(input.command) ? input.command.filter((item): item is string => typeof item === "string") : [];
+  if (!command.some((item) => item.includes("slideml2.js") || item.includes("runtime/bin/slideml2"))) return undefined;
+  const subcommand = command.find((item) => ["create-deck", "replace-slide", "validate-render", "read-deck"].includes(item));
+  if (subcommand === "create-deck") return "create_deck";
+  if (subcommand === "replace-slide") return "replace_slide";
+  if (subcommand === "validate-render") return "validate_render";
+  if (subcommand === "read-deck") return "read_deck";
+  return undefined;
+}
+
+function validateRenderInput(record: PptGenerationFlowToolRecord): Record<string, unknown> {
+  const direct = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
+  if (record.name === "validate_render") return direct;
+  const argPath = slideml2CliArgsPath(record);
+  if (!argPath) return direct;
+  try {
+    const raw = nodeFs.readFileSync(argPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : direct;
+  } catch {
+    return direct;
+  }
+}
+
+function slideml2CliArgsPath(record: PptGenerationFlowToolRecord): string | undefined {
+  const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
+  const command = Array.isArray(input.command) ? input.command.filter((item): item is string => typeof item === "string") : [];
+  const subcommandIndex = command.findIndex((item) => ["create-deck", "replace-slide", "validate-render", "read-deck"].includes(item));
+  const argPath = subcommandIndex >= 0 ? command[subcommandIndex + 1] : undefined;
+  if (!argPath) return undefined;
+  return nodePath.isAbsolute(argPath) ? argPath : nodePath.resolve(slideml2CliCwd(record) || ".", argPath);
+}
+
+function slideml2CliCwd(record: PptGenerationFlowToolRecord): string | undefined {
+  const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
+  return typeof input.cwd === "string" ? input.cwd : undefined;
 }
 
 async function pptxXmlCorpus(outputPath: string): Promise<string> {

@@ -4,6 +4,13 @@ import type { BrandSpec, SurfaceOverride, ThemeLayoutArea, ThemeOverride } from 
 export interface SimpleTheme {
   name: string;
   colors: Record<string, string>;
+  /**
+   * Optional alpha channel for color tokens that were authored as CSS
+   * rgb/rgba/hsl/hsla expressions. Text rendering consumes only `colors`
+   * because OOXML text color is hex-only in our IR; fill rendering can consult
+   * this map to preserve the intended translucency.
+   */
+  colorAlpha?: Record<string, number>;
   text: Record<string, TextStyle>;
   /**
    * Semantic font-size dials. Agents pick a scale (`xs` … `2xl`) instead of
@@ -171,9 +178,10 @@ const colorWarnings = new Set<string>();
 export function buildTheme(brand: BrandSpec = {}, themeName = "default", themeOverride?: ThemeOverride): SimpleTheme {
   void themeName;
   const flatColors = flattenColorOverrides(themeOverride?.colors);
+  const flatColorAlphas = flattenColorOverrideAlphas(themeOverride?.colors);
   const brandPrimary = normalizeHex(brand.primary || flatColors["brand.primary"] || "2563EB");
   const base = defaultBase(brandPrimary);
-  return mergeTheme(base, brandPrimary, themeOverride, flatColors);
+  return mergeTheme(base, brandPrimary, themeOverride, flatColors, flatColorAlphas);
 }
 
 /**
@@ -190,7 +198,7 @@ export function flattenColorOverrides(input: unknown): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     if (typeof value === "string") {
-      out[key] = stripHexPrefix(value);
+      out[key] = normalizeColorOverrideValue(value);
       continue;
     }
     if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -201,6 +209,31 @@ export function flattenColorOverrides(input: unknown): Record<string, string> {
     }
   }
   return out;
+}
+
+export function flattenColorOverrideAlphas(input: unknown): Record<string, number> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value === "string") {
+      const parsed = parseCssColor(value);
+      if (parsed && parsed.alpha < 1) out[key] = parsed.alpha;
+      continue;
+    }
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const nested = flattenColorOverrideAlphas(value);
+      for (const [subKey, subValue] of Object.entries(nested)) {
+        out[`${key}.${subKey}`] = subValue;
+      }
+    }
+  }
+  return out;
+}
+
+function normalizeColorOverrideValue(value: string): string {
+  const parsed = parseCssColor(value);
+  if (parsed) return parsed.hex;
+  return stripHexPrefix(value);
 }
 
 function stripHexPrefix(value: string): string {
@@ -214,8 +247,9 @@ function stripHexPrefix(value: string): string {
   return trimmed;
 }
 
-function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOverride, prebuiltColors?: Record<string, string>): SimpleTheme {
+function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOverride, prebuiltColors?: Record<string, string>, prebuiltColorAlphas?: Record<string, number>): SimpleTheme {
   const flatColors = prebuiltColors ?? flattenColorOverrides(override?.colors);
+  const flatColorAlphas = prebuiltColorAlphas ?? flattenColorOverrideAlphas(override?.colors);
   const colors = { ...base.colors, ...derivedBrandPalette(brandPrimary), ...flatColors };
   if (flatColors["text.secondary"] && !flatColors["text.muted"]) {
     colors["text.muted"] = flatColors["text.secondary"];
@@ -234,6 +268,7 @@ function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOve
   const merged: SimpleTheme = {
     ...base,
     colors,
+    colorAlpha: flatColorAlphas,
     text: mergeTextStyles(base.text, override?.text),
     component: mergeComponentStyles(base.component, override?.component),
     tone: { ...base.tone, ...(override?.tone || {}) },
@@ -1282,6 +1317,10 @@ export function resolveFill(theme: SimpleTheme, value: unknown, fallback = "back
     if (/^(rgba?|hsla?)\s*\(/i.test(trimmed)) {
       const parsed = parseCssColor(trimmed);
       if (parsed) return { type: "solid", color: parsed.hex, alpha: parsed.alpha };
+    }
+    const tokenAlpha = theme.colorAlpha?.[trimmed];
+    if (tokenAlpha !== undefined && typeof theme.colors[trimmed] === "string") {
+      return { type: "solid", color: theme.colors[trimmed]!, alpha: tokenAlpha };
     }
   }
   return { type: "solid", color: color(theme, value, fallback) };

@@ -5,19 +5,16 @@
   "generatedAt": "2026-05-12T04:17:42.611Z",
   "sourceCommit": "1fcad72890c3",
   "files": [
-    "slideml2/",
-    "slideml2/business.md",
-    "slideml2/runtime/",
-    "slideml2/runtime/bin/",
-    "slideml2/runtime/bin/slideml2.js",
-    "slideml2/runtime/dist/",
-    "slideml2/runtime/dist/index.js",
-    "slideml2/runtime/package.json",
-    "slideml2/runtime/RUNTIME.md",
+    "slideml2/LICENSE.txt",
     "slideml2/README.md",
     "slideml2/SKILL.md",
+    "slideml2/business.md",
     "slideml2/manifest.json",
-    "slideml2/LICENSE.txt"
+    "slideml2/runtime/RUNTIME.md",
+    "slideml2/runtime/RUNTIME.md",
+    "slideml2/runtime/bin/slideml2.js",
+    "slideml2/runtime/dist/index.js",
+    "slideml2/runtime/package.json"
   ],
   "install": {
     "zipRoot": "slideml2",
@@ -43,7 +40,5 @@
     },
     "devInstallCommand": "not supported in the skill package; rebuild from the upstream SlideML2 repository",
     "devBuildCommand": "not supported in the skill package; rebuild from the upstream SlideML2 repository"
-  },
-  "packageFile": "slideml2-skill-v1.0.28.zip",
-  "sha256": "b3f93462a12491b9269f783aec7faef903cadf1b34c063e4aa438c70d1d79147"
+  }
 }

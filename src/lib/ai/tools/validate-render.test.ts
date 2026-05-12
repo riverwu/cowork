@@ -213,4 +213,40 @@ describe("validate_render quality diagnostics", () => {
     expect(result.diagnostics.quality[0].code).toBe("SPARSE_CONTENT_SLIDE");
     expect(result.diagnostics.qualityAction).toContain("visually sparse");
   });
+
+  it("fails qualityOk when visual auto-fixes are systemic", async () => {
+    const deckPath = await tempDeckPath();
+    mockValidateRender.mockResolvedValue({
+      ok: true,
+      outputPath: "/tmp/deck.pptx",
+      domPath: "/tmp/deck.pptx.render-tree.json",
+      diagnosticsPath: "/tmp/deck.pptx.diagnostics.json",
+      validation: { ok: true, errors: [] },
+      diagnostics: {
+        count: 18,
+        summary: { LOW_CONTRAST_FIXED: 13, SHAPE_INVISIBLE_FIXED: 5 },
+        blockingCount: 0,
+        blocking: [],
+        qualityCount: 18,
+        quality: [{
+          code: "LOW_CONTRAST_FIXED",
+          severity: "warn",
+          slideId: "cover",
+          nodeId: "cover.title",
+          message: "Renderer auto-fixed contrast.",
+        }],
+      },
+    });
+
+    const result = JSON.parse(String(await validateRenderTool.execute({ deckPath, render: true })));
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("Quality gate failed");
+    expect(result.diagnostics.qualityOk).toBe(false);
+    expect(result.diagnostics.qualityGate.codes).toMatchObject({
+      LOW_CONTRAST_FIXED: 13,
+      SHAPE_INVISIBLE_FIXED: 5,
+    });
+    expect(result.diagnostics.qualityAction).toContain("Do not work around");
+  });
 });

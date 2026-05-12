@@ -19,6 +19,7 @@ import type { RenderDiagnosticCode } from "./diagnostic-codes.js";
  *   TRUNCATED        text was clipped or autofit-shrunk to fit
  *   DEMOTED          density/style was demoted (e.g. bullets comfortable->compact)
  *   FALLBACK_FAILED  fallback ladder exhausted; content cannot fit
+ *   FEATURE_CARD_OVER_CAPACITY feature card cannot keep title + body readable in its assigned slot
  *   CODE_BLOCK_OVERFLOW full code listing cannot fit in its assigned area
  *   TITLE_OCCLUDED   slide title is covered by a later solid-fill shape
  *   PIE_LABELS_HIDDEN pie/doughnut chart hides slice labels

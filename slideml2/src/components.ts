@@ -1309,11 +1309,11 @@ export function featureCard(slideId: string, id: string, options: {
   variant?: "plain" | "card" | "compact";
   density?: "comfortable" | "compact";
 } & { surface?: AgentSurface } & AgentSurface): DomNode {
-  const iconColor = options.iconColor || "brand.primary";
-  const iconBackground = options.iconBackground || "brand.tint";
   const dense = options.density === "compact" || options.variant === "compact";
   const iconSize = dense ? 0.62 : 0.82;
   const semanticTone = featureSemanticTone(options.tone);
+  const iconColor = options.iconColor || featureAccentColor(semanticTone);
+  const iconBackground = options.iconBackground || featureTintColor(semanticTone);
   const marker = decorationMarkerNode(slideId, `${id}.marker`, options.marker, {
     shape: "rounded-square",
     tone: markerToneFromFeatureTone(semanticTone),
@@ -1380,7 +1380,7 @@ export function featureCard(slideId: string, id: string, options: {
       valign: "top",
       minHeight: estimateFeatureBodyMinHeight(body.text, dense),
       autoFit: "shrink",
-      optional: true,
+      __featureCardSemanticChild: true,
     });
   }
   if (options.metric) {
@@ -1390,7 +1390,7 @@ export function featureCard(slideId: string, id: string, options: {
     children.push({ id: `${slideId}.${id}.proof`, type: "text", text: options.proof, style: "label", color: "text.muted", minHeight: 0.34, autoFit: "shrink", optional: true });
   }
   if (options.tags && options.tags.length) {
-    children.push({ id: `${slideId}.${id}.tags`, type: "stack", direction: "horizontal", gap: 0.12, optional: true, children: options.tags.slice(0, 4).map((tag, index) => ({ id: `${slideId}.${id}.tag${index}`, type: "text" as const, text: String(tag), style: "label" as const, fill: "surface.subtle", color: "text.muted", cornerRadius: 0.16, fixedHeight: 0.34, autoFit: "shrink" as const, layoutWeight: 1 })) });
+    children.push({ id: `${slideId}.${id}.tags`, type: "stack", direction: "horizontal", gap: 0.12, optional: true, children: options.tags.slice(0, 4).map((tag, index) => ({ id: `${slideId}.${id}.tag${index}`, type: "text" as const, text: String(tag), style: "label" as const, fill: "surface.subtle", color: "text.muted", cornerRadius: 0.16, fixedHeight: 0.42, autoFit: "shrink" as const, layoutWeight: 1 })) });
   }
   if (options.ctaText) {
     children.push({ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "label", color: "text.inverse", fill: "brand.primary", cornerRadius: 0.2, align: "center", valign: "middle", fixedHeight: 0.46, autoFit: "shrink", optional: true });
@@ -1421,12 +1421,30 @@ function markerToneFromFeatureTone(tone: DecorationMarkerTone): DecorationMarker
 function featureTitleColor(tone: unknown): string {
   if (tone === undefined || tone === null || tone === "") return "text.primary";
   if (tone === "brand") return "brand.primary";
+  if (tone === "positive" || tone === "success" || tone === "good") return "success.accent";
+  if (tone === "warning" || tone === "caution" || tone === "warn") return "warning.accent";
+  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative") return "danger.accent";
+  if (tone === "neutral") return "text.primary";
+  if (tone === "muted" || tone === "flat") return "text.muted";
+  return String(tone);
+}
+
+function featureAccentColor(tone: unknown): string {
+  if (tone === "brand") return "brand.primary";
   if (tone === "positive" || tone === "success" || tone === "good") return "success";
   if (tone === "warning" || tone === "caution" || tone === "warn") return "warning";
   if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative") return "danger";
   if (tone === "neutral") return "text.primary";
   if (tone === "muted" || tone === "flat") return "text.muted";
-  return String(tone);
+  return typeof tone === "string" && tone.trim() ? tone : "brand.primary";
+}
+
+function featureTintColor(tone: unknown): string {
+  if (tone === "positive" || tone === "success" || tone === "good") return "success.tint";
+  if (tone === "warning" || tone === "caution" || tone === "warn") return "warning.tint";
+  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative") return "danger.tint";
+  if (tone === "neutral" || tone === "muted" || tone === "flat") return "surface.subtle";
+  return "brand.tint";
 }
 
 function estimateFeatureBodyMinHeight(text: string, dense: boolean): number {
@@ -1444,7 +1462,7 @@ function featureMetricNode(
   if (isConciseNumericMetric(metric.value)) {
     return metricCard(slideId, `${id}.metric`, metric.value, metric.label, { variant: "compact", status: metric.tone });
   }
-  const tone = featureTitleColor(metric.tone || "brand");
+  const tone = featureAccentColor(metric.tone || "brand");
   const ratingLike = isRatingLikeMetric(metric.value);
   const valueLines = Math.max(1, Math.ceil(weightedTextLength(metric.value) / (dense ? 22 : 26)));
   return {

@@ -142,6 +142,10 @@ describe("component schema accepts tone aliases agents naturally use", () => {
     const title = ast.slides[0].shapes.find((s) => s.name === "s.feature.title") as
       | { paragraphs?: Array<{ runs: Array<{ color?: string }> }> } | undefined;
     expect(title?.paragraphs?.[0]?.runs[0]?.color?.toUpperCase()).toBe("0E7C3A");
+    const icon = ast.slides[0].shapes.find((s) => s.name === "s.feature.icon") as
+      | { fill?: { color?: string }; line?: { color?: string } } | undefined;
+    expect(icon?.fill?.color?.toUpperCase()).toBe("E2EFE7");
+    expect(icon?.line?.color?.toUpperCase()).toBe("0E7C3A");
   });
 
   it("callout tone='info' and variant='panel' validate and render as a card callout", () => {

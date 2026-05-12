@@ -36,20 +36,53 @@ workspace.
 
 Supported CLI commands:
 
-- `create-deck`: create or reinitialize the workspace deck.
+- `create-deck`: create or intentionally reinitialize the workspace deck.
 - `read-deck`: inspect the current workspace deck.
 - `replace-slide`: append or replace exactly one slide and validate it before
   writing.
 - `validate-render`: validate the whole deck and optionally render the PPTX.
+
+`create-deck` can replace an existing `deck.json`, and its result will warn with
+`DECK_REINITIALIZED` when that happens. Use `create-deck` again only for an
+intentional reset or a corrected deck-level contract. Normal repair must use
+`read-deck` and `replace-slide` so existing slides stay intact.
+
+CLI results are intentionally compiler-like:
+
+- Top-level `ok:false` always means the command failed and `deckModified:false`
+  means the source deck was not changed.
+- `sourceValidation.ok:true` only means the SlideML2 JSON/schema layer passed.
+  A command can still fail at `phase:"render-validation"` if the candidate
+  would overflow, overlap, or trigger blocking visual diagnostics.
+- `renderValidation.ok:false` identifies render/layout failure. Repair the
+  named node on the same slide and retry `replace-slide` before moving on.
 
 Do not call TypeScript handlers, npm scripts, native tool wrappers, or other
 SlideML2 command surfaces as the agent interface. Do not hand-write the full
 `deck.json` and jump straight to final rendering; that skips the per-slide
 validation loop.
 
-Production dependencies are bundled in the package. `npm install` is not
-required for normal CLI use. Run `npm install` in `runtime/` only when
-rebuilding TypeScript or doing runtime development.
+Runtime dependencies are bundled into `runtime/dist/index.js`. `npm install` is
+not required for normal CLI use; the installed skill is runtime-only and does
+not need a `node_modules` directory.
+
+### Execution Discipline
+
+Keep the authoring loop visible to the user and to the host agent:
+
+- Write one small argument JSON file, run one direct CLI command with `shell`,
+  inspect the JSON result, then decide the next command.
+- Do not wrap SlideML2 CLI calls inside `run_node`, `run_python`, generated
+  JavaScript, shell scripts, loops, or batch runners. Those wrappers hide the
+  per-slide compiler diagnostics that make this toolchain useful.
+- Do not delete `deck.json` during normal repair. If a reset is intentional,
+  run `create-deck` again and treat the `DECK_REINITIALIZED` warning as a signal
+  to verify that the reset was expected.
+- Do not batch future `replace-slide` calls. If one slide fails validation,
+  repair that same slide before moving to the next slide.
+- You may draft data, plans, and slide candidates as workspace files, but every
+  committed deck mutation should be a visible `create-deck` or `replace-slide`
+  CLI call.
 
 Canonical argument files:
 
@@ -67,7 +100,7 @@ Canonical argument files:
 ```json
 // replace-slide-01.json
 {
-  "slideId": 0,
+  "slideId": "append",
   "slide": {
     "id": "cover",
     "title": "Deck title",
@@ -119,9 +152,9 @@ node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-render validate-rend
    archive, not optional prose.
 4. Run `create-deck` with deck identity, canvas size, validation policy,
    `themeOverride`, reusable `dataSources`, references, and footnotes.
-5. Add slides one at a time with `replace-slide`. To append, use `slideId`
-   equal to the current slide count. Repair a rejected slide before writing the
-   next slide.
+5. Add slides one at a time with `replace-slide`. To append, prefer
+   `"slideId":"append"`; use numeric indexes or slide ids only for targeted
+   replacement. Repair a rejected slide before writing the next slide.
 6. Run `read-deck` before targeted repair. For deck-level metadata, theme,
    references, dataSources, or ordering, rewrite through the smallest valid
    `create-deck` / `replace-slide` sequence that preserves unaffected slides.
@@ -160,8 +193,8 @@ node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-render validate-rend
 2. **Write the complete planning archive before JSON.** Save `deck_plan.md` in the deck workspace before running `create-deck`. This is not chat prose: create it as a real file. The plan must include story structure, slide-by-slide content, primary/support components, icon/illustration/chart assets, intended `iconSrc`/image placements, and density risks. Use the template in **Deck Planning Archive** below.
 3. **Component plan before JSON.** For each slide in the archive, decide the page job and primary component before writing `children`. Use this `SKILL.md` component reference for exact field names and revise the markdown plan before authoring JSON. Do not start from `text` boxes and coordinates.
 4. **Asset pass follows the plan.** Generate or prepare only assets already listed in `deck_plan.md`, save them under the current workspace assets directory, and reference absolute paths. For icon sets, use whatever image/icon generation capability the host agent provides only after the plan maps each icon name to a slide/component field; see **Generated Icon Assets** below. Use SlideML2 structured charts/tables when precision matters; when a chart-rendering tool is available and the chart is visually complex, generate a chart image there, then place it via `image-card`/`chart-with-rail` with `fit:"contain"`.
-5. **Create deck.** Write `create-deck.json`, then run `node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" create-deck create-deck.json` from the deck workspace. Omit `deckPath` unless intentionally editing another file; default is `./deck.json`. The command validates before writing; if it rejects, fix the options and run `create-deck` again. `size` may be `16x9`, `16x10`, `4x3`, or `wide`. If you discover reusable data after creation, include it in a corrected `create-deck.json` and preserve existing slides via the CLI workflow rather than editing `deck.json` directly.
-6. **Write slides one at a time from the archived plan.** Use `replace-slide` as the normal authoring primitive. To append a new slide, pass `slideId` equal to the current slide count. `replace-slide` argument files must contain `slide` as an object literal `{id,title?,background?,children,notes?,metadata?}`, never a quoted/stringified JSON blob. The command validates the candidate slide and only commits it if it passes single-slide schema/render validation. If it rejects the slide, repair that same slide and retry before adding the next one.
+5. **Create deck.** Write `create-deck.json`, then run `node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" create-deck create-deck.json` from the deck workspace. Omit `deckPath` unless intentionally editing another file; default is `./deck.json`. The command validates before writing; if it rejects, fix the options and run `create-deck` again. `size` may be `16x9`, `16x10`, `4x3`, or `wide`. If you run `create-deck` over an existing deck, inspect the `DECK_REINITIALIZED` warning and continue only if the reset was intentional. If you discover reusable data after creation, include it in a corrected `create-deck.json` only when you can preserve the slide plan; otherwise use `read-deck` and `replace-slide`.
+6. **Write slides one at a time from the archived plan.** Use `replace-slide` as the normal authoring primitive. To append a new slide, pass `"slideId":"append"`; use a numeric `slideId` or existing slide id only when replacing a specific slide. `replace-slide` argument files must contain `slide` as an object literal `{id,title?,background?,children,notes?,metadata?}`, never a quoted/stringified JSON blob. The command validates the candidate slide and only commits it if it passes single-slide schema/render validation. If it rejects the slide, repair that same slide and retry before adding the next one.
 7. **Final render after all slides pass.** `validate-render` with `{ "render": true }` is the final full-deck render/export and QA command. Do not call it as the normal per-slide loop; `replace-slide` already gates each page. Do not rely on final render to discover basic slide structure, component choice, icon placement, or asset usage; those must already be resolved in `deck_plan.md`.
 
 ## Deck Planning Archive

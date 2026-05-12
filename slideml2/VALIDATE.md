@@ -10,6 +10,41 @@ agent 保留原语义并修正布局，而不是简单降级组件。
 
 ---
 
+## 0. Validate / Render 开发约束
+
+后续 validate/render 与 component 修改必须遵守三条约束：
+
+1. **真实测量优先，启发式只能兜底。**
+   - 对文本、表格、代码、chart label、component chrome 等可由内容和样式计算的
+     对象，优先使用测量模型产出 `heightNeeded`、`widthNeeded`、`inkRect`、
+     `visualRect`。
+   - 启发式阈值只能用于 OOXML/PowerPoint 无法在当前阶段直接测量的对象，例如
+     chart plot area 可读尺寸、复杂 vector path、最终渲染像素质量。
+   - 启发式诊断默认应是 quality/warn，除非能证明最终产物会不可读、被遮挡、
+     越界、空数据或 PowerPoint 修复失败。
+
+2. **减少 false positive 比“安全但频繁打断”更重要。**
+   - blocking diagnostic 必须携带可验证的 `measured` 数据，说明实际不可用的
+     位置、尺寸、缺口和相关节点。
+   - 如果只有 slot rect 冲突而 `inkRect/visualRect` 不冲突，不应阻塞。
+   - 如果 component 只是低于推荐美观尺寸，但内容仍可读，应输出 quality
+     diagnostic，引导 agent 调整版面，而不是拒绝写入。
+
+3. **component 实现必须服从公开接口语义。**
+   - 不能为了通过 validate 随意改变字段语义。例如 `tone` 声明控制标题/marker/
+     icon 的语义色，实现就必须保留这个语义；可改的是 token 映射、对比度修正、
+     诊断信息，而不是把 tone 忽略或改成无关含义。
+   - fallback 可以丢弃明确装饰性内容，但不能静默删除 component 的核心语义内容。
+     核心内容装不下时应报 component-level capacity diagnostic，而不是让组件退化
+     成语义不同的简化形态。
+   - 每次修改 component 行为都必须同时检查 registry/SKILL/SPEC/测试，确保
+     “声明的接口”和“实际渲染语义”一致。
+
+这些约束优先级高于单个测试 case 的通过率。任何修复都不能依赖 case id、文件名、
+主题词、prompt 文本或生成 deck 的局部补丁。
+
+---
+
 ## 1. 当前校验链路
 
 当前 validate 不是单一算法，而是四层 gate：
@@ -548,6 +583,110 @@ interface MeasuredNode {
    - chart/table 区域非空且未被压扁。
    - package 可被解包并通过 OOXML 引用检查。
 
+### P7. 精确测量与语义保真专项
+
+这批任务直接服务三个目标：减少 false positive、减少 agent 被中断和组件降级、
+并保证 component 实现遵守公开接口语义。
+
+#### P7.0 现状结论
+
+当前测量主链路集中在 `render.ts`，但还不是单一测量模型：
+
+| 关注点 | 当前位置 | 现状 |
+|---|---|---|
+| 单字宽度 | `estimatedGlyphWidthCm` | 依赖 CJK / narrow / wide symbol / punctuation / default 等硬编码桶。 |
+| 拉丁基础宽度 | `avgCharWidthCm` | cm/pt + 字体名 + bold 启发式，校准目标偏 LibreOffice headless。 |
+| 行高 | 多处 `fontPt * 0.0353 * lineHeight` | `0.0353` 是 pt→cm 换算，没有真实 ascent/descent/cap-height。 |
+| 换行 | `estimatedWrappedLineCount` | `ceil(width/contentWidth)`，没有完整词边界、UAX #14 或 CJK 避头尾。 |
+| 段落高度 | `textNeededHeight` / `textVisibleInkHeight` | 行数 × 行高 + reserve，是自写理论模型。 |
+| autoFit shrink | `autoShrinkStyle.computeFit` | 使用第二套 `latinW/cjkW/boldFactor` 校准，与主测量路径存在偏差。 |
+| 表格行高 | `tableCellIntrinsicHeight` 等 | 复用文本测量，但 padding/floor 仍按 density 硬编码。 |
+| 字体度量 | 全文 | 没有加载真实字体文件，没有 ascent/descent/cap-height/x-height/GSUB/GPOS。 |
+
+根本问题：
+
+1. 同一字符存在两套校准：主测量路径和 autoFit shrink 路径可能给出不同宽度，
+   导致 fallback ladder 判断与最终 inkRect 不一致。
+2. 校准基准主要是 LibreOffice headless，不是 PowerPoint。自动化可基于
+   LibreOffice 建立稳定回归，但仍需要承认 PowerPoint 渲染存在偏差。
+
+1. **统一文字测量模型**
+   - 新增 `text-measure.ts`，统一 `textNeededHeight`、`textMinHeight`、
+     `autoShrinkStyle`、table cell、code-block 使用的宽高测量。
+   - 输出统一结构：`lineCount`、`widthNeeded`、`heightNeeded`、
+     `unbreakableNeeded`、`inkRect`、`fittedFontSize`。
+   - 删除或收敛 `autoShrinkStyle` 内部独立的 `latinW/cjkW/symbolW` 估算，
+     避免 validate 认为可放下、shrink 路径又认为放不下，或反过来。
+
+2. **source validation 去硬阈值化**
+   - `TEXT_BOX_TOO_SHORT` 不再只看 `rect.h < 0.25`，改为结合
+     `visualRole`、文本测量、`inkRect/visualRect`、节点语义。
+   - 顶层 expanded overlay 的显著性不再只看 `rect.w >= 0.5 && h >= 0.18`，
+     改为使用统一几何和 visual role；marker/rule/caption/decorative
+     使用更宽松的角色规则。
+   - slot rect 触碰或轻微相交但视觉 ink 不相交时，不得阻断。
+
+3. **component semantic core 标记**
+   - 给展开后的 DomNode 增加内部字段，例如
+     `semanticImportance:"core"|"supporting"|"decorative"`。
+   - fallback ladder 只能自动 drop `decorative`；`supporting` drop 必须保留
+     quality diagnostic；`core` 装不下必须报 component-level capacity
+     diagnostic。
+   - 首批覆盖 `feature-card`、`insight-card`、`numbered-grid`、
+     `explanation-block`、`timeline`、`process-flow`、`image-card`。
+
+4. **component 内部 minHeight 估算收敛**
+   - 逐步替换 `estimateFeatureBodyMinHeight`、
+     `estimateInsightDetailMinHeight`、`estimateFactValueMinHeight`、
+     `estimateCalloutBodyMinHeight` 这类手写估算。
+   - component 应声明语义、style、density、核心/辅助重要性；实际高度由统一
+     measurement 按最终 width 计算。
+   - 只保留 `minReadableLines`、`maxLinesPolicy`、`chromeMinHeight` 这类
+     声明式约束。
+
+5. **role-specific tiny/squashed 判断**
+   - `TINY_RECT` 不再使用统一 `0.18cm` 阈值；按 visual role 判断：
+     text/body 走文本测量，icon/marker/rule 可更小，chart/table/code 使用
+     component min readable area，decorative 默认不阻断。
+   - `SQUASHED` 只在真实测量显示内容不可读时为 error；美观建议保持 quality。
+
+6. **结构化 fix hints**
+   - 在自然语言 `suggestion` 之外增加机器可读 `fixHints`：
+     `increase-area`、`reduce-columns`、`set-density`、`paginate`、
+     `shorten-secondary`、`move-supporting-content`。
+   - 每个 hint 必须保留当前组件语义，除非新组件在语义上更准确。
+
+验收：
+
+- 新增覆盖：多段落文本、CJK/Latin 混排、rich runs、inline math、table cell、
+  code-block、feature/insight/numbered-grid 的核心内容不可 drop。
+- 同一文本样例在 measure、autoShrink、render diagnostic 中使用一致的
+  `heightNeeded/widthNeeded`。
+- E2E 报告中因 `SQUASHED/TINY_RECT/FALLBACK_FAILED` 导致的 retry 次数下降；
+  通过后的 deck 不再出现“删除正文换通过”的组件降级。
+
+#### P7 分阶段落地
+
+| 阶段 | 目标 | 工作内容 | 验收 |
+|---|---|---|---|
+| P7-A | 抽测量接口，收敛双校准 | 已实现。新增 `TextMeasurer` / `text-measure.ts` 和 `PT_TO_CM`；`estimatedTextWidthCm`、`estimatedWrappedLineCount`、table cell、bullet、text ink、`autoShrinkStyle.computeFit` 已经调用同一 heuristic measurer。auto-fit 半磅取整会回查 `computeFit`，避免取整后重新跨过换行阈值。 | `text-measure.test.ts` 覆盖接口一致性；完整 `pnpm --dir slideml2 test` 通过。 |
+| P7-B | 字体度量数据包 | 已实现第一版。`tools/generate-font-metrics-pack.mjs` 从常见系统/开放字体提取 per-glyph advance、vertical metrics、常见 kerning pair 和 fallback bucket，生成 `src/font-metrics-pack.ts`。缺失的 Calibri/Aptos 使用 Carlito 开放字体下载到本地 `.font-cache` 后提取；CJK 使用 PingFang/Noto alias。runtime 只读取数据包，不解析或打包字体文件。 | `text-measure.test.ts` 覆盖 proportional glyph、kerning、CJK alias；核心 render 回归通过。下一步仍需 LibreOffice PDF bbox 校准集。 |
+| P7-C | 真换行与表格高度 | 已实现第一版断行。`wrapLines` 现在按 break segment 贪心换行，支持 CJK 逐字断行、CJK 避头尾、Latin 技术 token 在 `-`、`/`、`\\`、`_`、`@`、`.`、`:`、`+`、`=` 后断行；`unbreakableWidth` 返回真实最小不可拆段宽。caption 类 shrink severity 已和正文区分。表格行高仍使用同一 measurer，但 ascent/descent padding 细化留到 P7-D。 | `text-measure.test.ts` 覆盖 URL/技术 token、CJK punctuation、proportional glyph、kerning、CJK alias；核心 render 回归通过。 |
+| P7-D | 垂直度量和 inkRect | 已实现第一版。`singleLineTextHeight`、`textNeededHeight`、`textVisibleInkHeight`、bullet/table intrinsic height、autoFit shrink 高度检查都走同一套 ascent/descent/leading helper；CJK 字体的全局 bbox 会归一化到 PowerPoint-like line box，避免把 PingFang/Noto 的 1.4em font bbox 当成实际行盒。`inkRect` 只保留 ink safety，不再混入文本框 margin；文本框 reserve 只进入 needed-height。fallback-applied shrink 的 min-height 会按 shrink 后字号重测。 | `text-measure.test.ts` 覆盖 font-specific ascent/descent 和 natural line-height floor；`validation-geometry.test.ts` 覆盖 shrink 后 collision；完整 `pnpm --dir slideml2 test` 通过。 |
+| P7-E | artifact 回归最小版 | 脚本化 LibreOffice PDF bbox 校准 fixture；测量代码改动时跑 bbox 残差检查。 | 作为 e2e/CI 可选 gate；不进入快速 `replace-slide` 阻断路径。 |
+
+#### P7 取舍
+
+- 先用生成型 font metrics pack，不在 runtime 直接解析字体，也不直接上
+  HarfBuzz。数据包覆盖当前主场景 CJK + Latin + display/body；复杂脚本、emoji、
+  阿拉伯/印度系再评估 HarfBuzz。
+- 默认字体度量应随 skill/runtime 可获得。测量使用的 metrics pack 与 emit 声明的
+  字体族必须通过 alias 明确对应；否则测量再精确也会被用户机器字体替换破坏。
+- 校准基准先选 LibreOffice headless，因为 e2e 可自动化；PowerPoint 作为抽样
+  交付校验。两者偏差最大的 display tier 和 OMML 公式需要单独记录。
+- OMML 公式高度暂不并入 P7 主线；公式真实高度需要更深的 math layout 模型，
+  先在 artifact QA 中单独识别明显溢出/重叠。
+
 ---
 
 ## 9. 批次安排
@@ -559,6 +698,7 @@ interface MeasuredNode {
 | V3 | 通用 occlusion + collision 子码 + compiler diagnostic 映射 | agent 能根据根因修复，而不是降级组件 |
 | V4（暂缓） | PDF text bbox + PPTX package sanity + PNG 启发式 QA | 捕捉最终产物层面的重叠、空白、压扁 |
 | V5 | 全量 e2e report 接入 artifact QA 和改进计划生成 | 每次真实 LLM 运行都能产出可执行改进计划 |
+| V6 | 精确文字测量 + semantic core fallback + role-specific tiny/squashed | 降低 false positive 和组件降级 |
 
 每批次完成后必须：
 

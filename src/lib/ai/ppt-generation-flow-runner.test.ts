@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
 import type { LLMProvider, StreamParams } from "./providers/types";
@@ -159,6 +159,7 @@ import {
   loadPptGenerationFlowCaseDirectory,
   runPptGenerationFlowCaseDirectory,
   runPptGenerationFlowScenario,
+  summarizePptGenerationFlow,
   verifyPptGenerationFlow,
   writePptGenerationFlowImprovementReports,
   writePptGenerationFlowSuiteReports,
@@ -249,6 +250,58 @@ describe("ppt generation flow runner", () => {
       requireFinalValidateRender: true,
       requiredDeckJsonSubstrings: ["\"master\"", "\"transition\"", "\"straightConnector\""],
       requiredPptxXmlSubstrings: ["p:transition", "tailEnd type=\"triangle\"", "p:ph type=\"title\""],
+    });
+
+    expect(verification.ok, verification.failures.join("\n")).toBe(true);
+  });
+
+  it("recognizes SlideML2 runtime CLI shell calls as deck authoring tools", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-cli-${Date.now()}`);
+    await mkdir(dir, { recursive: true });
+    const deckPath = join(dir, "deck.json");
+    const outputPath = join(dir, "deck.pptx");
+    const validateArgsPath = join(dir, "validate-render.json");
+    await writeFile(deckPath, JSON.stringify({ deck: {}, slides: [] }));
+    await writeFile(outputPath, "fake pptx");
+    await writeFile(validateArgsPath, JSON.stringify({ render: true, outputPath }));
+
+    const toolRecords = [
+      shellCliRecord(1, "create-deck", join(dir, "create-deck.json"), { ok: true, phase: "committed", deckModified: true }),
+      shellCliRecord(2, "replace-slide", join(dir, "slide-01.json"), { ok: true, phase: "committed", deckModified: true, insertedAt: 0 }),
+      shellCliRecord(3, "validate-render", validateArgsPath, {
+        ok: true,
+        phase: "rendered",
+        outputPath,
+        diagnostics: { blockingCount: 0, summary: {} },
+      }),
+    ];
+    const summary = summarizePptGenerationFlow([], toolRecords);
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "cli-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords,
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary,
+    };
+
+    expect(summary.toolNames).toEqual(expect.arrayContaining(["shell", "create_deck", "replace_slide", "validate_render"]));
+    expect(summary.replaceSlideCount).toBe(1);
+    expect(summary.finalValidateRender?.outputPath).toBe(outputPath);
+
+    const verification = await verifyPptGenerationFlow(result, {
+      requiredTools: ["create_deck", "replace_slide", "validate_render"],
+      minReplaceSlideCalls: 1,
+      requireFinalValidateRender: true,
+      requirePptxOutput: true,
+      outputPath,
+      maxBlockingDiagnostics: 0,
+      requiredDeckJsonSubstrings: ["\"slides\""],
     });
 
     expect(verification.ok, verification.failures.join("\n")).toBe(true);
@@ -602,6 +655,25 @@ function installMockTools(): void {
         diagnostics: { count: 0, summary: {}, blockingCount: 0, blocking: [], qualityCount: 0, quality: [] },
       });
     }),
+  };
+}
+
+function shellCliRecord(
+  step: number,
+  subcommand: "create-deck" | "replace-slide" | "validate-render",
+  argsPath: string,
+  result: Record<string, unknown>,
+) {
+  return {
+    step,
+    name: "shell",
+    toolCallId: `call-shell-${step}`,
+    input: {
+      command: ["node", "/Users/river/.cowork/skills/slideml2/runtime/bin/slideml2.js", subcommand, argsPath],
+      cwd: dirname(argsPath),
+    },
+    success: true,
+    result: JSON.stringify(result),
   };
 }
 

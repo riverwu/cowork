@@ -152,6 +152,31 @@ describe("component regressions", () => {
     expect(unknownTone).toHaveLength(0);
   });
 
+  it("feature-card semantic tone uses an accessible title accent token", () => {
+    const slide: SlideV2 = {
+      id: "feature-warning-title",
+      title: "Feature warning tone",
+      children: [
+        {
+          id: "feature-warning-title.card",
+          type: "feature-card",
+          title: "日照金山",
+          body: "10月至次年4月，金色持续数分钟",
+          tone: "warning",
+          variant: "card",
+        } as unknown as DomNode,
+      ],
+    };
+
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    expect(findRunColor(ast, "feature-warning-title.card.title")).toBe("B45309");
+    const titleContrastFix = getRenderDiagnostics().filter((d) =>
+      d.code === "LOW_CONTRAST_FIXED" && d.nodeId === "feature-warning-title.card.title"
+    );
+    expect(titleContrastFix).toHaveLength(0);
+  });
+
   it("feature-card titleColor still allows explicit title color override", () => {
     const slide: SlideV2 = {
       id: "feature-title-color",

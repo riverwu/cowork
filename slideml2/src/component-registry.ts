@@ -361,7 +361,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ctaText: { type: "string", description: "Optional compact action label." },
     iconColor: { type: "string", description: "Icon line color (theme token)." },
     iconBackground: { type: "string", description: "Icon fill (theme token)." },
-    tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger"], description: "Semantic feature tone; controls title and marker color." },
+    tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger"], description: "Semantic feature tone; controls title, marker, and icon accent color." },
     titleColor: { type: "color-ref", description: "Explicit title color token when semantic tone is not enough." },
     variant: { type: "enum", enum: ["plain", "card", "compact"], description: "Visual treatment." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
@@ -2231,7 +2231,9 @@ function toneAccent(tone: unknown): string {
 }
 
 function freeformGroupNode(_slideId: string, _name: string, node: DomNode): DomNode {
-  const mode = node.mode === "background" ? "background" : "overlay";
+  const rawChildren = Array.isArray(node.children) ? node.children : [];
+  const inferredBackground = rawChildren.length > 0 && rawChildren.every(isLikelyFreeformBackgroundChild);
+  const mode = node.mode === "background" || inferredBackground ? "background" : "overlay";
   const children = Array.isArray(node.children) ? node.children.map((child, index) => {
     const out = { ...child };
     const hasAbsoluteAt = Array.isArray(out.at)
@@ -2239,12 +2241,25 @@ function freeformGroupNode(_slideId: string, _name: string, node: DomNode): DomN
       && out.at.every((value) => typeof value === "number" && Number.isFinite(value));
     const hasAnchorTo = typeof out.anchorTo === "string" && out.anchorTo.length > 0;
     if (!hasAbsoluteAt && !hasAnchorTo && typeof out.anchor !== "string") out.anchor = "top-left";
+    if (mode === "background" && !hasAbsoluteAt && !hasAnchorTo && out.fillSlide !== false && typeof out.width !== "number" && typeof out.height !== "number") {
+      out.fillSlide = true;
+    }
     if (!hasAbsoluteAt && typeof out.offsetX !== "number") out.offsetX = 0;
     if (!hasAbsoluteAt && typeof out.offsetY !== "number") out.offsetY = 0;
-    if (typeof out.zIndex !== "number") out.zIndex = mode === "background" ? -1 : index + 1;
+    if (typeof out.zIndex !== "number") out.zIndex = mode === "background" ? index - rawChildren.length : index + 1;
     return out;
   }) : [];
   return { id: node.id, type: "fragment", children };
+}
+
+function isLikelyFreeformBackgroundChild(child: DomNode): boolean {
+  if (!child || typeof child !== "object") return false;
+  const id = typeof child.id === "string" ? child.id.toLowerCase() : "";
+  const type = typeof child.type === "string" ? child.type : "";
+  if (child.layer === "behind" || (typeof child.zIndex === "number" && child.zIndex < 0) || child.fillSlide === true || child.area === "full") return true;
+  if (type === "image" && /(^|[.:-])(bg|background|hero|cover)([.:-]|$)/.test(id)) return true;
+  if (type === "shape" && /(^|[.:-])(scrim|overlay|backdrop|veil|shade)([.:-]|$)/.test(id)) return true;
+  return false;
 }
 
 function coverCompositionNode(slideId: string, name: string, node: DomNode): DomNode {

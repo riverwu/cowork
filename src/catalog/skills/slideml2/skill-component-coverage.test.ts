@@ -70,22 +70,51 @@ describe("slideml2 SKILL component reference", () => {
     const packageScript = readFileSync(resolve(repoRoot, "scripts/package-slideml2-skill.ts"), "utf8");
     const licensePath = resolve(repoRoot, "src/catalog/skills/slideml2/LICENSE.txt");
     const license = readFileSync(licensePath, "utf8");
+    const runtimeCliPath = resolve(repoRoot, "src/catalog/skills/slideml2/runtime/bin/slideml2.js");
+    const runtimeIndexPath = resolve(repoRoot, "src/catalog/skills/slideml2/runtime/dist/index.js");
 
     expect(existsSync(licensePath)).toBe(true);
+    expect(existsSync(runtimeCliPath)).toBe(true);
+    expect(existsSync(runtimeIndexPath)).toBe(true);
+    expect(existsSync(resolve(repoRoot, "src/catalog/skills/slideml2/runtime/node_modules"))).toBe(false);
     expect(packageScript).toContain('"SKILL.md", "business.md", "LICENSE.txt"');
     expect(packageScript).toContain("requiredRuntimeFiles");
-    expect(packageScript).toContain("runtime/src/index.ts");
     expect(packageScript).toContain("runtime/bin/slideml2.js");
     expect(packageScript).toContain("runtime/dist/index.js");
-    expect(packageScript).toContain("runtime/node_modules/jszip/package.json");
+    expect(packageScript).toContain("runtime-only");
+    expect(packageScript).toContain("--bundle");
+    expect(packageScript).toContain("entry.includes(\"/runtime/node_modules/\")");
+    expect(packageScript).toContain("entry.includes(\"/runtime/src/\")");
+    expect(packageScript).toContain("sourceValidation");
+    expect(packageScript).toContain("renderValidation");
+    expect(packageScript).toContain("deckModified: false");
+    expect(packageScript).toContain("DECK_REINITIALIZED");
+    expect(packageScript).toContain("isAppendSlideId");
+    expect(packageScript).not.toContain('"runtime/src/index.ts"');
     expect(packageScript).toContain("create-deck create-deck.json");
     expect(packageScript).not.toContain("md2" + "pptx");
     expect(packageScript).not.toContain("render-source-deck");
     expect(packageScript).toContain("manifest.json");
     expect(packageScript).toContain("README.md");
     expect(packageScript).toContain("zipinfo");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("create-deck");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("replace-slide");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("validate-render");
     expect(license).toContain("agent-native tools");
     expect(license).toContain("runtime source/build artifacts");
+  });
+
+  it("documents compiler-style CLI result phases for agent repair", () => {
+    const skill = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md"), "utf8");
+
+    expect(skill).toContain("Top-level `ok:false` always means the command failed");
+    expect(skill).toContain("`deckModified:false`");
+    expect(skill).toContain("`sourceValidation.ok:true` only means the SlideML2 JSON/schema layer passed");
+    expect(skill).toContain("`renderValidation.ok:false` identifies render/layout failure");
+    expect(skill).toContain("named node on the same slide and retry `replace-slide`");
+    expect(skill).toContain("`DECK_REINITIALIZED`");
+    expect(skill).toContain("Do not wrap SlideML2 CLI calls inside `run_node`");
+    expect(skill).toContain("\"slideId\":\"append\"");
   });
 
   it("keeps the business themeOverride example to effective SlideML2 fields", () => {

@@ -1,0 +1,14 @@
+{
+  "id": "shangri-la-magazine",
+  "desktopDebugLog": true,
+  "expected": {
+    "requiredTools": ["write_file", "create_deck", "replace_slide", "validate_render"],
+    "forbiddenTools": ["run_node"],
+    "minReplaceSlideCalls": 6,
+    "requireFinalValidateRender": true,
+    "requireProgressDone": true,
+    "requirePptxOutput": true,
+    "outputPath": "outputs/shangri-la-magazine.pptx",
+    "maxBlockingDiagnostics": 0
+  }
+}
