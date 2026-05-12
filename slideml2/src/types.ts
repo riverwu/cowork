@@ -209,6 +209,10 @@ export interface DeckSpec {
   chrome?: ChromeSpec;
   validation?: DeckValidationSpec;
   dataSources?: Record<string, DataSourceSpec>;
+  master?: {
+    layout?: string;
+    placeholders?: Record<string, { x: number; y: number; w: number; h: number; type?: "title" | "body" | "chart" | "table" | "image" | "footer" }>;
+  };
   references?: ReferenceSpec[];
   footnotes?: FootnoteSpec[];
   metadata?: Record<string, unknown>;
@@ -450,7 +454,7 @@ export interface RenderedSlide {
 }
 
 export interface RenderedDeck {
-  deck: Required<Pick<DeckSpec, "size" | "theme">> & { brand: BrandSpec; themeOverride?: ThemeOverride };
+  deck: Required<Pick<DeckSpec, "size" | "theme">> & { brand: BrandSpec; themeOverride?: ThemeOverride; master?: DeckSpec["master"] };
   slides: RenderedSlide[];
 }
 

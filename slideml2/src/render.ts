@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { emitPackage } from "./emitter/package.js";
-import type { ChartAnnotation, ChartDataLabels, ChartNumberFormat, ChartSeries, ChartType, DeckAst, FillSpec, ImageShape, LineSpec, Paragraph, ShapeList, SlideAst, TableCell, TextRun, ShapePreset } from "./emitter/types.js";
+import type { ChartAnnotation, ChartAxisSpec, ChartDataLabels, ChartLegendSpec, ChartMarkerSpec, ChartNumberFormat, ChartPlotAreaSpec, ChartSeries, ChartType, DeckAst, FillSpec, ImageShape, LineSpec, Paragraph, ShapeList, SlideAst, TableBorderLineSpec, TableBorderSide, TableCell, TextRun, ShapePreset } from "./emitter/types.js";
 import { expandComponent, isComponentTypedNode } from "./component-registry.js";
 import { clearRenderDiagnostics, contrastRatio, contrastThreshold, getRenderDiagnostics, pushDiagnostic, relativeLuminance } from "./diagnostics.js";
 import { coverageRatio, meaningfulOverlap, meaningfulOverlayOcclusion, meaningfulStructuralOverlap, meaningfulTitleOcclusion, type OverlapMetrics } from "./layout/geometry.js";
@@ -116,9 +116,14 @@ const ANCHOR_POINTS: Set<string> = new Set([
 const SHAPE_PRESETS: Set<string> = new Set([
   "rect", "roundRect", "ellipse", "line",
   "triangle", "rightTriangle", "pentagon",
-  "diamond",
-  "arrow-right", "arrow-down", "callout",
-  "chevron", "star-5", "parallelogram", "cloud",
+  "diamond", "hexagon", "octagon", "plus", "trapezoid",
+  "leftBracket", "rightBracket", "leftBrace", "rightBrace",
+  "arrow-right", "arrow-left", "arrow-up", "arrow-down",
+  "leftRightArrow", "upDownArrow", "bentArrow",
+  "straightConnector", "elbowConnector", "curvedConnector",
+  "callout", "chevron", "star-5", "star-8", "parallelogram",
+  "flowChartProcess", "flowChartDecision", "flowChartData", "flowChartTerminator", "flowChartDocument",
+  "cylinder", "cube", "gear6", "heart", "lightningBolt", "cloud",
 ]);
 
 interface Rect {
@@ -178,6 +183,8 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
     const slideAst = {
       shapes,
       background: resolvedBackground,
+      transition: normalizeSlideTransition(dom.transition),
+      layout: typeof dom.layout === "string" ? dom.layout : undefined,
       notes: typeof dom.notes === "string" ? dom.notes : undefined,
     };
     runTitleOcclusionCheck(slide.id, dom, slideAst);
@@ -192,7 +199,24 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
     language: "zh-CN",
     title: "SlideML2 MVP",
     author: "SlideML2",
+    master: normalizeDeckMaster(deck.deck.master),
     slides,
+  };
+}
+
+function normalizeDeckMaster(master: RenderedDeck["deck"]["master"]): DeckAst["master"] | undefined {
+  if (!master || typeof master !== "object") return undefined;
+  const placeholders = master.placeholders && typeof master.placeholders === "object"
+    ? Object.fromEntries(Object.entries(master.placeholders)
+      .filter((entry) => {
+        const ph = entry[1];
+        return ph && typeof ph === "object" && [ph.x, ph.y, ph.w, ph.h].every((v) => typeof v === "number" && Number.isFinite(v));
+      })
+      .map(([name, ph]) => [name, { ...ph, x: cm(ph.x), y: cm(ph.y), w: cm(ph.w), h: cm(ph.h) }]))
+    : undefined;
+  return {
+    ...(typeof master.layout === "string" ? { layout: master.layout } : {}),
+    ...(placeholders && Object.keys(placeholders).length > 0 ? { placeholders } : {}),
   };
 }
 
@@ -228,6 +252,19 @@ function resolveSlideBackground(theme: SimpleTheme, raw: unknown):
     if (typeof rec.fill === "string") return resolveFill(theme, rec.fill, "background");
   }
   return resolveFill(theme, raw, "background");
+}
+
+function normalizeSlideTransition(value: unknown): SlideAst["transition"] | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  const type = rec.type === "none" || rec.type === "fade" || rec.type === "push" || rec.type === "wipe" || rec.type === "split" || rec.type === "cover" || rec.type === "uncover"
+    ? rec.type
+    : undefined;
+  const transition: NonNullable<SlideAst["transition"]> = {};
+  if (type) transition.type = type;
+  if (typeof rec.durationMs === "number" && Number.isFinite(rec.durationMs)) transition.durationMs = rec.durationMs;
+  if (rec.direction === "left" || rec.direction === "right" || rec.direction === "up" || rec.direction === "down") transition.direction = rec.direction;
+  return Object.keys(transition).length > 0 ? transition : undefined;
 }
 
 /**
@@ -1046,9 +1083,7 @@ function detectOverlayOcclusions(
 ): void {
   const overlayRoots = new Set(Array.from(overlayIds).filter((id) => {
     const node = findNodeById(slideDom, id);
-    if (!node) return false;
-    if (node.layer === "behind") return false;
-    return true;
+    return Boolean(node && overlayRendersAboveFlow(node));
   }));
   if (overlayRoots.size === 0) return;
   const overlays = measured.filter((node) =>
@@ -1059,10 +1094,11 @@ function detectOverlayOcclusions(
   const flow = measured.filter((node) =>
     node.id !== slideDom.id
     && node.visualRole !== "container"
-    && !isUnderAnyRoot(node.id, overlayRoots)
+    && !isUnderAnyRoot(node.id, overlayIds)
     && !isMeasuredCaption(node),
   );
   for (const overlay of overlays) {
+    if (!isVisibleOverlayNode(overlay)) continue;
     const overlayRect = collisionRect(overlay);
     if (!overlayRect) continue;
     for (const target of flow) {
@@ -1072,7 +1108,7 @@ function detectOverlayOcclusions(
       if (!overlap) continue;
       pushCollisionDiagnostic(
         slideId,
-        isDecorativeMeasuredNode(overlay) ? "DECORATIVE_OVERLAP" : "OVERLAY_OCCLUDES_FLOW",
+        isDecorativeMeasuredNode(overlay) || isLowImpactOverlayNode(overlay) ? "DECORATIVE_OVERLAP" : "OVERLAY_OCCLUDES_FLOW",
         overlay,
         target,
         overlap,
@@ -1148,10 +1184,30 @@ function isDecorativeMeasuredNode(node: MeasuredNode): boolean {
     || node.visualRole === "decoration";
 }
 
+function isVisibleOverlayNode(node: MeasuredNode): boolean {
+  return node.alpha === undefined || node.alpha > 0.01;
+}
+
+function isLowImpactOverlayNode(node: MeasuredNode): boolean {
+  return node.alpha !== undefined && node.alpha < 0.25;
+}
+
 function collectOverlayIds(slideDom: DomNode): Set<string> {
   const ids = new Set<string>();
-  for (const child of slideDom.children || []) if (isOverlayChild(child)) ids.add(child.id);
+  const walk = (node: DomNode, isRoot = false) => {
+    if (!node || typeof node !== "object") return;
+    if (!isRoot && isOverlayChild(node)) ids.add(node.id);
+    for (const child of node.children || []) walk(child);
+  };
+  walk(slideDom, true);
   return ids;
+}
+
+function overlayRendersAboveFlow(node: DomNode): boolean {
+  if (node.layer === "behind") return false;
+  const z = numberProp(node, "zIndex", 0);
+  if (node.layer !== "above" && z < 0) return false;
+  return true;
 }
 
 /**
@@ -2838,12 +2894,44 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
     preset,
     xfrm: xfrm(shapeRect, shapeNode),
     fill: fillToken || hasSurfaceGradient(node) ? surfaceFill(theme, node, fillToken, "background", fillAlpha) : { type: "none" },
-    line: lineToken ? { color: color(theme, lineToken), width: cm(lineWidthCm), ...(lineDash ? { dash: lineDash } : {}), ...(lineAlpha !== undefined ? { alpha: lineAlpha } : {}) } : undefined,
+    line: lineToken ? {
+      color: color(theme, lineToken),
+      width: cm(lineWidthCm),
+      ...(lineDash ? { dash: lineDash } : {}),
+      ...(lineAlpha !== undefined ? { alpha: lineAlpha } : {}),
+      ...(lineEndSpec(node.headEnd) ? { headEnd: lineEndSpec(node.headEnd) } : {}),
+      ...(lineEndSpec(node.tailEnd) ? { tailEnd: lineEndSpec(node.tailEnd) } : {}),
+    } : undefined,
     ...(typeof node.cornerRadius === "number" ? { cornerRadius: normalizeCornerRadius(node.cornerRadius) } : marker?.cornerRadius !== undefined ? { cornerRadius: marker.cornerRadius } : {}),
   };
+  if (hasTextContent(node)) {
+    const shapeTextNode: DomNode = {
+      ...node,
+      style: typeof node.style === "string" && node.style.trim() ? node.style : "label",
+      align: node.align ?? "center",
+      autoFit: node.autoFit ?? "shrink",
+    };
+    const styleKey = textStyleKey(shapeTextNode);
+    const baseStyle = effectiveTextStyle(theme, shapeTextNode, "label");
+    const style = shapeTextNode.autoFit === "shrink" ? autoShrinkStyle(theme, shapeTextNode, baseStyle, shapeRect, styleKey) : baseStyle;
+    shape.paragraphs = buildParagraphs(theme, shapeTextNode, style);
+    shape.margin = { l: cm(0.16), r: cm(0.16), t: cm(0.08), b: cm(0.08) };
+    shape.valign = valignProp(shapeTextNode, styleKey) ?? "middle";
+    shape.wrap = shapeTextNode.wrap === "none" || shapeTextNode.noWrap === true ? "none" : undefined;
+    if (shapeTextNode.autoFit === "shrink" || shapeTextNode.autoFit === "resize") shape.autoFit = shapeTextNode.autoFit;
+    if (!shape.autoFit) pushTextFitDiagnostics(theme, shapeTextNode, shapeRect, baseStyle);
+  }
   const shadow = surfaceShadow(theme, node);
   if (shadow) shape.shadow = shadow;
   return shape;
+}
+
+function hasTextContent(node: DomNode): boolean {
+  if (typeof node.text === "string" && node.text.length > 0) return true;
+  if (typeof node.content === "string" && node.content.length > 0) return true;
+  if (Array.isArray(node.content) && node.content.length > 0) return true;
+  if (Array.isArray(node.paragraphs) && node.paragraphs.length > 0) return true;
+  return false;
 }
 
 type MarkerVisualSpec = {
@@ -3031,8 +3119,17 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     rowHeights: rowHeightsCm.map(cm),
     cells,
     firstRowHeader,
+    ...(typeof node.tableStyleId === "string" ? { tableStyleId: node.tableStyleId } : {}),
+    ...(typeof node.bandRows === "boolean" ? { bandRows: node.bandRows } : {}),
+    ...(typeof node.bandCols === "boolean" ? { bandCols: node.bandCols } : {}),
+    ...(typeof node.firstCol === "boolean" ? { firstCol: node.firstCol } : {}),
+    ...(typeof node.lastCol === "boolean" ? { lastCol: node.lastCol } : {}),
+    ...(typeof node.lastRow === "boolean" ? { lastRow: node.lastRow } : {}),
+    ...(tablePaddingSpec(node.cellPadding ?? node.padding) ? { cellPadding: tablePaddingSpec(node.cellPadding ?? node.padding) } : {}),
+    ...(tableBorderSpec(theme, node.borders ?? node.border) ? { borders: tableBorderSpec(theme, node.borders ?? node.border) } : {}),
     borderColor: color(theme, typeof node.borderColor === "string" ? node.borderColor : "divider"),
     borderWidth: cm(normalizeStrokeCm(node.borderWidth, 0.01)),
+    ...(node.borderDash === "solid" || node.borderDash === "dash" || node.borderDash === "dashDot" || node.borderDash === "dot" ? { borderDash: node.borderDash } : {}),
   };
 }
 
@@ -3352,6 +3449,11 @@ function makeTableCell(
       fill: fillToken ? { type: "solid", color: color(theme, fillToken) } : undefined,
       align,
       valign,
+      ...(tablePaddingSpec(cell.padding) ? { padding: tablePaddingSpec(cell.padding) } : {}),
+      ...(tableBorderSpec(theme, cell.border) ? { border: tableBorderSpec(theme, cell.border) } : {}),
+      ...(cell.textRotation === 90 || cell.textRotation === 270 || cell.textRotation === "vertical" ? { textRotation: cell.textRotation } : {}),
+      ...(typeof cell.colspan === "number" && cell.colspan > 1 ? { colspan: Math.floor(cell.colspan) } : {}),
+      ...(typeof cell.rowspan === "number" && cell.rowspan > 1 ? { rowspan: Math.floor(cell.rowspan) } : {}),
     };
   }
   const text = String(raw ?? "");
@@ -3366,6 +3468,54 @@ function makeTableCell(
     align: isHeader ? "center" : defaultAlign,
     valign: "middle",
   };
+}
+
+function tablePaddingSpec(value: unknown): Partial<Record<"l" | "t" | "r" | "b", number>> | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    const emu = cm(value);
+    return { l: emu, r: emu, t: emu, b: emu };
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  const out: Partial<Record<"l" | "t" | "r" | "b", number>> = {};
+  const aliases: Array<["l" | "t" | "r" | "b", string[]]> = [
+    ["l", ["l", "left"]],
+    ["r", ["r", "right"]],
+    ["t", ["t", "top"]],
+    ["b", ["b", "bottom"]],
+  ];
+  for (const [key, names] of aliases) {
+    for (const name of names) {
+      const v = rec[name];
+      if (typeof v === "number" && Number.isFinite(v) && v >= 0) out[key] = cm(v);
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function tableBorderSpec(theme: SimpleTheme, value: unknown): TableCell["border"] | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  if (typeof rec.color === "string") out.color = color(theme, rec.color);
+  if (typeof rec.width === "number" && Number.isFinite(rec.width)) out.width = cm(normalizeStrokeCm(rec.width, 0.01));
+  if (rec.dash === "solid" || rec.dash === "dash" || rec.dash === "dashDot" || rec.dash === "dot") out.dash = rec.dash;
+  if (typeof rec.alpha === "number") out.alpha = rec.alpha;
+  for (const side of ["left", "right", "top", "bottom"] as TableBorderSide[]) {
+    const v = rec[side];
+    if (v === "none") {
+      out[side] = "none";
+    } else if (v && typeof v === "object" && !Array.isArray(v)) {
+      const raw = v as Record<string, unknown>;
+      const sideSpec: TableBorderLineSpec = {};
+      if (typeof raw.color === "string") sideSpec.color = color(theme, raw.color);
+      if (typeof raw.width === "number" && Number.isFinite(raw.width)) sideSpec.width = cm(normalizeStrokeCm(raw.width, 0.01));
+      if (raw.dash === "solid" || raw.dash === "dash" || raw.dash === "dashDot" || raw.dash === "dot") sideSpec.dash = raw.dash;
+      if (typeof raw.alpha === "number") sideSpec.alpha = raw.alpha;
+      out[side] = sideSpec;
+    }
+  }
+  return Object.keys(out).length > 0 ? out as TableCell["border"] : undefined;
 }
 
 function richRunToTextRun(theme: SimpleTheme, raw: unknown, style: ReturnType<typeof textStyle>, defaultBold: boolean): TextRun {
@@ -3490,7 +3640,7 @@ function trackingToLetterSpacing(value: unknown): number | undefined {
 
 function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }): ShapeList[number] {
   const labels = Array.isArray(node.labels) ? node.labels.map(String) : [];
-  const series = normalizeChartSeries(node.series);
+  const series = normalizeChartSeries(theme, node.series);
   const resolvedChartType = chartType(node.chartType);
   const hasRenderableData = chartHasRenderableData(resolvedChartType, labels, series);
   if (!hasRenderableData) pushEmptyChartDataDiagnostic(node, labels, series);
@@ -3525,6 +3675,11 @@ function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     showValues,
     orientation: node.orientation === "horizontal" ? "horizontal" : "vertical",
     dataLabels,
+    xAxis: normalizeChartAxis(theme, node.xAxis ?? node.axis),
+    yAxis: normalizeChartAxis(theme, node.yAxis),
+    secondaryYAxis: normalizeChartAxis(theme, node.secondaryYAxis ?? node.secondaryAxis),
+    legend: normalizeChartLegend(node.legend),
+    plotArea: normalizeChartPlotArea(node.plotArea),
     ...(barLike ? { negativeColor: color(theme, node.negativeColor, "danger") } : {}),
     ...(barLike && typeof node.positiveColor === "string" ? { positiveColor: color(theme, node.positiveColor) } : {}),
     title: typeof node.title === "string" ? node.title : undefined,
@@ -3619,8 +3774,9 @@ function pushChartFitDiagnostics(node: DomNode, rect: Rect, resolvedChartType: C
     ? labelCount >= 5 || showLegend ? 4.4 : 3.8
     : resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "waterfall" ? 3.0 : 2.8;
   if (rect.w >= minWidth && rect.h >= minHeight) return;
+  const role = nearestSemanticRole(node);
   pushDiagnostic({
-    severity: "warn",
+    severity: role === "chart-card" ? "error" : "warn",
     code: "SQUASHED",
     slideId: currentSlideId || undefined,
     nodeId: node.id,
@@ -3678,6 +3834,57 @@ function chartNumberFormat(value: unknown): ChartNumberFormat | undefined {
   return undefined;
 }
 
+function normalizeChartAxis(theme: SimpleTheme, value: unknown): ChartAxisSpec | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  const axis: ChartAxisSpec = {};
+  if (typeof rec.title === "string") axis.title = rec.title;
+  if (typeof rec.show === "boolean") axis.show = rec.show;
+  for (const key of ["min", "max", "majorUnit", "minorUnit"] as const) {
+    const v = rec[key];
+    if (typeof v === "number" && Number.isFinite(v)) axis[key] = v;
+  }
+  if (typeof rec.numberFormat === "string") axis.numberFormat = chartNumberFormat(rec.numberFormat) ?? rec.numberFormat;
+  if (typeof rec.format === "string") axis.numberFormat = chartNumberFormat(rec.format) ?? rec.format;
+  if (typeof rec.tickLabelRotation === "number" && Number.isFinite(rec.tickLabelRotation)) axis.tickLabelRotation = rec.tickLabelRotation;
+  if (rec.tickLabelPosition === "nextTo" || rec.tickLabelPosition === "low" || rec.tickLabelPosition === "high" || rec.tickLabelPosition === "none") axis.tickLabelPosition = rec.tickLabelPosition;
+  if (rec.majorTickMark === "none" || rec.majorTickMark === "in" || rec.majorTickMark === "out" || rec.majorTickMark === "cross") axis.majorTickMark = rec.majorTickMark;
+  if (rec.minorTickMark === "none" || rec.minorTickMark === "in" || rec.minorTickMark === "out" || rec.minorTickMark === "cross") axis.minorTickMark = rec.minorTickMark;
+  if (typeof rec.gridlines === "boolean") axis.gridlines = rec.gridlines;
+  else if (rec.gridlines && typeof rec.gridlines === "object" && !Array.isArray(rec.gridlines)) {
+    const g = rec.gridlines as Record<string, unknown>;
+    axis.gridlines = {
+      ...(typeof g.major === "boolean" ? { major: g.major } : {}),
+      ...(typeof g.minor === "boolean" ? { minor: g.minor } : {}),
+      ...(typeof g.color === "string" ? { color: color(theme, g.color) } : {}),
+      ...(typeof g.width === "number" && Number.isFinite(g.width) ? { width: cm(normalizeStrokeCm(g.width, 0.01)) } : {}),
+      ...(g.dash === "solid" || g.dash === "dash" || g.dash === "dashDot" || g.dash === "dot" ? { dash: g.dash } : {}),
+    };
+  }
+  return Object.keys(axis).length > 0 ? axis : undefined;
+}
+
+function normalizeChartLegend(value: unknown): ChartLegendSpec | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  const legend: ChartLegendSpec = {};
+  if (typeof rec.show === "boolean") legend.show = rec.show;
+  if (rec.position === "bottom" || rec.position === "top" || rec.position === "left" || rec.position === "right") legend.position = rec.position;
+  if (typeof rec.overlay === "boolean") legend.overlay = rec.overlay;
+  return Object.keys(legend).length > 0 ? legend : undefined;
+}
+
+function normalizeChartPlotArea(value: unknown): ChartPlotAreaSpec | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  const out: ChartPlotAreaSpec = {};
+  for (const key of ["x", "y", "w", "h"] as const) {
+    const v = rec[key];
+    if (typeof v === "number" && Number.isFinite(v)) out[key] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function imageShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }): ShapeList {
   const src = stringProp(node, "src", "");
   if (!src) return [];
@@ -3719,6 +3926,17 @@ function imageBorderSpec(theme: SimpleTheme, node: DomNode): LineSpec | undefine
   const width = typeof rec.width === "number" ? cm(rec.width) : cm(0.025);
   const dash = rec.dash === "dash" || rec.dash === "dashDot" || rec.dash === "dot" ? rec.dash : undefined;
   return { color: color(theme, colorToken), width, ...(dash ? { dash } : {}) };
+}
+
+function lineEndSpec(value: unknown): LineSpec["headEnd"] | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const rec = value as Record<string, unknown>;
+  const type = rec.type === "none" || rec.type === "triangle" || rec.type === "stealth" || rec.type === "diamond" || rec.type === "oval" || rec.type === "arrow"
+    ? rec.type
+    : undefined;
+  const width = rec.width === "sm" || rec.width === "med" || rec.width === "lg" ? rec.width : undefined;
+  const length = rec.length === "sm" || rec.length === "med" || rec.length === "lg" ? rec.length : undefined;
+  return type || width || length ? { ...(type ? { type } : {}), ...(width ? { width } : {}), ...(length ? { length } : {}) } : undefined;
 }
 
 function imageOverlaySpec(theme: SimpleTheme, node: DomNode): { color: string; alpha?: number } | undefined {
@@ -4194,6 +4412,7 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
   for (const child of parent.children || []) {
     if ((child.type === "text" || child.type === "bullets") && child.autoFit !== "shrink") {
       child.autoFit = "shrink";
+      child.__fallbackAutoFitShrink = true;
       truncated++;
       pushDiagnostic({
         severity: "warn",
@@ -5380,6 +5599,18 @@ function textMinHeight(theme: SimpleTheme, node: DomNode, crossSize: number): nu
   const text = renderedTextContent(node);
   if (!text) return singleLineTextHeight(theme, node);
   const effectiveAutoFit = node.autoFit ?? defaultAutoFitForStyle(styleKey);
+  if (effectiveAutoFit === "shrink" && node.__fallbackAutoFitShrink === true) {
+    const width = Math.max(0.45, crossSize > 0 ? crossSize : 1);
+    const shrunkStyle = autoShrinkStyle(
+      theme,
+      node,
+      style,
+      { x: 0, y: 0, w: width, h: 12 },
+      styleKey,
+      { emitDiagnostics: false },
+    );
+    return textVisibleInkHeight(theme, node, width, shrunkStyle);
+  }
   const needsFullHeight = node.wrapMinHeight === true || (fullHeightTextStyle(styleKey) && effectiveAutoFit !== "shrink");
   if (!needsFullHeight && !text.includes("\n")) return singleLineTextHeight(theme, node);
   return textNeededHeight(theme, node, Math.max(0.45, crossSize > 0 ? crossSize : 1), style);
@@ -5677,7 +5908,7 @@ function chartType(value: unknown): ChartType {
   return "bar";
 }
 
-function normalizeChartSeries(value: unknown): ChartSeries[] {
+function normalizeChartSeries(theme: SimpleTheme, value: unknown): ChartSeries[] {
   if (!Array.isArray(value)) return [];
   const output: ChartSeries[] = [];
   value.forEach((item, index) => {
@@ -5689,7 +5920,11 @@ function normalizeChartSeries(value: unknown): ChartSeries[] {
         .filter((p): p is Record<string, unknown> => Boolean(p && typeof p === "object"))
         .map((p) => ({ x: Number(p.x), y: Number(p.y) }))
         .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
-      if (points.length > 0) output.push({ name, values: [], points });
+      if (points.length > 0) {
+        const series: ChartSeries = { name, values: [], points };
+        applyChartSeriesStyle(theme, series, record);
+        output.push(series);
+      }
       return;
     }
     const values = Array.isArray(record.values)
@@ -5699,6 +5934,7 @@ function normalizeChartSeries(value: unknown): ChartSeries[] {
     const series: ChartSeries = { name, values };
     if (record.type === "bar" || record.type === "line") series.type = record.type;
     if (record.axis === "primary" || record.axis === "secondary") series.axis = record.axis;
+    applyChartSeriesStyle(theme, series, record);
     const trendLine = normalizeSeriesTrendLine(record.trendLine);
     if (trendLine) series.trendLine = trendLine;
     const errorBars = normalizeSeriesErrorBars(record.errorBars);
@@ -5706,6 +5942,28 @@ function normalizeChartSeries(value: unknown): ChartSeries[] {
     output.push(series);
   });
   return output;
+}
+
+function applyChartSeriesStyle(theme: SimpleTheme, series: ChartSeries, record: Record<string, unknown>): void {
+  if (typeof record.color === "string") series.color = color(theme, record.color);
+  if (typeof record.lineWidth === "number" && Number.isFinite(record.lineWidth)) series.lineWidth = cm(normalizeStrokeCm(record.lineWidth, 0.02));
+  if (record.lineDash === "solid" || record.lineDash === "dash" || record.lineDash === "dashDot" || record.lineDash === "dot") series.lineDash = record.lineDash;
+  const marker = normalizeChartMarker(theme, record.marker);
+  if (marker) series.marker = marker;
+  if (typeof record.smooth === "boolean") series.smooth = record.smooth;
+  const dataLabels = normalizeChartDataLabels(record.dataLabels, { pieLike: false, showValues: false });
+  if (dataLabels) series.dataLabels = dataLabels;
+}
+
+function normalizeChartMarker(theme: SimpleTheme, value: unknown): ChartMarkerSpec | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  const marker: ChartMarkerSpec = {};
+  if (rec.symbol === "none" || rec.symbol === "circle" || rec.symbol === "dash" || rec.symbol === "diamond" || rec.symbol === "dot" || rec.symbol === "plus" || rec.symbol === "square" || rec.symbol === "star" || rec.symbol === "triangle" || rec.symbol === "x") marker.symbol = rec.symbol;
+  if (typeof rec.size === "number" && Number.isFinite(rec.size)) marker.size = rec.size;
+  if (typeof rec.fill === "string") marker.fill = color(theme, rec.fill);
+  if (typeof rec.line === "string") marker.line = color(theme, rec.line);
+  return Object.keys(marker).length > 0 ? marker : undefined;
 }
 
 function normalizeSeriesTrendLine(value: unknown): ChartSeries["trendLine"] | undefined {

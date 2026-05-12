@@ -133,6 +133,29 @@ describe("emitter — package end-to-end", () => {
     expect(rels).toContain('Target="slides/slide3.xml"');
   });
 
+  it("emits embedded text in preset auto-shapes", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "shape",
+          id: 2,
+          preset: "flowChartProcess",
+          xfrm: { x: cm(2), y: cm(2), cx: cm(6), cy: cm(2) },
+          fill: { type: "solid", color: "2563EB" },
+          paragraphs: [{ align: "center", runs: [{ text: "Quality Gate", color: "FFFFFF", bold: true }] }],
+          valign: "middle",
+        }],
+      }],
+    };
+
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slideXml).toContain('prst="flowChartProcess"');
+    expect(slideXml).toContain("Quality Gate");
+    expect(slideXml).toContain('anchor="ctr"');
+  });
+
   it("rejects an empty deck", async () => {
     await expect(emitPackage({ size: "16x9", slides: [] })).rejects.toThrow(/no slides/);
   });
@@ -322,6 +345,199 @@ describe("emitter — package end-to-end", () => {
     const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
     expect(chartXml).toContain('<c:grouping val="stacked"/>');
     expect(chartXml).toContain('<c:overlap val="100"/>');
+  });
+
+  it("emits expanded chart controls: axes, legend, plot area, series style, markers", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "line",
+          labels: ["Q1", "Q2", "Q3"],
+          xAxis: { title: "Quarter", tickLabelRotation: 35 },
+          yAxis: { title: "Revenue", min: 0, max: 200, majorUnit: 50, gridlines: { color: "DDDDDD", width: 6350, dash: "dot" } },
+          legend: { position: "right", overlay: true },
+          plotArea: { x: 0.12, y: 0.08, w: 0.78, h: 0.78 },
+          series: [{
+            name: "Revenue",
+            values: [100, 130, 170],
+            color: "B42318",
+            lineWidth: 38100,
+            lineDash: "dash",
+            marker: { symbol: "diamond", size: 9, fill: "B42318", line: "FFFFFF" },
+            smooth: true,
+            dataLabels: { show: true, position: "outsideEnd", showValue: true },
+          }],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    expect(chartXml).toContain('<c:legendPos val="r"/>');
+    expect(chartXml).toContain('<c:overlay val="1"/>');
+    expect(chartXml).toContain("<c:manualLayout>");
+    expect(chartXml).toContain("<c:max val=\"200\"/>");
+    expect(chartXml).toContain("<c:majorUnit val=\"50\"/>");
+    expect(chartXml).toContain("<c:majorGridlines>");
+    expect(chartXml).toContain('<a:prstDash val="dot"/>');
+    expect(chartXml).toContain("<c:title>");
+    expect(chartXml).toContain("Quarter");
+    expect(chartXml).toContain("Revenue");
+    expect(chartXml).toContain('<a:ln w="38100">');
+    expect(chartXml).toContain('<a:prstDash val="dash"/>');
+    expect(chartXml).toContain('<c:symbol val="diamond"/>');
+    expect(chartXml).toContain('<c:smooth val="1"/>');
+    expect(chartXml).toContain('<c:showVal val="1"/>');
+  });
+
+  it("keeps manual chart plot area within the chart frame", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "bar",
+          labels: ["A", "B"],
+          plotArea: { x: 0.6, y: 0.4, w: 14.5, h: 7 },
+          series: [{ name: "Value", values: [1, 2] }],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    expect(chartXml).toContain('<c:x val="0.6"/>');
+    expect(chartXml).toContain('<c:y val="0.4"/>');
+    expect(chartXml).toContain('<c:w val="0.4"/>');
+    expect(chartXml).toContain('<c:h val="0.6"/>');
+  });
+
+  it("emits table style controls: padding, per-side borders, banding, and rich cell text", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "table",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(16), cy: cm(4) },
+          colWidths: [cm(8), cm(8)],
+          rowHeights: [cm(1.2), cm(1.2)],
+          firstRowHeader: true,
+          tableStyleId: "{5940675A-B579-460E-94D1-54222C63F5DA}",
+          bandRows: false,
+          bandCols: true,
+          cellPadding: { l: cm(0.18), r: cm(0.18), t: cm(0.08), b: cm(0.08) },
+          borders: { color: "999999", width: 12700, dash: "dash", top: { color: "111111", width: 25400 } },
+          cells: [
+            [{ runs: [{ text: "Metric", bold: true, underline: true }] }, { runs: [{ text: "Value", bold: true }] }],
+            [{ runs: [{ text: "Growth", color: "B42318", highlight: "FFF2CC" }] }, { runs: [{ text: "+12%" }], align: "right", border: { left: "none" } }],
+          ],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slideXml).toContain('bandRow="0"');
+    expect(slideXml).toContain('bandCol="1"');
+    expect(slideXml).toContain("{5940675A-B579-460E-94D1-54222C63F5DA}");
+    expect(slideXml).toContain('lIns="64800"');
+    expect(slideXml).toContain('<a:lnT w="25400"');
+    expect(slideXml).toContain('<a:prstDash val="dash"/>');
+    expect(slideXml).toContain("<a:lnL><a:noFill/></a:lnL>");
+    expect(slideXml).toContain('u="sng"');
+    expect(slideXml).toContain("<a:highlight>");
+  });
+
+  it("normalizes table style aliases to OOXML GUIDs", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "table",
+          id: 2,
+          name: "Risk table",
+          xfrm: { x: cm(2), y: cm(2), cx: cm(12), cy: cm(3) },
+          colWidths: [cm(6), cm(6)],
+          rowHeights: [cm(1), cm(1)],
+          firstRowHeader: true,
+          tableStyleId: "lightGridAccent1",
+          cells: [
+            [{ runs: [{ text: "Risk" }] }, { runs: [{ text: "Owner" }] }],
+            [{ runs: [{ text: "High" }] }, { runs: [{ text: "Security" }] }],
+          ],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slideXml).not.toContain("lightGridAccent1");
+    expect(slideXml).toContain("{5940675A-B579-460E-94D1-54222C63F5DA}");
+  });
+
+  it("emits connector presets with arrowheads and internal slide links", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [
+        {
+          transition: { type: "fade", durationMs: 350 },
+          shapes: [
+            {
+              type: "shape",
+              id: 2,
+              preset: "straightConnector",
+              xfrm: { x: cm(2), y: cm(2), cx: cm(6), cy: cm(0.01) },
+              fill: { type: "none" },
+              line: { color: "333333", width: 25400, tailEnd: { type: "triangle", width: "lg", length: "lg" } },
+            },
+            {
+              type: "text",
+              id: 3,
+              xfrm: { x: cm(2), y: cm(3), cx: cm(8), cy: cm(1) },
+              paragraphs: [{ runs: [{ text: "Jump", hyperlink: "#slide2" }] }],
+            },
+          ],
+        },
+        { shapes: [{ type: "shape", id: 2, preset: "hexagon", xfrm: { x: cm(2), y: cm(2), cx: cm(2), cy: cm(2) }, fill: { type: "solid", color: "DDDDDD" } }] },
+      ],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    const rels = await zip.file("ppt/slides/_rels/slide1.xml.rels")!.async("string");
+    expect(slideXml).toContain('prst="straightConnector1"');
+    expect(slideXml).toContain('<a:tailEnd type="triangle" w="lg" len="lg"/>');
+    expect(slideXml).toContain("<p:transition");
+    expect(slideXml).toContain("<p:fade/>");
+    expect(slideXml).toContain('action="ppaction://hlinksldjump"');
+    expect(rels).toContain('Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"');
+    expect(rels).toContain('Target="../slides/slide2.xml"');
+    const slide2Xml = await zip.file("ppt/slides/slide2.xml")!.async("string");
+    expect(slide2Xml).toContain('prst="hexagon"');
+  });
+
+  it("emits declared master/layout placeholders into OOXML", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      master: {
+        layout: "Corporate Two Column",
+        placeholders: {
+          title: { type: "title", x: cm(1), y: cm(0.7), w: cm(20), h: cm(1.2) },
+          body: { type: "body", x: cm(1), y: cm(2.2), w: cm(11), h: cm(6) },
+          visual: { type: "image", x: cm(13), y: cm(2.2), w: cm(10), h: cm(6) },
+        },
+      },
+      slides: [{ shapes: [{ type: "shape", id: 2, preset: "rect", xfrm: { x: cm(1), y: cm(1), cx: cm(1), cy: cm(1) }, fill: { type: "solid", color: "FFFFFF" } }] }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const masterXml = await zip.file("ppt/slideMasters/slideMaster1.xml")!.async("string");
+    const layoutXml = await zip.file("ppt/slideLayouts/slideLayout1.xml")!.async("string");
+    expect(masterXml).toContain('<p:ph type="title"');
+    expect(masterXml).toContain('<p:ph type="pic"');
+    expect(layoutXml).toContain('name="Corporate Two Column"');
+    expect(layoutXml).toContain('<p:ph type="body"');
   });
 
   it("emits doughnut as <c:doughnutChart> with <c:holeSize>", async () => {

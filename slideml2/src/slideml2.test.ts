@@ -2622,6 +2622,29 @@ describe("slideml2 MVP", () => {
     expect(freeformValidation.errors.map((item) => item.code)).toContain("EMPTY_CONTAINER_COMPONENT");
   });
 
+  it("preserves child at coordinates inside freeform-group", () => {
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "freeform-at",
+        children: [{
+          id: "freeform-at.group",
+          type: "freeform-group",
+          children: [
+            { id: "freeform-at.box", type: "shape", preset: "rect", text: "Placed shape", fill: "brand.primary", color: "text.inverse", at: [2, 3, 4, 1] },
+            { id: "freeform-at.label", type: "text", text: "Placed", at: [2.2, 3.2, 3, 0.5] },
+          ],
+        }],
+      }],
+    } as never));
+    const shape = ast.slides[0]!.shapes.find((item) => item.name === "freeform-at.box");
+    const text = ast.slides[0]!.shapes.find((item) => item.name === "freeform-at.label");
+    expect(shape?.xfrm).toMatchObject({ x: 720000, y: 1080000, cx: 1440000, cy: 360000 });
+    expect(shape && "paragraphs" in shape ? shape.paragraphs[0]?.runs[0]?.text : undefined).toBe("Placed shape");
+    expect(text?.xfrm).toMatchObject({ x: 792000, y: 1152000, cx: 1080000, cy: 180000 });
+  });
+
   it("normalizes component examples with omitted child ids before tool validation", () => {
     const raw = {
       id: "example-normalize",

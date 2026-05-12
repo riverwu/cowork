@@ -126,9 +126,12 @@ agent 保留原语义并修正布局，而不是简单降级组件。
 
 局限：
 
-- fallback 是单次布局过程中的局部修正，没有完整的“修正后重新全局 measure”
-  闭环。
-- autoFit shrink 后真实字体变化没有写回 `MeasuredNode`，碰撞检测仍读旧 slot。
+- fallback 仍是单次布局过程中的局部修正，但 Stage 4 `autoFit:"shrink"` 已进入
+  同一次 child sizing 与 `measureSubtree`：文本 min-height 不再假定 shrink 后
+  一定单行，而是按 shrink 后字号下限重新估算高度，再进入碰撞检测。
+- autoFit shrink 后的估算字体变化已用于 `inkRect/visualRect`；如果 70% 字号
+  下限仍然不能容纳文本，会继续暴露为 `FALLBACK_FAILED` 或真实 ink overlap，
+  而不是被错误当作“已单行压缩成功”。
 - `DROP` 只是 warn，但可能导致业务内容丢失；当前只能靠 agent 判断其重要性。
 
 ---
@@ -284,10 +287,12 @@ slot rect，而是优先使用 `visualRect`，其次 `inkRect`，最后才回退
 overlay 大多从碰撞池排除，只有 title occlusion 和顶层 area overlap 被特判。
 因此：
 
-- `at` 文本/shape 覆盖 chart/table 正文可能漏检。
-- pointer-arrow、annotation、decorative layer 的遮挡语义没有统一模型。
-- `layer:"above"` 必须参与 overlay occlusion 检测；只有 `layer:"behind"`
-  作为背景层豁免。
+- slide-level `at/anchor/anchorTo` 与嵌套 `layer:"above"` 覆盖 flow 内容会进入
+  overlay occlusion 检测。
+- `zIndex<0` 或 `layer:"behind"` 会作为背景层豁免；低 alpha overlay 会降级为
+  `DECORATIVE_OVERLAP` info。
+- pointer-arrow、annotation 的几何语义仍然主要依赖其 `visualRect`，还没有做
+  真实矢量路径级覆盖模型。
 
 ### L4. 文本估算仍无法等同 PowerPoint
 
@@ -427,13 +432,14 @@ interface MeasuredNode {
 
 当前实现：
 
-- 已增加 `detectOverlayOcclusions`，对 slide-level `at/anchor/anchorTo/layer`
-  overlay 与 flow 内容做 `visualRect` 覆盖检测。
-- `layer:"behind"` 不进入遮挡检测。
-- 明确装饰节点走 `DECORATIVE_OVERLAP` info；普通 overlay 覆盖 flow 内容走
-  `OVERLAY_OCCLUDES_FLOW` warn/blocking。
-- 仍未实现完整 shape order / zIndex / alpha compositing 的最终渲染级排序；这
-  属于 P4 或后续更深的 artifact QA 范围。
+- 已增加 `detectOverlayOcclusions`，对 slide-level `at/anchor/anchorTo` 与嵌套
+  `layer:"above"` overlay 和 flow 内容做 `visualRect` 覆盖检测。
+- `layer:"behind"` 与 slide-level `zIndex<0` 不进入遮挡检测。
+- 明确装饰节点或低 alpha foreground overlay 走 `DECORATIVE_OVERLAP` info；
+  普通 foreground overlay 覆盖 flow 内容走 `OVERLAY_OCCLUDES_FLOW`
+  warn/blocking。
+- 仍未实现 PowerPoint 最终 shape order 与 alpha compositing 的像素级验证；
+  矢量路径级遮挡和真实渲染 artifact QA 属于 P4 或后续更深层能力。
 
 ### P3. 拆分 collision code
 

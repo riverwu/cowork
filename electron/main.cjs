@@ -158,7 +158,7 @@ async function dispatch(command, args, sender) {
     case "get_node_path": return getNodePath();
     case "run_node_script": return runNodeScript(args.script, args.cwd, args.timeoutSecs);
     case "slideml2_describe_schema": return slideml2DescribeSchema(args.components);
-    case "slideml2_create_deck": return slideml2CreateDeck(args.deckPath, args.title, args.size, args.theme, args.brand, args.themeOverride, args.validation, args.dataSources);
+    case "slideml2_create_deck": return slideml2CreateDeck(args.deckPath, args.title, args.size, args.theme, args.brand, args.themeOverride, args.validation, args.master, args.dataSources, args.references, args.footnotes);
     case "slideml2_read_deck": return slideml2ReadDeck(args.deckPath);
     case "slideml2_replace_slide": return slideml2ReplaceSlide(args.deckPath, args.slideId, args.slide);
     case "slideml2_patch_deck": return slideml2PatchDeck(args.deckPath, args.patch);
@@ -556,7 +556,7 @@ async function slideml2DescribeSchema(componentNames) {
   };
 }
 
-async function slideml2CreateDeck(deckPath, title, size, theme, brand, themeOverride, validation, dataSources) {
+async function slideml2CreateDeck(deckPath, title, size, theme, brand, themeOverride, validation, master, dataSources, references, footnotes) {
   if (!deckPath) throw new Error("slideml2_create_deck: deckPath is required");
   const m = await slideml2();
   const result = await m.createDeck(deckPath, {
@@ -566,7 +566,10 @@ async function slideml2CreateDeck(deckPath, title, size, theme, brand, themeOver
     brand: brand && typeof brand === "object" ? brand : undefined,
     themeOverride: themeOverride && typeof themeOverride === "object" ? themeOverride : undefined,
     validation: validation && typeof validation === "object" ? validation : undefined,
+    master: master && typeof master === "object" ? master : undefined,
     dataSources: dataSources && typeof dataSources === "object" ? dataSources : undefined,
+    references: Array.isArray(references) ? references : undefined,
+    footnotes: Array.isArray(footnotes) ? footnotes : undefined,
   });
   return { deckPath, ...result };
 }

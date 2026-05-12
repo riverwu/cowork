@@ -534,7 +534,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     chartType: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], required: true, description: "Chart type." },
     chart: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], description: "Alias for chartType." },
     labels: { type: "array", required: true, description: "Category labels." },
-    series: { type: "array", required: true, description: "Chart series. Series may set type:'bar'|'line' for combo, axis:'primary'|'secondary', trendLine, or errorBars." },
+    series: { type: "array", required: true, description: "Chart series. Series may set type:'bar'|'line' for combo, axis:'primary'|'secondary', trendLine, errorBars, color, lineWidth, lineDash, marker, or dataLabels." },
     data: { type: "object", description: "Optional { labels, series } alias bundle." },
     bind: { type: "object", description: "Optional deck data binding {source, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; resolves labels/series from deck.dataSources." },
     encoding: { type: "object", description: "Binding encoding: {x, y, orientation?, series?, seriesName?, seriesOptions?}. y may be a string or string[]; seriesOptions can set bar/line type, secondary axis, trendLine, and errorBars per output series. For horizontal bars, use orientation:'horizontal' or x=numeric/y=categorical." },
@@ -546,6 +546,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     showValues: { type: "boolean", description: "Show values on chart marks." },
     orientation: { type: "enum", enum: ["vertical", "horizontal"], description: "Bar-like chart orientation. Horizontal bars are useful for ranked categories with long labels." },
     dataLabels: { type: "object", description: "Optional data-label controls {show, position:'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue, showCategoryName, showSeriesName, showPercent, showLegendKey, showLeaderLines}. Pie/doughnut default to category+percent labels." },
+    xAxis: { type: "object", description: "Optional x/category axis controls {title, show, min, max, majorUnit, numberFormat, gridlines, tickLabelRotation, tickLabelPosition}." },
+    yAxis: { type: "object", description: "Optional primary value axis controls {title, show, min, max, majorUnit, numberFormat, gridlines, tickLabelRotation, tickLabelPosition}." },
+    secondaryYAxis: { type: "object", description: "Optional secondary value axis controls for series using axis:'secondary'." },
+    legend: { type: "object", description: "Optional legend controls {show, position:'bottom'|'top'|'left'|'right', overlay}." },
+    plotArea: { type: "object", description: "Manual plot-area layout factors {x,y,w,h} in 0..1." },
     positiveColor: { type: "color-ref", description: "Optional color for positive bar/stacked-bar/combo points." },
     negativeColor: { type: "color-ref", description: "Optional color for negative bar/stacked-bar/combo points. Defaults to theme danger." },
     yFormat: { type: "enum", enum: ["int", "decimal", "percent", "wanyuan", "yi"], description: "Y-axis number format." },
@@ -557,7 +562,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     title: { type: "string", description: "Optional table title." },
     headers: { type: "array", description: "Header row labels. For object rows, headers can also act as row keys when labels and keys match." },
     columns: { type: "array", description: "Alternative column definitions { key?|field?, header?|label?, width? }. Use key/field when display header differs from object row key." },
-    rows: { type: "array", required: true, description: "Table rows. Rows may be arrays, {cells:[...]}, or objects keyed by columns/header names; common aliases like Metric→label and Amount→value are tolerated. Supports cell objects with text/value/runs/footnoteRefs/fill/color/tone/bold/align/valign/colspan/rowspan; runs accepts RichInline math/cite/token." },
+    rows: { type: "array", required: true, description: "Table rows. Rows may be arrays, {cells:[...]}, or objects keyed by columns/header names; common aliases like Metric→label and Amount→value are tolerated. Supports cell objects with text/value/runs/footnoteRefs/fill/color/tone/bold/align/valign/colspan/rowspan/padding/border/textRotation; runs accepts RichInline math/cite/token." },
     data: { type: "object", description: "Optional { headers, rows } alias bundle." },
     bind: { type: "object", description: "Optional deck data binding {source, select?, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; resolves headers/rows from deck.dataSources." },
     encoding: { type: "object", description: "Binding encoding {columns:[key|{key|field,label|header,type,format,align,width}]} to choose, label, format, align, and size table columns." },
@@ -567,6 +572,12 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     tone: { type: "enum", enum: ["neutral", "brand", "tinted"], description: "Card surface tone." },
     variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Table text density. Compact is suitable for 6-8 row business tables." },
+    cellPadding: { type: "object", description: "Default cell padding in cm: number or {left/right/top/bottom}." },
+    borders: { type: "object", description: "Default table borders {color,width,dash,alpha,left?,right?,top?,bottom?}; each side may be 'none' or a border object." },
+    borderDash: { type: "enum", enum: ["solid", "dash", "dashDot", "dot"], description: "Default table border dash style." },
+    bandRows: { type: "boolean", description: "Enable/disable native banded rows." },
+    bandCols: { type: "boolean", description: "Enable native banded columns." },
+    tableStyleId: { type: "string", description: "Native OOXML table style GUID." },
     surface: { type: "object", description: "Optional surface override." },
   }, "card(stack(title?, table, caption?))", "stack"),
   component("insight-card", "One modular insight with badge/headline/detail/proof bullets. Use for a curated finding or recommendation, not generic paragraph storage; avoid filling a whole deck with repeated insight-card grids when process-flow, comparison-card, key-takeaway, chart-card, table-card, or evidence-layout better fits the slide job.", {
@@ -2223,9 +2234,13 @@ function freeformGroupNode(_slideId: string, _name: string, node: DomNode): DomN
   const mode = node.mode === "background" ? "background" : "overlay";
   const children = Array.isArray(node.children) ? node.children.map((child, index) => {
     const out = { ...child };
-    if (typeof out.anchor !== "string") out.anchor = "top-left";
-    if (typeof out.offsetX !== "number") out.offsetX = 0;
-    if (typeof out.offsetY !== "number") out.offsetY = 0;
+    const hasAbsoluteAt = Array.isArray(out.at)
+      && out.at.length === 4
+      && out.at.every((value) => typeof value === "number" && Number.isFinite(value));
+    const hasAnchorTo = typeof out.anchorTo === "string" && out.anchorTo.length > 0;
+    if (!hasAbsoluteAt && !hasAnchorTo && typeof out.anchor !== "string") out.anchor = "top-left";
+    if (!hasAbsoluteAt && typeof out.offsetX !== "number") out.offsetX = 0;
+    if (!hasAbsoluteAt && typeof out.offsetY !== "number") out.offsetY = 0;
     if (typeof out.zIndex !== "number") out.zIndex = mode === "background" ? -1 : index + 1;
     return out;
   }) : [];
@@ -2826,6 +2841,7 @@ function chartCardNode(slideId: string, name: string, node: DomNode): DomNode {
         {
           id: `${slideId}.${name}.chart`,
           type: "chart",
+          role: "chart-card",
           chartType: node.chartType || node.chart,
           labels: arrayValue(node.labels, data.labels),
           series: arrayValue(node.series, data.series),
@@ -2836,6 +2852,11 @@ function chartCardNode(slideId: string, name: string, node: DomNode): DomNode {
           positiveColor: node.positiveColor,
           negativeColor: node.negativeColor,
           yFormat: node.yFormat,
+          xAxis: node.xAxis ?? node.axis,
+          yAxis: node.yAxis,
+          secondaryYAxis: node.secondaryYAxis ?? node.secondaryAxis,
+          legend: node.legend,
+          plotArea: node.plotArea,
           colors: node.colors,
           annotations: node.annotations,
           layoutWeight: 1,
@@ -2885,6 +2906,15 @@ function tableCardNode(slideId: string, name: string, node: DomNode): DomNode {
           colWidths: node.colWidths,
           rowHeights: node.rowHeights,
           density: denseTable ? "compact" : node.density,
+          cellPadding: node.cellPadding ?? node.padding,
+          borders: node.borders ?? node.border,
+          borderDash: node.borderDash,
+          bandRows: node.bandRows,
+          bandCols: node.bandCols,
+          firstCol: node.firstCol,
+          lastCol: node.lastCol,
+          lastRow: node.lastRow,
+          tableStyleId: node.tableStyleId,
           bodyFill: cardFill,
           borderColor: node.borderColor,
           borderWidth: node.borderWidth,

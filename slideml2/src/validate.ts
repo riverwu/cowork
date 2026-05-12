@@ -36,7 +36,7 @@ import { SOURCE_VALIDATION_CODE } from "./diagnostic-codes.js";
 const RAW_HEX_RE = /^[0-9A-Fa-f]{6}$/;
 const RESERVED_LAYOUT_AREAS = new Set(["content", "full"]);
 const SOURCE_DECK_FIELD_SET = new Set(["slideml2", "deck", "slides"]);
-const DECK_FIELD_SET = new Set(["size", "theme", "themeOverride", "brand", "chrome", "validation", "dataSources", "references", "footnotes", "metadata"]);
+const DECK_FIELD_SET = new Set(["size", "theme", "themeOverride", "brand", "chrome", "validation", "master", "dataSources", "references", "footnotes", "metadata"]);
 const REQUIRED_CHILD_CONTAINERS = new Set(["stack", "grid", "split", "fragment"]);
 
 export interface ValidationIssue {
@@ -175,7 +175,7 @@ function validateSourceDeckFields(deck: Slideml2SourceDeck, issues: ValidationIs
     if (DECK_FIELD_SET.has(key)) continue;
     issues.push(issue("error", "UNKNOWN_DECK_FIELD", `deck.${key} is not a supported deck field and will be ignored.`, {
       path: `deck.${key}`,
-      suggestedFix: "Use deck.size, deck.theme, deck.brand, deck.themeOverride, deck.chrome, deck.validation, deck.dataSources, deck.references, deck.footnotes, or deck.metadata.",
+      suggestedFix: "Use deck.size, deck.theme, deck.brand, deck.themeOverride, deck.chrome, deck.validation, deck.master, deck.dataSources, deck.references, deck.footnotes, or deck.metadata.",
     }));
   }
 }

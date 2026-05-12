@@ -29,11 +29,13 @@ describe("createDeckTool argument coercion (288ryd regression)", () => {
     expect(createDeckTool.definition.description).toContain("strict");
     expect(createDeckTool.definition.parameters.properties).toHaveProperty("size");
     expect(createDeckTool.definition.parameters.properties).toHaveProperty("validation");
+    expect(createDeckTool.definition.parameters.properties).toHaveProperty("master");
     expect(createDeckTool.definition.parameters.properties).toHaveProperty("dataSources");
     expect(createDeckTool.definition.parameters.properties).toHaveProperty("references");
     expect(createDeckTool.definition.parameters.properties).toHaveProperty("footnotes");
     expect(createDeckTool.definition.description).toContain("file-csv");
     expect(createDeckTool.definition.description).toContain("bibliography");
+    expect(createDeckTool.definition.description).toContain("placeholders");
   });
 
   it("auto-parses themeOverride when it arrives as a JSON-encoded string", async () => {
@@ -70,6 +72,22 @@ describe("createDeckTool argument coercion (288ryd regression)", () => {
     expect(callArg.themeOverride?.text?.eyebrow).toMatchObject({ fontSize: 10, letterSpacing: 2 });
     expect(callArg.themeOverride?.text?.eyebrow).not.toHaveProperty("tracking");
     expect(String(result)).toContain("converted to letterSpacing");
+  });
+
+  it("converts boolean theme text bold to fontWeight before creating the deck", async () => {
+    const result = await createDeckTool.execute({
+      deckPath: "/tmp/x.json",
+      themeOverride: {
+        text: {
+          "slide-title": { fontSize: 32, bold: true },
+        },
+      },
+    });
+
+    const callArg = mock.mock.calls[0]![1] as { themeOverride?: { text?: Record<string, Record<string, unknown>> } };
+    expect(callArg.themeOverride?.text?.["slide-title"]).toMatchObject({ fontSize: 32, fontWeight: "bold" });
+    expect(callArg.themeOverride?.text?.["slide-title"]).not.toHaveProperty("bold");
+    expect(String(result)).toContain("converted to fontWeight");
   });
 
   it("rejects unsupported theme text fields before creating a bad deck", async () => {
@@ -115,6 +133,21 @@ describe("createDeckTool argument coercion (288ryd regression)", () => {
     const callArg = mock.mock.calls[0]![1] as { size?: string; validation?: Record<string, unknown> };
     expect(callArg.size).toBe("4x3");
     expect(callArg.validation).toMatchObject({ mode: "strict", requireAlt: true, requireSources: true });
+  });
+
+  it("passes master placeholders through to the native deck creator", async () => {
+    await createDeckTool.execute({
+      deckPath: "/tmp/x.json",
+      master: {
+        layout: "analysis",
+        placeholders: [{ type: "title", x: 1, y: 0.6, w: 14, h: 1 }],
+      },
+    });
+    const callArg = mock.mock.calls[0]![1] as { master?: Record<string, unknown> };
+    expect(callArg.master).toEqual({
+      layout: "analysis",
+      placeholders: [{ type: "title", x: 1, y: 0.6, w: 14, h: 1 }],
+    });
   });
 
   it("passes dataSources through to the native deck creator", async () => {

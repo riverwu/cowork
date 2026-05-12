@@ -247,6 +247,48 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(getRenderDiagnostics().filter((item) => item.code === "TRUNCATED" && item.nodeId === "autofit-ink.title")).toHaveLength(0);
   });
 
+  it("remeasures fallback-applied autoFit shrink before collision checks", () => {
+    clearRenderDiagnostics();
+    const measured = measureDeck({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "fallback-shrink",
+        layout: "freeform",
+        dom: {
+          id: "fallback-shrink.root",
+          type: "slide",
+          children: [{
+            id: "fallback-shrink.stack",
+            type: "stack",
+            at: [1, 1, 6, 2.1],
+            direction: "vertical",
+            gap: 0.05,
+            children: [
+              {
+                id: "fallback-shrink.long",
+                type: "text",
+                text: "This paragraph is intentionally long enough that the fallback ladder must shrink its measured text before the sibling below is placed.",
+                style: "paragraph",
+              },
+              {
+                id: "fallback-shrink.short",
+                type: "text",
+                text: "Below",
+                style: "label",
+              },
+            ],
+          }],
+        },
+      }],
+    });
+    const diagnostics = getRenderDiagnostics();
+    const long = measured[0]?.nodes.find((node) => node.id === "fallback-shrink.long");
+    expect(diagnostics.some((item) => item.code === "TRUNCATED" && item.nodeId === "fallback-shrink.long")).toBe(true);
+    expect(diagnostics.some((item) => item.code === "FALLBACK_FAILED" && item.nodeId === "fallback-shrink.stack")).toBe(false);
+    expect(diagnostics.some((item) => item.code === "SIBLING_INK_OVERLAP" && item.nodeId === "fallback-shrink.long")).toBe(false);
+    expect(long?.visualRect?.h).toBeLessThanOrEqual((long?.rect.h ?? 0) + 0.03);
+  });
+
   it("reports text and bullet squash diagnostics with minimum readable dimensions", () => {
     renderToAst({
       deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
@@ -402,6 +444,109 @@ describe("validation geometry and diagnostic contracts", () => {
       }],
     });
     expect(getRenderDiagnostics().some((item) => item.code === "OVERLAY_OCCLUDES_FLOW" && item.nodeId === "above-occlusion.blocker")).toBe(true);
+  });
+
+  it("reports nested layer-above overlays that cover their container flow content", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "nested-above-occlusion",
+        layout: "content",
+        dom: {
+          id: "nested-above-occlusion.root",
+          type: "slide",
+          children: [{
+            id: "nested-above-occlusion.card",
+            type: "card",
+            area: "content",
+            fill: "FFFFFF",
+            children: [
+              {
+                id: "nested-above-occlusion.text",
+                type: "text",
+                text: "Important flow content inside the card.",
+                style: "paragraph",
+              },
+              {
+                id: "nested-above-occlusion.mask",
+                type: "shape",
+                layer: "above",
+                fill: "FFFFFF",
+                line: { color: "FFFFFF", width: 0 },
+              },
+            ],
+          }],
+        },
+      }],
+    });
+    expect(getRenderDiagnostics().some((item) => item.code === "OVERLAY_OCCLUDES_FLOW" && item.nodeId === "nested-above-occlusion.mask")).toBe(true);
+  });
+
+  it("does not treat negative zIndex slide overlays as foreground occlusion", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "negative-z-overlay",
+        layout: "freeform",
+        dom: {
+          id: "negative-z-overlay.root",
+          type: "slide",
+          children: [
+            {
+              id: "negative-z-overlay.body",
+              type: "text",
+              area: "content",
+              text: "Readable flow text should not be blocked by a behind overlay.",
+              style: "paragraph",
+            },
+            {
+              id: "negative-z-overlay.backdrop",
+              type: "shape",
+              at: [1.4, 2.2, 8, 2],
+              zIndex: -1,
+              fill: "FFFFFF",
+              line: { color: "FFFFFF", width: 0 },
+            },
+          ],
+        },
+      }],
+    });
+    expect(getRenderDiagnostics().some((item) => item.code === "OVERLAY_OCCLUDES_FLOW" && item.nodeId === "negative-z-overlay.backdrop")).toBe(false);
+  });
+
+  it("downgrades low-alpha foreground overlays to decorative overlap", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "low-alpha-overlay",
+        layout: "freeform",
+        dom: {
+          id: "low-alpha-overlay.root",
+          type: "slide",
+          children: [
+            {
+              id: "low-alpha-overlay.body",
+              type: "text",
+              area: "content",
+              text: "Readable flow text can sit under a very light tint.",
+              style: "paragraph",
+            },
+            {
+              id: "low-alpha-overlay.tint",
+              type: "shape",
+              at: [1.4, 2.2, 8, 2],
+              fill: "FFFFFF",
+              fillOpacity: 0.12,
+              line: { color: "FFFFFF", width: 0 },
+            },
+          ],
+        },
+      }],
+    });
+    const diagnostics = getRenderDiagnostics();
+    const hit = diagnostics.find((item) => item.code === "DECORATIVE_OVERLAP" && item.nodeId === "low-alpha-overlay.tint");
+    expect(hit?.severity).toBe("info");
+    expect(diagnostics.some((item) => item.code === "OVERLAY_OCCLUDES_FLOW" && item.nodeId === "low-alpha-overlay.tint")).toBe(false);
   });
 
   it("reports direct slide-root sibling container overlap", () => {

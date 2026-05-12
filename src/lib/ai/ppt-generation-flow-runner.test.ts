@@ -201,6 +201,59 @@ describe("ppt generation flow runner", () => {
     expect(mocks.streamCalls).toHaveLength(9);
   });
 
+  it("can verify required source JSON and emitted PPTX XML substrings", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-substrings-${Date.now()}`);
+    await mkdir(dir, { recursive: true });
+    const deckPath = join(dir, "deck.json");
+    const outputPath = join(dir, "deck.pptx");
+    await writeFile(deckPath, JSON.stringify({
+      deck: { master: { placeholders: [{ type: "title", x: 1, y: 1, w: 10, h: 1 }] } },
+      slides: [{ transition: { type: "fade" }, children: [{ type: "shape", preset: "straightConnector", tailEnd: { type: "triangle" } }] }],
+    }));
+    await writeFile(outputPath, makeStoredZip({
+      "[Content_Types].xml": "<Types/>",
+      "ppt/slides/slide1.xml": '<p:sld><p:transition/><a:tailEnd type="triangle"/></p:sld>',
+      "ppt/slideMasters/slideMaster1.xml": '<p:ph type="title"/>',
+    }));
+
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "substring-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords: [{
+        step: 1,
+        name: "validate_render",
+        toolCallId: "call-validate",
+        input: { deckPath, outputPath, render: true },
+        success: true,
+        result: JSON.stringify({ ok: true, outputPath, diagnostics: { blockingCount: 0 } }),
+      }],
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary: {
+        toolNames: ["validate_render"],
+        replaceSlideCount: 0,
+        outputPaths: [outputPath],
+        finalValidateRender: { ok: true, outputPath, diagnostics: { blockingCount: 0 } },
+        finalText: "",
+        errors: [],
+        progressEvents: [],
+      },
+    };
+
+    const verification = await verifyPptGenerationFlow(result, {
+      requireFinalValidateRender: true,
+      requiredDeckJsonSubstrings: ["\"master\"", "\"transition\"", "\"straightConnector\""],
+      requiredPptxXmlSubstrings: ["p:transition", "tailEnd type=\"triangle\"", "p:ph type=\"title\""],
+    });
+
+    expect(verification.ok, verification.failures.join("\n")).toBe(true);
+  });
+
   it("loads a directory case, runs it, and writes complete reports under reports/", async () => {
     const caseDir = join(tmpdir(), `cowork-ppt-flow-case-${Date.now()}`);
     await mkdir(join(caseDir, "inputs"), { recursive: true });
@@ -550,4 +603,48 @@ function installMockTools(): void {
       });
     }),
   };
+}
+
+function makeStoredZip(entries: Record<string, string>): Buffer {
+  const localParts: Buffer[] = [];
+  const centralParts: Buffer[] = [];
+  let offset = 0;
+  for (const [name, text] of Object.entries(entries)) {
+    const nameBuffer = Buffer.from(name);
+    const data = Buffer.from(text);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0, 6);
+    local.writeUInt16LE(0, 8);
+    local.writeUInt32LE(0, 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(nameBuffer.length, 26);
+    localParts.push(local, nameBuffer, data);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0, 8);
+    central.writeUInt16LE(0, 10);
+    central.writeUInt32LE(0, 16);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(nameBuffer.length, 28);
+    central.writeUInt32LE(offset, 42);
+    centralParts.push(central, nameBuffer);
+
+    offset += local.length + nameBuffer.length + data.length;
+  }
+  const centralOffset = offset;
+  const central = Buffer.concat(centralParts);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(Object.keys(entries).length, 8);
+  end.writeUInt16LE(Object.keys(entries).length, 10);
+  end.writeUInt32LE(central.length, 12);
+  end.writeUInt32LE(centralOffset, 16);
+  return Buffer.concat([...localParts, central, end]);
 }

@@ -56,10 +56,30 @@ export function slideXml(slide: SlideAst, slidePart: string): SlideXml {
   const cSld = `<p:cSld>${bgXml}${spTree}</p:cSld>`;
   const clrMapOvr = `<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>`;
 
+  const transition = transitionXml(slide);
   const body = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld${SLIDE_NS}>${cSld}${clrMapOvr}</p:sld>`;
+<p:sld${SLIDE_NS}>${cSld}${clrMapOvr}${transition}</p:sld>`;
 
   return { body, rels };
+}
+
+function transitionXml(slide: SlideAst): string {
+  const t = slide.transition;
+  if (!t || t.type === "none") return "";
+  const dur = typeof t.durationMs === "number" && Number.isFinite(t.durationMs)
+    ? ` dur="${Math.max(0, Math.round(t.durationMs))}"`
+    : "";
+  const dir = t.direction === "left" ? "l" : t.direction === "right" ? "r" : t.direction === "up" ? "u" : t.direction === "down" ? "d" : undefined;
+  const dirAttr = dir ? ` dir="${dir}"` : "";
+  switch (t.type) {
+    case "push": return `<p:transition${dur}><p:push${dirAttr}/></p:transition>`;
+    case "wipe": return `<p:transition${dur}><p:wipe${dirAttr}/></p:transition>`;
+    case "split": return `<p:transition${dur}><p:split orient="horz"/></p:transition>`;
+    case "cover": return `<p:transition${dur}><p:cover${dirAttr}/></p:transition>`;
+    case "uncover": return `<p:transition${dur}><p:uncover${dirAttr}/></p:transition>`;
+    case "fade":
+    default: return `<p:transition${dur}><p:fade/></p:transition>`;
+  }
 }
 
 function backgroundXml(slide: SlideAst, rels: SlideRels): string {

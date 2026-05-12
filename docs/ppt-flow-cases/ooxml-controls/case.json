@@ -1,0 +1,40 @@
+{
+  "id": "ooxml-controls",
+  "desktopDebugLog": true,
+  "expected": {
+    "requiredTools": ["read_file", "write_file", "create_deck", "replace_slide", "validate_render"],
+    "minReplaceSlideCalls": 5,
+    "requireFinalValidateRender": true,
+    "requireProgressDone": true,
+    "requirePptxOutput": true,
+    "outputPath": "outputs/ooxml-controls.pptx",
+    "maxBlockingDiagnostics": 0,
+    "requiredDeckJsonSubstrings": [
+      "\"master\"",
+      "\"placeholders\"",
+      "\"transition\"",
+      "\"xAxis\"",
+      "\"yAxis\"",
+      "\"secondaryYAxis\"",
+      "\"legend\"",
+      "\"plotArea\"",
+      "\"marker\"",
+      "\"cellPadding\"",
+      "\"borders\"",
+      "\"tableStyleId\"",
+      "\"straightConnector\"",
+      "\"tailEnd\"",
+      "#slide5"
+    ],
+    "requiredPptxXmlSubstrings": [
+      "p:transition",
+      "p:ph type=\"title\"",
+      "straightConnector1",
+      "a:tailEnd type=\"triangle\"",
+      "ppaction://hlinksldjump",
+      "c:legendPos val=\"r\"",
+      "c:majorGridlines",
+      "c:manualLayout"
+    ]
+  }
+}

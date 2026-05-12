@@ -9,7 +9,7 @@ export const createDeckTool: Tool = {
 
 Do not call \`create_deck\` until you have saved a complete markdown planning archive, usually next to the deck as \`deck_plan.md\`, with \`write_file\`. That plan should include the deck contract, storyline, theme plan, slide-by-slide component plan, asset/icon plan, and exact icon/image/chart placements. \`create_deck\` starts implementation from that archived plan; it is not the planning step.
 
-The deck-level visual identity should be installed in this initial call via \`themeOverride\`: pass colors (\`brand.primary\`, \`background\`, \`surface\`, \`text.primary\`, \`divider\`, ...), text styles (\`slide-title\`, \`section-title\`, \`card-title\`, \`paragraph\`, \`bullet\`, \`caption\`, \`label\`, \`table-header\`, \`table-cell\`, \`metric-value\`, \`metric-label\`), component tuning (\`card\`, \`panel\`, including surface fields like \`fillOpacity\`, \`lineOpacity\`, \`shadow\`, \`gradient\`), effective layout fields (\`pageMarginX\`, \`titleTop\`, \`titleHeight\`, \`contentTop\`, \`contentBottom\`, \`defaultGap\`, \`areas\`), fonts, and chrome (\`brandMark\`, \`pageNumber\`). \`contentTop\` and \`contentBottom\` are content-area y-coordinates; on 16:9, \`contentBottom\` is usually 13.0-13.5cm and content height is \`contentBottom - contentTop\`. Use \`size\` for the canvas (\`16x9\`, \`16x10\`, \`4x3\`, or \`wide\`) and \`validation\` for \`standard\`/\`strict\`/\`experimental\` policy. Put reusable business/science data in \`dataSources\` when it is known at creation time; supported sources are inline JSON rows, inline CSV text, local \`file-csv\` paths relative to the deck JSON, and computed sources. Put reusable citations in \`references\` and deck-level footnotes in \`footnotes\` so rich \`{kind:"cite"}\`, table \`footnoteRefs\`, and \`bibliography\` can validate and auto-number. Read the slideml2 SKILL.md for the style brief structure to derive these from the source content. For business/research-report decks, also read business.md completely first; its default is light analytical pages, not a full-deck dark theme.
+The deck-level visual identity should be installed in this initial call via \`themeOverride\`: pass colors (\`brand.primary\`, \`background\`, \`surface\`, \`text.primary\`, \`divider\`, ...), text styles (\`slide-title\`, \`section-title\`, \`card-title\`, \`paragraph\`, \`bullet\`, \`caption\`, \`label\`, \`table-header\`, \`table-cell\`, \`metric-value\`, \`metric-label\`), component tuning (\`card\`, \`panel\`, including surface fields like \`fillOpacity\`, \`lineOpacity\`, \`shadow\`, \`gradient\`), effective layout fields (\`pageMarginX\`, \`titleTop\`, \`titleHeight\`, \`contentTop\`, \`contentBottom\`, \`defaultGap\`, \`areas\`), fonts, and chrome (\`brandMark\`, \`pageNumber\`). If the deck needs enterprise/template semantics, pass \`master:{layout?,placeholders?}\` here; placeholders use cm rectangles such as \`{type:"title",x,y,w,h}\` and are emitted into the OOXML master/layout. \`contentTop\` and \`contentBottom\` are content-area y-coordinates; on 16:9, \`contentBottom\` is usually 13.0-13.5cm and content height is \`contentBottom - contentTop\`. Use \`size\` for the canvas (\`16x9\`, \`16x10\`, \`4x3\`, or \`wide\`) and \`validation\` for \`standard\`/\`strict\`/\`experimental\` policy. Put reusable business/science data in \`dataSources\` when it is known at creation time; supported sources are inline JSON rows, inline CSV text, local \`file-csv\` paths relative to the deck JSON, and computed sources. Put reusable citations in \`references\` and deck-level footnotes in \`footnotes\` so rich \`{kind:"cite"}\`, table \`footnoteRefs\`, and \`bibliography\` can validate and auto-number. Read the slideml2 SKILL.md for the style brief structure to derive these from the source content. For business/research-report decks, also read business.md completely first; its default is light analytical pages, not a full-deck dark theme.
 
 After this call, add slides one at a time via \`replace_slide\` (when slideId equals current slide count, it appends). \`replace_slide\` runs per-slide validation and only commits a slide when it passes, so repair any rejected slide before authoring the next. After all slides are added, call \`validate_render({deckPath,render:true})\` once to render/export the full PPTX and run final deck QA. Use \`patch_deck\` only for focused deck-level or ordering edits, not as the normal slide authoring path.`,
     parameters: {
@@ -35,6 +35,10 @@ After this call, add slides one at a time via \`replace_slide\` (when slideId eq
         validation: {
           type: "object",
           description: "Optional deck.validation policy: {mode:'standard'|'strict'|'experimental', allowUnknownComponents?, maxTextLength?, requireAlt?, requireSources?}.",
+        },
+        master: {
+          type: "object",
+          description: "Optional deck.master contract for OOXML slide master/layout semantics, e.g. {layout:'analysis', placeholders:[{type:'title',x:0.9,y:0.55,w:14,h:1.0},{type:'body',x:0.9,y:2.0,w:14,h:10.2}]}.",
         },
         dataSources: {
           type: "object",
@@ -69,6 +73,8 @@ After this call, add slides one at a time via \`replace_slide\` (when slideId eq
     if (typeof brand === "string") return brand;
     const validation = parseMaybeJsonObject(input.validation, "validation", autoNotes);
     if (typeof validation === "string") return validation;
+    const master = parseMaybeJsonObject(input.master, "master", autoNotes);
+    if (typeof master === "string") return master;
     const dataSources = parseMaybeJsonObject(input.dataSources, "dataSources", autoNotes);
     if (typeof dataSources === "string") return dataSources;
     const references = parseMaybeJsonArray(input.references, "references", autoNotes);
@@ -89,6 +95,7 @@ After this call, add slides one at a time via \`replace_slide\` (when slideId eq
         brand: brand && typeof brand === "object" ? brand as never : undefined,
         themeOverride,
         validation: validation && typeof validation === "object" ? validation : undefined,
+        master: master && typeof master === "object" ? master as never : undefined,
         dataSources: dataSources && typeof dataSources === "object" ? dataSources : undefined,
         references: Array.isArray(references) ? references : undefined,
         footnotes: Array.isArray(footnotes) ? footnotes : undefined,
@@ -222,6 +229,18 @@ function normalizeThemeOverride(value: unknown, notes: string[]): unknown | stri
     }
 
     let style = rawStyle as Record<string, unknown>;
+    if ("bold" in style) {
+      const bold = style.bold;
+      if (typeof bold === "boolean") {
+        style = { ...style };
+        delete style.bold;
+        if (style.fontWeight == null && style.weight == null) style.fontWeight = bold ? "bold" : "normal";
+        ensureTextOut()[styleName] = style;
+        notes.push(`Note: themeOverride.text.${styleName}.bold was converted to fontWeight; use fontWeight next time.`);
+      } else {
+        return `Error: themeOverride.text.${styleName}.bold must be boolean when used. Prefer fontWeight:'bold' or weight:'bold'.`;
+      }
+    }
     if ("tracking" in style) {
       const tracking = style.tracking;
       if (typeof tracking === "number" && Number.isFinite(tracking)) {
@@ -244,7 +263,7 @@ function normalizeThemeOverride(value: unknown, notes: string[]): unknown | stri
     if (unknownKeys.length > 0) {
       return [
         `Error: unsupported themeOverride text field(s): ${unknownKeys.map((key) => `themeOverride.text.${styleName}.${key}`).join(", ")}.`,
-        "Use supported fields: fontSize, weight/fontWeight, color, lineHeight, margin, letterSpacing, fontFamily, fontFeatures, uppercase, italic.",
+        "Use supported fields: fontSize, weight/fontWeight, color, lineHeight, margin, letterSpacing, fontFamily, fontFeatures, uppercase, italic. Boolean bold is accepted as an alias and converted to fontWeight.",
       ].join("\n");
     }
   }

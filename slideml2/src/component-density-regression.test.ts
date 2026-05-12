@@ -165,6 +165,7 @@ describe("dense data component regressions from live PPT flow", () => {
     const diagnostics = allDiagnostics(slide);
     const chartFit = diagnostics.find((d) => d.code === "SQUASHED" && /Chart/.test(d.message));
     expect(chartFit, diagnostics.map((d) => `${d.code}:${d.nodeId}:${d.message}:${d.suggestion}`).join("\n")).toBeDefined();
+    expect(chartFit?.severity).toBe("error");
     expect(chartFit?.suggestion).toMatch(/4\.8x3\.0cm|60-75%|follow-up slide/i);
     expect(chartFit?.measured).toMatchObject({ minWidthCm: 4.8, minHeightCm: 3, labelCount: 5 });
   });

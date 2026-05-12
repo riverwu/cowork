@@ -129,9 +129,9 @@ export async function emitPackage(deck: DeckAst, themeOxml?: ResolvedThemeOxml):
   zip.file("ppt/theme/theme1.xml", themeXml(themeOxml));
 
   // --- Slide master + layout (single, fixed) ------------------------------
-  zip.file("ppt/slideMasters/slideMaster1.xml", slideMasterXml());
+  zip.file("ppt/slideMasters/slideMaster1.xml", slideMasterXml(deck.master));
   zip.file("ppt/slideMasters/_rels/slideMaster1.xml.rels", slideMasterRelsXml());
-  zip.file("ppt/slideLayouts/slideLayout1.xml", slideLayoutXml());
+  zip.file("ppt/slideLayouts/slideLayout1.xml", slideLayoutXml(deck.master));
   zip.file("ppt/slideLayouts/_rels/slideLayout1.xml.rels", slideLayoutRelsXml());
 
   // --- Notes master (only when at least one slide has notes) --------------
@@ -423,7 +423,8 @@ function themeXml(themeOxml?: ResolvedThemeOxml): string {
 </a:theme>`;
 }
 
-function slideMasterXml(): string {
+function slideMasterXml(master?: DeckAst["master"]): string {
+  const placeholders = placeholderShapesXml(master, 10);
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
 <p:cSld>
@@ -431,6 +432,7 @@ function slideMasterXml(): string {
 <p:spTree>
 <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
 <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+${placeholders}
 </p:spTree>
 </p:cSld>
 <p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>
@@ -451,17 +453,52 @@ function slideMasterRelsXml(): string {
 </Relationships>`;
 }
 
-function slideLayoutXml(): string {
+function slideLayoutXml(master?: DeckAst["master"]): string {
+  const placeholders = placeholderShapesXml(master, 100);
+  const layoutName = escapeForXml(master?.layout ?? "Blank");
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank" preserve="1">
-<p:cSld name="Blank">
+<p:cSld name="${layoutName}">
 <p:spTree>
 <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
 <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+${placeholders}
 </p:spTree>
 </p:cSld>
 <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
 </p:sldLayout>`;
+}
+
+function placeholderShapesXml(master: DeckAst["master"] | undefined, startId: number): string {
+  const entries = Object.entries(master?.placeholders ?? {});
+  return entries.map(([name, ph], index) => {
+    const id = startId + index;
+    const type = placeholderType(ph.type);
+    const idxAttr = ` idx="${index + 1}"`;
+    const x = Math.round(ph.x);
+    const y = Math.round(ph.y);
+    const w = Math.round(ph.w);
+    const h = Math.round(ph.h);
+    return (
+      `<p:sp>` +
+      `<p:nvSpPr><p:cNvPr id="${id}" name="${escapeForXml(name)}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="${type}"${idxAttr}/></p:nvPr></p:nvSpPr>` +
+      `<p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr>` +
+      `<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody>` +
+      `</p:sp>`
+    );
+  }).join("");
+}
+
+function placeholderType(type: "title" | "body" | "chart" | "table" | "image" | "footer" | undefined): string {
+  switch (type) {
+    case "title": return "title";
+    case "footer": return "ftr";
+    case "image": return "pic";
+    case "chart":
+    case "table":
+    case "body":
+    default: return "body";
+  }
 }
 
 function slideLayoutRelsXml(): string {

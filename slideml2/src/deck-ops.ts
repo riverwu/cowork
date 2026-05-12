@@ -13,6 +13,7 @@ export async function createDeck(deckPath: string, options: {
   brand?: DeckSpec["brand"];
   themeOverride?: DeckSpec["themeOverride"];
   validation?: DeckSpec["validation"];
+  master?: DeckSpec["master"];
   dataSources?: DeckSpec["dataSources"];
   references?: DeckSpec["references"];
   footnotes?: DeckSpec["footnotes"];

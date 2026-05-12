@@ -515,6 +515,7 @@ async function slideml2CreateDeck(
     brand: objectOrUndefined(options.brand),
     themeOverride: objectOrUndefined(options.themeOverride),
     validation: objectOrUndefined(options.validation),
+    master: objectOrUndefined(options.master),
     dataSources: objectOrUndefined(options.dataSources),
     references: Array.isArray(options.references) ? options.references : undefined,
     footnotes: Array.isArray(options.footnotes) ? options.footnotes : undefined,

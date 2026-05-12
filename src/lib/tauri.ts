@@ -520,7 +520,7 @@ export async function slideml2DescribeSchema(components?: string[]): Promise<Sli
 /** Create a fresh SlideML2 source deck JSON file. */
 export async function slideml2CreateDeck(
   deckPath: string,
-  options: { title?: string; size?: "16x9" | "16x10" | "4x3" | "wide"; theme?: string; brand?: Slideml2BrandSpec; themeOverride?: unknown; validation?: unknown; dataSources?: unknown; references?: unknown; footnotes?: unknown },
+  options: { title?: string; size?: "16x9" | "16x10" | "4x3" | "wide"; theme?: string; brand?: Slideml2BrandSpec; themeOverride?: unknown; validation?: unknown; master?: unknown; dataSources?: unknown; references?: unknown; footnotes?: unknown },
 ): Promise<Slideml2CreateDeckResult> {
   return invokeDesktop<Slideml2CreateDeckResult>("slideml2_create_deck", {
     deckPath,
@@ -530,6 +530,7 @@ export async function slideml2CreateDeck(
     brand: options.brand,
     themeOverride: options.themeOverride,
     validation: options.validation,
+    master: options.master,
     dataSources: options.dataSources,
     references: options.references,
     footnotes: options.footnotes,

@@ -15,7 +15,7 @@
  */
 
 import { assertHex } from "./xml.js";
-import type { ChartNumberFormat, ChartShape, HexColor } from "./types.js";
+import type { ChartAxisSpec, ChartDataLabels, ChartMarkerSpec, ChartNumberFormat, ChartShape, HexColor, LineSpec } from "./types.js";
 
 const NS_CHART = "http://schemas.openxmlformats.org/drawingml/2006/chart";
 const NS_DRAWING = "http://schemas.openxmlformats.org/drawingml/2006/main";
@@ -36,8 +36,9 @@ export function chartXml(shape: ChartShape): string {
   });
   if (shape.positiveColor) assertHex(shape.positiveColor, "ChartShape.positiveColor");
   if (shape.negativeColor) assertHex(shape.negativeColor, "ChartShape.negativeColor");
+  validateChartStyle(shape);
 
-  const numFmt = numberFormatCode(shape.yFormat ?? "int");
+  const numFmt = numberFormatCode(shape.yAxis?.numberFormat ?? shape.yFormat ?? "int");
   // Stable axis IDs.
   const catAxId = 100000001;
   const valAxId = 100000002;
@@ -55,10 +56,8 @@ export function chartXml(shape: ChartShape): string {
       `<c:overlay val="0"/></c:title>`
     : "";
 
-  const showLegend = shape.showLegend ?? shape.series.length > 1;
-  const legendXml = showLegend
-    ? `<c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend>`
-    : "";
+  const showLegend = shape.legend ? shape.legend.show !== false : (shape.showLegend ?? shape.series.length > 1);
+  const legendXml = legendXmlOf(shape, showLegend);
 
   let plotInner = "";
   if (shape.chartType === "bar" || shape.chartType === "stacked-bar") {
@@ -84,8 +83,8 @@ export function chartXml(shape: ChartShape): string {
   const axesXml = axisLessTypes.includes(shape.chartType)
     ? ""
     : isScatter
-      ? scatterAxesXml(catAxId, valAxId, numFmt)
-      : axesXmlOf(catAxId, valAxId, numFmt, hasSecondaryAxis ? secondaryValAxId : undefined, isHorizontalBarChart(shape) ? "horizontal" : "vertical");
+      ? scatterAxesXml(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt)
+      : axesXmlOf(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt, hasSecondaryAxis ? secondaryValAxId : undefined, shape.secondaryYAxis, isHorizontalBarChart(shape) ? "horizontal" : "vertical");
 
   // PowerPoint requires three chartSpace-level elements (date1904, lang,
   // roundedCorners) to validate strictly — without them PowerPoint shows
@@ -101,7 +100,7 @@ export function chartXml(shape: ChartShape): string {
 ${titleXml}
 <c:autoTitleDeleted val="${shape.title ? 0 : 1}"/>
 <c:plotArea>
-<c:layout/>
+${plotAreaLayoutXml(shape)}
 ${plotInner}
 ${axesXml}
 </c:plotArea>
@@ -114,6 +113,45 @@ ${legendXml}
 
 function chartSupportsSecondaryAxis(shape: ChartShape): boolean {
   return shape.chartType === "bar" || shape.chartType === "stacked-bar" || shape.chartType === "line" || shape.chartType === "area" || shape.chartType === "combo";
+}
+
+function validateChartStyle(shape: ChartShape): void {
+  for (const [idx, series] of shape.series.entries()) {
+    if (series.color) assertHex(series.color, `ChartSeries[${idx}].color`);
+    if (series.marker?.fill) assertHex(series.marker.fill, `ChartSeries[${idx}].marker.fill`);
+    if (series.marker?.line) assertHex(series.marker.line, `ChartSeries[${idx}].marker.line`);
+  }
+  for (const [label, axis] of [["xAxis", shape.xAxis], ["yAxis", shape.yAxis], ["secondaryYAxis", shape.secondaryYAxis]] as const) {
+    const grid = axis?.gridlines;
+    if (grid && typeof grid === "object" && grid.color) assertHex(grid.color, `ChartShape.${label}.gridlines.color`);
+  }
+}
+
+function legendXmlOf(shape: ChartShape, showLegend: boolean): string {
+  if (!showLegend) return "";
+  const position = shape.legend?.position ?? "bottom";
+  const pos = position === "top" ? "t" : position === "left" ? "l" : position === "right" ? "r" : "b";
+  const overlay = shape.legend?.overlay ? 1 : 0;
+  return `<c:legend><c:legendPos val="${pos}"/><c:overlay val="${overlay}"/></c:legend>`;
+}
+
+function plotAreaLayoutXml(shape: ChartShape): string {
+  const p = shape.plotArea;
+  if (!p) return `<c:layout/>`;
+  const parts: string[] = [`<c:layoutTarget val="inner"/>`];
+  const x = typeof p.x === "number" ? clampFactor(p.x) : undefined;
+  const y = typeof p.y === "number" ? clampFactor(p.y) : undefined;
+  const w = typeof p.w === "number" ? clampFactor(p.w, 0.01, x === undefined ? 1 : Math.max(0.01, 1 - x)) : undefined;
+  const h = typeof p.h === "number" ? clampFactor(p.h, 0.01, y === undefined ? 1 : Math.max(0.01, 1 - y)) : undefined;
+  if (x !== undefined) parts.push(`<c:xMode val="factor"/><c:x val="${x}"/>`);
+  if (y !== undefined) parts.push(`<c:yMode val="factor"/><c:y val="${y}"/>`);
+  if (w !== undefined) parts.push(`<c:wMode val="factor"/><c:w val="${w}"/>`);
+  if (h !== undefined) parts.push(`<c:hMode val="factor"/><c:h val="${h}"/>`);
+  return `<c:layout><c:manualLayout>${parts.join("")}</c:manualLayout></c:layout>`;
+}
+
+function clampFactor(value: number, min = 0, max = 1): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 // ---- Bar / Line / Pie chart bodies --------------------------------------
@@ -233,20 +271,20 @@ function seriesXml(
   isArea = false,
   shape?: ChartShape,
 ): string {
-  const color = colors[idx % colors.length]!;
+  const color = (s.color ? s.color.toUpperCase() : colors[idx % colors.length]!) as HexColor;
   const pointColorsXml = !isLine && !isArea ? pointColorsXmlOf(s.values, {
     positiveColor: shape?.positiveColor?.toUpperCase() as HexColor | undefined,
     negativeColor: shape?.negativeColor?.toUpperCase() as HexColor | undefined,
   }) : "";
   const linePart = isLine
-    ? `<c:spPr><a:ln w="22225"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:ln></c:spPr>` +
-      `<c:marker><c:symbol val="circle"/><c:size val="6"/><c:spPr><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></c:spPr></c:marker>`
+    ? `<c:spPr>${lineStyleXml(color, s.lineWidth, s.lineDash)}</c:spPr>` +
+      markerXml(s.marker, color)
     : isArea
       ? `<c:spPr><a:solidFill><a:srgbClr val="${color}"><a:alpha val="60000"/></a:srgbClr></a:solidFill>` +
-        `<a:ln><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:ln></c:spPr>`
+        lineStyleXml(color, s.lineWidth, s.lineDash) + `</c:spPr>`
       : `<c:spPr><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></c:spPr>`;
 
-  const dLbls = dataLabelsXmlOf({ showValues, dataLabels: shape?.dataLabels }, {
+  const dLbls = dataLabelsXmlOf({ showValues, dataLabels: s.dataLabels ?? shape?.dataLabels }, {
     position: undefined,
     showValue: true,
     showCategoryName: false,
@@ -266,9 +304,38 @@ function seriesXml(
     errorBarsXml(s) +
     catRefXml(labels) +
     valRefXml(s.values) +
-    (isLine ? `<c:smooth val="0"/>` : "") +
+    (isLine ? `<c:smooth val="${s.smooth ? 1 : 0}"/>` : "") +
     `</c:ser>`
   );
+}
+
+function lineStyleXml(color: HexColor, width?: number, dash?: LineSpec["dash"]): string {
+  const w = Math.round(width && Number.isFinite(width) && width > 0 ? width : 22225);
+  const dashXml = dash && dash !== "solid" ? `<a:prstDash val="${dash}"/>` : "";
+  return `<a:ln w="${w}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>${dashXml}</a:ln>`;
+}
+
+function markerXml(marker: ChartMarkerSpec | undefined, color: HexColor): string {
+  const symbol = marker?.symbol ?? "circle";
+  if (symbol === "none") return `<c:marker><c:symbol val="none"/></c:marker>`;
+  const size = Math.max(2, Math.min(72, Math.round(marker?.size ?? 6)));
+  const fill = (marker?.fill ?? color).toUpperCase();
+  const line = (marker?.line ?? fill).toUpperCase();
+  return (
+    `<c:marker>` +
+    `<c:symbol val="${markerSymbolXml(symbol)}"/>` +
+    `<c:size val="${size}"/>` +
+    `<c:spPr><a:solidFill><a:srgbClr val="${fill}"/></a:solidFill><a:ln><a:solidFill><a:srgbClr val="${line}"/></a:solidFill></a:ln></c:spPr>` +
+    `</c:marker>`
+  );
+}
+
+function markerSymbolXml(symbol: NonNullable<ChartMarkerSpec["symbol"]>): string {
+  switch (symbol) {
+    case "dot": return "circle";
+    case "x": return "x";
+    default: return symbol;
+  }
 }
 
 function dataLabelsXmlOf(
@@ -454,13 +521,14 @@ function scatterChartXml(
         // Fallback: derive {x,y} from labels (parsed as numbers) + values.
         : shape.labels.map((l, i) => ({ x: Number(l) || i, y: s.values[i] ?? 0 }));
       const color = colors[idx % colors.length]!;
+      const seriesColor = (s.color ? s.color.toUpperCase() : color) as HexColor;
       return (
         `<c:ser>` +
         `<c:idx val="${idx}"/>` +
         `<c:order val="${idx}"/>` +
         `<c:tx><c:v>${xmlEscapeText(s.name)}</c:v></c:tx>` +
-        `<c:spPr><a:ln w="22225"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:ln></c:spPr>` +
-        `<c:marker><c:symbol val="circle"/><c:size val="6"/><c:spPr><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></c:spPr></c:marker>` +
+        `<c:spPr>${lineStyleXml(seriesColor, s.lineWidth, s.lineDash)}</c:spPr>` +
+        markerXml(s.marker, seriesColor) +
         trendLineXml(s) +
         errorBarsXml(s) +
         `<c:xVal><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${pts.length}"/>` +
@@ -469,7 +537,7 @@ function scatterChartXml(
         `<c:yVal><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${pts.length}"/>` +
         pts.map((p, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(p.y) ? p.y : 0}</c:v></c:pt>`).join("") +
         `</c:numLit></c:yVal>` +
-        `<c:smooth val="0"/>` +
+        `<c:smooth val="${s.smooth ? 1 : 0}"/>` +
         `</c:ser>`
       );
     }).join("") +
@@ -559,28 +627,30 @@ function waterfallChartXml(
   );
 }
 
-function scatterAxesXml(xAxId: number, yAxId: number, numFmt: string): string {
+function scatterAxesXml(xAxId: number, yAxId: number, xAxis: ChartAxisSpec | undefined, yAxis: ChartAxisSpec | undefined, numFmt: string): string {
   return (
     `<c:valAx>` +
     `<c:axId val="${xAxId}"/>` +
-    `<c:scaling><c:orientation val="minMax"/></c:scaling>` +
-    `<c:delete val="0"/>` +
+    scalingXml(xAxis) +
+    `<c:delete val="${xAxis?.show === false ? 1 : 0}"/>` +
     `<c:axPos val="b"/>` +
-    `<c:numFmt formatCode="General" sourceLinked="1"/>` +
-    `<c:majorTickMark val="out"/>` +
-    `<c:minorTickMark val="none"/>` +
-    `<c:tickLblPos val="nextTo"/>` +
+    axisTitleXml(xAxis) +
+    axisGridlinesXml(xAxis) +
+    `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(xAxis?.numberFormat ?? "General"))}" sourceLinked="${xAxis?.numberFormat ? 0 : 1}"/>` +
+    axisTicksXml(xAxis) +
+    axisTextXml(xAxis) +
     `<c:crossAx val="${yAxId}"/>` +
     `</c:valAx>` +
     `<c:valAx>` +
     `<c:axId val="${yAxId}"/>` +
-    `<c:scaling><c:orientation val="minMax"/></c:scaling>` +
-    `<c:delete val="0"/>` +
+    scalingXml(yAxis) +
+    `<c:delete val="${yAxis?.show === false ? 1 : 0}"/>` +
     `<c:axPos val="l"/>` +
-    `<c:numFmt formatCode="${numFmt}" sourceLinked="0"/>` +
-    `<c:majorTickMark val="out"/>` +
-    `<c:minorTickMark val="none"/>` +
-    `<c:tickLblPos val="nextTo"/>` +
+    axisTitleXml(yAxis) +
+    axisGridlinesXml(yAxis) +
+    `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(yAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` +
+    axisTicksXml(yAxis) +
+    axisTextXml(yAxis) +
     `<c:crossAx val="${xAxId}"/>` +
     `</c:valAx>`
   );
@@ -590,41 +660,117 @@ function isHorizontalBarChart(shape: ChartShape): boolean {
   return shape.orientation === "horizontal" && (shape.chartType === "bar" || shape.chartType === "stacked-bar");
 }
 
-function axesXmlOf(catAxId: number, valAxId: number, numFmt: string, secondaryValAxId?: number, orientation: "vertical" | "horizontal" = "vertical"): string {
+function axesXmlOf(
+  catAxId: number,
+  valAxId: number,
+  xAxis: ChartAxisSpec | undefined,
+  yAxis: ChartAxisSpec | undefined,
+  numFmt: string,
+  secondaryValAxId?: number,
+  secondaryYAxis?: ChartAxisSpec,
+  orientation: "vertical" | "horizontal" = "vertical",
+): string {
   const horizontal = orientation === "horizontal";
   return (
     `<c:catAx>` +
     `<c:axId val="${catAxId}"/>` +
-    `<c:scaling><c:orientation val="minMax"/></c:scaling>` +
-    `<c:delete val="0"/>` +
+    scalingXml(xAxis) +
+    `<c:delete val="${xAxis?.show === false ? 1 : 0}"/>` +
     `<c:axPos val="${horizontal ? "l" : "b"}"/>` +
+    axisTitleXml(xAxis) +
+    axisGridlinesXml(xAxis) +
+    axisTicksXml(xAxis) +
+    axisTextXml(xAxis) +
     `<c:crossAx val="${valAxId}"/>` +
     `</c:catAx>` +
     `<c:valAx>` +
     `<c:axId val="${valAxId}"/>` +
-    `<c:scaling><c:orientation val="minMax"/></c:scaling>` +
-    `<c:delete val="0"/>` +
+    scalingXml(yAxis) +
+    `<c:delete val="${yAxis?.show === false ? 1 : 0}"/>` +
     `<c:axPos val="${horizontal ? "b" : "l"}"/>` +
-    `<c:numFmt formatCode="${numFmt}" sourceLinked="0"/>` +
-    `<c:majorTickMark val="out"/>` +
-    `<c:minorTickMark val="none"/>` +
-    `<c:tickLblPos val="nextTo"/>` +
+    axisTitleXml(yAxis) +
+    axisGridlinesXml(yAxis) +
+    `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(yAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` +
+    axisUnitXml(yAxis) +
+    axisTicksXml(yAxis) +
+    axisTextXml(yAxis) +
     `<c:crossAx val="${catAxId}"/>` +
     `</c:valAx>` +
     (secondaryValAxId ? (
       `<c:valAx>` +
       `<c:axId val="${secondaryValAxId}"/>` +
-      `<c:scaling><c:orientation val="minMax"/></c:scaling>` +
-      `<c:delete val="0"/>` +
+      scalingXml(secondaryYAxis) +
+      `<c:delete val="${secondaryYAxis?.show === false ? 1 : 0}"/>` +
       `<c:axPos val="${horizontal ? "t" : "r"}"/>` +
-      `<c:numFmt formatCode="${numFmt}" sourceLinked="0"/>` +
-      `<c:majorTickMark val="out"/>` +
-      `<c:minorTickMark val="none"/>` +
-      `<c:tickLblPos val="nextTo"/>` +
+      axisTitleXml(secondaryYAxis) +
+      axisGridlinesXml(secondaryYAxis) +
+      `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(secondaryYAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` +
+      axisUnitXml(secondaryYAxis) +
+      axisTicksXml(secondaryYAxis) +
+      axisTextXml(secondaryYAxis) +
       `<c:crossAx val="${catAxId}"/>` +
       `</c:valAx>`
     ) : "")
   );
+}
+
+function scalingXml(axis: ChartAxisSpec | undefined): string {
+  const parts = [`<c:orientation val="minMax"/>`];
+  if (typeof axis?.min === "number" && Number.isFinite(axis.min)) parts.push(`<c:min val="${axis.min}"/>`);
+  if (typeof axis?.max === "number" && Number.isFinite(axis.max)) parts.push(`<c:max val="${axis.max}"/>`);
+  return `<c:scaling>${parts.join("")}</c:scaling>`;
+}
+
+function axisUnitXml(axis: ChartAxisSpec | undefined): string {
+  let out = "";
+  if (typeof axis?.majorUnit === "number" && Number.isFinite(axis.majorUnit) && axis.majorUnit > 0) out += `<c:majorUnit val="${axis.majorUnit}"/>`;
+  if (typeof axis?.minorUnit === "number" && Number.isFinite(axis.minorUnit) && axis.minorUnit > 0) out += `<c:minorUnit val="${axis.minorUnit}"/>`;
+  return out;
+}
+
+function axisTicksXml(axis: ChartAxisSpec | undefined): string {
+  const major = axis?.majorTickMark ?? "out";
+  const minor = axis?.minorTickMark ?? "none";
+  const tick = axis?.tickLabelPosition ?? "nextTo";
+  return `<c:majorTickMark val="${tickMarkXml(major)}"/><c:minorTickMark val="${tickMarkXml(minor)}"/><c:tickLblPos val="${tick}"/>`;
+}
+
+function tickMarkXml(value: NonNullable<ChartAxisSpec["majorTickMark"]>): string {
+  return value === "in" ? "in" : value === "cross" ? "cross" : value === "none" ? "none" : "out";
+}
+
+function axisTextXml(axis: ChartAxisSpec | undefined): string {
+  if (typeof axis?.tickLabelRotation !== "number") return "";
+  const rot = Math.round(-axis.tickLabelRotation * 60000);
+  return `<c:txPr><a:bodyPr rot="${rot}"/><a:lstStyle/><a:p><a:pPr/><a:endParaRPr lang="en-US"/></a:p></c:txPr>`;
+}
+
+function axisTitleXml(axis: ChartAxisSpec | undefined): string {
+  if (!axis?.title) return "";
+  return (
+    `<c:title><c:tx><c:rich>` +
+    `<a:bodyPr rot="0" spcFirstLastPara="1" vertOverflow="ellipsis" wrap="square" anchor="ctr" anchorCtr="1"/>` +
+    `<a:lstStyle/><a:p><a:pPr algn="ctr"><a:defRPr sz="1000" b="1"/></a:pPr>` +
+    `<a:r><a:rPr lang="en-US" sz="1000" b="1"/><a:t>${xmlEscapeText(axis.title)}</a:t></a:r>` +
+    `</a:p></c:rich></c:tx><c:layout/><c:overlay val="0"/></c:title>`
+  );
+}
+
+function axisGridlinesXml(axis: ChartAxisSpec | undefined): string {
+  const grid = axis?.gridlines;
+  if (!grid) return "";
+  const showMajor = typeof grid === "boolean" ? grid : grid.major !== false;
+  const showMinor = typeof grid === "object" && grid.minor === true;
+  const line = typeof grid === "object" ? gridlineSpPrXml(grid) : "";
+  return (showMajor ? `<c:majorGridlines>${line}</c:majorGridlines>` : "") +
+    (showMinor ? `<c:minorGridlines>${line}</c:minorGridlines>` : "");
+}
+
+function gridlineSpPrXml(grid: Exclude<ChartAxisSpec["gridlines"], boolean | undefined>): string {
+  const color = (grid.color ?? "D9D9D9").toUpperCase();
+  const width = Math.round(grid.width ?? 6350);
+  const dash = grid.dash && grid.dash !== "solid" ? `<a:prstDash val="${grid.dash}"/>` : "";
+  return `<c:spPr><a:ln w="${width}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill>${dash}</a:ln></c:spPr>`;
 }
 
 /**
@@ -649,13 +795,15 @@ function axesXmlOf(catAxId: number, valAxId: number, numFmt: string, secondaryVa
  *   be expressed in 万元 (i.e. 8230 not 82_300_000). Same convention for
  *   `yi`. This matches how Chinese finance decks talk about numbers.
  */
-function numberFormatCode(format: ChartNumberFormat): string {
+function numberFormatCode(format: ChartNumberFormat | string): string {
   switch (format) {
     case "int":     return "0";
     case "decimal": return "0.0";
     case "percent": return "0%";
     case "wanyuan": return "#,##0&quot;万&quot;";
     case "yi":      return "0.0&quot;亿&quot;";
+    case "General": return "General";
+    default: return format;
   }
 }
 
@@ -667,6 +815,14 @@ function numberFormatCode(format: ChartNumberFormat): string {
 function xmlEscapeText(s: string): string {
   return s
     .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function formatCodeAttr(s: string): string {
+  return s
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")

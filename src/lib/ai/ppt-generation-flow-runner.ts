@@ -1,5 +1,6 @@
 import * as nodePath from "node:path";
 import * as nodeFs from "node:fs";
+import { inflateRawSync } from "node:zlib";
 import { runAgent, type ActiveSkill, type ContextManifest } from "./agent";
 import { DebugLogger } from "./debug-log";
 import type { LLMMessage, ToolCall, ToolDefinition } from "./providers/types";
@@ -93,6 +94,8 @@ export interface PptGenerationFlowExpectations {
   requirePptxOutput?: boolean;
   outputPath?: string;
   maxBlockingDiagnostics?: number;
+  requiredDeckJsonSubstrings?: string[];
+  requiredPptxXmlSubstrings?: string[];
 }
 
 export interface PptGenerationFlowToolRecord {
@@ -289,6 +292,38 @@ export async function verifyPptGenerationFlow(
       failures.push("No PPTX output path was captured.");
     } else if (!await pathExists(outputPath)) {
       failures.push(`PPTX output does not exist: ${outputPath}`);
+    }
+  }
+
+  if (expectations.requiredDeckJsonSubstrings?.length) {
+    const deckPath = finalValidateDeckPath(result.toolRecords);
+    if (!deckPath) {
+      failures.push("No final validate_render deckPath was captured for deck JSON substring checks.");
+    } else {
+      try {
+        const deckJson = await nodeFs.promises.readFile(deckPath, "utf8");
+        for (const needle of expectations.requiredDeckJsonSubstrings) {
+          if (!deckJson.includes(needle)) failures.push(`Deck JSON is missing required substring: ${needle}`);
+        }
+      } catch (err) {
+        failures.push(`Could not read deck JSON for substring checks at ${deckPath}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  if (expectations.requiredPptxXmlSubstrings?.length) {
+    const outputPath = expectedOutputPath || finalOutputPath || summary.outputPaths.find((path) => /\.pptx$/i.test(path));
+    if (!outputPath) {
+      failures.push("No PPTX output path was captured for PPTX XML substring checks.");
+    } else {
+      try {
+        const xml = await pptxXmlCorpus(outputPath);
+        for (const needle of expectations.requiredPptxXmlSubstrings) {
+          if (!xml.includes(needle)) failures.push(`PPTX XML is missing required substring: ${needle}`);
+        }
+      } catch (err) {
+        failures.push(`Could not inspect PPTX XML at ${outputPath}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 
@@ -1546,6 +1581,67 @@ function blockingDiagnosticsCount(value: Record<string, unknown> | undefined): n
 
 function finalValidateOutputPath(value: Record<string, unknown> | undefined): string | undefined {
   return typeof value?.outputPath === "string" ? value.outputPath : undefined;
+}
+
+function finalValidateDeckPath(toolRecords: PptGenerationFlowToolRecord[]): string | undefined {
+  for (let index = toolRecords.length - 1; index >= 0; index--) {
+    const record = toolRecords[index]!;
+    if (record.name !== "validate_render" || record.success !== true) continue;
+    const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
+    if (input.render === false) continue;
+    return typeof input.deckPath === "string" ? input.deckPath : undefined;
+  }
+  return undefined;
+}
+
+async function pptxXmlCorpus(outputPath: string): Promise<string> {
+  const buffer = await nodeFs.promises.readFile(outputPath);
+  return zipTextEntries(buffer)
+    .filter((entry) => entry.name.endsWith(".xml") || entry.name.endsWith(".rels"))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((entry) => entry.text)
+    .join("\n");
+}
+
+function zipTextEntries(buffer: Buffer): Array<{ name: string; text: string }> {
+  const eocdOffset = findZipEndOfCentralDirectory(buffer);
+  if (eocdOffset < 0) throw new Error("not a ZIP/PPTX file: end of central directory was not found");
+  const entryCount = buffer.readUInt16LE(eocdOffset + 10);
+  let offset = buffer.readUInt32LE(eocdOffset + 16);
+  const out: Array<{ name: string; text: string }> = [];
+  for (let index = 0; index < entryCount; index++) {
+    if (buffer.readUInt32LE(offset) !== 0x02014b50) throw new Error(`invalid ZIP central directory at offset ${offset}`);
+    const method = buffer.readUInt16LE(offset + 10);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const localHeaderOffset = buffer.readUInt32LE(offset + 42);
+    const name = buffer.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
+    offset += 46 + nameLength + extraLength + commentLength;
+    if (!name.endsWith(".xml") && !name.endsWith(".rels")) continue;
+    if (buffer.readUInt32LE(localHeaderOffset) !== 0x04034b50) throw new Error(`invalid ZIP local header for ${name}`);
+    const localNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+    const dataOffset = localHeaderOffset + 30 + localNameLength + localExtraLength;
+    const compressed = buffer.subarray(dataOffset, dataOffset + compressedSize);
+    const raw = method === 0
+      ? compressed
+      : method === 8
+        ? inflateRawSync(compressed)
+        : undefined;
+    if (!raw) throw new Error(`unsupported ZIP compression method ${method} for ${name}`);
+    out.push({ name, text: raw.toString("utf8") });
+  }
+  return out;
+}
+
+function findZipEndOfCentralDirectory(buffer: Buffer): number {
+  const minOffset = Math.max(0, buffer.length - 0xffff - 22);
+  for (let offset = buffer.length - 22; offset >= minOffset; offset--) {
+    if (buffer.readUInt32LE(offset) === 0x06054b50) return offset;
+  }
+  return -1;
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> | undefined {

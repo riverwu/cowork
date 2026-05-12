@@ -192,7 +192,8 @@ function runXml(run: TextRun, isLast: boolean, rels?: RunRels): string {
   let hlinkXml = "";
   if (run.hyperlink && rels) {
     const rId = rels.addHyperlink(run.hyperlink);
-    hlinkXml = `<a:hlinkClick xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${rId}"/>`;
+    const action = isInternalSlideLink(run.hyperlink) ? ` action="ppaction://hlinksldjump"` : "";
+    hlinkXml = `<a:hlinkClick xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${rId}"${action}/>`;
   }
 
   // OOXML CT_TextCharacterProperties order:
@@ -208,4 +209,8 @@ function runXml(run: TextRun, isLast: boolean, rels?: RunRels): string {
   const text = `<a:t xml:space="preserve">${escapeText(run.text)}</a:t>`;
 
   return `<a:r>${rPr}${text}</a:r>${softBreak}`;
+}
+
+function isInternalSlideLink(target: string): boolean {
+  return /^#?slide\d+$/i.test(target.trim()) || /^slide:\d+$/i.test(target.trim());
 }

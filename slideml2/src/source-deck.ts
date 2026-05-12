@@ -11,6 +11,7 @@ export function createSourceDeck(options: {
   brand?: { name?: string; primary?: string; logo?: string };
   themeOverride?: DeckSpec["themeOverride"];
   validation?: DeckSpec["validation"];
+  master?: DeckSpec["master"];
   dataSources?: DeckSpec["dataSources"];
   references?: DeckSpec["references"];
   footnotes?: DeckSpec["footnotes"];
@@ -23,6 +24,7 @@ export function createSourceDeck(options: {
       brand: options.brand || { name: options.title, primary: "2563EB" },
       themeOverride: options.themeOverride,
       validation: options.validation,
+      master: options.master,
       dataSources: options.dataSources,
       references: options.references,
       footnotes: options.footnotes,
@@ -45,6 +47,7 @@ export function sourceToRenderedDeck(source: Slideml2SourceDeck, options: DataBi
       theme: source.deck.theme || "default",
       brand: source.deck.brand || {},
       themeOverride,
+      master: source.deck.master,
     },
     slides: source.slides.flatMap((slide) => expandArticleSlide(slide, pageWeight)).map(sourceSlideToRendered),
   };
@@ -83,6 +86,7 @@ export function sourceSlideToRendered(slide: SlideV2): RenderedSlide {
       type: "slide",
       background: resolveSlideBackground(slide),
       notes: slide.notes,
+      transition: (slide as unknown as { transition?: unknown }).transition,
       children: [
         ...(shouldInjectSlideTitle ? [{
           id: `${slide.id}.title`,

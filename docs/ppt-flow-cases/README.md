@@ -11,6 +11,7 @@ After running a case, do not make a case-specific workaround just to make that c
 - User-facing intent: topic, audience, style, required input files, output target, and quality expectations.
 - Domain requirements: desired slide count range, content coverage, visual richness, formulas, tables, citations, or diagrams when they are part of the user request.
 - Verification expectations: required workflow tools, final PPTX existence, final render validation, and blocking diagnostic thresholds.
+- Capability verification: cases may assert required substrings in the source deck JSON or final PPTX XML when the goal is to prove a public SlideML/OOXML capability is actually used and emitted.
 - Input assets: markdown, data files, images, PDFs, or other source material that a real user would provide.
 
 ## What A Case Must Not Contain
