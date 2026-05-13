@@ -13,6 +13,7 @@ import type { DomNode, NodeType } from "./types.js";
 import type { AgentSurface, DecorationMarkerInput } from "./components.js";
 import { latexToMathText, richRunsPlainText } from "./m3-rich-inline.js";
 import { normalizeStrokeCm } from "./units.js";
+import { rectFromAbsoluteRectSpec, rectFromNodeBoxFields, rectFromNodePlacement } from "./layout/geometry.js";
 
 export type ComponentName =
   | "deck-title"
@@ -184,6 +185,25 @@ const PRIMITIVE_COMPONENT_TYPES = ["stack", "grid", "split", "spacer", "divider"
 type PrimitiveComponentType = typeof PRIMITIVE_COMPONENT_TYPES[number];
 
 const EXAMPLE_IMAGE_DATA_URL = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iMTIwIj48cmVjdCB3aWR0aD0iMjQwIiBoZWlnaHQ9IjEyMCIgZmlsbD0iIzI1NjNFQiIvPjwvc3ZnPg==";
+const COMPONENT_SCALE_FIELD: PropDefinition = {
+  type: "number",
+  min: 0.82,
+  max: 1,
+  description: "Optional component-local scale. Accepts number 0.82-1.0 or presets 'sm' (0.92) / 'xs' (0.85). Use for mild capacity pressure before removing content; does not change the component's semantic role.",
+};
+const SCALABLE_COMPONENTS = new Set<string>([
+  "process-flow",
+  "timeline",
+  "feature-card",
+  "comparison-card",
+  "metric-card",
+  "kpi-grid",
+  "stat-strip",
+  "equation",
+  "code-block",
+  "table-card",
+  "donut-summary",
+]);
 
 export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   textComponent("deck-title", "Deck-level title for covers and section openers. Use when the title itself is the dominant semantic object, not for normal slide headings.", "deck-title"),
@@ -849,7 +869,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     ticks: { type: "number", description: "Number of tick marks (default 5, min 2)." },
     tone: { type: "enum", enum: ["brand", "neutral"], description: "Line color tone." },
   }, "stack(ticks, baseline, labels)", "stack"),
-  containerComponent("freeform-group", "Slide-level composition group for anchored overlays. Use when a cover, section opener, annotation layer, or editorial page needs several independently positioned objects without abandoning validation. Children should set anchor/offsetX/offsetY/width/height/zIndex; the component expands them as direct slide children.", {
+  containerComponent("freeform-group", "Slide-level composition group for anchored overlays. Use when a cover, section opener, annotation layer, or editorial page needs several independently positioned objects without abandoning validation. Children should set at:[x,y,w,h], x/y/w/h, or anchor/offsetX/offsetY/width/height/zIndex; the component expands them as direct slide children.", {
     mode: { type: "enum", enum: ["overlay", "background"], description: "overlay (default) keeps authored zIndex; background defaults child zIndex to -1." },
   }, "fragment(children as slide-level overlays)", "stack", true),
   component("cover-composition", "Editorial cover layout: optional full-bleed visual/background, decorative motif, dominant title lockup, and optional hero stat. Use instead of loose deck-title/text nodes when a cover needs richer composition.", {
@@ -858,6 +878,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     eyebrow: { type: "string", description: "Optional kicker." },
     visual: { type: "object", description: "Optional {src, fit:'cover'|'contain', anchor?, width?, height?, offsetX?, offsetY?, opacity?, scrimOpacity?} background or hero image. Omitting geometry makes it full-bleed." },
     heroStat: { type: "object", description: "Optional {value,label,caption,tone} hero stat." },
+    content: { type: "array", description: "Optional rich runs or {runs:[...]} supporting cover copy; links are preserved." },
     tone: { type: "enum", enum: ["neutral", "inverse", "brand"], description: "Text tone. Use inverse on dark/image backgrounds." },
     decor: { type: "enum", enum: ["none", "grid", "shapes"], description: "Optional background decoration." },
     titleSize: { type: "enum", enum: ["deck-title", "slide-title", "section-title"], description: "Optional title scale override. Long cover titles auto-downgrade to slide-title." },
@@ -946,14 +967,17 @@ export function describeComponents(names: readonly string[]): DescribeComponents
 
 function withUsabilityGuidance<T extends ComponentDescription>(name: string, desc: T): T {
   const guidance = componentUsabilityGuidance(name);
-  return guidance.length ? { ...desc, guidance } : desc;
+  const scaled = SCALABLE_COMPONENTS.has(name)
+    ? { ...desc, fields: { ...desc.fields, scale: COMPONENT_SCALE_FIELD } }
+    : desc;
+  return guidance.length ? { ...scaled, guidance } : scaled;
 }
 
 function componentUsabilityGuidance(name: string): string[] {
   switch (name) {
     case "chart-card":
       return [
-        "Reserve a real chart body: bar/line/combo charts need roughly >=4.8x3.0cm inside the card; pie/doughnut with labels/legend need roughly >=5.2x4.4cm before title/caption chrome.",
+        "Reserve a real chart body: bar/line/combo charts need roughly >=4.8x3.0cm inside the card; pie/doughnut with labels/legend need roughly >=5.2x4.4cm before title/caption chrome. For full-width line/area/combo/scatter charts, keep the chart body from becoming overly flat; multi-series charts with axes/legend usually need a body aspect ratio below about 4.5:1.",
         "Give the chart full width or about 60-75% of a split/chart-with-rail/evidence-layout region; move KPI/table/commentary to a rail or follow-up slide before changing component.",
         "After body area is adequate, reduce categories/series/legend/label density. Pie/doughnut charts must keep slice labels/dataLabels visible.",
       ];
@@ -966,28 +990,33 @@ function componentUsabilityGuidance(name: string): string[] {
     case "kpi-grid":
     case "stat-strip":
       return [
-        "Short labels and 2-6 metrics work best; reduce metrics per row or widen the metric region before replacing numbers with prose cards.",
+        "Short labels and 2-6 metrics work best; use scale:'sm' only for mild pressure, reduce metrics per row or widen the metric region before replacing numbers with prose cards.",
         "Use stat-strip for a tighter supporting row and kpi-grid for headline metric cards.",
       ];
     case "code-block":
       return [
         "Long required code should paginate across code-blocks/slides; maxLines is only for intentional excerpts.",
-        "Use columns:2/3, density:'tiny', and smaller readable fontSize before truncating.",
+        "Use columns:2/3, density:'tiny', scale:'sm', and smaller readable fontSize before truncating.",
       ];
     case "equation":
       return [
-        "Display math respects deck typography; use size/fontSize for dense formula grids.",
+        "Display math respects deck typography; use size:'sm', scale:'sm', or fontSize for dense formula grids.",
         "Split derivation steps across slides before converting equations to plain text/screenshots.",
       ];
     case "process-flow":
       return [
-        "Horizontal rich flows work best with 2-3 stages; use vertical direction or split slides for rich 4+ stages.",
+        "Horizontal rich flows work best with 2-3 stages; use scale:'sm' for mild pressure, vertical direction, or split slides for rich 4+ stages.",
         "Reduce per-step body/bullets and increase component area before changing away from process-flow.",
       ];
     case "donut-summary":
       return [
         "Reserve about 5x4cm for the donut ring plus legend; do not stack it with a long table or fact-list in a shallow region.",
         "Use it for one dominant share story. Reduce minor slices or move interpretation to a rail/follow-up slide before replacing the component.",
+      ];
+    case "image-card":
+      return [
+        "Match the image-card frame to the source aspect ratio when the visual must be inspected; avoid fit:'fill' unless distortion is intentional.",
+        "Use fit:'contain' for screenshots/diagrams, fit:'cover' for editorial photos with intentional crop, and move caption/insight to a rail before shrinking the image area.",
       ];
     case "evidence-layout":
     case "chart-with-rail":
@@ -1848,8 +1877,8 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     return withComponentRoot(node, mainEffectComparisonNode(slideId, name, node));
   }
   if (componentName === "two-column") {
-    const left = node.left && typeof node.left === "object" ? node.left as DomNode : { id: `${slideId}.${name}.left.empty`, type: "spacer" };
-    const right = node.right && typeof node.right === "object" ? node.right as DomNode : { id: `${slideId}.${name}.right.empty`, type: "spacer" };
+    const left = twoColumnRegion(slideId, name, "left", node.left);
+    const right = twoColumnRegion(slideId, name, "right", node.right);
     return withComponentRoot(node, {
       id: `${slideId}.${name}`,
       type: "split",
@@ -1975,6 +2004,36 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
   return withComponentRoot(node, { id: node.id, type: "stack", direction: "vertical", children: [] });
 }
 
+function twoColumnRegion(slideId: string, name: string, side: "left" | "right", raw: unknown): DomNode {
+  const fallback = `${slideId}.${name}.${side}`;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { id: `${fallback}.empty`, type: "spacer" };
+  const rec = raw as DomNode;
+  if (typeof rec.type === "string" && rec.type) return normalizeEmbeddedNode(rec, fallback);
+  if (Array.isArray(rec.children)) {
+    return {
+      id: typeof rec.id === "string" && rec.id ? rec.id : fallback,
+      type: "stack",
+      direction: rec.direction === "horizontal" ? "horizontal" : "vertical",
+      gap: typeof rec.gap === "number" && Number.isFinite(rec.gap) ? rec.gap : 0.35,
+      children: rec.children.map((child, index) => normalizeEmbeddedNode(child as DomNode, `${fallback}.${index + 1}`)),
+    };
+  }
+  return { id: fallback, type: "stack", direction: "vertical", children: [normalizeEmbeddedNode(rec, `${fallback}.content`)] };
+}
+
+function normalizeEmbeddedNode(raw: DomNode, fallbackId: string): DomNode {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { id: fallbackId, type: "text", text: "" };
+  const id = typeof raw.id === "string" && raw.id ? raw.id : fallbackId;
+  const children = Array.isArray(raw.children)
+    ? raw.children.map((child, index) => normalizeEmbeddedNode(child as DomNode, `${id}.${index + 1}`))
+    : raw.children;
+  return {
+    ...raw,
+    id,
+    children,
+  };
+}
+
 function primitiveComponentDescriptions(): ComponentDescription[] {
   return PRIMITIVE_COMPONENT_TYPES.map((type) => primitiveComponentDescription(type)).filter((item): item is ComponentDescription => Boolean(item));
 }
@@ -2026,11 +2085,59 @@ function withComponentRoot(source: DomNode, expanded: DomNode): DomNode {
   const styled = Object.keys(typography).length > 0
     ? applyTypographyOverrides(expanded, typography)
     : expanded;
+  const componentName = getComponentName(source);
+  const scale = SCALABLE_COMPONENTS.has(componentName) ? componentScaleFactor(source.scale) : 1;
+  const scaled = scale < 0.999 ? applyComponentScale(styled, scale) : styled;
   return {
-    ...styled,
+    ...scaled,
     ...layoutProps(source),
     id: source.id || expanded.id,
   };
+}
+
+function componentScaleFactor(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0.82, Math.min(1, value));
+  if (typeof value !== "string") return 1;
+  switch (value.trim().toLowerCase()) {
+    case "xs": return 0.85;
+    case "sm":
+    case "small": return 0.92;
+    case "md":
+    case "default":
+    case "normal": return 1;
+    default: return 1;
+  }
+}
+
+function applyComponentScale(node: DomNode, scale: number): DomNode {
+  const dimensionKeys = [
+    "fixedWidth",
+    "fixedHeight",
+    "minWidth",
+    "minHeight",
+    "maxWidth",
+    "maxHeight",
+    "width",
+    "height",
+    "gap",
+    "padding",
+    "cornerRadius",
+    "lineWidth",
+    "thickness",
+    "offsetX",
+    "offsetY",
+  ];
+  const next: DomNode = { ...node };
+  for (const key of dimensionKeys) {
+    const value = next[key];
+    if (typeof value === "number" && Number.isFinite(value)) next[key] = Math.max(0, value * scale);
+  }
+  if (next.type === "text" || next.type === "bullets" || next.type === "table") {
+    const existing = typeof next.fontScale === "number" && Number.isFinite(next.fontScale) ? next.fontScale : 1;
+    next.fontScale = existing * scale;
+  }
+  if (Array.isArray(next.children)) next.children = next.children.map((child) => applyComponentScale(child, scale));
+  return next;
 }
 
 function typographyProps(node: DomNode): Record<string, unknown> {
@@ -2236,9 +2343,8 @@ function freeformGroupNode(_slideId: string, _name: string, node: DomNode): DomN
   const mode = node.mode === "background" || inferredBackground ? "background" : "overlay";
   const children = Array.isArray(node.children) ? node.children.map((child, index) => {
     const out = { ...child };
-    const hasAbsoluteAt = Array.isArray(out.at)
-      && out.at.length === 4
-      && out.at.every((value) => typeof value === "number" && Number.isFinite(value));
+    normalizeFreeformAbsoluteRect(out);
+    const hasAbsoluteAt = Boolean(rectFromNodePlacement(out));
     const hasAnchorTo = typeof out.anchorTo === "string" && out.anchorTo.length > 0;
     if (!hasAbsoluteAt && !hasAnchorTo && typeof out.anchor !== "string") out.anchor = "top-left";
     if (mode === "background" && !hasAbsoluteAt && !hasAnchorTo && out.fillSlide !== false && typeof out.width !== "number" && typeof out.height !== "number") {
@@ -2250,6 +2356,12 @@ function freeformGroupNode(_slideId: string, _name: string, node: DomNode): DomN
     return out;
   }) : [];
   return { id: node.id, type: "fragment", children };
+}
+
+function normalizeFreeformAbsoluteRect(node: DomNode): void {
+  if (rectFromAbsoluteRectSpec(node.at)) return;
+  const rect = rectFromNodeBoxFields(node);
+  if (rect) node.at = [rect.x, rect.y, rect.w, rect.h];
 }
 
 function isLikelyFreeformBackgroundChild(child: DomNode): boolean {
@@ -2270,6 +2382,8 @@ function coverCompositionNode(slideId: string, name: string, node: DomNode): Dom
   const hero = node.heroStat && typeof node.heroStat === "object" ? node.heroStat as Record<string, unknown> : {};
   const hasHero = Boolean(stringValue(hero.value, ""));
   const title = stringValue(node.title, "");
+  const body = stringValue(node.body, stringValue(node.text, ""));
+  const richContent = richTextRuns(node.content);
   const titleWeight = weightedTextLengthForComponent(title);
   const titleStyle = node.titleSize === "slide-title" || node.titleSize === "section-title" || node.titleSize === "deck-title"
     ? node.titleSize
@@ -2325,6 +2439,17 @@ function coverCompositionNode(slideId: string, name: string, node: DomNode): Dom
       ...(stringValue(node.eyebrow, "") ? [{ id: `${slideId}.${name}.eyebrow`, type: "text" as const, text: stringValue(node.eyebrow, ""), style: "label", color: tone === "inverse" ? "text.inverse" : "brand.primary", uppercase: true, letterSpacing: 100, minHeight: 0.45, autoFit: "shrink" as const }] : []),
       { id: `${slideId}.${name}.title`, type: "text", text: title, style: titleStyle, color, align: "left", autoFit: "shrink", minHeight: titleStyle === "deck-title" ? 1.55 : 1.15 },
       ...(stringValue(node.subtitle, "") ? [{ id: `${slideId}.${name}.subtitle`, type: "text" as const, text: stringValue(node.subtitle, ""), style: "lead", color: tone === "inverse" ? "text.inverse" : "text.muted", align: "left" as const, minHeight: 0.8, autoFit: "shrink" as const }] : []),
+      ...(body || richContent ? [{
+        id: `${slideId}.${name}.content`,
+        type: "text" as const,
+        text: body,
+        ...(richContent ? { content: richContent } : {}),
+        style: "paragraph" as const,
+        color: tone === "inverse" ? "text.inverse" : "text.secondary",
+        align: "left" as const,
+        minHeight: richContent ? 1.15 : 0.75,
+        autoFit: "shrink" as const,
+      }] : []),
     ],
   });
   if (hasHero) {
@@ -2642,6 +2767,7 @@ function evidenceLayoutNode(slideId: string, name: string, node: DomNode): DomNo
     id: `${slideId}.${name}.split`,
     type: "split",
     direction: layout,
+    role: "evidence-layout",
     ratio: Array.isArray(node.ratio) ? node.ratio : (layout === "horizontal" ? [0.68, 0.32] : [0.68, 0.32]),
     gap: typeof node.gap === "number" ? node.gap : 0.55,
     children: [evidence, insight],
@@ -3905,7 +4031,13 @@ function codeBlockNode(slideId: string, name: string, node: DomNode): DomNode {
   const code = stringValue(node.code, stringValue(node.text, ""));
   const showLineNumbers = node.showLineNumbers !== false;
   const density = codeBlockDensity(node.density, code);
-  const fontSize = numberValue(node.fontSize, undefined);
+  const scale = componentScaleFactor(node.scale);
+  const baseFontSize = numberValue(node.fontSize, undefined);
+  const fontSize = baseFontSize !== undefined
+    ? baseFontSize * scale
+    : scale < 0.999
+      ? (density === "code-tiny" ? 5.8 : density === "code-dense" ? 6.5 : 7.2) * scale
+      : undefined;
   const requestedColumns = numberValue(node.columns, undefined);
   const columns = requestedColumns === undefined ? 1 : Math.max(1, Math.min(3, Math.floor(requestedColumns)));
   const originalLineCount = code.replace(/\r\n/g, "\n").split("\n").length;
@@ -4638,8 +4770,13 @@ function recordItems(value: unknown): Array<Record<string, unknown>> {
 }
 
 function richTextRuns(value: unknown): Array<Record<string, unknown>> | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const runs = value.filter((run): run is Record<string, unknown> => {
+  const rawRuns = Array.isArray(value)
+    ? value
+    : value && typeof value === "object" && !Array.isArray(value) && Array.isArray((value as { runs?: unknown }).runs)
+      ? (value as { runs: unknown[] }).runs
+      : undefined;
+  if (!rawRuns) return undefined;
+  const runs = rawRuns.filter((run): run is Record<string, unknown> => {
     if (!run || typeof run !== "object" || Array.isArray(run)) return false;
     const rec = run as Record<string, unknown>;
     if (typeof rec.text === "string") return true;

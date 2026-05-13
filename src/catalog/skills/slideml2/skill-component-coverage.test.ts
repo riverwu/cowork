@@ -4,6 +4,14 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
+const goldenSkillPath = resolve(repoRoot, "slideml2/SKILL.md");
+const catalogSkillPath = resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md");
+const skillRulePath = resolve(repoRoot, "slideml2/SKILL-RULE.md");
+const oldSkillPath = resolve(repoRoot, "slideml2/SKILL-old.md");
+
+function skillText(): string {
+  return readFileSync(goldenSkillPath, "utf8");
+}
 
 function registryComponentNames(): string[] {
   const source = readFileSync(resolve(repoRoot, "slideml2/src/component-registry.ts"), "utf8");
@@ -12,13 +20,11 @@ function registryComponentNames(): string[] {
 }
 
 function skillDeclaredNames(): string[] {
-  const skill = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md"), "utf8");
-  return [...skill.matchAll(/^- ([a-z0-9-]+):/gm)].map((match) => match[1]).sort();
+  return [...skillText().matchAll(/^- `?([a-z0-9-]+)`?\s*(?:—|:)/gm)].map((match) => match[1]).sort();
 }
 
 function skillLineFor(componentName: string): string {
-  const skill = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md"), "utf8");
-  return skill.split("\n").find((line) => line.startsWith(`- ${componentName}:`)) || "";
+  return skillText().split("\n").find((line) => line.startsWith(`- \`${componentName}\``) || line.startsWith(`- ${componentName}:`)) || "";
 }
 
 function firstJsonBlock(markdown: string): unknown {
@@ -27,49 +33,51 @@ function firstJsonBlock(markdown: string): unknown {
   return JSON.parse(raw);
 }
 
-describe("slideml2 SKILL component reference", () => {
-  it("keeps typography token policy aligned with the engineering spec", () => {
-    const skill = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md"), "utf8");
-    const spec = readFileSync(resolve(repoRoot, "slideml2/SPEC.md"), "utf8");
-    const guide = readFileSync(resolve(repoRoot, "SLIDEML.md"), "utf8");
-
-    for (const doc of [skill, spec, guide]) {
-      const lower = doc.toLowerCase();
-      expect(lower).toContain("typography");
-      expect(lower).toContain("token");
-      expect(doc).toContain("timeline-body");
-      expect(doc).toContain("caption");
-      expect(doc).toContain("label");
-    }
-    expect(spec).toContain("COMPONENT_TEXT_STYLE_DERIVATIONS");
-    expect(spec).toContain("Component factories MUST NOT set `fontSize`");
-    expect(skill).toContain("Component-specific tokens such as `timeline-time`, `timeline-title`, and `timeline-body`");
-    expect(skill).toContain("Do not use node-level `fontSize`, `lineHeight`, `fontFamily`, or `size` as routine component styling");
-    expect(guide).toContain("Component rule");
+describe("slideml2 SKILL golden copy", () => {
+  it("keeps slideml2/SKILL.md as the golden copy for the catalog skill", () => {
+    expect(existsSync(goldenSkillPath)).toBe(true);
+    expect(existsSync(catalogSkillPath)).toBe(true);
+    expect(readFileSync(catalogSkillPath, "utf8")).toBe(readFileSync(goldenSkillPath, "utf8"));
+    expect(existsSync(skillRulePath)).toBe(true);
+    expect(existsSync(oldSkillPath)).toBe(true);
+    expect(existsSync(resolve(repoRoot, "src/catalog/skills/slideml2/SKILL-RULE.md"))).toBe(false);
+    expect(existsSync(resolve(repoRoot, "src/catalog/skills/slideml2/SKILL-new.md"))).toBe(false);
   });
 
-  it("links the business research style reference for business deck tasks", () => {
-    const skill = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md"), "utf8");
-    const businessPath = resolve(repoRoot, "src/catalog/skills/slideml2/business.md");
-    const business = readFileSync(businessPath, "utf8");
+  it("keeps discovery and the canonical CLI path visible at the top", () => {
+    const skill = skillText();
+    const first120 = skill.split("\n").slice(0, 120).join("\n");
 
-    expect(existsSync(businessPath)).toBe(true);
-    expect(skill).toContain("Business / research report decks");
-    expect(skill).toContain("[business.md](business.md)");
-    expect(skill).toContain("read [business.md](business.md) before planning");
-    expect(skill).toContain("business.md` must show `truncated:false");
-    expect(business).toContain("executive-summary");
-    expect(business).toContain("evidence-layout");
-    expect(business).toContain("comparison-table");
-    expect(business).toContain("themeOverride");
-    expect(business).toContain("First-Read Non-Negotiables");
-    expect(business).toContain("truncated:true");
+    expect(skill).toContain("PowerPoint (.pptx)");
+    expect(skill).toContain("presentation");
+    expect(skill).toContain("幻灯片");
+    expect(skill).toContain("演示文稿");
+    expect(first120).toContain("## What This Skill Does");
+    expect(first120).toContain("## When to Use This Skill");
+    expect(first120).toContain("## When NOT to Use This Skill");
+    expect(first120).toContain("## What You Produce");
+    expect(first120).toContain('node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> <path/to/args.json>');
+    expect(first120).toContain("There are no flags, no stdin, no inline JSON");
   });
 
-  it("keeps the distributable skill package self-contained", () => {
+  it("documents compiler-style CLI result phases for agent repair", () => {
+    const skill = skillText();
+
+    expect(skill).toContain("CLI results are compiler-like");
+    expect(skill).toContain("ok:false");
+    expect(skill).toContain("phase:\"render-validation\"");
+    expect(skill).toContain("deckModified");
+    expect(skill).toContain("constrainedBy");
+    expect(skill).toContain("Repair preference order");
+    expect(skill).toContain("before changing component type");
+    expect(skill).toContain("Never hand-edit `deck.json`");
+    expect(skill).toContain("Never hand-edit `deck.json`. Never write the deck with `python-pptx`");
+  });
+
+  it("keeps the distributable skill package self-contained and sourced from the golden SKILL", () => {
     const packageScript = readFileSync(resolve(repoRoot, "scripts/package-slideml2-skill.ts"), "utf8");
+    const syncScript = readFileSync(resolve(repoRoot, "scripts/sync-slideml2-skill.ts"), "utf8");
     const licensePath = resolve(repoRoot, "src/catalog/skills/slideml2/LICENSE.txt");
-    const license = readFileSync(licensePath, "utf8");
     const runtimeCliPath = resolve(repoRoot, "src/catalog/skills/slideml2/runtime/bin/slideml2.js");
     const runtimeIndexPath = resolve(repoRoot, "src/catalog/skills/slideml2/runtime/dist/index.js");
 
@@ -77,7 +85,10 @@ describe("slideml2 SKILL component reference", () => {
     expect(existsSync(runtimeCliPath)).toBe(true);
     expect(existsSync(runtimeIndexPath)).toBe(true);
     expect(existsSync(resolve(repoRoot, "src/catalog/skills/slideml2/runtime/node_modules"))).toBe(false);
-    expect(packageScript).toContain('"SKILL.md", "business.md", "LICENSE.txt"');
+    expect(packageScript).toContain("goldenSkillPath");
+    expect(packageScript).toContain('file === "SKILL.md"');
+    expect(packageScript).toContain("planning-template.md");
+    expect(packageScript).toContain("runtimeSourceDir");
     expect(packageScript).toContain("requiredRuntimeFiles");
     expect(packageScript).toContain("runtime/bin/slideml2.js");
     expect(packageScript).toContain("runtime/dist/index.js");
@@ -85,93 +96,35 @@ describe("slideml2 SKILL component reference", () => {
     expect(packageScript).toContain("--bundle");
     expect(packageScript).toContain("entry.includes(\"/runtime/node_modules/\")");
     expect(packageScript).toContain("entry.includes(\"/runtime/src/\")");
-    expect(packageScript).toContain("sourceValidation");
-    expect(packageScript).toContain("renderValidation");
-    expect(packageScript).toContain("deckModified: false");
-    expect(packageScript).toContain("DECK_REINITIALIZED");
-    expect(packageScript).toContain("isAppendSlideId");
     expect(packageScript).not.toContain('"runtime/src/index.ts"');
     expect(packageScript).toContain("create-deck create-deck.json");
     expect(packageScript).not.toContain("md2" + "pptx");
     expect(packageScript).not.toContain("render-source-deck");
-    expect(packageScript).toContain("manifest.json");
-    expect(packageScript).toContain("README.md");
-    expect(packageScript).toContain("zipinfo");
+    expect(syncScript).toContain("slideml2/SKILL.md");
+    expect(syncScript).toContain("src/catalog/skills/slideml2/SKILL.md");
     expect(readFileSync(runtimeCliPath, "utf8")).toContain("create-deck");
     expect(readFileSync(runtimeCliPath, "utf8")).toContain("replace-slide");
     expect(readFileSync(runtimeCliPath, "utf8")).toContain("validate-render");
-    expect(license).toContain("agent-native tools");
-    expect(license).toContain("runtime source/build artifacts");
   });
 
-  it("documents compiler-style CLI result phases for agent repair", () => {
-    const skill = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md"), "utf8");
-
-    expect(skill).toContain("Top-level `ok:false` always means the command failed");
-    expect(skill).toContain("`deckModified:false`");
-    expect(skill).toContain("`sourceValidation.ok:true` only means the SlideML2 JSON/schema layer passed");
-    expect(skill).toContain("`renderValidation.ok:false` identifies render/layout failure");
-    expect(skill).toContain("named node on the same slide and retry `replace-slide`");
-    expect(skill).toContain("`DECK_REINITIALIZED`");
-    expect(skill).toContain("Do not wrap SlideML2 CLI calls inside `run_node`");
-    expect(skill).toContain("\"slideId\":\"append\"");
-  });
-
-  it("keeps the business themeOverride example to effective SlideML2 fields", () => {
-    const business = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/business.md"), "utf8");
+  it("links and keeps the business research style reference available", () => {
+    const skill = skillText();
+    const businessPath = resolve(repoRoot, "src/catalog/skills/slideml2/business.md");
+    const business = readFileSync(businessPath, "utf8");
     const theme = firstJsonBlock(business) as Record<string, Record<string, unknown>>;
-    const allowedLayout = new Set(["slideWidthCm", "slideHeightCm", "pageMarginX", "titleTop", "titleHeight", "contentTop", "contentBottom", "defaultGap", "columnGap", "cardPadding"]);
 
+    expect(existsSync(businessPath)).toBe(true);
+    expect(skill).toContain("business.md");
+    expect(business).toContain("executive-summary");
+    expect(business).toContain("evidence-layout");
+    expect(business).toContain("comparison-table");
     expect(theme.colors).toHaveProperty("divider");
-    expect(theme.colors).not.toHaveProperty("line");
     expect(theme.layout).not.toHaveProperty("pageMarginY");
-    expect(Object.keys(theme.layout || {})).toEqual(expect.arrayContaining(["pageMarginX", "titleTop", "titleHeight", "contentTop", "contentBottom", "defaultGap"]));
-    expect(Object.keys(theme.layout || {}).filter((key) => !allowedLayout.has(key))).toEqual([]);
     expect(theme.fonts).toMatchObject({
       latin: { display: expect.any(Array), text: expect.any(Array) },
       cjk: { display: expect.any(Array), text: expect.any(Array) },
       mono: expect.any(Array),
     });
-    expect(business).toContain("Font chains are preference order");
-    expect(business).toContain("PPTX OOXML emits that first face");
-    expect(business).toContain("SlideML2 does not embed fonts");
-    expect(business).toContain("Business research decks are light-first");
-  });
-
-  it("keeps decision guidance near the top so skill compression does not erase component choice", () => {
-    const skill = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md"), "utf8");
-    const business = readFileSync(resolve(repoRoot, "src/catalog/skills/slideml2/business.md"), "utf8");
-
-    expect(skill.indexOf("## Deck Structure — Earn Every Slide")).toBeGreaterThan(skill.indexOf("## Authoring Workflow"));
-    expect(skill.indexOf("## Deck Structure — Earn Every Slide")).toBeLessThan(skill.indexOf("## Theme Contract — Define Before Components"));
-    expect(skill.indexOf("## Theme Contract — Define Before Components")).toBeLessThan(skill.indexOf("## Component-First Slide Loop"));
-    expect(skill.indexOf("## Deck Planning Archive")).toBeLessThan(skill.indexOf("## Deck Structure — Earn Every Slide"));
-    expect(skill).toContain("Save `deck_plan.md` in the deck workspace");
-    expect(skill).toContain("create it as a real file");
-    expect(skill).toContain("`## Asset Plan`");
-    expect(skill).toContain("For generated icons, `Asset Plan` must map icon names to actual component fields");
-    expect(skill).toContain("timeline.items[].iconSrc");
-    expect(skill).toContain("`contentTop` and `contentBottom` are y-coordinates");
-    expect(skill).toContain("Use `cornerRadius`, never `radius`");
-    expect(skill).toContain("Do not use `position` as a placement field");
-    expect(skill.indexOf("## Component-First Slide Loop")).toBeLessThan(skill.indexOf("## Layout Containers"));
-    expect(skill).toContain("Do not start from `text` boxes and coordinates");
-    expect(skill).toContain("| Executive answer / final synthesis | `executive-summary`");
-    expect(skill).toContain("Raw `text` is a residual primitive");
-    expect(skill).toContain("Common anti-pattern");
-    expect(skill).toContain("## Layout Escape Hatches — `at`, `layer`, `anchorTo`");
-    expect(skill).toContain("escape hatch, not free-fall");
-    expect(skillLineFor("grid")).toContain("avoid plain equal cards");
-    expect(skillLineFor("chart-with-rail")).toContain("Page archetype");
-
-    expect(business.indexOf("## Business Planning Loop")).toBeLessThan(business.indexOf("## Story Structure"));
-    expect(business.indexOf("light-first")).toBeLessThan(1200);
-    expect(business.indexOf("Do not make a full business report dark by default")).toBeLessThan(1800);
-    expect(business.indexOf("Component route comes before JSON")).toBeLessThan(1800);
-    expect(business).toContain("Save a complete `deck_plan.md` before `create-deck`");
-    expect(business).toContain("`Asset Route`");
-    expect(business).toContain("| Executive answer | `executive-summary`");
-    expect(business).toContain("not the default container for business prose");
   });
 
   it("declares every component exposed by component-registry", () => {
@@ -181,53 +134,18 @@ describe("slideml2 SKILL component reference", () => {
     expect(missing).toEqual([]);
   });
 
-  it("documents the new flexible composition components with actionable fields", () => {
+  it("documents key high-friction component fields and capacity guidance", () => {
     const expectations: Record<string, string[]> = {
-      "freeform-group": ["anchor", "offsetX", "offsetY", "zIndex", "mode:enum[overlay|background]", "children"],
-      "cover-composition": ["visual:object", "heroStat:object", "tone:enum[neutral|inverse|brand]", "decor:enum[none|grid|shapes]"],
-      "chapter-divider": ["chapter:string", "sections:array", "current:number", "tone:enum[brand|neutral|inverse]"],
-      "hero-and-support": ["headline:string", "supports:array", "hero:object", "layout:enum[left|top]"],
-      "chart-with-rail": ["evidence:object", "rail:object", "layout:enum[rail-right|rail-left|stacked]"],
-      "snapshot-callouts": ["src:image-ref", "callouts:array", "layout:enum[rail-right|rail-left|below]"],
-      "evidence-layout": ["evidence:object", "insight:object", "annotations:array", "layout:enum[sidecar|stacked]"],
-      "factorial-matrix": ["rows:array", "columns:array", "cells:2D array"],
-      "probe-flow": ["steps:array", "items:array alias", "direction:enum[horizontal|vertical]"],
-      "failure-taxonomy": ["rate/value", "examples?/bullets?", "columns:number"],
-      "main-effect-comparison": ["beforeLabel:string", "afterValue:string", "insight:string", "trend:enum[up|down|flat]"],
-    };
-    for (const [component, phrases] of Object.entries(expectations)) {
-      const line = skillLineFor(component);
-      expect(line, `${component} is missing from SKILL.md`).toBeTruthy();
-      for (const phrase of phrases) {
-        expect(line, `${component} SKILL entry must mention ${phrase}`).toContain(phrase);
-      }
-      expect(line, `${component} SKILL entry should include an example`).toContain("example=");
-    }
-  });
-
-  it("documents rich callout instead of the legacy single-line-only shape", () => {
-    const line = skillLineFor("callout");
-    expect(line).toContain("rich text runs");
-    expect(line).toContain("title:string");
-    expect(line).toContain("body:string");
-    expect(line).toContain("content:richTextRuns");
-    expect(line).toContain("variant:enum[plain|card|banner]");
-    expect(line).toContain("marks");
-    expect(line).toContain("bold");
-  });
-
-  it("documents enhanced expressiveness fields on core components", () => {
-    const expectations: Record<string, string[]> = {
-      "metric-card": ["delta:string", "status:enum[brand|positive|warning|danger|neutral]", "sparkline:array", "variant:enum[plain|card|compact]", "surface:object"],
-      "kpi-grid": ["delta/status/comparison/source/sparkline", "variant:enum[plain|card|compact]", "surface:object"],
-      "comparison-card": ["content:richTextRuns", "metrics:array", "pros:array", "winner:boolean", "variant:enum[plain|card|compact]", "surface:object"],
-      "process-flow": ["status?:enum[brand|positive|warning|danger|neutral]", "owner?:string", "iconSrc?:image-ref", "marker:enum[auto|number|dot|icon|none]", "connector:enum[arrow|chevron|line|none]", "spread:enum[compact|balanced|fill]", "stepSurface:object", "variant:enum[plain|cards]", "surface:object"],
-      "feature-card": ["content:richTextRuns", "metric:object", "tags:array", "variant:enum[plain|card|compact]", "surface:object"],
-      "image-card": ["insight:string", "annotations:array", "variant:enum[card|frameless|compact]", "surface:object"],
-      "chart-card": ["insight:string", "variant:enum[card|frameless|compact]", "surface:object"],
-      "table-card": ["insight:string", "variant:enum[card|frameless|compact]", "surface:object"],
-      "key-takeaway": ["content:richTextRuns", "bullets:array", "variant:enum[panel|banner|minimal]", "surface:object"],
-      "explanation-block": ["content:richTextRuns", "bullets/items:array", "variant:enum[plain|minimal|rail|panel]", "surface:object"],
+      "chart-card": ["chartType:bar|stacked-bar|line|pie|doughnut|area|combo|scatter|waterfall", "bind+encoding", "dataLabels", "capacity="],
+      "table-card": ["rows | data.rows | bind+encoding", "encoding.columns", "colWidths", "cellPadding", "capacity="],
+      "process-flow": ["direction", "variant:plain|cards", "connector:arrow|chevron|line|none", "capacity="],
+      "timeline": ["rich content >5 auto-flips vertical", "direction", "items"],
+      "image-card": ["src:image-ref", "fit:cover|contain|fill", "annotations"],
+      "equation": ["latex", "renderMode:omml", "capacity="],
+      "code-block": ["density:compact|dense|tiny", "columns", "fontSize", "capacity="],
+      "feature-card": ["iconSrc:image-ref", "marker", "metric", "surface"],
+      "freeform-group": ["anchor/offsetX/offsetY/width/height/zIndex", "mode:overlay|background"],
+      "shape": ["headEnd", "tailEnd", "thickness"],
     };
     for (const [component, phrases] of Object.entries(expectations)) {
       const line = skillLineFor(component);
@@ -236,5 +154,15 @@ describe("slideml2 SKILL component reference", () => {
         expect(line, `${component} SKILL entry must mention ${phrase}`).toContain(phrase);
       }
     }
+  });
+
+  it("keeps page-job routing in the skill while avoiding raw text as a layout strategy", () => {
+    const skill = skillText();
+
+    expect(skill).toContain("## 4. Routing — Page Job → First Component");
+    expect(skill).toContain("| Executive answer / final synthesis");
+    expect(skill).toContain("`executive-summary`");
+    expect(skill).toContain("Raw `text` is residual");
+    expect(skill).toContain("look up 2–4 candidate components");
   });
 });

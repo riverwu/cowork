@@ -30,11 +30,31 @@ import { measureDeck } from "./render.js";
 import { sourceSlideToRendered, sourceToRenderedDeck } from "./source-deck.js";
 import { emuToCm, SLIDE_SIZES } from "./units.js";
 import { unsupportedLatexCommands } from "./latex-omml.js";
-import { meaningfulSourceOverlap, rectContains } from "./layout/geometry.js";
+import { meaningfulSourceOverlap, rectContains, rectFromAbsoluteRectSpec, rectFromNodePlacement } from "./layout/geometry.js";
 import { SOURCE_VALIDATION_CODE } from "./diagnostic-codes.js";
+import { describeInvalidSlideTransition } from "./transition.js";
 
 const RAW_HEX_RE = /^[0-9A-Fa-f]{6}$/;
 const RESERVED_LAYOUT_AREAS = new Set(["content", "full"]);
+const THEME_FONT_WEIGHT_NAMES = new Set([
+  "thin",
+  "hairline",
+  "extralight",
+  "ultralight",
+  "light",
+  "normal",
+  "regular",
+  "book",
+  "medium",
+  "semibold",
+  "demibold",
+  "bold",
+  "extrabold",
+  "ultrabold",
+  "heavy",
+  "black",
+  "super",
+]);
 const SOURCE_DECK_FIELD_SET = new Set(["slideml2", "deck", "slides"]);
 const DECK_FIELD_SET = new Set(["size", "theme", "themeOverride", "brand", "chrome", "validation", "master", "dataSources", "references", "footnotes", "metadata"]);
 const REQUIRED_CHILD_CONTAINERS = new Set(["stack", "grid", "split", "fragment"]);
@@ -85,6 +105,7 @@ export function validateSlide(slide: SlideV2, deck?: Pick<Slideml2SourceDeck, "d
   }
   if (!slide.id) issues.push(issue("error", "MISSING_SLIDE_ID", "Slide id is required.", { suggestedFix: "Add a stable slide.id." }));
   if (!Array.isArray(slide.children)) issues.push(issue("error", "MISSING_CHILDREN", "Slide children must be an array.", { slideId: slide.id }));
+  validateSlideTransitionSpec(slide, issues);
   if (Array.isArray(slide.children)) validateSlideAreaReferences(slide, deck, issues);
   if (Array.isArray(slide.children)) validateSlideTitleLabelDuplication(slide, issues);
   slide.children?.forEach((node, index) => validateNode(node, `children[${index}]`, slide.id, issues, undefined, options));
@@ -158,6 +179,16 @@ export function validateDeck(deck: Slideml2SourceDeck, options: DataBindingOptio
     }
   }
   return report(dedupeIssues(issues));
+}
+
+function validateSlideTransitionSpec(slide: SlideV2, issues: ValidationIssue[]): void {
+  const message = describeInvalidSlideTransition(slide.transition);
+  if (!message) return;
+  issues.push(issue("error", SOURCE_VALIDATION_CODE.INVALID_SLIDE_TRANSITION, message, {
+    slideId: slide.id,
+    path: "transition",
+    suggestedFix: "Use transition:{type:'fade'|'push'|'wipe'|'split'|'cover'|'uncover', direction?:'left'|'right'|'up'|'down', durationMs?:350}. Common aliases accepted by render include type:'slideIn' with direction:'push'|'fade'|'wipe', but unrelated values are invalid.",
+  }));
 }
 
 function validateSourceDeckFields(deck: Slideml2SourceDeck, issues: ValidationIssue[]): void {
@@ -419,9 +450,7 @@ function hasSlideLevelPlacementOverride(node: DomNode): boolean {
   const rec = node as Record<string, unknown>;
   if (typeof rec.anchor === "string" && rec.anchor.trim()) return true;
   if (typeof rec.anchorTo === "string" && rec.anchorTo.trim()) return true;
-  return Array.isArray(rec.at)
-    && rec.at.length === 4
-    && rec.at.every((value) => typeof value === "number" && Number.isFinite(value));
+  return Boolean(rectFromNodePlacement(node));
 }
 
 function validateSlideTitleLabelDuplication(slide: SlideV2, issues: ValidationIssue[]): void {
@@ -460,6 +489,14 @@ function validateNode(
 ): void {
   if (!node || typeof node !== "object") {
     issues.push(issue("error", "INVALID_NODE", `${path} must be a node object.`, { slideId, path }));
+    return;
+  }
+  if (isTwoColumnRegionShorthand(node, parent, path)) {
+    const children = Array.isArray(node.children) ? node.children : [];
+    children.forEach((child, index) => {
+      const childPath = `${path}.children[${index}]`;
+      validateNode(withSyntheticNodeIds(child as DomNode, `${slideId}.${path.replace(/[^A-Za-z0-9_.-]+/g, ".")}.${index + 1}`), childPath, slideId, issues, node, options);
+    });
     return;
   }
   if (!node.id) issues.push(issue("error", "MISSING_NODE_ID", `${path}.id is required.`, { slideId, path, suggestedFix: "Give the node a stable semantic id." }));
@@ -590,6 +627,58 @@ function validateNode(
   node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options));
 }
 
+function isTwoColumnRegionShorthand(node: DomNode, parent: DomNode | undefined, path: string): boolean {
+  if (!parent || parent.type !== "two-column") return false;
+  if (!/\.(left|right)$/.test(path)) return false;
+  if (node.type) return false;
+  return Array.isArray(node.children);
+}
+
+function withSyntheticNodeIds(node: DomNode, fallbackId: string): DomNode {
+  if (!node || typeof node !== "object" || Array.isArray(node)) return { id: fallbackId, type: "text", text: "" };
+  const id = typeof node.id === "string" && node.id ? node.id : fallbackId;
+  const children = Array.isArray(node.children)
+    ? node.children.map((child, index) => withSyntheticNodeIds(child as DomNode, `${id}.${index + 1}`))
+    : node.children;
+  const out: DomNode = { ...node, id, children };
+  for (const key of SYNTHETIC_OBJECT_SLOT_KEYS) {
+    const value = (node as Record<string, unknown>)[key];
+    if (isDomNodeSlot(value)) (out as Record<string, unknown>)[key] = withSyntheticNodeIds(value as DomNode, `${id}.${key}`);
+  }
+  for (const key of SYNTHETIC_ARRAY_SLOT_KEYS) {
+    const value = (node as Record<string, unknown>)[key];
+    if (!Array.isArray(value) || key === "children") continue;
+    (out as Record<string, unknown>)[key] = value.map((item, index) => isDomNodeSlot(item) ? withSyntheticNodeIds(item as DomNode, `${id}.${key}.${index + 1}`) : item);
+  }
+  return out;
+}
+
+const SYNTHETIC_OBJECT_SLOT_KEYS = ["evidence", "rail", "left", "right", "hero", "insight"] as const;
+const SYNTHETIC_ARRAY_SLOT_KEYS = ["children", "annotations", "supports"] as const;
+
+function isDomNodeSlot(value: unknown): value is DomNode {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function componentSlotFallbackId(slideId: string, parent: DomNode, path: string, slotName: string): string {
+  const parentId = typeof parent.id === "string" && parent.id.trim() ? parent.id.trim() : path.replace(/[^A-Za-z0-9_.-]+/g, ".");
+  const rooted = parentId.startsWith(`${slideId}.`) ? parentId : `${slideId}.${parentId}`;
+  return `${rooted}.${slotName}`;
+}
+
+function validateComponentSlotNode(
+  parent: DomNode,
+  slotName: string,
+  path: string,
+  slideId: string,
+  issues: ValidationIssue[],
+  options: EffectiveValidationOptions,
+): void {
+  const content = (parent as Record<string, unknown>)[slotName];
+  if (!content || typeof content !== "object" || Array.isArray(content)) return;
+  validateNode(withSyntheticNodeIds(content as DomNode, componentSlotFallbackId(slideId, parent, path, slotName)), `${path}.${slotName}`, slideId, issues, parent, options);
+}
+
 function hasDataBindSource(value: unknown): boolean {
   return Boolean(value && typeof value === "object" && !Array.isArray(value) && typeof (value as Record<string, unknown>).source === "string" && String((value as Record<string, unknown>).source).trim());
 }
@@ -716,10 +805,14 @@ function validateThemeOverride(deck: Slideml2SourceDeck, issues: ValidationIssue
       }));
     }
     const weight = style.weight ?? (style as Record<string, unknown>).fontWeight;
-    if (weight !== undefined && weight !== "normal" && weight !== "bold" && !(typeof weight === "number" && weight >= 100 && weight <= 900)) {
-      issues.push(issue("error", "INVALID_THEME_TEXT_WEIGHT", `${path}.weight/fontWeight must be 'normal', 'bold', or a numeric 100..900 weight.`, {
+    const namedWeight = typeof weight === "string" ? weight.trim().toLowerCase() : undefined;
+    const validWeight = weight === undefined
+      || (typeof weight === "number" && weight >= 100 && weight <= 900)
+      || (namedWeight !== undefined && THEME_FONT_WEIGHT_NAMES.has(namedWeight));
+    if (!validWeight) {
+      issues.push(issue("error", "INVALID_THEME_TEXT_WEIGHT", `${path}.weight/fontWeight must be a named CSS weight or a numeric 100..900 weight.`, {
         path,
-        suggestedFix: "Use weight:'bold' (or fontWeight:'bold') for emphasis, a numeric CSS weight, or omit it for normal text.",
+        suggestedFix: "Use weight:'normal'|'medium'|'semibold'|'bold' or a numeric CSS weight such as 500, 600, 700; omit it for normal text.",
       }));
     }
     const fontFamily = (style as Record<string, unknown>).fontFamily;
@@ -1642,7 +1735,7 @@ function validateEncodingItems(items: unknown, path: string, slideId: string, no
     if (rec.valueLabel !== undefined && typeof rec.valueLabel !== "string") {
       issues.push(issue("error", "INVALID_DATA_ENCODING_ITEMS", `${itemPath}.valueLabel must be a string.`, { slideId, path: `${itemPath}.valueLabel`, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
     }
-    if (rec.type !== undefined && !(typeof rec.type === "string" && (DATA_COLUMN_TYPE_VALUES as readonly string[]).includes(rec.type))) {
+    if (rec.type !== undefined && normalizeDataColumnTypeAlias(rec.type) === undefined) {
       issues.push(issue("error", "INVALID_DATA_ENCODING_COLUMN_TYPE", `${itemPath}.type must be one of: ${DATA_COLUMN_TYPE_VALUES.join(", ")}.`, { slideId, path: `${itemPath}.type`, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
     }
     if (rec.tone !== undefined) {
@@ -1739,7 +1832,7 @@ function validateEncodingColumns(columns: unknown, path: string, slideId: string
     if (typeof keyLike !== "string" || !keyLike.trim()) {
       issues.push(issue("error", "INVALID_DATA_ENCODING_COLUMNS", `${columnPath}.key or ${columnPath}.field must be a non-empty field name.`, { slideId, path: `${columnPath}.key`, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
     }
-    if (rec.type !== undefined && !(typeof rec.type === "string" && (DATA_COLUMN_TYPE_VALUES as readonly string[]).includes(rec.type))) {
+    if (rec.type !== undefined && normalizeDataColumnTypeAlias(rec.type) === undefined) {
       issues.push(issue("error", "INVALID_DATA_ENCODING_COLUMN_TYPE", `${columnPath}.type must be one of: ${DATA_COLUMN_TYPE_VALUES.join(", ")}.`, { slideId, path: `${columnPath}.type`, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
     }
     if (rec.align !== undefined && !(typeof rec.align === "string" && (DATA_COLUMN_ALIGN_VALUES as readonly string[]).includes(rec.align))) {
@@ -1749,6 +1842,17 @@ function validateEncodingColumns(columns: unknown, path: string, slideId: string
       issues.push(issue("error", "INVALID_DATA_ENCODING_COLUMN_WIDTH", `${columnPath}.width must be a positive number.`, { slideId, path: `${columnPath}.width`, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
     }
   });
+}
+
+function normalizeDataColumnTypeAlias(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if ((DATA_COLUMN_TYPE_VALUES as readonly string[]).includes(normalized)) return normalized;
+  if (normalized === "int" || normalized === "integer" || normalized === "decimal" || normalized === "float" || normalized === "numeric") return "number";
+  if (normalized === "percentage" || normalized === "pct") return "percent";
+  if (normalized === "money") return "currency";
+  if (normalized === "datetime") return "date";
+  return undefined;
 }
 
 function validateThemeOverrideTopLevel(override: Record<string, unknown>, issues: ValidationIssue[]): void {
@@ -1938,17 +2042,17 @@ function validateThemeFonts(override: Record<string, unknown>, issues: Validatio
       continue;
     }
     if (key === "mono") {
-      validateFontArray(value, path, issues);
+      validateFontChain(value, path, issues);
       continue;
     }
-    if (Array.isArray(value)) {
-      validateFontArray(value, path, issues);
+    if (typeof value === "string" || Array.isArray(value)) {
+      validateFontChain(value, path, issues);
       continue;
     }
     if (!value || typeof value !== "object") {
-      issues.push(issue("error", "INVALID_THEME_FONT_VALUE", `${path} must be a string array or {display?: string[], text?: string[]}.`, {
+      issues.push(issue("error", "INVALID_THEME_FONT_VALUE", `${path} must be a font face string, string array, or {display?, text?}.`, {
         path,
-        suggestedFix: "Use e.g. fonts.latin:{display:['Helvetica Neue'], text:['Arial']}.",
+        suggestedFix: "Use e.g. fonts.latin:{display:['Helvetica Neue'], text:['Arial']} or fonts.cjk:{display:'Microsoft YaHei', text:'Microsoft YaHei'}.",
       }));
       continue;
     }
@@ -1961,16 +2065,18 @@ function validateThemeFonts(override: Record<string, unknown>, issues: Validatio
         }));
         continue;
       }
-      validateFontArray(chain, rolePath, issues);
+      validateFontChain(chain, rolePath, issues);
     }
   }
 }
 
-function validateFontArray(value: unknown, path: string, issues: ValidationIssue[]): void {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) {
-    issues.push(issue("error", "INVALID_THEME_FONT_VALUE", `${path} must be a non-empty string array of font face names.`, {
+function validateFontChain(value: unknown, path: string, issues: ValidationIssue[]): void {
+  const ok = (typeof value === "string" && value.trim().length > 0)
+    || (Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item.trim().length > 0));
+  if (!ok) {
+    issues.push(issue("error", "INVALID_THEME_FONT_VALUE", `${path} must be a non-empty font face string or string array.`, {
       path,
-      suggestedFix: "Use installed font face names, e.g. ['Arial'] or ['Hiragino Sans W3']. SlideML2 emits the first face into PPTX and does not embed fonts.",
+      suggestedFix: "Use installed font face names, e.g. 'Arial' or ['Arial','Helvetica Neue']. SlideML2 emits the first face into PPTX and does not embed fonts.",
     }));
   }
 }
@@ -2079,7 +2185,7 @@ function validateFreeformGroupIntent(node: DomNode, path: string, slideId: strin
       slideId,
       path: `${path}.children[${index}]`,
       nodeName: child.id,
-      suggestedFix: "For a full-slide background layer, set the parent freeform-group mode:'background', or set this child to fillSlide:true / area:'full' / at:[0,0,slideW,slideH]. Otherwise it will use the small anchored default size.",
+      suggestedFix: "For a full-slide background layer, set the parent freeform-group mode:'background', or set this child to fillSlide:true / area:'full' / at:[0,0,slideW,slideH] / {x,y,w,h}. Otherwise it will use the small anchored default size.",
     }));
   });
 }
@@ -2096,9 +2202,40 @@ function isLikelyFreeformBackgroundChild(child: DomNode): boolean {
 
 function hasExplicitBackgroundPlacement(child: DomNode): boolean {
   if (child.fillSlide === true || child.area === "full") return true;
-  if (Array.isArray(child.at) && child.at.length === 4 && child.at.every((value) => typeof value === "number" && Number.isFinite(value))) return true;
+  if (rectFromAbsoluteRectSpec(child.at) || rectFromNodePlacement(child)) return true;
   if (typeof child.anchor === "string" && (typeof child.width === "number" || typeof child.height === "number")) return true;
   return false;
+}
+
+type ComponentFieldTypeError = { expected: string; actual: string; suggestedFix?: string };
+
+function componentFieldTypeError(componentName: string, propName: string, prop: PropDefinition, value: unknown): ComponentFieldTypeError | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (prop.type === "enum") return null;
+  if (propName === "scale" && typeof value === "string" && ["xs", "sm", "small", "md"].includes(value.trim().toLowerCase())) return null;
+  switch (prop.type) {
+    case "string":
+    case "image-ref":
+    case "color-ref":
+      return typeof value === "string" ? null : { expected: "a string", actual: describeValueType(value) };
+    case "number":
+      return (typeof value === "number" && Number.isFinite(value)) || isNumericString(value) ? null : { expected: "a finite number", actual: describeValueType(value) };
+    case "boolean":
+      return typeof value === "boolean" ? null : { expected: "a boolean", actual: describeValueType(value) };
+    case "array":
+      return Array.isArray(value) ? null : {
+        expected: "an array",
+        actual: describeValueType(value),
+        suggestedFix: componentName === "chart-with-rail" && propName === "ratio"
+          ? "Use ratio:[0.72,0.28] for rail-right/rail-left or ratio:[0.68,0.32] for stacked. A scalar ratio is ignored by the renderer."
+          : undefined,
+      };
+    case "object":
+      return value && typeof value === "object" && !Array.isArray(value) ? null : { expected: "an object", actual: describeValueType(value) };
+    case "table":
+    case "chart":
+      return null;
+  }
 }
 
 function validateComponentNode(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], options: EffectiveValidationOptions): void {
@@ -2186,6 +2323,15 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       }
     }
     const value = node[propName];
+    const typeError = componentFieldTypeError(definition.name, propName, prop, value);
+    if (typeError) {
+      issues.push(issue("error", "INVALID_FIELD_USAGE", `${definition.name}.${propName} must be ${typeError.expected}; got ${typeError.actual}.`, {
+        slideId,
+        path: `${path}.${propName}`,
+        nodeName: node.id,
+        suggestedFix: typeError.suggestedFix || `Keep ${definition.name} semantics and provide ${propName} as ${typeError.expected}.`,
+      }));
+    }
     if (prop.type === "enum" && value !== undefined && value !== null && value !== "" && prop.enum?.length) {
       const normalized = normalizeComponentEnumValue(definition.name, propName, value);
       const accepted = typeof value === "string" && prop.enum.includes(value)
@@ -2250,7 +2396,7 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
     for (const side of ["left", "right"] as const) {
       const content = (node as Record<string, unknown>)[side];
       if (content && typeof content === "object" && !Array.isArray(content)) {
-        validateNode(content as DomNode, `${path}.${side}`, slideId, issues, node, options);
+        validateComponentSlotNode(node, side, path, slideId, issues, options);
       } else if (content !== undefined && content !== null && content !== "") {
         issues.push(issue("error", "INVALID_FIELD_USAGE", `two-column.${side} must be a DomNode object.`, {
           slideId,
@@ -2263,25 +2409,24 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
   }
   if (name === "evidence-layout") {
     for (const key of ["evidence", "insight"] as const) {
-      const content = (node as Record<string, unknown>)[key];
-      if (content && typeof content === "object" && !Array.isArray(content)) validateNode(content as DomNode, `${path}.${key}`, slideId, issues, node, options);
+      validateComponentSlotNode(node, key, path, slideId, issues, options);
     }
     if (Array.isArray(node.annotations)) {
       node.annotations.forEach((content, index) => {
-        if (content && typeof content === "object" && !Array.isArray(content)) validateNode(content as DomNode, `${path}.annotations[${index}]`, slideId, issues, node, options);
+        if (content && typeof content === "object" && !Array.isArray(content)) {
+          validateNode(withSyntheticNodeIds(content as DomNode, componentSlotFallbackId(slideId, node, path, `annotations.${index + 1}`)), `${path}.annotations[${index}]`, slideId, issues, node, options);
+        }
       });
     }
   }
   if (name === "hero-and-support") {
-    const hero = (node as Record<string, unknown>).hero;
-    if (hero && typeof hero === "object" && !Array.isArray(hero)) validateNode(hero as DomNode, `${path}.hero`, slideId, issues, node, options);
+    validateComponentSlotNode(node, "hero", path, slideId, issues, options);
     validateDomNodeArrayField(node, "supports", `${path}.supports`, slideId, issues, options);
     validateDomNodeArrayField(node, "items", `${path}.items`, slideId, issues, options);
   }
   if (name === "chart-with-rail") {
     for (const key of ["evidence", "rail"] as const) {
-      const content = (node as Record<string, unknown>)[key];
-      if (content && typeof content === "object" && !Array.isArray(content)) validateNode(content as DomNode, `${path}.${key}`, slideId, issues, node, options);
+      validateComponentSlotNode(node, key, path, slideId, issues, options);
     }
   }
   if (options.requireSources && (name === "chart-card" || name === "table-card") && !hasSourceMetadata(node)) {
@@ -2299,7 +2444,7 @@ function validateDomNodeArrayField(node: DomNode, fieldName: string, path: strin
   if (!Array.isArray(value)) return;
   value.forEach((content, index) => {
     if (content && typeof content === "object" && !Array.isArray(content) && typeof (content as Record<string, unknown>).type === "string") {
-      validateNode(content as DomNode, `${path}[${index}]`, slideId, issues, node, options);
+      validateNode(withSyntheticNodeIds(content as DomNode, componentSlotFallbackId(slideId, node, path, `${fieldName}.${index + 1}`)), `${path}[${index}]`, slideId, issues, node, options);
     }
   });
 }
@@ -2596,8 +2741,9 @@ function isSignificantPositionedChild(node: DomNode): boolean {
   if (node.layer === "behind" || node.layer === "above") return false;
   if (typeof rec.zIndex === "number" && Number.isFinite(rec.zIndex) && rec.zIndex < 0) return false;
   if (isDecorativeTopLevelPositionedChild(node)) return false;
-  if (Array.isArray(rec.at) && rec.at.length === 4 && rec.at.every((value) => typeof value === "number" && Number.isFinite(value))) {
-    if (node.type === "shape" && typeof rec.at[3] === "number" && rec.at[3] <= 0.08) return false;
+  const absoluteRect = rectFromNodePlacement(node);
+  if (absoluteRect) {
+    if (node.type === "shape" && absoluteRect.h <= 0.08) return false;
     return true;
   }
   if (typeof rec.anchor === "string" && rec.anchor.trim()) return true;

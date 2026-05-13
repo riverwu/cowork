@@ -11,6 +11,7 @@
 import JSZip from "jszip";
 import { Assets } from "../assets.js";
 import { chartXml } from "./chart.js";
+import { chartWorkbookXlsx } from "./chart-workbook.js";
 import {
   notesMasterRelsXml,
   notesMasterXml,
@@ -182,12 +183,15 @@ export async function emitPackage(deck: DeckAst, themeOxml?: ResolvedThemeOxml):
     for (const _chart of chartShapes) {
       const chartFilename = `chart${nextChartIndex++}.xml`;
       slideChartFilenames.push(chartFilename);
-      zip.file(`ppt/charts/${chartFilename}`, chartXml(_chart));
-      // Charts must have a (possibly empty) rels file or PowerPoint complains.
+      const workbookFilename = `Microsoft_Excel_Worksheet${nextChartIndex - 1}.xlsx`;
+      zip.file(`ppt/charts/${chartFilename}`, chartXml(_chart, { embeddedWorkbookRelId: "rId1" }));
+      zip.file(`ppt/embeddings/${workbookFilename}`, await chartWorkbookXlsx(_chart));
       zip.file(
         `ppt/charts/_rels/${chartFilename}.rels`,
         `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`,
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/package" Target="../embeddings/${workbookFilename}"/>
+</Relationships>`,
       );
     }
 
@@ -280,6 +284,9 @@ function contentTypesXml(slideCount: number, imageExts: Set<string>, chartCount:
     overrides.push(
       `<Override PartName="/ppt/charts/chart${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`,
     );
+    overrides.push(
+      `<Override PartName="/ppt/embeddings/Microsoft_Excel_Worksheet${i}.xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>`,
+    );
   }
   if (notesIndices.length > 0) {
     overrides.push(
@@ -300,6 +307,9 @@ function contentTypesXml(slideCount: number, imageExts: Set<string>, chartCount:
     `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`,
     `<Default Extension="xml" ContentType="application/xml"/>`,
   ];
+  if (chartCount > 0) {
+    defaults.push(`<Default Extension="xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>`);
+  }
   // Always declare png/jpg defaults so a deck without an image still
   // validates if a layout decides to inject one later (charts hand-rolled
   // to PptxGenJS shape style sometimes carry inline png blips).

@@ -5,22 +5,25 @@
 
 工作流要求：
 - 先用 `write_file` 保存完整 `deck_plan.md`，说明每页目标、组件选择和新增 OOXML 能力覆盖点。
-- 用 `create_deck` 创建 deck，必须在初始调用中设置 `themeOverride.layout.areas` 和 `master:{layout,placeholders}`。placeholder 至少包含 `title` 和 `body`。
+- 用 `create_deck` 创建 deck，必须在初始调用中设置 `themeOverride.layout.areas`、`master:{layout,placeholders}` 和图表所需 `deck.dataSources`。placeholder 至少包含 `title` 和 `body`。
 - 逐页通过 `replace_slide` 生成，不要直接写 deck JSON。每次失败都根据 validation/diagnostics 修正同一个组件或布局，不要因为难通过而降级到普通文本。
+- 严禁用 `shell` / `run_node` / `run_python` / `write_file` 直接修改 `deck.json`。Deck 只能通过 SlideML2 CLI 工具链创建和逐页替换；如果忘记 dataSources，应重新创建 deck，而不是绕过工具链手改 JSON。
 - 最终调用 `validate_render({render:true})`，PPTX 输出到：{{outputPath}}。
 
 必须覆盖的新增能力：
 - 至少 2 页设置 `transition`。
 - 至少 1 个 `chart-card` 使用：`xAxis`、`yAxis`、`secondaryYAxis`、`legend:{position:"right"}`、`plotArea:{x,y,w,h}`、`xAxis.gridlines:true` 或 `yAxis.gridlines:true`、series 级 `color`/`lineWidth`/`lineDash`/`marker`，并显示数据标签。
 - 至少 1 个 `table-card` 使用：`cellPadding`、`borders` 或 per-side border、`borderDash`、`bandRows`/`bandCols`、`tableStyleId`，并在一个 cell 中使用 `padding`、`border` 或 `textRotation`。
+- `tableStyleId` 是本测试的硬性覆盖项，最终 `deck.json` 中必须保留 `"tableStyleId"` 字段；不要在修复布局时删除它。
 - 至少 1 页使用 raw `shape` 的连接线能力：`preset:"straightConnector"` 或 `preset:"elbowConnector"`，并设置 `tailEnd:{type:"triangle"}`；同时使用一个扩展 shape preset，例如 `flowChartDecision`、`hexagon` 或 `gear6`。这一页不要用 `process-flow` 替代 raw shape；本测试要验证 raw OOXML connector 能力。为了避免工具参数过长，流程图控制在 5-7 个节点以内。
 - 至少 1 处文本内链跳转到第 5 页，例如富文本 run 的 `link:"#slide5"`，或 markdown 链接 `[跳到附录](#slide5)`。
+- 内链也是硬性覆盖项，最终 PPTX XML 必须出现内部 slide jump；建议在标题页使用 `cover-composition.content:{runs:[{text:"跳到附录",link:"#slide5"}]}` 或普通 `text` rich runs，不要只在说明文字中写 `link:#slide5`。
 
 内容结构建议：
 1. 标题页：发布准备度结论、master placeholder 生效、跳转附录链接。
 2. 指标页：combo/chart-card 展示 adoption、latency、NPS 或 reliability，使用双轴和右侧图例。
-3. 风险表页：table-card 展示 workstream 风险、owner、readiness、action，强调表格样式能力。
-4. 发布流程页：用扩展 shape preset 和 connector arrow 表达质量门禁流程。
+3. 准备度表页：table-card 展示 workstream、owner、readiness、attention、action，强调表格样式能力。
+4. 发布流程页：用扩展 shape preset 和 connector arrow 表达质量检查流程。
 5. 附录页：列出数据假设、设计规范和复核结果。
 
 视觉要求：

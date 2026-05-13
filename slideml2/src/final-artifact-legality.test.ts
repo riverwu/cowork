@@ -18,6 +18,29 @@ function deck(children: Slideml2SourceDeck["slides"][number]["children"]): Slide
 }
 
 describe("final artifact legality", () => {
+  it("source slide transition aliases emit real PPTX transition XML", async () => {
+    const source = deck([{ id: "s.body", type: "text", text: "Transition alias", style: "body" } as never]);
+    source.slides[0]!.transition = { type: "slideIn", direction: "push", duration: 0.8 };
+
+    const out = join(mkdtempSync(join(tmpdir(), "slideml2-transition-alias-")), "transition.pptx");
+    await renderToPptx(sourceToRenderedDeck(source), out);
+    const zip = await JSZip.loadAsync(readFileSync(out));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+
+    expect(slideXml).toContain("<p:transition");
+    expect(slideXml).toContain('dur="800"');
+    expect(slideXml).toContain("<p:push");
+  });
+
+  it("invalid slide transitions fail source validation instead of being silently dropped", () => {
+    const source = deck([{ id: "s.body", type: "text", text: "Bad transition", style: "body" } as never]);
+    source.slides[0]!.transition = { type: "spin" as never };
+
+    const report = validateDeck(source);
+    expect(report.ok).toBe(false);
+    expect(report.errors.some((item) => item.code === "INVALID_SLIDE_TRANSITION")).toBe(true);
+  });
+
   it("table-card object rows with columns.key emit real PPTX cell text", async () => {
     const source = deck([{
       id: "s.table",
@@ -389,10 +412,12 @@ describe("final artifact legality", () => {
 
     expect(chartXml).toContain('<c:showCatName val="1"/>');
     expect(chartXml).toContain('<c:showPercent val="1"/>');
-    expect(chartXml).toContain('<c:dLblPos val="bestFit"/>');
+    expect(chartXml).toContain("<c:dLbls>");
+    expect(chartXml).not.toContain("<c:dLblPos");
+    expect(chartXml.indexOf("<c:dLbls>")).toBeLessThan(chartXml.indexOf("<c:cat>"));
   });
 
-  it("pie chart dataLabels controls emitted label content and position", async () => {
+  it("pie chart dataLabels controls emitted label content without PowerPoint-repairing position XML", async () => {
     const source = deck([{
       id: "s.pie",
       type: "chart-card",
@@ -417,7 +442,8 @@ describe("final artifact legality", () => {
     const zip = await JSZip.loadAsync(readFileSync(out));
     const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
 
-    expect(chartXml).toContain('<c:dLblPos val="outEnd"/>');
+    expect(chartXml).toContain("<c:dLbls>");
+    expect(chartXml).not.toContain("<c:dLblPos");
     expect(chartXml).toContain('<c:showVal val="1"/>');
     expect(chartXml).toContain('<c:showCatName val="1"/>');
     expect(chartXml).toContain('<c:showPercent val="0"/>');

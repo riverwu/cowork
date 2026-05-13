@@ -222,6 +222,62 @@ describe("M2 data binding", () => {
     });
   });
 
+  it("treats authored chart series on bound charts as style overrides, not data replacement", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          cust: {
+            type: "inline-json",
+            rows: [
+              { Phase: "Alpha", v: 42 },
+              { Phase: "Beta", v: 68 },
+              { Phase: "RC", v: 91 },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "multi-chart",
+        children: [{
+          id: "multi-chart.grid",
+          type: "grid",
+          columns: 2,
+          children: [
+            {
+              id: "multi-chart.bar",
+              type: "chart-card",
+              chartType: "bar",
+              bind: { source: "cust" },
+              encoding: { x: "Phase", y: "v", seriesName: "Customers" },
+            },
+            {
+              id: "multi-chart.line",
+              type: "chart-card",
+              chartType: "line",
+              bind: { source: "cust" },
+              encoding: { x: "Phase", y: "v" },
+              series: [{ name: "Reliability view", color: "#22C55E", lineWidth: 2, marker: { shape: "square" } }],
+            },
+          ],
+        }],
+      }],
+    };
+
+    const validation = validateDeck(deck);
+    expect(validation.errors, validation.errors.map((item) => item.message).join("\n")).toHaveLength(0);
+
+    const rendered = sourceToRenderedDeck(deck);
+    const line = findNode(rendered.slides[0]!.dom, "multi-chart.line");
+    expect(line?.data).toMatchObject({
+      labels: ["Alpha", "Beta", "RC"],
+      series: [{ name: "Reliability view", values: [42, 68, 91], color: "#22C55E", lineWidth: 2 }],
+    });
+    expect(line?.series).toMatchObject([{ name: "Reliability view", values: [42, 68, 91] }]);
+  });
+
   it("groups and aggregates source rows before chart and table encoding", () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,

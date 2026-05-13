@@ -79,7 +79,7 @@ describe("catalog skill installer", () => {
     expect(result.failed).toEqual([]);
     expect(mockWriteFile).toHaveBeenCalledWith(
       "/skills/slideml2/SKILL.md",
-      expect.stringContaining("Deck Planning Archive"),
+      expect.stringContaining("SlideML2 — PPTX Deck Authoring Toolchain"),
     );
     expect(mockWriteFile).not.toHaveBeenCalledWith(
       expect.stringContaining("/skills/deep-research/"),

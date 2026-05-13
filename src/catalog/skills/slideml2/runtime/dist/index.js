@@ -9729,9 +9729,9 @@ var require_load = __commonJS({
 var require_lib3 = __commonJS({
   "node_modules/.pnpm/jszip@3.10.1/node_modules/jszip/lib/index.js"(exports, module) {
     "use strict";
-    function JSZip2() {
-      if (!(this instanceof JSZip2)) {
-        return new JSZip2();
+    function JSZip3() {
+      if (!(this instanceof JSZip3)) {
+        return new JSZip3();
       }
       if (arguments.length) {
         throw new Error("The constructor with parameters has been removed in JSZip 3.0, please check the upgrade guide.");
@@ -9740,7 +9740,7 @@ var require_lib3 = __commonJS({
       this.comment = null;
       this.root = "";
       this.clone = function() {
-        var newObj = new JSZip2();
+        var newObj = new JSZip3();
         for (var i in this) {
           if (typeof this[i] !== "function") {
             newObj[i] = this[i];
@@ -9749,16 +9749,16 @@ var require_lib3 = __commonJS({
         return newObj;
       };
     }
-    JSZip2.prototype = require_object();
-    JSZip2.prototype.loadAsync = require_load();
-    JSZip2.support = require_support();
-    JSZip2.defaults = require_defaults();
-    JSZip2.version = "3.10.1";
-    JSZip2.loadAsync = function(content, options) {
-      return new JSZip2().loadAsync(content, options);
+    JSZip3.prototype = require_object();
+    JSZip3.prototype.loadAsync = require_load();
+    JSZip3.support = require_support();
+    JSZip3.defaults = require_defaults();
+    JSZip3.version = "3.10.1";
+    JSZip3.loadAsync = function(content, options) {
+      return new JSZip3().loadAsync(content, options);
     };
-    JSZip2.external = require_external();
-    module.exports = JSZip2;
+    JSZip3.external = require_external();
+    module.exports = JSZip3;
   }
 });
 
@@ -9858,6 +9858,40 @@ var OVERLAY_OCCLUSION_MIN_AREA_CM2 = 0.08;
 var OVERLAY_OCCLUSION_MIN_TARGET_COVERAGE = 0.25;
 var TITLE_OCCLUSION_MIN_AREA_CM2 = 0.5;
 var TITLE_OCCLUSION_MIN_RATIO_OF_TITLE = 0.12;
+function finiteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+function normalizedRect(x, y, w, h) {
+  return { x, y, w: Math.max(0.03, w), h: Math.max(0.03, h) };
+}
+function rectFromAbsoluteRectSpec(value) {
+  if (Array.isArray(value) && value.length === 4 && value.every(finiteNumber)) {
+    const [x2, y2, w2, h2] = value;
+    return normalizedRect(x2, y2, w2, h2);
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return void 0;
+  const rec = value;
+  const x = rec.x;
+  const y = rec.y;
+  const w = rec.w ?? rec.width;
+  const h = rec.h ?? rec.height;
+  if (finiteNumber(x) && finiteNumber(y) && finiteNumber(w) && finiteNumber(h)) {
+    return normalizedRect(x, y, w, h);
+  }
+  return void 0;
+}
+function rectFromNodeBoxFields(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return void 0;
+  return rectFromAbsoluteRectSpec(value);
+}
+function rectFromNodePlacement(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return void 0;
+  const rec = value;
+  return rectFromAbsoluteRectSpec(rec.at) ?? rectFromNodeBoxFields(rec);
+}
 function intersectionRect(a, b, epsilon = 0) {
   const x1 = Math.max(a.x, b.x);
   const y1 = Math.max(a.y, b.y);
@@ -10027,12 +10061,22 @@ var RENDER_DIAGNOSTIC_CODES = [
   "PIE_LABELS_HIDDEN",
   "EMPTY_CHART_DATA",
   "EMPTY_TABLE_DATA",
+  "EVIDENCE_REGION_TOO_SMALL",
+  "IMAGE_ASPECT_MISMATCH",
+  "PROCESS_FLOW_OVER_CAPACITY",
+  "TIMELINE_OVER_CAPACITY",
+  "KPI_REGION_OVER_CAPACITY",
+  "EQUATION_TOO_DENSE",
+  "DONUT_SUMMARY_OVER_CAPACITY",
+  "PAGE_OVER_CAPACITY",
+  "REGION_OVER_CAPACITY",
   "LOW_CONTRAST",
   "LOW_CONTRAST_FIXED",
   "SHAPE_INVISIBLE",
   "SHAPE_INVISIBLE_FIXED"
 ];
 var SOURCE_VALIDATION_CODE = {
+  INVALID_SLIDE_TRANSITION: "INVALID_SLIDE_TRANSITION",
   NODE_OUT_OF_BOUNDS: "NODE_OUT_OF_BOUNDS",
   TEXT_BOX_TOO_SHORT: "TEXT_BOX_TOO_SHORT",
   TOP_LEVEL_LAYOUT_OVERLAP: "TOP_LEVEL_LAYOUT_OVERLAP"
@@ -10066,7 +10110,16 @@ var QUALITY_RENDER_DIAGNOSTIC_CODES = /* @__PURE__ */ new Set([
   "EDGE_CLIPPED",
   "TIGHT_GAP",
   "SQUASHED",
-  "PIE_LABELS_HIDDEN"
+  "PIE_LABELS_HIDDEN",
+  "EVIDENCE_REGION_TOO_SMALL",
+  "IMAGE_ASPECT_MISMATCH",
+  "PROCESS_FLOW_OVER_CAPACITY",
+  "TIMELINE_OVER_CAPACITY",
+  "KPI_REGION_OVER_CAPACITY",
+  "EQUATION_TOO_DENSE",
+  "DONUT_SUMMARY_OVER_CAPACITY",
+  "PAGE_OVER_CAPACITY",
+  "REGION_OVER_CAPACITY"
 ]);
 function isBlockingRenderDiagnostic(code, severity) {
   if (severity === "error")
@@ -10246,7 +10299,7 @@ var ANCHOR_FIELDS = {
   zIndex: { valueType: "number", description: "Render order: higher = on top. Negative = behind flow content." },
   fillSlide: { valueType: "boolean", description: "Slide-spanning overlay sentinel: width/height auto-expand to (slideWidthCm - 2*offsetX) / (slideHeightCm - 2*offsetY). Use for decoration-grid backgrounds, full-bleed watermarks. Works across deck sizes (16x9 / 4x3 / wide)." },
   anchorTo: { valueType: "string", description: "Relative-anchor: instead of positioning against the slide canvas, position against the rect of another node by id (e.g. 'cover.image'). Honors the same anchor/offsetX/offsetY/width/height fields, but the anchor reference frame becomes the target's rect. Use for badges clipping over a card edge, callout-markers pointing at a chart region, annotation arrows between siblings. Slide-level only (direct child of slide root). When set, `anchor` defaults to 'top-right' if omitted." },
-  at: { valueType: "array", description: "Slide-relative absolute coords [x,y,w,h] in cm. Slide-level only, ignores flow. Pairs with `rotation` for editorial layouts." },
+  at: { valueType: "array", description: "Slide-relative absolute coords [x,y,w,h] in cm; object form {x,y,w,h} or {x,y,width,height} is also accepted. Slide-level only, ignores flow. Pairs with `rotation` for editorial layouts." },
   layer: { valueType: "enum", values: ["behind", "flow", "above"], description: "Layered composition: 'flow' (default) participates in stack/grid layout. 'behind' fills the parent's content rect and renders below sibling flow children \u2014 use for backing images, tinted bands, decoration-grid behind a card's text. 'above' fills the parent rect and renders on top of flow children \u2014 use for scrims, ribbons, watermark-style overlays. behind/above children claim no main-axis space." }
 };
 var TRANSFORM_FIELDS = {
@@ -10748,11 +10801,12 @@ function isComponentLikeType(type) {
 }
 
 // slideml2/dist/render.js
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
 import { mkdir as mkdir2, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname2 } from "node:path";
+import { dirname as dirname2, extname } from "node:path";
 
 // slideml2/dist/emitter/package.js
-var import_jszip = __toESM(require_lib3(), 1);
+var import_jszip2 = __toESM(require_lib3(), 1);
 
 // slideml2/dist/assets.js
 import { createHash } from "node:crypto";
@@ -11061,6 +11115,7 @@ function attr(name, value) {
     return value ? ` ${name}="1"` : "";
   return ` ${name}="${xmlEscape(String(value))}"`;
 }
+var XML_DECL = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>`;
 
 // slideml2/dist/emitter/chart.js
 var NS_CHART = "http://schemas.openxmlformats.org/drawingml/2006/chart";
@@ -11078,7 +11133,7 @@ var DEFAULT_COLORS = [
   "8C7DCC",
   "BFB143"
 ];
-function chartXml(shape) {
+function chartXml(shape, options = {}) {
   const colors = (shape.colors && shape.colors.length > 0 ? shape.colors : DEFAULT_COLORS).map((c) => {
     assertHex(c, "ChartShape.colors[]");
     return c.toUpperCase();
@@ -11097,36 +11152,43 @@ function chartXml(shape) {
   const showLegend = shape.legend ? shape.legend.show !== false : shape.showLegend ?? shape.series.length > 1;
   const legendXml = legendXmlOf(shape, showLegend);
   let plotInner = "";
+  const refContext = {
+    sheetName: "Sheet1",
+    enabled: Boolean(options.embeddedWorkbookRelId)
+  };
   if (shape.chartType === "bar" || shape.chartType === "stacked-bar") {
-    plotInner = barChartXml(shape, colors, catAxId, valAxId, shape.chartType === "stacked-bar", hasSecondaryAxis ? secondaryValAxId : void 0);
+    plotInner = barChartXml(shape, colors, catAxId, valAxId, shape.chartType === "stacked-bar", hasSecondaryAxis ? secondaryValAxId : void 0, refContext);
   } else if (shape.chartType === "line") {
-    plotInner = lineChartXml(shape, colors, catAxId, valAxId, hasSecondaryAxis ? secondaryValAxId : void 0);
+    plotInner = lineChartXml(shape, colors, catAxId, valAxId, hasSecondaryAxis ? secondaryValAxId : void 0, refContext);
   } else if (shape.chartType === "area") {
-    plotInner = areaChartXml(shape, colors, catAxId, valAxId, hasSecondaryAxis ? secondaryValAxId : void 0);
+    plotInner = areaChartXml(shape, colors, catAxId, valAxId, hasSecondaryAxis ? secondaryValAxId : void 0, refContext);
   } else if (shape.chartType === "pie") {
     plotInner = pieChartXml(
       shape,
       colors,
       /* doughnut */
-      false
+      false,
+      refContext
     );
   } else if (shape.chartType === "doughnut") {
     plotInner = pieChartXml(
       shape,
       colors,
       /* doughnut */
-      true
+      true,
+      refContext
     );
   } else if (shape.chartType === "combo") {
-    plotInner = comboChartXml(shape, colors, catAxId, valAxId, hasSecondaryAxis ? secondaryValAxId : void 0);
+    plotInner = comboChartXml(shape, colors, catAxId, valAxId, hasSecondaryAxis ? secondaryValAxId : void 0, refContext);
   } else if (shape.chartType === "scatter") {
-    plotInner = scatterChartXml(shape, colors, catAxId, valAxId);
+    plotInner = scatterChartXml(shape, colors, catAxId, valAxId, refContext);
   } else if (shape.chartType === "waterfall") {
-    plotInner = waterfallChartXml(shape, colors, catAxId, valAxId);
+    plotInner = waterfallChartXml(shape, colors, catAxId, valAxId, refContext);
   }
   const axisLessTypes = ["pie", "doughnut"];
   const isScatter = shape.chartType === "scatter";
   const axesXml = axisLessTypes.includes(shape.chartType) ? "" : isScatter ? scatterAxesXml(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt) : axesXmlOf(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt, hasSecondaryAxis ? secondaryValAxId : void 0, shape.secondaryYAxis, isHorizontalBarChart(shape) ? "horizontal" : "vertical");
+  const externalDataXml = options.embeddedWorkbookRelId ? `<c:externalData r:id="${options.embeddedWorkbookRelId}"><c:autoUpdate val="0"/></c:externalData>` : "";
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <c:chartSpace xmlns:c="${NS_CHART}" xmlns:a="${NS_DRAWING}" xmlns:r="${NS_REL}">
 <c:date1904 val="0"/>
@@ -11144,6 +11206,7 @@ ${legendXml}
 <c:plotVisOnly val="1"/>
 <c:dispBlanksAs val="gap"/>
 </c:chart>
+${externalDataXml}
 </c:chartSpace>`;
 }
 function chartSupportsSecondaryAxis(shape) {
@@ -11194,15 +11257,15 @@ function plotAreaLayoutXml(shape) {
 function clampFactor(value, min = 0, max = 1) {
   return Math.max(min, Math.min(max, value));
 }
-function barChartXml(shape, colors, catAxId, valAxId, stacked, secondaryValAxId) {
+function barChartXml(shape, colors, catAxId, valAxId, stacked, secondaryValAxId, refContext) {
   const grouping = stacked ? "stacked" : "clustered";
   const overlap = stacked ? `<c:overlap val="100"/>` : "";
-  const chartFor = (series, axisId) => series.length === 0 ? "" : `<c:barChart><c:barDir val="${isHorizontalBarChart(shape) ? "bar" : "col"}"/><c:grouping val="${grouping}"/><c:varyColors val="0"/>` + series.map((s) => seriesXml(s, shape.series.indexOf(s), colors, shape.labels, shape.showValues, false, false, shape)).join("") + `<c:gapWidth val="100"/>` + overlap + `<c:axId val="${catAxId}"/><c:axId val="${axisId}"/></c:barChart>`;
+  const chartFor = (series, axisId) => series.length === 0 ? "" : `<c:barChart><c:barDir val="${isHorizontalBarChart(shape) ? "bar" : "col"}"/><c:grouping val="${grouping}"/><c:varyColors val="0"/>` + series.map((s) => seriesXml(s, shape.series.indexOf(s), colors, shape.labels, shape.showValues, false, false, shape, refContext)).join("") + `<c:gapWidth val="100"/>` + overlap + `<c:axId val="${catAxId}"/><c:axId val="${axisId}"/></c:barChart>`;
   if (!secondaryValAxId)
     return chartFor(shape.series, valAxId);
   return chartFor(shape.series.filter((series) => series.axis !== "secondary"), valAxId) + chartFor(shape.series.filter((series) => series.axis === "secondary"), secondaryValAxId);
 }
-function areaChartXml(shape, colors, catAxId, valAxId, secondaryValAxId) {
+function areaChartXml(shape, colors, catAxId, valAxId, secondaryValAxId, refContext) {
   const chartFor = (series, axisId) => series.length === 0 ? "" : `<c:areaChart><c:grouping val="standard"/><c:varyColors val="0"/>` + series.map((s) => seriesXml(
     s,
     shape.series.indexOf(s),
@@ -11213,19 +11276,20 @@ function areaChartXml(shape, colors, catAxId, valAxId, secondaryValAxId) {
     false,
     /* isArea */
     true,
-    shape
+    shape,
+    refContext
   )).join("") + `<c:axId val="${catAxId}"/><c:axId val="${axisId}"/></c:areaChart>`;
   if (!secondaryValAxId)
     return chartFor(shape.series, valAxId);
   return chartFor(shape.series.filter((series) => series.axis !== "secondary"), valAxId) + chartFor(shape.series.filter((series) => series.axis === "secondary"), secondaryValAxId);
 }
-function lineChartXml(shape, colors, catAxId, valAxId, secondaryValAxId) {
-  const chartFor = (series, axisId) => series.length === 0 ? "" : `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>` + series.map((s) => seriesXml(s, shape.series.indexOf(s), colors, shape.labels, shape.showValues, true, false, shape)).join("") + `<c:marker val="1"/><c:axId val="${catAxId}"/><c:axId val="${axisId}"/></c:lineChart>`;
+function lineChartXml(shape, colors, catAxId, valAxId, secondaryValAxId, refContext) {
+  const chartFor = (series, axisId) => series.length === 0 ? "" : `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>` + series.map((s) => seriesXml(s, shape.series.indexOf(s), colors, shape.labels, shape.showValues, true, false, shape, refContext)).join("") + `<c:marker val="1"/><c:axId val="${catAxId}"/><c:axId val="${axisId}"/></c:lineChart>`;
   if (!secondaryValAxId)
     return chartFor(shape.series, valAxId);
   return chartFor(shape.series.filter((series) => series.axis !== "secondary"), valAxId) + chartFor(shape.series.filter((series) => series.axis === "secondary"), secondaryValAxId);
 }
-function pieChartXml(shape, colors, doughnut) {
+function pieChartXml(shape, colors, doughnut, refContext) {
   const series = shape.series[0] ?? { name: "Series", values: [] };
   const elem = doughnut ? "doughnutChart" : "pieChart";
   const holeXml = doughnut ? `<c:holeSize val="50"/>` : "";
@@ -11236,10 +11300,13 @@ function pieChartXml(shape, colors, doughnut) {
     showSeriesName: false,
     showPercent: true,
     showLeaderLines: true
-  });
-  return `<c:${elem}><c:varyColors val="1"/><c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:v>${xmlEscapeText(series.name)}</c:v></c:tx>` + shape.labels.map((_, i) => `<c:dPt><c:idx val="${i}"/><c:bubble3D val="0"/><c:spPr><a:solidFill><a:srgbClr val="${colors[i % colors.length]}"/></a:solidFill></c:spPr></c:dPt>`).join("") + catRefXml(shape.labels) + valRefXml(series.values) + `</c:ser>` + dataLabelsXml + `<c:firstSliceAng val="0"/>` + holeXml + `</c:${elem}>`;
+    // PowerPoint for Mac repairs pie/doughnut charts when c:dLblPos is emitted
+    // in this series-level label block. Let Office choose the position; labels
+    // remain enabled and editable without corrupting the package.
+  }, { pointCount: shape.labels.length, omitPosition: true });
+  return `<c:${elem}><c:varyColors val="1"/><c:ser><c:idx val="0"/><c:order val="0"/>` + seriesTxXml(series.name, 0, refContext) + shape.labels.map((_, i) => `<c:dPt><c:idx val="${i}"/><c:bubble3D val="0"/><c:spPr><a:solidFill><a:srgbClr val="${colors[i % colors.length]}"/></a:solidFill></c:spPr></c:dPt>`).join("") + dataLabelsXml + catRefXml(shape.labels, refContext) + valRefXml(series.values, refContext, 0) + `</c:ser><c:firstSliceAng val="0"/>` + holeXml + `</c:${elem}>`;
 }
-function seriesXml(s, idx, colors, labels, showValues = false, isLine = false, isArea = false, shape) {
+function seriesXml(s, idx, colors, labels, showValues = false, isLine = false, isArea = false, shape, refContext) {
   const color2 = s.color ? s.color.toUpperCase() : colors[idx % colors.length];
   const pointColorsXml = !isLine && !isArea ? pointColorsXmlOf(s.values, {
     positiveColor: shape?.positiveColor?.toUpperCase(),
@@ -11253,7 +11320,7 @@ function seriesXml(s, idx, colors, labels, showValues = false, isLine = false, i
     showSeriesName: false,
     showPercent: false
   });
-  return `<c:ser><c:idx val="${idx}"/><c:order val="${idx}"/><c:tx><c:v>${xmlEscapeText(s.name)}</c:v></c:tx>` + linePart + pointColorsXml + dLbls + trendLineXml(s) + errorBarsXml(s) + catRefXml(labels) + valRefXml(s.values) + (isLine ? `<c:smooth val="${s.smooth ? 1 : 0}"/>` : "") + `</c:ser>`;
+  return `<c:ser><c:idx val="${idx}"/><c:order val="${idx}"/>` + seriesTxXml(s.name, idx, refContext) + linePart + pointColorsXml + dLbls + trendLineXml(s) + errorBarsXml(s) + catRefXml(labels, refContext) + valRefXml(s.values, refContext, idx) + (isLine ? `<c:smooth val="${s.smooth ? 1 : 0}"/>` : "") + `</c:ser>`;
 }
 function lineStyleXml(color2, width, dash) {
   const w = Math.round(width && Number.isFinite(width) && width > 0 ? width : 22225);
@@ -11279,12 +11346,12 @@ function markerSymbolXml(symbol) {
       return symbol;
   }
 }
-function dataLabelsXmlOf(shape, defaults) {
+function dataLabelsXmlOf(shape, defaults, options = {}) {
   const labels = shape.dataLabels;
   const show = labels?.show ?? shape.showValues ?? false;
   if (!show)
     return "";
-  const position = labels?.position ?? defaults.position;
+  const position = options.omitPosition ? void 0 : labels?.position ?? defaults.position;
   const positionXml = position ? `<c:dLblPos val="${dataLabelPositionXml(position)}"/>` : "";
   const showLegendKey = labels?.showLegendKey ?? defaults.showLegendKey ?? false;
   const showValue = labels?.showValue ?? defaults.showValue;
@@ -11293,7 +11360,12 @@ function dataLabelsXmlOf(shape, defaults) {
   const showPercent = labels?.showPercent ?? defaults.showPercent;
   const showLeaderLines = labels?.showLeaderLines ?? defaults.showLeaderLines;
   const leaderLinesXml = typeof showLeaderLines === "boolean" ? `<c:showLeaderLines val="${showLeaderLines ? 1 : 0}"/>` : "";
-  return `<c:dLbls>` + positionXml + `<c:showLegendKey val="${showLegendKey ? 1 : 0}"/><c:showVal val="${showValue ? 1 : 0}"/><c:showCatName val="${showCategoryName ? 1 : 0}"/><c:showSerName val="${showSeriesName ? 1 : 0}"/><c:showPercent val="${showPercent ? 1 : 0}"/><c:showBubbleSize val="0"/>` + leaderLinesXml + `</c:dLbls>`;
+  const showFlagsXml = `<c:showLegendKey val="${showLegendKey ? 1 : 0}"/><c:showVal val="${showValue ? 1 : 0}"/><c:showCatName val="${showCategoryName ? 1 : 0}"/><c:showSerName val="${showSeriesName ? 1 : 0}"/><c:showPercent val="${showPercent ? 1 : 0}"/><c:showBubbleSize val="0"/>`;
+  const pointLabelsXml = options.pointCount && options.pointCount > 0 ? Array.from({ length: options.pointCount }, (_, idx) => `<c:dLbl><c:idx val="${idx}"/><c:numFmt formatCode="General" sourceLinked="0"/><c:spPr/>` + defaultDataLabelTextPrXml() + showFlagsXml + `</c:dLbl>`).join("") : "";
+  return `<c:dLbls>` + pointLabelsXml + `<c:numFmt formatCode="General" sourceLinked="0"/>` + defaultDataLabelTextPrXml() + positionXml + showFlagsXml + leaderLinesXml + `</c:dLbls>`;
+}
+function defaultDataLabelTextPrXml() {
+  return `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1200"><a:solidFill><a:srgbClr val="111827"/></a:solidFill><a:latin typeface="Arial"/></a:defRPr></a:pPr></a:p></c:txPr>`;
 }
 function dataLabelPositionXml(position) {
   switch (position) {
@@ -11337,33 +11409,76 @@ function errorBarsXml(s) {
   const directions = spec.direction === "both" ? ["x", "y"] : [spec.direction === "x" ? "x" : "y"];
   return directions.map((dir) => `<c:errBars><c:errDir val="${dir}"/><c:errBarType val="both"/><c:errValType val="${type}"/><c:noEndCap val="0"/><c:val val="${value}"/></c:errBars>`).join("");
 }
-function catRefXml(labels) {
+function catRefXml(labels, refContext) {
+  if (refContext?.enabled) {
+    return `<c:cat><c:strRef><c:f>${xmlEscapeText(excelRange(refContext.sheetName, 1, 2, labels.length + 1))}</c:f><c:strCache><c:ptCount val="${labels.length}"/>` + labels.map((l, i) => `<c:pt idx="${i}"><c:v>${xmlEscapeText(l)}</c:v></c:pt>`).join("") + `</c:strCache></c:strRef></c:cat>`;
+  }
   return `<c:cat><c:strLit><c:ptCount val="${labels.length}"/>` + labels.map((l, i) => `<c:pt idx="${i}"><c:v>${xmlEscapeText(l)}</c:v></c:pt>`).join("") + `</c:strLit></c:cat>`;
 }
-function valRefXml(values) {
+function valRefXml(values, refContext, seriesIndex = 0) {
+  if (refContext?.enabled) {
+    const col = 2 + Math.max(0, seriesIndex);
+    return `<c:val><c:numRef><c:f>${xmlEscapeText(excelRange(refContext.sheetName, col, 2, values.length + 1))}</c:f><c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>` + values.map((v, i) => `<c:pt idx="${i}"><c:v>${typeof v === "number" && Number.isFinite(v) ? v : 0}</c:v></c:pt>`).join("") + `</c:numCache></c:numRef></c:val>`;
+  }
   return `<c:val><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>` + values.map((v, i) => `<c:pt idx="${i}"><c:v>${typeof v === "number" && Number.isFinite(v) ? v : 0}</c:v></c:pt>`).join("") + `</c:numLit></c:val>`;
 }
-function comboChartXml(shape, colors, catAxId, valAxId, secondaryValAxId) {
+function seriesTxXml(name, seriesIndex, refContext) {
+  if (!refContext?.enabled)
+    return `<c:tx><c:v>${xmlEscapeText(name)}</c:v></c:tx>`;
+  const col = 2 + Math.max(0, seriesIndex);
+  return `<c:tx><c:strRef><c:f>${xmlEscapeText(excelCell(refContext.sheetName, col, 1))}</c:f><c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>${xmlEscapeText(name)}</c:v></c:pt></c:strCache></c:strRef></c:tx>`;
+}
+function excelCell(sheetName, col, row) {
+  const c = excelColumnName(col);
+  return `${quoteSheetName(sheetName)}!$${c}$${Math.max(1, Math.floor(row))}`;
+}
+function excelRange(sheetName, col, firstRow, lastRow) {
+  const safeLastRow = Math.max(firstRow, lastRow);
+  const c = excelColumnName(col);
+  return `${quoteSheetName(sheetName)}!$${c}$${firstRow}:$${c}$${safeLastRow}`;
+}
+function excelColumnName(col) {
+  let n = Math.max(1, Math.floor(col));
+  let out = "";
+  while (n > 0) {
+    n -= 1;
+    out = String.fromCharCode(65 + n % 26) + out;
+    n = Math.floor(n / 26);
+  }
+  return out;
+}
+function quoteSheetName(sheetName) {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(sheetName) ? sheetName : `'${sheetName.replace(/'/g, "''")}'`;
+}
+function comboChartXml(shape, colors, catAxId, valAxId, secondaryValAxId, refContext) {
   const indexed = shape.series.map((s, idx) => ({ s, idx }));
   const chartXmlForAxis = (axisId, axis) => {
     const axisSeries = indexed.filter((entry) => axis === "secondary" ? entry.s.axis === "secondary" : entry.s.axis !== "secondary");
     const bars = axisSeries.filter((e) => (e.s.type ?? "bar") === "bar");
     const lines = axisSeries.filter((e) => e.s.type === "line");
-    const barXml = bars.length === 0 ? "" : `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>` + bars.map((e) => seriesXml(e.s, e.idx, colors, shape.labels, shape.showValues, false, false, shape)).join("") + `<c:gapWidth val="100"/><c:axId val="${catAxId}"/><c:axId val="${axisId}"/></c:barChart>`;
-    const lineXml = lines.length === 0 ? "" : `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>` + lines.map((e) => seriesXml(e.s, e.idx, colors, shape.labels, shape.showValues, true, false, shape)).join("") + `<c:marker val="1"/><c:axId val="${catAxId}"/><c:axId val="${axisId}"/></c:lineChart>`;
+    const barXml = bars.length === 0 ? "" : `<c:barChart><c:barDir val="col"/><c:grouping val="clustered"/><c:varyColors val="0"/>` + bars.map((e) => seriesXml(e.s, e.idx, colors, shape.labels, shape.showValues, false, false, shape, refContext)).join("") + `<c:gapWidth val="100"/><c:axId val="${catAxId}"/><c:axId val="${axisId}"/></c:barChart>`;
+    const lineXml = lines.length === 0 ? "" : `<c:lineChart><c:grouping val="standard"/><c:varyColors val="0"/>` + lines.map((e) => seriesXml(e.s, e.idx, colors, shape.labels, shape.showValues, true, false, shape, refContext)).join("") + `<c:marker val="1"/><c:axId val="${catAxId}"/><c:axId val="${axisId}"/></c:lineChart>`;
     return barXml + lineXml;
   };
   return chartXmlForAxis(valAxId, "primary") + (secondaryValAxId ? chartXmlForAxis(secondaryValAxId, "secondary") : "");
 }
-function scatterChartXml(shape, colors, xAxId, yAxId) {
+function scatterChartXml(shape, colors, xAxId, yAxId, refContext) {
   return `<c:scatterChart><c:scatterStyle val="lineMarker"/><c:varyColors val="0"/>` + shape.series.map((s, idx) => {
     const pts = s.points && s.points.length > 0 ? s.points : shape.labels.map((l, i) => ({ x: Number(l) || i, y: s.values[i] ?? 0 }));
     const color2 = colors[idx % colors.length];
     const seriesColor = s.color ? s.color.toUpperCase() : color2;
-    return `<c:ser><c:idx val="${idx}"/><c:order val="${idx}"/><c:tx><c:v>${xmlEscapeText(s.name)}</c:v></c:tx><c:spPr>${lineStyleXml(seriesColor, s.lineWidth, s.lineDash)}</c:spPr>` + markerXml(s.marker, seriesColor) + trendLineXml(s) + errorBarsXml(s) + `<c:xVal><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${pts.length}"/>` + pts.map((p, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(p.x) ? p.x : 0}</c:v></c:pt>`).join("") + `</c:numLit></c:xVal><c:yVal><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${pts.length}"/>` + pts.map((p, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(p.y) ? p.y : 0}</c:v></c:pt>`).join("") + `</c:numLit></c:yVal><c:smooth val="${s.smooth ? 1 : 0}"/></c:ser>`;
+    return `<c:ser><c:idx val="${idx}"/><c:order val="${idx}"/><c:tx><c:v>${xmlEscapeText(s.name)}</c:v></c:tx><c:spPr>${lineStyleXml(seriesColor, s.lineWidth, s.lineDash)}</c:spPr>` + markerXml(s.marker, seriesColor) + trendLineXml(s) + errorBarsXml(s) + scatterNumRefXml("xVal", pts.map((p) => p.x), idx, refContext) + scatterNumRefXml("yVal", pts.map((p) => p.y), idx, refContext) + `<c:smooth val="${s.smooth ? 1 : 0}"/></c:ser>`;
   }).join("") + `<c:axId val="${xAxId}"/><c:axId val="${yAxId}"/></c:scatterChart>`;
 }
-function waterfallChartXml(shape, colors, catAxId, valAxId) {
+function scatterNumRefXml(tag, values, seriesIndex, refContext) {
+  const cache = `<c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>` + values.map((v, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(v) ? v : 0}</c:v></c:pt>`).join("");
+  if (!refContext?.enabled) {
+    return `<c:${tag}><c:numLit>${cache}</c:numLit></c:${tag}>`;
+  }
+  const col = seriesIndex * 2 + (tag === "xVal" ? 1 : 2);
+  return `<c:${tag}><c:numRef><c:f>${xmlEscapeText(excelRange(refContext.sheetName, col, 2, values.length + 1))}</c:f><c:numCache>${cache}</c:numCache></c:numRef></c:${tag}>`;
+}
+function waterfallChartXml(shape, colors, catAxId, valAxId, refContext) {
   const upColor = colors[0] ?? "3CC2FF";
   const downColor = "C0432D";
   const totalColor = colors[1] ?? "1078B5";
@@ -11393,8 +11508,8 @@ function waterfallChartXml(shape, colors, catAxId, valAxId) {
       running += v;
     }
   });
-  const baseSer = `<c:ser><c:idx val="0"/><c:order val="0"/><c:tx><c:v>${xmlEscapeText("(base)")}</c:v></c:tx><c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>` + catRefXml(shape.labels) + valRefXml(base) + `</c:ser>`;
-  const deltaSer = `<c:ser><c:idx val="1"/><c:order val="1"/><c:tx><c:v>${xmlEscapeText(series.name)}</c:v></c:tx>` + fill.map((c, i) => `<c:dPt><c:idx val="${i}"/><c:invertIfNegative val="0"/><c:bubble3D val="0"/><c:spPr><a:solidFill><a:srgbClr val="${c}"/></a:solidFill></c:spPr></c:dPt>`).join("") + catRefXml(shape.labels) + valRefXml(delta) + `</c:ser>`;
+  const baseSer = `<c:ser><c:idx val="0"/><c:order val="0"/>` + seriesTxXml("(base)", 0, refContext) + `<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>` + catRefXml(shape.labels, refContext) + valRefXml(base, refContext, 0) + `</c:ser>`;
+  const deltaSer = `<c:ser><c:idx val="1"/><c:order val="1"/>` + seriesTxXml(series.name, 1, refContext) + fill.map((c, i) => `<c:dPt><c:idx val="${i}"/><c:invertIfNegative val="0"/><c:bubble3D val="0"/><c:spPr><a:solidFill><a:srgbClr val="${c}"/></a:solidFill></c:spPr></c:dPt>`).join("") + catRefXml(shape.labels, refContext) + valRefXml(delta, refContext, 1) + `</c:ser>`;
   return `<c:barChart><c:barDir val="col"/><c:grouping val="stacked"/><c:varyColors val="0"/>` + baseSer + deltaSer + `<c:gapWidth val="40"/><c:overlap val="100"/><c:axId val="${catAxId}"/><c:axId val="${valAxId}"/></c:barChart>`;
 }
 function scatterAxesXml(xAxId, yAxId, xAxis, yAxis, numFmt) {
@@ -11481,6 +11596,285 @@ function xmlEscapeText(s) {
 }
 function formatCodeAttr(s) {
   return s.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+// slideml2/dist/emitter/chart-workbook.js
+var import_jszip = __toESM(require_lib3(), 1);
+async function chartWorkbookXlsx(shape) {
+  const model = shape.chartType === "scatter" ? scatterWorksheetModel(shape) : worksheetModel(shape.labels, workbookSeries(shape));
+  const sharedStrings = sharedStringTable(model);
+  const zip = new import_jszip.default();
+  zip.file("[Content_Types].xml", workbookContentTypesXml());
+  zip.file("_rels/.rels", workbookRootRelsXml());
+  zip.file("docProps/app.xml", workbookAppXml());
+  zip.file("docProps/core.xml", workbookCoreXml());
+  zip.file("xl/workbook.xml", workbookXml());
+  zip.file("xl/_rels/workbook.xml.rels", workbookRelsXml());
+  zip.file("xl/worksheets/sheet1.xml", worksheetXml(model, sharedStrings.indexes));
+  zip.file("xl/styles.xml", stylesXml());
+  zip.file("xl/theme/theme1.xml", workbookThemeXml());
+  zip.file("xl/sharedStrings.xml", sharedStringsXml(sharedStrings.values, sharedStrings.count));
+  for (const path of Object.keys(zip.files)) {
+    if (zip.files[path].dir)
+      delete zip.files[path];
+  }
+  return await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+}
+function workbookSeries(shape) {
+  if (shape.chartType !== "waterfall") {
+    return shape.series.map((s) => ({ name: s.name, values: s.values }));
+  }
+  const source = shape.series[0] ?? { name: "Series", values: [] };
+  let running = 0;
+  const base = [];
+  const delta = [];
+  source.values.forEach((raw) => {
+    if (raw === null || typeof raw !== "number" || !Number.isFinite(raw)) {
+      base.push(0);
+      delta.push(running);
+      return;
+    }
+    if (raw >= 0) {
+      base.push(running);
+      delta.push(raw);
+      running += raw;
+    } else {
+      base.push(running + raw);
+      delta.push(-raw);
+      running += raw;
+    }
+  });
+  return [
+    { name: "(base)", values: base },
+    { name: source.name, values: delta }
+  ];
+}
+function worksheetModel(labels, series) {
+  const rowCount = Math.max(labels.length, ...series.map((s) => s.values.length), 1) + 1;
+  const colCount = Math.max(1 + series.length, 2);
+  const rows = [];
+  rows.push({
+    index: 1,
+    cells: [
+      stringCell("A1", ""),
+      ...series.map((s, idx) => stringCell(`${excelColumnName2(idx + 2)}1`, s.name))
+    ]
+  });
+  for (let i = 0; i < rowCount - 1; i++) {
+    const r = i + 2;
+    const cells = [stringCell(`A${r}`, labels[i] ?? "")];
+    series.forEach((s, idx) => {
+      cells.push(numberCell(`${excelColumnName2(idx + 2)}${r}`, s.values[i]));
+    });
+    rows.push({ index: r, cells });
+  }
+  return { rows, colCount, rowCount };
+}
+function scatterWorksheetModel(shape) {
+  const pointsBySeries = shape.series.map((series) => scatterPoints(shape, series));
+  const dataRows = Math.max(...pointsBySeries.map((points) => points.length), 1);
+  const colCount = Math.max(shape.series.length * 2, 2);
+  const rows = [];
+  const headerCells = [];
+  shape.series.forEach((series, idx) => {
+    const xCol = excelColumnName2(idx * 2 + 1);
+    const yCol = excelColumnName2(idx * 2 + 2);
+    headerCells.push(stringCell(`${xCol}1`, `${series.name} x`));
+    headerCells.push(stringCell(`${yCol}1`, `${series.name} y`));
+  });
+  if (headerCells.length === 0) {
+    headerCells.push(stringCell("A1", "x"));
+    headerCells.push(stringCell("B1", "y"));
+  }
+  rows.push({ index: 1, cells: headerCells });
+  for (let i = 0; i < dataRows; i++) {
+    const r = i + 2;
+    const cells = [];
+    pointsBySeries.forEach((points, idx) => {
+      const point = points[i];
+      cells.push(numberCell(`${excelColumnName2(idx * 2 + 1)}${r}`, point?.x));
+      cells.push(numberCell(`${excelColumnName2(idx * 2 + 2)}${r}`, point?.y));
+    });
+    if (cells.length === 0) {
+      cells.push(numberCell(`A${r}`, 0));
+      cells.push(numberCell(`B${r}`, 0));
+    }
+    rows.push({ index: r, cells });
+  }
+  return { rows, colCount, rowCount: dataRows + 1 };
+}
+function scatterPoints(shape, series) {
+  return series.points && series.points.length > 0 ? series.points : shape.labels.map((label, i) => ({ x: Number(label) || i, y: series.values[i] ?? 0 }));
+}
+function sharedStringTable(model) {
+  const values = [];
+  const indexes = /* @__PURE__ */ new Map();
+  let count = 0;
+  for (const row of model.rows) {
+    for (const cell of row.cells) {
+      if (cell.kind !== "string")
+        continue;
+      count += 1;
+      if (!indexes.has(cell.value)) {
+        indexes.set(cell.value, values.length);
+        values.push(cell.value);
+      }
+    }
+  }
+  return { values, indexes, count };
+}
+function workbookContentTypesXml() {
+  return `${XML_DECL}
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+<Override PartName="/xl/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>
+<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+</Types>`;
+}
+function workbookRootRelsXml() {
+  return `${XML_DECL}
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>`;
+}
+function workbookXml() {
+  return `${XML_DECL}
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" mc:Ignorable="x15" xmlns:x15="http://schemas.microsoft.com/office/spreadsheetml/2010/11/main">
+<fileVersion appName="xl" lastEdited="7" lowestEdited="7" rupBuild="18129"/>
+<workbookPr defaultThemeVersion="166925"/>
+<bookViews><workbookView xWindow="0" yWindow="0" windowWidth="28800" windowHeight="17600"/></bookViews>
+<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+<calcPr calcId="0" concurrentCalc="0"/>
+</workbook>`;
+}
+function workbookRelsXml() {
+  return `${XML_DECL}
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+<Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>
+</Relationships>`;
+}
+function worksheetXml(model, sharedStringIndexes) {
+  const lastCell = `${excelColumnName2(model.colCount)}${model.rowCount}`;
+  const rows = model.rows.map((row) => {
+    const cells = row.cells.map((cell) => {
+      if (cell.kind === "string") {
+        const idx = sharedStringIndexes.get(cell.value) ?? 0;
+        return `<c r="${cell.ref}" t="s"><v>${idx}</v></c>`;
+      }
+      const safe = typeof cell.value === "number" && Number.isFinite(cell.value) ? cell.value : 0;
+      return `<c r="${cell.ref}"><v>${safe}</v></c>`;
+    }).join("");
+    return `<row r="${row.index}" spans="1:${model.colCount}">${cells}</row>`;
+  }).join("");
+  return `${XML_DECL}
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac">
+<dimension ref="A1:${lastCell}"/>
+<sheetViews><sheetView workbookViewId="0"/></sheetViews>
+<sheetFormatPr defaultRowHeight="15" x14ac:dyDescent="0.2"/>
+<sheetData>${rows}</sheetData>
+<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>
+</worksheet>`;
+}
+function sharedStringsXml(values, count) {
+  const body = values.map((value) => {
+    const preserve = /^\s|\s$/.test(value) ? ` xml:space="preserve"` : "";
+    return `<si><t${preserve}>${xmlEscape(value)}</t></si>`;
+  }).join("");
+  return `${XML_DECL}
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="${count}" uniqueCount="${values.length}">${body}</sst>`;
+}
+function workbookAppXml() {
+  return `${XML_DECL}
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+<Application>Microsoft Excel</Application>
+<DocSecurity>0</DocSecurity>
+<ScaleCrop>false</ScaleCrop>
+<HeadingPairs><vt:vector size="2" baseType="variant"><vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant><vt:variant><vt:i4>1</vt:i4></vt:variant></vt:vector></HeadingPairs>
+<TitlesOfParts><vt:vector size="1" baseType="lpstr"><vt:lpstr>Sheet1</vt:lpstr></vt:vector></TitlesOfParts>
+<Company></Company>
+<LinksUpToDate>false</LinksUpToDate>
+<SharedDoc>false</SharedDoc>
+<HyperlinksChanged>false</HyperlinksChanged>
+<AppVersion>16.0300</AppVersion>
+</Properties>`;
+}
+function workbookCoreXml() {
+  const created = "2026-01-01T00:00:00Z";
+  return `${XML_DECL}
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<dc:creator>SlideML2</dc:creator>
+<cp:lastModifiedBy>SlideML2</cp:lastModifiedBy>
+<dcterms:created xsi:type="dcterms:W3CDTF">${created}</dcterms:created>
+<dcterms:modified xsi:type="dcterms:W3CDTF">${created}</dcterms:modified>
+</cp:coreProperties>`;
+}
+function stylesXml() {
+  return `${XML_DECL}
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<fonts count="1"><font><sz val="11"/><color theme="1"/><name val="Calibri"/><family val="2"/><scheme val="minor"/></font></fonts>
+<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
+<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+<dxfs count="0"/>
+<tableStyles count="0" defaultTableStyle="TableStyleMedium9" defaultPivotStyle="PivotStyleLight16"/>
+</styleSheet>`;
+}
+function workbookThemeXml() {
+  return `${XML_DECL}
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="Office Theme">
+<a:themeElements>
+<a:clrScheme name="Office">
+<a:dk1><a:sysClr val="windowText" lastClr="000000"/></a:dk1>
+<a:lt1><a:sysClr val="window" lastClr="FFFFFF"/></a:lt1>
+<a:dk2><a:srgbClr val="1F497D"/></a:dk2>
+<a:lt2><a:srgbClr val="EEECE1"/></a:lt2>
+<a:accent1><a:srgbClr val="4F81BD"/></a:accent1>
+<a:accent2><a:srgbClr val="C0504D"/></a:accent2>
+<a:accent3><a:srgbClr val="9BBB59"/></a:accent3>
+<a:accent4><a:srgbClr val="8064A2"/></a:accent4>
+<a:accent5><a:srgbClr val="4BACC6"/></a:accent5>
+<a:accent6><a:srgbClr val="F79646"/></a:accent6>
+<a:hlink><a:srgbClr val="0000FF"/></a:hlink>
+<a:folHlink><a:srgbClr val="800080"/></a:folHlink>
+</a:clrScheme>
+<a:fontScheme name="Office">
+<a:majorFont><a:latin typeface="Calibri Light"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>
+<a:minorFont><a:latin typeface="Calibri"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont>
+</a:fontScheme>
+<a:fmtScheme name="Office"><a:fillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:fillStyleLst><a:lnStyleLst><a:ln w="6350" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln></a:lnStyleLst><a:effectStyleLst><a:effectStyle><a:effectLst/></a:effectStyle></a:effectStyleLst><a:bgFillStyleLst><a:solidFill><a:schemeClr val="phClr"/></a:solidFill></a:bgFillStyleLst></a:fmtScheme>
+</a:themeElements>
+<a:objectDefaults/>
+<a:extraClrSchemeLst/>
+</a:theme>`;
+}
+function stringCell(ref, value) {
+  return { kind: "string", ref, value };
+}
+function numberCell(ref, value) {
+  return { kind: "number", ref, value };
+}
+function excelColumnName2(col) {
+  let n = Math.max(1, Math.floor(col));
+  let out = "";
+  while (n > 0) {
+    n -= 1;
+    out = String.fromCharCode(65 + n % 26) + out;
+    n = Math.floor(n / 26);
+  }
+  return out;
 }
 
 // slideml2/dist/emitter/notes.js
@@ -12270,7 +12664,7 @@ async function emitPackage(deck, themeOxml) {
   if (deck.slides.length === 0) {
     throw new Error("emitPackage: deck has no slides");
   }
-  const zip = new import_jszip.default();
+  const zip = new import_jszip2.default();
   const dims = SLIDE_SIZES[deck.size];
   const author = deck.author ?? "SlideML";
   const title = deck.title ?? "Presentation";
@@ -12335,9 +12729,13 @@ async function emitPackage(deck, themeOxml) {
     for (const _chart of chartShapes) {
       const chartFilename = `chart${nextChartIndex++}.xml`;
       slideChartFilenames.push(chartFilename);
-      zip.file(`ppt/charts/${chartFilename}`, chartXml(_chart));
+      const workbookFilename = `Microsoft_Excel_Worksheet${nextChartIndex - 1}.xlsx`;
+      zip.file(`ppt/charts/${chartFilename}`, chartXml(_chart, { embeddedWorkbookRelId: "rId1" }));
+      zip.file(`ppt/embeddings/${workbookFilename}`, await chartWorkbookXlsx(_chart));
       zip.file(`ppt/charts/_rels/${chartFilename}.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`);
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/package" Target="../embeddings/${workbookFilename}"/>
+</Relationships>`);
     }
     const bgImageSrc = slide.background?.type === "image" ? slide.background.src : void 0;
     let bgRelConsumed = false;
@@ -12398,6 +12796,7 @@ function contentTypesXml(slideCount, imageExts, chartCount, notesIndices) {
   }
   for (let i = 1; i <= chartCount; i++) {
     overrides.push(`<Override PartName="/ppt/charts/chart${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`);
+    overrides.push(`<Override PartName="/ppt/embeddings/Microsoft_Excel_Worksheet${i}.xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>`);
   }
   if (notesIndices.length > 0) {
     overrides.push(`<Override PartName="/ppt/notesMasters/notesMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"/>`);
@@ -12410,6 +12809,9 @@ function contentTypesXml(slideCount, imageExts, chartCount, notesIndices) {
     `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`,
     `<Default Extension="xml" ContentType="application/xml"/>`
   ];
+  if (chartCount > 0) {
+    defaults.push(`<Default Extension="xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>`);
+  }
   const allExts = /* @__PURE__ */ new Set([...imageExts, "png", "jpg"]);
   for (const ext of allExts) {
     const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
@@ -17012,6 +17414,25 @@ function readLatexGroup(input, index) {
 // slideml2/dist/component-registry.js
 var PRIMITIVE_COMPONENT_TYPES = ["stack", "grid", "split", "spacer", "divider", "bullets", "image", "table", "chart", "shape", "panel", "card", "band", "frame", "inset"];
 var EXAMPLE_IMAGE_DATA_URL = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iMTIwIj48cmVjdCB3aWR0aD0iMjQwIiBoZWlnaHQ9IjEyMCIgZmlsbD0iIzI1NjNFQiIvPjwvc3ZnPg==";
+var COMPONENT_SCALE_FIELD = {
+  type: "number",
+  min: 0.82,
+  max: 1,
+  description: "Optional component-local scale. Accepts number 0.82-1.0 or presets 'sm' (0.92) / 'xs' (0.85). Use for mild capacity pressure before removing content; does not change the component's semantic role."
+};
+var SCALABLE_COMPONENTS = /* @__PURE__ */ new Set([
+  "process-flow",
+  "timeline",
+  "feature-card",
+  "comparison-card",
+  "metric-card",
+  "kpi-grid",
+  "stat-strip",
+  "equation",
+  "code-block",
+  "table-card",
+  "donut-summary"
+]);
 var COMPONENT_DEFINITIONS = [
   textComponent("deck-title", "Deck-level title for covers and section openers. Use when the title itself is the dominant semantic object, not for normal slide headings.", "deck-title"),
   textComponent("slide-title", "Canonical title slot for ordinary content slides. It names the slide's one job and is usually generated from slide.title.", "slide-title"),
@@ -17676,7 +18097,7 @@ var COMPONENT_DEFINITIONS = [
     ticks: { type: "number", description: "Number of tick marks (default 5, min 2)." },
     tone: { type: "enum", enum: ["brand", "neutral"], description: "Line color tone." }
   }, "stack(ticks, baseline, labels)", "stack"),
-  containerComponent("freeform-group", "Slide-level composition group for anchored overlays. Use when a cover, section opener, annotation layer, or editorial page needs several independently positioned objects without abandoning validation. Children should set anchor/offsetX/offsetY/width/height/zIndex; the component expands them as direct slide children.", {
+  containerComponent("freeform-group", "Slide-level composition group for anchored overlays. Use when a cover, section opener, annotation layer, or editorial page needs several independently positioned objects without abandoning validation. Children should set at:[x,y,w,h], x/y/w/h, or anchor/offsetX/offsetY/width/height/zIndex; the component expands them as direct slide children.", {
     mode: { type: "enum", enum: ["overlay", "background"], description: "overlay (default) keeps authored zIndex; background defaults child zIndex to -1." }
   }, "fragment(children as slide-level overlays)", "stack", true),
   component("cover-composition", "Editorial cover layout: optional full-bleed visual/background, decorative motif, dominant title lockup, and optional hero stat. Use instead of loose deck-title/text nodes when a cover needs richer composition.", {
@@ -17685,6 +18106,7 @@ var COMPONENT_DEFINITIONS = [
     eyebrow: { type: "string", description: "Optional kicker." },
     visual: { type: "object", description: "Optional {src, fit:'cover'|'contain', anchor?, width?, height?, offsetX?, offsetY?, opacity?, scrimOpacity?} background or hero image. Omitting geometry makes it full-bleed." },
     heroStat: { type: "object", description: "Optional {value,label,caption,tone} hero stat." },
+    content: { type: "array", description: "Optional rich runs or {runs:[...]} supporting cover copy; links are preserved." },
     tone: { type: "enum", enum: ["neutral", "inverse", "brand"], description: "Text tone. Use inverse on dark/image backgrounds." },
     decor: { type: "enum", enum: ["none", "grid", "shapes"], description: "Optional background decoration." },
     titleSize: { type: "enum", enum: ["deck-title", "slide-title", "section-title"], description: "Optional title scale override. Long cover titles auto-downgrade to slide-title." },
@@ -17769,13 +18191,14 @@ function describeComponents(names) {
 }
 function withUsabilityGuidance(name, desc) {
   const guidance = componentUsabilityGuidance(name);
-  return guidance.length ? { ...desc, guidance } : desc;
+  const scaled = SCALABLE_COMPONENTS.has(name) ? { ...desc, fields: { ...desc.fields, scale: COMPONENT_SCALE_FIELD } } : desc;
+  return guidance.length ? { ...scaled, guidance } : scaled;
 }
 function componentUsabilityGuidance(name) {
   switch (name) {
     case "chart-card":
       return [
-        "Reserve a real chart body: bar/line/combo charts need roughly >=4.8x3.0cm inside the card; pie/doughnut with labels/legend need roughly >=5.2x4.4cm before title/caption chrome.",
+        "Reserve a real chart body: bar/line/combo charts need roughly >=4.8x3.0cm inside the card; pie/doughnut with labels/legend need roughly >=5.2x4.4cm before title/caption chrome. For full-width line/area/combo/scatter charts, keep the chart body from becoming overly flat; multi-series charts with axes/legend usually need a body aspect ratio below about 4.5:1.",
         "Give the chart full width or about 60-75% of a split/chart-with-rail/evidence-layout region; move KPI/table/commentary to a rail or follow-up slide before changing component.",
         "After body area is adequate, reduce categories/series/legend/label density. Pie/doughnut charts must keep slice labels/dataLabels visible."
       ];
@@ -17788,28 +18211,33 @@ function componentUsabilityGuidance(name) {
     case "kpi-grid":
     case "stat-strip":
       return [
-        "Short labels and 2-6 metrics work best; reduce metrics per row or widen the metric region before replacing numbers with prose cards.",
+        "Short labels and 2-6 metrics work best; use scale:'sm' only for mild pressure, reduce metrics per row or widen the metric region before replacing numbers with prose cards.",
         "Use stat-strip for a tighter supporting row and kpi-grid for headline metric cards."
       ];
     case "code-block":
       return [
         "Long required code should paginate across code-blocks/slides; maxLines is only for intentional excerpts.",
-        "Use columns:2/3, density:'tiny', and smaller readable fontSize before truncating."
+        "Use columns:2/3, density:'tiny', scale:'sm', and smaller readable fontSize before truncating."
       ];
     case "equation":
       return [
-        "Display math respects deck typography; use size/fontSize for dense formula grids.",
+        "Display math respects deck typography; use size:'sm', scale:'sm', or fontSize for dense formula grids.",
         "Split derivation steps across slides before converting equations to plain text/screenshots."
       ];
     case "process-flow":
       return [
-        "Horizontal rich flows work best with 2-3 stages; use vertical direction or split slides for rich 4+ stages.",
+        "Horizontal rich flows work best with 2-3 stages; use scale:'sm' for mild pressure, vertical direction, or split slides for rich 4+ stages.",
         "Reduce per-step body/bullets and increase component area before changing away from process-flow."
       ];
     case "donut-summary":
       return [
         "Reserve about 5x4cm for the donut ring plus legend; do not stack it with a long table or fact-list in a shallow region.",
         "Use it for one dominant share story. Reduce minor slices or move interpretation to a rail/follow-up slide before replacing the component."
+      ];
+    case "image-card":
+      return [
+        "Match the image-card frame to the source aspect ratio when the visual must be inspected; avoid fit:'fill' unless distortion is intentional.",
+        "Use fit:'contain' for screenshots/diagrams, fit:'cover' for editorial photos with intentional crop, and move caption/insight to a rail before shrinking the image area."
       ];
     case "evidence-layout":
     case "chart-with-rail":
@@ -18645,8 +19073,8 @@ function expandComponent(slideId, node) {
     return withComponentRoot(node, mainEffectComparisonNode(slideId, name, node));
   }
   if (componentName === "two-column") {
-    const left = node.left && typeof node.left === "object" ? node.left : { id: `${slideId}.${name}.left.empty`, type: "spacer" };
-    const right = node.right && typeof node.right === "object" ? node.right : { id: `${slideId}.${name}.right.empty`, type: "spacer" };
+    const left = twoColumnRegion(slideId, name, "left", node.left);
+    const right = twoColumnRegion(slideId, name, "right", node.right);
     return withComponentRoot(node, {
       id: `${slideId}.${name}`,
       type: "split",
@@ -18757,6 +19185,35 @@ function expandComponent(slideId, node) {
   }
   return withComponentRoot(node, { id: node.id, type: "stack", direction: "vertical", children: [] });
 }
+function twoColumnRegion(slideId, name, side, raw) {
+  const fallback = `${slideId}.${name}.${side}`;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    return { id: `${fallback}.empty`, type: "spacer" };
+  const rec = raw;
+  if (typeof rec.type === "string" && rec.type)
+    return normalizeEmbeddedNode(rec, fallback);
+  if (Array.isArray(rec.children)) {
+    return {
+      id: typeof rec.id === "string" && rec.id ? rec.id : fallback,
+      type: "stack",
+      direction: rec.direction === "horizontal" ? "horizontal" : "vertical",
+      gap: typeof rec.gap === "number" && Number.isFinite(rec.gap) ? rec.gap : 0.35,
+      children: rec.children.map((child, index) => normalizeEmbeddedNode(child, `${fallback}.${index + 1}`))
+    };
+  }
+  return { id: fallback, type: "stack", direction: "vertical", children: [normalizeEmbeddedNode(rec, `${fallback}.content`)] };
+}
+function normalizeEmbeddedNode(raw, fallbackId) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    return { id: fallbackId, type: "text", text: "" };
+  const id = typeof raw.id === "string" && raw.id ? raw.id : fallbackId;
+  const children = Array.isArray(raw.children) ? raw.children.map((child, index) => normalizeEmbeddedNode(child, `${id}.${index + 1}`)) : raw.children;
+  return {
+    ...raw,
+    id,
+    children
+  };
+}
 function primitiveComponentDescriptions() {
   return PRIMITIVE_COMPONENT_TYPES.map((type) => primitiveComponentDescription(type)).filter((item) => Boolean(item));
 }
@@ -18804,11 +19261,65 @@ function componentLocalId(slideId, id) {
 function withComponentRoot(source, expanded) {
   const typography = typographyProps(source);
   const styled = Object.keys(typography).length > 0 ? applyTypographyOverrides(expanded, typography) : expanded;
+  const componentName = getComponentName(source);
+  const scale = SCALABLE_COMPONENTS.has(componentName) ? componentScaleFactor(source.scale) : 1;
+  const scaled = scale < 0.999 ? applyComponentScale(styled, scale) : styled;
   return {
-    ...styled,
+    ...scaled,
     ...layoutProps(source),
     id: source.id || expanded.id
   };
+}
+function componentScaleFactor(value) {
+  if (typeof value === "number" && Number.isFinite(value))
+    return Math.max(0.82, Math.min(1, value));
+  if (typeof value !== "string")
+    return 1;
+  switch (value.trim().toLowerCase()) {
+    case "xs":
+      return 0.85;
+    case "sm":
+    case "small":
+      return 0.92;
+    case "md":
+    case "default":
+    case "normal":
+      return 1;
+    default:
+      return 1;
+  }
+}
+function applyComponentScale(node, scale) {
+  const dimensionKeys = [
+    "fixedWidth",
+    "fixedHeight",
+    "minWidth",
+    "minHeight",
+    "maxWidth",
+    "maxHeight",
+    "width",
+    "height",
+    "gap",
+    "padding",
+    "cornerRadius",
+    "lineWidth",
+    "thickness",
+    "offsetX",
+    "offsetY"
+  ];
+  const next = { ...node };
+  for (const key of dimensionKeys) {
+    const value = next[key];
+    if (typeof value === "number" && Number.isFinite(value))
+      next[key] = Math.max(0, value * scale);
+  }
+  if (next.type === "text" || next.type === "bullets" || next.type === "table") {
+    const existing = typeof next.fontScale === "number" && Number.isFinite(next.fontScale) ? next.fontScale : 1;
+    next.fontScale = existing * scale;
+  }
+  if (Array.isArray(next.children))
+    next.children = next.children.map((child) => applyComponentScale(child, scale));
+  return next;
 }
 function typographyProps(node) {
   const output = {};
@@ -19013,7 +19524,8 @@ function freeformGroupNode(_slideId, _name, node) {
   const mode = node.mode === "background" || inferredBackground ? "background" : "overlay";
   const children = Array.isArray(node.children) ? node.children.map((child, index) => {
     const out = { ...child };
-    const hasAbsoluteAt = Array.isArray(out.at) && out.at.length === 4 && out.at.every((value) => typeof value === "number" && Number.isFinite(value));
+    normalizeFreeformAbsoluteRect(out);
+    const hasAbsoluteAt = Boolean(rectFromNodePlacement(out));
     const hasAnchorTo = typeof out.anchorTo === "string" && out.anchorTo.length > 0;
     if (!hasAbsoluteAt && !hasAnchorTo && typeof out.anchor !== "string")
       out.anchor = "top-left";
@@ -19029,6 +19541,13 @@ function freeformGroupNode(_slideId, _name, node) {
     return out;
   }) : [];
   return { id: node.id, type: "fragment", children };
+}
+function normalizeFreeformAbsoluteRect(node) {
+  if (rectFromAbsoluteRectSpec(node.at))
+    return;
+  const rect = rectFromNodeBoxFields(node);
+  if (rect)
+    node.at = [rect.x, rect.y, rect.w, rect.h];
 }
 function isLikelyFreeformBackgroundChild(child) {
   if (!child || typeof child !== "object")
@@ -19051,6 +19570,8 @@ function coverCompositionNode(slideId, name, node) {
   const hero = node.heroStat && typeof node.heroStat === "object" ? node.heroStat : {};
   const hasHero = Boolean(stringValue(hero.value, ""));
   const title = stringValue(node.title, "");
+  const body = stringValue(node.body, stringValue(node.text, ""));
+  const richContent2 = richTextRuns(node.content);
   const titleWeight = weightedTextLengthForComponent(title);
   const titleStyle = node.titleSize === "slide-title" || node.titleSize === "section-title" || node.titleSize === "deck-title" ? node.titleSize : titleWeight > 18 ? "slide-title" : "deck-title";
   const requestedLockupWidth = numberValue(node.lockupWidth, hasHero ? 13.5 : 18.4);
@@ -19098,7 +19619,18 @@ function coverCompositionNode(slideId, name, node) {
     children: [
       ...stringValue(node.eyebrow, "") ? [{ id: `${slideId}.${name}.eyebrow`, type: "text", text: stringValue(node.eyebrow, ""), style: "label", color: tone === "inverse" ? "text.inverse" : "brand.primary", uppercase: true, letterSpacing: 100, minHeight: 0.45, autoFit: "shrink" }] : [],
       { id: `${slideId}.${name}.title`, type: "text", text: title, style: titleStyle, color: color2, align: "left", autoFit: "shrink", minHeight: titleStyle === "deck-title" ? 1.55 : 1.15 },
-      ...stringValue(node.subtitle, "") ? [{ id: `${slideId}.${name}.subtitle`, type: "text", text: stringValue(node.subtitle, ""), style: "lead", color: tone === "inverse" ? "text.inverse" : "text.muted", align: "left", minHeight: 0.8, autoFit: "shrink" }] : []
+      ...stringValue(node.subtitle, "") ? [{ id: `${slideId}.${name}.subtitle`, type: "text", text: stringValue(node.subtitle, ""), style: "lead", color: tone === "inverse" ? "text.inverse" : "text.muted", align: "left", minHeight: 0.8, autoFit: "shrink" }] : [],
+      ...body || richContent2 ? [{
+        id: `${slideId}.${name}.content`,
+        type: "text",
+        text: body,
+        ...richContent2 ? { content: richContent2 } : {},
+        style: "paragraph",
+        color: tone === "inverse" ? "text.inverse" : "text.secondary",
+        align: "left",
+        minHeight: richContent2 ? 1.15 : 0.75,
+        autoFit: "shrink"
+      }] : []
     ]
   });
   if (hasHero) {
@@ -19408,6 +19940,7 @@ function evidenceLayoutNode(slideId, name, node) {
     id: `${slideId}.${name}.split`,
     type: "split",
     direction: layout,
+    role: "evidence-layout",
     ratio: Array.isArray(node.ratio) ? node.ratio : layout === "horizontal" ? [0.68, 0.32] : [0.68, 0.32],
     gap: typeof node.gap === "number" ? node.gap : 0.55,
     children: [evidence, insight]
@@ -20705,7 +21238,9 @@ function codeBlockNode(slideId, name, node) {
   const code = stringValue(node.code, stringValue(node.text, ""));
   const showLineNumbers = node.showLineNumbers !== false;
   const density = codeBlockDensity(node.density, code);
-  const fontSize = numberValue(node.fontSize, void 0);
+  const scale = componentScaleFactor(node.scale);
+  const baseFontSize = numberValue(node.fontSize, void 0);
+  const fontSize = baseFontSize !== void 0 ? baseFontSize * scale : scale < 0.999 ? (density === "code-tiny" ? 5.8 : density === "code-dense" ? 6.5 : 7.2) * scale : void 0;
   const requestedColumns = numberValue(node.columns, void 0);
   const columns = requestedColumns === void 0 ? 1 : Math.max(1, Math.min(3, Math.floor(requestedColumns)));
   const originalLineCount = code.replace(/\r\n/g, "\n").split("\n").length;
@@ -21413,9 +21948,10 @@ function recordItems(value) {
   return Array.isArray(value) ? value.map((item) => item && typeof item === "object" ? item : { title: String(item ?? "") }) : [];
 }
 function richTextRuns(value) {
-  if (!Array.isArray(value))
+  const rawRuns = Array.isArray(value) ? value : value && typeof value === "object" && !Array.isArray(value) && Array.isArray(value.runs) ? value.runs : void 0;
+  if (!rawRuns)
     return void 0;
-  const runs = value.filter((run) => {
+  const runs = rawRuns.filter((run) => {
     if (!run || typeof run !== "object" || Array.isArray(run))
       return false;
     const rec = run;
@@ -21947,19 +22483,29 @@ function mergeFonts(base, override) {
   return {
     latin: mergeScriptFonts(base.latin, override.latin),
     cjk: mergeScriptFonts(base.cjk, override.cjk),
-    mono: override.mono ?? [...base.mono]
+    mono: normalizeFontChain(override.mono) ?? [...base.mono]
   };
 }
 function mergeScriptFonts(base, override) {
   if (!override)
     return { display: [...base.display], text: [...base.text] };
-  if (Array.isArray(override)) {
-    return { display: override, text: override };
+  if (typeof override === "string" || Array.isArray(override)) {
+    const chain = normalizeFontChain(override) ?? [...base.text];
+    return { display: chain, text: chain };
   }
   return {
-    display: override.display ?? [...base.display],
-    text: override.text ?? [...base.text]
+    display: normalizeFontChain(override.display) ?? [...base.display],
+    text: normalizeFontChain(override.text) ?? [...base.text]
   };
+}
+function normalizeFontChain(value) {
+  if (typeof value === "string")
+    return value.trim() ? [value.trim()] : void 0;
+  if (Array.isArray(value)) {
+    const chain = value.map((item) => typeof item === "string" ? item.trim() : "").filter(Boolean);
+    return chain.length > 0 ? chain : void 0;
+  }
+  return void 0;
 }
 function mergeComponentStyles(base, override) {
   if (!override)
@@ -23038,11 +23584,12 @@ function bindNodeData(node, bind, encoding, rows, source) {
   const resolvedData = { rows, schema: inferDataSchema(rows) };
   if (kind === "chart-card" || kind === "chart") {
     const chartData = chartDataFromRows(rows, encoding, node);
+    const series = mergeBoundChartSeries(chartData.series, node.series);
     return {
       ...node,
-      data: chartData,
+      data: { ...chartData, series },
       labels: node.labels ?? chartData.labels,
-      series: node.series ?? chartData.series,
+      series,
       ...node.orientation === void 0 && chartData.orientation ? { orientation: chartData.orientation } : {},
       dataLineage: lineage,
       resolvedData
@@ -23139,7 +23686,7 @@ function dataEncoding(value) {
         return {
           key,
           label: firstString(column.label, column.header, column.title, column.name) || void 0,
-          type: isColumnType(column.type) ? column.type : void 0,
+          type: normalizeColumnType(column.type),
           format: typeof column.format === "string" ? column.format : void 0,
           align: isColumnAlign(column.align) ? column.align : void 0,
           width: typeof column.width === "number" && Number.isFinite(column.width) && column.width > 0 ? column.width : void 0
@@ -23170,7 +23717,7 @@ function dataStatItemEncodingSpecs(value) {
       ...typeof rec.labelField === "string" && rec.labelField.trim() ? { labelField: rec.labelField.trim() } : {},
       ...typeof rec.valueLabel === "string" ? { valueLabel: rec.valueLabel } : {},
       ...typeof rec.tone === "string" && rec.tone.trim() ? { tone: rec.tone.trim() } : {},
-      ...isColumnType(rec.type) ? { type: rec.type } : {},
+      ...normalizeColumnType(rec.type) ? { type: normalizeColumnType(rec.type) } : {},
       ...typeof rec.format === "string" && rec.format.trim() ? { format: rec.format.trim() } : {}
     });
   }
@@ -23567,6 +24114,34 @@ function chartDataFromRows(rows, encoding, node) {
     ...orientation ? { orientation } : {}
   };
 }
+function mergeBoundChartSeries(boundSeries, authoredSeries) {
+  if (!Array.isArray(authoredSeries) || authoredSeries.length === 0)
+    return boundSeries;
+  const authoredRecords = authoredSeries.filter(isPlainObject);
+  if (authoredRecords.length === 0)
+    return boundSeries;
+  return boundSeries.map((series, index) => {
+    const authored = authoredRecords.find((record) => firstString(record.name) === series.name) ?? authoredRecords[index];
+    if (!authored)
+      return series;
+    return { ...series, ...authoredChartSeriesStyle(authored, series.name) };
+  });
+}
+function authoredChartSeriesStyle(record, fallbackName) {
+  return {
+    name: firstString(record.name, fallbackName),
+    ...record.type === "bar" || record.type === "line" ? { type: record.type } : {},
+    ...record.axis === "primary" || record.axis === "secondary" ? { axis: record.axis } : {},
+    ...typeof record.color === "string" && record.color.trim() ? { color: record.color.trim() } : {},
+    ...typeof record.lineWidth === "number" && Number.isFinite(record.lineWidth) ? { lineWidth: record.lineWidth } : {},
+    ...record.lineDash === "solid" || record.lineDash === "dash" || record.lineDash === "dot" ? { lineDash: record.lineDash } : {},
+    ...typeof record.smooth === "boolean" ? { smooth: record.smooth } : {},
+    ...record.marker && typeof record.marker === "object" && !Array.isArray(record.marker) ? { marker: record.marker } : {},
+    ...record.dataLabels && typeof record.dataLabels === "object" && !Array.isArray(record.dataLabels) ? { dataLabels: record.dataLabels } : {},
+    ...record.trendLine === true || isPlainObject(record.trendLine) ? { trendLine: record.trendLine } : {},
+    ...isPlainObject(record.errorBars) ? { errorBars: errorBarsSpec(record.errorBars) } : {}
+  };
+}
 function isBarLikeChart(chartKind) {
   return chartKind === "bar" || chartKind === "stacked-bar";
 }
@@ -23824,8 +24399,21 @@ function formatNumber(value, options = {}) {
     maximumFractionDigits: options.maxFractionDigits
   }).format(value);
 }
-function isColumnType(value) {
-  return value === "text" || value === "number" || value === "percent" || value === "currency" || value === "date";
+function normalizeColumnType(value) {
+  if (typeof value !== "string")
+    return void 0;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "text" || normalized === "number" || normalized === "percent" || normalized === "currency" || normalized === "date")
+    return normalized;
+  if (normalized === "int" || normalized === "integer" || normalized === "decimal" || normalized === "float" || normalized === "numeric")
+    return "number";
+  if (normalized === "percentage" || normalized === "pct")
+    return "percent";
+  if (normalized === "money")
+    return "currency";
+  if (normalized === "datetime")
+    return "date";
+  return void 0;
 }
 function isColumnAlign(value) {
   return value === "left" || value === "center" || value === "right";
@@ -24280,7 +24868,7 @@ function isOverlayChildAtSource(node) {
     return true;
   if (typeof node.anchorTo === "string" && node.anchorTo.length > 0)
     return true;
-  if (isAbsoluteAt(node.at))
+  if (rectFromNodePlacement(node))
     return true;
   if (isOverlayWrapperAtSource(node))
     return true;
@@ -24293,7 +24881,7 @@ function isOverlayWrapperAtSource(node) {
     return false;
   if (!Array.isArray(node.children) || node.children.length === 0)
     return false;
-  if (node.area || node.at || node.anchor || node.anchorTo)
+  if (node.area || node.at || rectFromNodePlacement(node) || node.anchor || node.anchorTo)
     return false;
   if (hasVisibleWrapperSurface(node))
     return false;
@@ -24311,13 +24899,10 @@ function hasVisibleWrapperSurface(node) {
     "header"
   ].some((key) => node[key] !== void 0);
 }
-function isAbsoluteAt(value) {
-  return Array.isArray(value) && value.length === 4 && value.every((n) => typeof n === "number" && Number.isFinite(n));
-}
 function aliasDimensionFields(node) {
   if (!node || typeof node !== "object")
     return node;
-  const skipAlias = node.type === "image" || node.type === "chart" || node.type === "table" || typeof node.anchor === "string";
+  const skipAlias = node.type === "image" || node.type === "chart" || node.type === "table" || typeof node.anchor === "string" || Boolean(rectFromNodePlacement(node));
   let mutated = node;
   if (!skipAlias) {
     if (typeof node.height === "number" && node.fixedHeight === void 0) {
@@ -31822,6 +32407,108 @@ function normalizedNaturalLineHeightCm(fontPt, family, metrics) {
   return Math.min(raw, cap);
 }
 
+// slideml2/dist/transition.js
+var SLIDE_TRANSITION_TYPES = ["none", "fade", "push", "wipe", "split", "cover", "uncover"];
+var SLIDE_TRANSITION_DIRECTIONS = ["left", "right", "up", "down"];
+var TYPE_SET = new Set(SLIDE_TRANSITION_TYPES);
+var DIRECTION_SET = new Set(SLIDE_TRANSITION_DIRECTIONS);
+var SLIDE_IN_ALIASES = /* @__PURE__ */ new Set(["slidein", "slide-in", "slide_in", "slide"]);
+function isRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+function normalizeToken(value) {
+  if (typeof value !== "string")
+    return void 0;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : void 0;
+}
+function canonicalTransitionType(value) {
+  const token = normalizeToken(value);
+  if (!token)
+    return void 0;
+  const normalized = token === "slideIn" ? "slidein" : token;
+  if (TYPE_SET.has(normalized))
+    return normalized;
+  return void 0;
+}
+function canonicalDirection(value) {
+  const token = normalizeToken(value);
+  if (!token)
+    return void 0;
+  if (DIRECTION_SET.has(token))
+    return token;
+  switch (token) {
+    case "fromLeft":
+      return "left";
+    case "fromRight":
+      return "right";
+    case "fromTop":
+      return "up";
+    case "fromBottom":
+      return "down";
+    case "toLeft":
+      return "left";
+    case "toRight":
+      return "right";
+    case "toTop":
+      return "up";
+    case "toBottom":
+      return "down";
+    default:
+      return void 0;
+  }
+}
+function isSlideInAlias(value) {
+  const token = normalizeToken(value);
+  if (!token)
+    return false;
+  return SLIDE_IN_ALIASES.has(token === "slideIn" ? "slidein" : token);
+}
+function normalizeDurationMs(rec) {
+  if (typeof rec.durationMs === "number" && Number.isFinite(rec.durationMs))
+    return rec.durationMs;
+  if (typeof rec.duration === "number" && Number.isFinite(rec.duration)) {
+    return rec.duration <= 20 ? rec.duration * 1e3 : rec.duration;
+  }
+  return void 0;
+}
+function normalizeSlideTransition(value) {
+  if (!isRecord(value))
+    return void 0;
+  const rec = value;
+  const explicitType = canonicalTransitionType(rec.type);
+  const explicitEffect = canonicalTransitionType(rec.effect);
+  const directionAsEffect = canonicalTransitionType(rec.direction);
+  const type = explicitType || explicitEffect || (isSlideInAlias(rec.type) ? directionAsEffect || "push" : void 0);
+  const transition = {};
+  if (type)
+    transition.type = type;
+  const durationMs = normalizeDurationMs(rec);
+  if (durationMs !== void 0)
+    transition.durationMs = durationMs;
+  const direction = isSlideInAlias(rec.type) && directionAsEffect ? void 0 : canonicalDirection(rec.direction);
+  if (direction)
+    transition.direction = direction;
+  return Object.keys(transition).length > 0 ? transition : void 0;
+}
+function describeInvalidSlideTransition(value) {
+  if (value === void 0)
+    return void 0;
+  if (!isRecord(value))
+    return "slide.transition must be an object.";
+  if (normalizeSlideTransition(value))
+    return void 0;
+  const type = normalizeToken(value.type);
+  const effect = normalizeToken(value.effect);
+  const direction = normalizeToken(value.direction);
+  const parts = [
+    type ? `type:${JSON.stringify(type)}` : void 0,
+    effect ? `effect:${JSON.stringify(effect)}` : void 0,
+    direction ? `direction:${JSON.stringify(direction)}` : void 0
+  ].filter(Boolean);
+  return `slide.transition is not recognized${parts.length ? ` (${parts.join(", ")})` : ""}.`;
+}
+
 // slideml2/dist/render.js
 function isStyleBold(weight) {
   return resolveFontWeight(weight).bold;
@@ -32028,20 +32715,6 @@ function resolveSlideBackground2(theme, raw) {
       return resolveFill(theme, rec.fill, "background");
   }
   return resolveFill(theme, raw, "background");
-}
-function normalizeSlideTransition(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    return void 0;
-  const rec = value;
-  const type = rec.type === "none" || rec.type === "fade" || rec.type === "push" || rec.type === "wipe" || rec.type === "split" || rec.type === "cover" || rec.type === "uncover" ? rec.type : void 0;
-  const transition = {};
-  if (type)
-    transition.type = type;
-  if (typeof rec.durationMs === "number" && Number.isFinite(rec.durationMs))
-    transition.durationMs = rec.durationMs;
-  if (rec.direction === "left" || rec.direction === "right" || rec.direction === "up" || rec.direction === "down")
-    transition.direction = rec.direction;
-  return Object.keys(transition).length > 0 ? transition : void 0;
 }
 function fillCoversText(fill, t) {
   return coverageRatio(fill, t) >= 0.7;
@@ -32654,6 +33327,7 @@ function measureDeck(deck) {
     const dom = materializeAndCompactify(slide.dom, slide.id);
     const layout = layoutSlide(theme, dom);
     detectCollisionsForSlide(slide.id, layout.measured, dom);
+    detectComponentLayoutQuality(theme, slide.id, layout.measured, dom);
     return { slideId: slide.id, nodes: layout.measured };
   });
 }
@@ -32859,6 +33533,482 @@ function findNodePathById(root, id, path = []) {
     if (found)
       return found;
   }
+  return void 0;
+}
+function detectComponentLayoutQuality(theme, slideId, measured, slideDom) {
+  detectPageComponentCapacity(theme, slideId, measured, slideDom);
+  detectLocalRegionCapacity(theme, slideId, measured, slideDom);
+  const byId = new Map(measured.map((node) => [node.id, node]));
+  for (const item of measured) {
+    const node = findNodeById(slideDom, item.id);
+    if (!node)
+      continue;
+    const role = typeof node.role === "string" ? node.role : "";
+    if (role === "chart-with-rail" || role === "evidence-layout") {
+      detectEvidenceRegionBalance(slideId, item, node, measured);
+    }
+    if (role === "process-flow") {
+      detectProcessFlowCapacity(slideId, item, node, measured, slideDom);
+    }
+    if (role === "timeline") {
+      detectTimelineCapacity(slideId, item, node, measured, slideDom);
+    }
+    if (role === "kpi-grid" || role === "stat-strip") {
+      detectMetricCollectionCapacity(slideId, item, node, measured, slideDom, role);
+    }
+    if (role === "equation") {
+      detectEquationCapacity(slideId, item, node, byId);
+    }
+    if (role === "donut-summary") {
+      detectDonutSummaryCapacity(slideId, item, node, byId);
+    }
+    if (node.type === "image") {
+      detectImageAspectQuality(slideId, item, node, slideDom);
+    }
+  }
+}
+function detectPageComponentCapacity(theme, slideId, measured, slideDom) {
+  const content = measured.find((item) => item.id === `${slideId}.content`) || measured.find((item) => item.id === slideDom.id) || measured[0];
+  if (!content || content.rect.h <= 0)
+    return;
+  const demands = collectLargeComponentDemands(theme, measured, slideDom);
+  if (demands.length < 3)
+    return;
+  const totalNeeded = demands.reduce((sum, item) => sum + item.neededHeightCm, 0);
+  const totalAssigned = demands.reduce((sum, item) => sum + item.assignedHeightCm, 0);
+  const available = content.rect.h;
+  const capacityRatio = totalNeeded / available;
+  if (capacityRatio < 0.78 && totalAssigned < available * 0.95)
+    return;
+  const primary = demands.slice().sort((a, b) => b.neededHeightCm - a.neededHeightCm).slice(0, 4).map((item) => `${item.role}#${item.nodeId} needs ~${item.neededHeightCm.toFixed(1)}cm`).join("; ");
+  const severity = capacityRatio >= 1.08 ? "error" : "warn";
+  pushDiagnostic({
+    severity,
+    code: "PAGE_OVER_CAPACITY",
+    slideId,
+    nodeId: content.id,
+    message: `Slide '${slideId}' combines ${demands.length} high-capacity component(s) whose estimated readable height is ${totalNeeded.toFixed(2)}cm against ${available.toFixed(2)}cm of content height.`,
+    suggestion: `Split this page or move secondary support before squeezing components: keep one dominant evidence object, move table/chart/equation/citation support to a rail or follow-up slide, and retry replace-slide. Component estimates: ${primary}.`,
+    measured: {
+      available,
+      needed: totalNeeded,
+      deltaCm: Math.max(0, totalNeeded - available),
+      rect: content.rect,
+      componentCount: demands.length,
+      largeComponentCount: demands.length,
+      capacityRatio,
+      components: demands
+    }
+  });
+}
+function detectLocalRegionCapacity(theme, slideId, measured, slideDom) {
+  const byId = new Map(measured.map((item) => [item.id, item]));
+  const candidates = [];
+  const walk = (node) => {
+    if (node.type === "stack" && node.direction !== "horizontal" && Array.isArray(node.children) && node.children.length >= 3) {
+      const item = byId.get(node.id);
+      if (item && item.rect.w > 0.5 && item.rect.h > 0.5) {
+        const path = findNodePathById(slideDom, node.id) || [];
+        const splitRegion = path.some((ancestor) => ancestor.__loweredFromSplit === true);
+        if (!splitRegion) {
+          for (const child of node.children || [])
+            walk(child);
+          return;
+        }
+        const direction = "vertical";
+        const content = contentRect(theme, node, item.rect);
+        const available = direction === "vertical" ? content.h : content.w;
+        const crossSize = direction === "vertical" ? content.w : content.h;
+        const children = node.children.filter((child) => !isOverlayChild(child));
+        const demands = children.map((child) => regionChildCapacityDemand(theme, child, direction, crossSize, byId)).filter((d) => Boolean(d));
+        const meaningful = demands.filter((d) => d.neededHeightCm >= 0.55);
+        const largeCount = meaningful.filter((d) => d.neededHeightCm >= 1.2).length;
+        const contentBlocks = meaningful.length;
+        if (contentBlocks >= 3 && (item.rect.w <= 11.5 || largeCount >= 2)) {
+          const gap = gapCm(theme, node) * Math.max(0, children.length - 1);
+          const needed = meaningful.reduce((sum, demand) => sum + demand.neededHeightCm, 0) + gap;
+          const capacityRatio = needed / Math.max(1e-3, available);
+          if (capacityRatio >= 1.04 && needed - available >= 0.25) {
+            candidates.push({ node, item, demands: meaningful, available, needed, capacityRatio, splitRegion });
+          }
+        }
+      }
+    }
+    for (const child of node.children || [])
+      walk(child);
+  };
+  walk(slideDom);
+  for (const candidate of candidates.filter((candidate2) => !candidates.some((other) => other !== candidate2 && candidate2.node.id.startsWith(`${other.node.id}.`) && other.capacityRatio >= candidate2.capacityRatio * 0.92))) {
+    const primary = candidate.demands.slice().sort((a, b) => b.neededHeightCm - a.neededHeightCm).slice(0, 5).map((item) => `${item.role}#${item.nodeId} ~${item.neededHeightCm.toFixed(1)}cm`).join("; ");
+    const context = candidate.splitRegion ? "split/rail region" : "local region";
+    pushDiagnostic({
+      severity: "warn",
+      code: "REGION_OVER_CAPACITY",
+      slideId,
+      nodeId: candidate.item.id,
+      message: `Region '${candidate.item.id}' combines ${candidate.demands.length} content block(s) whose estimated readable height is ${candidate.needed.toFixed(2)}cm against ${candidate.available.toFixed(2)}cm of ${context} height.`,
+      suggestion: `Treat this as a region-level capacity issue, not a child-component bug: keep one primary object in this ${context}, move secondary equation/quote/citation/source-note/detail blocks to a follow-up slide or wider region, or rebalance the split before squeezing text/components. Estimates: ${primary}.`,
+      measured: {
+        available: candidate.available,
+        needed: candidate.needed,
+        deltaCm: Math.max(0, candidate.needed - candidate.available),
+        rect: candidate.item.rect,
+        componentCount: candidate.demands.length,
+        largeComponentCount: candidate.demands.filter((item) => item.neededHeightCm >= 1.2).length,
+        capacityRatio: candidate.capacityRatio,
+        relationship: candidate.splitRegion ? "split-region-capacity" : "region-capacity",
+        components: candidate.demands
+      }
+    });
+  }
+}
+function regionChildCapacityDemand(theme, child, direction, crossSize, byId) {
+  const item = byId.get(child.id);
+  if (!item)
+    return void 0;
+  const role = regionCapacityRole(child);
+  const assigned = direction === "vertical" ? item.rect.h : item.rect.w;
+  const spec = childMainSpec(theme, child, direction, crossSize);
+  const needed = Math.max(spec.min, Math.min(spec.basis, spec.max));
+  if (!Number.isFinite(needed) || needed <= 0.05)
+    return void 0;
+  return {
+    nodeId: child.id,
+    role,
+    assignedHeightCm: assigned,
+    neededHeightCm: needed
+  };
+}
+function regionCapacityRole(node) {
+  const role = typeof node.role === "string" && node.role.trim() ? node.role.trim() : "";
+  if (role)
+    return role;
+  if (node.type === "text")
+    return "text";
+  if (node.type === "bullets")
+    return "bullets";
+  if (node.type === "table")
+    return "table";
+  if (node.type === "chart")
+    return "chart";
+  if (node.type === "image")
+    return "image";
+  if (node.type === "stack" || node.type === "grid")
+    return node.type;
+  return node.type || "content";
+}
+function collectLargeComponentDemands(theme, measured, slideDom) {
+  const byId = new Map(measured.map((item) => [item.id, item]));
+  const out = [];
+  for (const item of measured) {
+    const node = findNodeById(slideDom, item.id);
+    if (!node)
+      continue;
+    const role = typeof node.role === "string" ? node.role : "";
+    if (!isLargeCapacityRole(role, node))
+      continue;
+    const demand = componentCapacityDemand(theme, node, item, measured, byId);
+    if (!demand)
+      continue;
+    if (demand.neededHeightCm < 1.35)
+      continue;
+    out.push(demand);
+  }
+  return out.filter((candidate) => !out.some((other) => other !== candidate && other.nodeId !== candidate.nodeId && candidate.nodeId.startsWith(`${other.nodeId}.`)));
+}
+function isLargeCapacityRole(role, node) {
+  if (node.type === "chart" || node.type === "table")
+    return false;
+  return role === "chart-card" || role === "table-card" || role === "equation" || role === "code-block" || role === "process-flow" || role === "timeline" || role === "donut-summary";
+}
+function componentCapacityDemand(theme, node, item, measured, byId) {
+  const role = typeof node.role === "string" ? node.role : "";
+  if (role === "chart-card") {
+    const chart = findDescendantDom(node, (child) => child.type === "chart");
+    const chartMeasured = chart ? byId.get(chart.id) : void 0;
+    if (!chart || !chartMeasured)
+      return void 0;
+    const labels = Array.isArray(chart.labels) ? chart.labels.map(String) : [];
+    const series = normalizeChartSeries(theme, chart.series);
+    const chartKind = chartType(chart.chartType);
+    const showLegend = typeof chart.showLegend === "boolean" ? chart.showLegend : series.length > 1;
+    const requirement = chartBodyRequirement(chart, chartKind, labels.length || 1, Math.max(1, series.length), showLegend);
+    const chrome = Math.max(0, item.rect.h - chartMeasured.rect.h);
+    const needed2 = Math.max(item.rect.h * 0.5, requirement.recommendedMinHeight + chrome);
+    return { nodeId: item.id, role, assignedHeightCm: item.rect.h, neededHeightCm: needed2 };
+  }
+  if (role === "table-card") {
+    const table = findDescendantDom(node, (child) => child.type === "table");
+    const tableMeasured = table ? byId.get(table.id) : void 0;
+    if (!table || !tableMeasured)
+      return void 0;
+    const bodyNeed = tableIntrinsicHeight(theme, table, tableMeasured.rect.w);
+    const chrome = Math.max(0, item.rect.h - tableMeasured.rect.h);
+    return { nodeId: item.id, role, assignedHeightCm: item.rect.h, neededHeightCm: Math.max(item.rect.h * 0.55, bodyNeed + chrome) };
+  }
+  const needed = intrinsicMainSize(theme, node, "vertical", Math.max(0.5, item.rect.w));
+  return { nodeId: item.id, role, assignedHeightCm: item.rect.h, neededHeightCm: Math.max(item.rect.h * 0.55, needed) };
+}
+function findDescendantDom(node, predicate) {
+  if (predicate(node))
+    return node;
+  for (const child of node.children || []) {
+    const found = findDescendantDom(child, predicate);
+    if (found)
+      return found;
+  }
+  return void 0;
+}
+function detectEvidenceRegionBalance(slideId, root, node, measured) {
+  const direct = measured.filter((item) => item.parentId === root.id);
+  const evidence = direct.find((item) => /\.evidence(?:\.|$)/.test(item.id)) || direct.find((item) => {
+    const dom = findNodeById(node, item.id);
+    return Boolean(dom && (dom.type === "chart" || dom.type === "table" || dom.type === "image" || dom.role === "chart-card" || dom.role === "table-card" || dom.role === "image-card"));
+  });
+  if (!evidence)
+    return;
+  const direction = node.direction === "vertical" ? "vertical" : "horizontal";
+  const main = direction === "vertical" ? root.rect.h : root.rect.w;
+  const evidenceMain = direction === "vertical" ? evidence.rect.h : evidence.rect.w;
+  if (main <= 0)
+    return;
+  const ratio = evidenceMain / main;
+  const recommended = direction === "vertical" ? 0.62 : 0.65;
+  if (ratio >= recommended - 0.08)
+    return;
+  const severe = ratio < 0.45;
+  const rail = direct.find((item) => /\.rail(?:\.|$)|\.insight(?:\.|$)/.test(item.id));
+  pushDiagnostic({
+    severity: severe ? "error" : "warn",
+    code: "EVIDENCE_REGION_TOO_SMALL",
+    slideId,
+    nodeId: root.id,
+    message: `Evidence layout '${root.id}' gives the evidence region ${(ratio * 100).toFixed(0)}% of the ${direction} axis; this is low for a chart/table/image evidence page.`,
+    suggestion: `Keep the evidence component and adjust the split/ratio: target about ${(recommended * 100).toFixed(0)}% for evidence, shorten the interpretation rail, or move secondary commentary/KPIs to a follow-up slide before replacing the evidence object.`,
+    measured: {
+      rect: root.rect,
+      other: rail ? { ...rail.rect, nodeId: rail.id } : void 0,
+      evidenceRatio: ratio,
+      recommendedRatio: recommended,
+      available: evidenceMain,
+      needed: recommended * main,
+      deltaCm: Math.max(0, recommended * main - evidenceMain)
+    }
+  });
+}
+function detectProcessFlowCapacity(slideId, root, node, measured, slideDom) {
+  const steps = measured.filter((item) => item.id !== root.id && findNodeById(node, item.id)?.role === "process-step");
+  if (steps.length < 2)
+    return;
+  const richCount = steps.filter((step) => {
+    const dom = findNodeById(slideDom, step.id);
+    if (!dom)
+      return false;
+    return Boolean(findNodeById(dom, `${step.id}.body`) || dom.children?.some((child) => child.id.includes(".bullets") || child.id.endsWith(".meta")));
+  }).length;
+  const horizontal = node.direction !== "vertical";
+  const perStepWidth = Math.min(...steps.map((step) => step.rect.w));
+  const perStepHeight = Math.min(...steps.map((step) => step.rect.h));
+  const minWidth = richCount > 0 ? 4.4 : 2.45;
+  const minHeight = richCount > 0 ? 2.7 : 1.35;
+  const tooNarrow = horizontal && perStepWidth < minWidth;
+  const tooShort = perStepHeight < minHeight;
+  if (!tooNarrow && !tooShort)
+    return;
+  const scaleHint = (tooNarrow ? minWidth - perStepWidth : minHeight - perStepHeight) <= (horizontal ? perStepWidth : perStepHeight) * 0.16 ? " For mild pressure, try scale:'sm' before dropping step body text." : "";
+  pushDiagnostic({
+    severity: "warn",
+    code: "PROCESS_FLOW_OVER_CAPACITY",
+    slideId,
+    nodeId: root.id,
+    message: `Process-flow '${root.id}' has ${steps.length} step(s) with ${perStepWidth.toFixed(2)}x${perStepHeight.toFixed(2)}cm per step; ${richCount > 0 ? "rich" : "simple"} steps may be hard to read in this layout.`,
+    suggestion: `Keep process-flow semantics: ${horizontal ? "use vertical direction or a two-row card flow for rich 4+ stages" : "increase vertical region or split the flow across slides"}, shorten per-step body/bullets, or increase the component area.${scaleHint}`,
+    measured: {
+      rect: root.rect,
+      stepCount: steps.length,
+      richCount,
+      perStepWidthCm: perStepWidth,
+      perStepHeightCm: perStepHeight,
+      recommendedDirection: horizontal && richCount > 0 ? "vertical" : void 0,
+      recommendedRows: horizontal && steps.length >= 4 ? Math.ceil(steps.length / 2) : void 0,
+      ...scaleHint ? { scaleSuggestion: "sm" } : {}
+    }
+  });
+}
+function detectTimelineCapacity(slideId, root, node, measured, slideDom) {
+  const steps = measured.filter((item) => item.id !== root.id && findNodeById(node, item.id)?.role === "timeline-step");
+  if (steps.length < 2)
+    return;
+  const richCount = steps.filter((step) => Boolean(findNodeById(slideDom, `${step.id}.content`))).length;
+  const horizontal = node.type === "grid" || node.direction !== "vertical";
+  const perItemWidth = Math.min(...steps.map((step) => step.rect.w));
+  const perItemHeight = Math.min(...steps.map((step) => step.rect.h));
+  const minWidth = richCount > 0 ? 3.5 : 2.35;
+  const minHeight = richCount > 0 ? 1.55 : 0.95;
+  const tooNarrow = horizontal && perItemWidth < minWidth;
+  const tooShort = perItemHeight < minHeight;
+  if (!tooNarrow && !tooShort)
+    return;
+  pushDiagnostic({
+    severity: "warn",
+    code: "TIMELINE_OVER_CAPACITY",
+    slideId,
+    nodeId: root.id,
+    message: `Timeline '${root.id}' has ${steps.length} item(s) with ${horizontal ? `${perItemWidth.toFixed(2)}cm per item` : `${perItemHeight.toFixed(2)}cm per item height`}; timeline items are likely too dense.`,
+    suggestion: `Keep timeline semantics: ${horizontal ? "switch to direction:'vertical' for rich events or split long histories across timeline slides" : "increase the timeline height or split long histories across slides"}, shorten item bodies, or use scale:'sm' only for mild pressure.`,
+    measured: {
+      rect: root.rect,
+      itemCount: steps.length,
+      richCount,
+      perItemWidthCm: perItemWidth,
+      perItemHeightCm: perItemHeight,
+      recommendedDirection: horizontal && richCount > 0 ? "vertical" : void 0,
+      recommendedRows: horizontal && steps.length > 4 ? Math.ceil(steps.length / 4) : void 0,
+      scaleSuggestion: "sm"
+    }
+  });
+}
+function detectMetricCollectionCapacity(slideId, root, node, measured, slideDom, role) {
+  const metricRole = role === "kpi-grid" ? "metric-card" : "";
+  const items = measured.filter((item) => item.parentId === root.id && (metricRole ? findNodeById(slideDom, item.id)?.role === metricRole : !/\.sep\d+$/.test(item.id)));
+  const count = role === "kpi-grid" ? items.length : Math.max(0, items.length);
+  if (count < (role === "kpi-grid" ? 4 : 5))
+    return;
+  const perMetricWidth = count > 0 ? Math.min(...items.map((item) => item.rect.w)) : 0;
+  const perMetricHeight = count > 0 ? Math.min(...items.map((item) => item.rect.h)) : 0;
+  const minWidth = role === "kpi-grid" ? 2.9 : 2.05;
+  const minHeight = role === "kpi-grid" ? 1.65 : 1.65;
+  if (perMetricWidth >= minWidth && perMetricHeight >= minHeight)
+    return;
+  pushDiagnostic({
+    severity: "warn",
+    code: "KPI_REGION_OVER_CAPACITY",
+    slideId,
+    nodeId: root.id,
+    message: `${role} '${root.id}' has ${count} metric item(s) with a tight cell (${perMetricWidth.toFixed(2)}x${perMetricHeight.toFixed(2)}cm).`,
+    suggestion: `Keep KPI/stat semantics: use fewer columns, split metrics into two rows/slides, widen the metric region, shorten labels/units, or try scale:'sm' for mild pressure before replacing metrics with prose cards.`,
+    measured: {
+      rect: root.rect,
+      metricCount: count,
+      perMetricWidthCm: perMetricWidth,
+      perMetricHeightCm: perMetricHeight,
+      recommendedColumns: role === "kpi-grid" ? Math.min(3, count) : void 0,
+      scaleSuggestion: "sm"
+    }
+  });
+}
+function detectEquationCapacity(slideId, root, node, byId) {
+  const math = byId.get(`${root.id}.math`) || byId.get(`${root.id}.line`);
+  const mathText = typeof node.mathText === "string" ? node.mathText : "";
+  if (!math || mathText.length < 48)
+    return;
+  const tooWideForSlot = math.rect.w < 8.5 || math.rect.h < 0.9;
+  if (!tooWideForSlot)
+    return;
+  pushDiagnostic({
+    severity: "warn",
+    code: "EQUATION_TOO_DENSE",
+    slideId,
+    nodeId: root.id,
+    message: `Equation '${root.id}' is dense (${mathText.length} math characters) for a ${math.rect.w.toFixed(2)}x${math.rect.h.toFixed(2)}cm slot.`,
+    suggestion: "Keep equation semantics: use size:'sm' or scale:'sm' for mild pressure, split derivation steps across slides, remove optional caption/label, or give the equation a wider evidence region before converting it to text/image.",
+    measured: { rect: math.rect, lineCount: mathText.length, scaleSuggestion: "sm" }
+  });
+}
+function detectDonutSummaryCapacity(slideId, root, node, byId) {
+  const chart = byId.get(`${root.id}.ring.chart`) || byId.get(`${root.id}.chart`);
+  const legend2 = byId.get(`${root.id}.legend`);
+  if (!chart)
+    return;
+  const legendNode = findNodeById(node, `${root.id}.legend`);
+  const entryCount = Array.isArray(legendNode?.children) ? legendNode.children.length : void 0;
+  const ringDiameter = Math.min(chart.rect.w, chart.rect.h);
+  const legendWidth = legend2?.rect.w || 0;
+  const minRing = 3;
+  if (ringDiameter >= minRing && (!legend2 || legendWidth >= 3))
+    return;
+  pushDiagnostic({
+    severity: "warn",
+    code: "DONUT_SUMMARY_OVER_CAPACITY",
+    slideId,
+    nodeId: root.id,
+    message: `Donut-summary '${root.id}' has a small ring/legend region (${ringDiameter.toFixed(2)}cm ring diameter${legend2 ? `, ${legendWidth.toFixed(2)}cm legend width` : ""}).`,
+    suggestion: "Keep donut-summary for the dominant-share story: give the component about 5x4cm or more, move commentary to a rail/follow-up slide, reduce minor slices, or try scale:'sm' only for mild pressure.",
+    measured: {
+      rect: root.rect,
+      ringDiameterCm: ringDiameter,
+      minRingDiameterCm: minRing,
+      legendWidthCm: legendWidth || void 0,
+      entryCount,
+      scaleSuggestion: "sm"
+    }
+  });
+}
+function detectImageAspectQuality(slideId, item, node, slideDom) {
+  const path = findNodePathById(slideDom, item.id) || [];
+  const inImageCard = path.some((entry) => entry.role === "image-card");
+  if (!inImageCard)
+    return;
+  const src = typeof node.src === "string" ? node.src : "";
+  const dims = probeImageDimensionsSync(src);
+  if (!dims || dims.width <= 0 || dims.height <= 0 || item.rect.w <= 0 || item.rect.h <= 0)
+    return;
+  const sourceAspect = dims.width / dims.height;
+  const frameAspect = item.rect.w / item.rect.h;
+  const visibleFraction = Math.min(sourceAspect / frameAspect, frameAspect / sourceAspect);
+  const fit = node.fit === "cover" || node.fit === "fill" ? node.fit : "contain";
+  const severeFill = fit === "fill" && visibleFraction < 0.82;
+  const heavyCrop = fit === "cover" && visibleFraction < 0.62;
+  const largeLetterbox = fit === "contain" && visibleFraction < 0.48;
+  if (!severeFill && !heavyCrop && !largeLetterbox)
+    return;
+  pushDiagnostic({
+    severity: severeFill ? "error" : "warn",
+    code: "IMAGE_ASPECT_MISMATCH",
+    slideId,
+    nodeId: item.id,
+    message: `Image '${item.id}' uses fit:'${fit}' in a ${frameAspect.toFixed(2)}:1 frame, but the source is ${sourceAspect.toFixed(2)}:1.`,
+    suggestion: severeFill ? "Do not use fit:'fill' when it distorts evidence. Keep image-card semantics and switch to fit:'contain' or fit:'cover' with intentional crop, or change the image-card region to match the source aspect ratio." : fit === "cover" ? "Cover crop hides too much of the source. Keep image-card semantics and adjust the frame ratio, use fit:'contain', or provide a deliberate crop/annotation." : "Contain leaves a lot of empty frame. Keep image-card semantics and adjust the frame ratio, crop intentionally with fit:'cover', or move caption/insight to a rail so the image can use a better aspect.",
+    measured: {
+      rect: item.rect,
+      sourceAspectRatio: sourceAspect,
+      frameAspectRatio: frameAspect,
+      aspectDelta: Math.abs(Math.log(frameAspect / sourceAspect)),
+      visibleFraction
+    }
+  });
+}
+function probeImageDimensionsSync(src) {
+  if (!src)
+    return void 0;
+  try {
+    if (src.startsWith("data:image/")) {
+      const match = src.match(/^data:image\/(png|jpeg|jpg|gif|svg\+xml|webp);base64,(.+)$/i);
+      if (!match)
+        return void 0;
+      const ext2 = normalizeProbeImageExt(match[1]);
+      if (!ext2)
+        return void 0;
+      return probeImageDimensions(Buffer.from(match[2], "base64"), ext2);
+    }
+    if (/^https?:\/\//i.test(src) || !existsSync2(src))
+      return void 0;
+    const ext = normalizeProbeImageExt(extname(src).replace(/^\./, ""));
+    if (!ext)
+      return void 0;
+    return probeImageDimensions(readFileSync2(src), ext);
+  } catch {
+    return void 0;
+  }
+}
+function normalizeProbeImageExt(value) {
+  const v = value.toLowerCase();
+  if (v === "png" || v === "gif" || v === "webp")
+    return v;
+  if (v === "jpg" || v === "jpeg")
+    return "jpg";
+  if (v === "svg" || v === "svg+xml")
+    return "svg";
   return void 0;
 }
 function findCollisionConstrainingAncestor(slideDom, a, b, overlap) {
@@ -33079,7 +34229,7 @@ function isOverlayChild(node) {
     return true;
   if (typeof node.anchorTo === "string" && node.anchorTo.length > 0)
     return true;
-  if (isAbsoluteAt2(node.at))
+  if (rectFromNodePlacement(node))
     return true;
   if (node.layer === "behind" || node.layer === "above")
     return true;
@@ -33087,9 +34237,6 @@ function isOverlayChild(node) {
 }
 function isAnchorToOverlay(node) {
   return typeof node.anchorTo === "string" && node.anchorTo.length > 0;
-}
-function isAbsoluteAt2(value) {
-  return Array.isArray(value) && value.length === 4 && value.every((n) => typeof n === "number" && Number.isFinite(n));
 }
 function flowChildren(slideDom) {
   return (slideDom.children || []).filter((child) => !isOverlayChild(child));
@@ -33331,9 +34478,9 @@ function rectForSlideChild(theme, node, slideDom) {
   if (typeof node.anchor === "string" && ANCHOR_POINTS.has(node.anchor)) {
     return rectFromAnchor(theme, node);
   }
-  if (isAbsoluteAt2(node.at)) {
-    const [x, y, w, h] = node.at;
-    return { x, y, w: Math.max(0.03, w), h: Math.max(0.03, h) };
+  const absoluteRect = rectFromNodePlacement(node);
+  if (absoluteRect) {
+    return absoluteRect;
   }
   const areaName = stringProp2(node, "area", "");
   if (areaName === "content") {
@@ -33385,6 +34532,7 @@ function rectFromAnchor(theme, node) {
 function renderSlide(theme, slideDom, ids, slideId) {
   const layout = layoutSlide(theme, slideDom);
   detectCollisionsForSlide(slideId, layout.measured, slideDom);
+  detectComponentLayoutQuality(theme, slideId, layout.measured, slideDom);
   const previous = currentSlideId;
   currentSlideId = slideId;
   try {
@@ -33454,9 +34602,9 @@ function renderNode(theme, node, rect, rectsById, ids, slideId) {
   if (node.type === "image")
     return captionedShapes(theme, node, rect, ids, (bodyRect) => imageShape(theme, node, bodyRect, ids));
   if (node.type === "table")
-    return captionedShapes(theme, node, rect, ids, (bodyRect) => [tableShape(theme, node, bodyRect, ids)]);
+    return captionedShapes(theme, node, rect, ids, (bodyRect) => [tableShape(theme, node, bodyRect, ids, rectsById)]);
   if (node.type === "chart")
-    return captionedShapes(theme, node, rect, ids, (bodyRect) => [chartShape(theme, node, bodyRect, ids)]);
+    return captionedShapes(theme, node, rect, ids, (bodyRect) => [chartShape(theme, node, bodyRect, ids, rectsById)]);
   if (node.type === "shape")
     return [presetShape(theme, node, rect, ids)];
   if (node.type === "panel")
@@ -33487,7 +34635,7 @@ function pushSquashedDiagnostic(theme, node, rect, slideId) {
     return;
   const hasFixedWidth = typeof node.fixedWidth === "number" && Number.isFinite(node.fixedWidth);
   const hasFixedHeight = typeof node.fixedHeight === "number" && Number.isFinite(node.fixedHeight);
-  const hasAbsoluteRect = Array.isArray(node.at) && node.at.length === 4 && node.at.every((value) => typeof value === "number" && Number.isFinite(value));
+  const hasAbsoluteRect = Boolean(rectFromNodePlacement(node));
   const hasAnchoredSize = (typeof node.anchor === "string" || typeof node.anchorTo === "string") && (typeof node.width === "number" && Number.isFinite(node.width) || typeof node.height === "number" && Number.isFinite(node.height));
   if (node.type === "image" && (hasFixedWidth || hasFixedHeight || hasAbsoluteRect || hasAnchoredSize))
     return;
@@ -33529,13 +34677,13 @@ function nearestSemanticRole(node) {
 function capacitySuggestion(node, fallback) {
   const role = nearestSemanticRole(node);
   if (role === "chart-card") {
-    return "Chart-card is over capacity: reserve a real chart body (bar/line/combo at least about 4.8x3.0cm; pie/doughnut about 5.2x4.4cm before title/caption chrome). Keep the chart as the primary evidence, use split/chart-with-rail/evidence-layout with the chart taking about 60-75% of the evidence area, move KPI/table/commentary to a rail or follow-up slide, and reduce labels/legend/series density before considering another component.";
+    return "Chart-card is over capacity: reserve a real chart body (bar/line/combo at least about 4.8x3.0cm; pie/doughnut about 5.2x4.4cm before title/caption chrome) and keep axis charts from becoming overly flat. Keep the chart as the primary evidence, use split/chart-with-rail/evidence-layout with the chart taking about 60-75% of the evidence area, move KPI/table/commentary to a rail or follow-up slide, and reduce labels/legend/series density before considering another component.";
   }
   if (role === "metric-card" || role === "kpi-grid") {
-    return "KPI content is over capacity: keep the KPI/stat semantics, reduce metrics per row, use columns:2 or columns:3, shorten labels/units, use compact density, widen the metric region, or split the dashboard across slides instead of squeezing metric values.";
+    return "KPI content is over capacity: keep the KPI/stat semantics, reduce metrics per row, use columns:2 or columns:3, try scale:'sm' for mild pressure, shorten labels/units, use compact density, widen the metric region, or split the dashboard across slides instead of squeezing metric values.";
   }
   if (role === "stat-strip") {
-    return "Stat-strip is over capacity: keep the stat row, reduce item count to the strongest metrics, shorten labels, give it full slide width, or split supporting metrics to a second strip/slide.";
+    return "Stat-strip is over capacity: keep the stat row, try scale:'sm' for mild pressure, reduce item count to the strongest metrics, shorten labels, give it full slide width, or split supporting metrics to a second strip/slide.";
   }
   if (role === "table-card") {
     return "Table-card is over capacity: reserve a table body large enough for readable rows (a compact 6-8 row business table usually needs about 4.5-6cm plus title/caption chrome). Keep the table, give it a half/full-slide evidence region, widen text-heavy columns with encoding.columns/colWidths, use density:'compact', provide rowHeights for known tall rows, or paginate the same table across slides instead of deleting data.";
@@ -33544,10 +34692,10 @@ function capacitySuggestion(node, fallback) {
     return "Code-block is over capacity: keep code-block for code, paginate the listing across slides/components, use columns:2/3, density:'tiny', or smaller readable fontSize. Use maxLines only for an intentional excerpt.";
   }
   if (role === "process-flow") {
-    return "Process-flow is over capacity: keep the sequence component, reduce per-step body/bullets, use vertical direction for rich stages, increase the component area, or split the flow across slides.";
+    return "Process-flow is over capacity: keep the sequence component, try scale:'sm' for mild pressure, reduce per-step body/bullets, use vertical direction for rich stages, increase the component area, or split the flow across slides.";
   }
   if (role === "feature-card") {
-    return "Feature-card content is over capacity: preserve title+body semantics, increase the card height/region, use fewer grid columns, set density:'compact', shorten proof/tags/secondary details, or split feature groups across slides. Do not fix this by deleting the body or replacing the component with generic text.";
+    return "Feature-card content is over capacity: preserve title+body semantics, try scale:'sm' or density:'compact' for mild pressure, increase the card height/region, use fewer grid columns, shorten proof/tags/secondary details, or split feature groups across slides. Do not fix this by deleting the body or replacing the component with generic text.";
   }
   if (role === "donut-summary") {
     return "Donut-summary is over capacity: reserve about 5x4cm for the ring plus legend. Keep the share-summary semantics, reduce minor slices, move explanatory facts to a side rail/follow-up slide, or give the donut a dominant split region before changing components.";
@@ -34238,14 +35386,18 @@ function presetShape(theme, node, rect, ids) {
   const marker = markerVisualSpec(theme, node);
   const presetCandidate = marker?.preset || (typeof node.preset === "string" && SHAPE_PRESETS.has(node.preset) ? node.preset : "rect");
   const preset = presetCandidate;
-  const lineWidthCm = normalizeStrokeCm(optionalNumberProp(node, "lineWidth") ?? marker?.lineWidth, marker?.lineWidth ?? 0.02);
-  const lineDash = node.lineDash === "dash" || node.lineDash === "dashDot" || node.lineDash === "dot" ? node.lineDash : node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : marker?.dash;
-  const fillToken = typeof node.fill === "string" ? node.fill : marker?.fill;
-  const lineToken = typeof node.line === "string" ? node.line : marker?.line;
-  const fillAlpha = alphaProp(node.fillOpacity ?? node.opacity ?? marker?.fillOpacity);
-  const lineAlpha = alphaProp(node.lineOpacity ?? node.opacity ?? marker?.lineOpacity);
+  const fillRecord = recordValue(node.fill);
+  const lineRecord = recordValue(node.line);
+  const lineWidthCm = normalizeStrokeCm(optionalNumberProp(node, "lineWidth") ?? optionalNumberFromRecord(lineRecord, "width") ?? optionalNumberFromRecord(lineRecord, "lineWidth") ?? marker?.lineWidth, marker?.lineWidth ?? 0.02);
+  const lineDash = node.lineDash === "dash" || node.lineDash === "dashDot" || node.lineDash === "dot" ? node.lineDash : node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : lineDashFromRecord(lineRecord) ?? marker?.dash;
+  const fillToken = typeof node.fill === "string" ? node.fill : stringFromRecord(fillRecord, "color") ?? stringFromRecord(fillRecord, "fill") ?? marker?.fill;
+  const lineToken = typeof node.line === "string" ? node.line : stringFromRecord(lineRecord, "color") ?? stringFromRecord(lineRecord, "line") ?? marker?.line;
+  const fillAlpha = alphaProp(node.fillOpacity ?? fillRecord?.opacity ?? fillRecord?.alpha ?? node.opacity ?? marker?.fillOpacity);
+  const lineAlpha = alphaProp(node.lineOpacity ?? lineRecord?.opacity ?? lineRecord?.alpha ?? node.opacity ?? marker?.lineOpacity);
   const shapeRect = marker ? markerRect(rect, marker, node) : rect;
   const shapeNode = marker && typeof node.rotation !== "number" && typeof marker.rotation === "number" ? { ...node, rotation: marker.rotation } : node;
+  const headEnd = lineEndSpec(node.headEnd ?? lineRecord?.headEnd);
+  const tailEnd = lineEndSpec(node.tailEnd ?? lineRecord?.tailEnd);
   const shape = {
     type: "shape",
     id: ids.nextId++,
@@ -34258,8 +35410,8 @@ function presetShape(theme, node, rect, ids) {
       width: cm(lineWidthCm),
       ...lineDash ? { dash: lineDash } : {},
       ...lineAlpha !== void 0 ? { alpha: lineAlpha } : {},
-      ...lineEndSpec(node.headEnd) ? { headEnd: lineEndSpec(node.headEnd) } : {},
-      ...lineEndSpec(node.tailEnd) ? { tailEnd: lineEndSpec(node.tailEnd) } : {}
+      ...headEnd ? { headEnd } : {},
+      ...tailEnd ? { tailEnd } : {}
     } : void 0,
     ...typeof node.cornerRadius === "number" ? { cornerRadius: normalizeCornerRadius(node.cornerRadius) } : marker?.cornerRadius !== void 0 ? { cornerRadius: marker.cornerRadius } : {}
   };
@@ -34423,7 +35575,7 @@ function dividerShape(theme, node, rect, ids) {
     line: { color: color(theme, node.line, "divider"), width: cm(Math.max(0.01, thickness)), ...dash ? { dash } : {} }
   };
 }
-function tableShape(theme, node, rect, ids) {
+function tableShape(theme, node, rect, ids, rectsById) {
   const sourceRows = tableSourceRows(node);
   const columnModel = tableColumnModel(node, sourceRows);
   const headers = columnModel.headers;
@@ -34438,20 +35590,23 @@ function tableShape(theme, node, rect, ids) {
   const widthsInput = Array.isArray(node.colWidths) ? node.colWidths : widthsFromColumns && widthsFromColumns.some((w) => w > 0) ? widthsFromColumns : void 0;
   const colWidths = resolveTableColWidths(widthsInput, colCount, rect.w);
   const density = tableDensity(node.density);
+  const fontScale = typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0 ? node.fontScale : 1;
   const rowHeightsCm = resolveTableRowHeights(node.rowHeights, rowCount, rect.h, {
     theme,
     rows: allRows,
     colWidths,
     firstRowHeader,
-    density
+    density,
+    fontScale
   });
   const cells = makeTableCells(theme, allRows, colCount, firstRowHeader, cellAlign, {
     headerFill: typeof node.headerFill === "string" ? node.headerFill : void 0,
     bodyFill: typeof node.bodyFill === "string" ? node.bodyFill : void 0,
-    density
+    density,
+    fontScale
   });
   pushEmptyTableDataDiagnostic(node, rect, sourceRows, rawRows, firstRowHeader);
-  pushTableFitDiagnostics(theme, node, rect, allRows, colWidths, rowHeightsCm, firstRowHeader);
+  pushTableFitDiagnostics(theme, node, rect, allRows, colWidths, rowHeightsCm, firstRowHeader, semanticOuterRectForBody(node.id, "table", rectsById));
   return {
     type: "table",
     id: ids.nextId++,
@@ -34705,7 +35860,7 @@ function resolveTableRowHeights(raw, rowCount, totalCm, intrinsic) {
   }
   if (intrinsic && intrinsic.rows.length === rowCount) {
     const floor = tableRowHeightFloor(false, intrinsic.density || "comfortable");
-    const needed = estimateTableRowHeights(intrinsic.theme, intrinsic.rows, intrinsic.colWidths, intrinsic.firstRowHeader, intrinsic.density || "comfortable").map((h) => Math.max(floor, h));
+    const needed = estimateTableRowHeights(intrinsic.theme, intrinsic.rows, intrinsic.colWidths, intrinsic.firstRowHeader, intrinsic.density || "comfortable", intrinsic.fontScale).map((h) => Math.max(floor, h));
     const sum = needed.reduce((a, b) => a + b, 0);
     if (sum > 0 && Number.isFinite(sum)) {
       if (sum <= totalCm) {
@@ -34718,7 +35873,7 @@ function resolveTableRowHeights(raw, rowCount, totalCm, intrinsic) {
   return Array.from({ length: rowCount }, () => totalCm / rowCount);
 }
 function makeTableCell(theme, raw, isHeader, defaultAlign, defaults = {}) {
-  const style = tableTextStyle(theme, isHeader, defaults.density || "comfortable");
+  const style = tableTextStyle(theme, isHeader, defaults.density || "comfortable", defaults.fontScale);
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const cell = raw;
     const text2 = firstTableString(cell.text, cell.value, cell.label, cell.title);
@@ -34912,7 +36067,26 @@ function trackingToLetterSpacing(value) {
       return void 0;
   }
 }
-function chartShape(theme, node, rect, ids) {
+function semanticOuterRectForBody(nodeId, suffix, rectsById) {
+  if (!rectsById)
+    return void 0;
+  const suffixToken = `.${suffix}`;
+  if (!nodeId.endsWith(suffixToken))
+    return void 0;
+  const rootId = nodeId.slice(0, -suffixToken.length);
+  const direct = rectsById.get(rootId);
+  if (direct)
+    return direct;
+  const slidePrefix = currentSlideId ? `${currentSlideId}.` : "";
+  if (slidePrefix && rootId.startsWith(slidePrefix)) {
+    const withoutSlidePrefix = rootId.slice(slidePrefix.length);
+    const match = rectsById.get(withoutSlidePrefix);
+    if (match)
+      return match;
+  }
+  return void 0;
+}
+function chartShape(theme, node, rect, ids, rectsById) {
   const labels = Array.isArray(node.labels) ? node.labels.map(String) : [];
   const series = normalizeChartSeries(theme, node.series);
   const resolvedChartType = chartType(node.chartType);
@@ -34928,7 +36102,7 @@ function chartShape(theme, node, rect, ids) {
   const showValues = typeof node.showValues === "boolean" ? node.showValues : pieLike;
   const dataLabels = normalizeChartDataLabels(node.dataLabels, { pieLike, showValues });
   const annotations = normalizeChartAnnotations(node.annotations);
-  pushChartFitDiagnostics(node, rect, resolvedChartType, safeLabels.length, showLegend);
+  pushChartFitDiagnostics(node, rect, resolvedChartType, safeLabels.length, safeSeries.length, showLegend, semanticOuterRectForBody(node.id, "chart", rectsById));
   pushChartLabelDiagnostics(node, rect, resolvedChartType, dataLabels);
   const barLike = resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "combo";
   return {
@@ -35035,43 +36209,129 @@ function pushChartLabelDiagnostics(node, rect, resolvedChartType, dataLabels) {
     measured: { rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h } }
   });
 }
-function pushChartFitDiagnostics(node, rect, resolvedChartType, labelCount, showLegend) {
-  const pieLike = resolvedChartType === "pie" || resolvedChartType === "doughnut";
-  const minWidth = pieLike ? 5.2 : 4.8;
-  const minHeight = pieLike ? labelCount >= 5 || showLegend ? 4.4 : 3.8 : resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "waterfall" ? 3 : 2.8;
-  if (rect.w >= minWidth && rect.h >= minHeight)
+function pushChartFitDiagnostics(node, rect, resolvedChartType, labelCount, seriesCount, showLegend, outerRect) {
+  const requirement = chartBodyRequirement(node, resolvedChartType, labelCount, seriesCount, showLegend);
+  const minWidth = requirement.minWidth;
+  const minHeight = requirement.recommendedMinHeight;
+  const aspect = chartAspectGuidance(node, resolvedChartType, labelCount, seriesCount, showLegend);
+  const aspectRatio = rect.h > 0.01 ? rect.w / rect.h : Number.POSITIVE_INFINITY;
+  const aspectNeededHeight = aspect ? rect.w / aspect.maxAspectRatio : 0;
+  const tooSmall = rect.w < minWidth || rect.h < minHeight;
+  const hardTooSmall = rect.w < requirement.hardMinWidth || rect.h < requirement.hardMinHeight;
+  const tooFlat = Boolean(aspect && rect.w >= minWidth && aspectRatio > aspect.maxAspectRatio && rect.h + 0.04 < aspectNeededHeight);
+  if (!tooSmall && !tooFlat)
     return;
   const role = nearestSemanticRole(node);
+  const neededHeight = Math.max(minHeight, aspectNeededHeight);
+  const minWidthAtCurrentHeight = aspect ? rect.h * aspect.maxAspectRatio : minWidth;
+  const chromeHeight = outerRect ? Math.max(0, outerRect.h - rect.h) : void 0;
+  const outerNeededHeight = chromeHeight !== void 0 ? neededHeight + chromeHeight : void 0;
+  const aspectMessage = aspect && tooFlat ? ` Its chart-body aspect ratio is ${aspectRatio.toFixed(1)}:1; ${resolvedChartType} charts with this density should stay at or below ${aspect.maxAspectRatio.toFixed(1)}:1, so this body needs about ${aspectNeededHeight.toFixed(1)}cm height at the current width.` : "";
+  const severity = role === "chart-card" && (hardTooSmall || tooFlat) ? "error" : "warn";
   pushDiagnostic({
-    severity: role === "chart-card" ? "error" : "warn",
+    severity,
     code: "SQUASHED",
     slideId: currentSlideId || void 0,
     nodeId: node.id,
-    message: `Chart '${nodeLabel(node)}' was assigned ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm; ${resolvedChartType} charts may be hard to read below about ${minWidth.toFixed(1)}x${minHeight.toFixed(1)}cm.`,
-    suggestion: chartCapacitySuggestion(resolvedChartType, minWidth, minHeight, labelCount, showLegend),
+    message: `Chart '${nodeLabel(node)}' was assigned ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm; ${resolvedChartType} charts may be hard to read below about ${minWidth.toFixed(1)}x${minHeight.toFixed(1)}cm.${aspectMessage}`,
+    suggestion: chartCapacitySuggestion(resolvedChartType, minWidth, minHeight, labelCount, showLegend, aspect ? {
+      aspectRatio,
+      maxAspectRatio: aspect.maxAspectRatio,
+      recommendedAspectRatio: aspect.recommendedAspectRatio,
+      aspectNeededHeightCm: aspectNeededHeight,
+      minWidthAtCurrentHeightCm: minWidthAtCurrentHeight,
+      reason: aspect.reason
+    } : void 0, outerNeededHeight),
     measured: {
       rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
       available: rect.h,
-      needed: minHeight,
-      deltaCm: Math.max(0, minHeight - rect.h),
+      needed: neededHeight,
+      deltaCm: Math.max(0, neededHeight - rect.h),
       minWidthCm: minWidth,
       minHeightCm: minHeight,
+      hardMinHeightCm: requirement.hardMinHeight,
+      bodyNeededHeightCm: neededHeight,
+      ...chromeHeight !== void 0 ? { chromeHeightCm: chromeHeight } : {},
+      ...outerNeededHeight !== void 0 ? { outerNeededHeightCm: outerNeededHeight } : {},
+      ...outerRect ? { outerRect: { x: outerRect.x, y: outerRect.y, w: outerRect.w, h: outerRect.h } } : {},
+      ...aspect ? {
+        aspectRatio,
+        maxAspectRatio: aspect.maxAspectRatio,
+        recommendedAspectRatio: aspect.recommendedAspectRatio,
+        aspectNeededHeightCm: aspectNeededHeight,
+        minWidthAtCurrentHeightCm: minWidthAtCurrentHeight,
+        aspectReason: aspect.reason
+      } : {},
       labelCount,
+      seriesCount,
       showLegend
     }
   });
 }
-function chartCapacitySuggestion(resolvedChartType, minWidth, minHeight, labelCount, showLegend) {
+function chartBodyRequirement(node, resolvedChartType, labelCount, seriesCount, showLegend) {
+  const pieLike = resolvedChartType === "pie" || resolvedChartType === "doughnut";
+  if (pieLike) {
+    const recommendedMinHeight2 = labelCount >= 5 || showLegend ? 4.4 : 3.8;
+    return { minWidth: 5.2, recommendedMinHeight: recommendedMinHeight2, hardMinHeight: Math.max(3, recommendedMinHeight2 - 0.55), hardMinWidth: 4.4 };
+  }
+  if (resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "waterfall") {
+    const dense2 = labelCount >= 5 || seriesCount >= 2 || showLegend;
+    const compact = labelCount <= 3 && seriesCount <= 1 && !showLegend;
+    const recommendedMinHeight2 = dense2 ? 3 : compact ? 2.2 : 2.6;
+    const hardMinHeight2 = dense2 ? 2.35 : compact ? 1.65 : 2;
+    return { minWidth: 4.8, recommendedMinHeight: recommendedMinHeight2, hardMinHeight: hardMinHeight2, hardMinWidth: 3.9 };
+  }
+  const dense = labelCount >= 7 || seriesCount >= 2 || showLegend;
+  const recommendedMinHeight = dense ? 2.8 : 2.4;
+  const hardMinHeight = dense ? 2.25 : 1.9;
+  return { minWidth: 4.8, recommendedMinHeight, hardMinHeight, hardMinWidth: 3.9 };
+}
+function chartAspectGuidance(node, resolvedChartType, labelCount, seriesCount, showLegend) {
+  if (resolvedChartType === "pie" || resolvedChartType === "doughnut") {
+    return void 0;
+  }
+  const axisTitleCount = [
+    node.xAxis ?? node.axis,
+    node.yAxis,
+    node.secondaryYAxis ?? node.secondaryAxis
+  ].filter(hasChartAxisTitle).length;
+  if (resolvedChartType === "line" || resolvedChartType === "area" || resolvedChartType === "combo" || resolvedChartType === "scatter") {
+    const densityBump = labelCount >= 10 ? 0.25 : labelCount >= 7 ? 0.15 : 0;
+    const recommended = clamp(2.65 + densityBump + Math.min(0.3, Math.max(0, seriesCount - 1) * 0.08), 2.4, 3.3);
+    const max = clamp(5 - (showLegend ? 0.25 : 0) - (seriesCount >= 3 ? 0.25 : 0) - (axisTitleCount > 0 ? 0.2 : 0), 4.3, 5);
+    return {
+      recommendedAspectRatio: recommended,
+      maxAspectRatio: max,
+      reason: "axis charts need enough vertical plot area for slopes, markers, gridlines, axis titles, and legends"
+    };
+  }
+  if (resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "waterfall") {
+    const recommended = clamp(2.2 + (labelCount >= 8 ? 0.25 : 0) + (seriesCount >= 3 ? 0.15 : 0), 2, 2.8);
+    const max = clamp(5.4 - (showLegend ? 0.2 : 0) - (axisTitleCount > 0 ? 0.15 : 0), 4.8, 5.4);
+    return {
+      recommendedAspectRatio: recommended,
+      maxAspectRatio: max,
+      reason: "bar charts can be wider than line charts, but still need height for value comparison and axis labels"
+    };
+  }
+  return void 0;
+}
+function hasChartAxisTitle(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && typeof value.title === "string" && value.title.trim());
+}
+function chartCapacitySuggestion(resolvedChartType, minWidth, minHeight, labelCount, showLegend, aspect, outerNeededHeightCm) {
   const minimum = `Reserve at least ${minWidth.toFixed(1)}x${minHeight.toFixed(1)}cm for the chart body inside chart-card; title/caption/card chrome need additional space.`;
+  const outer = outerNeededHeightCm !== void 0 ? ` With the current title/caption/card chrome, reserve roughly ${outerNeededHeightCm.toFixed(1)}cm total chart-card height.` : "";
+  const aspectAdvice = aspect ? ` Current body is ${aspect.aspectRatio.toFixed(1)}:1; target about ${aspect.recommendedAspectRatio.toFixed(1)}:1 and keep it <= ${aspect.maxAspectRatio.toFixed(1)}:1 (${aspect.reason}). At this width, raise the chart body to about ${aspect.aspectNeededHeightCm.toFixed(1)}cm or reduce body width to about ${aspect.minWidthAtCurrentHeightCm.toFixed(1)}cm before simplifying the chart.` : "";
   const density = labelCount > 8 ? ` This chart has ${labelCount} categories; reduce label density, group categories, or use a follow-up slide after the body area is large enough.` : "";
   const legend2 = showLegend ? " Move or simplify the legend only after the chart body meets its minimum size." : "";
   if (resolvedChartType === "pie" || resolvedChartType === "doughnut") {
-    return `${minimum} Keep the pie/doughnut as the evidence object: use evidence-layout/chart-with-rail/split with the chart taking the dominant region, move explanatory facts to a side rail or next slide, and keep slice labels/data labels visible instead of relying on a tiny legend.${density}${legend2}`;
+    return `${minimum}${outer}${aspectAdvice} Keep the pie/doughnut as the evidence object: use evidence-layout/chart-with-rail/split with the chart taking the dominant region, move explanatory facts to a side rail or next slide, and keep slice labels/data labels visible instead of relying on a tiny legend.${density}${legend2}`;
   }
   if (resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "waterfall") {
-    return `${minimum} Keep the bar chart as the evidence object: give it full width or a 60-75% split/evidence region, move KPI/table/commentary below/aside or to a follow-up slide, and reduce labels/series/card chrome before changing components.${density}${legend2}`;
+    return `${minimum}${outer}${aspectAdvice} Keep the bar chart as the evidence object: give it full width or a 60-75% split/evidence region, move KPI/table/commentary below/aside or to a follow-up slide, and reduce labels/series/card chrome before changing components.${density}${legend2}`;
   }
-  return `${minimum} Keep the chart as the evidence object: give it a dominant region, move KPI/table/commentary to a rail or follow-up slide, and reduce series/label/legend density before changing components.${density}${legend2}`;
+  return `${minimum}${outer}${aspectAdvice} Keep the chart as the evidence object: give it a dominant region, move KPI/table/commentary to a rail or follow-up slide, and reduce series/label/legend density before changing components.${density}${legend2}`;
 }
 function normalizeChartAnnotations(value) {
   if (!Array.isArray(value))
@@ -35699,6 +36959,7 @@ function applyFallbackLadder(theme, parent, direction, availableMain, crossSize)
     return;
   }
   const constraint = findConstrainingAncestor(direction, parent);
+  const scaleHint = scaleHintForOverflow(delta, availableMain);
   const constraintHint = constraint ? ` Constrained by ${constraint.ancestorId}.${constraint.prop} = ${constraint.value}cm; relax or remove that to give children room.` : "";
   pushDiagnostic({
     severity: "error",
@@ -35706,10 +36967,20 @@ function applyFallbackLadder(theme, parent, direction, availableMain, crossSize)
     slideId: currentSlideId || void 0,
     nodeId: parent.id,
     message: `Container '${parent.id}' cannot fit its children even after demote/drop/truncate (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm).${constraintHint}`,
-    suggestion: constraint ? `Drop or raise ${constraint.ancestorId}.${constraint.prop} (currently ${constraint.value}cm) so the children have \u2265${needed.toFixed(2)}cm. Alternatively, split content across slides or remove a child.` : capacitySuggestion(parent, "Split content across slides, remove a child, or increase the parent's allotted height."),
-    measured: { available: availableMain, needed, deltaCm: delta },
+    suggestion: constraint ? `Drop or raise ${constraint.ancestorId}.${constraint.prop} (currently ${constraint.value}cm) so the children have \u2265${needed.toFixed(2)}cm.${scaleHint ? ` If the component semantics must stay in this slot, ${scaleHint}` : ""} Alternatively, split content across slides or remove a child.` : `${capacitySuggestion(parent, "Split content across slides, remove a child, or increase the parent's allotted height.")}${scaleHint ? ` ${scaleHint}` : ""}`,
+    measured: { available: availableMain, needed, deltaCm: delta, ...scaleHint ? { scaleSuggestion: "sm" } : {} },
     ...constraint ? { constrainedBy: constraint } : {}
   });
+}
+function scaleHintForOverflow(delta, available) {
+  if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0 || available <= 0)
+    return "";
+  const ratio = delta / available;
+  if (ratio <= 0.09)
+    return "try component scale:'sm' first; it shrinks the component typography/chrome consistently without changing the semantic component.";
+  if (ratio <= 0.16)
+    return "try scale:'sm' or density:'compact' before deleting content; if it still fails, increase the region or split the component across slides.";
+  return "";
 }
 function isFeatureCardSemanticChild(child) {
   const id = typeof child.id === "string" ? child.id : "";
@@ -35717,6 +36988,7 @@ function isFeatureCardSemanticChild(child) {
 }
 function pushFeatureCardCapacityDiagnostic(parent, direction, availableMain, needed, delta) {
   const constraint = findConstrainingAncestor(direction, parent);
+  const scaleHint = scaleHintForOverflow(delta, availableMain);
   const axisLabel = direction === "vertical" ? "height" : "width";
   const constraintHint = constraint ? ` Constrained by ${constraint.ancestorId}.${constraint.prop} = ${constraint.value}cm; relax that ancestor or give the card a larger region.` : "";
   pushDiagnostic({
@@ -35725,13 +36997,14 @@ function pushFeatureCardCapacityDiagnostic(parent, direction, availableMain, nee
     slideId: currentSlideId || void 0,
     nodeId: parent.id,
     message: `Feature-card '${parent.id}' cannot keep its title and body readable in the assigned ${axisLabel} (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm).${constraintHint}`,
-    suggestion: capacitySuggestion(parent, "Increase the feature-card region, reduce sibling content, or split the feature group across slides."),
+    suggestion: `${capacitySuggestion(parent, "Increase the feature-card region, reduce sibling content, or split the feature group across slides.")}${scaleHint ? ` ${scaleHint}` : ""}`,
     measured: {
       available: availableMain,
       needed,
       deltaCm: delta,
       minHeightCm: direction === "vertical" ? needed : void 0,
-      minWidthCm: direction === "horizontal" ? needed : void 0
+      minWidthCm: direction === "horizontal" ? needed : void 0,
+      ...scaleHint ? { scaleSuggestion: "sm" } : {}
     },
     ...constraint ? { constrainedBy: constraint } : {}
   });
@@ -36020,13 +37293,6 @@ function shrinkSizes(specs, sizes, available) {
   }
   if (overflow > 1e-4) {
     sizeOverflowWarnings.add(`overflow=${overflow.toFixed(2)}cm; available=${available.toFixed(2)}cm`);
-    pushDiagnostic({
-      severity: "warn",
-      code: "OVERFLOW",
-      message: `Container is short by ${overflow.toFixed(2)}cm of children's minimum sizes; fixed-size children kept and flexible children scaled to fit.`,
-      suggestion: "Reduce fixedHeight/fixedWidth on a sibling, drop a low-priority child, or move content to a new slide.",
-      measured: { available, needed: available + overflow, deltaCm: overflow }
-    });
     return fitToAvailableRespectingFixed(specs, sizes, available);
   }
   return sizes;
@@ -36165,7 +37431,8 @@ function tableIntrinsicHeight(theme, node, widthCm) {
   const { allRows, colCount, firstRowHeader, colWidths } = tableLayoutInfo(node, widthCm);
   if (allRows.length === 0)
     return 0.9;
-  const rowHeights = estimateTableRowHeights(theme, allRows, colWidths, firstRowHeader, tableDensity(node.density));
+  const fontScale = typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0 ? node.fontScale : 1;
+  const rowHeights = estimateTableRowHeights(theme, allRows, colWidths, firstRowHeader, tableDensity(node.density), fontScale);
   return Math.min(10, Math.max(0.9, rowHeights.reduce((sum, h) => sum + h, 0)));
 }
 function tableLayoutInfo(node, widthCm) {
@@ -36189,13 +37456,13 @@ function tableDensity(raw) {
     return "compact";
   return "comfortable";
 }
-function estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density = "comfortable") {
+function estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density = "comfortable", fontScale = 1) {
   return rows.map((row, rowIndex) => {
     const isHeader = rowIndex === 0 && firstRowHeader;
     let needed = tableRowHeightFloor(isHeader, density);
     for (let col = 0; col < Math.max(row.length, colWidths.length); col++) {
       const raw = row[col] ?? "";
-      needed = Math.max(needed, tableCellIntrinsicHeight(theme, raw, colWidths[col] || colWidths[0] || 1, isHeader, density));
+      needed = Math.max(needed, tableCellIntrinsicHeight(theme, raw, colWidths[col] || colWidths[0] || 1, isHeader, density, fontScale));
     }
     return needed;
   });
@@ -36211,25 +37478,26 @@ function tableRowHeightFloor(isHeader, density) {
     return isHeader ? 0.42 : 0.36;
   return isHeader ? 0.55 : 0.48;
 }
-function tableTextStyle(theme, isHeader, density) {
+function tableTextStyle(theme, isHeader, density, fontScale = 1) {
   const kind = isHeader ? "table-header" : "table-cell";
   const style = textStyle(theme, kind, "table-cell");
+  const applyScale = (next) => fontScale === 1 ? next : { ...next, fontSize: Math.max(5.5, next.fontSize * fontScale) };
   if (density === "code-tiny")
-    return { ...style, fontSize: 5.8, lineHeight: 1, weight: "regular" };
+    return applyScale({ ...style, fontSize: 5.8, lineHeight: 1, weight: "regular" });
   if (density === "code-dense")
-    return { ...style, fontSize: 6.5, lineHeight: 1.02, weight: "regular" };
+    return applyScale({ ...style, fontSize: 6.5, lineHeight: 1.02, weight: "regular" });
   if (density === "code")
-    return { ...style, fontSize: 7.2, lineHeight: 1.05, weight: "regular" };
+    return applyScale({ ...style, fontSize: 7.2, lineHeight: 1.05, weight: "regular" });
   if (density !== "compact")
-    return style;
-  return {
+    return applyScale(style);
+  return applyScale({
     ...style,
     fontSize: Math.max(isHeader ? 8.5 : 8, style.fontSize - (isHeader ? 0.8 : 1)),
     lineHeight: Math.min(style.lineHeight, isHeader ? 1.12 : 1.15)
-  };
+  });
 }
-function tableCellIntrinsicHeight(theme, raw, widthCm, isHeader, density = "comfortable") {
-  const style = tableTextStyle(theme, isHeader, density);
+function tableCellIntrinsicHeight(theme, raw, widthCm, isHeader, density = "comfortable", fontScale = 1) {
+  const style = tableTextStyle(theme, isHeader, density, fontScale);
   const text = tableCellText(raw);
   const isCode = density === "code" || density === "code-dense" || density === "code-tiny";
   const contentWidth = Math.max(0.8, widthCm - (isCode ? 0.18 : density === "compact" ? 0.38 : 0.52));
@@ -36280,7 +37548,7 @@ function tableCellText(raw) {
   }
   return String(raw ?? "");
 }
-function pushTableFitDiagnostics(theme, node, rect, rows, colWidths, rowHeights, firstRowHeader) {
+function pushTableFitDiagnostics(theme, node, rect, rows, colWidths, rowHeights, firstRowHeader, outerRect) {
   const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, tableDensity(node.density));
   const totalNeeded = needed.reduce((sum, h) => sum + h, 0);
   const shortRows = needed.map((height, index) => ({ index, needed: height, available: rowHeights[index] || 0 })).filter((row) => row.needed > row.available + 0.08);
@@ -36298,6 +37566,8 @@ function pushTableFitDiagnostics(theme, node, rect, rows, colWidths, rowHeights,
   const estimatedRowsFit = countRowsThatFit(needed, Math.max(0, rect.h));
   const visibleRowsFit = firstRowHeader ? Math.max(0, estimatedRowsFit - 1) : estimatedRowsFit;
   const dataRowCount = firstRowHeader ? Math.max(0, rows.length - 1) : rows.length;
+  const chromeHeight = outerRect ? Math.max(0, outerRect.h - rect.h) : void 0;
+  const outerNeededHeight = chromeHeight !== void 0 ? totalNeeded + chromeHeight : void 0;
   pushDiagnostic({
     severity: "error",
     code: "FALLBACK_FAILED",
@@ -36310,12 +37580,17 @@ function pushTableFitDiagnostics(theme, node, rect, rows, colWidths, rowHeights,
       totalNeeded,
       rect,
       columnCount: colWidths.length,
-      density: tableDensity(node.density)
+      density: tableDensity(node.density),
+      outerNeededHeight
     }),
     measured: {
       available: rect.h,
       needed: totalNeeded,
       rect,
+      bodyNeededHeightCm: totalNeeded,
+      ...chromeHeight !== void 0 ? { chromeHeightCm: chromeHeight } : {},
+      ...outerNeededHeight !== void 0 ? { outerNeededHeightCm: outerNeededHeight } : {},
+      ...outerRect ? { outerRect: { x: outerRect.x, y: outerRect.y, w: outerRect.w, h: outerRect.h } } : {},
       dataRowCount,
       estimatedVisibleRowsFit: visibleRowsFit,
       columnCount: colWidths.length,
@@ -36328,11 +37603,12 @@ function pushTableFitDiagnostics(theme, node, rect, rows, colWidths, rowHeights,
   });
 }
 function tableCapacitySuggestion(node, details) {
-  const { dataRowCount, visibleRowsFit, totalNeeded, rect, columnCount, density } = details;
+  const { dataRowCount, visibleRowsFit, totalNeeded, rect, columnCount, density, outerNeededHeight } = details;
   const fitText = dataRowCount > 0 && visibleRowsFit < dataRowCount ? `This ${columnCount}-column table can currently fit about ${visibleRowsFit}/${dataRowCount} data row(s).` : `This ${columnCount}-column table needs about ${totalNeeded.toFixed(2)}cm body height.`;
   const compactHint = density === "compact" || density === "code" || density === "code-dense" || density === "code-tiny" ? "It is already using a compact density, so prefer a larger region, wider columns, row pagination, or shorter cell text." : "Set density:'compact' for business summary tables before removing rows or columns.";
   const regionHint = rect.h < 4.5 ? "For 6-8 readable business rows, reserve roughly 4.5-6cm of table body height plus title/caption/card chrome, or let table-card own a half/full slide." : `Assigned body height is ${rect.h.toFixed(2)}cm but estimated need is ${totalNeeded.toFixed(2)}cm.`;
-  return `Keep the table-card/table semantics and do not delete data just to pass validation. ${fitText} ${regionHint} ${compactHint} Widen text-heavy columns with encoding.columns/colWidths, provide rowHeights for known tall rows, reduce visible rows with an explicit page split, or paginate the same table across slides.`;
+  const outerHint = outerNeededHeight !== void 0 ? `With the current title/caption/card chrome, reserve about ${outerNeededHeight.toFixed(2)}cm total table-card height.` : "";
+  return `Keep the table-card/table semantics and do not delete data just to pass validation. ${fitText} ${regionHint} ${outerHint} ${compactHint} Widen text-heavy columns with encoding.columns/colWidths, provide rowHeights for known tall rows, reduce visible rows with an explicit page split, or paginate the same table across slides.`;
 }
 function pushEmptyTableDataDiagnostic(node, rect, sourceRows, bodyRows, firstRowHeader) {
   const objectRowsWithFields = sourceRows.filter((row) => Boolean(row && typeof row === "object" && !Array.isArray(row) && !Array.isArray(row.cells) && Object.keys(row).length > 0));
@@ -36884,6 +38160,8 @@ function effectiveTextStyle(theme, node, fallback = "paragraph") {
     out.fontSize = out.fontSize * mult;
   if (typeof node.fontSize === "number" && Number.isFinite(node.fontSize) && node.fontSize > 0)
     out.fontSize = node.fontSize;
+  if (typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0)
+    out.fontSize = Math.max(5.5, out.fontSize * node.fontScale);
   if (typeof node.lineHeight === "number" && Number.isFinite(node.lineHeight) && node.lineHeight > 0)
     out.lineHeight = node.lineHeight;
   if (node.fontWeight !== void 0)
@@ -36999,6 +38277,21 @@ function numberProp(node, key, fallback) {
 function optionalNumberProp(node, key) {
   const value = node[key];
   return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
+function recordValue(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+function stringFromRecord(record, key) {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : void 0;
+}
+function optionalNumberFromRecord(record, key) {
+  const value = record?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : void 0;
+}
+function lineDashFromRecord(record) {
+  const value = stringFromRecord(record, "dash") ?? stringFromRecord(record, "lineDash");
+  return value === "dash" || value === "dashDot" || value === "dot" ? value : void 0;
 }
 function optionalCornerRadiusProp(node) {
   const value = optionalNumberProp(node, "cornerRadius");
@@ -37878,8 +39171,8 @@ function componentAgentPrompt() {
   ].join("\n");
 }
 function normalizeComponentPlan(raw, markdown, logo) {
-  const record = isRecord(raw) ? raw : {};
-  const brand = isRecord(record.brand) ? record.brand : {};
+  const record = isRecord2(raw) ? raw : {};
+  const brand = isRecord2(record.brand) ? record.brand : {};
   const slides = Array.isArray(record.slides) ? record.slides : [];
   const normalizedSlides = slides.map((slide, index) => normalizeSlide2(slide, index)).filter((slide) => Boolean(slide));
   if (normalizedSlides.length === 0)
@@ -37895,7 +39188,7 @@ function normalizeComponentPlan(raw, markdown, logo) {
   };
 }
 function normalizeSlide2(raw, index) {
-  if (!isRecord(raw))
+  if (!isRecord2(raw))
     return null;
   const children = Array.isArray(raw.children) ? raw.children.map(normalizeAgentNode).filter((node) => Boolean(node)) : [];
   if (children.length === 0)
@@ -37908,7 +39201,7 @@ function normalizeSlide2(raw, index) {
   };
 }
 function normalizeAgentNode(raw) {
-  if (!isRecord(raw))
+  if (!isRecord2(raw))
     return null;
   if ("name" in raw || "props" in raw)
     return null;
@@ -38016,7 +39309,7 @@ function normalizeHex2(value) {
   const cleaned = value.replace(/^#/, "");
   return /^[0-9A-Fa-f]{6}$/.test(cleaned) ? cleaned.toUpperCase() : "2563EB";
 }
-function isRecord(value) {
+function isRecord2(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -38364,6 +39657,25 @@ import { dirname as dirname3 } from "node:path";
 var LAYOUT_CONTAINERS = /* @__PURE__ */ new Set(["stack", "grid", "split", "panel", "card", "band", "frame", "inset", "fragment"]);
 var RAW_HEX_RE = /^[0-9A-Fa-f]{6}$/;
 var RESERVED_LAYOUT_AREAS = /* @__PURE__ */ new Set(["content", "full"]);
+var THEME_FONT_WEIGHT_NAMES = /* @__PURE__ */ new Set([
+  "thin",
+  "hairline",
+  "extralight",
+  "ultralight",
+  "light",
+  "normal",
+  "regular",
+  "book",
+  "medium",
+  "semibold",
+  "demibold",
+  "bold",
+  "extrabold",
+  "ultrabold",
+  "heavy",
+  "black",
+  "super"
+]);
 var SOURCE_DECK_FIELD_SET = /* @__PURE__ */ new Set(["slideml2", "deck", "slides"]);
 var DECK_FIELD_SET = /* @__PURE__ */ new Set(["size", "theme", "themeOverride", "brand", "chrome", "validation", "master", "dataSources", "references", "footnotes", "metadata"]);
 var REQUIRED_CHILD_CONTAINERS = /* @__PURE__ */ new Set(["stack", "grid", "split", "fragment"]);
@@ -38388,6 +39700,7 @@ function validateSlide(slide, deck) {
     issues.push(issue("error", "MISSING_SLIDE_ID", "Slide id is required.", { suggestedFix: "Add a stable slide.id." }));
   if (!Array.isArray(slide.children))
     issues.push(issue("error", "MISSING_CHILDREN", "Slide children must be an array.", { slideId: slide.id }));
+  validateSlideTransitionSpec(slide, issues);
   if (Array.isArray(slide.children))
     validateSlideAreaReferences(slide, deck, issues);
   if (Array.isArray(slide.children))
@@ -38458,6 +39771,16 @@ function validateDeck(deck, options = {}) {
     }
   }
   return report(dedupeIssues(issues));
+}
+function validateSlideTransitionSpec(slide, issues) {
+  const message = describeInvalidSlideTransition(slide.transition);
+  if (!message)
+    return;
+  issues.push(issue("error", SOURCE_VALIDATION_CODE.INVALID_SLIDE_TRANSITION, message, {
+    slideId: slide.id,
+    path: "transition",
+    suggestedFix: "Use transition:{type:'fade'|'push'|'wipe'|'split'|'cover'|'uncover', direction?:'left'|'right'|'up'|'down', durationMs?:350}. Common aliases accepted by render include type:'slideIn' with direction:'push'|'fade'|'wipe', but unrelated values are invalid."
+  }));
 }
 function validateSourceDeckFields(deck, issues) {
   for (const key of Object.keys(deck)) {
@@ -38715,7 +40038,7 @@ function hasSlideLevelPlacementOverride(node) {
     return true;
   if (typeof rec.anchorTo === "string" && rec.anchorTo.trim())
     return true;
-  return Array.isArray(rec.at) && rec.at.length === 4 && rec.at.every((value) => typeof value === "number" && Number.isFinite(value));
+  return Boolean(rectFromNodePlacement(node));
 }
 function validateSlideTitleLabelDuplication(slide, issues) {
   const title = typeof slide.title === "string" ? normalizeTitleLabel(slide.title) : "";
@@ -38741,6 +40064,14 @@ function normalizeTitleLabel(value) {
 function validateNode(node, path, slideId, issues, parent, options = validationOptions()) {
   if (!node || typeof node !== "object") {
     issues.push(issue("error", "INVALID_NODE", `${path} must be a node object.`, { slideId, path }));
+    return;
+  }
+  if (isTwoColumnRegionShorthand(node, parent, path)) {
+    const children = Array.isArray(node.children) ? node.children : [];
+    children.forEach((child, index) => {
+      const childPath = `${path}.children[${index}]`;
+      validateNode(withSyntheticNodeIds(child, `${slideId}.${path.replace(/[^A-Za-z0-9_.-]+/g, ".")}.${index + 1}`), childPath, slideId, issues, node, options);
+    });
     return;
   }
   if (!node.id)
@@ -38878,6 +40209,50 @@ function validateNode(node, path, slideId, issues, parent, options = validationO
   }
   node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options));
 }
+function isTwoColumnRegionShorthand(node, parent, path) {
+  if (!parent || parent.type !== "two-column")
+    return false;
+  if (!/\.(left|right)$/.test(path))
+    return false;
+  if (node.type)
+    return false;
+  return Array.isArray(node.children);
+}
+function withSyntheticNodeIds(node, fallbackId) {
+  if (!node || typeof node !== "object" || Array.isArray(node))
+    return { id: fallbackId, type: "text", text: "" };
+  const id = typeof node.id === "string" && node.id ? node.id : fallbackId;
+  const children = Array.isArray(node.children) ? node.children.map((child, index) => withSyntheticNodeIds(child, `${id}.${index + 1}`)) : node.children;
+  const out = { ...node, id, children };
+  for (const key of SYNTHETIC_OBJECT_SLOT_KEYS) {
+    const value = node[key];
+    if (isDomNodeSlot(value))
+      out[key] = withSyntheticNodeIds(value, `${id}.${key}`);
+  }
+  for (const key of SYNTHETIC_ARRAY_SLOT_KEYS) {
+    const value = node[key];
+    if (!Array.isArray(value) || key === "children")
+      continue;
+    out[key] = value.map((item, index) => isDomNodeSlot(item) ? withSyntheticNodeIds(item, `${id}.${key}.${index + 1}`) : item);
+  }
+  return out;
+}
+var SYNTHETIC_OBJECT_SLOT_KEYS = ["evidence", "rail", "left", "right", "hero", "insight"];
+var SYNTHETIC_ARRAY_SLOT_KEYS = ["children", "annotations", "supports"];
+function isDomNodeSlot(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+function componentSlotFallbackId(slideId, parent, path, slotName) {
+  const parentId = typeof parent.id === "string" && parent.id.trim() ? parent.id.trim() : path.replace(/[^A-Za-z0-9_.-]+/g, ".");
+  const rooted = parentId.startsWith(`${slideId}.`) ? parentId : `${slideId}.${parentId}`;
+  return `${rooted}.${slotName}`;
+}
+function validateComponentSlotNode(parent, slotName, path, slideId, issues, options) {
+  const content = parent[slotName];
+  if (!content || typeof content !== "object" || Array.isArray(content))
+    return;
+  validateNode(withSyntheticNodeIds(content, componentSlotFallbackId(slideId, parent, path, slotName)), `${path}.${slotName}`, slideId, issues, parent, options);
+}
 function hasDataBindSource(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value) && typeof value.source === "string" && String(value.source).trim());
 }
@@ -39002,10 +40377,12 @@ function validateThemeOverride(deck, issues) {
       }));
     }
     const weight = style.weight ?? style.fontWeight;
-    if (weight !== void 0 && weight !== "normal" && weight !== "bold" && !(typeof weight === "number" && weight >= 100 && weight <= 900)) {
-      issues.push(issue("error", "INVALID_THEME_TEXT_WEIGHT", `${path}.weight/fontWeight must be 'normal', 'bold', or a numeric 100..900 weight.`, {
+    const namedWeight = typeof weight === "string" ? weight.trim().toLowerCase() : void 0;
+    const validWeight = weight === void 0 || typeof weight === "number" && weight >= 100 && weight <= 900 || namedWeight !== void 0 && THEME_FONT_WEIGHT_NAMES.has(namedWeight);
+    if (!validWeight) {
+      issues.push(issue("error", "INVALID_THEME_TEXT_WEIGHT", `${path}.weight/fontWeight must be a named CSS weight or a numeric 100..900 weight.`, {
         path,
-        suggestedFix: "Use weight:'bold' (or fontWeight:'bold') for emphasis, a numeric CSS weight, or omit it for normal text."
+        suggestedFix: "Use weight:'normal'|'medium'|'semibold'|'bold' or a numeric CSS weight such as 500, 600, 700; omit it for normal text."
       }));
     }
     const fontFamily = style.fontFamily;
@@ -39895,7 +41272,7 @@ function validateEncodingItems(items, path, slideId, nodeName, issues) {
     if (rec.valueLabel !== void 0 && typeof rec.valueLabel !== "string") {
       issues.push(issue("error", "INVALID_DATA_ENCODING_ITEMS", `${itemPath}.valueLabel must be a string.`, { slideId, path: `${itemPath}.valueLabel`, nodeName: typeof nodeName === "string" ? nodeName : void 0 }));
     }
-    if (rec.type !== void 0 && !(typeof rec.type === "string" && DATA_COLUMN_TYPE_VALUES.includes(rec.type))) {
+    if (rec.type !== void 0 && normalizeDataColumnTypeAlias(rec.type) === void 0) {
       issues.push(issue("error", "INVALID_DATA_ENCODING_COLUMN_TYPE", `${itemPath}.type must be one of: ${DATA_COLUMN_TYPE_VALUES.join(", ")}.`, { slideId, path: `${itemPath}.type`, nodeName: typeof nodeName === "string" ? nodeName : void 0 }));
     }
     if (rec.tone !== void 0) {
@@ -39993,7 +41370,7 @@ function validateEncodingColumns(columns, path, slideId, nodeName, issues) {
     if (typeof keyLike !== "string" || !keyLike.trim()) {
       issues.push(issue("error", "INVALID_DATA_ENCODING_COLUMNS", `${columnPath}.key or ${columnPath}.field must be a non-empty field name.`, { slideId, path: `${columnPath}.key`, nodeName: typeof nodeName === "string" ? nodeName : void 0 }));
     }
-    if (rec.type !== void 0 && !(typeof rec.type === "string" && DATA_COLUMN_TYPE_VALUES.includes(rec.type))) {
+    if (rec.type !== void 0 && normalizeDataColumnTypeAlias(rec.type) === void 0) {
       issues.push(issue("error", "INVALID_DATA_ENCODING_COLUMN_TYPE", `${columnPath}.type must be one of: ${DATA_COLUMN_TYPE_VALUES.join(", ")}.`, { slideId, path: `${columnPath}.type`, nodeName: typeof nodeName === "string" ? nodeName : void 0 }));
     }
     if (rec.align !== void 0 && !(typeof rec.align === "string" && DATA_COLUMN_ALIGN_VALUES.includes(rec.align))) {
@@ -40003,6 +41380,22 @@ function validateEncodingColumns(columns, path, slideId, nodeName, issues) {
       issues.push(issue("error", "INVALID_DATA_ENCODING_COLUMN_WIDTH", `${columnPath}.width must be a positive number.`, { slideId, path: `${columnPath}.width`, nodeName: typeof nodeName === "string" ? nodeName : void 0 }));
     }
   });
+}
+function normalizeDataColumnTypeAlias(value) {
+  if (typeof value !== "string")
+    return void 0;
+  const normalized = value.trim().toLowerCase();
+  if (DATA_COLUMN_TYPE_VALUES.includes(normalized))
+    return normalized;
+  if (normalized === "int" || normalized === "integer" || normalized === "decimal" || normalized === "float" || normalized === "numeric")
+    return "number";
+  if (normalized === "percentage" || normalized === "pct")
+    return "percent";
+  if (normalized === "money")
+    return "currency";
+  if (normalized === "datetime")
+    return "date";
+  return void 0;
 }
 function validateThemeOverrideTopLevel(override, issues) {
   for (const key of Object.keys(override)) {
@@ -40182,17 +41575,17 @@ function validateThemeFonts(override, issues) {
       continue;
     }
     if (key === "mono") {
-      validateFontArray(value, path, issues);
+      validateFontChain(value, path, issues);
       continue;
     }
-    if (Array.isArray(value)) {
-      validateFontArray(value, path, issues);
+    if (typeof value === "string" || Array.isArray(value)) {
+      validateFontChain(value, path, issues);
       continue;
     }
     if (!value || typeof value !== "object") {
-      issues.push(issue("error", "INVALID_THEME_FONT_VALUE", `${path} must be a string array or {display?: string[], text?: string[]}.`, {
+      issues.push(issue("error", "INVALID_THEME_FONT_VALUE", `${path} must be a font face string, string array, or {display?, text?}.`, {
         path,
-        suggestedFix: "Use e.g. fonts.latin:{display:['Helvetica Neue'], text:['Arial']}."
+        suggestedFix: "Use e.g. fonts.latin:{display:['Helvetica Neue'], text:['Arial']} or fonts.cjk:{display:'Microsoft YaHei', text:'Microsoft YaHei'}."
       }));
       continue;
     }
@@ -40205,15 +41598,16 @@ function validateThemeFonts(override, issues) {
         }));
         continue;
       }
-      validateFontArray(chain, rolePath, issues);
+      validateFontChain(chain, rolePath, issues);
     }
   }
 }
-function validateFontArray(value, path, issues) {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) {
-    issues.push(issue("error", "INVALID_THEME_FONT_VALUE", `${path} must be a non-empty string array of font face names.`, {
+function validateFontChain(value, path, issues) {
+  const ok = typeof value === "string" && value.trim().length > 0 || Array.isArray(value) && value.length > 0 && value.every((item) => typeof item === "string" && item.trim().length > 0);
+  if (!ok) {
+    issues.push(issue("error", "INVALID_THEME_FONT_VALUE", `${path} must be a non-empty font face string or string array.`, {
       path,
-      suggestedFix: "Use installed font face names, e.g. ['Arial'] or ['Hiragino Sans W3']. SlideML2 emits the first face into PPTX and does not embed fonts."
+      suggestedFix: "Use installed font face names, e.g. 'Arial' or ['Arial','Helvetica Neue']. SlideML2 emits the first face into PPTX and does not embed fonts."
     }));
   }
 }
@@ -40324,7 +41718,7 @@ function validateFreeformGroupIntent(node, path, slideId, issues) {
       slideId,
       path: `${path}.children[${index}]`,
       nodeName: child.id,
-      suggestedFix: "For a full-slide background layer, set the parent freeform-group mode:'background', or set this child to fillSlide:true / area:'full' / at:[0,0,slideW,slideH]. Otherwise it will use the small anchored default size."
+      suggestedFix: "For a full-slide background layer, set the parent freeform-group mode:'background', or set this child to fillSlide:true / area:'full' / at:[0,0,slideW,slideH] / {x,y,w,h}. Otherwise it will use the small anchored default size."
     }));
   });
 }
@@ -40344,11 +41738,40 @@ function isLikelyFreeformBackgroundChild2(child) {
 function hasExplicitBackgroundPlacement(child) {
   if (child.fillSlide === true || child.area === "full")
     return true;
-  if (Array.isArray(child.at) && child.at.length === 4 && child.at.every((value) => typeof value === "number" && Number.isFinite(value)))
+  if (rectFromAbsoluteRectSpec(child.at) || rectFromNodePlacement(child))
     return true;
   if (typeof child.anchor === "string" && (typeof child.width === "number" || typeof child.height === "number"))
     return true;
   return false;
+}
+function componentFieldTypeError(componentName, propName, prop, value) {
+  if (value === void 0 || value === null || value === "")
+    return null;
+  if (prop.type === "enum")
+    return null;
+  if (propName === "scale" && typeof value === "string" && ["xs", "sm", "small", "md"].includes(value.trim().toLowerCase()))
+    return null;
+  switch (prop.type) {
+    case "string":
+    case "image-ref":
+    case "color-ref":
+      return typeof value === "string" ? null : { expected: "a string", actual: describeValueType(value) };
+    case "number":
+      return typeof value === "number" && Number.isFinite(value) || isNumericString(value) ? null : { expected: "a finite number", actual: describeValueType(value) };
+    case "boolean":
+      return typeof value === "boolean" ? null : { expected: "a boolean", actual: describeValueType(value) };
+    case "array":
+      return Array.isArray(value) ? null : {
+        expected: "an array",
+        actual: describeValueType(value),
+        suggestedFix: componentName === "chart-with-rail" && propName === "ratio" ? "Use ratio:[0.72,0.28] for rail-right/rail-left or ratio:[0.68,0.32] for stacked. A scalar ratio is ignored by the renderer." : void 0
+      };
+    case "object":
+      return value && typeof value === "object" && !Array.isArray(value) ? null : { expected: "an object", actual: describeValueType(value) };
+    case "table":
+    case "chart":
+      return null;
+  }
 }
 function validateComponentNode(node, path, slideId, issues, options) {
   const name = getComponentName(node) || node.component;
@@ -40434,6 +41857,15 @@ function validateComponentNode(node, path, slideId, issues, options) {
       }
     }
     const value = node[propName];
+    const typeError = componentFieldTypeError(definition.name, propName, prop, value);
+    if (typeError) {
+      issues.push(issue("error", "INVALID_FIELD_USAGE", `${definition.name}.${propName} must be ${typeError.expected}; got ${typeError.actual}.`, {
+        slideId,
+        path: `${path}.${propName}`,
+        nodeName: node.id,
+        suggestedFix: typeError.suggestedFix || `Keep ${definition.name} semantics and provide ${propName} as ${typeError.expected}.`
+      }));
+    }
     if (prop.type === "enum" && value !== void 0 && value !== null && value !== "" && prop.enum?.length) {
       const normalized = normalizeComponentEnumValue(definition.name, propName, value);
       const accepted = typeof value === "string" && prop.enum.includes(value) || Boolean(normalized && prop.enum.includes(normalized));
@@ -40490,7 +41922,7 @@ function validateComponentNode(node, path, slideId, issues, options) {
     for (const side of ["left", "right"]) {
       const content = node[side];
       if (content && typeof content === "object" && !Array.isArray(content)) {
-        validateNode(content, `${path}.${side}`, slideId, issues, node, options);
+        validateComponentSlotNode(node, side, path, slideId, issues, options);
       } else if (content !== void 0 && content !== null && content !== "") {
         issues.push(issue("error", "INVALID_FIELD_USAGE", `two-column.${side} must be a DomNode object.`, {
           slideId,
@@ -40503,29 +41935,24 @@ function validateComponentNode(node, path, slideId, issues, options) {
   }
   if (name === "evidence-layout") {
     for (const key of ["evidence", "insight"]) {
-      const content = node[key];
-      if (content && typeof content === "object" && !Array.isArray(content))
-        validateNode(content, `${path}.${key}`, slideId, issues, node, options);
+      validateComponentSlotNode(node, key, path, slideId, issues, options);
     }
     if (Array.isArray(node.annotations)) {
       node.annotations.forEach((content, index) => {
-        if (content && typeof content === "object" && !Array.isArray(content))
-          validateNode(content, `${path}.annotations[${index}]`, slideId, issues, node, options);
+        if (content && typeof content === "object" && !Array.isArray(content)) {
+          validateNode(withSyntheticNodeIds(content, componentSlotFallbackId(slideId, node, path, `annotations.${index + 1}`)), `${path}.annotations[${index}]`, slideId, issues, node, options);
+        }
       });
     }
   }
   if (name === "hero-and-support") {
-    const hero = node.hero;
-    if (hero && typeof hero === "object" && !Array.isArray(hero))
-      validateNode(hero, `${path}.hero`, slideId, issues, node, options);
+    validateComponentSlotNode(node, "hero", path, slideId, issues, options);
     validateDomNodeArrayField(node, "supports", `${path}.supports`, slideId, issues, options);
     validateDomNodeArrayField(node, "items", `${path}.items`, slideId, issues, options);
   }
   if (name === "chart-with-rail") {
     for (const key of ["evidence", "rail"]) {
-      const content = node[key];
-      if (content && typeof content === "object" && !Array.isArray(content))
-        validateNode(content, `${path}.${key}`, slideId, issues, node, options);
+      validateComponentSlotNode(node, key, path, slideId, issues, options);
     }
   }
   if (options.requireSources && (name === "chart-card" || name === "table-card") && !hasSourceMetadata(node)) {
@@ -40543,7 +41970,7 @@ function validateDomNodeArrayField(node, fieldName, path, slideId, issues, optio
     return;
   value.forEach((content, index) => {
     if (content && typeof content === "object" && !Array.isArray(content) && typeof content.type === "string") {
-      validateNode(content, `${path}[${index}]`, slideId, issues, node, options);
+      validateNode(withSyntheticNodeIds(content, componentSlotFallbackId(slideId, node, path, `${fieldName}.${index + 1}`)), `${path}[${index}]`, slideId, issues, node, options);
     }
   });
 }
@@ -40828,8 +42255,9 @@ function isSignificantPositionedChild(node) {
     return false;
   if (isDecorativeTopLevelPositionedChild(node))
     return false;
-  if (Array.isArray(rec.at) && rec.at.length === 4 && rec.at.every((value) => typeof value === "number" && Number.isFinite(value))) {
-    if (node.type === "shape" && typeof rec.at[3] === "number" && rec.at[3] <= 0.08)
+  const absoluteRect = rectFromNodePlacement(node);
+  if (absoluteRect) {
+    if (node.type === "shape" && absoluteRect.h <= 0.08)
       return false;
     return true;
   }

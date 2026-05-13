@@ -564,6 +564,60 @@ describe("ppt generation flow runner", () => {
     expect(analysis.candidates.map((item) => item.category)).toContain("component-selection-degradation");
   });
 
+  it("reports generated image assets that are not referenced by the final deck", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-unused-asset-${Date.now()}`);
+    const runDir = join(dir, ".cowork-runs", "run_1");
+    const asset1 = join(runDir, "assets", "imgs", "used.png");
+    const asset2 = join(runDir, "assets", "imgs", "unused.png");
+    const deckPath = join(runDir, "deck.json");
+    await mkdir(join(runDir, "assets", "imgs"), { recursive: true });
+    await writeFile(deckPath, JSON.stringify({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "s1",
+        children: [{ id: "s1.img", type: "image-card", src: asset1 }],
+      }],
+    }));
+    const result: PptGenerationFlowResult = {
+      scenario: {
+        id: "unused-asset-case",
+        userPrompt: "Generate a deck.",
+        workingDirectory: dir,
+      },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords: [{
+        step: 1,
+        name: "image_gen",
+        toolCallId: "call-img",
+        success: true,
+        result: `Image generated and saved to ${asset1}\nImage generated and saved to ${asset2}`,
+      }],
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary: {
+        toolNames: ["image_gen"],
+        replaceSlideCount: 0,
+        outputPaths: [deckPath],
+        finalText: "",
+        errors: [],
+        progressEvents: [],
+      },
+    };
+
+    const verification = await verifyPptGenerationFlow(result, { requireFinalValidateRender: false });
+    const analysis = analyzePptGenerationFlowImprovements(result, verification);
+    const signal = analysis.recoveredFrictionSignals.find((item) => item.diagnosticCodes.includes("UNUSED_GENERATED_ASSET"));
+
+    expect(signal?.category).toBe("asset-workflow");
+    expect(signal?.evidence).toContain("unused.png");
+  });
+
   it("aggregates case improvement candidates into a suite-level improvement plan", async () => {
     const dir = join(tmpdir(), `cowork-ppt-flow-suite-${Date.now()}`);
     const suite: PptGenerationFlowSuiteResult = {

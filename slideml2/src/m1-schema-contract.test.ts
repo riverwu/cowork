@@ -140,6 +140,81 @@ describe("M1 schema contract", () => {
     expect(codes.filter((code) => code === "RESERVED_THEME_LAYOUT_AREA_NAME")).toHaveLength(2);
   });
 
+  it("accepts named CSS theme text weights used by agents", () => {
+    const report = validateDeck(baseDeck({
+      themeOverride: {
+        text: {
+          "section-title": { fontSize: 20, fontWeight: "semibold" },
+          "card-title": { fontSize: 14, weight: "medium" },
+          "table-header": { fontSize: 11, fontWeight: 600 },
+        },
+      },
+    }));
+
+    expect(report.errors.map((issue) => issue.code)).not.toContain("INVALID_THEME_TEXT_WEIGHT");
+  });
+
+  it("accepts single font-face strings in theme font chains", () => {
+    const report = validateDeck(baseDeck({
+      themeOverride: {
+        fonts: {
+          latin: { display: "Arial", text: "Arial" },
+          cjk: { display: "Microsoft YaHei", text: "Microsoft YaHei" },
+          mono: "Consolas",
+        },
+      },
+    }));
+
+    expect(report.errors.map((issue) => issue.code)).not.toContain("INVALID_THEME_FONT_VALUE");
+  });
+
+  it("accepts omitted ids inside component slot nodes that render with deterministic fallback ids", () => {
+    const report = validateDeck(baseDeck({}, [
+      {
+        id: "s.evidence",
+        type: "chart-with-rail",
+        evidence: {
+          type: "chart-card",
+          chartType: "doughnut",
+          title: "HC split",
+          labels: ["Sales", "R&D"],
+          series: [{ name: "HC", values: [150, 55] }],
+        },
+        rail: {
+          type: "stack",
+          children: [
+            { type: "metric-card", value: "150", label: "Sales" },
+            { type: "callout", title: "Readout", text: "Sales dominates the mix." },
+          ],
+        },
+      },
+    ]));
+
+    expect(report.errors.map((issue) => `${issue.code}:${issue.path}`)).not.toContain("MISSING_NODE_ID:children[0].evidence");
+    expect(report.errors.map((issue) => issue.code)).not.toContain("MISSING_NODE_ID");
+  });
+
+  it("rejects component field types that would otherwise be silently ignored", () => {
+    const report = validateDeck(baseDeck({}, [
+      {
+        id: "s.evidence",
+        type: "chart-with-rail",
+        ratio: 0.72,
+        evidence: {
+          type: "chart-card",
+          chartType: "bar",
+          labels: ["A", "B"],
+          series: [{ name: "Series", values: [1, 2] }],
+        },
+        rail: { type: "callout", title: "Readout", text: "Use an array ratio." },
+      },
+    ]));
+
+    const ratioError = report.errors.find((issue) => issue.path === "children[0].ratio");
+    expect(ratioError?.code).toBe("INVALID_FIELD_USAGE");
+    expect(ratioError?.suggestedFix).toContain("ratio:[0.72,0.28]");
+  });
+
   it("allows contentTop to enter the default title zone for full-page layouts", () => {
     const report = validateDeck(baseDeck({
       themeOverride: {

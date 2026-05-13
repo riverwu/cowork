@@ -40,6 +40,59 @@ export const OVERLAY_OCCLUSION_MIN_TARGET_COVERAGE = 0.25;
 export const TITLE_OCCLUSION_MIN_AREA_CM2 = 0.5;
 export const TITLE_OCCLUSION_MIN_RATIO_OF_TITLE = 0.12;
 
+function finiteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function normalizedRect(x: number, y: number, w: number, h: number): RectLike {
+  return { x, y, w: Math.max(0.03, w), h: Math.max(0.03, h) };
+}
+
+/**
+ * Agent-facing absolute rectangle syntax. The canonical field is
+ * `at:[x,y,w,h]`, but agents naturally also write `at:{x,y,w,h}` or
+ * `at:{x,y,width,height}`. Keep every pipeline stage on this parser so source
+ * wrapping, render measurement, and validation do not diverge.
+ */
+export function rectFromAbsoluteRectSpec(value: unknown): RectLike | undefined {
+  if (Array.isArray(value) && value.length === 4 && value.every(finiteNumber)) {
+    const [x, y, w, h] = value;
+    return normalizedRect(x, y, w, h);
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  const x = rec.x;
+  const y = rec.y;
+  const w = rec.w ?? rec.width;
+  const h = rec.h ?? rec.height;
+  if (finiteNumber(x) && finiteNumber(y) && finiteNumber(w) && finiteNumber(h)) {
+    return normalizedRect(x, y, w, h);
+  }
+  return undefined;
+}
+
+export function hasAbsoluteRectSpec(value: unknown): boolean {
+  return Boolean(rectFromAbsoluteRectSpec(value));
+}
+
+/**
+ * Shorthand for direct positioned nodes and freeform children:
+ * `{x,y,w,h}` or `{x,y,width,height}` at the node level.
+ *
+ * This helper only reports a rect when all four fields are present. Width/height
+ * alone remain ordinary anchored size or fixed-size aliases.
+ */
+export function rectFromNodeBoxFields(value: unknown): RectLike | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return rectFromAbsoluteRectSpec(value);
+}
+
+export function rectFromNodePlacement(value: unknown): RectLike | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  return rectFromAbsoluteRectSpec(rec.at) ?? rectFromNodeBoxFields(rec);
+}
+
 export function intersectionRect(a: RectLike, b: RectLike, epsilon = 0): RectLike | undefined {
   const x1 = Math.max(a.x, b.x);
   const y1 = Math.max(a.y, b.y);

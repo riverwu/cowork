@@ -640,9 +640,12 @@ function applyComponentTextStyleDerivations(
 /** Accept either the legacy `string[]` form or the new `{ display, text }`
  *  shape for `latin` and `cjk`. The legacy array becomes both `text` and
  *  `display` so old themeOverrides still render identically. */
+type FontChainOverride = string | string[];
+type ScriptFontOverride = FontChainOverride | { display?: FontChainOverride; text?: FontChainOverride };
+
 function mergeFonts(
   base: SimpleTheme["fonts"],
-  override?: { latin?: string[] | { display?: string[]; text?: string[] }; cjk?: string[] | { display?: string[]; text?: string[] }; mono?: string[] },
+  override?: { latin?: ScriptFontOverride; cjk?: ScriptFontOverride; mono?: FontChainOverride },
 ): SimpleTheme["fonts"] {
   if (!override) {
     return { latin: { ...base.latin }, cjk: { ...base.cjk }, mono: [...base.mono] };
@@ -650,23 +653,33 @@ function mergeFonts(
   return {
     latin: mergeScriptFonts(base.latin, override.latin),
     cjk: mergeScriptFonts(base.cjk, override.cjk),
-    mono: override.mono ?? [...base.mono],
+    mono: normalizeFontChain(override.mono) ?? [...base.mono],
   };
 }
 
 function mergeScriptFonts(
   base: { display: string[]; text: string[] },
-  override?: string[] | { display?: string[]; text?: string[] },
+  override?: ScriptFontOverride,
 ): { display: string[]; text: string[] } {
   if (!override) return { display: [...base.display], text: [...base.text] };
-  if (Array.isArray(override)) {
+  if (typeof override === "string" || Array.isArray(override)) {
     // Legacy: a single chain doubles as text + display.
-    return { display: override, text: override };
+    const chain = normalizeFontChain(override) ?? [...base.text];
+    return { display: chain, text: chain };
   }
   return {
-    display: override.display ?? [...base.display],
-    text: override.text ?? [...base.text],
+    display: normalizeFontChain(override.display) ?? [...base.display],
+    text: normalizeFontChain(override.text) ?? [...base.text],
   };
+}
+
+function normalizeFontChain(value?: FontChainOverride): string[] | undefined {
+  if (typeof value === "string") return value.trim() ? [value.trim()] : undefined;
+  if (Array.isArray(value)) {
+    const chain = value.map((item) => typeof item === "string" ? item.trim() : "").filter(Boolean);
+    return chain.length > 0 ? chain : undefined;
+  }
+  return undefined;
 }
 
 function mergeComponentStyles(base: Record<string, ComponentStyle>, override?: Record<string, ComponentStyle>): Record<string, ComponentStyle> {

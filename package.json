@@ -17,6 +17,7 @@
     "check": "tsc --noEmit && vitest run",
     "gen:skill": "npx tsx scripts/gen-catalog-entry.ts skill",
     "gen:mcp": "npx tsx scripts/gen-catalog-entry.ts mcp",
+    "sync:slideml2-skill": "npx tsx scripts/sync-slideml2-skill.ts",
     "package:slideml2-skill": "npx tsx scripts/package-slideml2-skill.ts"
   },
   "dependencies": {

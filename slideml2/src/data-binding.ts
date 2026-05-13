@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+import type { ChartSeries } from "./emitter/types.js";
 import type { DataAggregateOp, DataColumnEncodingSpec, DataBindSpec, DataComputedExpressionSpec, DataEncodingSpec, DataSourceSpec, DataStatItemEncodingSpec, DataViewSpec, DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
 
 type DataRow = Record<string, unknown>;
 type BoundTableCell = string | { text: string; align?: "left" | "center" | "right" };
 type BoundTableColumn = DataColumnEncodingSpec & { label: string; inferred?: boolean };
 type ChartSeriesOption = NonNullable<DataEncodingSpec["seriesOptions"]>[string];
-type BoundChartSeries = { name: string; values: number[]; type?: "bar" | "line"; axis?: "primary" | "secondary"; trendLine?: ChartSeriesOption["trendLine"]; errorBars?: ChartSeriesOption["errorBars"] };
+type BoundChartSeries = ChartSeries;
 type BoundChartData = { labels: string[]; series: BoundChartSeries[]; orientation?: "vertical" | "horizontal" };
 
 export interface DataColumnSchema {
@@ -246,11 +247,12 @@ function bindNodeData(node: DomNode, bind: DataBindSpec, encoding: DataEncodingS
   const resolvedData = { rows, schema: inferDataSchema(rows) };
   if (kind === "chart-card" || kind === "chart") {
     const chartData = chartDataFromRows(rows, encoding, node);
+    const series = mergeBoundChartSeries(chartData.series, node.series);
     return {
       ...node,
-      data: chartData,
+      data: { ...chartData, series },
       labels: node.labels ?? chartData.labels,
-      series: node.series ?? chartData.series,
+      series,
       ...(node.orientation === undefined && chartData.orientation ? { orientation: chartData.orientation } : {}),
       dataLineage: lineage,
       resolvedData,
@@ -369,7 +371,7 @@ function dataEncoding(value: unknown): DataEncodingSpec {
           return {
             key,
             label: firstString(column.label, column.header, column.title, column.name) || undefined,
-            type: isColumnType(column.type) ? column.type : undefined,
+            type: normalizeColumnType(column.type),
             format: typeof column.format === "string" ? column.format : undefined,
             align: isColumnAlign(column.align) ? column.align : undefined,
             width: typeof column.width === "number" && Number.isFinite(column.width) && column.width > 0 ? column.width : undefined,
@@ -399,7 +401,7 @@ function dataStatItemEncodingSpecs(value: unknown): DataEncodingSpec["items"] {
       ...(typeof rec.labelField === "string" && rec.labelField.trim() ? { labelField: rec.labelField.trim() } : {}),
       ...(typeof rec.valueLabel === "string" ? { valueLabel: rec.valueLabel } : {}),
       ...(typeof rec.tone === "string" && rec.tone.trim() ? { tone: rec.tone.trim() } : {}),
-      ...(isColumnType(rec.type) ? { type: rec.type } : {}),
+      ...(normalizeColumnType(rec.type) ? { type: normalizeColumnType(rec.type) } : {}),
       ...(typeof rec.format === "string" && rec.format.trim() ? { format: rec.format.trim() } : {}),
     });
   }
@@ -769,6 +771,34 @@ function chartDataFromRows(rows: DataRow[], encoding: DataEncodingSpec, node: Do
   };
 }
 
+function mergeBoundChartSeries(boundSeries: BoundChartSeries[], authoredSeries: unknown): BoundChartSeries[] {
+  if (!Array.isArray(authoredSeries) || authoredSeries.length === 0) return boundSeries;
+  const authoredRecords = authoredSeries.filter(isPlainObject);
+  if (authoredRecords.length === 0) return boundSeries;
+  return boundSeries.map((series, index) => {
+    const authored = authoredRecords.find((record) => firstString(record.name) === series.name)
+      ?? authoredRecords[index];
+    if (!authored) return series;
+    return { ...series, ...authoredChartSeriesStyle(authored, series.name) };
+  });
+}
+
+function authoredChartSeriesStyle(record: Record<string, unknown>, fallbackName: string): Partial<BoundChartSeries> {
+  return {
+    name: firstString(record.name, fallbackName),
+    ...(record.type === "bar" || record.type === "line" ? { type: record.type } : {}),
+    ...(record.axis === "primary" || record.axis === "secondary" ? { axis: record.axis } : {}),
+    ...(typeof record.color === "string" && record.color.trim() ? { color: record.color.trim() as BoundChartSeries["color"] } : {}),
+    ...(typeof record.lineWidth === "number" && Number.isFinite(record.lineWidth) ? { lineWidth: record.lineWidth } : {}),
+    ...(record.lineDash === "solid" || record.lineDash === "dash" || record.lineDash === "dot" ? { lineDash: record.lineDash } : {}),
+    ...(typeof record.smooth === "boolean" ? { smooth: record.smooth } : {}),
+    ...(record.marker && typeof record.marker === "object" && !Array.isArray(record.marker) ? { marker: record.marker as BoundChartSeries["marker"] } : {}),
+    ...(record.dataLabels && typeof record.dataLabels === "object" && !Array.isArray(record.dataLabels) ? { dataLabels: record.dataLabels as BoundChartSeries["dataLabels"] } : {}),
+    ...(record.trendLine === true || isPlainObject(record.trendLine) ? { trendLine: record.trendLine as BoundChartSeries["trendLine"] } : {}),
+    ...(isPlainObject(record.errorBars) ? { errorBars: errorBarsSpec(record.errorBars) } : {}),
+  };
+}
+
 function isBarLikeChart(chartKind: string): boolean {
   return chartKind === "bar" || chartKind === "stacked-bar";
 }
@@ -1025,8 +1055,15 @@ function formatNumber(value: number, options: { minFractionDigits?: number; maxF
   }).format(value);
 }
 
-function isColumnType(value: unknown): value is NonNullable<DataColumnEncodingSpec["type"]> {
-  return value === "text" || value === "number" || value === "percent" || value === "currency" || value === "date";
+function normalizeColumnType(value: unknown): NonNullable<DataColumnEncodingSpec["type"]> | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "text" || normalized === "number" || normalized === "percent" || normalized === "currency" || normalized === "date") return normalized;
+  if (normalized === "int" || normalized === "integer" || normalized === "decimal" || normalized === "float" || normalized === "numeric") return "number";
+  if (normalized === "percentage" || normalized === "pct") return "percent";
+  if (normalized === "money") return "currency";
+  if (normalized === "datetime") return "date";
+  return undefined;
 }
 
 function isColumnAlign(value: unknown): value is NonNullable<DataColumnEncodingSpec["align"]> {

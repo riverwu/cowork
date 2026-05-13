@@ -25,6 +25,8 @@ import type { RenderDiagnosticCode } from "./diagnostic-codes.js";
  *   PIE_LABELS_HIDDEN pie/doughnut chart hides slice labels
  *   EMPTY_CHART_DATA chart has no renderable labels/series after data binding
  *   EMPTY_TABLE_DATA table has authored object rows but no body cell text matched columns/headers
+ *   PAGE_OVER_CAPACITY multiple large components together exceed a single readable page budget
+ *   REGION_OVER_CAPACITY a split/rail/local region has more direct content blocks than its readable budget
  */
 export interface LayoutDiagnostic {
   severity: "info" | "warn" | "error";
@@ -48,20 +50,60 @@ export interface LayoutDiagnostic {
     relationship?: string;
     parentId?: string;
     lineCount?: number;
-	    renderedRows?: number;
-	    estimatedCapacityLines?: number;
-	    columns?: number;
-	    columnCount?: number;
-	    dataRowCount?: number;
-	    estimatedVisibleRowsFit?: number;
-	    minWidthCm?: number;
-	    minHeightCm?: number;
-	    labelCount?: number;
-	    showLegend?: boolean;
-	    worstRow?: { index: number; neededCm: number; availableCm: number };
-	    density?: string;
-	    fontSize?: number;
-	  };
+    renderedRows?: number;
+    estimatedCapacityLines?: number;
+    columns?: number;
+    columnCount?: number;
+    dataRowCount?: number;
+    estimatedVisibleRowsFit?: number;
+    minWidthCm?: number;
+    minHeightCm?: number;
+    labelCount?: number;
+    seriesCount?: number;
+    showLegend?: boolean;
+    aspectRatio?: number;
+    maxAspectRatio?: number;
+    recommendedAspectRatio?: number;
+    aspectNeededHeightCm?: number;
+    minWidthAtCurrentHeightCm?: number;
+    aspectReason?: string;
+    hardMinHeightCm?: number;
+    bodyNeededHeightCm?: number;
+    chromeHeightCm?: number;
+    outerNeededHeightCm?: number;
+    outerRect?: { x: number; y: number; w: number; h: number };
+    sourceAspectRatio?: number;
+    frameAspectRatio?: number;
+    aspectDelta?: number;
+    visibleFraction?: number;
+    evidenceRatio?: number;
+    recommendedRatio?: number;
+    stepCount?: number;
+    itemCount?: number;
+    metricCount?: number;
+    richCount?: number;
+    entryCount?: number;
+    perStepWidthCm?: number;
+    perStepHeightCm?: number;
+    perItemWidthCm?: number;
+    perItemHeightCm?: number;
+    perMetricWidthCm?: number;
+    perMetricHeightCm?: number;
+    recommendedColumns?: number;
+    recommendedRows?: number;
+    recommendedDirection?: string;
+    scaleSuggestion?: string;
+    ringDiameterCm?: number;
+    minRingDiameterCm?: number;
+    legendWidthCm?: number;
+    worstRow?: { index: number; neededCm: number; availableCm: number };
+    density?: string;
+    fontSize?: number;
+    componentCount?: number;
+    largeComponentCount?: number;
+    capacityRatio?: number;
+    components?: Array<{ nodeId: string; role: string; assignedHeightCm: number; neededHeightCm: number }>;
+  };
   /**
    * For LOW_CONTRAST: ordered chain of surfaces that determined the comparison
    * background, e.g. ["slide.bg:FAF0E6", "band(s1.b).fill:2C1810",

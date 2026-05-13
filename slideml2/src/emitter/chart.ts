@@ -7,9 +7,10 @@
  * formats that PptxGenJS doesn't have.
  *
  * For each chart shape the package emitter writes:
- *   - `ppt/charts/chart{N}.xml`           — this file's output
- *   - `ppt/charts/_rels/chart{N}.xml.rels` — empty (no embedded spreadsheet)
- *   - one `[Content_Types].xml` override
+ *   - `ppt/charts/chart{N}.xml`                  — this file's output
+ *   - `ppt/charts/_rels/chart{N}.xml.rels`       — embedded workbook rel
+ *   - `ppt/embeddings/Microsoft_Excel_Worksheet{N}.xlsx`
+ *   - one `[Content_Types].xml` override for the chart and workbook
  *   - one slide rel pointing at `../charts/chart{N}.xml`
  *   - one `<p:graphicFrame>` shape on the slide
  */
@@ -29,7 +30,7 @@ const DEFAULT_COLORS: HexColor[] = [
 /**
  * Build the `chart{N}.xml` body for a chart shape.
  */
-export function chartXml(shape: ChartShape): string {
+export function chartXml(shape: ChartShape, options: { embeddedWorkbookRelId?: string } = {}): string {
   const colors = (shape.colors && shape.colors.length > 0 ? shape.colors : DEFAULT_COLORS).map((c) => {
     assertHex(c, "ChartShape.colors[]");
     return c.toUpperCase();
@@ -60,22 +61,27 @@ export function chartXml(shape: ChartShape): string {
   const legendXml = legendXmlOf(shape, showLegend);
 
   let plotInner = "";
+  const refContext: ChartRefContext = {
+    sheetName: "Sheet1",
+    enabled: Boolean(options.embeddedWorkbookRelId),
+  };
+
   if (shape.chartType === "bar" || shape.chartType === "stacked-bar") {
-    plotInner = barChartXml(shape, colors, catAxId, valAxId, shape.chartType === "stacked-bar", hasSecondaryAxis ? secondaryValAxId : undefined);
+    plotInner = barChartXml(shape, colors, catAxId, valAxId, shape.chartType === "stacked-bar", hasSecondaryAxis ? secondaryValAxId : undefined, refContext);
   } else if (shape.chartType === "line") {
-    plotInner = lineChartXml(shape, colors, catAxId, valAxId, hasSecondaryAxis ? secondaryValAxId : undefined);
+    plotInner = lineChartXml(shape, colors, catAxId, valAxId, hasSecondaryAxis ? secondaryValAxId : undefined, refContext);
   } else if (shape.chartType === "area") {
-    plotInner = areaChartXml(shape, colors, catAxId, valAxId, hasSecondaryAxis ? secondaryValAxId : undefined);
+    plotInner = areaChartXml(shape, colors, catAxId, valAxId, hasSecondaryAxis ? secondaryValAxId : undefined, refContext);
   } else if (shape.chartType === "pie") {
-    plotInner = pieChartXml(shape, colors, /* doughnut */ false);
+    plotInner = pieChartXml(shape, colors, /* doughnut */ false, refContext);
   } else if (shape.chartType === "doughnut") {
-    plotInner = pieChartXml(shape, colors, /* doughnut */ true);
+    plotInner = pieChartXml(shape, colors, /* doughnut */ true, refContext);
   } else if (shape.chartType === "combo") {
-    plotInner = comboChartXml(shape, colors, catAxId, valAxId, hasSecondaryAxis ? secondaryValAxId : undefined);
+    plotInner = comboChartXml(shape, colors, catAxId, valAxId, hasSecondaryAxis ? secondaryValAxId : undefined, refContext);
   } else if (shape.chartType === "scatter") {
-    plotInner = scatterChartXml(shape, colors, catAxId, valAxId);
+    plotInner = scatterChartXml(shape, colors, catAxId, valAxId, refContext);
   } else if (shape.chartType === "waterfall") {
-    plotInner = waterfallChartXml(shape, colors, catAxId, valAxId);
+    plotInner = waterfallChartXml(shape, colors, catAxId, valAxId, refContext);
   }
 
   const axisLessTypes: ChartShape["chartType"][] = ["pie", "doughnut"];
@@ -85,6 +91,10 @@ export function chartXml(shape: ChartShape): string {
     : isScatter
       ? scatterAxesXml(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt)
       : axesXmlOf(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt, hasSecondaryAxis ? secondaryValAxId : undefined, shape.secondaryYAxis, isHorizontalBarChart(shape) ? "horizontal" : "vertical");
+
+  const externalDataXml = options.embeddedWorkbookRelId
+    ? `<c:externalData r:id="${options.embeddedWorkbookRelId}"><c:autoUpdate val="0"/></c:externalData>`
+    : "";
 
   // PowerPoint requires three chartSpace-level elements (date1904, lang,
   // roundedCorners) to validate strictly — without them PowerPoint shows
@@ -108,7 +118,13 @@ ${legendXml}
 <c:plotVisOnly val="1"/>
 <c:dispBlanksAs val="gap"/>
 </c:chart>
+${externalDataXml}
 </c:chartSpace>`;
+}
+
+interface ChartRefContext {
+  sheetName: string;
+  enabled: boolean;
 }
 
 function chartSupportsSecondaryAxis(shape: ChartShape): boolean {
@@ -163,6 +179,7 @@ function barChartXml(
   valAxId: number,
   stacked: boolean,
   secondaryValAxId?: number,
+  refContext?: ChartRefContext,
 ): string {
   const grouping = stacked ? "stacked" : "clustered";
   const overlap = stacked ? `<c:overlap val="100"/>` : "";
@@ -171,7 +188,7 @@ function barChartXml(
     `<c:barDir val="${isHorizontalBarChart(shape) ? "bar" : "col"}"/>` +
     `<c:grouping val="${grouping}"/>` +
     `<c:varyColors val="0"/>` +
-    series.map((s) => seriesXml(s, shape.series.indexOf(s), colors, shape.labels, shape.showValues, false, false, shape)).join("") +
+    series.map((s) => seriesXml(s, shape.series.indexOf(s), colors, shape.labels, shape.showValues, false, false, shape, refContext)).join("") +
     `<c:gapWidth val="100"/>` +
     overlap +
     `<c:axId val="${catAxId}"/>` +
@@ -189,12 +206,13 @@ function areaChartXml(
   catAxId: number,
   valAxId: number,
   secondaryValAxId?: number,
+  refContext?: ChartRefContext,
 ): string {
   const chartFor = (series: ChartShape["series"], axisId: number) => series.length === 0 ? "" : (
     `<c:areaChart>` +
     `<c:grouping val="standard"/>` +
     `<c:varyColors val="0"/>` +
-    series.map((s) => seriesXml(s, shape.series.indexOf(s), colors, shape.labels, shape.showValues, /* isLine */ false, /* isArea */ true, shape)).join("") +
+    series.map((s) => seriesXml(s, shape.series.indexOf(s), colors, shape.labels, shape.showValues, /* isLine */ false, /* isArea */ true, shape, refContext)).join("") +
     `<c:axId val="${catAxId}"/>` +
     `<c:axId val="${axisId}"/>` +
     `</c:areaChart>`
@@ -210,12 +228,13 @@ function lineChartXml(
   catAxId: number,
   valAxId: number,
   secondaryValAxId?: number,
+  refContext?: ChartRefContext,
 ): string {
   const chartFor = (series: ChartShape["series"], axisId: number) => series.length === 0 ? "" : (
     `<c:lineChart>` +
     `<c:grouping val="standard"/>` +
     `<c:varyColors val="0"/>` +
-    series.map((s) => seriesXml(s, shape.series.indexOf(s), colors, shape.labels, shape.showValues, true, false, shape)).join("") +
+    series.map((s) => seriesXml(s, shape.series.indexOf(s), colors, shape.labels, shape.showValues, true, false, shape, refContext)).join("") +
     `<c:marker val="1"/>` +
     `<c:axId val="${catAxId}"/>` +
     `<c:axId val="${axisId}"/>` +
@@ -226,7 +245,7 @@ function lineChartXml(
     chartFor(shape.series.filter((series) => series.axis === "secondary"), secondaryValAxId);
 }
 
-function pieChartXml(shape: ChartShape, colors: HexColor[], doughnut: boolean): string {
+function pieChartXml(shape: ChartShape, colors: HexColor[], doughnut: boolean, refContext?: ChartRefContext): string {
   // Pie / doughnut both use the first series only; each label is a slice.
   const series = shape.series[0] ?? { name: "Series", values: [] };
   const elem = doughnut ? "doughnutChart" : "pieChart";
@@ -238,23 +257,26 @@ function pieChartXml(shape: ChartShape, colors: HexColor[], doughnut: boolean): 
     showSeriesName: false,
     showPercent: true,
     showLeaderLines: true,
-  });
+  // PowerPoint for Mac repairs pie/doughnut charts when c:dLblPos is emitted
+  // in this series-level label block. Let Office choose the position; labels
+  // remain enabled and editable without corrupting the package.
+  }, { pointCount: shape.labels.length, omitPosition: true });
   return (
     `<c:${elem}>` +
     `<c:varyColors val="1"/>` +
     `<c:ser>` +
     `<c:idx val="0"/>` +
     `<c:order val="0"/>` +
-    `<c:tx><c:v>${xmlEscapeText(series.name)}</c:v></c:tx>` +
+    seriesTxXml(series.name, 0, refContext) +
     shape.labels.map((_, i) =>
       `<c:dPt><c:idx val="${i}"/><c:bubble3D val="0"/>` +
       `<c:spPr><a:solidFill><a:srgbClr val="${colors[i % colors.length]!}"/></a:solidFill></c:spPr>` +
       `</c:dPt>`,
     ).join("") +
-    catRefXml(shape.labels) +
-    valRefXml(series.values) +
-    `</c:ser>` +
     dataLabelsXml +
+    catRefXml(shape.labels, refContext) +
+    valRefXml(series.values, refContext, 0) +
+    `</c:ser>` +
     `<c:firstSliceAng val="0"/>` +
     holeXml +
     `</c:${elem}>`
@@ -270,6 +292,7 @@ function seriesXml(
   isLine = false,
   isArea = false,
   shape?: ChartShape,
+  refContext?: ChartRefContext,
 ): string {
   const color = (s.color ? s.color.toUpperCase() : colors[idx % colors.length]!) as HexColor;
   const pointColorsXml = !isLine && !isArea ? pointColorsXmlOf(s.values, {
@@ -296,14 +319,14 @@ function seriesXml(
     `<c:ser>` +
     `<c:idx val="${idx}"/>` +
     `<c:order val="${idx}"/>` +
-    `<c:tx><c:v>${xmlEscapeText(s.name)}</c:v></c:tx>` +
+    seriesTxXml(s.name, idx, refContext) +
     linePart +
     pointColorsXml +
     dLbls +
     trendLineXml(s) +
     errorBarsXml(s) +
-    catRefXml(labels) +
-    valRefXml(s.values) +
+    catRefXml(labels, refContext) +
+    valRefXml(s.values, refContext, idx) +
     (isLine ? `<c:smooth val="${s.smooth ? 1 : 0}"/>` : "") +
     `</c:ser>`
   );
@@ -349,11 +372,12 @@ function dataLabelsXmlOf(
     showLegendKey?: boolean;
     showLeaderLines?: boolean;
   },
+  options: { pointCount?: number; omitPosition?: boolean } = {},
 ): string {
   const labels = shape.dataLabels;
   const show = labels?.show ?? shape.showValues ?? false;
   if (!show) return "";
-  const position = labels?.position ?? defaults.position;
+  const position = options.omitPosition ? undefined : labels?.position ?? defaults.position;
   const positionXml = position ? `<c:dLblPos val="${dataLabelPositionXml(position)}"/>` : "";
   const showLegendKey = labels?.showLegendKey ?? defaults.showLegendKey ?? false;
   const showValue = labels?.showValue ?? defaults.showValue;
@@ -362,17 +386,42 @@ function dataLabelsXmlOf(
   const showPercent = labels?.showPercent ?? defaults.showPercent;
   const showLeaderLines = labels?.showLeaderLines ?? defaults.showLeaderLines;
   const leaderLinesXml = typeof showLeaderLines === "boolean" ? `<c:showLeaderLines val="${showLeaderLines ? 1 : 0}"/>` : "";
-  return (
-    `<c:dLbls>` +
-    positionXml +
+  const showFlagsXml =
     `<c:showLegendKey val="${showLegendKey ? 1 : 0}"/>` +
     `<c:showVal val="${showValue ? 1 : 0}"/>` +
     `<c:showCatName val="${showCategoryName ? 1 : 0}"/>` +
     `<c:showSerName val="${showSeriesName ? 1 : 0}"/>` +
     `<c:showPercent val="${showPercent ? 1 : 0}"/>` +
-    `<c:showBubbleSize val="0"/>` +
+    `<c:showBubbleSize val="0"/>`;
+  const pointLabelsXml = options.pointCount && options.pointCount > 0
+    ? Array.from({ length: options.pointCount }, (_, idx) =>
+      `<c:dLbl><c:idx val="${idx}"/>` +
+      `<c:numFmt formatCode="General" sourceLinked="0"/>` +
+      `<c:spPr/>` +
+      defaultDataLabelTextPrXml() +
+      showFlagsXml +
+      `</c:dLbl>`,
+    ).join("")
+    : "";
+  return (
+    `<c:dLbls>` +
+    pointLabelsXml +
+    `<c:numFmt formatCode="General" sourceLinked="0"/>` +
+    defaultDataLabelTextPrXml() +
+    positionXml +
+    showFlagsXml +
     leaderLinesXml +
     `</c:dLbls>`
+  );
+}
+
+function defaultDataLabelTextPrXml(): string {
+  return (
+    `<c:txPr>` +
+    `<a:bodyPr/>` +
+    `<a:lstStyle/>` +
+    `<a:p><a:pPr><a:defRPr sz="1200"><a:solidFill><a:srgbClr val="111827"/></a:solidFill><a:latin typeface="Arial"/></a:defRPr></a:pPr></a:p>` +
+    `</c:txPr>`
   );
 }
 
@@ -439,13 +488,15 @@ function errorBarsXml(s: { errorBars?: ChartShape["series"][number]["errorBars"]
   ).join("");
 }
 
-// PowerPoint resolves `c:strRef`/`c:numRef` formula refs (e.g.
-// `Sheet1!$A$2:$A$5`) by looking for an embedded xlsx workbook via
-// chart{N}.xml.rels. We don't ship one — LibreOffice silently falls
-// back to the cache, but PowerPoint reports the file as corrupted /
-// "needs repair". Use the literal-data forms (`c:strLit` / `c:numLit`)
-// which are self-contained and accepted by both renderers.
-function catRefXml(labels: string[]): string {
+function catRefXml(labels: string[], refContext?: ChartRefContext): string {
+  if (refContext?.enabled) {
+    return (
+      `<c:cat><c:strRef><c:f>${xmlEscapeText(excelRange(refContext.sheetName, 1, 2, labels.length + 1))}</c:f>` +
+      `<c:strCache><c:ptCount val="${labels.length}"/>` +
+      labels.map((l, i) => `<c:pt idx="${i}"><c:v>${xmlEscapeText(l)}</c:v></c:pt>`).join("") +
+      `</c:strCache></c:strRef></c:cat>`
+    );
+  }
   return (
     `<c:cat><c:strLit><c:ptCount val="${labels.length}"/>` +
     labels.map((l, i) => `<c:pt idx="${i}"><c:v>${xmlEscapeText(l)}</c:v></c:pt>`).join("") +
@@ -453,12 +504,59 @@ function catRefXml(labels: string[]): string {
   );
 }
 
-function valRefXml(values: Array<number | null>): string {
+function valRefXml(values: Array<number | null>, refContext?: ChartRefContext, seriesIndex = 0): string {
+  if (refContext?.enabled) {
+    const col = 2 + Math.max(0, seriesIndex);
+    return (
+      `<c:val><c:numRef><c:f>${xmlEscapeText(excelRange(refContext.sheetName, col, 2, values.length + 1))}</c:f>` +
+      `<c:numCache><c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>` +
+      values.map((v, i) => `<c:pt idx="${i}"><c:v>${typeof v === "number" && Number.isFinite(v) ? v : 0}</c:v></c:pt>`).join("") +
+      `</c:numCache></c:numRef></c:val>`
+    );
+  }
   return (
     `<c:val><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>` +
     values.map((v, i) => `<c:pt idx="${i}"><c:v>${typeof v === "number" && Number.isFinite(v) ? v : 0}</c:v></c:pt>`).join("") +
     `</c:numLit></c:val>`
   );
+}
+
+function seriesTxXml(name: string, seriesIndex: number, refContext?: ChartRefContext): string {
+  if (!refContext?.enabled) return `<c:tx><c:v>${xmlEscapeText(name)}</c:v></c:tx>`;
+  const col = 2 + Math.max(0, seriesIndex);
+  return (
+    `<c:tx><c:strRef><c:f>${xmlEscapeText(excelCell(refContext.sheetName, col, 1))}</c:f>` +
+    `<c:strCache><c:ptCount val="1"/><c:pt idx="0"><c:v>${xmlEscapeText(name)}</c:v></c:pt></c:strCache>` +
+    `</c:strRef></c:tx>`
+  );
+}
+
+function excelCell(sheetName: string, col: number, row: number): string {
+  const c = excelColumnName(col);
+  return `${quoteSheetName(sheetName)}!$${c}$${Math.max(1, Math.floor(row))}`;
+}
+
+function excelRange(sheetName: string, col: number, firstRow: number, lastRow: number): string {
+  const safeLastRow = Math.max(firstRow, lastRow);
+  const c = excelColumnName(col);
+  return `${quoteSheetName(sheetName)}!$${c}$${firstRow}:$${c}$${safeLastRow}`;
+}
+
+function excelColumnName(col: number): string {
+  let n = Math.max(1, Math.floor(col));
+  let out = "";
+  while (n > 0) {
+    n -= 1;
+    out = String.fromCharCode(65 + (n % 26)) + out;
+    n = Math.floor(n / 26);
+  }
+  return out;
+}
+
+function quoteSheetName(sheetName: string): string {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(sheetName)
+    ? sheetName
+    : `'${sheetName.replace(/'/g, "''")}'`;
 }
 
 // ---- Combo / Scatter / Waterfall ---------------------------------------
@@ -474,6 +572,7 @@ function comboChartXml(
   catAxId: number,
   valAxId: number,
   secondaryValAxId?: number,
+  refContext?: ChartRefContext,
 ): string {
   // Preserve original series order so colour cycling matches the legend.
   const indexed = shape.series.map((s, idx) => ({ s, idx }));
@@ -486,7 +585,7 @@ function comboChartXml(
     `<c:barDir val="col"/>` +
     `<c:grouping val="clustered"/>` +
     `<c:varyColors val="0"/>` +
-    bars.map((e) => seriesXml(e.s, e.idx, colors, shape.labels, shape.showValues, false, false, shape)).join("") +
+    bars.map((e) => seriesXml(e.s, e.idx, colors, shape.labels, shape.showValues, false, false, shape, refContext)).join("") +
     `<c:gapWidth val="100"/>` +
     `<c:axId val="${catAxId}"/>` +
     `<c:axId val="${axisId}"/>` +
@@ -495,7 +594,7 @@ function comboChartXml(
     `<c:lineChart>` +
     `<c:grouping val="standard"/>` +
     `<c:varyColors val="0"/>` +
-    lines.map((e) => seriesXml(e.s, e.idx, colors, shape.labels, shape.showValues, true, false, shape)).join("") +
+    lines.map((e) => seriesXml(e.s, e.idx, colors, shape.labels, shape.showValues, true, false, shape, refContext)).join("") +
     `<c:marker val="1"/>` +
     `<c:axId val="${catAxId}"/>` +
     `<c:axId val="${axisId}"/>` +
@@ -510,6 +609,7 @@ function scatterChartXml(
   colors: HexColor[],
   xAxId: number,
   yAxId: number,
+  refContext?: ChartRefContext,
 ): string {
   return (
     `<c:scatterChart>` +
@@ -531,12 +631,8 @@ function scatterChartXml(
         markerXml(s.marker, seriesColor) +
         trendLineXml(s) +
         errorBarsXml(s) +
-        `<c:xVal><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${pts.length}"/>` +
-        pts.map((p, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(p.x) ? p.x : 0}</c:v></c:pt>`).join("") +
-        `</c:numLit></c:xVal>` +
-        `<c:yVal><c:numLit><c:formatCode>General</c:formatCode><c:ptCount val="${pts.length}"/>` +
-        pts.map((p, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(p.y) ? p.y : 0}</c:v></c:pt>`).join("") +
-        `</c:numLit></c:yVal>` +
+        scatterNumRefXml("xVal", pts.map((p) => p.x), idx, refContext) +
+        scatterNumRefXml("yVal", pts.map((p) => p.y), idx, refContext) +
         `<c:smooth val="${s.smooth ? 1 : 0}"/>` +
         `</c:ser>`
       );
@@ -544,6 +640,24 @@ function scatterChartXml(
     `<c:axId val="${xAxId}"/>` +
     `<c:axId val="${yAxId}"/>` +
     `</c:scatterChart>`
+  );
+}
+
+function scatterNumRefXml(
+  tag: "xVal" | "yVal",
+  values: number[],
+  seriesIndex: number,
+  refContext?: ChartRefContext,
+): string {
+  const cache = `<c:formatCode>General</c:formatCode><c:ptCount val="${values.length}"/>` +
+    values.map((v, i) => `<c:pt idx="${i}"><c:v>${Number.isFinite(v) ? v : 0}</c:v></c:pt>`).join("");
+  if (!refContext?.enabled) {
+    return `<c:${tag}><c:numLit>${cache}</c:numLit></c:${tag}>`;
+  }
+  const col = seriesIndex * 2 + (tag === "xVal" ? 1 : 2);
+  return (
+    `<c:${tag}><c:numRef><c:f>${xmlEscapeText(excelRange(refContext.sheetName, col, 2, values.length + 1))}</c:f>` +
+    `<c:numCache>${cache}</c:numCache></c:numRef></c:${tag}>`
   );
 }
 
@@ -562,6 +676,7 @@ function waterfallChartXml(
   colors: HexColor[],
   catAxId: number,
   valAxId: number,
+  refContext?: ChartRefContext,
 ): string {
   const upColor = colors[0] ?? "3CC2FF";
   const downColor = "C0432D";
@@ -596,21 +711,21 @@ function waterfallChartXml(
   const baseSer =
     `<c:ser>` +
     `<c:idx val="0"/><c:order val="0"/>` +
-    `<c:tx><c:v>${xmlEscapeText("(base)")}</c:v></c:tx>` +
+    seriesTxXml("(base)", 0, refContext) +
     `<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>` +
-    catRefXml(shape.labels) +
-    valRefXml(base) +
+    catRefXml(shape.labels, refContext) +
+    valRefXml(base, refContext, 0) +
     `</c:ser>`;
   const deltaSer =
     `<c:ser>` +
     `<c:idx val="1"/><c:order val="1"/>` +
-    `<c:tx><c:v>${xmlEscapeText(series.name)}</c:v></c:tx>` +
+    seriesTxXml(series.name, 1, refContext) +
     fill.map((c, i) =>
       `<c:dPt><c:idx val="${i}"/><c:invertIfNegative val="0"/><c:bubble3D val="0"/>` +
       `<c:spPr><a:solidFill><a:srgbClr val="${c}"/></a:solidFill></c:spPr></c:dPt>`,
     ).join("") +
-    catRefXml(shape.labels) +
-    valRefXml(delta) +
+    catRefXml(shape.labels, refContext) +
+    valRefXml(delta, refContext, 1) +
     `</c:ser>`;
   return (
     `<c:barChart>` +

@@ -11,8 +11,9 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const skillName = "slideml2";
 const sourceDir = resolve(repoRoot, "src/catalog/skills/slideml2");
 const runtimeSourceDir = resolve(repoRoot, "slideml2");
+const goldenSkillPath = resolve(runtimeSourceDir, "SKILL.md");
 const defaultOutDir = resolve(repoRoot, "releases/skills/slideml2");
-const requiredFiles = ["SKILL.md", "business.md", "LICENSE.txt"] as const;
+const requiredFiles = ["SKILL.md", "planning-template.md", "business.md", "LICENSE.txt"] as const;
 const requiredRuntimeFiles = [
   "runtime/package.json",
   "runtime/bin/slideml2.js",
@@ -194,7 +195,11 @@ async function copyPackageFiles(stageRoot: string): Promise<string[]> {
   await mkdir(packageRoot, { recursive: true });
   const files: string[] = [];
   for (const file of requiredFiles) {
-    const source = join(sourceDir, file);
+    const source = file === "SKILL.md"
+      ? goldenSkillPath
+      : file === "planning-template.md"
+        ? join(runtimeSourceDir, file)
+        : join(sourceDir, file);
     if (!existsSync(source)) throw new Error(`Required skill file is missing: ${relative(repoRoot, source)}`);
     await copyFile(source, join(packageRoot, file));
     files.push(`${skillName}/${file}`);
@@ -637,7 +642,7 @@ async function listFiles(root: string, zipPrefix: string): Promise<string[]> {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  const skillMd = await readFile(join(sourceDir, "SKILL.md"), "utf8");
+  const skillMd = await readFile(goldenSkillPath, "utf8");
   const frontmatter = parseSkillFrontmatter(skillMd);
   const version = options.version || frontmatter.version;
   const packageBase = `${skillName}-skill-v${version}`;

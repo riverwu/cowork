@@ -2645,6 +2645,106 @@ describe("slideml2 MVP", () => {
     expect(text?.xfrm).toMatchObject({ x: 792000, y: 1152000, cx: 1080000, cy: 180000 });
   });
 
+  it("normalizes x/y/w/h aliases inside freeform-group to slide coordinates", () => {
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "freeform-xywh",
+        title: "Freeform aliases",
+        children: [{
+          id: "freeform-xywh.group",
+          type: "freeform-group",
+          children: [
+            { id: "freeform-xywh.box", type: "shape", preset: "rect", text: "Placed shape", fill: "brand.primary", color: "text.inverse", x: 2, y: 3, w: 4, h: 1 },
+            { id: "freeform-xywh.label", type: "text", text: "Placed", x: 2.2, y: 3.2, width: 3, height: 0.5 },
+          ],
+        }],
+      }],
+    } as never));
+    const shape = ast.slides[0]!.shapes.find((item) => item.name === "freeform-xywh.box");
+    const text = ast.slides[0]!.shapes.find((item) => item.name === "freeform-xywh.label");
+    expect(shape?.xfrm).toMatchObject({ x: 720000, y: 1080000, cx: 1440000, cy: 360000 });
+    expect(text?.xfrm).toMatchObject({ x: 792000, y: 1152000, cx: 1080000, cy: 180000 });
+    expect(getDiagnosticsByCode("TITLE_OCCLUDED")).toHaveLength(0);
+  });
+
+  it("renders raw shape fill/line object syntax with connector arrowheads", () => {
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "shape-line-object",
+        children: [{
+          id: "shape-line-object.connector",
+          type: "shape",
+          preset: "straightConnector",
+          at: { x: 2, y: 3, w: 4, h: 0.1 },
+          fill: { color: "FFFFFF" },
+          line: { color: "333333", width: 2, dash: "dash" },
+          tailEnd: { type: "triangle" },
+        }],
+      }],
+    } as never));
+    const connector = ast.slides[0]!.shapes.find((item) => item.name === "shape-line-object.connector");
+    expect(connector).toMatchObject({
+      type: "shape",
+      preset: "straightConnector",
+      line: { color: "333333", dash: "dash", tailEnd: { type: "triangle" } },
+    });
+  });
+
+  it("treats direct slide x/y/w/h fields as slide-relative absolute placement", () => {
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "direct-xywh",
+        title: "Direct absolute aliases",
+        children: [{
+          id: "direct-xywh.box",
+          type: "shape",
+          preset: "roundRect",
+          text: "Absolute",
+          x: 2,
+          y: 3,
+          width: 4,
+          height: 1,
+          fill: "brand.primary",
+          color: "text.inverse",
+        }],
+      }],
+    } as never));
+    const shape = ast.slides[0]!.shapes.find((item) => item.name === "direct-xywh.box");
+    expect(shape?.xfrm).toMatchObject({ x: 720000, y: 1080000, cx: 1440000, cy: 360000 });
+    expect(getDiagnosticsByCode("TITLE_OCCLUDED")).toHaveLength(0);
+  });
+
+  it("preserves rich links in cover-composition content runs", () => {
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "cover-rich-link",
+        children: [{
+          id: "cover-rich-link.cover",
+          type: "cover-composition",
+          title: "Launch readiness",
+          subtitle: "Decision memo",
+          content: { runs: [{ text: "Jump to appendix", link: "#slide2" }] },
+        }],
+      }, {
+        id: "slide2",
+        children: [{ id: "slide2.text", type: "text", text: "Appendix" }],
+      }],
+    } as never));
+    const content = ast.slides[0]!.shapes.find((item) => item.name === "cover-rich-link.cover.content");
+    const run = content && "paragraphs" in content ? content.paragraphs[0]?.runs[0] : undefined;
+    expect(run).toMatchObject({ text: "Jump to appendix", hyperlink: "#slide2" });
+  });
+
   it("normalizes component examples with omitted child ids before tool validation", () => {
     const raw = {
       id: "example-normalize",

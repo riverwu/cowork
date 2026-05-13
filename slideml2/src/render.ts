@@ -1,10 +1,11 @@
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, extname } from "node:path";
 import { emitPackage } from "./emitter/package.js";
 import type { ChartAnnotation, ChartAxisSpec, ChartDataLabels, ChartLegendSpec, ChartMarkerSpec, ChartNumberFormat, ChartPlotAreaSpec, ChartSeries, ChartType, DeckAst, FillSpec, ImageShape, LineSpec, Paragraph, ShapeList, SlideAst, TableBorderLineSpec, TableBorderSide, TableCell, TextRun, ShapePreset } from "./emitter/types.js";
 import { expandComponent, isComponentTypedNode } from "./component-registry.js";
 import { clearRenderDiagnostics, contrastRatio, contrastThreshold, getRenderDiagnostics, pushDiagnostic, relativeLuminance } from "./diagnostics.js";
-import { coverageRatio, meaningfulOverlap, meaningfulOverlayOcclusion, meaningfulStructuralOverlap, meaningfulTitleOcclusion, type OverlapMetrics } from "./layout/geometry.js";
+import { coverageRatio, meaningfulOverlap, meaningfulOverlayOcclusion, meaningfulStructuralOverlap, meaningfulTitleOcclusion, rectFromNodePlacement, type OverlapMetrics } from "./layout/geometry.js";
 import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
 import type { Slideml2SourceDeck } from "./types.js";
@@ -17,6 +18,8 @@ import { latexToOmml } from "./latex-omml.js";
 import { emuToCm, normalizeStrokeCm, SLIDE_SIZES } from "./units.js";
 import { isDeckSize } from "./schema.js";
 import { createTextMeasurer, PT_TO_CM } from "./text-measure.js";
+import { probeImageDimensions } from "./emitter/image-dim.js";
+import { normalizeSlideTransition } from "./transition.js";
 
 /** Resolve a TextStyle's weight (string or numeric) into the boolean
  *  emitter flag. Anything ≥ 600 reads as bold so the OOXML `b` attribute
@@ -258,19 +261,6 @@ function resolveSlideBackground(theme: SimpleTheme, raw: unknown):
     if (typeof rec.fill === "string") return resolveFill(theme, rec.fill, "background");
   }
   return resolveFill(theme, raw, "background");
-}
-
-function normalizeSlideTransition(value: unknown): SlideAst["transition"] | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const rec = value as Record<string, unknown>;
-  const type = rec.type === "none" || rec.type === "fade" || rec.type === "push" || rec.type === "wipe" || rec.type === "split" || rec.type === "cover" || rec.type === "uncover"
-    ? rec.type
-    : undefined;
-  const transition: NonNullable<SlideAst["transition"]> = {};
-  if (type) transition.type = type;
-  if (typeof rec.durationMs === "number" && Number.isFinite(rec.durationMs)) transition.durationMs = rec.durationMs;
-  if (rec.direction === "left" || rec.direction === "right" || rec.direction === "up" || rec.direction === "down") transition.direction = rec.direction;
-  return Object.keys(transition).length > 0 ? transition : undefined;
 }
 
 /**
@@ -1055,6 +1045,7 @@ export function measureDeck(deck: RenderedDeck): Array<{ slideId: string; nodes:
     const dom = materializeAndCompactify(slide.dom, slide.id);
     const layout = layoutSlide(theme, dom);
     detectCollisionsForSlide(slide.id, layout.measured, dom);
+    detectComponentLayoutQuality(theme, slide.id, layout.measured, dom);
     return { slideId: slide.id, nodes: layout.measured };
   });
 }
@@ -1320,6 +1311,510 @@ function findNodePathById(root: DomNode, id: string, path: DomNode[] = []): DomN
     const found = findNodePathById(child, id, nextPath);
     if (found) return found;
   }
+  return undefined;
+}
+
+function detectComponentLayoutQuality(theme: SimpleTheme, slideId: string, measured: MeasuredNode[], slideDom: DomNode): void {
+  detectPageComponentCapacity(theme, slideId, measured, slideDom);
+  detectLocalRegionCapacity(theme, slideId, measured, slideDom);
+  const byId = new Map(measured.map((node) => [node.id, node]));
+  for (const item of measured) {
+    const node = findNodeById(slideDom, item.id);
+    if (!node) continue;
+    const role = typeof node.role === "string" ? node.role : "";
+    if (role === "chart-with-rail" || role === "evidence-layout") {
+      detectEvidenceRegionBalance(slideId, item, node, measured);
+    }
+    if (role === "process-flow") {
+      detectProcessFlowCapacity(slideId, item, node, measured, slideDom);
+    }
+    if (role === "timeline") {
+      detectTimelineCapacity(slideId, item, node, measured, slideDom);
+    }
+    if (role === "kpi-grid" || role === "stat-strip") {
+      detectMetricCollectionCapacity(slideId, item, node, measured, slideDom, role);
+    }
+    if (role === "equation") {
+      detectEquationCapacity(slideId, item, node, byId);
+    }
+    if (role === "donut-summary") {
+      detectDonutSummaryCapacity(slideId, item, node, byId);
+    }
+    if (node.type === "image") {
+      detectImageAspectQuality(slideId, item, node, slideDom);
+    }
+  }
+}
+
+interface ComponentCapacityDemand {
+  nodeId: string;
+  role: string;
+  assignedHeightCm: number;
+  neededHeightCm: number;
+}
+
+function detectPageComponentCapacity(theme: SimpleTheme, slideId: string, measured: MeasuredNode[], slideDom: DomNode): void {
+  const content = measured.find((item) => item.id === `${slideId}.content`)
+    || measured.find((item) => item.id === slideDom.id)
+    || measured[0];
+  if (!content || content.rect.h <= 0) return;
+  const demands = collectLargeComponentDemands(theme, measured, slideDom);
+  if (demands.length < 3) return;
+  const totalNeeded = demands.reduce((sum, item) => sum + item.neededHeightCm, 0);
+  const totalAssigned = demands.reduce((sum, item) => sum + item.assignedHeightCm, 0);
+  const available = content.rect.h;
+  const capacityRatio = totalNeeded / available;
+  // This is an early planning diagnostic, not a replacement for exact child
+  // fit checks. Trigger only when several heavyweight modules together consume
+  // most of the page's vertical budget; individual chart/table/equation
+  // diagnostics still identify the concrete failing node.
+  if (capacityRatio < 0.78 && totalAssigned < available * 0.95) return;
+  const primary = demands
+    .slice()
+    .sort((a, b) => b.neededHeightCm - a.neededHeightCm)
+    .slice(0, 4)
+    .map((item) => `${item.role}#${item.nodeId} needs ~${item.neededHeightCm.toFixed(1)}cm`)
+    .join("; ");
+  const severity = capacityRatio >= 1.08 ? "error" : "warn";
+  pushDiagnostic({
+    severity,
+    code: "PAGE_OVER_CAPACITY",
+    slideId,
+    nodeId: content.id,
+    message: `Slide '${slideId}' combines ${demands.length} high-capacity component(s) whose estimated readable height is ${totalNeeded.toFixed(2)}cm against ${available.toFixed(2)}cm of content height.`,
+    suggestion: `Split this page or move secondary support before squeezing components: keep one dominant evidence object, move table/chart/equation/citation support to a rail or follow-up slide, and retry replace-slide. Component estimates: ${primary}.`,
+    measured: {
+      available,
+      needed: totalNeeded,
+      deltaCm: Math.max(0, totalNeeded - available),
+      rect: content.rect,
+      componentCount: demands.length,
+      largeComponentCount: demands.length,
+      capacityRatio,
+      components: demands,
+    },
+  });
+}
+
+function detectLocalRegionCapacity(theme: SimpleTheme, slideId: string, measured: MeasuredNode[], slideDom: DomNode): void {
+  const byId = new Map(measured.map((item) => [item.id, item]));
+  const candidates: Array<{ node: DomNode; item: MeasuredNode; demands: ComponentCapacityDemand[]; available: number; needed: number; capacityRatio: number; splitRegion: boolean }> = [];
+  const walk = (node: DomNode) => {
+    if (node.type === "stack" && node.direction !== "horizontal" && Array.isArray(node.children) && node.children.length >= 3) {
+      const item = byId.get(node.id);
+      if (item && item.rect.w > 0.5 && item.rect.h > 0.5) {
+        const path = findNodePathById(slideDom, node.id) || [];
+        const splitRegion = path.some((ancestor) => ancestor.__loweredFromSplit === true);
+        if (!splitRegion) {
+          for (const child of node.children || []) walk(child);
+          return;
+        }
+        const direction: "horizontal" | "vertical" = "vertical";
+        const content = contentRect(theme, node, item.rect);
+        const available = direction === "vertical" ? content.h : content.w;
+        const crossSize = direction === "vertical" ? content.w : content.h;
+        const children = node.children.filter((child) => !isOverlayChild(child));
+        const demands = children.map((child) => regionChildCapacityDemand(theme, child, direction, crossSize, byId)).filter((d): d is ComponentCapacityDemand => Boolean(d));
+        const meaningful = demands.filter((d) => d.neededHeightCm >= 0.55);
+        const largeCount = meaningful.filter((d) => d.neededHeightCm >= 1.2).length;
+        const contentBlocks = meaningful.length;
+        if (contentBlocks >= 3 && (item.rect.w <= 11.5 || largeCount >= 2)) {
+          const gap = gapCm(theme, node) * Math.max(0, children.length - 1);
+          const needed = meaningful.reduce((sum, demand) => sum + demand.neededHeightCm, 0) + gap;
+          const capacityRatio = needed / Math.max(0.001, available);
+          if (capacityRatio >= 1.04 && needed - available >= 0.25) {
+            candidates.push({ node, item, demands: meaningful, available, needed, capacityRatio, splitRegion });
+          }
+        }
+      }
+    }
+    for (const child of node.children || []) walk(child);
+  };
+  walk(slideDom);
+
+  for (const candidate of candidates.filter((candidate) => !candidates.some((other) =>
+    other !== candidate
+    && candidate.node.id.startsWith(`${other.node.id}.`)
+    && other.capacityRatio >= candidate.capacityRatio * 0.92
+  ))) {
+    const primary = candidate.demands
+      .slice()
+      .sort((a, b) => b.neededHeightCm - a.neededHeightCm)
+      .slice(0, 5)
+      .map((item) => `${item.role}#${item.nodeId} ~${item.neededHeightCm.toFixed(1)}cm`)
+      .join("; ");
+    const context = candidate.splitRegion ? "split/rail region" : "local region";
+    pushDiagnostic({
+      severity: "warn",
+      code: "REGION_OVER_CAPACITY",
+      slideId,
+      nodeId: candidate.item.id,
+      message: `Region '${candidate.item.id}' combines ${candidate.demands.length} content block(s) whose estimated readable height is ${candidate.needed.toFixed(2)}cm against ${candidate.available.toFixed(2)}cm of ${context} height.`,
+      suggestion: `Treat this as a region-level capacity issue, not a child-component bug: keep one primary object in this ${context}, move secondary equation/quote/citation/source-note/detail blocks to a follow-up slide or wider region, or rebalance the split before squeezing text/components. Estimates: ${primary}.`,
+      measured: {
+        available: candidate.available,
+        needed: candidate.needed,
+        deltaCm: Math.max(0, candidate.needed - candidate.available),
+        rect: candidate.item.rect,
+        componentCount: candidate.demands.length,
+        largeComponentCount: candidate.demands.filter((item) => item.neededHeightCm >= 1.2).length,
+        capacityRatio: candidate.capacityRatio,
+        relationship: candidate.splitRegion ? "split-region-capacity" : "region-capacity",
+        components: candidate.demands,
+      },
+    });
+  }
+}
+
+function regionChildCapacityDemand(
+  theme: SimpleTheme,
+  child: DomNode,
+  direction: "horizontal" | "vertical",
+  crossSize: number,
+  byId: Map<string, MeasuredNode>,
+): ComponentCapacityDemand | undefined {
+  const item = byId.get(child.id);
+  if (!item) return undefined;
+  const role = regionCapacityRole(child);
+  const assigned = direction === "vertical" ? item.rect.h : item.rect.w;
+  const spec = childMainSpec(theme, child, direction, crossSize);
+  const needed = Math.max(spec.min, Math.min(spec.basis, spec.max));
+  if (!Number.isFinite(needed) || needed <= 0.05) return undefined;
+  return {
+    nodeId: child.id,
+    role,
+    assignedHeightCm: assigned,
+    neededHeightCm: needed,
+  };
+}
+
+function regionCapacityRole(node: DomNode): string {
+  const role = typeof node.role === "string" && node.role.trim() ? node.role.trim() : "";
+  if (role) return role;
+  if (node.type === "text") return "text";
+  if (node.type === "bullets") return "bullets";
+  if (node.type === "table") return "table";
+  if (node.type === "chart") return "chart";
+  if (node.type === "image") return "image";
+  if (node.type === "stack" || node.type === "grid") return node.type;
+  return node.type || "content";
+}
+
+function collectLargeComponentDemands(theme: SimpleTheme, measured: MeasuredNode[], slideDom: DomNode): ComponentCapacityDemand[] {
+  const byId = new Map(measured.map((item) => [item.id, item]));
+  const out: ComponentCapacityDemand[] = [];
+  for (const item of measured) {
+    const node = findNodeById(slideDom, item.id);
+    if (!node) continue;
+    const role = typeof node.role === "string" ? node.role : "";
+    if (!isLargeCapacityRole(role, node)) continue;
+    const demand = componentCapacityDemand(theme, node, item, measured, byId);
+    if (!demand) continue;
+    if (demand.neededHeightCm < 1.35) continue;
+    out.push(demand);
+  }
+  return out.filter((candidate) => !out.some((other) =>
+    other !== candidate
+    && other.nodeId !== candidate.nodeId
+    && candidate.nodeId.startsWith(`${other.nodeId}.`)
+  ));
+}
+
+function isLargeCapacityRole(role: string, node: DomNode): boolean {
+  if (node.type === "chart" || node.type === "table") return false;
+  return role === "chart-card"
+    || role === "table-card"
+    || role === "equation"
+    || role === "code-block"
+    || role === "process-flow"
+    || role === "timeline"
+    || role === "donut-summary";
+}
+
+function componentCapacityDemand(
+  theme: SimpleTheme,
+  node: DomNode,
+  item: MeasuredNode,
+  measured: MeasuredNode[],
+  byId: Map<string, MeasuredNode>,
+): ComponentCapacityDemand | undefined {
+  const role = typeof node.role === "string" ? node.role : "";
+  if (role === "chart-card") {
+    const chart = findDescendantDom(node, (child) => child.type === "chart");
+    const chartMeasured = chart ? byId.get(chart.id) : undefined;
+    if (!chart || !chartMeasured) return undefined;
+    const labels = Array.isArray(chart.labels) ? chart.labels.map(String) : [];
+    const series = normalizeChartSeries(theme, chart.series);
+    const chartKind = chartType(chart.chartType);
+    const showLegend = typeof chart.showLegend === "boolean" ? chart.showLegend : series.length > 1;
+    const requirement = chartBodyRequirement(chart, chartKind, labels.length || 1, Math.max(1, series.length), showLegend);
+    const chrome = Math.max(0, item.rect.h - chartMeasured.rect.h);
+    const needed = Math.max(item.rect.h * 0.5, requirement.recommendedMinHeight + chrome);
+    return { nodeId: item.id, role, assignedHeightCm: item.rect.h, neededHeightCm: needed };
+  }
+  if (role === "table-card") {
+    const table = findDescendantDom(node, (child) => child.type === "table");
+    const tableMeasured = table ? byId.get(table.id) : undefined;
+    if (!table || !tableMeasured) return undefined;
+    const bodyNeed = tableIntrinsicHeight(theme, table, tableMeasured.rect.w);
+    const chrome = Math.max(0, item.rect.h - tableMeasured.rect.h);
+    return { nodeId: item.id, role, assignedHeightCm: item.rect.h, neededHeightCm: Math.max(item.rect.h * 0.55, bodyNeed + chrome) };
+  }
+  const needed = intrinsicMainSize(theme, node, "vertical", Math.max(0.5, item.rect.w));
+  return { nodeId: item.id, role, assignedHeightCm: item.rect.h, neededHeightCm: Math.max(item.rect.h * 0.55, needed) };
+}
+
+function findDescendantDom(node: DomNode, predicate: (node: DomNode) => boolean): DomNode | undefined {
+  if (predicate(node)) return node;
+  for (const child of node.children || []) {
+    const found = findDescendantDom(child, predicate);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+function detectEvidenceRegionBalance(slideId: string, root: MeasuredNode, node: DomNode, measured: MeasuredNode[]): void {
+  const direct = measured.filter((item) => item.parentId === root.id);
+  const evidence = direct.find((item) => /\.evidence(?:\.|$)/.test(item.id))
+    || direct.find((item) => {
+      const dom = findNodeById(node, item.id);
+      return Boolean(dom && (dom.type === "chart" || dom.type === "table" || dom.type === "image" || dom.role === "chart-card" || dom.role === "table-card" || dom.role === "image-card"));
+    });
+  if (!evidence) return;
+  const direction = node.direction === "vertical" ? "vertical" : "horizontal";
+  const main = direction === "vertical" ? root.rect.h : root.rect.w;
+  const evidenceMain = direction === "vertical" ? evidence.rect.h : evidence.rect.w;
+  if (main <= 0) return;
+  const ratio = evidenceMain / main;
+  const recommended = direction === "vertical" ? 0.62 : 0.65;
+  if (ratio >= recommended - 0.08) return;
+  const severe = ratio < 0.45;
+  const rail = direct.find((item) => /\.rail(?:\.|$)|\.insight(?:\.|$)/.test(item.id));
+  pushDiagnostic({
+    severity: severe ? "error" : "warn",
+    code: "EVIDENCE_REGION_TOO_SMALL",
+    slideId,
+    nodeId: root.id,
+    message: `Evidence layout '${root.id}' gives the evidence region ${(ratio * 100).toFixed(0)}% of the ${direction} axis; this is low for a chart/table/image evidence page.`,
+    suggestion: `Keep the evidence component and adjust the split/ratio: target about ${(recommended * 100).toFixed(0)}% for evidence, shorten the interpretation rail, or move secondary commentary/KPIs to a follow-up slide before replacing the evidence object.`,
+    measured: {
+      rect: root.rect,
+      other: rail ? { ...rail.rect, nodeId: rail.id } : undefined,
+      evidenceRatio: ratio,
+      recommendedRatio: recommended,
+      available: evidenceMain,
+      needed: recommended * main,
+      deltaCm: Math.max(0, recommended * main - evidenceMain),
+    },
+  });
+}
+
+function detectProcessFlowCapacity(slideId: string, root: MeasuredNode, node: DomNode, measured: MeasuredNode[], slideDom: DomNode): void {
+  const steps = measured.filter((item) => item.id !== root.id && findNodeById(node, item.id)?.role === "process-step");
+  if (steps.length < 2) return;
+  const richCount = steps.filter((step) => {
+    const dom = findNodeById(slideDom, step.id);
+    if (!dom) return false;
+    return Boolean(findNodeById(dom, `${step.id}.body`) || dom.children?.some((child) => child.id.includes(".bullets") || child.id.endsWith(".meta")));
+  }).length;
+  const horizontal = node.direction !== "vertical";
+  const perStepWidth = Math.min(...steps.map((step) => step.rect.w));
+  const perStepHeight = Math.min(...steps.map((step) => step.rect.h));
+  const minWidth = richCount > 0 ? 4.4 : 2.45;
+  const minHeight = richCount > 0 ? 2.7 : 1.35;
+  const tooNarrow = horizontal && perStepWidth < minWidth;
+  const tooShort = perStepHeight < minHeight;
+  if (!tooNarrow && !tooShort) return;
+  const scaleHint = (tooNarrow ? minWidth - perStepWidth : minHeight - perStepHeight) <= (horizontal ? perStepWidth : perStepHeight) * 0.16
+    ? " For mild pressure, try scale:'sm' before dropping step body text."
+    : "";
+  pushDiagnostic({
+    severity: "warn",
+    code: "PROCESS_FLOW_OVER_CAPACITY",
+    slideId,
+    nodeId: root.id,
+    message: `Process-flow '${root.id}' has ${steps.length} step(s) with ${perStepWidth.toFixed(2)}x${perStepHeight.toFixed(2)}cm per step; ${richCount > 0 ? "rich" : "simple"} steps may be hard to read in this layout.`,
+    suggestion: `Keep process-flow semantics: ${horizontal ? "use vertical direction or a two-row card flow for rich 4+ stages" : "increase vertical region or split the flow across slides"}, shorten per-step body/bullets, or increase the component area.${scaleHint}`,
+    measured: {
+      rect: root.rect,
+      stepCount: steps.length,
+      richCount,
+      perStepWidthCm: perStepWidth,
+      perStepHeightCm: perStepHeight,
+      recommendedDirection: horizontal && richCount > 0 ? "vertical" : undefined,
+      recommendedRows: horizontal && steps.length >= 4 ? Math.ceil(steps.length / 2) : undefined,
+      ...(scaleHint ? { scaleSuggestion: "sm" } : {}),
+    },
+  });
+}
+
+function detectTimelineCapacity(slideId: string, root: MeasuredNode, node: DomNode, measured: MeasuredNode[], slideDom: DomNode): void {
+  const steps = measured.filter((item) => item.id !== root.id && findNodeById(node, item.id)?.role === "timeline-step");
+  if (steps.length < 2) return;
+  const richCount = steps.filter((step) => Boolean(findNodeById(slideDom, `${step.id}.content`))).length;
+  const horizontal = node.type === "grid" || node.direction !== "vertical";
+  const perItemWidth = Math.min(...steps.map((step) => step.rect.w));
+  const perItemHeight = Math.min(...steps.map((step) => step.rect.h));
+  const minWidth = richCount > 0 ? 3.5 : 2.35;
+  const minHeight = richCount > 0 ? 1.55 : 0.95;
+  const tooNarrow = horizontal && perItemWidth < minWidth;
+  const tooShort = perItemHeight < minHeight;
+  if (!tooNarrow && !tooShort) return;
+  pushDiagnostic({
+    severity: "warn",
+    code: "TIMELINE_OVER_CAPACITY",
+    slideId,
+    nodeId: root.id,
+    message: `Timeline '${root.id}' has ${steps.length} item(s) with ${horizontal ? `${perItemWidth.toFixed(2)}cm per item` : `${perItemHeight.toFixed(2)}cm per item height`}; timeline items are likely too dense.`,
+    suggestion: `Keep timeline semantics: ${horizontal ? "switch to direction:'vertical' for rich events or split long histories across timeline slides" : "increase the timeline height or split long histories across slides"}, shorten item bodies, or use scale:'sm' only for mild pressure.`,
+    measured: {
+      rect: root.rect,
+      itemCount: steps.length,
+      richCount,
+      perItemWidthCm: perItemWidth,
+      perItemHeightCm: perItemHeight,
+      recommendedDirection: horizontal && richCount > 0 ? "vertical" : undefined,
+      recommendedRows: horizontal && steps.length > 4 ? Math.ceil(steps.length / 4) : undefined,
+      scaleSuggestion: "sm",
+    },
+  });
+}
+
+function detectMetricCollectionCapacity(slideId: string, root: MeasuredNode, node: DomNode, measured: MeasuredNode[], slideDom: DomNode, role: string): void {
+  const metricRole = role === "kpi-grid" ? "metric-card" : "";
+  const items = measured.filter((item) => item.parentId === root.id && (metricRole ? findNodeById(slideDom, item.id)?.role === metricRole : !/\.sep\d+$/.test(item.id)));
+  const count = role === "kpi-grid" ? items.length : Math.max(0, items.length);
+  if (count < (role === "kpi-grid" ? 4 : 5)) return;
+  const perMetricWidth = count > 0 ? Math.min(...items.map((item) => item.rect.w)) : 0;
+  const perMetricHeight = count > 0 ? Math.min(...items.map((item) => item.rect.h)) : 0;
+  const minWidth = role === "kpi-grid" ? 2.9 : 2.05;
+  const minHeight = role === "kpi-grid" ? 1.65 : 1.65;
+  if (perMetricWidth >= minWidth && perMetricHeight >= minHeight) return;
+  pushDiagnostic({
+    severity: "warn",
+    code: "KPI_REGION_OVER_CAPACITY",
+    slideId,
+    nodeId: root.id,
+    message: `${role} '${root.id}' has ${count} metric item(s) with a tight cell (${perMetricWidth.toFixed(2)}x${perMetricHeight.toFixed(2)}cm).`,
+    suggestion: `Keep KPI/stat semantics: use fewer columns, split metrics into two rows/slides, widen the metric region, shorten labels/units, or try scale:'sm' for mild pressure before replacing metrics with prose cards.`,
+    measured: {
+      rect: root.rect,
+      metricCount: count,
+      perMetricWidthCm: perMetricWidth,
+      perMetricHeightCm: perMetricHeight,
+      recommendedColumns: role === "kpi-grid" ? Math.min(3, count) : undefined,
+      scaleSuggestion: "sm",
+    },
+  });
+}
+
+function detectEquationCapacity(slideId: string, root: MeasuredNode, node: DomNode, byId: Map<string, MeasuredNode>): void {
+  const math = byId.get(`${root.id}.math`) || byId.get(`${root.id}.line`);
+  const mathText = typeof node.mathText === "string" ? node.mathText : "";
+  if (!math || mathText.length < 48) return;
+  const tooWideForSlot = math.rect.w < 8.5 || math.rect.h < 0.9;
+  if (!tooWideForSlot) return;
+  pushDiagnostic({
+    severity: "warn",
+    code: "EQUATION_TOO_DENSE",
+    slideId,
+    nodeId: root.id,
+    message: `Equation '${root.id}' is dense (${mathText.length} math characters) for a ${math.rect.w.toFixed(2)}x${math.rect.h.toFixed(2)}cm slot.`,
+    suggestion: "Keep equation semantics: use size:'sm' or scale:'sm' for mild pressure, split derivation steps across slides, remove optional caption/label, or give the equation a wider evidence region before converting it to text/image.",
+    measured: { rect: math.rect, lineCount: mathText.length, scaleSuggestion: "sm" },
+  });
+}
+
+function detectDonutSummaryCapacity(slideId: string, root: MeasuredNode, node: DomNode, byId: Map<string, MeasuredNode>): void {
+  const chart = byId.get(`${root.id}.ring.chart`) || byId.get(`${root.id}.chart`);
+  const legend = byId.get(`${root.id}.legend`);
+  if (!chart) return;
+  const legendNode = findNodeById(node, `${root.id}.legend`);
+  const entryCount = Array.isArray(legendNode?.children) ? legendNode.children.length : undefined;
+  const ringDiameter = Math.min(chart.rect.w, chart.rect.h);
+  const legendWidth = legend?.rect.w || 0;
+  const minRing = 3.0;
+  if (ringDiameter >= minRing && (!legend || legendWidth >= 3.0)) return;
+  pushDiagnostic({
+    severity: "warn",
+    code: "DONUT_SUMMARY_OVER_CAPACITY",
+    slideId,
+    nodeId: root.id,
+    message: `Donut-summary '${root.id}' has a small ring/legend region (${ringDiameter.toFixed(2)}cm ring diameter${legend ? `, ${legendWidth.toFixed(2)}cm legend width` : ""}).`,
+    suggestion: "Keep donut-summary for the dominant-share story: give the component about 5x4cm or more, move commentary to a rail/follow-up slide, reduce minor slices, or try scale:'sm' only for mild pressure.",
+    measured: {
+      rect: root.rect,
+      ringDiameterCm: ringDiameter,
+      minRingDiameterCm: minRing,
+      legendWidthCm: legendWidth || undefined,
+      entryCount,
+      scaleSuggestion: "sm",
+    },
+  });
+}
+
+function detectImageAspectQuality(slideId: string, item: MeasuredNode, node: DomNode, slideDom: DomNode): void {
+  const path = findNodePathById(slideDom, item.id) || [];
+  const inImageCard = path.some((entry) => entry.role === "image-card");
+  if (!inImageCard) return;
+  const src = typeof node.src === "string" ? node.src : "";
+  const dims = probeImageDimensionsSync(src);
+  if (!dims || dims.width <= 0 || dims.height <= 0 || item.rect.w <= 0 || item.rect.h <= 0) return;
+  const sourceAspect = dims.width / dims.height;
+  const frameAspect = item.rect.w / item.rect.h;
+  const visibleFraction = Math.min(sourceAspect / frameAspect, frameAspect / sourceAspect);
+  const fit = node.fit === "cover" || node.fit === "fill" ? node.fit : "contain";
+  const severeFill = fit === "fill" && visibleFraction < 0.82;
+  const heavyCrop = fit === "cover" && visibleFraction < 0.62;
+  const largeLetterbox = fit === "contain" && visibleFraction < 0.48;
+  if (!severeFill && !heavyCrop && !largeLetterbox) return;
+  pushDiagnostic({
+    severity: severeFill ? "error" : "warn",
+    code: "IMAGE_ASPECT_MISMATCH",
+    slideId,
+    nodeId: item.id,
+    message: `Image '${item.id}' uses fit:'${fit}' in a ${frameAspect.toFixed(2)}:1 frame, but the source is ${sourceAspect.toFixed(2)}:1.`,
+    suggestion: severeFill
+      ? "Do not use fit:'fill' when it distorts evidence. Keep image-card semantics and switch to fit:'contain' or fit:'cover' with intentional crop, or change the image-card region to match the source aspect ratio."
+      : fit === "cover"
+        ? "Cover crop hides too much of the source. Keep image-card semantics and adjust the frame ratio, use fit:'contain', or provide a deliberate crop/annotation."
+        : "Contain leaves a lot of empty frame. Keep image-card semantics and adjust the frame ratio, crop intentionally with fit:'cover', or move caption/insight to a rail so the image can use a better aspect.",
+    measured: {
+      rect: item.rect,
+      sourceAspectRatio: sourceAspect,
+      frameAspectRatio: frameAspect,
+      aspectDelta: Math.abs(Math.log(frameAspect / sourceAspect)),
+      visibleFraction,
+    },
+  });
+}
+
+type ProbeImageExt = "png" | "jpg" | "gif" | "svg" | "webp";
+
+function probeImageDimensionsSync(src: string): { width: number; height: number } | undefined {
+  if (!src) return undefined;
+  try {
+    if (src.startsWith("data:image/")) {
+      const match = src.match(/^data:image\/(png|jpeg|jpg|gif|svg\+xml|webp);base64,(.+)$/i);
+      if (!match) return undefined;
+      const ext = normalizeProbeImageExt(match[1]!);
+      if (!ext) return undefined;
+      return probeImageDimensions(Buffer.from(match[2]!, "base64"), ext);
+    }
+    if (/^https?:\/\//i.test(src) || !existsSync(src)) return undefined;
+    const ext = normalizeProbeImageExt(extname(src).replace(/^\./, ""));
+    if (!ext) return undefined;
+    return probeImageDimensions(readFileSync(src), ext);
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeProbeImageExt(value: string): ProbeImageExt | undefined {
+  const v = value.toLowerCase();
+  if (v === "png" || v === "gif" || v === "webp") return v;
+  if (v === "jpg" || v === "jpeg") return "jpg";
+  if (v === "svg" || v === "svg+xml") return "svg";
   return undefined;
 }
 
@@ -1610,26 +2105,13 @@ function rectForAnchorToOverlay(node: DomNode, rectsById: Map<string, Rect>): Re
 function isOverlayChild(node: DomNode): boolean {
   if (typeof node.anchor === "string" && ANCHOR_POINTS.has(node.anchor)) return true;
   if (typeof node.anchorTo === "string" && node.anchorTo.length > 0) return true;
-  if (isAbsoluteAt(node.at)) return true;
+  if (rectFromNodePlacement(node)) return true;
   if (node.layer === "behind" || node.layer === "above") return true;
   return false;
 }
 
 function isAnchorToOverlay(node: DomNode): boolean {
   return typeof node.anchorTo === "string" && node.anchorTo.length > 0;
-}
-
-/**
- * `at: [x, y, w, h]` — slide-relative absolute coordinates in cm. The
- * agent-facing primitive for editorial / custom layouts that don't fit
- * the flow + component model. Honored at slide-level only (direct child
- * of slide root); inside a stack/grid use `layer:"behind"|"above"`
- * instead. See node-types.ts ANCHOR_FIELDS for the full schema entry.
- */
-function isAbsoluteAt(value: unknown): value is [number, number, number, number] {
-  return Array.isArray(value)
-    && value.length === 4
-    && value.every((n) => typeof n === "number" && Number.isFinite(n));
 }
 
 function flowChildren(slideDom: DomNode): DomNode[] {
@@ -1889,13 +2371,13 @@ function rectForSlideChild(theme: SimpleTheme, node: DomNode, slideDom?: DomNode
   if (typeof node.anchor === "string" && ANCHOR_POINTS.has(node.anchor)) {
     return rectFromAnchor(theme, node);
   }
-  if (isAbsoluteAt(node.at)) {
+  const absoluteRect = rectFromNodePlacement(node);
+  if (absoluteRect) {
     // Slide-relative absolute coordinates: agent supplies [x, y, w, h]
     // in cm against the slide canvas origin. Clamp w/h to just above
     // the renderer's TINY_RECT threshold (0.02cm for shapes / 0.18cm
     // for content) so an accidental zero doesn't get the node dropped.
-    const [x, y, w, h] = node.at;
-    return { x, y, w: Math.max(0.03, w), h: Math.max(0.03, h) };
+    return absoluteRect;
   }
   const areaName = stringProp(node, "area", "");
   if (areaName === "content") {
@@ -1948,6 +2430,7 @@ function rectFromAnchor(theme: SimpleTheme, node: DomNode): Rect {
 function renderSlide(theme: SimpleTheme, slideDom: DomNode, ids: { nextId: number }, slideId: string): ShapeList {
   const layout = layoutSlide(theme, slideDom);
   detectCollisionsForSlide(slideId, layout.measured, slideDom);
+  detectComponentLayoutQuality(theme, slideId, layout.measured, slideDom);
   const previous = currentSlideId;
   currentSlideId = slideId;
   try {
@@ -2014,8 +2497,8 @@ function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   if (node.type === "text") return [textShape(theme, node, rect, ids)];
   if (node.type === "bullets") return [bulletsShape(theme, node, rect, ids)];
   if (node.type === "image") return captionedShapes(theme, node, rect, ids, (bodyRect) => imageShape(theme, node, bodyRect, ids));
-  if (node.type === "table") return captionedShapes(theme, node, rect, ids, (bodyRect) => [tableShape(theme, node, bodyRect, ids)]);
-  if (node.type === "chart") return captionedShapes(theme, node, rect, ids, (bodyRect) => [chartShape(theme, node, bodyRect, ids)]);
+  if (node.type === "table") return captionedShapes(theme, node, rect, ids, (bodyRect) => [tableShape(theme, node, bodyRect, ids, rectsById)]);
+  if (node.type === "chart") return captionedShapes(theme, node, rect, ids, (bodyRect) => [chartShape(theme, node, bodyRect, ids, rectsById)]);
   if (node.type === "shape") return [presetShape(theme, node, rect, ids)];
   if (node.type === "panel") return renderPanel(theme, node, rect, rectsById, ids, slideId);
   if (node.type === "card") return renderCard(theme, node, rect, rectsById, ids, slideId);
@@ -2040,9 +2523,7 @@ function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, s
   // images without an explicit size can still be flagged when squeezed.
   const hasFixedWidth = typeof node.fixedWidth === "number" && Number.isFinite(node.fixedWidth);
   const hasFixedHeight = typeof node.fixedHeight === "number" && Number.isFinite(node.fixedHeight);
-  const hasAbsoluteRect = Array.isArray(node.at)
-    && node.at.length === 4
-    && node.at.every((value: unknown) => typeof value === "number" && Number.isFinite(value));
+  const hasAbsoluteRect = Boolean(rectFromNodePlacement(node));
   const hasAnchoredSize = (typeof node.anchor === "string" || typeof node.anchorTo === "string")
     && ((typeof node.width === "number" && Number.isFinite(node.width)) || (typeof node.height === "number" && Number.isFinite(node.height)));
   if (node.type === "image" && (hasFixedWidth || hasFixedHeight || hasAbsoluteRect || hasAnchoredSize)) return;
@@ -2083,13 +2564,13 @@ function nearestSemanticRole(node?: DomNode): string | undefined {
 function capacitySuggestion(node: DomNode | undefined, fallback: string): string {
   const role = nearestSemanticRole(node);
   if (role === "chart-card") {
-    return "Chart-card is over capacity: reserve a real chart body (bar/line/combo at least about 4.8x3.0cm; pie/doughnut about 5.2x4.4cm before title/caption chrome). Keep the chart as the primary evidence, use split/chart-with-rail/evidence-layout with the chart taking about 60-75% of the evidence area, move KPI/table/commentary to a rail or follow-up slide, and reduce labels/legend/series density before considering another component.";
+    return "Chart-card is over capacity: reserve a real chart body (bar/line/combo at least about 4.8x3.0cm; pie/doughnut about 5.2x4.4cm before title/caption chrome) and keep axis charts from becoming overly flat. Keep the chart as the primary evidence, use split/chart-with-rail/evidence-layout with the chart taking about 60-75% of the evidence area, move KPI/table/commentary to a rail or follow-up slide, and reduce labels/legend/series density before considering another component.";
   }
   if (role === "metric-card" || role === "kpi-grid") {
-    return "KPI content is over capacity: keep the KPI/stat semantics, reduce metrics per row, use columns:2 or columns:3, shorten labels/units, use compact density, widen the metric region, or split the dashboard across slides instead of squeezing metric values.";
+    return "KPI content is over capacity: keep the KPI/stat semantics, reduce metrics per row, use columns:2 or columns:3, try scale:'sm' for mild pressure, shorten labels/units, use compact density, widen the metric region, or split the dashboard across slides instead of squeezing metric values.";
   }
   if (role === "stat-strip") {
-    return "Stat-strip is over capacity: keep the stat row, reduce item count to the strongest metrics, shorten labels, give it full slide width, or split supporting metrics to a second strip/slide.";
+    return "Stat-strip is over capacity: keep the stat row, try scale:'sm' for mild pressure, reduce item count to the strongest metrics, shorten labels, give it full slide width, or split supporting metrics to a second strip/slide.";
   }
   if (role === "table-card") {
     return "Table-card is over capacity: reserve a table body large enough for readable rows (a compact 6-8 row business table usually needs about 4.5-6cm plus title/caption chrome). Keep the table, give it a half/full-slide evidence region, widen text-heavy columns with encoding.columns/colWidths, use density:'compact', provide rowHeights for known tall rows, or paginate the same table across slides instead of deleting data.";
@@ -2098,10 +2579,10 @@ function capacitySuggestion(node: DomNode | undefined, fallback: string): string
     return "Code-block is over capacity: keep code-block for code, paginate the listing across slides/components, use columns:2/3, density:'tiny', or smaller readable fontSize. Use maxLines only for an intentional excerpt.";
   }
   if (role === "process-flow") {
-    return "Process-flow is over capacity: keep the sequence component, reduce per-step body/bullets, use vertical direction for rich stages, increase the component area, or split the flow across slides.";
+    return "Process-flow is over capacity: keep the sequence component, try scale:'sm' for mild pressure, reduce per-step body/bullets, use vertical direction for rich stages, increase the component area, or split the flow across slides.";
   }
   if (role === "feature-card") {
-    return "Feature-card content is over capacity: preserve title+body semantics, increase the card height/region, use fewer grid columns, set density:'compact', shorten proof/tags/secondary details, or split feature groups across slides. Do not fix this by deleting the body or replacing the component with generic text.";
+    return "Feature-card content is over capacity: preserve title+body semantics, try scale:'sm' or density:'compact' for mild pressure, increase the card height/region, use fewer grid columns, shorten proof/tags/secondary details, or split feature groups across slides. Do not fix this by deleting the body or replacing the component with generic text.";
   }
   if (role === "donut-summary") {
     return "Donut-summary is over capacity: reserve about 5x4cm for the ring plus legend. Keep the share-summary semantics, reduce minor slices, move explanatory facts to a side rail/follow-up slide, or give the donut a dominant split region before changing components.";
@@ -2928,20 +3409,30 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
   const marker = markerVisualSpec(theme, node);
   const presetCandidate = marker?.preset || (typeof node.preset === "string" && SHAPE_PRESETS.has(node.preset) ? node.preset : "rect");
   const preset = presetCandidate as ShapePreset;
-  const lineWidthCm = normalizeStrokeCm(optionalNumberProp(node, "lineWidth") ?? marker?.lineWidth, marker?.lineWidth ?? 0.02);
+  const fillRecord = recordValue(node.fill);
+  const lineRecord = recordValue(node.line);
+  const lineWidthCm = normalizeStrokeCm(
+    optionalNumberProp(node, "lineWidth")
+      ?? optionalNumberFromRecord(lineRecord, "width")
+      ?? optionalNumberFromRecord(lineRecord, "lineWidth")
+      ?? marker?.lineWidth,
+    marker?.lineWidth ?? 0.02,
+  );
   const lineDash = node.lineDash === "dash" || node.lineDash === "dashDot" || node.lineDash === "dot"
     ? node.lineDash
     : node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot"
       ? node.dash
-      : marker?.dash;
-  const fillToken = typeof node.fill === "string" ? node.fill : marker?.fill;
-  const lineToken = typeof node.line === "string" ? node.line : marker?.line;
-  const fillAlpha = alphaProp(node.fillOpacity ?? node.opacity ?? marker?.fillOpacity);
-  const lineAlpha = alphaProp(node.lineOpacity ?? node.opacity ?? marker?.lineOpacity);
+      : lineDashFromRecord(lineRecord) ?? marker?.dash;
+  const fillToken = typeof node.fill === "string" ? node.fill : stringFromRecord(fillRecord, "color") ?? stringFromRecord(fillRecord, "fill") ?? marker?.fill;
+  const lineToken = typeof node.line === "string" ? node.line : stringFromRecord(lineRecord, "color") ?? stringFromRecord(lineRecord, "line") ?? marker?.line;
+  const fillAlpha = alphaProp(node.fillOpacity ?? fillRecord?.opacity ?? fillRecord?.alpha ?? node.opacity ?? marker?.fillOpacity);
+  const lineAlpha = alphaProp(node.lineOpacity ?? lineRecord?.opacity ?? lineRecord?.alpha ?? node.opacity ?? marker?.lineOpacity);
   const shapeRect = marker ? markerRect(rect, marker, node) : rect;
   const shapeNode = marker && typeof node.rotation !== "number" && typeof marker.rotation === "number"
     ? { ...node, rotation: marker.rotation }
     : node;
+  const headEnd = lineEndSpec(node.headEnd ?? lineRecord?.headEnd);
+  const tailEnd = lineEndSpec(node.tailEnd ?? lineRecord?.tailEnd);
   const shape: Extract<ShapeList[number], { type: "shape" }> = {
     type: "shape",
     id: ids.nextId++,
@@ -2954,8 +3445,8 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
       width: cm(lineWidthCm),
       ...(lineDash ? { dash: lineDash } : {}),
       ...(lineAlpha !== undefined ? { alpha: lineAlpha } : {}),
-      ...(lineEndSpec(node.headEnd) ? { headEnd: lineEndSpec(node.headEnd) } : {}),
-      ...(lineEndSpec(node.tailEnd) ? { tailEnd: lineEndSpec(node.tailEnd) } : {}),
+      ...(headEnd ? { headEnd } : {}),
+      ...(tailEnd ? { tailEnd } : {}),
     } : undefined,
     ...(typeof node.cornerRadius === "number" ? { cornerRadius: normalizeCornerRadius(node.cornerRadius) } : marker?.cornerRadius !== undefined ? { cornerRadius: marker.cornerRadius } : {}),
   };
@@ -3130,7 +3621,7 @@ function dividerShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
   };
 }
 
-function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }): ShapeList[number] {
+function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }, rectsById?: Map<string, Rect>): ShapeList[number] {
   // Accept two schemas:
   //   1. headers: ["A","B"]   rows: [["1","2"], ...]
   //   2. columns: [{header,width?}, ...]  rows: [{cells:[...]}, ...]
@@ -3151,20 +3642,23 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   const widthsInput = Array.isArray(node.colWidths) ? node.colWidths : (widthsFromColumns && widthsFromColumns.some((w) => w > 0) ? widthsFromColumns : undefined);
   const colWidths = resolveTableColWidths(widthsInput, colCount, rect.w);
   const density = tableDensity(node.density);
+  const fontScale = typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0 ? node.fontScale : 1;
   const rowHeightsCm = resolveTableRowHeights(node.rowHeights, rowCount, rect.h, {
     theme,
     rows: allRows,
     colWidths,
     firstRowHeader,
     density,
+    fontScale,
   });
   const cells = makeTableCells(theme, allRows, colCount, firstRowHeader, cellAlign, {
     headerFill: typeof node.headerFill === "string" ? node.headerFill : undefined,
     bodyFill: typeof node.bodyFill === "string" ? node.bodyFill : undefined,
     density,
+    fontScale,
   });
   pushEmptyTableDataDiagnostic(node, rect, sourceRows, rawRows, firstRowHeader);
-  pushTableFitDiagnostics(theme, node, rect, allRows, colWidths, rowHeightsCm, firstRowHeader);
+  pushTableFitDiagnostics(theme, node, rect, allRows, colWidths, rowHeightsCm, firstRowHeader, semanticOuterRectForBody(node.id, "table", rectsById));
   return {
     type: "table",
     id: ids.nextId++,
@@ -3359,7 +3853,7 @@ function makeTableCells(
   colCount: number,
   firstRowHeader: boolean,
   defaultAlign: "left" | "center" | "right",
-  defaults: { headerFill?: string; bodyFill?: string; density?: TableDensity } = {},
+  defaults: { headerFill?: string; bodyFill?: string; density?: TableDensity; fontScale?: number } = {},
 ): TableCell[][] {
   const out: TableCell[][] = [];
   const occupied: boolean[][] = [];
@@ -3445,7 +3939,7 @@ function resolveTableRowHeights(
   raw: unknown,
   rowCount: number,
   totalCm: number,
-  intrinsic?: { theme: SimpleTheme; rows: unknown[][]; colWidths: number[]; firstRowHeader: boolean; density?: TableDensity },
+  intrinsic?: { theme: SimpleTheme; rows: unknown[][]; colWidths: number[]; firstRowHeader: boolean; density?: TableDensity; fontScale?: number },
 ): number[] {
   if (Array.isArray(raw) && raw.length === rowCount) {
     const nums = raw.map((v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
@@ -3458,7 +3952,7 @@ function resolveTableRowHeights(
   }
   if (intrinsic && intrinsic.rows.length === rowCount) {
     const floor = tableRowHeightFloor(false, intrinsic.density || "comfortable");
-    const needed = estimateTableRowHeights(intrinsic.theme, intrinsic.rows, intrinsic.colWidths, intrinsic.firstRowHeader, intrinsic.density || "comfortable")
+    const needed = estimateTableRowHeights(intrinsic.theme, intrinsic.rows, intrinsic.colWidths, intrinsic.firstRowHeader, intrinsic.density || "comfortable", intrinsic.fontScale)
       .map((h) => Math.max(floor, h));
     const sum = needed.reduce((a, b) => a + b, 0);
     if (sum > 0 && Number.isFinite(sum)) {
@@ -3480,9 +3974,9 @@ function makeTableCell(
   raw: unknown,
   isHeader: boolean,
   defaultAlign: "left" | "center" | "right",
-  defaults: { headerFill?: string; bodyFill?: string; density?: TableDensity } = {},
+  defaults: { headerFill?: string; bodyFill?: string; density?: TableDensity; fontScale?: number } = {},
 ): TableCell {
-  const style = tableTextStyle(theme, isHeader, defaults.density || "comfortable");
+  const style = tableTextStyle(theme, isHeader, defaults.density || "comfortable", defaults.fontScale);
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const cell = raw as Record<string, unknown>;
     const text = firstTableString(cell.text, cell.value, cell.label, cell.title);
@@ -3693,7 +4187,23 @@ function trackingToLetterSpacing(value: unknown): number | undefined {
   }
 }
 
-function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }): ShapeList[number] {
+function semanticOuterRectForBody(nodeId: string, suffix: string, rectsById?: Map<string, Rect>): Rect | undefined {
+  if (!rectsById) return undefined;
+  const suffixToken = `.${suffix}`;
+  if (!nodeId.endsWith(suffixToken)) return undefined;
+  const rootId = nodeId.slice(0, -suffixToken.length);
+  const direct = rectsById.get(rootId);
+  if (direct) return direct;
+  const slidePrefix = currentSlideId ? `${currentSlideId}.` : "";
+  if (slidePrefix && rootId.startsWith(slidePrefix)) {
+    const withoutSlidePrefix = rootId.slice(slidePrefix.length);
+    const match = rectsById.get(withoutSlidePrefix);
+    if (match) return match;
+  }
+  return undefined;
+}
+
+function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }, rectsById?: Map<string, Rect>): ShapeList[number] {
   const labels = Array.isArray(node.labels) ? node.labels.map(String) : [];
   const series = normalizeChartSeries(theme, node.series);
   const resolvedChartType = chartType(node.chartType);
@@ -3714,7 +4224,7 @@ function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   const showValues = typeof node.showValues === "boolean" ? node.showValues : pieLike;
   const dataLabels = normalizeChartDataLabels(node.dataLabels, { pieLike, showValues });
   const annotations = normalizeChartAnnotations(node.annotations);
-  pushChartFitDiagnostics(node, rect, resolvedChartType, safeLabels.length, showLegend);
+  pushChartFitDiagnostics(node, rect, resolvedChartType, safeLabels.length, safeSeries.length, showLegend, semanticOuterRectForBody(node.id, "chart", rectsById));
   pushChartLabelDiagnostics(node, rect, resolvedChartType, dataLabels);
   const barLike = resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "combo";
   return {
@@ -3822,47 +4332,166 @@ function pushChartLabelDiagnostics(node: DomNode, rect: Rect, resolvedChartType:
   });
 }
 
-function pushChartFitDiagnostics(node: DomNode, rect: Rect, resolvedChartType: ChartType, labelCount: number, showLegend: boolean): void {
-  const pieLike = resolvedChartType === "pie" || resolvedChartType === "doughnut";
-  const minWidth = pieLike ? 5.2 : 4.8;
-  const minHeight = pieLike
-    ? labelCount >= 5 || showLegend ? 4.4 : 3.8
-    : resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "waterfall" ? 3.0 : 2.8;
-  if (rect.w >= minWidth && rect.h >= minHeight) return;
+interface ChartAspectGuidance {
+  recommendedAspectRatio: number;
+  maxAspectRatio: number;
+  reason: string;
+}
+
+interface ChartBodyRequirement {
+  minWidth: number;
+  recommendedMinHeight: number;
+  hardMinHeight: number;
+  hardMinWidth: number;
+}
+
+function pushChartFitDiagnostics(node: DomNode, rect: Rect, resolvedChartType: ChartType, labelCount: number, seriesCount: number, showLegend: boolean, outerRect?: Rect): void {
+  const requirement = chartBodyRequirement(node, resolvedChartType, labelCount, seriesCount, showLegend);
+  const minWidth = requirement.minWidth;
+  const minHeight = requirement.recommendedMinHeight;
+  const aspect = chartAspectGuidance(node, resolvedChartType, labelCount, seriesCount, showLegend);
+  const aspectRatio = rect.h > 0.01 ? rect.w / rect.h : Number.POSITIVE_INFINITY;
+  const aspectNeededHeight = aspect ? rect.w / aspect.maxAspectRatio : 0;
+  const tooSmall = rect.w < minWidth || rect.h < minHeight;
+  const hardTooSmall = rect.w < requirement.hardMinWidth || rect.h < requirement.hardMinHeight;
+  const tooFlat = Boolean(aspect && rect.w >= minWidth && aspectRatio > aspect.maxAspectRatio && rect.h + 0.04 < aspectNeededHeight);
+  if (!tooSmall && !tooFlat) return;
   const role = nearestSemanticRole(node);
+  const neededHeight = Math.max(minHeight, aspectNeededHeight);
+  const minWidthAtCurrentHeight = aspect ? rect.h * aspect.maxAspectRatio : minWidth;
+  const chromeHeight = outerRect ? Math.max(0, outerRect.h - rect.h) : undefined;
+  const outerNeededHeight = chromeHeight !== undefined ? neededHeight + chromeHeight : undefined;
+  const aspectMessage = aspect && tooFlat
+    ? ` Its chart-body aspect ratio is ${aspectRatio.toFixed(1)}:1; ${resolvedChartType} charts with this density should stay at or below ${aspect.maxAspectRatio.toFixed(1)}:1, so this body needs about ${aspectNeededHeight.toFixed(1)}cm height at the current width.`
+    : "";
+  const severity = role === "chart-card" && (hardTooSmall || tooFlat) ? "error" : "warn";
   pushDiagnostic({
-    severity: role === "chart-card" ? "error" : "warn",
+    severity,
     code: "SQUASHED",
     slideId: currentSlideId || undefined,
     nodeId: node.id,
-    message: `Chart '${nodeLabel(node)}' was assigned ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm; ${resolvedChartType} charts may be hard to read below about ${minWidth.toFixed(1)}x${minHeight.toFixed(1)}cm.`,
-    suggestion: chartCapacitySuggestion(resolvedChartType, minWidth, minHeight, labelCount, showLegend),
+    message: `Chart '${nodeLabel(node)}' was assigned ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm; ${resolvedChartType} charts may be hard to read below about ${minWidth.toFixed(1)}x${minHeight.toFixed(1)}cm.${aspectMessage}`,
+    suggestion: chartCapacitySuggestion(resolvedChartType, minWidth, minHeight, labelCount, showLegend, aspect ? {
+      aspectRatio,
+      maxAspectRatio: aspect.maxAspectRatio,
+      recommendedAspectRatio: aspect.recommendedAspectRatio,
+      aspectNeededHeightCm: aspectNeededHeight,
+      minWidthAtCurrentHeightCm: minWidthAtCurrentHeight,
+      reason: aspect.reason,
+    } : undefined, outerNeededHeight),
     measured: {
       rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
       available: rect.h,
-      needed: minHeight,
-      deltaCm: Math.max(0, minHeight - rect.h),
+      needed: neededHeight,
+      deltaCm: Math.max(0, neededHeight - rect.h),
       minWidthCm: minWidth,
       minHeightCm: minHeight,
+      hardMinHeightCm: requirement.hardMinHeight,
+      bodyNeededHeightCm: neededHeight,
+      ...(chromeHeight !== undefined ? { chromeHeightCm: chromeHeight } : {}),
+      ...(outerNeededHeight !== undefined ? { outerNeededHeightCm: outerNeededHeight } : {}),
+      ...(outerRect ? { outerRect: { x: outerRect.x, y: outerRect.y, w: outerRect.w, h: outerRect.h } } : {}),
+      ...(aspect ? {
+        aspectRatio,
+        maxAspectRatio: aspect.maxAspectRatio,
+        recommendedAspectRatio: aspect.recommendedAspectRatio,
+        aspectNeededHeightCm: aspectNeededHeight,
+        minWidthAtCurrentHeightCm: minWidthAtCurrentHeight,
+        aspectReason: aspect.reason,
+      } : {}),
       labelCount,
+      seriesCount,
       showLegend,
     },
   });
 }
 
-function chartCapacitySuggestion(resolvedChartType: ChartType, minWidth: number, minHeight: number, labelCount: number, showLegend: boolean): string {
+function chartBodyRequirement(node: DomNode, resolvedChartType: ChartType, labelCount: number, seriesCount: number, showLegend: boolean): ChartBodyRequirement {
+  const pieLike = resolvedChartType === "pie" || resolvedChartType === "doughnut";
+  if (pieLike) {
+    const recommendedMinHeight = labelCount >= 5 || showLegend ? 4.4 : 3.8;
+    return { minWidth: 5.2, recommendedMinHeight, hardMinHeight: Math.max(3.0, recommendedMinHeight - 0.55), hardMinWidth: 4.4 };
+  }
+  if (resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "waterfall") {
+    const dense = labelCount >= 5 || seriesCount >= 2 || showLegend;
+    const compact = labelCount <= 3 && seriesCount <= 1 && !showLegend;
+    const recommendedMinHeight = dense ? 3.0 : compact ? 2.2 : 2.6;
+    const hardMinHeight = dense ? 2.35 : compact ? 1.65 : 2.0;
+    return { minWidth: 4.8, recommendedMinHeight, hardMinHeight, hardMinWidth: 3.9 };
+  }
+  const dense = labelCount >= 7 || seriesCount >= 2 || showLegend;
+  const recommendedMinHeight = dense ? 2.8 : 2.4;
+  const hardMinHeight = dense ? 2.25 : 1.9;
+  return { minWidth: 4.8, recommendedMinHeight, hardMinHeight, hardMinWidth: 3.9 };
+}
+
+function chartAspectGuidance(node: DomNode, resolvedChartType: ChartType, labelCount: number, seriesCount: number, showLegend: boolean): ChartAspectGuidance | undefined {
+  if (resolvedChartType === "pie" || resolvedChartType === "doughnut") {
+    return undefined;
+  }
+  const axisTitleCount = [
+    node.xAxis ?? node.axis,
+    node.yAxis,
+    node.secondaryYAxis ?? node.secondaryAxis,
+  ].filter(hasChartAxisTitle).length;
+  if (resolvedChartType === "line" || resolvedChartType === "area" || resolvedChartType === "combo" || resolvedChartType === "scatter") {
+    const densityBump = labelCount >= 10 ? 0.25 : labelCount >= 7 ? 0.15 : 0;
+    const recommended = clamp(2.65 + densityBump + Math.min(0.3, Math.max(0, seriesCount - 1) * 0.08), 2.4, 3.3);
+    const max = clamp(5.0 - (showLegend ? 0.25 : 0) - (seriesCount >= 3 ? 0.25 : 0) - (axisTitleCount > 0 ? 0.2 : 0), 4.3, 5.0);
+    return {
+      recommendedAspectRatio: recommended,
+      maxAspectRatio: max,
+      reason: "axis charts need enough vertical plot area for slopes, markers, gridlines, axis titles, and legends",
+    };
+  }
+  if (resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "waterfall") {
+    const recommended = clamp(2.2 + (labelCount >= 8 ? 0.25 : 0) + (seriesCount >= 3 ? 0.15 : 0), 2.0, 2.8);
+    const max = clamp(5.4 - (showLegend ? 0.2 : 0) - (axisTitleCount > 0 ? 0.15 : 0), 4.8, 5.4);
+    return {
+      recommendedAspectRatio: recommended,
+      maxAspectRatio: max,
+      reason: "bar charts can be wider than line charts, but still need height for value comparison and axis labels",
+    };
+  }
+  return undefined;
+}
+
+function hasChartAxisTitle(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && typeof (value as { title?: unknown }).title === "string" && (value as { title: string }).title.trim());
+}
+
+function chartCapacitySuggestion(
+  resolvedChartType: ChartType,
+  minWidth: number,
+  minHeight: number,
+  labelCount: number,
+  showLegend: boolean,
+  aspect?: {
+    aspectRatio: number;
+    maxAspectRatio: number;
+    recommendedAspectRatio: number;
+    aspectNeededHeightCm: number;
+    minWidthAtCurrentHeightCm: number;
+    reason: string;
+  },
+  outerNeededHeightCm?: number,
+): string {
   const minimum = `Reserve at least ${minWidth.toFixed(1)}x${minHeight.toFixed(1)}cm for the chart body inside chart-card; title/caption/card chrome need additional space.`;
+  const outer = outerNeededHeightCm !== undefined ? ` With the current title/caption/card chrome, reserve roughly ${outerNeededHeightCm.toFixed(1)}cm total chart-card height.` : "";
+  const aspectAdvice = aspect
+    ? ` Current body is ${aspect.aspectRatio.toFixed(1)}:1; target about ${aspect.recommendedAspectRatio.toFixed(1)}:1 and keep it <= ${aspect.maxAspectRatio.toFixed(1)}:1 (${aspect.reason}). At this width, raise the chart body to about ${aspect.aspectNeededHeightCm.toFixed(1)}cm or reduce body width to about ${aspect.minWidthAtCurrentHeightCm.toFixed(1)}cm before simplifying the chart.`
+    : "";
   const density = labelCount > 8
     ? ` This chart has ${labelCount} categories; reduce label density, group categories, or use a follow-up slide after the body area is large enough.`
     : "";
   const legend = showLegend ? " Move or simplify the legend only after the chart body meets its minimum size." : "";
   if (resolvedChartType === "pie" || resolvedChartType === "doughnut") {
-    return `${minimum} Keep the pie/doughnut as the evidence object: use evidence-layout/chart-with-rail/split with the chart taking the dominant region, move explanatory facts to a side rail or next slide, and keep slice labels/data labels visible instead of relying on a tiny legend.${density}${legend}`;
+    return `${minimum}${outer}${aspectAdvice} Keep the pie/doughnut as the evidence object: use evidence-layout/chart-with-rail/split with the chart taking the dominant region, move explanatory facts to a side rail or next slide, and keep slice labels/data labels visible instead of relying on a tiny legend.${density}${legend}`;
   }
   if (resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "waterfall") {
-    return `${minimum} Keep the bar chart as the evidence object: give it full width or a 60-75% split/evidence region, move KPI/table/commentary below/aside or to a follow-up slide, and reduce labels/series/card chrome before changing components.${density}${legend}`;
+    return `${minimum}${outer}${aspectAdvice} Keep the bar chart as the evidence object: give it full width or a 60-75% split/evidence region, move KPI/table/commentary below/aside or to a follow-up slide, and reduce labels/series/card chrome before changing components.${density}${legend}`;
   }
-  return `${minimum} Keep the chart as the evidence object: give it a dominant region, move KPI/table/commentary to a rail or follow-up slide, and reduce series/label/legend density before changing components.${density}${legend}`;
+  return `${minimum}${outer}${aspectAdvice} Keep the chart as the evidence object: give it a dominant region, move KPI/table/commentary to a rail or follow-up slide, and reduce series/label/legend density before changing components.${density}${legend}`;
 }
 
 function normalizeChartAnnotations(value: unknown): ChartAnnotation[] {
@@ -4513,6 +5142,7 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
     return;
   }
   const constraint = findConstrainingAncestor(direction, parent);
+  const scaleHint = scaleHintForOverflow(delta, availableMain);
   const constraintHint = constraint
     ? ` Constrained by ${constraint.ancestorId}.${constraint.prop} = ${constraint.value}cm; relax or remove that to give children room.`
     : "";
@@ -4523,11 +5153,19 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
     nodeId: parent.id,
     message: `Container '${parent.id}' cannot fit its children even after demote/drop/truncate (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm).${constraintHint}`,
     suggestion: constraint
-      ? `Drop or raise ${constraint.ancestorId}.${constraint.prop} (currently ${constraint.value}cm) so the children have ≥${needed.toFixed(2)}cm. Alternatively, split content across slides or remove a child.`
-      : capacitySuggestion(parent, "Split content across slides, remove a child, or increase the parent's allotted height."),
-    measured: { available: availableMain, needed, deltaCm: delta },
+      ? `Drop or raise ${constraint.ancestorId}.${constraint.prop} (currently ${constraint.value}cm) so the children have ≥${needed.toFixed(2)}cm.${scaleHint ? ` If the component semantics must stay in this slot, ${scaleHint}` : ""} Alternatively, split content across slides or remove a child.`
+      : `${capacitySuggestion(parent, "Split content across slides, remove a child, or increase the parent's allotted height.")}${scaleHint ? ` ${scaleHint}` : ""}`,
+    measured: { available: availableMain, needed, deltaCm: delta, ...(scaleHint ? { scaleSuggestion: "sm" } : {}) },
     ...(constraint ? { constrainedBy: constraint } : {}),
   });
+}
+
+function scaleHintForOverflow(delta: number, available: number): string {
+  if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0 || available <= 0) return "";
+  const ratio = delta / available;
+  if (ratio <= 0.09) return "try component scale:'sm' first; it shrinks the component typography/chrome consistently without changing the semantic component.";
+  if (ratio <= 0.16) return "try scale:'sm' or density:'compact' before deleting content; if it still fails, increase the region or split the component across slides.";
+  return "";
 }
 
 function isFeatureCardSemanticChild(child: DomNode): boolean {
@@ -4540,6 +5178,7 @@ function isFeatureCardSemanticChild(child: DomNode): boolean {
 
 function pushFeatureCardCapacityDiagnostic(parent: DomNode, direction: "horizontal" | "vertical", availableMain: number, needed: number, delta: number): void {
   const constraint = findConstrainingAncestor(direction, parent);
+  const scaleHint = scaleHintForOverflow(delta, availableMain);
   const axisLabel = direction === "vertical" ? "height" : "width";
   const constraintHint = constraint
     ? ` Constrained by ${constraint.ancestorId}.${constraint.prop} = ${constraint.value}cm; relax that ancestor or give the card a larger region.`
@@ -4550,13 +5189,14 @@ function pushFeatureCardCapacityDiagnostic(parent: DomNode, direction: "horizont
     slideId: currentSlideId || undefined,
     nodeId: parent.id,
     message: `Feature-card '${parent.id}' cannot keep its title and body readable in the assigned ${axisLabel} (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm).${constraintHint}`,
-    suggestion: capacitySuggestion(parent, "Increase the feature-card region, reduce sibling content, or split the feature group across slides."),
+    suggestion: `${capacitySuggestion(parent, "Increase the feature-card region, reduce sibling content, or split the feature group across slides.")}${scaleHint ? ` ${scaleHint}` : ""}`,
     measured: {
       available: availableMain,
       needed,
       deltaCm: delta,
       minHeightCm: direction === "vertical" ? needed : undefined,
       minWidthCm: direction === "horizontal" ? needed : undefined,
+      ...(scaleHint ? { scaleSuggestion: "sm" } : {}),
     },
     ...(constraint ? { constrainedBy: constraint } : {}),
   });
@@ -4894,13 +5534,6 @@ function shrinkSizes(specs: SizeSpec[], sizes: number[], available: number): num
   }
   if (overflow > 0.0001) {
     sizeOverflowWarnings.add(`overflow=${overflow.toFixed(2)}cm; available=${available.toFixed(2)}cm`);
-    pushDiagnostic({
-      severity: "warn",
-      code: "OVERFLOW",
-      message: `Container is short by ${overflow.toFixed(2)}cm of children's minimum sizes; fixed-size children kept and flexible children scaled to fit.`,
-      suggestion: "Reduce fixedHeight/fixedWidth on a sibling, drop a low-priority child, or move content to a new slide.",
-      measured: { available, needed: available + overflow, deltaCm: overflow },
-    });
     return fitToAvailableRespectingFixed(specs, sizes, available);
   }
   return sizes;
@@ -5016,7 +5649,8 @@ function intrinsicMinSize(theme: SimpleTheme, node: DomNode, direction: "horizon
 function tableIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number): number {
   const { allRows, colCount, firstRowHeader, colWidths } = tableLayoutInfo(node, widthCm);
   if (allRows.length === 0) return 0.9;
-  const rowHeights = estimateTableRowHeights(theme, allRows, colWidths, firstRowHeader, tableDensity(node.density));
+  const fontScale = typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0 ? node.fontScale : 1;
+  const rowHeights = estimateTableRowHeights(theme, allRows, colWidths, firstRowHeader, tableDensity(node.density), fontScale);
   return Math.min(10, Math.max(0.9, rowHeights.reduce((sum, h) => sum + h, 0)));
 }
 
@@ -5048,13 +5682,13 @@ function tableDensity(raw: unknown): TableDensity {
   return "comfortable";
 }
 
-function estimateTableRowHeights(theme: SimpleTheme, rows: unknown[][], colWidths: number[], firstRowHeader: boolean, density: TableDensity = "comfortable"): number[] {
+function estimateTableRowHeights(theme: SimpleTheme, rows: unknown[][], colWidths: number[], firstRowHeader: boolean, density: TableDensity = "comfortable", fontScale = 1): number[] {
   return rows.map((row, rowIndex) => {
     const isHeader = rowIndex === 0 && firstRowHeader;
     let needed = tableRowHeightFloor(isHeader, density);
     for (let col = 0; col < Math.max(row.length, colWidths.length); col++) {
       const raw = row[col] ?? "";
-      needed = Math.max(needed, tableCellIntrinsicHeight(theme, raw, colWidths[col] || colWidths[0] || 1, isHeader, density));
+      needed = Math.max(needed, tableCellIntrinsicHeight(theme, raw, colWidths[col] || colWidths[0] || 1, isHeader, density, fontScale));
     }
     return needed;
   });
@@ -5068,22 +5702,23 @@ function tableRowHeightFloor(isHeader: boolean, density: TableDensity): number {
   return isHeader ? 0.55 : 0.48;
 }
 
-function tableTextStyle(theme: SimpleTheme, isHeader: boolean, density: TableDensity): ReturnType<typeof textStyle> {
+function tableTextStyle(theme: SimpleTheme, isHeader: boolean, density: TableDensity, fontScale = 1): ReturnType<typeof textStyle> {
   const kind = isHeader ? "table-header" : "table-cell";
   const style = textStyle(theme, kind, "table-cell");
-  if (density === "code-tiny") return { ...style, fontSize: 5.8, lineHeight: 1.0, weight: "regular" };
-  if (density === "code-dense") return { ...style, fontSize: 6.5, lineHeight: 1.02, weight: "regular" };
-  if (density === "code") return { ...style, fontSize: 7.2, lineHeight: 1.05, weight: "regular" };
-  if (density !== "compact") return style;
-  return {
+  const applyScale = (next: ReturnType<typeof textStyle>) => fontScale === 1 ? next : { ...next, fontSize: Math.max(5.5, next.fontSize * fontScale) };
+  if (density === "code-tiny") return applyScale({ ...style, fontSize: 5.8, lineHeight: 1.0, weight: "regular" });
+  if (density === "code-dense") return applyScale({ ...style, fontSize: 6.5, lineHeight: 1.02, weight: "regular" });
+  if (density === "code") return applyScale({ ...style, fontSize: 7.2, lineHeight: 1.05, weight: "regular" });
+  if (density !== "compact") return applyScale(style);
+  return applyScale({
     ...style,
     fontSize: Math.max(isHeader ? 8.5 : 8, style.fontSize - (isHeader ? 0.8 : 1.0)),
     lineHeight: Math.min(style.lineHeight, isHeader ? 1.12 : 1.15),
-  };
+  });
 }
 
-function tableCellIntrinsicHeight(theme: SimpleTheme, raw: unknown, widthCm: number, isHeader: boolean, density: TableDensity = "comfortable"): number {
-  const style = tableTextStyle(theme, isHeader, density);
+function tableCellIntrinsicHeight(theme: SimpleTheme, raw: unknown, widthCm: number, isHeader: boolean, density: TableDensity = "comfortable", fontScale = 1): number {
+  const style = tableTextStyle(theme, isHeader, density, fontScale);
   const text = tableCellText(raw);
   const isCode = density === "code" || density === "code-dense" || density === "code-tiny";
   const contentWidth = Math.max(0.8, widthCm - (isCode ? 0.18 : density === "compact" ? 0.38 : 0.52));
@@ -5134,7 +5769,7 @@ function tableCellText(raw: unknown): string {
   return String(raw ?? "");
 }
 
-function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, rows: unknown[][], colWidths: number[], rowHeights: number[], firstRowHeader: boolean): void {
+function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, rows: unknown[][], colWidths: number[], rowHeights: number[], firstRowHeader: boolean, outerRect?: Rect): void {
   const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, tableDensity(node.density));
   const totalNeeded = needed.reduce((sum, h) => sum + h, 0);
   const shortRows = needed
@@ -5160,6 +5795,8 @@ function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, 
   const estimatedRowsFit = countRowsThatFit(needed, Math.max(0, rect.h));
   const visibleRowsFit = firstRowHeader ? Math.max(0, estimatedRowsFit - 1) : estimatedRowsFit;
   const dataRowCount = firstRowHeader ? Math.max(0, rows.length - 1) : rows.length;
+  const chromeHeight = outerRect ? Math.max(0, outerRect.h - rect.h) : undefined;
+  const outerNeededHeight = chromeHeight !== undefined ? totalNeeded + chromeHeight : undefined;
   pushDiagnostic({
     severity: "error",
     code: "FALLBACK_FAILED",
@@ -5173,11 +5810,16 @@ function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, 
       rect,
       columnCount: colWidths.length,
       density: tableDensity(node.density),
+      outerNeededHeight,
     }),
     measured: {
       available: rect.h,
       needed: totalNeeded,
       rect,
+      bodyNeededHeightCm: totalNeeded,
+      ...(chromeHeight !== undefined ? { chromeHeightCm: chromeHeight } : {}),
+      ...(outerNeededHeight !== undefined ? { outerNeededHeightCm: outerNeededHeight } : {}),
+      ...(outerRect ? { outerRect: { x: outerRect.x, y: outerRect.y, w: outerRect.w, h: outerRect.h } } : {}),
       dataRowCount,
       estimatedVisibleRowsFit: visibleRowsFit,
       columnCount: colWidths.length,
@@ -5192,9 +5834,9 @@ function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, 
 
 function tableCapacitySuggestion(
   node: DomNode,
-  details: { dataRowCount: number; visibleRowsFit: number; totalNeeded: number; rect: Rect; columnCount: number; density: string },
+  details: { dataRowCount: number; visibleRowsFit: number; totalNeeded: number; rect: Rect; columnCount: number; density: string; outerNeededHeight?: number },
 ): string {
-  const { dataRowCount, visibleRowsFit, totalNeeded, rect, columnCount, density } = details;
+  const { dataRowCount, visibleRowsFit, totalNeeded, rect, columnCount, density, outerNeededHeight } = details;
   const fitText = dataRowCount > 0 && visibleRowsFit < dataRowCount
     ? `This ${columnCount}-column table can currently fit about ${visibleRowsFit}/${dataRowCount} data row(s).`
     : `This ${columnCount}-column table needs about ${totalNeeded.toFixed(2)}cm body height.`;
@@ -5204,7 +5846,8 @@ function tableCapacitySuggestion(
   const regionHint = rect.h < 4.5
     ? "For 6-8 readable business rows, reserve roughly 4.5-6cm of table body height plus title/caption/card chrome, or let table-card own a half/full slide."
     : `Assigned body height is ${rect.h.toFixed(2)}cm but estimated need is ${totalNeeded.toFixed(2)}cm.`;
-  return `Keep the table-card/table semantics and do not delete data just to pass validation. ${fitText} ${regionHint} ${compactHint} Widen text-heavy columns with encoding.columns/colWidths, provide rowHeights for known tall rows, reduce visible rows with an explicit page split, or paginate the same table across slides.`;
+  const outerHint = outerNeededHeight !== undefined ? `With the current title/caption/card chrome, reserve about ${outerNeededHeight.toFixed(2)}cm total table-card height.` : "";
+  return `Keep the table-card/table semantics and do not delete data just to pass validation. ${fitText} ${regionHint} ${outerHint} ${compactHint} Widen text-heavy columns with encoding.columns/colWidths, provide rowHeights for known tall rows, reduce visible rows with an explicit page split, or paginate the same table across slides.`;
 }
 
 function pushEmptyTableDataDiagnostic(node: DomNode, rect: Rect, sourceRows: unknown[], bodyRows: unknown[][], firstRowHeader: boolean): void {
@@ -5844,6 +6487,7 @@ function effectiveTextStyle(theme: SimpleTheme, node: DomNode, fallback = "parag
   const out = { ...base };
   if (mult !== 1) out.fontSize = out.fontSize * mult;
   if (typeof node.fontSize === "number" && Number.isFinite(node.fontSize) && node.fontSize > 0) out.fontSize = node.fontSize;
+  if (typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0) out.fontSize = Math.max(5.5, out.fontSize * node.fontScale);
   if (typeof node.lineHeight === "number" && Number.isFinite(node.lineHeight) && node.lineHeight > 0) out.lineHeight = node.lineHeight;
   if (node.fontWeight !== undefined) out.weight = node.fontWeight;
   if (node.weight !== undefined) out.weight = node.weight;
@@ -5962,6 +6606,25 @@ function numberProp(node: DomNode, key: string, fallback: number): number {
 function optionalNumberProp(node: DomNode, key: string): number | undefined {
   const value = node[key];
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function stringFromRecord(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function optionalNumberFromRecord(record: Record<string, unknown> | undefined, key: string): number | undefined {
+  const value = record?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function lineDashFromRecord(record: Record<string, unknown> | undefined): LineSpec["dash"] | undefined {
+  const value = stringFromRecord(record, "dash") ?? stringFromRecord(record, "lineDash");
+  return value === "dash" || value === "dashDot" || value === "dot" ? value : undefined;
 }
 
 function optionalCornerRadiusProp(node: DomNode): number | undefined {

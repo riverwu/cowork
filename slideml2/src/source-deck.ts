@@ -3,6 +3,7 @@ import { buildTheme } from "./theme.js";
 import { isDeckSize } from "./schema.js";
 import { resolveDataBindings, type DataBindingOptions } from "./data-binding.js";
 import { resolveScientificReferences } from "./m3-references.js";
+import { rectFromNodePlacement } from "./layout/geometry.js";
 
 export function createSourceDeck(options: {
   title?: string;
@@ -86,7 +87,7 @@ export function sourceSlideToRendered(slide: SlideV2): RenderedSlide {
       type: "slide",
       background: resolveSlideBackground(slide),
       notes: slide.notes,
-      transition: (slide as unknown as { transition?: unknown }).transition,
+      transition: slide.transition,
       children: [
         ...(shouldInjectSlideTitle ? [{
           id: `${slide.id}.title`,
@@ -219,7 +220,7 @@ function isOverlayChildAtSource(node: DomNode): boolean {
   if (node.layer === "behind" || node.layer === "above") return true;
   if (typeof node.anchor === "string" && OVERLAY_ANCHOR_POINTS.has(node.anchor)) return true;
   if (typeof node.anchorTo === "string" && node.anchorTo.length > 0) return true;
-  if (isAbsoluteAt(node.at)) return true;
+  if (rectFromNodePlacement(node)) return true;
   if (isOverlayWrapperAtSource(node)) return true;
   if (typeof node.type === "string" && OVERLAY_COMPONENT_TYPES.has(node.type)) return true;
   return false;
@@ -228,7 +229,7 @@ function isOverlayChildAtSource(node: DomNode): boolean {
 function isOverlayWrapperAtSource(node: DomNode): boolean {
   if (node.type !== "stack" && node.type !== "freeform-group") return false;
   if (!Array.isArray(node.children) || node.children.length === 0) return false;
-  if (node.area || node.at || node.anchor || node.anchorTo) return false;
+  if (node.area || node.at || rectFromNodePlacement(node) || node.anchor || node.anchorTo) return false;
   if (hasVisibleWrapperSurface(node)) return false;
   return node.children.every((child) => isOverlayChildAtSource(child));
 }
@@ -246,18 +247,6 @@ function hasVisibleWrapperSurface(node: DomNode): boolean {
   ].some((key) => node[key] !== undefined);
 }
 
-/**
- * `at: [x, y, w, h]` — slide-relative absolute positioning. Validates as
- * a 4-number array; the renderer clamps w/h ≤ 0 to a tiny floor. A
- * non-array or wrong-length value is silently ignored — the node falls
- * through to the next overlay-detection path or to flow.
- */
-function isAbsoluteAt(value: unknown): value is [number, number, number, number] {
-  return Array.isArray(value)
-    && value.length === 4
-    && value.every((n) => typeof n === "number" && Number.isFinite(n));
-}
-
 function aliasDimensionFields(node: DomNode): DomNode {
   if (!node || typeof node !== "object") return node;
   // umzrkm fix: agents reach for `height` / `width` on shape / band /
@@ -273,7 +262,8 @@ function aliasDimensionFields(node: DomNode): DomNode {
   //     field) but keep both available so any code reading either form
   //     still works.
   const skipAlias = node.type === "image" || node.type === "chart" || node.type === "table"
-    || typeof node.anchor === "string";
+    || typeof node.anchor === "string"
+    || Boolean(rectFromNodePlacement(node));
   let mutated = node;
   if (!skipAlias) {
     if (typeof node.height === "number" && node.fixedHeight === undefined) {

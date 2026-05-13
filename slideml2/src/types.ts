@@ -148,6 +148,20 @@ export type ThemeLayoutArea =
   | { x: number; y: number; w: number; h: number }
   | { left: number; top: number; right: number; bottom: number };
 
+export type ThemeTextWeight =
+  | "thin" | "hairline"
+  | "extralight" | "ultralight"
+  | "light"
+  | "normal" | "regular" | "book"
+  | "medium"
+  | "semibold" | "demibold"
+  | "bold"
+  | "extrabold" | "ultrabold" | "heavy"
+  | "black" | "super"
+  | number;
+
+export type ThemeFontChain = string | string[];
+
 export interface SurfaceShadowOverride {
   color?: string;
   alpha?: number;
@@ -229,12 +243,12 @@ export interface ThemeOverride {
   colors?: Record<string, ColorOverrideValue>;
   text?: Record<string, {
     fontSize?: number;
-    /** "normal" | "bold" | numeric 100..900. Numeric weights resolve to
-     *  typeface-name suffixes ("Inter Light", "Inter SemiBold") and emit
+    /** Named CSS weight or numeric 100..900. Numeric/named weights resolve
+     *  to typeface-name suffixes ("Inter Light", "Inter SemiBold") and emit
      *  b="1" for >=600. */
-    weight?: "normal" | "bold" | number;
+    weight?: ThemeTextWeight;
     /** Agent-friendly alias for weight. */
-    fontWeight?: "normal" | "bold" | number;
+    fontWeight?: ThemeTextWeight;
     color?: string;
     lineHeight?: number;
     margin?: { l?: number; r?: number; t?: number; b?: number };
@@ -250,12 +264,13 @@ export interface ThemeOverride {
   tone?: Record<string, { fg: string; bg: string; line: string }>;
   layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number; areas: Record<string, ThemeLayoutArea> }>;
   /** Per-script font chains. `latin` and `cjk` accept either a single
-   *  string[] (legacy: doubles as text + display) or `{ display?, text? }`
-   *  for separate display + text faces. `mono` is always a single chain. */
+   *  font face, a string[] chain (doubles as text + display), or
+   *  `{ display?, text? }` for separate display + text faces. `mono` is
+   *  always a single chain. */
   fonts?: {
-    latin?: string[] | { display?: string[]; text?: string[] };
-    cjk?: string[] | { display?: string[]; text?: string[] };
-    mono?: string[];
+    latin?: ThemeFontChain | { display?: ThemeFontChain; text?: ThemeFontChain };
+    cjk?: ThemeFontChain | { display?: ThemeFontChain; text?: ThemeFontChain };
+    mono?: ThemeFontChain;
   };
   chart?: { series?: string[] };
   chrome?: { brandMark?: "none" | "top-right" | "bottom-right"; pageNumber?: boolean; footerText?: string; footerLine?: boolean; footerHeight?: number; footerPadding?: number };
@@ -299,6 +314,13 @@ export interface SlideV2 {
   id: string;
   title?: string;
   background?: string;
+  transition?: {
+    type?: "none" | "fade" | "push" | "wipe" | "split" | "cover" | "uncover" | "slideIn" | "slide-in" | "slide_in" | "slide";
+    effect?: "none" | "fade" | "push" | "wipe" | "split" | "cover" | "uncover";
+    direction?: "left" | "right" | "up" | "down" | "fromLeft" | "fromRight" | "fromTop" | "fromBottom" | "toLeft" | "toRight" | "toTop" | "toBottom" | "fade" | "push" | "wipe" | "split" | "cover" | "uncover";
+    durationMs?: number;
+    duration?: number;
+  };
   children: DomNode[];
   notes?: string;
   metadata?: Record<string, unknown>;

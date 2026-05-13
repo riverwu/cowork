@@ -71,6 +71,20 @@ describe("typography — numeric weight axis", () => {
     expect(preferredFont(theme, "latin", "text", 900)).toBe("Inter Black");
   });
 
+  it("normalizes single-string theme font chains", () => {
+    const theme = buildTheme("default", undefined, {
+      fonts: {
+        latin: { display: "Arial", text: "Arial" },
+        cjk: { display: "Microsoft YaHei", text: "Microsoft YaHei" },
+        mono: "Consolas",
+      },
+    });
+
+    expect(theme.fonts.latin.display).toEqual(["Arial"]);
+    expect(theme.fonts.cjk.text).toEqual(["Microsoft YaHei"]);
+    expect(theme.fonts.mono).toEqual(["Consolas"]);
+  });
+
   it("maps semibold to installed-safe variants for common system fonts", () => {
     const arial = buildTheme({}, "default", { fonts: { latin: ["Arial"] } });
     const helvetica = buildTheme({}, "default", { fonts: { latin: ["Helvetica Neue"] } });

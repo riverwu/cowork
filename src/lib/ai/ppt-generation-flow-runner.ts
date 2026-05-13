@@ -408,7 +408,7 @@ export async function runPptGenerationFlowCaseDirectory(caseDirectory: string): 
   const path = await import("node:path");
   const caseDefinition = await loadPptGenerationFlowCaseDirectory(caseDirectory);
   await fs.mkdir(caseDefinition.inputsDirectory, { recursive: true });
-  await fs.mkdir(caseDefinition.outputsDirectory, { recursive: true });
+  await cleanCaseOutputs(caseDefinition);
   await fs.mkdir(caseDefinition.reportsDirectory, { recursive: true });
 
   const result = await runPptGenerationFlowScenario(caseDefinition.scenario);
@@ -434,6 +434,16 @@ export async function runPptGenerationFlowCaseDirectory(caseDirectory: string): 
     improvementCandidatesPath,
     improvementAnalysis,
   };
+}
+
+async function cleanCaseOutputs(caseDefinition: PptGenerationFlowCase): Promise<void> {
+  const fs = await import("node:fs/promises");
+  const relative = nodePath.relative(caseDefinition.caseDirectory, caseDefinition.outputsDirectory);
+  const safeOutputDir = Boolean(relative) && !relative.startsWith("..") && !nodePath.isAbsolute(relative);
+  if (safeOutputDir) {
+    await fs.rm(caseDefinition.outputsDirectory, { recursive: true, force: true });
+  }
+  await fs.mkdir(caseDefinition.outputsDirectory, { recursive: true });
 }
 
 export async function listPptGenerationFlowCaseDirectories(rootDirectory: string): Promise<string[]> {
@@ -809,11 +819,13 @@ export function analyzePptGenerationFlowImprovements(
     .map((record) => signalFromToolRecord(record, "recovered-friction"))
     .filter((signal): signal is PptGenerationFlowSignal => Boolean(signal));
   const planComponentSignals = planComponentDegradationSignals(result, caseDefinition);
+  const assetSignals = generatedAssetUsageSignals(result, caseDefinition);
   const finalQualitySignals = finalQualitySignalsFromValidate(result.summary.finalValidateRender);
   const candidates = buildImprovementCandidates([
     ...blockingFailureSignals,
     ...recoveredFrictionSignals,
     ...planComponentSignals,
+    ...assetSignals,
     ...finalQualitySignals,
   ], verification);
   return {
@@ -822,12 +834,12 @@ export function analyzePptGenerationFlowImprovements(
     passed: verification.ok,
     summary: {
       failedToolCalls: blockingFailureSignals.length,
-      recoveredFrictionSignals: recoveredFrictionSignals.length + planComponentSignals.length,
+      recoveredFrictionSignals: recoveredFrictionSignals.length + planComponentSignals.length + assetSignals.length,
       finalQualitySignals: finalQualitySignals.length,
       improvementCandidates: candidates.length,
     },
     blockingFailureSignals,
-    recoveredFrictionSignals: [...recoveredFrictionSignals, ...planComponentSignals],
+    recoveredFrictionSignals: [...recoveredFrictionSignals, ...planComponentSignals, ...assetSignals],
     finalQualitySignals,
     candidates,
   };
@@ -974,6 +986,76 @@ function planComponentDegradationSignals(
     });
   }
   return signals;
+}
+
+function generatedAssetUsageSignals(
+  result: PptGenerationFlowResult,
+  caseDefinition?: PptGenerationFlowCase | null,
+): PptGenerationFlowSignal[] {
+  const generated = generatedAssetPaths(result);
+  if (generated.length === 0) return [];
+  const used = finalDeckAssetReferences(result, caseDefinition);
+  const unused = generated.filter((assetPath) => !used.has(assetPath) && !used.has(nodePath.basename(assetPath)));
+  if (unused.length === 0) return [];
+  return [{
+    kind: "recovered-friction",
+    toolName: "report_analysis",
+    category: "asset-workflow",
+    severity: "medium",
+    message: `${unused.length}/${generated.length} generated asset(s) were not referenced by the final SlideML2 deck.`,
+    evidence: `unused=${unused.slice(0, 8).join(", ")}${unused.length > 8 ? "..." : ""}`,
+    diagnosticCodes: ["UNUSED_GENERATED_ASSET"],
+    diagnosticSummary: { UNUSED_GENERATED_ASSET: unused.length },
+    schemaErrorCodes: [],
+    schemaErrorPaths: [],
+    slideIds: [],
+    nodeIds: [],
+    componentTypes: ["image-card"],
+  }];
+}
+
+function generatedAssetPaths(result: PptGenerationFlowResult): string[] {
+  const candidates: string[] = [];
+  for (const record of result.toolRecords) {
+    const resultText = record.result || "";
+    if (!["image_gen", "run_python", "run_node", "shell", "generate_icon_sheet"].includes(record.name)) continue;
+    candidates.push(
+      ...regexAll(resultText, /(?:saved to|output(?:Path)?["': ]+|generated(?: and saved)? to)\s*["']?([^"'\n]+?\.(?:png|jpg|jpeg|webp|svg))/gi),
+      ...regexAll(resultText, /([/\w .@()_-]+\/assets\/[^"'\n]+?\.(?:png|jpg|jpeg|webp|svg))/gi),
+    );
+  }
+  return unique(candidates.map((value) => nodePath.resolve(value.trim())));
+}
+
+function finalDeckAssetReferences(
+  result: PptGenerationFlowResult,
+  caseDefinition?: PptGenerationFlowCase | null,
+): Set<string> {
+  const deck = readFinalSourceDeck(result, caseDefinition);
+  const out = new Set<string>();
+  const add = (value: string): void => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    out.add(trimmed);
+    out.add(nodePath.basename(trimmed));
+    if (nodePath.isAbsolute(trimmed)) out.add(nodePath.resolve(trimmed));
+    else out.add(nodePath.resolve(result.scenario.workingDirectory, trimmed));
+  };
+  const walk = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node)) {
+      for (const item of node) walk(item);
+      return;
+    }
+    const record = node as Record<string, unknown>;
+    for (const key of ["src", "path", "image", "url"]) {
+      const value = record[key];
+      if (typeof value === "string" && /\.(?:png|jpg|jpeg|webp|svg)$/i.test(value)) add(value);
+    }
+    for (const child of Object.values(record)) walk(child);
+  };
+  walk(deck);
+  return out;
 }
 
 function plannedDeckText(result: PptGenerationFlowResult): string {
@@ -1249,6 +1331,7 @@ const degradationCodes = new Set([
   "DEMOTED",
   "LOW_CONTRAST_FIXED",
   "PARTIAL_UNUSED_GENERATED_ICON_ASSETS",
+  "UNUSED_GENERATED_ASSET",
 ]);
 
 function isPassiveContextTool(toolName: string): boolean {

@@ -343,8 +343,34 @@ describe("emitter — package end-to-end", () => {
     };
     const zip = await JSZip.loadAsync(await emitPackage(deck));
     const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    const chartRels = await zip.file("ppt/charts/_rels/chart1.xml.rels")!.async("string");
+    const contentTypes = await zip.file("[Content_Types].xml")!.async("string");
     expect(chartXml).toContain('<c:grouping val="stacked"/>');
     expect(chartXml).toContain('<c:overlap val="100"/>');
+    expect(chartXml).toContain('<c:externalData r:id="rId1">');
+    expect(chartXml).toContain("<c:strRef>");
+    expect(chartXml).toContain("Sheet1!$B$1");
+    expect(chartXml).toContain("<c:strRef>");
+    expect(chartXml).toContain("Sheet1!$A$2:$A$3");
+    expect(chartXml).toContain("<c:numRef>");
+    expect(chartXml).toContain("Sheet1!$B$2:$B$3");
+    expect(chartRels).toContain('Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/package"');
+    expect(chartRels).toContain('Target="../embeddings/Microsoft_Excel_Worksheet1.xlsx"');
+    expect(contentTypes).toContain('Default Extension="xlsx"');
+    expect(contentTypes).toContain('/ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx');
+    expect(zip.file("ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx")).toBeTruthy();
+
+    const workbook = await JSZip.loadAsync(await zip.file("ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx")!.async("nodebuffer"));
+    expect(workbook.file("docProps/app.xml")).toBeTruthy();
+    expect(workbook.file("docProps/core.xml")).toBeTruthy();
+    expect(workbook.file("xl/theme/theme1.xml")).toBeTruthy();
+    expect(workbook.file("xl/sharedStrings.xml")).toBeTruthy();
+    const sheetXml = await workbook.file("xl/worksheets/sheet1.xml")!.async("string");
+    const stringsXml = await workbook.file("xl/sharedStrings.xml")!.async("string");
+    expect(sheetXml).toContain('t="s"');
+    expect(stringsXml).toContain("Q1");
+    expect(stringsXml).toContain("A");
+    expect(sheetXml).toContain("<v>10</v>");
   });
 
   it("emits expanded chart controls: axes, legend, plot area, series style, markers", async () => {
@@ -560,6 +586,29 @@ describe("emitter — package end-to-end", () => {
     expect(chartXml).toMatch(/<c:holeSize val="\d+"\/>/);
   });
 
+  it("emits pie/doughnut data labels in the series without a PowerPoint-repairing dLblPos", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "doughnut",
+          labels: ["A", "B", "C"],
+          dataLabels: { show: true, position: "outsideEnd", showValue: true, showCategoryName: true },
+          series: [{ name: "Share", values: [40, 35, 25] }],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    expect(chartXml).toContain("<c:dLbls>");
+    expect(chartXml).toContain("<c:dLbl><c:idx val=\"0\"/>");
+    expect(chartXml).not.toContain("<c:dLblPos");
+    expect(chartXml.indexOf("<c:dLbls>")).toBeLessThan(chartXml.indexOf("<c:cat>"));
+  });
+
   it("emits area as <c:areaChart> with translucent series fill", async () => {
     const deck: DeckAst = {
       size: "16x9",
@@ -631,6 +680,41 @@ describe("emitter — package end-to-end", () => {
     expect(chartXml).toContain("<c:errBars>");
     expect(chartXml).toContain('<c:errValType val="fixedVal"/>');
     expect(chartXml).toContain('<c:val val="1.5"/>');
+  });
+
+  it("emits scatter chart x/y refs against the embedded workbook", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "scatter",
+          labels: ["0", "1"],
+          series: [
+            { name: "Observed", values: [], points: [{ x: 1, y: 2 }, { x: 3, y: 5 }] },
+            { name: "Projected", values: [], points: [{ x: 1, y: 3 }, { x: 3, y: 8 }] },
+          ],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    expect(chartXml).toContain("<c:scatterChart>");
+    expect(chartXml).toContain("Sheet1!$A$2:$A$3");
+    expect(chartXml).toContain("Sheet1!$B$2:$B$3");
+    expect(chartXml).toContain("Sheet1!$C$2:$C$3");
+    expect(chartXml).toContain("Sheet1!$D$2:$D$3");
+
+    const workbook = await JSZip.loadAsync(await zip.file("ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx")!.async("nodebuffer"));
+    const sheetXml = await workbook.file("xl/worksheets/sheet1.xml")!.async("string");
+    const stringsXml = await workbook.file("xl/sharedStrings.xml")!.async("string");
+    expect(stringsXml).toContain("Observed x");
+    expect(stringsXml).toContain("Observed y");
+    expect(stringsXml).toContain("Projected x");
+    expect(stringsXml).toContain("Projected y");
+    expect(sheetXml).toContain("<v>8</v>");
   });
 
   it("emits chart graphicFrame with <a:graphicFrameLocks noGrp=\"1\"/> (PowerPoint requirement)", async () => {
