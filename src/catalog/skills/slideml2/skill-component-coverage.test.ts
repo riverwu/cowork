@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
@@ -8,6 +10,7 @@ const goldenSkillPath = resolve(repoRoot, "slideml2/SKILL.md");
 const catalogSkillPath = resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md");
 const skillRulePath = resolve(repoRoot, "slideml2/SKILL-RULE.md");
 const oldSkillPath = resolve(repoRoot, "slideml2/SKILL-old.md");
+const planningTemplatePath = resolve(repoRoot, "slideml2/planning-template.md");
 
 function skillText(): string {
   return readFileSync(goldenSkillPath, "utf8");
@@ -25,12 +28,6 @@ function skillDeclaredNames(): string[] {
 
 function skillLineFor(componentName: string): string {
   return skillText().split("\n").find((line) => line.startsWith(`- \`${componentName}\``) || line.startsWith(`- ${componentName}:`)) || "";
-}
-
-function firstJsonBlock(markdown: string): unknown {
-  const raw = markdown.match(/```json\n([\s\S]*?)\n```/)?.[1];
-  if (!raw) throw new Error("No JSON block found");
-  return JSON.parse(raw);
 }
 
 describe("slideml2 SKILL golden copy", () => {
@@ -56,7 +53,7 @@ describe("slideml2 SKILL golden copy", () => {
     expect(first120).toContain("## When to Use This Skill");
     expect(first120).toContain("## When NOT to Use This Skill");
     expect(first120).toContain("## What You Produce");
-    expect(first120).toContain('node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> [args] [--deck deck.json]');
+    expect(first120).toContain('node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> [args] [--deck deck-config.json]');
     expect(first120).toContain("Use `help` whenever uncertain");
   });
 
@@ -70,11 +67,27 @@ describe("slideml2 SKILL golden copy", () => {
     expect(skill).toContain("constrainedBy");
     expect(skill).toContain("Repair preference order");
     expect(skill).toContain("not merely");
-    expect(skill).toContain("Author one slide at a time");
-    expect(skill).toContain("`set-deck` for theme/config changes");
-    expect(skill).toContain("preserve slides");
-    expect(skill).toContain("Never hand-edit `deck.json`");
-    expect(skill).toContain("Never hand-edit `deck.json`. Never write the deck with `python-pptx`");
+    expect(skill).toContain("manifest.json");
+    expect(skill).toContain("The CLI reads only `manifest.slides[].file`");
+    expect(skill).toContain("### File Roles");
+    expect(skill).toContain("`deck-config.json`");
+    expect(skill).toContain("`build/deck.json`");
+    expect(skill).toContain("### Validation Scope");
+    expect(skill).toContain("### Serial Slide Gate");
+    expect(skill).toContain("### Never Do This");
+    expect(skill).toContain("Do not batch in create or modify mode");
+    expect(skill).toContain("Do not generate all new slide files or edit several existing slides");
+    expect(skill).toContain("Do not batch `validate-slide`");
+    expect(skill).toContain("node validate-all-slides.js");
+    expect(skill).toContain("### Planning Archive");
+    expect(skill).toContain("fill `plan.md` from `planning-template.md` before");
+    expect(skill).toContain("Do not hand-edit `build/deck.json`");
+    expect(skill).toContain("Do not write the deck with `python-pptx`");
+    const planningTemplate = readFileSync(planningTemplatePath, "utf8");
+    expect(planningTemplate).toContain("This file must exist before `init-deck`");
+    expect(planningTemplate).toContain("| Slide ID | Family | Title | Narrative job | Archetype | Primary component | Layout intent | Density risk |");
+    expect(planningTemplate).toContain("## Coverage Check");
+    expect(planningTemplate).toContain("Plan a small icon set early");
   });
 
   it("keeps the distributable skill package self-contained and sourced from the golden SKILL", () => {
@@ -107,30 +120,52 @@ describe("slideml2 SKILL golden copy", () => {
     expect(syncScript).toContain("src/catalog/skills/slideml2/SKILL.md");
     expect(readFileSync(runtimeCliPath, "utf8")).toContain("init-deck");
     expect(readFileSync(runtimeCliPath, "utf8")).toContain("set-deck");
-    expect(readFileSync(runtimeCliPath, "utf8")).toContain("add-slide");
-    expect(readFileSync(runtimeCliPath, "utf8")).toContain("insert-slide");
-    expect(readFileSync(runtimeCliPath, "utf8")).toContain("delete-slide");
-    expect(readFileSync(runtimeCliPath, "utf8")).toContain("render --out");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("validate-slide");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("validate-manifest");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("compose");
+    expect(readFileSync(runtimeCliPath, "utf8")).not.toContain("\"add-slide\"");
+    expect(readFileSync(runtimeCliPath, "utf8")).not.toContain("\"insert-slide\"");
+    expect(readFileSync(runtimeCliPath, "utf8")).not.toContain("\"delete-slide\"");
   });
 
-  it("links and keeps the business research style reference available", () => {
+  it("supports the manifest-compose CLI without stateful slide append commands", () => {
+    const runtimeCliPath = resolve(repoRoot, "src/catalog/skills/slideml2/runtime/bin/slideml2.js");
+    const dir = resolve(tmpdir(), `slideml2-compose-${Date.now()}`);
+    mkdirSync(join(dir, "slides"), { recursive: true });
+    mkdirSync(join(dir, "build"), { recursive: true });
+    const writeJson = (path: string, value: unknown) => writeFileSync(join(dir, path), JSON.stringify(value, null, 2));
+    const run = (args: string[], expectedStatus = 0) => {
+      const result = spawnSync(process.execPath, [runtimeCliPath, ...args], { cwd: dir, encoding: "utf8" });
+      expect(result.status, `${args.join(" ")}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(expectedStatus);
+      return JSON.parse(result.stdout) as Record<string, unknown>;
+    };
+
+    writeJson("deck-init.json", { title: "Compose CLI", size: "wide" });
+    run(["init-deck", "deck-init.json"]);
+    writeJson("slides/02-body.json", { id: "body", children: [{ id: "body.copy", type: "text", x: 1, y: 1, w: 8, h: 1, text: "Body" }] });
+    writeJson("slides/01-cover.json", { id: "cover", children: [{ id: "cover.copy", type: "text", x: 1, y: 1, w: 8, h: 1, text: "Cover" }] });
+    writeJson("manifest.json", { slides: [{ id: "cover", file: "slides/01-cover.json" }, { id: "body", file: "slides/02-body.json" }] });
+
+    run(["validate-slide", "slides/01-cover.json"]);
+    run(["validate-slide", "slides/02-body.json"]);
+    run(["validate-manifest", "manifest.json"]);
+    const composed = run(["compose", "manifest.json", "--write-source", "build/deck.json", "--out", "build/deck.pptx"]);
+    expect(composed.ok).toBe(true);
+    const source = JSON.parse(readFileSync(join(dir, "build/deck.json"), "utf8")) as { slides: Array<{ id: string }> };
+    expect(source.slides.map((slide) => slide.id)).toEqual(["cover", "body"]);
+    expect(existsSync(join(dir, "build/deck.pptx"))).toBe(true);
+  });
+
+  it("keeps deck-level layout guidance in SKILL instead of a side business file", () => {
     const skill = skillText();
     const businessPath = resolve(repoRoot, "src/catalog/skills/slideml2/business.md");
-    const business = readFileSync(businessPath, "utf8");
-    const theme = firstJsonBlock(business) as Record<string, Record<string, unknown>>;
 
-    expect(existsSync(businessPath)).toBe(true);
-    expect(skill).toContain("business.md");
-    expect(business).toContain("executive-summary");
-    expect(business).toContain("evidence-layout");
-    expect(business).toContain("comparison-table");
-    expect(theme.colors).toHaveProperty("divider");
-    expect(theme.layout).not.toHaveProperty("pageMarginY");
-    expect(theme.fonts).toMatchObject({
-      latin: { display: expect.any(Array), text: expect.any(Array) },
-      cjk: { display: expect.any(Array), text: expect.any(Array) },
-      mono: expect.any(Array),
-    });
+    expect(existsSync(businessPath)).toBe(false);
+    expect(skill).not.toContain("also read `business.md`");
+    expect(skill).toContain("### 2.1 Slide Family Map");
+    expect(skill).toContain("### 2.2 Compositional Archetypes");
+    expect(skill).toContain("### 2.4 Deck-Level Antipatterns");
+    expect(skill).toContain("Business/research decks default to light analytical themes");
   });
 
   it("declares every component exposed by component-registry", () => {
@@ -149,7 +184,7 @@ describe("slideml2 SKILL golden copy", () => {
       "image-card": ["src:image-ref", "fit:cover|contain|fill", "annotations"],
       "equation": ["latex", "renderMode:omml", "capacity="],
       "code-block": ["density:compact|dense|tiny", "columns", "fontSize", "capacity="],
-      "feature-card": ["iconSrc:image-ref", "marker", "metric", "surface"],
+      "feature-card": ["decoration", "metric", "surface"],
       "freeform-group": ["anchor/offsetX/offsetY/width/height/zIndex", "mode:overlay|background"],
       "shape": ["headEnd", "tailEnd", "thickness"],
     };
@@ -165,7 +200,11 @@ describe("slideml2 SKILL golden copy", () => {
   it("keeps page-job routing in the skill while avoiding raw text as a layout strategy", () => {
     const skill = skillText();
 
+    expect(skill).toContain("### 2.1 Slide Family Map");
+    expect(skill).toContain("### 2.2 Compositional Archetypes");
+    expect(skill).toContain("Picking an archetype first");
     expect(skill).toContain("## 4. Routing — Page Job → First Component");
+    expect(skill).toContain("Use this table only after deciding slide family");
     expect(skill).toContain("| Executive answer / final synthesis");
     expect(skill).toContain("`executive-summary`");
     expect(skill).toContain("Raw `text` is residual");

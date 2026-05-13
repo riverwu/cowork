@@ -14,7 +14,7 @@ const runtimeSourceDir = resolve(repoRoot, "slideml2");
 const goldenSkillPath = resolve(runtimeSourceDir, "SKILL.md");
 const runtimeCliSourcePath = resolve(runtimeSourceDir, "bin/slideml2.js");
 const defaultOutDir = resolve(repoRoot, "releases/skills/slideml2");
-const requiredFiles = ["SKILL.md", "planning-template.md", "business.md", "LICENSE.txt"] as const;
+const requiredFiles = ["SKILL.md", "planning-template.md", "LICENSE.txt"] as const;
 const requiredRuntimeFiles = [
   "runtime/package.json",
   "runtime/bin/slideml2.js",
@@ -42,12 +42,9 @@ interface SkillPackageManifest {
     commands: {
       initDeck: string;
       setDeck: string;
-      addSlide: string;
-      insertSlide: string;
-      setSlide: string;
-      deleteSlide: string;
-      validate: string;
-      render: string;
+      validateSlide: string;
+      validateManifest: string;
+      compose: string;
     };
     devInstallCommand: string;
     devBuildCommand: string;
@@ -106,7 +103,9 @@ function parseSkillFrontmatter(text: string): { version: string; description: st
 
 async function currentCommit(): Promise<string> {
   try {
-    return (await run("git", ["rev-parse", "--short=12", "HEAD"], repoRoot)).trim();
+    const commit = (await run("git", ["rev-parse", "--short=12", "HEAD"], repoRoot)).trim();
+    const dirty = (await run("git", ["status", "--porcelain"], repoRoot)).trim();
+    return dirty ? `${commit}-dirty` : commit;
   } catch {
     return "unknown";
   }
@@ -147,7 +146,7 @@ Unzip this archive so the target agent has a skill directory like:
 \`\`\`
 slideml2/
   SKILL.md
-  business.md
+  planning-template.md
   LICENSE.txt
   manifest.json
   runtime/
@@ -175,30 +174,22 @@ export SLIDEML2_SKILL_DIR=/path/to/slideml2
 mkdir -p /path/to/deck-workdir
 cd /path/to/deck-workdir
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" init-deck deck-init.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" add-slide slide-01.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" insert-slide 1 slide-insert.json
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" set-deck deck-theme.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" render --out deck.pptx
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-slide slides/01-cover.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-manifest manifest.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" compose manifest.json --write-source build/deck.json --out build/deck.pptx
 \`\`\`
 
 All CLI commands run from the deck workspace. If \`--deck\` is omitted, the CLI
-reads and writes \`./deck.json\` in that workspace.
+reads and writes \`./deck-config.json\` in that workspace.
 
 Supported agent-facing commands are:
 
 - \`init-deck\`
-- \`reset-deck\`
 - \`set-deck\`
-- \`list-slides\`
-- \`show-deck\`
-- \`add-slide\`
-- \`insert-slide\`
-- \`set-slide\`
-- \`delete-slide\`
-- \`diagnose-slide\`
-- \`validate\`
-- \`render\`
+- \`validate-slide\`
+- \`validate-manifest\`
+- \`compose\`
 
 Do not call TypeScript handlers, npm scripts, or tool adapters as the agent
 interface. Rebuilds must happen from the upstream SlideML2 repository; this
@@ -278,15 +269,14 @@ renderer and authoring loop without the full Cowork repository.
 Runtime dependencies are bundled into \`runtime/dist/index.js\`, so
 agent-facing CLI commands can run immediately with Node.js without
 \`npm install\`. Run the commands from the deck workspace; omitted \`--deck\`
-defaults to \`./deck.json\`.
+defaults to \`./deck-config.json\`.
 
 \`\`\`bash
 node /path/to/slideml2/runtime/bin/slideml2.js init-deck deck-init.json
-node /path/to/slideml2/runtime/bin/slideml2.js add-slide slide-01.json
-node /path/to/slideml2/runtime/bin/slideml2.js insert-slide 1 slide-insert.json
 node /path/to/slideml2/runtime/bin/slideml2.js set-deck deck-theme.json
-node /path/to/slideml2/runtime/bin/slideml2.js validate
-node /path/to/slideml2/runtime/bin/slideml2.js render --out deck.pptx
+node /path/to/slideml2/runtime/bin/slideml2.js validate-slide slides/01-cover.json
+node /path/to/slideml2/runtime/bin/slideml2.js validate-manifest manifest.json
+node /path/to/slideml2/runtime/bin/slideml2.js compose manifest.json --write-source build/deck.json --out deck.pptx
 \`\`\`
 
 This package is runtime-only: it intentionally omits TypeScript source, tests,
@@ -307,14 +297,17 @@ Minimal argument files:
 \`\`\`
 
 \`\`\`json
-{ "id": "cover", "title": "Deck title", "children": [] }
+{ "slides": [{ "id": "cover", "file": "slides/01-cover.json" }] }
 \`\`\`
 
-Do not write a complete deck JSON and jump straight to final PPTX generation
-for normal deck creation. Use \`init-deck\` and per-slide \`add-slide\` /
-\`insert-slide\` / \`set-slide\` so validation can reject bad slides before they
-enter the source deck. Use \`set-deck\` for theme/config changes that preserve
-slides; \`reset-deck\` intentionally deletes existing slides.
+\`\`\`json
+{ "id": "cover", "children": [] }
+\`\`\`
+
+Do not write a complete deck JSON by hand and jump straight to final PPTX
+generation. Use \`init-deck\`, validate each slide file with
+\`validate-slide\`, validate ordering with \`validate-manifest\`, and finish
+with \`compose\`. Slide order is manifest order, not command order.
 `;
   await writeFile(join(runtimeRoot, "RUNTIME.md"), readme);
 }
@@ -407,7 +400,7 @@ async function main(): Promise<void> {
         notes: [
           "Unzip preserving the slideml2 directory.",
           "Runtime dependencies are bundled into runtime/dist/index.js; basic runtime/bin/slideml2.js commands run with Node.js immediately after unzip.",
-          "Run CLI commands from the deck workspace; omitted --deck defaults to ./deck.json.",
+          "Run CLI commands from the deck workspace; omitted --deck defaults to ./deck-config.json.",
           "The runtime package is executable-only and intentionally omits TypeScript source, tests, examples, development scripts, and node_modules.",
           "The agent-facing interface is the CLI only; do not expose TypeScript handlers or npm scripts as separate command interfaces.",
           "Generated PPT outputs and dependency caches are intentionally excluded.",
@@ -416,16 +409,13 @@ async function main(): Promise<void> {
       runtime: {
         directory: "slideml2/runtime",
         cli: "node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js",
-        defaultDeckPath: "./deck.json",
+        defaultDeckPath: "./deck-config.json",
         commands: {
           initDeck: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js init-deck deck-init.json",
           setDeck: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js set-deck deck-theme.json",
-          addSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js add-slide slide-01.json",
-          insertSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js insert-slide 1 slide-insert.json",
-          setSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js set-slide 0 slide-01.json",
-          deleteSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js delete-slide 0",
-          validate: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js validate",
-          render: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js render --out deck.pptx",
+          validateSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js validate-slide slides/01-cover.json",
+          validateManifest: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js validate-manifest manifest.json",
+          compose: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js compose manifest.json --write-source build/deck.json --out deck.pptx",
         },
         devInstallCommand: "not supported in the skill package; rebuild from the upstream SlideML2 repository",
         devBuildCommand: "not supported in the skill package; rebuild from the upstream SlideML2 repository",

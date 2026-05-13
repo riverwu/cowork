@@ -1,8 +1,8 @@
 # SlideML2 Skill Package
 
-Version: 1.0.32
+Version: 1.0.39
 
-Use this skill whenever the user asks to create, edit, render, review, or export slide decks, presentations, PPT, PPTX, or SlideML2 decks. This skill is the component reference for Cowork's SlideML2 deck tools.
+Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
 
 ## Install
 
@@ -11,7 +11,7 @@ Unzip this archive so the target agent has a skill directory like:
 ```
 slideml2/
   SKILL.md
-  business.md
+  planning-template.md
   LICENSE.txt
   manifest.json
   runtime/
@@ -39,30 +39,22 @@ export SLIDEML2_SKILL_DIR=/path/to/slideml2
 mkdir -p /path/to/deck-workdir
 cd /path/to/deck-workdir
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" init-deck deck-init.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" add-slide slide-01.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" insert-slide 1 slide-insert.json
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" set-deck deck-theme.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" render --out deck.pptx
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-slide slides/01-cover.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-manifest manifest.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" compose manifest.json --write-source build/deck.json --out build/deck.pptx
 ```
 
 All CLI commands run from the deck workspace. If `--deck` is omitted, the CLI
-reads and writes `./deck.json` in that workspace.
+reads and writes `./deck-config.json` in that workspace.
 
 Supported agent-facing commands are:
 
 - `init-deck`
-- `reset-deck`
 - `set-deck`
-- `list-slides`
-- `show-deck`
-- `add-slide`
-- `insert-slide`
-- `set-slide`
-- `delete-slide`
-- `diagnose-slide`
-- `validate`
-- `render`
+- `validate-slide`
+- `validate-manifest`
+- `compose`
 
 Do not call TypeScript handlers, npm scripts, or tool adapters as the agent
 interface. Rebuilds must happen from the upstream SlideML2 repository; this

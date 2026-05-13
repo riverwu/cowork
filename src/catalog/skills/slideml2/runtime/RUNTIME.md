@@ -8,15 +8,14 @@ renderer and authoring loop without the full Cowork repository.
 Runtime dependencies are bundled into `runtime/dist/index.js`, so
 agent-facing CLI commands can run immediately with Node.js without
 `npm install`. Run the commands from the deck workspace; omitted `--deck`
-defaults to `./deck.json`.
+defaults to `./deck-config.json`.
 
 ```bash
 node /path/to/slideml2/runtime/bin/slideml2.js init-deck deck-init.json
-node /path/to/slideml2/runtime/bin/slideml2.js add-slide slide-01.json
-node /path/to/slideml2/runtime/bin/slideml2.js insert-slide 1 slide-insert.json
 node /path/to/slideml2/runtime/bin/slideml2.js set-deck deck-theme.json
-node /path/to/slideml2/runtime/bin/slideml2.js validate
-node /path/to/slideml2/runtime/bin/slideml2.js render --out deck.pptx
+node /path/to/slideml2/runtime/bin/slideml2.js validate-slide slides/01-cover.json
+node /path/to/slideml2/runtime/bin/slideml2.js validate-manifest manifest.json
+node /path/to/slideml2/runtime/bin/slideml2.js compose manifest.json --write-source build/deck.json --out deck.pptx
 ```
 
 This package is runtime-only: it intentionally omits TypeScript source, tests,
@@ -37,11 +36,14 @@ Minimal content files:
 ```
 
 ```json
-{ "id": "cover", "title": "Deck title", "children": [] }
+{ "slides": [{ "id": "cover", "file": "slides/01-cover.json" }] }
 ```
 
-Do not write a complete deck JSON and jump straight to final PPTX generation
-for normal deck creation. Use `init-deck` and per-slide `add-slide` /
-`insert-slide` / `set-slide` so validation can reject bad slides before they
-enter the source deck. Use `set-deck` for theme/config changes that preserve
-slides; `reset-deck` intentionally deletes existing slides.
+```json
+{ "id": "cover", "children": [] }
+```
+
+Do not write a complete deck JSON by hand and jump straight to final PPTX
+generation. Use `init-deck`, validate each slide file with `validate-slide`,
+validate ordering with `validate-manifest`, and finish with `compose`. Slide
+order is manifest order, not command order.

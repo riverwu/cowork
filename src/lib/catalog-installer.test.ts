@@ -47,9 +47,10 @@ describe("catalog skill installer", () => {
     await installCatalogSkill("slideml2");
 
     expect(mockWriteFile).toHaveBeenCalledWith(
-      "/skills/slideml2/business.md",
-      expect.stringContaining("Business research decks are light-first"),
+      "/skills/slideml2/planning-template.md",
+      expect.stringContaining("This file must exist before `init-deck`"),
     );
+    expect(mockWriteFile.mock.calls.some(([path]) => String(path).endsWith("/business.md"))).toBe(false);
     expect(mockWriteFile).toHaveBeenCalledWith(
       "/skills/slideml2/runtime/bin/slideml2.js",
       expect.stringContaining("Commands:"),

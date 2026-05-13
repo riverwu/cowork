@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { stdin } from "node:process";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { basename, dirname, isAbsolute, resolve } from "node:path";
 import {
   clearRenderDiagnostics,
   createSourceDeck,
@@ -9,13 +9,11 @@ import {
   isBlockingRenderDiagnostic,
   isQualityRenderDiagnostic,
   normalizeSlide,
-  readDeck,
   renderToAst,
   renderToPptx,
   sourceToRenderedDeck,
   validateDeck,
   validateSlide,
-  writeDeck,
 } from "../dist/index.js";
 
 const EXIT = {
@@ -29,17 +27,10 @@ const EXIT = {
 
 const COMMANDS = [
   "init-deck",
-  "reset-deck",
   "set-deck",
-  "list-slides",
-  "show-deck",
-  "add-slide",
-  "insert-slide",
-  "set-slide",
-  "delete-slide",
-  "diagnose-slide",
-  "validate",
-  "render",
+  "validate-slide",
+  "validate-manifest",
+  "compose",
   "help",
 ];
 
@@ -47,91 +38,58 @@ const HELP = {
   main: `SlideML2 CLI
 
 Usage:
-  slideml2 <command> [args] [--deck deck.json] [--out deck.pptx] [--dry-run]
+  slideml2 <command> [args] [--deck deck-config.json] [--out deck.pptx] [--write-source build/deck.json]
 
 Commands:
-  init-deck <args.json>          Create a new deck; fails if the deck already exists.
-  reset-deck <args.json>         Reinitialize a deck; overwrites intentionally.
-  set-deck <deck-props.json>     Patch deck theme/config without deleting slides.
-  list-slides                    Print [{ index, id, title }] for the current deck.
-  show-deck [--slide id|index]   Print the full deck or one slide.
-  add-slide <slide.json>         Append one slide; validates before writing.
-  insert-slide <index|id> <slide.json>
-                                 Insert one slide before a target; validates before writing.
-  set-slide <id|index> <slide.json>
-                                 Replace one existing slide; validates before writing.
-  delete-slide <id|index>        Delete one slide; validates before writing.
-  diagnose-slide <slide.json>    Validate a candidate slide without writing.
-  validate                       Validate source and rendered layout; writes no PPTX.
-  render --out deck.pptx         Validate and render a PPTX.
+  init-deck <args.json>          Create a deck configuration source; fails if it exists.
+  set-deck <deck-props.json>     Patch deck theme/config/data without changing slide files.
+  validate-slide <slide.json>    Validate one standalone slide file; writes nothing.
+  validate-manifest <manifest.json>
+                                 Validate manifest order and referenced slide files.
+  compose <manifest.json>        Compose ordered slide files into deck source and/or PPTX.
   help [command]                 Show command help.
 
 Common flags:
-  --deck <path>       Deck source path. Default: ./deck.json in the current directory.
-  --out <path>        PPTX output path for render.
-  --slide <id|index>  Slide selector for show-deck or diagnose-slide replacement mode.
-  --before <id|index> Insert/diagnose before this slide.
-  --after <id|index>  Insert/diagnose after this slide.
-  --dry-run           Run validation but do not write deck.json.
-  --strict            Reserved for stricter validation policy.
-  --json-output       Accepted for clarity; JSON output is always enabled.
+  --deck <path>          Deck config source path. Default: ./deck-config.json.
+  --out <path>           PPTX output path for compose.
+  --write-source <path>  Composed full deck JSON output path for compose.
+  --dry-run              Run validation but do not write files.
+  --strict               Reserved for stricter validation policy.
+  --json-output          Accepted for clarity; JSON output is always enabled.
 
 Exit codes:
   0 ok, 2 usage/input JSON, 10 source validation, 20 render validation,
   30 target missing/existing conflict, 1 unexpected error.`,
-  "init-deck": `Usage: slideml2 init-deck <args.json> [--deck deck.json] [--dry-run]
+  "init-deck": `Usage: slideml2 init-deck <args.json> [--deck deck-config.json] [--dry-run]
 
-Create a new SlideML2 deck. Fails with status:"target-exists" if the target
-deck already exists. Use reset-deck when overwrite is intentional.
+Create a new SlideML2 deck configuration. Fails with status:"target-exists" if
+the target already exists. The result is a valid SlideML2 source with an empty
+slides array and should be used as deck context for validate-slide/compose.
 
 args.json fields: title, size, theme, brand, themeOverride, validation, master,
 dataSources, references, footnotes.`,
-  "reset-deck": `Usage: slideml2 reset-deck <args.json> [--deck deck.json] [--dry-run]
+  "set-deck": `Usage: slideml2 set-deck <deck-props.json> [--deck deck-config.json] [--dry-run]
 
-Reinitialize a SlideML2 deck and overwrite any existing deck at --deck.`,
-  "set-deck": `Usage: slideml2 set-deck <deck-props.json> [--deck deck.json] [--dry-run]
+Patch deck-level settings while preserving the manifest/slide-file workflow.
+Use this for theme, themeOverride, brand, validation, chrome, master,
+dataSources, references, or footnotes changes. themeOverride is deep-merged;
+other supplied deck fields are set directly.`,
+  "validate-slide": `Usage: slideml2 validate-slide <slide.json> [--deck deck-config.json]
 
-Patch deck-level settings while preserving all slides. Use this for theme,
-themeOverride, brand, validation, chrome, master, dataSources, references, or
-footnotes changes. themeOverride is deep-merged; other supplied deck fields are
-set directly. The resulting full deck is validated before writing.`,
-  "list-slides": `Usage: slideml2 list-slides [--deck deck.json]
+Validate one slide file against deck config/theme/data and run render-layout
+diagnostics for that single page. This command never writes deck.json. If it
+fails, repair the same slide file and retry validate-slide.`,
+  "validate-manifest": `Usage: slideml2 validate-manifest <manifest.json> [--deck deck-config.json]
 
-Print only slide index/id/title, so agents can inspect deck structure without
-loading the full source.`,
-  "show-deck": `Usage: slideml2 show-deck [--deck deck.json] [--slide id|index]
+Validate manifest order, file existence, duplicate ids, id/file consistency,
+each referenced slide, and the composed deck source/render layout. Writes no
+PPTX and no deck source.`,
+  compose: `Usage: slideml2 compose <manifest.json> [--deck deck-config.json] --write-source build/deck.json --out build/deck.pptx
 
-Print the full source deck, or one slide when --slide is supplied.`,
-  "add-slide": `Usage: slideml2 add-slide <slide.json> [--deck deck.json] [--dry-run]
-
-Append one slide. The file must contain the slide object directly:
-{ "id": "s1", "title": "Slide", "children": [] }`,
-  "insert-slide": `Usage:
-  slideml2 insert-slide <index|id> <slide.json> [--deck deck.json] [--dry-run]
-  slideml2 insert-slide <slide.json> --before <index|id> [--deck deck.json]
-  slideml2 insert-slide <slide.json> --after <index|id> [--deck deck.json]
-
-Insert one slide before the target by default. Use --after to insert after an
-existing slide. The file must contain the slide object directly.`,
-  "set-slide": `Usage: slideml2 set-slide <id|index> <slide.json> [--deck deck.json] [--dry-run]
-
-Replace exactly one existing slide. The file must contain the slide object
-directly; the target id/index is a command argument, not a JSON field.`,
-  "delete-slide": `Usage: slideml2 delete-slide <id|index> [--deck deck.json] [--dry-run]
-
-Delete exactly one existing slide, then validate the resulting deck before
-writing.`,
-  "diagnose-slide": `Usage: slideml2 diagnose-slide <slide.json> [--deck deck.json] [--slide id|index]
-
-Validate a candidate slide against the current deck without writing. Without
---slide it diagnoses append mode; with --slide it diagnoses replacement mode;
-with --before/--after it diagnoses insertion mode.`,
-  validate: `Usage: slideml2 validate [--deck deck.json] [--strict]
-
-Validate the current deck source and rendered layout. Writes no PPTX.`,
-  render: `Usage: slideml2 render --out deck.pptx [--deck deck.json]
-
-Validate the current deck, render a PPTX, and write <out>.diagnostics.json.`,
+Read deck config plus ordered slide files from manifest.json, validate the
+full composed deck, then atomically write the composed deck source and optional
+PPTX. Slide order comes only from manifest.json, not command history. At least
+one of --write-source or --out is required.`,
 };
 
 function printHelp(command) {
@@ -143,11 +101,15 @@ function abs(path) {
 }
 
 function deckPathFrom(flags) {
-  return abs(flags.deck || "deck.json");
+  return abs(flags.deck || "deck-config.json");
 }
 
-function outputPathFrom(flags, deckPath) {
-  return abs(flags.out || deckPath.replace(/\.json$/i, ".pptx"));
+function outputPathFrom(flags) {
+  return flags.out ? abs(flags.out) : undefined;
+}
+
+function writeSourcePathFrom(flags) {
+  return flags["write-source"] ? abs(flags["write-source"]) : undefined;
 }
 
 function parseArgs(argv) {
@@ -163,7 +125,7 @@ function parseArgs(argv) {
       flags.strict = true;
     } else if (arg === "--json-output") {
       flags.jsonOutput = true;
-    } else if (arg === "--deck" || arg === "--out" || arg === "--slide" || arg === "--before" || arg === "--after") {
+    } else if (arg === "--deck" || arg === "--out" || arg === "--write-source") {
       const value = argv[++i];
       if (!value) usage(`Missing value for ${arg}`);
       flags[arg.slice(2)] = value;
@@ -177,7 +139,7 @@ function parseArgs(argv) {
 }
 
 function usage(message) {
-  const payload = {
+  printPayload({
     ok: false,
     command: undefined,
     stage: "input",
@@ -186,9 +148,7 @@ function usage(message) {
     error: message || "invalid command line",
     commands: COMMANDS,
     nextAction: "Run slideml2 help or slideml2 help <command>, then retry with the documented command shape.",
-  };
-  console.log(JSON.stringify(payload, null, 2));
-  process.exit(EXIT.usage);
+  }, EXIT.usage);
 }
 
 async function readJson(path, label = "input") {
@@ -229,7 +189,7 @@ function jsonParseErrorPayload(filePath, text, label, error) {
     error: "JSON parse failed",
     diagnostic,
     diagnostics: { count: 1, summary: { INVALID_ARGS_JSON: 1 }, blockingCount: 1, blocking: [diagnostic] },
-    nextAction: "Repair the JSON syntax, then rerun this exact command. Do not recreate deck.json or switch tools.",
+    nextAction: "Repair the JSON syntax, then rerun this exact command. Do not switch to ad hoc deck.json writes.",
   };
   const out = new Error(diagnostic.message);
   out.slideml2JsonParse = true;
@@ -278,64 +238,6 @@ async function pathExists(path) {
   }
 }
 
-function deckSummary(deck) {
-  const slides = Array.isArray(deck?.slides) ? deck.slides : [];
-  return {
-    slideCount: slides.length,
-    slides: slides.map((slide, index) => ({ index, id: slide?.id, title: slide?.title })).filter((item) => item.id || item.title),
-  };
-}
-
-function parseSlideSelector(value) {
-  if (typeof value !== "string") return value;
-  return /^\d+$/.test(value) ? Number(value) : value;
-}
-
-function findSlideIndex(deck, slideId) {
-  if (typeof slideId === "number") return slideId >= 0 && slideId < deck.slides.length ? slideId : -1;
-  return deck.slides.findIndex((slide) => slide.id === slideId);
-}
-
-function resolveInsertIndex(deck, slideId, placement = "before") {
-  if (typeof slideId === "number") {
-    if (placement === "before") return slideId >= 0 && slideId <= deck.slides.length ? slideId : -1;
-    return slideId >= 0 && slideId < deck.slides.length ? slideId + 1 : -1;
-  }
-  const existing = findSlideIndex(deck, slideId);
-  if (existing < 0) return -1;
-  return placement === "after" ? existing + 1 : existing;
-}
-
-function blockingDiagnostics(items) {
-  return items.filter((item) => isBlockingRenderDiagnostic(item.code, item.severity));
-}
-
-function qualityDiagnostics(items) {
-  return items.filter((item) => isQualityRenderDiagnostic(item.code));
-}
-
-function diagnosticsSummary(items) {
-  return items.reduce((acc, item) => {
-    const key = item.code || "UNKNOWN";
-    acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {});
-}
-
-function renderValidationPayload(diagnostics, blocking, quality) {
-  return {
-    ok: blocking.length === 0,
-    diagnostics: {
-      count: diagnostics.length,
-      summary: diagnosticsSummary(diagnostics),
-      blockingCount: blocking.length,
-      blocking: blocking.slice(0, 80),
-      qualityCount: quality.length,
-      quality: quality.slice(0, 30),
-    },
-  };
-}
-
 function commandPayload(command, fields) {
   return { command, ...fields };
 }
@@ -348,14 +250,20 @@ function printPayload(payload, exitCode = EXIT.ok) {
 function deckOptionsFrom(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
   const {
+    slideml2: _slideml2,
+    deck: nestedDeck,
+    slides: _slides,
     deckPath: _deckPath,
     outputPath: _outputPath,
     out: _out,
     render: _render,
     dryRun: _dryRun,
-    ...deckOptions
+    ...props
   } = input;
-  return deckOptions;
+  if (nestedDeck && typeof nestedDeck === "object" && !Array.isArray(nestedDeck)) {
+    return { ...props, ...nestedDeck };
+  }
+  return props;
 }
 
 function deckPatchFrom(input) {
@@ -375,6 +283,17 @@ function deckPatchFrom(input) {
     return { ...props, ...nestedDeck };
   }
   return props;
+}
+
+async function readDeckConfig(deckPath) {
+  const input = await readJson(deckPath, "deck config");
+  if (input && typeof input === "object" && !Array.isArray(input) && input.slideml2 === 2 && input.deck) {
+    return {
+      ...input,
+      slides: [],
+    };
+  }
+  return createSourceDeck(deckOptionsFrom(input));
 }
 
 function mergeThemeOverride(prev, next) {
@@ -426,133 +345,125 @@ function mergeKeyed(prev, next) {
 function slideFromInput(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return input;
   if ("slide" in input && !("id" in input)) {
-    throw new Error("Slide files must contain the slide object directly, not { slide: ... }. Use add-slide slide.json or set-slide <id> slide.json.");
+    throw new Error("Slide files must contain the slide object directly, not { slide: ... }. Use validate-slide on that same slide file after rewriting it.");
   }
   return input;
 }
 
-async function validateCandidateSlide(command, deckPath, deck, slide, targetIndex, mode) {
-  const normalizedSlide = normalizeSlide(slide);
-  const slideValidation = validateSlide(normalizedSlide, deck);
-  if (!slideValidation.ok) {
-    return {
-      ok: false,
-      exitCode: EXIT.sourceValidation,
-      payload: commandPayload(command, {
-        ok: false,
-        stage: "validate",
-        status: "schema-error",
-        deckModified: false,
-        sourceValidation: slideValidation,
-        validation: slideValidation,
-        nextAction: "Repair this same slide JSON and retry the same command before moving to another slide.",
-      }),
-    };
-  }
+function blockingDiagnostics(items) {
+  return items.filter((item) => isBlockingRenderDiagnostic(item.code, item.severity));
+}
 
-  const candidate = JSON.parse(JSON.stringify(deck));
-  let insertedAt;
-  let replacedAt;
-  if (mode === "append") {
-    candidate.slides.push(normalizedSlide);
-    targetIndex = candidate.slides.length - 1;
-    insertedAt = targetIndex;
-  } else if (mode === "insert") {
-    candidate.slides.splice(targetIndex, 0, normalizedSlide);
-    insertedAt = targetIndex;
-  } else {
-    candidate.slides[targetIndex] = normalizedSlide;
-    replacedAt = targetIndex;
-  }
+function qualityDiagnostics(items) {
+  return items.filter((item) => isQualityRenderDiagnostic(item.code));
+}
 
-  const validation = validateDeck(candidate, { baseDir: dirname(deckPath) });
-  if (!validation.ok) {
-    return {
-      ok: false,
-      exitCode: EXIT.sourceValidation,
-      payload: commandPayload(command, {
-        ok: false,
-        stage: "validate",
-        status: "schema-error",
-        deckModified: false,
-        sourceValidation: validation,
-        validation,
-        nextAction: "Repair this same slide JSON and retry the same command before moving to another slide.",
-      }),
-    };
-  }
+function diagnosticsSummary(items) {
+  return items.reduce((acc, item) => {
+    const key = item.code || "UNKNOWN";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+}
 
+function renderValidationPayload(diagnostics, blocking, quality) {
+  return {
+    ok: blocking.length === 0,
+    diagnostics: {
+      count: diagnostics.length,
+      summary: diagnosticsSummary(diagnostics),
+      blockingCount: blocking.length,
+      blocking: blocking.slice(0, 80),
+      qualityCount: quality.length,
+      quality: quality.slice(0, 30),
+    },
+  };
+}
+
+function issue(level, code, message, extra = {}) {
+  return { level, code, message, ...extra };
+}
+
+function report(issues) {
+  return {
+    ok: !issues.some((item) => item.level === "error"),
+    errors: issues.filter((item) => item.level === "error"),
+    warnings: issues.filter((item) => item.level === "warning"),
+    info: issues.filter((item) => item.level === "info"),
+  };
+}
+
+function deckSummary(deck) {
+  const slides = Array.isArray(deck?.slides) ? deck.slides : [];
+  return {
+    slideCount: slides.length,
+    slides: slides.map((slide, index) => ({ index, id: slide?.id, title: slide?.title })).filter((item) => item.id || item.title),
+  };
+}
+
+async function renderDiagnosticsForDeck(deck, baseDir) {
   clearRenderDiagnostics();
-  renderToAst(sourceToRenderedDeck({ ...candidate, slides: [candidate.slides[targetIndex]] }, { baseDir: dirname(deckPath) }));
+  renderToAst(sourceToRenderedDeck(deck, { baseDir }));
   const diagnostics = getRenderDiagnostics();
   const blocking = blockingDiagnostics(diagnostics);
   const quality = qualityDiagnostics(diagnostics);
   clearRenderDiagnostics();
-  const renderValidation = renderValidationPayload(diagnostics, blocking, quality);
-  if (blocking.length > 0) {
-    return {
-      ok: false,
-      exitCode: EXIT.renderValidation,
-      payload: commandPayload(command, {
-        ok: false,
-        stage: "validate",
-        status: "render-error",
-        deckModified: false,
-        sourceValidation: validation,
-        validation,
-        renderValidation,
-        diagnostics: renderValidation.diagnostics,
-        nextAction: "Source schema is valid, but rendered layout would fail. Repair the named diagnostics on this same slide and retry before moving on.",
-      }),
-    };
-  }
+  return renderValidationPayload(diagnostics, blocking, quality);
+}
 
+async function renderDeckToTemp(deck, baseDir, outputPath) {
+  const tmpOutputPath = tempSiblingPath(outputPath, ".tmp.pptx");
+  await rm(tmpOutputPath, { force: true });
+  await rm(`${tmpOutputPath}.render-tree.json`, { force: true });
+  clearRenderDiagnostics();
+  const result = await renderToPptx(sourceToRenderedDeck(deck, { baseDir }), tmpOutputPath);
+  const diagnostics = getRenderDiagnostics();
+  const blocking = blockingDiagnostics(diagnostics);
+  const quality = qualityDiagnostics(diagnostics);
+  clearRenderDiagnostics();
   return {
-    ok: true,
-    exitCode: EXIT.ok,
-    candidate,
-    insertedAt,
-    replacedAt,
-    payload: commandPayload(command, {
-      ok: true,
-      stage: "validate",
-      status: "ok",
-      deckModified: false,
-      insertedAt,
-      replacedAt,
-      slideCount: candidate.slides.length,
-      sourceValidation: validation,
-      validation,
-      renderValidation,
-      diagnostics: renderValidation.diagnostics,
-    }),
+    result,
+    diagnostics,
+    renderValidation: renderValidationPayload(diagnostics, blocking, quality),
+    tempOutputPath: result.outputPath,
+    tempDomPath: result.domPath,
   };
 }
 
-async function runInitOrReset(command, inputPath, flags, allowOverwrite) {
-  if (!inputPath) usage(`${command} requires <args.json>`);
+function tempSiblingPath(path, suffix) {
+  return resolve(dirname(path), `.${basename(path)}.${process.pid}.${Date.now()}${suffix}`);
+}
+
+async function writeJsonAtomic(path, value) {
+  await mkdir(dirname(path), { recursive: true });
+  const tmpPath = tempSiblingPath(path, ".tmp");
+  await writeFile(tmpPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rename(tmpPath, path);
+}
+
+async function writeTextAtomic(path, value) {
+  await mkdir(dirname(path), { recursive: true });
+  const tmpPath = tempSiblingPath(path, ".tmp");
+  await writeFile(tmpPath, value, "utf8");
+  await rename(tmpPath, path);
+}
+
+async function runInitDeck(command, inputPath, flags) {
+  if (!inputPath) usage("init-deck requires <args.json>");
   const deckPath = deckPathFrom(flags);
-  const exists = await pathExists(deckPath);
-  if (exists && !allowOverwrite) {
-    let existingDeck;
-    try {
-      existingDeck = deckSummary(await readDeck(deckPath));
-    } catch {
-      existingDeck = { slideCount: undefined, slides: [] };
-    }
+  if (await pathExists(deckPath)) {
     printPayload(commandPayload(command, {
       ok: false,
       stage: "commit",
       status: "target-exists",
       deckModified: false,
       deckPath,
-      existingDeck,
-      nextAction: "Use reset-deck only if overwriting this deck is intentional; otherwise continue with add-slide/set-slide.",
+      nextAction: "Choose a new --deck path or intentionally edit the existing config with set-deck. Do not overwrite a deck in place.",
     }), EXIT.target);
   }
-
-  const input = await readJson(inputPath, `${command} args`);
+  const input = await readJson(inputPath, "deck args");
   const deck = createSourceDeck(deckOptionsFrom(input));
+  deck.slides = [];
   const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
   if (!validation.ok) {
     printPayload(commandPayload(command, {
@@ -563,11 +474,10 @@ async function runInitOrReset(command, inputPath, flags, allowOverwrite) {
       deckPath,
       sourceValidation: validation,
       validation,
-      nextAction: "Repair the deck initialization options and retry.",
+      nextAction: "Repair the deck initialization options and retry init-deck.",
     }), EXIT.sourceValidation);
   }
-
-  if (!flags.dryRun) await writeDeck(deckPath, deck);
+  if (!flags.dryRun) await writeJsonAtomic(deckPath, deck);
   printPayload(commandPayload(command, {
     ok: true,
     stage: flags.dryRun ? "validate" : "commit",
@@ -585,7 +495,7 @@ async function runInitOrReset(command, inputPath, flags, allowOverwrite) {
 async function runSetDeck(command, inputPath, flags) {
   if (!inputPath) usage("set-deck requires <deck-props.json>");
   const deckPath = deckPathFrom(flags);
-  const deck = await readDeck(deckPath);
+  const deck = await readDeckConfig(deckPath);
   const input = await readJson(inputPath, "deck props");
   const patch = deckPatchFrom(input);
   const candidate = JSON.parse(JSON.stringify(deck));
@@ -596,6 +506,7 @@ async function runSetDeck(command, inputPath, flags) {
     candidate.deck.themeOverride = undefined;
   }
   candidate.deck = { ...candidate.deck, ...rest };
+  candidate.slides = [];
 
   const validation = validateDeck(candidate, { baseDir: dirname(deckPath) });
   if (!validation.ok) {
@@ -607,33 +518,10 @@ async function runSetDeck(command, inputPath, flags) {
       deckPath,
       sourceValidation: validation,
       validation,
-      nextAction: "Repair the deck-level patch and retry set-deck. Do not use reset-deck unless deleting all slides is intentional.",
+      nextAction: "Repair the deck-level patch and retry set-deck. Slide order and content remain in manifest/slide files.",
     }), EXIT.sourceValidation);
   }
-
-  clearRenderDiagnostics();
-  renderToAst(sourceToRenderedDeck(candidate, { baseDir: dirname(deckPath) }));
-  const diagnostics = getRenderDiagnostics();
-  const blocking = blockingDiagnostics(diagnostics);
-  const quality = qualityDiagnostics(diagnostics);
-  clearRenderDiagnostics();
-  const renderValidation = renderValidationPayload(diagnostics, blocking, quality);
-  if (blocking.length > 0) {
-    printPayload(commandPayload(command, {
-      ok: false,
-      stage: "validate",
-      status: "render-error",
-      deckModified: false,
-      deckPath,
-      sourceValidation: validation,
-      validation,
-      renderValidation,
-      diagnostics: renderValidation.diagnostics,
-      nextAction: "The deck-level patch would create blocking render diagnostics. Adjust the theme/layout patch or repair the named slides, then retry set-deck.",
-    }), EXIT.renderValidation);
-  }
-
-  if (!flags.dryRun) await writeDeck(deckPath, candidate);
+  if (!flags.dryRun) await writeJsonAtomic(deckPath, candidate);
   printPayload(commandPayload(command, {
     ok: true,
     stage: flags.dryRun ? "validate" : "commit",
@@ -641,369 +529,372 @@ async function runSetDeck(command, inputPath, flags) {
     deckModified: !flags.dryRun,
     dryRun: Boolean(flags.dryRun),
     deckPath,
-    slideCount: candidate.slides.length,
-    slides: deckSummary(candidate).slides,
+    slideCount: 0,
+    slides: [],
     sourceValidation: validation,
     validation,
-    renderValidation,
-    diagnostics: renderValidation.diagnostics,
   }));
 }
 
-async function runListSlides(command, flags) {
-  const deckPath = deckPathFrom(flags);
-  const deck = await readDeck(deckPath);
-  printPayload(commandPayload(command, {
-    ok: true,
-    stage: "inspect",
-    status: "ok",
-    deckModified: false,
-    deckPath,
-    ...deckSummary(deck),
-  }));
-}
-
-async function runShowDeck(command, flags) {
-  const deckPath = deckPathFrom(flags);
-  const deck = await readDeck(deckPath);
-  if (flags.slide !== undefined) {
-    const slideId = parseSlideSelector(flags.slide);
-    const index = findSlideIndex(deck, slideId);
-    if (index < 0) {
-      printPayload(commandPayload(command, {
+async function validateSingleSlide(command, deckPath, slidePath) {
+  const deck = await readDeckConfig(deckPath);
+  const slide = normalizeSlide(slideFromInput(await readJson(slidePath, "slide")));
+  const sourceValidation = validateSlide(slide, deck);
+  if (!sourceValidation.ok) {
+    return {
+      ok: false,
+      exitCode: EXIT.sourceValidation,
+      payload: commandPayload(command, {
         ok: false,
-        stage: "inspect",
-        status: "target-missing",
+        stage: "validate",
+        status: "schema-error",
         deckModified: false,
         deckPath,
-        slideId,
-        ...deckSummary(deck),
-        nextAction: "Run list-slides to choose an existing slide id/index, then retry show-deck --slide.",
-      }), EXIT.target);
-    }
-    printPayload(commandPayload(command, {
+        slidePath: abs(slidePath),
+        slide: { id: slide.id, title: slide.title },
+        sourceValidation,
+        validation: sourceValidation,
+        nextAction: "Repair this same slide file and rerun validate-slide. Do not create another slide copy.",
+      }),
+    };
+  }
+  const candidate = JSON.parse(JSON.stringify(deck));
+  candidate.slides = [slide];
+  const deckValidation = validateDeck(candidate, { baseDir: dirname(deckPath) });
+  if (!deckValidation.ok) {
+    return {
+      ok: false,
+      exitCode: EXIT.sourceValidation,
+      payload: commandPayload(command, {
+        ok: false,
+        stage: "validate",
+        status: "schema-error",
+        deckModified: false,
+        deckPath,
+        slidePath: abs(slidePath),
+        slide: { id: slide.id, title: slide.title },
+        sourceValidation: deckValidation,
+        validation: deckValidation,
+        nextAction: "Repair this same slide file against the deck config and rerun validate-slide.",
+      }),
+    };
+  }
+  const renderValidation = await renderDiagnosticsForDeck(candidate, dirname(deckPath));
+  if (!renderValidation.ok) {
+    return {
+      ok: false,
+      exitCode: EXIT.renderValidation,
+      payload: commandPayload(command, {
+        ok: false,
+        stage: "validate",
+        status: "render-error",
+        deckModified: false,
+        deckPath,
+        slidePath: abs(slidePath),
+        slide: { id: slide.id, title: slide.title },
+        sourceValidation: deckValidation,
+        validation: deckValidation,
+        renderValidation,
+        diagnostics: renderValidation.diagnostics,
+        nextAction: "Source schema is valid, but rendered layout would fail. Repair this same slide file and rerun validate-slide.",
+      }),
+    };
+  }
+  return {
+    ok: true,
+    exitCode: EXIT.ok,
+    slide,
+    payload: commandPayload(command, {
       ok: true,
-      stage: "inspect",
+      stage: "validate",
       status: "ok",
       deckModified: false,
       deckPath,
-      index,
-      slide: deck.slides[index],
-    }));
+      slidePath: abs(slidePath),
+      slide: { id: slide.id, title: slide.title },
+      sourceValidation: deckValidation,
+      validation: deckValidation,
+      renderValidation,
+      diagnostics: renderValidation.diagnostics,
+      nextAction: "Keep this slide file and continue validating the next manifest slide.",
+    }),
+  };
+}
+
+async function runValidateSlide(command, inputPath, flags) {
+  if (!inputPath) usage("validate-slide requires <slide.json>");
+  const result = await validateSingleSlide(command, deckPathFrom(flags), inputPath);
+  printPayload(result.payload, result.exitCode);
+}
+
+async function readManifest(manifestPath) {
+  const raw = await readJson(manifestPath, "manifest");
+  const manifest = Array.isArray(raw) ? { slides: raw } : raw;
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    return { manifest: { slides: [] }, manifestIssues: [issue("error", "INVALID_MANIFEST", "Manifest must be an object with slides[].")] };
   }
+  const slides = manifest.slides;
+  if (!Array.isArray(slides)) {
+    return { manifest, manifestIssues: [issue("error", "MISSING_MANIFEST_SLIDES", "Manifest must include a slides array.")] };
+  }
+  return { manifest, manifestIssues: [] };
+}
+
+async function composeDeckFromManifest(deckPath, manifestPath) {
+  const manifestAbs = abs(manifestPath);
+  const manifestDir = dirname(manifestAbs);
+  const deck = await readDeckConfig(deckPath);
+  const { manifest, manifestIssues } = await readManifest(manifestPath);
+  const entries = [];
+  const slides = [];
+  const seen = new Set();
+  const issues = [...manifestIssues];
+
+  const manifestSlides = Array.isArray(manifest.slides) ? manifest.slides : [];
+  for (let index = 0; index < manifestSlides.length; index += 1) {
+    const entry = manifestSlides[index];
+    const path = `slides[${index}]`;
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      issues.push(issue("error", "INVALID_MANIFEST_SLIDE", `${path} must be an object with id and file.`, { path }));
+      continue;
+    }
+    const id = typeof entry.id === "string" ? entry.id.trim() : "";
+    const file = typeof entry.file === "string" ? entry.file.trim() : "";
+    if (!id) issues.push(issue("error", "MISSING_MANIFEST_SLIDE_ID", `${path}.id is required.`, { path }));
+    if (!file) {
+      issues.push(issue("error", "MISSING_MANIFEST_SLIDE_FILE", `${path}.file is required.`, { path, slideId: id || undefined }));
+      continue;
+    }
+    if (id) {
+      if (seen.has(id)) {
+        issues.push(issue("error", "DUPLICATE_MANIFEST_SLIDE_ID", `Manifest slide id '${id}' is duplicated.`, { path, slideId: id }));
+      }
+      seen.add(id);
+    }
+    const filePath = isAbsolute(file) ? file : resolve(manifestDir, file);
+    if (!await pathExists(filePath)) {
+      issues.push(issue("error", "MANIFEST_SLIDE_FILE_MISSING", `Manifest slide '${id || index}' file does not exist: ${filePath}`, {
+        path,
+        slideId: id || undefined,
+        details: { file: filePath },
+        suggestedFix: "Create the referenced slide file or update manifest.json to the correct file path.",
+      }));
+      continue;
+    }
+    let slideInput;
+    try {
+      slideInput = await readJson(filePath, `manifest slide ${id || index}`);
+    } catch (error) {
+      if (error?.slideml2JsonParse) {
+        issues.push(issue("error", "INVALID_MANIFEST_SLIDE_JSON", error.payload?.diagnostic?.message || `Could not parse ${filePath}`, {
+          path,
+          slideId: id || undefined,
+          details: { file: filePath, diagnostic: error.payload?.diagnostic },
+          suggestedFix: "Repair this slide JSON file and rerun validate-manifest.",
+        }));
+        continue;
+      }
+      throw error;
+    }
+    let slide;
+    try {
+      slide = normalizeSlide(slideFromInput(slideInput));
+    } catch (error) {
+      issues.push(issue("error", "INVALID_MANIFEST_SLIDE", error instanceof Error ? error.message : String(error), {
+        path,
+        slideId: id || undefined,
+        details: { file: filePath },
+      }));
+      continue;
+    }
+    if (id && slide.id !== id) {
+      issues.push(issue("error", "MANIFEST_SLIDE_ID_MISMATCH", `Manifest id '${id}' does not match slide.id '${slide.id}'.`, {
+        path,
+        slideId: id,
+        details: { file: filePath, actualSlideId: slide.id },
+        suggestedFix: "Make manifest.slides[].id and slide.id identical so order and repairs stay deterministic.",
+      }));
+    }
+    const slideValidation = validateSlide(slide, deck);
+    if (!slideValidation.ok) {
+      issues.push(...slideValidation.errors.map((item) => ({
+        ...item,
+        path: item.path || path,
+        slideId: item.slideId || slide.id,
+        details: { ...(item.details || {}), file: filePath },
+      })));
+    }
+    entries.push({ index, id: id || slide.id, file: filePath, title: slide.title });
+    slides.push(slide);
+  }
+
+  const candidate = JSON.parse(JSON.stringify(deck));
+  candidate.slides = slides;
+  const manifestValidation = report(issues);
+  return { manifest, manifestPath: manifestAbs, manifestValidation, entries, deck: candidate };
+}
+
+async function validateComposedDeck(deckPath, composed) {
+  if (!composed.manifestValidation.ok) {
+    return {
+      sourceValidation: composed.manifestValidation,
+      renderValidation: undefined,
+      exitCode: EXIT.sourceValidation,
+      status: "schema-error",
+    };
+  }
+  const sourceValidation = validateDeck(composed.deck, { baseDir: dirname(deckPath) });
+  if (!sourceValidation.ok) {
+    return { sourceValidation, renderValidation: undefined, exitCode: EXIT.sourceValidation, status: "schema-error" };
+  }
+  const renderValidation = await renderDiagnosticsForDeck(composed.deck, dirname(deckPath));
+  if (!renderValidation.ok) {
+    return { sourceValidation, renderValidation, exitCode: EXIT.renderValidation, status: "render-error" };
+  }
+  return { sourceValidation, renderValidation, exitCode: EXIT.ok, status: "ok" };
+}
+
+async function runValidateManifest(command, manifestPath, flags) {
+  if (!manifestPath) usage("validate-manifest requires <manifest.json>");
+  const deckPath = deckPathFrom(flags);
+  const composed = await composeDeckFromManifest(deckPath, manifestPath);
+  const validated = await validateComposedDeck(deckPath, composed);
+  const ok = validated.exitCode === EXIT.ok;
   printPayload(commandPayload(command, {
-    ok: true,
-    stage: "inspect",
-    status: "ok",
+    ok,
+    stage: "validate",
+    status: validated.status,
     deckModified: false,
     deckPath,
-    deck,
-  }));
+    manifestPath: composed.manifestPath,
+    slideCount: composed.deck.slides.length,
+    slides: deckSummary(composed.deck).slides,
+    manifestValidation: composed.manifestValidation,
+    sourceValidation: validated.sourceValidation,
+    validation: validated.sourceValidation,
+    renderValidation: validated.renderValidation,
+    diagnostics: validated.renderValidation?.diagnostics,
+    nextAction: ok
+      ? "Manifest is valid. Run compose with --write-source and/or --out."
+      : "Repair the named manifest or slide file diagnostics, then rerun validate-manifest. Do not append another copy of failed slides.",
+  }), validated.exitCode);
 }
 
-async function runAddSlide(command, inputPath, flags) {
-  if (!inputPath) usage("add-slide requires <slide.json>");
+async function runCompose(command, manifestPath, flags) {
+  if (!manifestPath) usage("compose requires <manifest.json>");
   const deckPath = deckPathFrom(flags);
-  const deck = await readDeck(deckPath);
-  const slide = slideFromInput(await readJson(inputPath, "slide"));
-  const result = await validateCandidateSlide(command, deckPath, deck, slide, -1, "append");
-  if (!result.ok) printPayload(result.payload, result.exitCode);
-  if (!flags.dryRun) await writeDeck(deckPath, result.candidate);
-  printPayload(commandPayload(command, {
-    ...result.payload,
-    stage: flags.dryRun ? "validate" : "commit",
-    deckModified: !flags.dryRun,
-    dryRun: Boolean(flags.dryRun),
-    deckPath,
-  }));
-}
+  const outputPath = outputPathFrom(flags);
+  const sourcePath = writeSourcePathFrom(flags);
+  if (!outputPath && !sourcePath) usage("compose requires --write-source and/or --out");
 
-async function runInsertSlide(command, positional, flags) {
-  let selector;
-  let inputPath;
-  let placement = "before";
-  if (flags.before !== undefined || flags.after !== undefined) {
-    if (flags.before !== undefined && flags.after !== undefined) usage("insert-slide accepts only one of --before or --after");
-    selector = parseSlideSelector(flags.before ?? flags.after);
-    placement = flags.after !== undefined ? "after" : "before";
-    inputPath = positional[0];
-    if (!inputPath) usage("insert-slide with --before/--after requires <slide.json>");
-  } else {
-    selector = parseSlideSelector(positional[0]);
-    inputPath = positional[1];
-    if (selector === undefined || !inputPath) usage("insert-slide requires <index|id> <slide.json>, or <slide.json> --before/--after <index|id>");
-  }
-  const deckPath = deckPathFrom(flags);
-  const deck = await readDeck(deckPath);
-  const targetIndex = resolveInsertIndex(deck, selector, placement);
-  if (targetIndex < 0) {
-    printPayload(commandPayload(command, {
-      ok: false,
-      stage: "commit",
-      status: "target-missing",
-      deckModified: false,
-      deckPath,
-      slideId: selector,
-      placement,
-      ...deckSummary(deck),
-      nextAction: "Run list-slides to choose an existing slide id/index. Use add-slide if the new page belongs at the end.",
-    }), EXIT.target);
-  }
-  const slide = slideFromInput(await readJson(inputPath, "slide"));
-  const result = await validateCandidateSlide(command, deckPath, deck, slide, targetIndex, "insert");
-  if (!result.ok) printPayload(result.payload, result.exitCode);
-  if (!flags.dryRun) await writeDeck(deckPath, result.candidate);
-  printPayload(commandPayload(command, {
-    ...result.payload,
-    stage: flags.dryRun ? "validate" : "commit",
-    deckModified: !flags.dryRun,
-    dryRun: Boolean(flags.dryRun),
-    deckPath,
-  }));
-}
-
-async function runSetSlide(command, selector, inputPath, flags) {
-  if (!selector || !inputPath) usage("set-slide requires <id|index> <slide.json>");
-  const deckPath = deckPathFrom(flags);
-  const deck = await readDeck(deckPath);
-  const slideId = parseSlideSelector(selector);
-  const targetIndex = findSlideIndex(deck, slideId);
-  if (targetIndex < 0) {
-    printPayload(commandPayload(command, {
-      ok: false,
-      stage: "commit",
-      status: "target-missing",
-      deckModified: false,
-      deckPath,
-      slideId,
-      ...deckSummary(deck),
-      nextAction: "Run list-slides to choose an existing slide id/index, or use add-slide to append a new slide.",
-    }), EXIT.target);
-  }
-  const slide = slideFromInput(await readJson(inputPath, "slide"));
-  const result = await validateCandidateSlide(command, deckPath, deck, slide, targetIndex, "replace");
-  if (!result.ok) printPayload(result.payload, result.exitCode);
-  if (!flags.dryRun) await writeDeck(deckPath, result.candidate);
-  printPayload(commandPayload(command, {
-    ...result.payload,
-    stage: flags.dryRun ? "validate" : "commit",
-    deckModified: !flags.dryRun,
-    dryRun: Boolean(flags.dryRun),
-    deckPath,
-  }));
-}
-
-async function runDeleteSlide(command, selector, flags) {
-  if (!selector) usage("delete-slide requires <id|index>");
-  const deckPath = deckPathFrom(flags);
-  const deck = await readDeck(deckPath);
-  const slideId = parseSlideSelector(selector);
-  const targetIndex = findSlideIndex(deck, slideId);
-  if (targetIndex < 0) {
-    printPayload(commandPayload(command, {
-      ok: false,
-      stage: "commit",
-      status: "target-missing",
-      deckModified: false,
-      deckPath,
-      slideId,
-      ...deckSummary(deck),
-      nextAction: "Run list-slides to choose an existing slide id/index, then retry delete-slide.",
-    }), EXIT.target);
-  }
-  const candidate = JSON.parse(JSON.stringify(deck));
-  const [deletedSlide] = candidate.slides.splice(targetIndex, 1);
-  const validation = validateDeck(candidate, { baseDir: dirname(deckPath) });
-  if (!validation.ok) {
+  const composed = await composeDeckFromManifest(deckPath, manifestPath);
+  if (!composed.manifestValidation.ok) {
     printPayload(commandPayload(command, {
       ok: false,
       stage: "validate",
       status: "schema-error",
       deckModified: false,
       deckPath,
-      deletedAt: targetIndex,
-      deletedSlide: deletedSlide ? { id: deletedSlide.id, title: deletedSlide.title } : undefined,
-      sourceValidation: validation,
-      validation,
-      nextAction: "The deck would be invalid after deletion. Repair the current deck or choose a different slide.",
+      manifestPath: composed.manifestPath,
+      slideCount: composed.deck.slides.length,
+      slides: deckSummary(composed.deck).slides,
+      manifestValidation: composed.manifestValidation,
+      sourceValidation: composed.manifestValidation,
+      validation: composed.manifestValidation,
+      nextAction: "Repair the named manifest or slide file diagnostics, then rerun compose. No output files were written.",
     }), EXIT.sourceValidation);
   }
-  clearRenderDiagnostics();
-  renderToAst(sourceToRenderedDeck(candidate, { baseDir: dirname(deckPath) }));
-  const diagnostics = getRenderDiagnostics();
-  const blocking = blockingDiagnostics(diagnostics);
-  const quality = qualityDiagnostics(diagnostics);
-  clearRenderDiagnostics();
-  const renderValidation = renderValidationPayload(diagnostics, blocking, quality);
-  if (blocking.length > 0) {
+
+  const sourceValidation = validateDeck(composed.deck, { baseDir: dirname(deckPath) });
+  if (!sourceValidation.ok) {
+    printPayload(commandPayload(command, {
+      ok: false,
+      stage: "validate",
+      status: "schema-error",
+      deckModified: false,
+      deckPath,
+      manifestPath: composed.manifestPath,
+      slideCount: composed.deck.slides.length,
+      slides: deckSummary(composed.deck).slides,
+      manifestValidation: composed.manifestValidation,
+      sourceValidation,
+      validation: sourceValidation,
+      nextAction: "Repair source diagnostics in the referenced slide files, then rerun compose. No output files were written.",
+    }), EXIT.sourceValidation);
+  }
+
+  let tempRender;
+  let renderValidation;
+  if (outputPath) {
+    await mkdir(dirname(outputPath), { recursive: true });
+    tempRender = await renderDeckToTemp(composed.deck, dirname(deckPath), outputPath);
+    renderValidation = tempRender.renderValidation;
+  } else {
+    renderValidation = await renderDiagnosticsForDeck(composed.deck, dirname(deckPath));
+  }
+  if (!renderValidation.ok) {
+    if (tempRender) {
+      await rm(tempRender.tempOutputPath, { force: true });
+      await rm(tempRender.tempDomPath, { force: true });
+    }
     printPayload(commandPayload(command, {
       ok: false,
       stage: "validate",
       status: "render-error",
       deckModified: false,
       deckPath,
-      deletedAt: targetIndex,
-      deletedSlide: deletedSlide ? { id: deletedSlide.id, title: deletedSlide.title } : undefined,
-      sourceValidation: validation,
-      validation,
+      manifestPath: composed.manifestPath,
+      slideCount: composed.deck.slides.length,
+      slides: deckSummary(composed.deck).slides,
+      manifestValidation: composed.manifestValidation,
+      sourceValidation,
+      validation: sourceValidation,
       renderValidation,
       diagnostics: renderValidation.diagnostics,
-      nextAction: "The deck would have blocking render diagnostics after deletion. Repair the named slides, then retry delete-slide.",
+      nextAction: "Rendered layout would fail. Repair the named slide files and rerun compose. No output files were written.",
     }), EXIT.renderValidation);
   }
-  if (!flags.dryRun) await writeDeck(deckPath, candidate);
+
+  let domPath;
+  let diagnosticsPath;
+  if (!flags.dryRun) {
+    if (sourcePath) await writeJsonAtomic(sourcePath, composed.deck);
+    if (outputPath && tempRender) {
+      await rename(tempRender.tempOutputPath, outputPath);
+      domPath = `${outputPath}.render-tree.json`;
+      await rename(tempRender.tempDomPath, domPath);
+      diagnosticsPath = `${outputPath}.diagnostics.json`;
+      await writeTextAtomic(diagnosticsPath, `${JSON.stringify(tempRender.diagnostics, null, 2)}\n`);
+    }
+  } else if (outputPath) {
+    domPath = `${outputPath}.render-tree.json`;
+    diagnosticsPath = `${outputPath}.diagnostics.json`;
+    if (tempRender) {
+      await rm(tempRender.tempOutputPath, { force: true });
+      await rm(tempRender.tempDomPath, { force: true });
+    }
+  }
+
   printPayload(commandPayload(command, {
     ok: true,
-    stage: flags.dryRun ? "validate" : "commit",
+    stage: flags.dryRun ? "validate" : "render",
     status: "ok",
     deckModified: !flags.dryRun,
     dryRun: Boolean(flags.dryRun),
     deckPath,
-    deletedAt: targetIndex,
-    deletedSlide: deletedSlide ? { id: deletedSlide.id, title: deletedSlide.title } : undefined,
-    slideCount: candidate.slides.length,
-    slides: deckSummary(candidate).slides,
-    sourceValidation: validation,
-    validation,
+    manifestPath: composed.manifestPath,
+    sourcePath,
+    outputPath,
+    domPath,
+    diagnosticsPath,
+    slideCount: composed.deck.slides.length,
+    slides: deckSummary(composed.deck).slides,
+    manifestValidation: composed.manifestValidation,
+    sourceValidation,
+    validation: sourceValidation,
     renderValidation,
     diagnostics: renderValidation.diagnostics,
   }));
-}
-
-async function runDiagnoseSlide(command, inputPath, flags) {
-  if (!inputPath) usage("diagnose-slide requires <slide.json>");
-  const deckPath = deckPathFrom(flags);
-  const deck = await readDeck(deckPath);
-  const slide = slideFromInput(await readJson(inputPath, "slide"));
-  let targetIndex = -1;
-  let mode = "append";
-  if ((flags.before !== undefined || flags.after !== undefined) && flags.slide !== undefined) {
-    usage("diagnose-slide accepts --slide for replacement or --before/--after for insertion, not both");
-  }
-  if (flags.before !== undefined || flags.after !== undefined) {
-    if (flags.before !== undefined && flags.after !== undefined) usage("diagnose-slide accepts only one of --before or --after");
-    const slideId = parseSlideSelector(flags.before ?? flags.after);
-    const placement = flags.after !== undefined ? "after" : "before";
-    targetIndex = resolveInsertIndex(deck, slideId, placement);
-    mode = "insert";
-    if (targetIndex < 0) {
-      printPayload(commandPayload(command, {
-        ok: false,
-        stage: "validate",
-        status: "target-missing",
-        deckModified: false,
-        deckPath,
-        slideId,
-        placement,
-        ...deckSummary(deck),
-        nextAction: "Run list-slides to choose an existing slide id/index, use add-slide to append, or retry diagnose-slide with a valid --before/--after target.",
-      }), EXIT.target);
-    }
-  } else if (flags.slide !== undefined) {
-    const slideId = parseSlideSelector(flags.slide);
-    targetIndex = findSlideIndex(deck, slideId);
-    mode = "replace";
-    if (targetIndex < 0) {
-      printPayload(commandPayload(command, {
-        ok: false,
-        stage: "validate",
-        status: "target-missing",
-        deckModified: false,
-        deckPath,
-        slideId,
-        ...deckSummary(deck),
-        nextAction: "Run list-slides to choose an existing slide id/index, or omit --slide to diagnose append mode.",
-      }), EXIT.target);
-    }
-  }
-  const result = await validateCandidateSlide(command, deckPath, deck, slide, targetIndex, mode);
-  printPayload(commandPayload(command, {
-    ...result.payload,
-    deckPath,
-    deckModified: false,
-    dryRun: true,
-  }), result.exitCode);
-}
-
-async function runValidate(command, flags) {
-  const deckPath = deckPathFrom(flags);
-  const deck = await readDeck(deckPath);
-  const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
-  if (!validation.ok) {
-    printPayload(commandPayload(command, {
-      ok: false,
-      stage: "validate",
-      status: "schema-error",
-      deckModified: false,
-      deckPath,
-      sourceValidation: validation,
-      validation,
-      nextAction: "Repair source diagnostics through set-slide/add-slide or reset-deck, then rerun validate.",
-    }), EXIT.sourceValidation);
-  }
-  clearRenderDiagnostics();
-  renderToAst(sourceToRenderedDeck(deck, { baseDir: dirname(deckPath) }));
-  const diagnostics = getRenderDiagnostics();
-  const blocking = blockingDiagnostics(diagnostics);
-  const quality = qualityDiagnostics(diagnostics);
-  clearRenderDiagnostics();
-  const renderValidation = renderValidationPayload(diagnostics, blocking, quality);
-  printPayload(commandPayload(command, {
-    ok: blocking.length === 0,
-    stage: "validate",
-    status: blocking.length === 0 ? "ok" : "render-error",
-    deckModified: false,
-    deckPath,
-    sourceValidation: validation,
-    validation,
-    renderValidation,
-    diagnostics: renderValidation.diagnostics,
-    nextAction: blocking.length === 0 ? undefined : "Repair the named render diagnostics through set-slide, then rerun validate.",
-  }), blocking.length === 0 ? EXIT.ok : EXIT.renderValidation);
-}
-
-async function runRender(command, flags) {
-  const deckPath = deckPathFrom(flags);
-  const outputPath = outputPathFrom(flags, deckPath);
-  const deck = await readDeck(deckPath);
-  const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
-  if (!validation.ok) {
-    printPayload(commandPayload(command, {
-      ok: false,
-      stage: "validate",
-      status: "schema-error",
-      deckModified: false,
-      deckPath,
-      sourceValidation: validation,
-      validation,
-      nextAction: "Repair source diagnostics through set-slide/add-slide, then rerun render.",
-    }), EXIT.sourceValidation);
-  }
-  await mkdir(dirname(outputPath), { recursive: true });
-  clearRenderDiagnostics();
-  const rendered = sourceToRenderedDeck(deck, { baseDir: dirname(deckPath) });
-  const result = await renderToPptx(rendered, outputPath);
-  const diagnostics = getRenderDiagnostics();
-  const blocking = blockingDiagnostics(diagnostics);
-  const quality = qualityDiagnostics(diagnostics);
-  const renderValidation = renderValidationPayload(diagnostics, blocking, quality);
-  const diagnosticsPath = `${result.outputPath}.diagnostics.json`;
-  await writeFile(diagnosticsPath, JSON.stringify(diagnostics, null, 2), "utf8");
-  printPayload(commandPayload(command, {
-    ok: blocking.length === 0,
-    stage: "render",
-    status: blocking.length === 0 ? "ok" : "render-error",
-    deckModified: false,
-    deckPath,
-    outputPath: result.outputPath,
-    domPath: result.domPath,
-    diagnosticsPath,
-    sourceValidation: validation,
-    validation,
-    renderValidation,
-    diagnostics: renderValidation.diagnostics,
-    nextAction: blocking.length === 0 ? undefined : "The PPTX was written for inspection, but blocking render diagnostics remain. Repair the named slides and rerun render.",
-  }), blocking.length === 0 ? EXIT.ok : EXIT.renderValidation);
 }
 
 async function main() {
@@ -1012,12 +903,10 @@ async function main() {
     printHelp("main");
     process.exit(EXIT.usage);
   }
-
   if (command === "help") {
     printHelp(rest[0] || "main");
     return;
   }
-
   if (!COMMANDS.includes(command)) usage(`Unknown command: ${command}`);
   const { positional, flags } = parseArgs(rest);
   if (flags.help) {
@@ -1025,19 +914,11 @@ async function main() {
     return;
   }
 
-  if (command === "init-deck") return runInitOrReset(command, positional[0], flags, false);
-  if (command === "reset-deck") return runInitOrReset(command, positional[0], flags, true);
+  if (command === "init-deck") return runInitDeck(command, positional[0], flags);
   if (command === "set-deck") return runSetDeck(command, positional[0], flags);
-  if (command === "list-slides") return runListSlides(command, flags);
-  if (command === "show-deck") return runShowDeck(command, flags);
-  if (command === "add-slide") return runAddSlide(command, positional[0], flags);
-  if (command === "insert-slide") return runInsertSlide(command, positional, flags);
-  if (command === "set-slide") return runSetSlide(command, positional[0], positional[1], flags);
-  if (command === "delete-slide") return runDeleteSlide(command, positional[0], flags);
-  if (command === "diagnose-slide") return runDiagnoseSlide(command, positional[0], flags);
-  if (command === "validate") return runValidate(command, flags);
-  if (command === "render") return runRender(command, flags);
-
+  if (command === "validate-slide") return runValidateSlide(command, positional[0], flags);
+  if (command === "validate-manifest") return runValidateManifest(command, positional[0], flags);
+  if (command === "compose") return runCompose(command, positional[0], flags);
   usage(`Unknown command: ${command}`);
 }
 
@@ -1053,7 +934,7 @@ main().catch((error) => {
       status: "usage-error",
       deckModified: false,
       error: error.message,
-      nextAction: "Write the slide object directly to slide.json, then retry add-slide or set-slide.",
+      nextAction: "Write the slide object directly to the slide file, then retry validate-slide. Do not wrap it in { slide: ... }.",
     }), EXIT.usage);
   }
   console.error(error instanceof Error ? error.stack || error.message : String(error));

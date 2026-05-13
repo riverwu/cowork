@@ -1,7 +1,8 @@
 # SlideML2 Deck Planning Template
 
-Use this as a compact archive before writing `deck-init.json` and
-`slide-*.json`. Keep it short enough to stay useful during repairs.
+This file must exist before `init-deck` in create mode. Use it as a compact
+archive before writing `deck-init.json`, `manifest.json`, and `slides/*.json`.
+Update it whenever a slide's primary component or layout intent changes.
 
 ## Brief
 
@@ -12,9 +13,9 @@ Use this as a compact archive before writing `deck-init.json` and
 
 ## Deck Plan
 
-| Slide ID | Title | Narrative job | Primary components | Layout intent | Density risk |
-| --- | --- | --- | --- | --- | --- |
-| cover |  |  | `cover-composition` |  | low |
+| Slide ID | Family | Title | Narrative job | Archetype | Primary component | Layout intent | Density risk |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| cover | Cover |  | first impression | cover | `cover-composition` | hero/title lockup | low |
 
 ## Theme Contract
 
@@ -28,6 +29,16 @@ Use this as a compact archive before writing `deck-init.json` and
 | Asset | Purpose | Slide(s) | Status |
 | --- | --- | --- | --- |
 |  |  |  | planned |
+
+Plan a small icon set early when 3+ `feature-card`, `process-flow`, or
+`timeline` slides use icons.
+
+## Coverage Check
+
+- Archetype distribution:
+- Repetition flags: any 3+ consecutive same-archetype? any component >40% of deck?
+- Density variety: pages with data evidence vs prose-only pages:
+- Repeated layout risks to redesign before authoring:
 
 ## Validation Notes
 

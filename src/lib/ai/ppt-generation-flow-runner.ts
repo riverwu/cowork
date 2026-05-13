@@ -1743,9 +1743,10 @@ function finalValidateDeckPath(toolRecords: PptGenerationFlowToolRecord[]): stri
     if (!isValidateRenderRecord(record) || record.success !== true) continue;
     const input = validateRenderInput(record);
     if (input.render === false) continue;
+    if (typeof input.sourcePath === "string") return nodePath.isAbsolute(input.sourcePath) ? input.sourcePath : nodePath.resolve(slideml2CliCwd(record) || ".", input.sourcePath);
     if (typeof input.deckPath === "string") return nodePath.isAbsolute(input.deckPath) ? input.deckPath : nodePath.resolve(slideml2CliCwd(record) || ".", input.deckPath);
     const alias = slideml2CliToolAlias(record);
-    if (alias === "validate_render" || alias === "render") return nodePath.join(slideml2CliCwd(record) || ".", "deck.json");
+    if (alias === "compose") return nodePath.join(slideml2CliCwd(record) || ".", "build/deck.json");
     return undefined;
   }
   return undefined;
@@ -1753,35 +1754,27 @@ function finalValidateDeckPath(toolRecords: PptGenerationFlowToolRecord[]): stri
 
 function isSuccessfulReplaceSlideRecord(record: PptGenerationFlowToolRecord): boolean {
   const alias = slideml2CliToolAlias(record);
-  return record.success !== false && (record.name === "replace_slide" || alias === "replace_slide" || alias === "add_slide" || alias === "insert_slide" || alias === "set_slide");
+  return record.success !== false && (record.name === "replace_slide" || alias === "validate_slide");
 }
 
 function isValidateRenderRecord(record: PptGenerationFlowToolRecord): boolean {
   const alias = slideml2CliToolAlias(record);
-  return record.name === "validate_render" || alias === "validate_render" || alias === "render";
+  return record.name === "validate_render" || alias === "compose";
 }
 
-function slideml2CliToolAlias(record: PptGenerationFlowToolRecord): "init_deck" | "reset_deck" | "set_deck" | "add_slide" | "insert_slide" | "set_slide" | "delete_slide" | "diagnose_slide" | "validate" | "render" | "list_slides" | "show_deck" | undefined {
+function slideml2CliToolAlias(record: PptGenerationFlowToolRecord): "init_deck" | "set_deck" | "validate_slide" | "validate_manifest" | "compose" | undefined {
   if (record.name !== "shell") return undefined;
   const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
   const command = Array.isArray(input.command) ? input.command.filter((item): item is string => typeof item === "string") : [];
   if (!command.some((item) => item.includes("slideml2.js") || item.includes("runtime/bin/slideml2"))) return undefined;
   const subcommand = command.find((item) => [
-    "init-deck", "reset-deck", "set-deck", "add-slide", "insert-slide", "set-slide", "delete-slide", "diagnose-slide",
-    "validate", "render", "list-slides", "show-deck",
+    "init-deck", "set-deck", "validate-slide", "validate-manifest", "compose",
   ].includes(item));
   if (subcommand === "init-deck") return "init_deck";
-  if (subcommand === "reset-deck") return "reset_deck";
   if (subcommand === "set-deck") return "set_deck";
-  if (subcommand === "add-slide") return "add_slide";
-  if (subcommand === "insert-slide") return "insert_slide";
-  if (subcommand === "set-slide") return "set_slide";
-  if (subcommand === "delete-slide") return "delete_slide";
-  if (subcommand === "diagnose-slide") return "diagnose_slide";
-  if (subcommand === "validate") return "validate";
-  if (subcommand === "render") return "render";
-  if (subcommand === "list-slides") return "list_slides";
-  if (subcommand === "show-deck") return "show_deck";
+  if (subcommand === "validate-slide") return "validate_slide";
+  if (subcommand === "validate-manifest") return "validate_manifest";
+  if (subcommand === "compose") return "compose";
   return undefined;
 }
 
@@ -1789,19 +1782,17 @@ function validateRenderInput(record: PptGenerationFlowToolRecord): Record<string
   const direct = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
   if (record.name === "validate_render") return direct;
   const alias = slideml2CliToolAlias(record);
-  if (alias === "render") {
+  if (alias === "compose") {
     const deckPath = slideml2CliFlagValue(record, "--deck");
     const outputPath = slideml2CliFlagValue(record, "--out");
+    const sourcePath = slideml2CliFlagValue(record, "--write-source");
     return {
       ...direct,
       render: true,
       ...(deckPath ? { deckPath } : {}),
       ...(outputPath ? { outputPath } : {}),
+      ...(sourcePath ? { sourcePath } : {}),
     };
-  }
-  if (alias === "validate") {
-    const deckPath = slideml2CliFlagValue(record, "--deck");
-    return { ...direct, render: false, ...(deckPath ? { deckPath } : {}) };
   }
   const argPath = slideml2CliArgsPath(record);
   if (!argPath) return direct;
@@ -1818,14 +1809,9 @@ function slideml2CliArgsPath(record: PptGenerationFlowToolRecord): string | unde
   const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
   const command = Array.isArray(input.command) ? input.command.filter((item): item is string => typeof item === "string") : [];
   const subcommandIndex = command.findIndex((item) => [
-    "init-deck", "reset-deck", "set-deck", "add-slide", "insert-slide", "set-slide", "diagnose-slide",
+    "init-deck", "set-deck", "validate-slide", "validate-manifest", "compose",
   ].includes(item));
-  const subcommand = subcommandIndex >= 0 ? command[subcommandIndex] : undefined;
-  let argOffset = subcommand === "set-slide" ? 2 : 1;
-  if (subcommand === "insert-slide") {
-    const maybeFlagForm = command[subcommandIndex + 2]?.startsWith("--");
-    argOffset = maybeFlagForm ? 1 : 2;
-  }
+  const argOffset = 1;
   const argPath = subcommandIndex >= 0 ? command[subcommandIndex + argOffset] : undefined;
   if (!argPath) return undefined;
   if (argPath.startsWith("--")) return undefined;
@@ -1936,7 +1922,7 @@ function normalizeCaseExpectations(
     ? resolveCasePath(caseDirectory, expected.outputPath)
     : nodePath.join(outputsDirectory, `${id}.pptx`);
   return {
-    requiredTools: ["init_deck", "add_slide", "render"],
+    requiredTools: ["init_deck", "validate_slide", "compose"],
     minReplaceSlideCalls: 1,
     requireProgressDone: true,
     requireFinalValidateRender: true,

@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.32
+version: 1.0.39
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -11,12 +11,11 @@ license: Proprietary. LICENSE.txt has complete terms
 
 SlideML2 turns a brief, plan, data file, markdown source, or research document
 into a complete `.pptx` presentation. The agent calls a CLI
-(`init-deck`, `set-deck`, `add-slide`, `insert-slide`, `set-slide`,
-`delete-slide`, `validate`, `render`) that builds the deck
-through validated steps, choosing semantic components (KPI, chart, table,
-timeline, evidence, code, formula, …) and emitting native OOXML — not a
-screenshot or HTML approximation. The final output is a real PowerPoint file
-the user can open, edit, present, or distribute.
+(`init-deck`, `set-deck`, `validate-slide`, `validate-manifest`, `compose`)
+that treats slides as independent source files and uses `manifest.json` as the
+only slide-order authority. `compose` then validates and emits native OOXML —
+not a screenshot or HTML approximation. The final output is a real PowerPoint
+file the user can open, edit, present, or distribute.
 
 ## When to Use This Skill
 
@@ -47,8 +46,7 @@ Pick a different skill when:
 ## What You Produce
 
 - A validated `.pptx` saved at the user-specified `--out` path.
-- A `.render-tree.json` sidecar with measured layout, data lineage, and
-  per-slide diagnostics for debugging.
+- A `.render-tree.json` sidecar with measured layout, data lineage, and diagnostics.
 - Per-slide compiler-style diagnostics during authoring so the agent can
   repair each page before the final render.
 
@@ -61,9 +59,7 @@ This file has three sections:
 3. **Component Reference** — every available `type` with its required and
    optional fields.
 
-For business / research decks, also read `business.md` (light-theme defaults,
-icon conventions). Planning-archive templates live in `planning-template.md`.
-Domain style defaults are not restated here.
+Planning-archive templates live in `planning-template.md`.
 
 ---
 
@@ -71,148 +67,184 @@ Domain style defaults are not restated here.
 
 ### Invocation
 
-Run the CLI from the deck workspace. The default deck source is `./deck.json`;
-use `--deck <path>` only when intentionally targeting another file.
+Run the CLI from the deck workspace. The default deck config source is
+`./deck-config.json`; use `--deck <path>` only when intentionally targeting
+another config file.
 
 ```bash
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> [args] [--deck deck.json]
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> [args] [--deck deck-config.json]
 ```
 
 Use `help` whenever uncertain:
 
 ```bash
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" help
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" help add-slide
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" help compose
 ```
 
-The CLI prints JSON to stdout for every command. Result shape is standardized:
-`ok`, `command`, `stage`, `status`, `deckModified`, plus diagnostics and paths
-when relevant. Stages are `input`, `inspect`, `validate`, `commit`, or `render`.
-Important statuses are `ok`, `usage-error`, `input-error`, `schema-error`,
-`render-error`, `target-missing`, and `target-exists`.
+This file is the reference manual. For the latest parameter shape of a specific
+command, run `help <command>` before writing its JSON file.
 
-Exit codes are meaningful: `0` ok, `2` usage/input JSON, `10` source/schema
-validation, `20` render/layout validation, `30` target missing/existing conflict,
-`1` unexpected runtime error.
+The CLI prints JSON with `ok`, `command`, `stage`, `status`, `deckModified`,
+diagnostics, and paths. Common statuses: `ok`, `usage-error`, `input-error`,
+`schema-error`, `render-error`, `target-missing`, `target-exists`. Exit codes:
+`0` ok, `2` usage/input, `10` source/schema validation, `20` render/layout
+validation, `30` target conflict/missing, `1` unexpected runtime error.
+
+### File Roles
+
+| File | Writer | Contents |
+|---|---|---|
+| `deck-config.json` | agent via `init-deck` / `set-deck` | Deck metadata, theme, data, refs, chrome; no slides. |
+| `slides/*.json` | agent by direct file write/edit | One standalone slide object per file. |
+| `manifest.json` | agent | Slide order as `slides:[{id,file}]`. |
+| `build/deck.json` | CLI via `compose --write-source` | Full composed deck source; do not hand-edit. |
+| `build/deck.pptx` | CLI via `compose --out` | Final PowerPoint file. |
+
+Filename prefixes such as `slides/01-cover.json` are an agent convenience only.
+The CLI reads only `manifest.slides[].file`; it never infers order from
+filenames, file creation time, or command order.
+
+Use normal file reads to inspect JSON files; the CLI has no read-deck command.
+Before `set-deck` replaces `references`, `footnotes`, or `dataSources`, read the current value and construct the complete replacement.
 
 ### Commands
 
 | Command | Purpose |
 |---|---|
-| `init-deck <args.json>` | Create a new deck. Fails if `deck.json` already exists. |
-| `reset-deck <args.json>` | Explicitly reinitialize/overwrite a deck. Use only for intentional reset. |
-| `set-deck <deck-props.json>` | Patch theme/config/data/references without deleting slides. |
-| `list-slides` | Inspect slide index/id/title without loading the full deck. |
-| `show-deck [--slide id]` | Inspect the whole source deck or one slide. |
-| `add-slide <slide.json>` | Append one slide; validates before writing. |
-| `insert-slide <target> <slide.json>` | Insert one slide before target; use `--after` to insert after. |
-| `set-slide <id> <slide.json>` | Replace exactly one existing slide; validates before writing. |
-| `delete-slide <id>` | Delete one slide; validates the resulting deck before writing. |
-| `diagnose-slide <slide.json> [--slide id]` | Dry-run append or replacement without writing. |
-| `validate` | Validate source plus rendered layout; writes no PPTX. |
-| `render --out deck.pptx` | Validate and render the final PPTX. |
+| `init-deck <deck-init.json>` | Create a new `deck-config.json`. Fails if the target exists. |
+| `set-deck <deck-props.json>` | Patch theme/config/data/references in the deck config. |
+| `validate-slide <slide.json>` | Validate one standalone slide file with no side effects. |
+| `validate-manifest <manifest.json>` | Validate manifest entries, referenced slides, and full composed layout with no writes. |
+| `compose <manifest.json>` | Atomically compose ordered slide files into final deck source and/or PPTX. |
 | `help [command]` | Print command-specific help and argument examples. |
 
 Common flags:
 
-- `--deck <path>` targets a source deck other than `./deck.json`.
-- `--out <path>` sets PPTX output for `render`.
-- `--slide <id|index>` selects a slide for `show-deck` or replacement-mode
-  `diagnose-slide`.
-- `--before <id|index>` / `--after <id|index>` selects insertion location.
-- `--dry-run` works on mutating commands.
+- `--deck <path>` targets a config file other than `./deck-config.json`.
+- `--out <path>` sets PPTX output for `compose`.
+- `--write-source <path>` sets the composed full deck JSON output path.
+- `--dry-run` validates `init-deck`, `set-deck`, or `compose` without writing; prefer `validate-manifest` over `compose --dry-run` unless CI needs the same line.
 
 ### Argument Files
 
-Deck initialization files contain deck options only:
+`deck-init.json` contains deck options only:
 
 ```json
 { "title": "Deck title", "size": "16x9", "theme": "default", "themeOverride": {}, "validation": {} }
 ```
 
-Deck patch files contain only deck-level fields. Use `set-deck` for theme,
-brand, validation, chrome, master, dataSources, references, or footnotes changes.
-Do not use `reset-deck` for theme changes; it reinitializes the deck and removes
-existing slides.
+`deck-props.json` contains deck-level fields only. `themeOverride` deep-merges.
+Other supplied deck fields replace that whole field: `brand`, `validation`,
+`chrome`, `master`, `dataSources`, `references`, `footnotes`, `metadata`. To
+add a reference, footnote, or data row, provide the complete replacement field.
+Slides stay in `slides/*.json`; `set-deck` never changes slide order/content.
 
 ```json
 { "themeOverride": { "colors": { "brand.primary": "0F766E" } } }
 ```
 
-Slide files contain the slide object directly. Do not wrap it in `{ "slide": ... }`
-and do not include `slideId` in the JSON file.
+`slides/N.json` contains the slide object directly. Do not wrap it in
+`{ "slide": ... }` and do not include command metadata in the JSON file.
 
 ```json
 { "id": "cover", "title": "Deck title", "transition": { "type": "fade", "durationMs": 350 }, "children": [] }
 ```
 
-Use command arguments for targets:
+`manifest.json` contains `slides` and may include human metadata. The CLI uses
+only `slides`. Each entry needs unique `id` plus `file` relative to
+`manifest.json` unless absolute; manifest id must match slide `id`. There is no
+`enabled:false`; remove an entry to omit a slide.
 
-```bash
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" add-slide slide-01.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" insert-slide 1 slide-insert.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" insert-slide slide-after-cover.json --after cover
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" set-slide cover slide-01-fixed.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" delete-slide appendix
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" set-deck deck-theme.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" diagnose-slide slide-03.json --slide 2
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" render --out final.pptx
+```json
+{
+  "slides": [
+    { "id": "cover", "file": "slides/01-cover.json" },
+    { "id": "market", "file": "slides/02-market.json" }
+  ],
+  "notes": "human-only metadata is ignored by the CLI"
+}
 ```
+
+### Validation Scope
+
+Deck config is validated by `init-deck` / `set-deck` and re-read by every gate,
+so deck-level token, color, or data errors can surface during the next single-slide validation.
+
+- `validate-slide` checks one slide with `deck-config.json` context and per-slide render diagnostics; it does not prove manifest order.
+- `validate-manifest` checks manifest shape, file refs, duplicate ids, slide id matches, all referenced slides, and composed layout; it writes nothing.
+- `compose` runs the same gates, then writes `build/deck.json` and/or `build/deck.pptx` only after validation succeeds.
+
+`validate-manifest` and `compose` return `manifestValidation`,
+`sourceValidation` / `validation`, `renderValidation`, `diagnostics`,
+`slideCount`, and `slides`. Error channels:
+
+- `manifestValidation.errors` → manifest/file/id problems.
+- `sourceValidation.errors` → slide/component problems with `slideId` / `path`.
+- `diagnostics.blocking` → rendered layout blockers.
+
+Issue shapes: `manifestValidation.errors[]:{code,path,message}`;
+`sourceValidation.errors[]:{code,slideId,path,message,suggestedFix?}`;
+`diagnostics.blocking[]:{code,severity,slideId,nodeId,measured,suggestion,constrainedBy?}`.
 
 ### Canonical Loop
 
-```
-plan.md  ->  init-deck  ->  loop[ add-slide / insert-slide / set-slide ]  ->  validate  ->  render
-```
-
-Concretely:
+`plan.md -> init-deck -> serial slide gate -> validate-manifest -> compose`
 
 ```bash
 cd "$DECK_WORKDIR"
+# first fill plan.md from planning-template.md
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" init-deck deck-init.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" add-slide slide-01.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" add-slide slide-02.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" render --out deck.pptx
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-slide slides/01-cover.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-slide slides/02-market.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-manifest manifest.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" compose manifest.json --write-source build/deck.json --out build/deck.pptx
 ```
 
-A failure on any step must be repaired before moving to the next step on the
-same scope. Repair a rejected slide with `set-slide <id|index> fixed-slide.json`
-for an existing slide, or retry `add-slide fixed-slide.json` if the failed slide
-was not committed.
+### Serial Slide Gate
 
-Author one slide at a time: write one slide JSON file, immediately run
-`add-slide`, `insert-slide`, or `set-slide`, inspect the CLI result, and only
-then write the next slide JSON. Do not generate all slide JSON files first and
-batch-add them later; that hides the first failing page and weakens the repair
-loop.
+Hard rule: write one `slides/N.json`, immediately run one visible
+`validate-slide slides/N.json`, repair that file until it passes, then move to
+the next slide. This keeps every repair loop one slide to one diagnostic set.
 
-### Tool-Safety Hard Rules
+### Never Do This
 
-- One CLI command at a time; never batch slide writes.
-- Pass slide files as direct objects, never as stringified JSON blobs and never
-  as `{ "slide": {...} }` wrappers.
-- Never hand-edit `deck.json`. Never write the deck with `python-pptx` or
-  similar; always go through this CLI.
-- Do not run `reset-deck` unless replacing the whole source deck is intentional.
-  `init-deck` protects existing work by failing on existing `deck.json`; use
-  `set-deck` for theme/config changes that must preserve slides.
-- Repair a rejected slide before writing the next slide.
-- Do not wrap the CLI in `run_node`, `run_python`, generated scripts, or batch
-  loops; those hide per-slide diagnostics.
-- `validate` and `render` are deck-level gates. Per-slide authoring is gated by
-  `add-slide`, `insert-slide`, `set-slide`, and `diagnose-slide`.
+- Do not batch in create or modify mode. Write/edit one slide file, validate it,
+  repair it, then continue.
+- Do not generate all new slide files or edit several existing slides before
+  validating them one by one.
+- Do not batch `validate-slide` with loops, generated scripts, `find`, `xargs`,
+  `parallel`, Node, or Python.
+- Do not create `slides/03-fixed.json` after a failed slide; repair the same file.
+- Do not hand-edit `build/deck.json`. Do not write the deck with `python-pptx` or similar; always go through `compose`.
+
+Forbidden batch example:
+
+```bash
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-slide slides/01.json slides/02.json
+node validate-all-slides.js
+```
 
 ### Task Modes
 
 - `create` — new deck from a prompt, notes, data, markdown, or research. Start
-  with `init-deck`.
-- `modify` — edit an existing deck. Start with `list-slides` or `show-deck`,
-  then `set-slide`.
-- `repair` — fix a failed `add-slide`, `insert-slide`, `set-slide`, `validate`, or `render`.
-  Read the named slide, repair its node, and retry the smallest relevant command.
-- `review` — inspect and report without writing; prefer `list-slides`,
-  `show-deck`, and `validate`.
+  by writing `plan.md` from `planning-template.md`, then run `init-deck`.
+- `modify` — edit the relevant `slides/N.json`, `manifest.json`, or
+  `deck-config.json`, then rerun `validate-slide`, `validate-manifest`, and
+  `compose`.
+- `repair` — fix a failed `validate-slide`, `validate-manifest`, or `compose`.
+  Read the named slide/manifest/config file, repair its node, and retry the
+  smallest relevant command.
+- `review` — inspect and report without writing; prefer `validate-slide` and
+  `validate-manifest`.
+
+### Planning Archive
+
+For `create` mode, fill `plan.md` from `planning-template.md` before
+`init-deck`. Required sections: Brief; Deck Plan with id/title/job/archetype/
+component/layout intent/density risk; Theme Contract; Asset Plan; Coverage
+Check. Reference it while writing each `slides/N.json`; update it when a repair
+changes a slide's archetype, component, or layout intent.
 
 ### Reading Diagnostics
 
@@ -221,6 +253,10 @@ source JSON or component contract failed. `ok:false` with `status:"render-error"
 means the source is valid but rendered layout would overflow, overlap, clip, or
 trigger a blocking visual diagnostic. `deckModified:false` means the deck source
 was not changed.
+
+Repair entry point: `manifestValidation.errors` → edit `manifest.json`;
+`sourceValidation.errors` → edit `slides/<slideId>.json` at `path`;
+`diagnostics.blocking` → edit the node named by `slideId` / `nodeId`.
 
 Repair preference order:
 
@@ -237,7 +273,7 @@ diagnostics can remain only when they do not visibly harm the user request.
 
 ### 2.0 Slide Object Fields
 
-A slide JSON file used by `add-slide`, `insert-slide`, `set-slide`, or `diagnose-slide` supports:
+A slide JSON file used by `validate-slide` and `compose` supports:
 
 - `id` required stable slide id.
 - `title` optional default visible title. Set it only when you want the
@@ -249,20 +285,72 @@ A slide JSON file used by `add-slide`, `insert-slide`, `set-slide`, or `diagnose
 - `transition` optional native PowerPoint slide transition:
   `{type:"none"|"fade"|"push"|"wipe"|"split"|"cover"|"uncover",
   direction?:"left"|"right"|"up"|"down", durationMs?:number}`.
-  Use canonical `type` values. `duration` in seconds and `type:"slideIn"`
-  aliases are accepted for compatibility, but canonical form is preferred.
+  Use canonical `type` values.
 - `notes` optional speaker notes.
-- `children` required array of layout nodes/components.
+- `children` required array of layout nodes/components; it may be empty when
+  all content is in `background` or a rendered title system.
 
-### 2.1 Composition
+### 2.1 Slide Family Map
+
+PowerPoint vocabulary bridge: Title Slide ≈ Cover; Section Header ≈ Section
+break; Two Content / Comparison ≈ comparison content; Picture with Caption ≈
+data+interpretation or walkthrough.
+
+`plan.md` must assign every slide a family before choosing components.
+
+| Family | Use | 15-slide expectation | SlideML2 entry |
+|---|---|---:|---|
+| Cover | First slide | 1 | `cover-composition` |
+| TOC / Outline | Navigation for 10+ content slides | 0–1 | `outline` |
+| Section break | Topic reset | 0–3 | `chapter-divider` |
+| Content analytic | Main argument pages | 8–10 | choose archetype in §2.2 |
+| Comparison | Options, competitors, trade-offs | 0–2 | `comparison-table`, `pros-cons` |
+| Data evidence | One data star | 1–2 | `chart-with-rail`, `evidence-layout` |
+| Hero stat | One decisive number | 0–1 | `hero-stat`, `cover-composition` |
+| Process / timeline | Flow or time sequence | 0–2 | `process-flow`, `timeline` |
+| Walkthrough | Screenshot / image observations | 0–2 | `snapshot-callouts` |
+| Executive summary | Integrated answer | 1 | `executive-summary` |
+| Reading / long-form | Article-like passage | 0–1 | `article` |
+| Closing | Takeaways / action | 1 | `takeaway-list`, `cta` |
+
+Except Content analytic, any family >50% is a redesign signal; within Content,
+3+ consecutive same-archetype slides is a redesign signal unless appendix-like.
+
+### 2.2 Compositional Archetypes
+
+After family, pick the page's composition job:
+
+| Archetype | Use when | Typical primary |
+|---|---|---|
+| Claim + proof | One conclusion plus one proof object | `chart-with-rail`, `evidence-layout` |
+| Hero + satellites | One idea leads, 2–4 modules support | `hero-and-support` |
+| Data + interpretation | Chart/table dominates with a read rail | `chart-with-rail` |
+| Peer comparison | Equal-status options | `comparison-table`, `comparison-card` grid |
+| Process / time | Sequence is the meaning | `process-flow`, `timeline` |
+| Screenshot walkthrough | Image plus numbered observations | `snapshot-callouts` |
+| Executive synthesis | Memo-style answer | `executive-summary` |
+
+Picking an archetype first prevents the default "title + equal cards" shape.
+The routing table then chooses the component inside that archetype.
+
+### 2.3 Composition
 
 - Content slides ≥ 70% of total. Chrome (cover, TOC, section-break, closing) ≤ 30%.
+- A balanced 12–20 slide business/research deck usually has 1 cover, 0–1 TOC,
+  1 executive summary, 1–3 section breaks, 1 closing, and 8–14 content slides across at least 3 archetypes.
 - One hero per slide. At most one element at deck-title / cover-title /
   hero-stat / metric-value scale.
 - Default order is cover → TOC → content. Below ~10 content slides, drop the
   TOC. A TOC must earn its place with per-chapter body, page number, or thesis.
 - Section-break thresholds: 4–8 content slides → 0–1 break; 9–14 → 1–2;
   15+ → 2–3. Never use a break around a single content slide.
+- No section-break + single content slide + section-break pattern. Merge the
+  lone slide into a neighboring section or expand it into a real chapter.
+- Pick layout intent before component: claim+proof, hero+satellites,
+  data+interpretation, peer comparison, process/time, screenshot, synthesis.
+- Vary primary archetype across the deck. Avoid 3+ consecutive slides with the
+  same primary component or layout intent unless the content truly demands it.
+- In `plan.md`, count repeated archetypes. ≥3 table-only pages, ≥4 equal-card grids, or 5+ slides without data evidence is a redesign signal.
 - No bare "Thank You / End" slide. Replace with 3–5 takeaways, the strongest
   data point, or contact / QR. If the deck truly ends there, drop the slide.
 - A `slide.title` plus a visible title in `children` is a duplicate layout.
@@ -272,7 +360,18 @@ A slide JSON file used by `add-slide`, `insert-slide`, `set-slide`, or `diagnose
 - When repairing density, preserve semantic ordinals: "判断 1/2/3",
   "Step 1/2/3" must stay visible in the title, eyebrow, label, or first card.
 
-### 2.2 Density & Capacity
+### 2.4 Deck-Level Antipatterns
+
+Fix these in `plan.md` before writing slide JSON:
+
+- Same-archetype run: 3 chart-card pages, 4 feature-card grids, or 3 table-only pages in a row.
+- Equal-card monoculture: ≥40% of content slides are card grids.
+- Chrome bloat: cover / TOC / section / closing family >30%.
+- Single-slide section: section-break + one content slide + section-break.
+- No evidence: 5+ consecutive content slides without chart/table/evidence.
+- Density flat-line: every content slide is medium-density text with no hero stat, quote, full-bleed image, or minimal page.
+
+### 2.5 Density & Capacity
 
 - Most slides should have either one hero module, one data/evidence module,
   or 2–4 peer modules. Long prose belongs in shorter bullets or another slide.
@@ -296,12 +395,13 @@ A slide JSON file used by `add-slide`, `insert-slide`, `set-slide`, or `diagnose
 - Three or more table-only pages in a row is acceptable only for true
   reference or appendix material.
 
-### 2.3 Theme & Units
+### 2.6 Theme & Units
 
 - `deck.size`: `16x9` (default), `16x10`, `4x3`, or `wide`. Use what the user
   asks for; do not force 16:9.
 - `deck.validation.mode`: `standard`, `strict`, or `experimental`. `strict`
   requires image `alt` and chart/table source metadata.
+- Business/research decks default to light analytical themes: white surface, one brand accent, stable success/warning/danger, dark only for cover/section/hero-stat or explicit requests.
 - Top-level `themeOverride` keys: `colors`, `text`, `component`, `tone`,
   `layout`, `fonts`, `chart`, `chrome`, `imageGrowWeight`, `sizeScale`,
   `guidance`. Flat dot keys (`"brand.primary"`) and nested objects both work.
@@ -311,10 +411,9 @@ A slide JSON file used by `add-slide`, `insert-slide`, `set-slide`, or `diagnose
 - `contentTop` and `contentBottom` are y-coordinates. `contentHeight =
   contentBottom - contentTop`. On 16:9, `contentBottom` is usually 13.0–13.5.
 - `themeOverride.layout.areas`: `{ name: {x,y,w,h} | {left,top,right,bottom} }`.
-  Do not redefine built-in area names `content` or `full`; use names such as
-  `main`, `contentMain`, `rail`, `leftRail`, `figureZone`, or `evidencePanel`.
-  Reserved names: `content`, `full`. Reference from a top-level node with
-  `area:"name"`.
+  Built-in reserved names are `content` and `full`; do not redefine them. Any
+  other name is valid; pick semantic names like `main`, `rail`, or `figureZone`
+  and reference from a top-level node with `area:"name"`.
 - Color tokens preferred over raw hex (`text.primary`, `brand.primary`,
   `success`, `warning`, `danger`, `info`, `neutral`, `muted`). Raw `RRGGBB`
   works but warns because it does not follow theme changes.
@@ -344,7 +443,7 @@ A slide JSON file used by `add-slide`, `insert-slide`, `set-slide`, or `diagnose
   override (`fontSize`, `fontWeight`, `color`, etc.) → rich-run field. Node
   and run overrides do not change the theme for other components.
 
-### 2.4 Escape Hatches
+### 2.7 Escape Hatches
 
 Components cover ~90% of slides. Use these only for editorial moments:
 covers, section openers, hero stats over photography, or annotation overlays.
@@ -355,7 +454,6 @@ covers, section openers, hero stats over photography, or annotation overlays.
 | Diagonal headline, hero number on cover, custom poster page           | `at:[x,y,w,h]` / `{x,y,w,h}` + rotation    |
 | Image as card background, scrim over content, deco behind text        | `layer:"behind"` or `"above"` on flow child |
 | Badge / flag / callout attached to another element                    | `anchorTo:"nodeId"`                         |
-| Ordinary content layout                                               | components + flow containers                |
 
 Notes:
 
@@ -374,7 +472,7 @@ Notes:
 - `layer:"behind"` does not consume flow space and is exempt from overlay
   occlusion checks. `layer:"above"` participates in occlusion detection.
 
-### 2.5 Data Binding
+### 2.8 Data Binding
 
 Use deck-level `dataSources` and `bind` + `encoding` whenever the same data
 backs multiple components. Hand-authored `labels` / `series` / `rows` are
@@ -386,25 +484,19 @@ fine for one-off data.
     "sales": {
       "type": "inline-json",
       "rows": [
-        { "quarter": "Q3", "month": "Jul", "region": "NA", "revenue": 920, "cost": 607, "margin": 0.34 },
-        { "quarter": "Q3", "month": "Aug", "region": "EU", "revenue": 390, "cost": 296, "margin": 0.24 }
+        { "month": "Jul", "region": "NA", "revenue": 920, "margin": 0.34 },
+        { "month": "Aug", "region": "EU", "revenue": 390, "margin": 0.24 }
       ]
-    },
-    "pipeline": { "type": "inline-csv", "csv": "stage,value\nDiscovery,1250\nCommit,410" },
-    "actuals": { "type": "file-csv", "path": "data/actuals.csv" },
-    "margins": {
-      "type": "computed", "source": "sales",
-      "computed": {
-        "profit":    { "op": "subtract", "left": "revenue", "right": "cost" },
-        "marginPct": { "op": "divide",   "left": "profit",  "right": "revenue" }
-      }
     }
   }
 }
 ```
 
 Source types: `inline-json` (rows), `inline-csv` (text), `file-csv` (path
-relative to deck JSON), `computed` (derived from another source).
+relative to deck JSON), `computed` (derived from another source with
+`field`, `literal`, `add/sum`, `subtract`, `multiply`, `divide/ratio`,
+`percent-change`, `negate`, `abs`, `round`, `concat`, `coalesce`). No JS or
+formula strings.
 
 `bind`: `{ source, select?, filter?, groupBy?, aggregate?, pivot?, sort?, limit? }`.
 Resolution order: filter → groupBy/aggregate → pivot → sort → limit →
@@ -414,43 +506,22 @@ the same view.
 - `filter`: scalar equality, array inclusion, or operator object
   `{ in, eq, ne, contains, gt, gte, lt, lte }`.
 - `aggregate` ops: `sum`, `avg`, `min`, `max`, `count`, `first`, `last`.
-- `computed` ops: `field`, `literal`, `add` / `sum`, `subtract`, `multiply`,
-  `divide` / `ratio`, `percent-change`, `negate`, `abs`, `round`, `concat`,
-  `coalesce`. No JS or formula strings.
 
 Bound chart:
 
 ```json
 {
   "type": "chart-card", "chartType": "bar", "title": "Q3 revenue",
-  "bind": { "source": "sales", "filter": { "quarter": "Q3" }, "groupBy": "month",
+  "bind": { "source": "sales", "groupBy": "month",
             "aggregate": { "Revenue": { "op": "sum", "field": "revenue" } }, "sort": "month" },
   "encoding": { "x": "month", "y": "Revenue", "seriesName": "Revenue" },
   "caption": "Source: deck.dataSources.sales"
 }
 ```
 
-For combo charts or secondary axes, bind all numeric series explicitly and use
-`series` or `encoding.seriesOptions` for styling. Do not set
-`secondaryYAxis` with only one bound series.
-
-```json
-{
-  "type": "chart-card", "chartType": "combo", "title": "Readiness trend",
-  "bind": { "source": "q4metrics" },
-  "encoding": { "x": "phase", "y": ["clients", "nps"] },
-  "series": [
-    { "name": "Clients", "type": "bar", "color": "#2563EB" },
-    { "name": "NPS", "type": "line", "axis": "secondary",
-      "color": "#16A34A", "lineWidth": 2, "lineDash": "solid",
-      "marker": { "shape": "circle" } }
-  ],
-  "secondaryYAxis": { "title": "NPS", "min": 0, "max": 60 },
-  "legend": { "show": true, "position": "right" },
-  "plotArea": { "x": 0.08, "y": 0.08, "w": 0.72, "h": 0.78 },
-  "dataLabels": { "show": true, "showValue": true }
-}
-```
+For combo charts or secondary axes, bind all numeric series explicitly in
+`encoding.y`, style them with `series` or `encoding.seriesOptions`, and use
+`secondaryYAxis` only when at least one series has `axis:"secondary"`.
 
 Bound table:
 
@@ -458,13 +529,12 @@ Bound table:
 {
   "type": "table-card",
   "bind": { "source": "sales", "groupBy": "region",
-            "aggregate": { "Revenue": { "op": "sum", "field": "revenue" }, "Margin": { "op": "avg", "field": "margin" } },
+            "aggregate": { "Revenue": { "op": "sum", "field": "revenue" },
+                           "Margin": { "op": "avg", "field": "margin" } },
             "sort": "-Revenue" },
-  "encoding": { "columns": [
-    { "key": "region",  "label": "Region" },
-    { "key": "Revenue", "type": "currency", "format": "int", "align": "right" },
-    { "key": "Margin",  "type": "percent",  "align": "right" }
-  ] }
+  "encoding": { "columns": [{ "key": "region", "label": "Region" },
+    { "key": "Revenue", "type": "currency", "align": "right" },
+    { "key": "Margin", "type": "percent", "align": "right" }] }
 }
 ```
 
@@ -472,15 +542,8 @@ Column `type` should be `text`, `number`, `percent`, `currency`, or `date`.
 Common numeric aliases such as `int`, `integer`, `decimal`, `float`, and
 `numeric` normalize to `number`; prefer canonical names in authored JSON.
 
-Pivot (long → wide):
-
-```json
-{
-  "bind": { "source": "sales",
-            "pivot": { "index": "region", "columns": "product", "values": "revenue", "aggregate": "sum", "fill": 0 },
-            "sort": "region" }
-}
-```
+Pivot (long → wide): use
+`"pivot":{"index":"region","columns":"product","values":"revenue","aggregate":"sum","fill":0}`.
 
 If a bound chart reports `EMPTY_CHART_DATA`, repair the source / filter /
 encoding or split the page. Do not switch to a weaker component to silence
@@ -537,13 +600,13 @@ Children are required unless noted. Containers may carry `fixedHeight` /
 - `cover-composition` — Editorial cover with optional full-bleed visual, dominant title lockup, hero stat. type='cover-composition' required={title} optional={subtitle, eyebrow, visual:{src,fit,anchor?,width?,height?,opacity?}, heroStat:{value,label,caption}, tone:neutral|inverse|brand, decor:none|grid|shapes, titleSize:deck-title|slide-title|section-title, lockupWidth, lockupHeight}
 - `chapter-divider` — High-impact section opener. type='chapter-divider' required={title} optional={subtitle, chapter, eyebrow, sections, current, tone:brand|neutral|inverse}
 - `hero-and-support` — One dominant claim plus 2–4 satellites. Use instead of a flat 2×2 grid when one idea leads. type='hero-and-support' required={headline, supports} optional={hero, detail, items (alias), layout:left|top, ratio, gap, tone}
-- `chart-with-rail` — Dominant chart/table/evidence plus a narrow rail. type='chart-with-rail' required={evidence} optional={rail, headline, detail, items, layout:rail-right|rail-left|stacked, ratio, gap, tone} capacity="evidence dominant; rail concise"
+- `chart-with-rail` — Dominant chart/table/evidence plus a narrow rail. type='chart-with-rail' required={evidence} optional={rail, headline, detail, items, layout:rail-right|rail-left|stacked, ratio, gap, tone} capacity="chart body >=4.8x3.0cm; rail <=30% width; stack when rail text is long"
 - `snapshot-callouts` — Screenshot + numbered callouts. Use `freeform-group` only when markers must point at exact coordinates. type='snapshot-callouts' required={src:image-ref, callouts} optional={title, caption, items (alias), fit:cover|contain|fill, layout:rail-right|rail-left|below, ratio, gap, tone}
 - `evidence-layout` — Evidence + interpretation page. type='evidence-layout' required={evidence} optional={insight, headline, detail, annotations, layout:sidecar|stacked, ratio}
 
 ### 3.3 Quantitative Proof
 
-KPI and chart components accept `bind` + `encoding` for data binding. See §2.5.
+KPI and chart components accept `bind` + `encoding` for data binding. See §2.8.
 
 - `hero-stat` — Slide-defining number. One per slide. type='hero-stat' required={value+label | bind+encoding:{value,label,delta?}} optional={caption, tone, bind, encoding}
 - `kpi-grid` — 2–6 headline metrics. type='kpi-grid' required={metrics:[{value, label|name|title, delta?, status?, sparkline?, ...}]} optional={items (alias), columns, variant:plain|card|compact, density, surface}
@@ -552,7 +615,7 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.5.
 - `stat-comparison` — Before/after with delta. type='stat-comparison' required={beforeLabel, beforeValue, afterLabel, afterValue} optional={trend, deltaLabel}
 - `bar-list` — Ranked categorical comparison, 4–8 items. `value` may be a number, percent string, or star rating. type='bar-list' required={items:[{label|name|title, value|score|percent, valueLabel?, tone?}]} optional={tone, sort:desc|asc|none}
 - `progress-bar` — Single progress-to-target. type='progress-bar' required={label, value} optional={max, valueLabel, tone}
-- `chart-card` — Titled chart with optional insight, caption, dataLabels. Pie/doughnut must show slice labels. type='chart-card' required={chartType:bar|stacked-bar|line|pie|doughnut|area|combo|scatter|waterfall, labels+series | data.{labels,series} | bind+encoding} optional={title, badge, insight, caption, showLegend, showValues, dataLabels:{show,position,bestFit|center|insideEnd|insideBase|outsideEnd,showValue,showCategoryName,showSeriesName,showPercent,showLegendKey,showLeaderLines}, positiveColor, negativeColor, yFormat:int|decimal|percent|wanyuan|yi, tone, variant, surface, bind, encoding, orientation, xAxis, yAxis, secondaryYAxis, legend:{show,position,overlay}, plotArea:{x,y,w,h}} capacity="bar/line/combo body usually >=4.8x3.0cm; low-density 3-category single-series bar charts may warn below this but still need readable aspect ratio; pie/doughnut >=5.2x4.4cm before chrome"
+- `chart-card` — Titled chart with optional insight, caption, dataLabels. Pie/doughnut must show slice labels. type='chart-card' required={chartType:bar|stacked-bar|line|pie|doughnut|area|combo|scatter|waterfall, labels+series | data.{labels,series} | bind+encoding} optional={title, badge, insight, caption, showLegend, showValues, dataLabels:{show,position,bestFit|center|insideEnd|insideBase|outsideEnd,showValue,showCategoryName,showSeriesName,showPercent,showLegendKey,showLeaderLines}, positiveColor, negativeColor, yFormat:int|decimal|percent|wanyuan|yi, tone, variant, surface, bind, encoding, orientation, xAxis, yAxis, secondaryYAxis, legend:{show,position,overlay}, plotArea:{x,y,w,h}} capacity="bar/line/combo body >=4.8x3.0cm; pie/doughnut >=5.2x4.4cm before chrome; keep readable aspect ratio"
 
 ### 3.4 Comparison & Decisions
 
@@ -579,7 +642,7 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.5.
 - `image-card` — Inspectable image with optional annotations/callouts. type='image-card' required={src:image-ref} optional={alt, title, badge, insight, annotations, callouts, caption, fit:cover|contain|fill, imageWidth, tone, variant, surface}
 - `quote` — Verbatim or voice-like statement. type='quote' required={text} optional={source}
 - `source-note` — Quiet provenance / caveat. type='source-note' required={text} optional={align}
-- `equation` — Display math via OMML. Supported LaTeX renders natively; unsupported commands fail validation. type='equation' required={latex} optional={label, number, align, caption, style, size, fontSize, renderMode:omml} capacity="dense formula grids: explicit fontSize/size and split derivation steps"
+- `equation` — Display math via OMML. Supported LaTeX renders natively; unsupported commands fail validation. Split dense derivations across slides or set explicit `fontSize` / `size`. type='equation' required={latex} optional={label, number, align, caption, style, size, fontSize, renderMode:omml} capacity="single display formula >=4.0x1.0cm; formula grid cells >=5.0x1.4cm"
 - `bibliography` — Auto bibliography from `deck.references`. Use with `{kind:"cite",refId}` runs. type='bibliography' optional={title, style:numeric|author-year|short, includeAll}
 - `legend` — Color/category key. type='legend' required={items:[{label, color}]} optional={direction}
 
@@ -600,14 +663,7 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.5.
 - `quiz-card` — MCQ/T-F question card. type='quiz-card' required={question} optional={items (max 6), correct:letter|index, explanation, number, questionType, tone:brand|neutral|tinted}
 - `article` — Long-form text that auto-paginates across slides. type='article' required={text | paragraphs} optional={title, source}
 - `code` — Inline preformatted code excerpt. type='code' required={text} optional={align, title, language}
-- `code-block` — First-class code listing with line numbers, syntax color, diff lines, highlight ranges. type='code-block' required={code} optional={language, title, caption, showLineNumbers, highlightLines:[number | {start,end}], wrap, density:compact|dense|tiny, columns, fontSize, maxLines} capacity="paginate long listings; `maxLines` only for excerpts"
-- `lead` — Lead paragraph or short opening sentence. type='lead' required={text} optional={align}
-- `h1` — Primary in-slide section heading. type='h1' required={text} optional={align}
-- `h2` — Secondary in-slide heading. type='h2' required={text} optional={align}
-- `text` — Plain semantic body copy. type='text' required={text} optional={align}
-- `label` — Small label/chip text. type='label' required={text} optional={align, variant:plain|badge|tag, tone}
-- `deck-title` — Dominant cover/section title component. For normal slides, set `slide.title` instead. type='deck-title' required={text} optional={align}
-- `slide-title` — Explicit in-content slide title; usually prefer `slide.title` so the renderer places the title in its dedicated rect. type='slide-title' required={text} optional={align}
+- `code-block` — First-class code listing with line numbers, syntax color, diff lines, highlight ranges. Use `maxLines` only for intentional excerpts; paginate long listings. type='code-block' required={code} optional={language, title, caption, showLineNumbers, highlightLines:[number | {start,end}], wrap, density:compact|dense|tiny, columns, fontSize, maxLines} capacity="fontSize 7 + density:dense fits ~38-48 short lines/page at full width; use columns for narrow code"
 
 ### 3.8 Data Visualization
 
@@ -627,7 +683,10 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.5.
 
 ### 3.9 Identity, Markers, Action
 
-- `feature-card` — One feature/capability/benefit. Use explicit `layout:"vertical"|"horizontal"` to keep repeated cards consistent; horizontal places the decoration left of the text and is better for short card height. `variant:"compact"` defaults to horizontal deterministically; set `layout:"vertical"` when a top icon is intended. Prefer unified `decoration` for new decks: `{kind:"image"|"shape"|"marker"|"none", src?/iconSrc?, shape?/icon?, marker?, size?, color?, background?, tone?, variant?}`. Legacy `icon`, `iconSrc`, and `marker` still work. `compact` and custom `surface` cards keep internal padding by default; set `surface:{line:"none"}` or top-level `line:"none"` for borderless styles. type='feature-card' required={title} optional={layout:vertical|horizontal, decoration, icon, iconSrc:image-ref, marker, body, content:rich-runs, badge, tags, metric:{value,label,tone?}, proof, ctaText, iconColor, iconBackground, tone, titleColor:color-ref, variant:plain|card|compact, density, surface}
+Use unified `decoration:{kind:"image"|"shape"|"marker"|"none", ...}` for card
+ornaments; it keeps icon/marker/shape controls consistent across variants.
+
+- `feature-card` — One feature/capability/benefit. Use explicit `layout:"vertical"|"horizontal"` to keep repeated cards consistent; horizontal places decoration left of text and is better for short card height. Compact and custom-surface cards keep internal padding; set `surface:{line:"none"}` for borderless styles. type='feature-card' required={title} optional={layout:vertical|horizontal, decoration, body, content:rich-runs, badge, tags, metric:{value,label,tone?}, proof, ctaText, tone, titleColor:color-ref, variant:plain|card|compact, density, surface}
 - `logo-strip` — Set of customer/partner/integration logos. type='logo-strip' required={logos:[{src,alt}] | items | images} optional={columns, caption}
 - `tag-list` — Short keywords / categories / filters. type='tag-list' required={items} optional={tone}
 - `badge` — Single short status chip (NEW, RISK, BETA, DRAFT). type='badge' required={text} optional={tone}
@@ -674,7 +733,13 @@ may be strings or objects such as
 Building blocks usually placed by components, but available directly when
 needed.
 
-- `text` — Plain body copy (see §3.7). For multi-line bullets use `bullets`.
+- `text` — Plain semantic body copy. type='text' required={text} optional={align}
+- `lead` — Lead paragraph or short opening sentence. type='lead' required={text} optional={align}
+- `h1` — Primary in-slide section heading. type='h1' required={text} optional={align}
+- `h2` — Secondary in-slide heading. type='h2' required={text} optional={align}
+- `label` — Small label/chip text. type='label' required={text} optional={align, variant:plain|badge|tag, tone}
+- `deck-title` — Dominant cover/section title component. For normal slides, set `slide.title` instead. type='deck-title' required={text} optional={align}
+- `slide-title` — Explicit in-content slide title; usually prefer `slide.title` so the renderer places the title in its dedicated rect. type='slide-title' required={text} optional={align}
 - `bullets` — Bulleted list. type='bullets' required={items: string[] | [{text|runs:rich-runs}]} optional={title, density, size, marker, numberStyle}
 - `shape` — Raw geometry preset. type='shape' optional={preset, fill, fillOpacity, line, lineOpacity, lineWidth, lineDash, borderColor, borderWidth, borderStyle, border:{color|line,width?,dash?|style?}, cornerRadius, rotation, headEnd, tailEnd, thickness, ...}
 - `image` — Raster image without card chrome. type='image' required={src:image-ref} optional={alt, fit:cover|contain|fill, opacity, width, height, clip, cornerRadius, line, lineWidth, lineDash, borderColor, borderWidth, borderStyle, border:{color|line,width?,dash?|style?}, overlay, shadow}
@@ -701,7 +766,9 @@ validation rather than being emitted as plain text.
 
 ## 4. Routing — Page Job → First Component
 
-Use this table to pick the primary component before writing JSON. Add at
+Use this table only after deciding slide family (§2.1) and compositional
+archetype (§2.2). The same job can map differently by family: a comparison
+inside a section reset is a `chapter-divider`, not a `comparison-table`. Add at
 most 1–2 support components.
 
 | Page job                                | First component                | Good support                                    |
@@ -713,7 +780,8 @@ most 1–2 support components.
 | KPI / status snapshot                   | `kpi-grid`                     | `scorecard`, `stat-strip`, `hero-stat`          |
 | Options / competitors / before-after    | `comparison-table`             | `comparison-list`, `matrix-2x2`, `pros-cons`    |
 | Process / value chain / workflow        | `process-flow`                 | `stat-flow`, `funnel`, `arrow-link`             |
-| Roadmap / chronology                    | `axis-ruler` or `timeline`     | `timeline-axis-bar`, `process-flow`             |
+| Roadmap / dated milestones              | `timeline`                     | `process-flow`, `side-rail`                     |
+| Roadmap / conceptual stages             | `axis-ruler`                   | `process-flow`, `side-rail`                     |
 | Risk / issue taxonomy                   | `failure-taxonomy`             | `matrix-2x2`, `scorecard`, `checklist`          |
 | Screenshot / visual walkthrough         | `snapshot-callouts`            | `annotation`, `pointer-arrow`, `callout-marker` |
 | One idea plus satellites                | `hero-and-support`             | `feature-card`, `metric-card`                   |

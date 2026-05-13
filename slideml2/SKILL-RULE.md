@@ -124,9 +124,9 @@ and Tool Path.
 ### 3.2 No parallel workflows
 
 There must be at most **one** authoring workflow definition in the file.
-Modify/repair/review reuse the same loop with a different entry command
-(`list-slides`/`show-deck` first instead of `init-deck`); they are not separate
-workflows. The historical version had four overlapping workflows (Mandatory
+Modify/repair/review reuse the same manifest-compose loop with different files
+edited first (`deck-config.json`, `manifest.json`, or `slides/N.json`); they
+are not separate workflows. The historical version had four overlapping workflows (Mandatory
 Create Workflow, Mandatory Modify Workflow, Authoring Workflow,
 Component-First Slide Loop) — that is forbidden.
 
@@ -143,14 +143,15 @@ Target sizes (soft caps; exceed only with reason):
 
 | Section            | Target lines | Hard cap |
 |--------------------|-------------:|---------:|
-| Tool Path          |        80    |   120    |
-| Layout Rules       |       150    |   200    |
-| Data Binding       |        60    |    80    |
-| Component Reference |      110    |   140    |
-| **Total**          |   **~400**   | **~540** |
+| Tool Path          |       150    |   190    |
+| Layout Rules       |       220    |   260    |
+| Data Binding       |        60    |    90    |
+| Component Reference |      180    |   220    |
+| **Total**          |   **~680**   | **~800** |
 
-Whole-file size should stay under ~550 lines. Exceeding this means the file
-is back-sliding toward the historical 812-line state.
+Whole-file size should stay under ~800 lines while the component reference is
+embedded. Exceeding this means the file is back-sliding toward the historical
+812-line state or should move detail into generated/reference docs.
 
 ---
 
@@ -171,6 +172,19 @@ knowledge, so SKILL.md must carry them:
 - The list of components, their semantic purpose, and field names.
 - Component capacity floors (e.g. `chart-card` body ≥ 4.8×3.0 cm) because
   the validator only reports the failure, not the floor.
+
+### 4.1 Required Deck-Level Guidance
+
+Two things must always be present because per-slide validation cannot replace
+them:
+
+- Mandatory planning archive for create mode: which file to write, what fields
+  it must contain, and how to reference/update it during authoring and repair.
+- Layout-variety guidance at composition level: archetype variety, repeated
+  archetype thresholds, and the "pick layout shape before component" rule.
+
+A deck can contain 20 valid slides and still be visually monotonous. Removing
+or weakening either rule is a regression even if total line count drops.
 
 ---
 
@@ -223,26 +237,26 @@ in `render.ts`. If yes, move it.
 
 ### 5.4 Domain-specific style defaults
 
-- Business-deck light-first defaults.
-- "Read `business.md` before planning business decks."
-- "Generate icons for business analysis decks."
+- Large domain-specific storyline catalogs.
+- Case-specific business/research repair recipes.
+- Per-client brand presets that are not general SlideML2 behavior.
 
-These belong in `business.md` (already exists) or a per-domain skill. They
-must not be re-stated inside SKILL.md. SKILL.md may reference `business.md`
-in **one** sentence; no more.
+General business/research defaults that affect most decks, such as light-first
+analytical themes, belong in SKILL.md because agents do not reliably read
+optional side files. Detailed domain playbooks belong in separate skills.
 
-### 5.5 Planning archive templates
+### 5.5 Planning archive details
 
-The `deck_plan.md` table shape (`| # | slide id | job | ...`) is a process
-artifact, not a contract. Put it in `planning-template.md` (separate file)
-and reference it. SKILL.md says "before authoring, write `deck_plan.md`" in
-one line; that is enough.
+The full planning table shape is a process artifact; keep it in
+`planning-template.md`. SKILL.md must still state that create mode requires
+`plan.md`, name the required sections, and require updates when archetype,
+component, or layout intent changes.
 
 ### 5.6 Duplicate or parallel routing tables
 
-Keep exactly one `page-job → first-component` routing table. The historical
-version had two (Fast Routing + Page Layout Archetypes) with overlapping but
-non-identical advice. Pick one shape and delete the other.
+Keep exactly one page-archetype table and one `page-job → first-component`
+routing table. They must not duplicate each other: archetypes choose deck/page
+shape first, routing chooses the primary component inside that shape.
 
 ---
 
@@ -331,20 +345,21 @@ State the canonical invocation once, then never repeat it. The invocation accept
 positional arguments and flags:
 
 ```bash
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> [args] [--deck deck.json]
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> [args] [--deck deck-config.json]
 ```
 
-Only content objects belong in JSON files (`deck-init.json`, `slide-01.json`).
-Simple selectors and paths belong in flags or command positions (`--deck`,
-`--out`, `set-slide <id>`, `insert-slide <target>`, `delete-slide <id>`).
+Only content objects belong in JSON files (`deck-init.json`,
+`manifest.json`, `slides/01-cover.json`). Paths belong in flags or command
+positions (`--deck`, `--out`, `--write-source`, `compose manifest.json`).
 
 ### 7.2 Never call the JSON contents "CLI arguments"
 
 JSON files are for structured content, not control fields. Deck initialization
 JSON contains `title`, `size`, `themeOverride`, `dataSources`, etc. Deck patch
 JSON contains deck-level fields for `set-deck`. Slide JSON contains the slide
-object directly. Do not document wrapper/control fields such as `slideId`,
-`render`, `outputPath`, or `deckPath` inside JSON examples.
+object directly. Manifest JSON contains ordered `{id,file}` entries. Do not
+document wrapper/control fields such as `slideId`, `render`, `outputPath`, or
+`deckPath` inside JSON examples.
 
 Each JSON example must be preceded by a line that shows how it is invoked:
 
@@ -365,32 +380,30 @@ so the agent does not inline JSON or wrap the CLI in `run_node`/`run_python`.
 ### 7.4 One canonical loop diagram
 
 ```
-plan.md → init-deck → loop[ add-slide / insert-slide / set-slide ] → validate → render
+plan.md → init-deck → serial slide gate → validate-manifest → compose
 ```
 
 Surrounding text states: failure on any step must be repaired before
-proceeding to the next step on the same scope. That is the whole loop.
+proceeding to the next step on the same scope. Slide order comes only from
+manifest.json, never from command order. The serial slide gate means: write one
+slide file, run one visible `validate-slide` command, repair that same file until
+it passes, then proceed to the next slide file. That is the whole loop.
 
-### 7.5 Hard rules limited to tool semantics
+### 7.5 One "Never Do This" block
 
-Tool-safety rules should be ≤ 6 bullets and should only cover semantics that
-the validator cannot enforce:
+Tool-safety prohibitions should live in one short `Never Do This` block after
+the serial slide gate. Keep it to roughly 5 bullets and cover only behavior the
+validator cannot enforce:
 
-- One CLI command at a time; do not batch.
-- Write one slide JSON and immediately run its CLI command before authoring the
-  next slide JSON; do not batch-generate all slides first.
-- Pass slide files as direct JSON objects, never as stringified blobs or
-  `{ "slide": ... }` wrappers.
-- Never hand-edit `deck.json`; always go through the CLI.
-- Use `set-deck` for theme/config changes that preserve slides; `reset-deck`
-  intentionally deletes existing slides.
-- Failure on a slide must be repaired before writing the next slide.
-- Do not wrap the CLI inside `run_node`, `run_python`, generated scripts,
-  or batch runners.
-- `validate` and `render` are deck-level gates; `add-slide`, `insert-slide`,
-  `set-slide`, and `diagnose-slide` gate individual slide candidates.
+- Do not generate all slide files before validating them one by one.
+- Do not batch `validate-slide` with loops, scripts, `find`, `xargs`,
+  `parallel`, Node, or Python.
+- Do not create a second "fixed" slide file after failure; repair the same file.
+- Do not rely on filename order, creation order, or command order.
+- Do not hand-edit `build/deck.json` or create PPTX through another tool.
 
-Everything else is a layout rule or a component rule, not a tool rule.
+Everything else is a layout rule, file-shape rule, or component rule, not a
+tool-safety prohibition.
 
 ### 7.6 Diagnostic reading
 
@@ -448,11 +461,10 @@ its own commit so the diff is reviewable.
    `definition-card`, `quote`, `code`, and similar.
 5. **Pass 5 — Capacity inline.** Move every Targeted Capacity bullet into
    the matching component's `capacity="..."` field.
-6. **Pass 6 — Domain extraction.** Move every business / planning / icon
-   guidance bullet to `business.md` or `planning-template.md`. SKILL.md
-   keeps a single reference sentence.
-7. **Pass 7 — Routing consolidation.** Pick the better of Fast Routing vs
-   Page Layout Archetypes. Delete the other.
+6. **Pass 6 — Domain extraction.** Keep only general deck-level layout/theme
+   defaults in SKILL.md; move large domain playbooks to separate skills.
+7. **Pass 7 — Routing consolidation.** Keep one page-family/archetype path
+   and one component routing table; delete any third overlapping router.
 
 ---
 
@@ -472,11 +484,11 @@ A refactored SKILL.md passes if:
 
 **Structure (goals 1–3):**
 
-- Total lines ≤ 550.
+- Total lines ≤ 800 while the full component reference remains embedded.
 - Exactly three operational blocks (Tool Path, Layout Rules, Component
   Reference); Data Binding is a subsection of Layout Rules.
 - Exactly one authoring workflow definition.
-- Exactly one routing table.
+- Exactly one page-archetype table and one component routing table.
 
 **Component reference (goal 3):**
 
