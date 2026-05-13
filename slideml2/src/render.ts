@@ -1405,7 +1405,7 @@ function detectPageComponentCapacity(theme: SimpleTheme, slideId: string, measur
     slideId,
     nodeId: content.id,
     message: `Slide '${slideId}' combines ${demands.length} high-capacity component(s) whose estimated readable height is ${totalNeeded.toFixed(2)}cm against ${available.toFixed(2)}cm of content height.`,
-    suggestion: `Split this page or move secondary support before squeezing components: keep one dominant evidence object, move table/chart/equation/citation support to a rail or follow-up slide, and retry replace-slide. Component estimates: ${primary}.`,
+    suggestion: `Split this page or move secondary support before squeezing components: keep one dominant evidence object, move table/chart/equation/citation support to a rail or follow-up slide, then retry set-slide for an existing page or add-slide/insert-slide for a new page. Component estimates: ${primary}.`,
     measured: {
       available,
       needed: totalNeeded,

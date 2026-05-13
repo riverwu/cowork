@@ -125,7 +125,7 @@ and Tool Path.
 
 There must be at most **one** authoring workflow definition in the file.
 Modify/repair/review reuse the same loop with a different entry command
-(`read-deck` first instead of `create-deck`); they are not separate
+(`list-slides`/`show-deck` first instead of `init-deck`); they are not separate
 workflows. The historical version had four overlapping workflows (Mandatory
 Create Workflow, Mandatory Modify Workflow, Authoring Workflow,
 Component-First Slide Loop) — that is forbidden.
@@ -327,29 +327,29 @@ restating the same shared contract per component.
 
 ### 7.1 Exactly one CLI invocation pattern
 
-State the invocation once, then never repeat it:
+State the canonical invocation once, then never repeat it. The invocation accepts a command plus the command's documented
+positional arguments and flags:
 
 ```bash
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> <path/to/args.json>
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> [args] [--deck deck.json]
 ```
 
-The CLI takes **two positional command-line arguments**: a command name and
-a path to a JSON file. There are no flags, no stdin, no inline JSON on the
-command line.
+Only content objects belong in JSON files (`deck-init.json`, `slide-01.json`).
+Simple selectors and paths belong in flags or command positions (`--deck`,
+`--out`, `set-slide <id>`, `insert-slide <target>`, `delete-slide <id>`).
 
 ### 7.2 Never call the JSON contents "CLI arguments"
 
-The JSON file the CLI reads is not a command-line argument; the **path to**
-it is. The contents inside (`title`, `size`, `slide`, `slideId`, `render`,
-`outputPath`, `deckPath`, …) are **fields in an argument file**, not CLI
-flags or CLI arguments. Use the heading "Argument File Contents" or
-"Argument JSON Schemas", never "Arguments" alone — that would let an agent
-think it can pass `--title "X"` on the command line.
+JSON files are for structured content, not control fields. Deck initialization
+JSON contains `title`, `size`, `themeOverride`, `dataSources`, etc. Deck patch
+JSON contains deck-level fields for `set-deck`. Slide JSON contains the slide
+object directly. Do not document wrapper/control fields such as `slideId`,
+`render`, `outputPath`, or `deckPath` inside JSON examples.
 
 Each JSON example must be preceded by a line that shows how it is invoked:
 
 ```
-// create-deck.json — passed as: node slideml2.js create-deck create-deck.json
+// deck-init.json — passed as: node slideml2.js init-deck deck-init.json
 ```
 
 The path on the right of the command name is the agent's contract with the
@@ -358,15 +358,14 @@ shell; the contents of that file are a separate contract with the CLI body.
 ### 7.3 Show the loop as file-write + CLI-invoke pairs
 
 The canonical loop is not just an arrow diagram. It is a literal sequence
-of (1) write a JSON file in the workspace, (2) call the CLI with the file
-path. Show both steps explicitly at least once, so the agent does not try
-to inline the JSON or wrap it in `run_node`/`run_python` to avoid the file
-write.
+of (1) write structured JSON content in the workspace when needed, (2) call the
+CLI with the documented command shape. Show both steps explicitly at least once,
+so the agent does not inline JSON or wrap the CLI in `run_node`/`run_python`.
 
 ### 7.4 One canonical loop diagram
 
 ```
-plan.md → create-deck → loop[ replace-slide ] → validate-render
+plan.md → init-deck → loop[ add-slide / insert-slide / set-slide ] → validate → render
 ```
 
 Surrounding text states: failure on any step must be repaired before
@@ -378,13 +377,18 @@ Tool-safety rules should be ≤ 6 bullets and should only cover semantics that
 the validator cannot enforce:
 
 - One CLI command at a time; do not batch.
-- Pass `slide` as a JSON object literal, never as a stringified blob.
+- Write one slide JSON and immediately run its CLI command before authoring the
+  next slide JSON; do not batch-generate all slides first.
+- Pass slide files as direct JSON objects, never as stringified blobs or
+  `{ "slide": ... }` wrappers.
 - Never hand-edit `deck.json`; always go through the CLI.
+- Use `set-deck` for theme/config changes that preserve slides; `reset-deck`
+  intentionally deletes existing slides.
 - Failure on a slide must be repaired before writing the next slide.
 - Do not wrap the CLI inside `run_node`, `run_python`, generated scripts,
   or batch runners.
-- `validate-render` is the final gate, not the per-slide gate;
-  `replace-slide` already gates per slide.
+- `validate` and `render` are deck-level gates; `add-slide`, `insert-slide`,
+  `set-slide`, and `diagnose-slide` gate individual slide candidates.
 
 Everything else is a layout rule or a component rule, not a tool rule.
 

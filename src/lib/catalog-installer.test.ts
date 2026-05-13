@@ -52,7 +52,7 @@ describe("catalog skill installer", () => {
     );
     expect(mockWriteFile).toHaveBeenCalledWith(
       "/skills/slideml2/runtime/bin/slideml2.js",
-      expect.stringContaining("usage: slideml2 <create-deck|replace-slide|read-deck|validate-render> <args.json>"),
+      expect.stringContaining("Commands:"),
     );
     expect(mockWriteFile).toHaveBeenCalledWith(
       "/skills/slideml2/runtime/dist/index.js",

@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.31
+version: 1.0.32
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -11,7 +11,8 @@ license: Proprietary. LICENSE.txt has complete terms
 
 SlideML2 turns a brief, plan, data file, markdown source, or research document
 into a complete `.pptx` presentation. The agent calls a CLI
-(`create-deck`, `replace-slide`, `validate-render`) that builds the deck
+(`init-deck`, `set-deck`, `add-slide`, `insert-slide`, `set-slide`,
+`delete-slide`, `validate`, `render`) that builds the deck
 through validated steps, choosing semantic components (KPI, chart, table,
 timeline, evidence, code, formula, …) and emitting native OOXML — not a
 screenshot or HTML approximation. The final output is a real PowerPoint file
@@ -45,7 +46,7 @@ Pick a different skill when:
 
 ## What You Produce
 
-- A validated `.pptx` saved at the user-specified `outputPath`.
+- A validated `.pptx` saved at the user-specified `--out` path.
 - A `.render-tree.json` sidecar with measured layout, data lineage, and
   per-slide diagnostics for debugging.
 - Per-slide compiler-style diagnostics during authoring so the agent can
@@ -70,147 +71,173 @@ Domain style defaults are not restated here.
 
 ### Invocation
 
-The CLI takes exactly **two positional command-line arguments**: a `command`
-and the **path to a JSON file**. There are no flags, no stdin, no inline JSON
-on the command line.
+Run the CLI from the deck workspace. The default deck source is `./deck.json`;
+use `--deck <path>` only when intentionally targeting another file.
 
 ```bash
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> <path/to/args.json>
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> [args] [--deck deck.json]
 ```
 
-To run a command, the agent must:
+Use `help` whenever uncertain:
 
-1. Write a JSON file in the deck workspace (e.g. `create-deck.json`).
-2. Invoke the CLI with the command name and the path to that file.
-3. Read the JSON result that the CLI prints to stdout.
+```bash
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" help
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" help add-slide
+```
 
-Run every command from the deck workspace. Unless the JSON file sets
-`deckPath`, the CLI reads and writes `./deck.json` in the current working
-directory.
+The CLI prints JSON to stdout for every command. Result shape is standardized:
+`ok`, `command`, `stage`, `status`, `deckModified`, plus diagnostics and paths
+when relevant. Stages are `input`, `inspect`, `validate`, `commit`, or `render`.
+Important statuses are `ok`, `usage-error`, `input-error`, `schema-error`,
+`render-error`, `target-missing`, and `target-exists`.
+
+Exit codes are meaningful: `0` ok, `2` usage/input JSON, `10` source/schema
+validation, `20` render/layout validation, `30` target missing/existing conflict,
+`1` unexpected runtime error.
 
 ### Commands
 
-| Command           | Purpose                                                                     |
-|-------------------|-----------------------------------------------------------------------------|
-| `create-deck`     | Create or intentionally reinitialize the workspace deck.                    |
-| `read-deck`       | Inspect the current workspace deck.                                         |
-| `replace-slide`   | Append or replace exactly one slide; validates before writing.              |
-| `validate-render` | Validate the whole deck and optionally render the final PPTX.               |
+| Command | Purpose |
+|---|---|
+| `init-deck <args.json>` | Create a new deck. Fails if `deck.json` already exists. |
+| `reset-deck <args.json>` | Explicitly reinitialize/overwrite a deck. Use only for intentional reset. |
+| `set-deck <deck-props.json>` | Patch theme/config/data/references without deleting slides. |
+| `list-slides` | Inspect slide index/id/title without loading the full deck. |
+| `show-deck [--slide id]` | Inspect the whole source deck or one slide. |
+| `add-slide <slide.json>` | Append one slide; validates before writing. |
+| `insert-slide <target> <slide.json>` | Insert one slide before target; use `--after` to insert after. |
+| `set-slide <id> <slide.json>` | Replace exactly one existing slide; validates before writing. |
+| `delete-slide <id>` | Delete one slide; validates the resulting deck before writing. |
+| `diagnose-slide <slide.json> [--slide id]` | Dry-run append or replacement without writing. |
+| `validate` | Validate source plus rendered layout; writes no PPTX. |
+| `render --out deck.pptx` | Validate and render the final PPTX. |
+| `help [command]` | Print command-specific help and argument examples. |
 
-`create-deck` on an existing deck warns with `DECK_REINITIALIZED`. For normal
-repair use `read-deck` + `replace-slide`.
+Common flags:
 
-### Argument File Contents
+- `--deck <path>` targets a source deck other than `./deck.json`.
+- `--out <path>` sets PPTX output for `render`.
+- `--slide <id|index>` selects a slide for `show-deck` or replacement-mode
+  `diagnose-slide`.
+- `--before <id|index>` / `--after <id|index>` selects insertion location.
+- `--dry-run` works on mutating commands.
 
-These JSON shapes are the **contents** of the file you pass to the CLI as the
-second positional argument — they are not command-line flags. The agent
-writes one such file per CLI call.
+### Argument Files
+
+Deck initialization files contain deck options only:
 
 ```json
-// create-deck.json — passed as: node slideml2.js create-deck create-deck.json
 { "title": "Deck title", "size": "16x9", "theme": "default", "themeOverride": {}, "validation": {} }
 ```
+
+Deck patch files contain only deck-level fields. Use `set-deck` for theme,
+brand, validation, chrome, master, dataSources, references, or footnotes changes.
+Do not use `reset-deck` for theme changes; it reinitializes the deck and removes
+existing slides.
+
 ```json
-// replace-slide.json — passed as: node slideml2.js replace-slide replace-slide.json
-{ "slideId": "append", "slide": { "id": "cover", "title": "Deck title", "transition": { "type": "fade", "durationMs": 350 }, "children": [] } }
-```
-```json
-// read-deck.json — passed as: node slideml2.js read-deck read-deck.json
-{}
-```
-```json
-// validate-render.json — passed as: node slideml2.js validate-render validate-render.json
-{ "render": true, "outputPath": "deck.pptx" }
+{ "themeOverride": { "colors": { "brand.primary": "0F766E" } } }
 ```
 
-All four files support an optional `deckPath` key to target a deck other than
-`./deck.json`. `validate-render` also accepts `render:false` for a fast
-schema-only dry run.
+Slide files contain the slide object directly. Do not wrap it in `{ "slide": ... }`
+and do not include `slideId` in the JSON file.
+
+```json
+{ "id": "cover", "title": "Deck title", "transition": { "type": "fade", "durationMs": 350 }, "children": [] }
+```
+
+Use command arguments for targets:
+
+```bash
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" add-slide slide-01.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" insert-slide 1 slide-insert.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" insert-slide slide-after-cover.json --after cover
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" set-slide cover slide-01-fixed.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" delete-slide appendix
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" set-deck deck-theme.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" diagnose-slide slide-03.json --slide 2
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" render --out final.pptx
+```
 
 ### Canonical Loop
 
 ```
-plan.md  →  create-deck  →  loop[ replace-slide ]  →  validate-render
+plan.md  ->  init-deck  ->  loop[ add-slide / insert-slide / set-slide ]  ->  validate  ->  render
 ```
 
-Concretely, the loop is a series of file-write + CLI-invoke pairs:
+Concretely:
 
 ```bash
 cd "$DECK_WORKDIR"
-# 1. Write create-deck.json, then invoke
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" create-deck create-deck.json
-# 2. For each slide: write replace-slide-NN.json, then invoke
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" replace-slide replace-slide-01.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" replace-slide replace-slide-02.json
-# 3. After all slides commit, write validate-render.json and invoke
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-render validate-render.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" init-deck deck-init.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" add-slide slide-01.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" add-slide slide-02.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" render --out deck.pptx
 ```
 
 A failure on any step must be repaired before moving to the next step on the
-same scope. Repair a rejected slide with another `replace-slide` on the same
-slide id/index before writing the next slide.
+same scope. Repair a rejected slide with `set-slide <id|index> fixed-slide.json`
+for an existing slide, or retry `add-slide fixed-slide.json` if the failed slide
+was not committed.
+
+Author one slide at a time: write one slide JSON file, immediately run
+`add-slide`, `insert-slide`, or `set-slide`, inspect the CLI result, and only
+then write the next slide JSON. Do not generate all slide JSON files first and
+batch-add them later; that hides the first failing page and weakens the repair
+loop.
 
 ### Tool-Safety Hard Rules
 
-- One CLI command at a time; never batch `replace-slide` calls.
-- Pass `slide` as an object literal, never as a stringified JSON blob.
+- One CLI command at a time; never batch slide writes.
+- Pass slide files as direct objects, never as stringified JSON blobs and never
+  as `{ "slide": {...} }` wrappers.
 - Never hand-edit `deck.json`. Never write the deck with `python-pptx` or
-  similar; always go through the CLI.
-- Repair a rejected slide before writing the next slide. Do not delete
-  `deck.json` to "start over"; use a deliberate `create-deck` if a real reset
-  is needed.
-- Do not wrap the CLI in `run_node`, `run_python`, generated scripts, or
-  batch loops; those hide the per-slide diagnostics.
-- `validate-render` is the final gate, not the per-slide gate.
-  `replace-slide` already validates each page.
+  similar; always go through this CLI.
+- Do not run `reset-deck` unless replacing the whole source deck is intentional.
+  `init-deck` protects existing work by failing on existing `deck.json`; use
+  `set-deck` for theme/config changes that must preserve slides.
+- Repair a rejected slide before writing the next slide.
+- Do not wrap the CLI in `run_node`, `run_python`, generated scripts, or batch
+  loops; those hide per-slide diagnostics.
+- `validate` and `render` are deck-level gates. Per-slide authoring is gated by
+  `add-slide`, `insert-slide`, `set-slide`, and `diagnose-slide`.
 
 ### Task Modes
 
-- `create` — new deck from a prompt, notes, data, markdown, or research.
-- `modify` — edit an existing deck. Start with `read-deck`, then
-  `replace-slide`.
-- `repair` — fix a failed `replace-slide` or `validate-render`. Read the
-  named slide, repair its node, retry the same `replace-slide`.
-- `review` — inspect and report without writing.
+- `create` — new deck from a prompt, notes, data, markdown, or research. Start
+  with `init-deck`.
+- `modify` — edit an existing deck. Start with `list-slides` or `show-deck`,
+  then `set-slide`.
+- `repair` — fix a failed `add-slide`, `insert-slide`, `set-slide`, `validate`, or `render`.
+  Read the named slide, repair its node, and retry the smallest relevant command.
+- `review` — inspect and report without writing; prefer `list-slides`,
+  `show-deck`, and `validate`.
 
 ### Reading Diagnostics
 
-CLI results are compiler-like. `ok:false` plus `phase:"render-validation"`
-means the candidate would overflow, overlap, or trigger a blocking visual
-diagnostic; `deckModified:false` means the deck source was not changed. The
-result carries `slideId`, `nodeId`, `code`, `measured`, `suggestion`,
-and (when applicable) `constrainedBy` — read them like
-compiler errors and repair the named node.
+CLI results are compiler-like. `ok:false` with `status:"schema-error"` means the
+source JSON or component contract failed. `ok:false` with `status:"render-error"`
+means the source is valid but rendered layout would overflow, overlap, clip, or
+trigger a blocking visual diagnostic. `deckModified:false` means the deck source
+was not changed.
 
-| Class            | Examples                                                                 | Treatment                                  |
-|------------------|--------------------------------------------------------------------------|--------------------------------------------|
-| Blocker          | `FALLBACK_FAILED`, `COLLISION`, `STRUCTURAL_OVERLAP`, `OVERLAY_OCCLUDES_FLOW`, `TITLE_OCCLUDED`, `EMPTY_CHART_DATA`, `EMPTY_TABLE_DATA`, `CODE_BLOCK_OVERFLOW`, `TINY_RECT`, `LOW_CONTRAST`, `SHAPE_INVISIBLE`, `UNKNOWN_COLOR`, `UNKNOWN_STYLE`, `OFF_SLIDE`, any `severity:"error"` | Must fix on same slide before next slide.  |
-| Quality / hint   | `TRUNCATED`, `OVERFLOW`, `DROP`, `DEMOTED`, `SQUASHED` (warn), `PAGE_OVER_CAPACITY` (warn), `REGION_OVER_CAPACITY` (warn), `PIE_LABELS_HIDDEN`, `DECORATIVE_OVERLAP`, `EDGE_CLIPPED`, `TIGHT_GAP` | Improve when the named target makes the repair obvious; never blocker by itself. |
+Repair preference order:
 
-Repair preference order: area / ratio / density / pagination / rows / labels /
-data grouping — before changing component type. Switch components only
-when a different component better represents the content.
+1. Fix the named node or field exactly where diagnostics point.
+2. Adjust area, ratio, density, padding, rows/items/labels, or page split.
+3. Loosen the constraining parent identified by `constrainedBy`, if present.
+4. Change component type only when it better represents the content, not merely
+   because another component is easier to pass validation.
 
-If diagnostics include `PAGE_OVER_CAPACITY`, or one slide has two or more
-large-component blockers among `chart-card`, `table-card`, `equation`,
-`code-block`, `timeline`, or `process-flow`, treat the whole page as
-overloaded. Do not keep squeezing with more `fixedHeight` or tighter grids.
-Keep the primary evidence object on this slide and move secondary table,
-formula, citation, or appendix support to a rail or follow-up slide.
-
-If diagnostics include `REGION_OVER_CAPACITY`, the whole page may still have
-space, but a split rail, side column, or local stack is overloaded. Do not
-repair only the last failing child. Rebalance the split, move secondary
-quote/citation/source-note/detail blocks to a follow-up slide, or turn the rail
-into its own slide while preserving component semantics.
-
----
+`diagnostics.blocking` are the errors to repair before continuing. `quality`
+diagnostics can remain only when they do not visibly harm the user request.
 
 ## 2. Layout Rules
 
 ### 2.0 Slide Object Fields
 
-A `replace-slide` payload's `slide` object supports:
+A slide JSON file used by `add-slide`, `insert-slide`, `set-slide`, or `diagnose-slide` supports:
 
 - `id` required stable slide id.
 - `title` optional default visible title. Set it only when you want the

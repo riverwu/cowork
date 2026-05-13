@@ -1,6 +1,6 @@
 # SlideML2 Skill Package
 
-Version: 1.0.28
+Version: 1.0.32
 
 Use this skill whenever the user asks to create, edit, render, review, or export slide decks, presentations, PPT, PPTX, or SlideML2 decks. This skill is the component reference for Cowork's SlideML2 deck tools.
 
@@ -38,20 +38,31 @@ After unzipping, normal deck authoring runs directly with Node.js; do not run
 export SLIDEML2_SKILL_DIR=/path/to/slideml2
 mkdir -p /path/to/deck-workdir
 cd /path/to/deck-workdir
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" create-deck create-deck.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" replace-slide replace-slide-01.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-render validate-render.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" init-deck deck-init.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" add-slide slide-01.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" insert-slide 1 slide-insert.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" set-deck deck-theme.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" render --out deck.pptx
 ```
 
-All CLI commands run from the deck workspace. If an argument file omits
-`deckPath`, the CLI reads and writes `./deck.json` in that workspace.
+All CLI commands run from the deck workspace. If `--deck` is omitted, the CLI
+reads and writes `./deck.json` in that workspace.
 
 Supported agent-facing commands are:
 
-- `create-deck`
-- `read-deck`
-- `replace-slide`
-- `validate-render`
+- `init-deck`
+- `reset-deck`
+- `set-deck`
+- `list-slides`
+- `show-deck`
+- `add-slide`
+- `insert-slide`
+- `set-slide`
+- `delete-slide`
+- `diagnose-slide`
+- `validate`
+- `render`
 
 Do not call TypeScript handlers, npm scripts, or tool adapters as the agent
 interface. Rebuilds must happen from the upstream SlideML2 repository; this

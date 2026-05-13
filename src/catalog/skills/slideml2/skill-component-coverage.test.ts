@@ -56,8 +56,8 @@ describe("slideml2 SKILL golden copy", () => {
     expect(first120).toContain("## When to Use This Skill");
     expect(first120).toContain("## When NOT to Use This Skill");
     expect(first120).toContain("## What You Produce");
-    expect(first120).toContain('node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> <path/to/args.json>');
-    expect(first120).toContain("There are no flags, no stdin, no inline JSON");
+    expect(first120).toContain('node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> [args] [--deck deck.json]');
+    expect(first120).toContain("Use `help` whenever uncertain");
   });
 
   it("documents compiler-style CLI result phases for agent repair", () => {
@@ -65,11 +65,14 @@ describe("slideml2 SKILL golden copy", () => {
 
     expect(skill).toContain("CLI results are compiler-like");
     expect(skill).toContain("ok:false");
-    expect(skill).toContain("phase:\"render-validation\"");
+    expect(skill).toContain('status:"render-error"');
     expect(skill).toContain("deckModified");
     expect(skill).toContain("constrainedBy");
     expect(skill).toContain("Repair preference order");
-    expect(skill).toContain("before changing component type");
+    expect(skill).toContain("not merely");
+    expect(skill).toContain("Author one slide at a time");
+    expect(skill).toContain("`set-deck` for theme/config changes");
+    expect(skill).toContain("preserve slides");
     expect(skill).toContain("Never hand-edit `deck.json`");
     expect(skill).toContain("Never hand-edit `deck.json`. Never write the deck with `python-pptx`");
   });
@@ -97,14 +100,17 @@ describe("slideml2 SKILL golden copy", () => {
     expect(packageScript).toContain("entry.includes(\"/runtime/node_modules/\")");
     expect(packageScript).toContain("entry.includes(\"/runtime/src/\")");
     expect(packageScript).not.toContain('"runtime/src/index.ts"');
-    expect(packageScript).toContain("create-deck create-deck.json");
+    expect(packageScript).toContain("init-deck deck-init.json");
     expect(packageScript).not.toContain("md2" + "pptx");
     expect(packageScript).not.toContain("render-source-deck");
     expect(syncScript).toContain("slideml2/SKILL.md");
     expect(syncScript).toContain("src/catalog/skills/slideml2/SKILL.md");
-    expect(readFileSync(runtimeCliPath, "utf8")).toContain("create-deck");
-    expect(readFileSync(runtimeCliPath, "utf8")).toContain("replace-slide");
-    expect(readFileSync(runtimeCliPath, "utf8")).toContain("validate-render");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("init-deck");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("set-deck");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("add-slide");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("insert-slide");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("delete-slide");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("render --out");
   });
 
   it("links and keeps the business research style reference available", () => {

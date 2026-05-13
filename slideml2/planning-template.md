@@ -1,7 +1,7 @@
 # SlideML2 Deck Planning Template
 
-Use this as a compact archive before writing `create-deck.json` and
-`replace-slide-*.json`. Keep it short enough to stay useful during repairs.
+Use this as a compact archive before writing `deck-init.json` and
+`slide-*.json`. Keep it short enough to stay useful during repairs.
 
 ## Brief
 

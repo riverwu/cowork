@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -12,6 +12,7 @@ const skillName = "slideml2";
 const sourceDir = resolve(repoRoot, "src/catalog/skills/slideml2");
 const runtimeSourceDir = resolve(repoRoot, "slideml2");
 const goldenSkillPath = resolve(runtimeSourceDir, "SKILL.md");
+const runtimeCliSourcePath = resolve(runtimeSourceDir, "bin/slideml2.js");
 const defaultOutDir = resolve(repoRoot, "releases/skills/slideml2");
 const requiredFiles = ["SKILL.md", "planning-template.md", "business.md", "LICENSE.txt"] as const;
 const requiredRuntimeFiles = [
@@ -39,10 +40,14 @@ interface SkillPackageManifest {
     cli: string;
     defaultDeckPath: string;
     commands: {
-      createDeck: string;
-      readDeck: string;
-      replaceSlide: string;
-      validateRender: string;
+      initDeck: string;
+      setDeck: string;
+      addSlide: string;
+      insertSlide: string;
+      setSlide: string;
+      deleteSlide: string;
+      validate: string;
+      render: string;
     };
     devInstallCommand: string;
     devBuildCommand: string;
@@ -169,20 +174,31 @@ After unzipping, normal deck authoring runs directly with Node.js; do not run
 export SLIDEML2_SKILL_DIR=/path/to/slideml2
 mkdir -p /path/to/deck-workdir
 cd /path/to/deck-workdir
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" create-deck create-deck.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" replace-slide replace-slide-01.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-render validate-render.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" init-deck deck-init.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" add-slide slide-01.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" insert-slide 1 slide-insert.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" set-deck deck-theme.json
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" render --out deck.pptx
 \`\`\`
 
-All CLI commands run from the deck workspace. If an argument file omits
-\`deckPath\`, the CLI reads and writes \`./deck.json\` in that workspace.
+All CLI commands run from the deck workspace. If \`--deck\` is omitted, the CLI
+reads and writes \`./deck.json\` in that workspace.
 
 Supported agent-facing commands are:
 
-- \`create-deck\`
-- \`read-deck\`
-- \`replace-slide\`
-- \`validate-render\`
+- \`init-deck\`
+- \`reset-deck\`
+- \`set-deck\`
+- \`list-slides\`
+- \`show-deck\`
+- \`add-slide\`
+- \`insert-slide\`
+- \`set-slide\`
+- \`delete-slide\`
+- \`diagnose-slide\`
+- \`validate\`
+- \`render\`
 
 Do not call TypeScript handlers, npm scripts, or tool adapters as the agent
 interface. Rebuilds must happen from the upstream SlideML2 repository; this
@@ -261,14 +277,16 @@ renderer and authoring loop without the full Cowork repository.
 
 Runtime dependencies are bundled into \`runtime/dist/index.js\`, so
 agent-facing CLI commands can run immediately with Node.js without
-\`npm install\`. Run the commands from the deck workspace; omitted \`deckPath\`
+\`npm install\`. Run the commands from the deck workspace; omitted \`--deck\`
 defaults to \`./deck.json\`.
 
 \`\`\`bash
-node /path/to/slideml2/runtime/bin/slideml2.js create-deck create-deck.json
-node /path/to/slideml2/runtime/bin/slideml2.js read-deck read-deck.json
-node /path/to/slideml2/runtime/bin/slideml2.js replace-slide replace-slide-01.json
-node /path/to/slideml2/runtime/bin/slideml2.js validate-render validate-render.json
+node /path/to/slideml2/runtime/bin/slideml2.js init-deck deck-init.json
+node /path/to/slideml2/runtime/bin/slideml2.js add-slide slide-01.json
+node /path/to/slideml2/runtime/bin/slideml2.js insert-slide 1 slide-insert.json
+node /path/to/slideml2/runtime/bin/slideml2.js set-deck deck-theme.json
+node /path/to/slideml2/runtime/bin/slideml2.js validate
+node /path/to/slideml2/runtime/bin/slideml2.js render --out deck.pptx
 \`\`\`
 
 This package is runtime-only: it intentionally omits TypeScript source, tests,
@@ -279,8 +297,8 @@ be packaged again.
 ## Agent-Facing CLI
 
 The skill exposes one command interface: \`node bin/slideml2.js <command>
-<args.json>\`. Do not expose npm scripts, TypeScript handlers, or tool adapters
-as separate agent commands.
+[args]\`. Do not expose npm scripts, TypeScript handlers, or tool adapters as
+separate agent commands.
 
 Minimal argument files:
 
@@ -289,16 +307,14 @@ Minimal argument files:
 \`\`\`
 
 \`\`\`json
-{ "slideId": 0, "slide": { "id": "cover", "title": "Deck title", "children": [] } }
-\`\`\`
-
-\`\`\`json
-{ "render": true, "outputPath": "deck.pptx" }
+{ "id": "cover", "title": "Deck title", "children": [] }
 \`\`\`
 
 Do not write a complete deck JSON and jump straight to final PPTX generation
-for normal deck creation. Use \`create-deck\` and per-slide \`replace-slide\` so
-validation can reject bad slides before they enter the source deck.
+for normal deck creation. Use \`init-deck\` and per-slide \`add-slide\` /
+\`insert-slide\` / \`set-slide\` so validation can reject bad slides before they
+enter the source deck. Use \`set-deck\` for theme/config changes that preserve
+slides; \`reset-deck\` intentionally deletes existing slides.
 `;
   await writeFile(join(runtimeRoot, "RUNTIME.md"), readme);
 }
@@ -306,364 +322,10 @@ validation can reject bad slides before they enter the source deck.
 async function writeRuntimeCli(runtimeRoot: string): Promise<void> {
   const binDir = join(runtimeRoot, "bin");
   await mkdir(binDir, { recursive: true });
-  const cli = `#!/usr/bin/env node
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
-import {
-  clearRenderDiagnostics,
-  createDeck,
-  getRenderDiagnostics,
-  isBlockingRenderDiagnostic,
-  isQualityRenderDiagnostic,
-  normalizeSlide,
-  readDeck,
-  renderToAst,
-  renderToPptx,
-  sourceToRenderedDeck,
-  validateDeck,
-  validateSlide,
-  writeDeck,
-} from "../dist/index.js";
-
-function usage() {
-  console.error("usage: slideml2 <create-deck|replace-slide|read-deck|validate-render> <args.json>");
-  process.exit(2);
+  const target = join(binDir, "slideml2.js");
+  await copyFile(runtimeCliSourcePath, target);
+  await chmod(target, 0o755);
 }
-
-async function readJson(path) {
-  const absolutePath = resolve(process.cwd(), path);
-  const text = await readFile(absolutePath, "utf8");
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    throw jsonParseErrorPayload(absolutePath, text, error);
-  }
-}
-
-function jsonParseErrorPayload(filePath, text, error) {
-  const message = error instanceof Error ? error.message : String(error);
-  const location = jsonErrorLocation(text, message);
-  const diagnostic = {
-    code: "INVALID_ARGS_JSON",
-    severity: "error",
-    file: filePath,
-    line: location.line,
-    column: location.column,
-    message: "Could not parse " + filePath + ": " + message,
-    excerpt: jsonExcerpt(text, location.line, location.column),
-    suggestion: "Fix the args JSON and retry the same command. Escape embedded double quotes inside JSON strings; if generating args from code, write a JS object and serialize it with JSON.stringify instead of hand-writing JSON.",
-  };
-  const payload = {
-    ok: false,
-    phase: "input-json-parse",
-    error: "args JSON parse failed",
-    deckModified: false,
-    diagnostic,
-    diagnostics: { count: 1, summary: { INVALID_ARGS_JSON: 1 }, blockingCount: 1, blocking: [diagnostic] },
-    nextAction: "Repair the args JSON syntax, then rerun this exact slideml2 command. Do not recreate deck.json or switch tools.",
-  };
-  const out = new Error(diagnostic.message);
-  out.slideml2JsonParse = true;
-  out.payload = payload;
-  return out;
-}
-
-function jsonErrorLocation(text, message) {
-  const explicit = message.match(/line\\s+(\\d+)\\s+column\\s+(\\d+)/i);
-  if (explicit) return { line: Number(explicit[1]), column: Number(explicit[2]) };
-  const match = message.match(/position\\s+(\\d+)/i);
-  const position = match ? Number(match[1]) : 0;
-  let line = 1;
-  let column = 1;
-  for (let i = 0; i < Math.min(position, text.length); i += 1) {
-    if (text[i] === "\\n") {
-      line += 1;
-      column = 1;
-    } else {
-      column += 1;
-    }
-  }
-  return { line, column };
-}
-
-function jsonExcerpt(text, line, column) {
-  const lines = text.split(/\\r?\\n/);
-  const start = Math.max(1, line - 1);
-  const end = Math.min(lines.length, line + 1);
-  const width = String(end).length;
-  const out = [];
-  for (let n = start; n <= end; n += 1) {
-    const prefix = n === line ? ">" : " ";
-    out.push(prefix + " " + String(n).padStart(width, " ") + " | " + (lines[n - 1] || ""));
-    if (n === line) out.push(" ".repeat(width + 4) + "| " + " ".repeat(Math.max(0, column - 1)) + "^");
-  }
-  return out.join("\\n");
-}
-
-function abs(path) {
-  return isAbsolute(path) ? path : resolve(process.cwd(), path);
-}
-
-function deckPathFrom(input) {
-  return abs(input.deckPath || "deck.json");
-}
-
-function blockingDiagnostics(items) {
-  return items.filter((item) => isBlockingRenderDiagnostic(item.code, item.severity));
-}
-
-function qualityDiagnostics(items) {
-  return items.filter((item) => isQualityRenderDiagnostic(item.code));
-}
-
-function diagnosticsSummary(items) {
-  return items.reduce((acc, item) => {
-    const key = item.code || "UNKNOWN";
-    acc[key] = (acc[key] || 0) + 1;
-    return acc;
-  }, {});
-}
-
-async function pathExists(path) {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function deckSummary(deck) {
-  const slides = Array.isArray(deck?.slides) ? deck.slides : [];
-  return {
-    slideCount: slides.length,
-    slides: slides.map((slide, index) => ({ index, id: slide?.id, title: slide?.title })).filter((item) => item.id || item.title),
-  };
-}
-
-function renderValidationPayload(diagnostics, blocking, quality) {
-  return {
-    ok: blocking.length === 0,
-    diagnostics: {
-      count: diagnostics.length,
-      summary: diagnosticsSummary(diagnostics),
-      blockingCount: blocking.length,
-      blocking: blocking.slice(0, 60),
-      qualityCount: quality.length,
-      quality: quality.slice(0, 20),
-    },
-  };
-}
-
-function findSlideIndex(deck, slideId) {
-  if (typeof slideId === "number") return slideId >= 0 && slideId < deck.slides.length ? slideId : -1;
-  return deck.slides.findIndex((slide) => slide.id === slideId);
-}
-
-function isAppendSlideId(slideId) {
-  return slideId === "append" || slideId === "$append" || slideId === "next";
-}
-
-async function main() {
-  const [command, argPath] = process.argv.slice(2);
-  if (!command || !argPath) usage();
-  const input = await readJson(argPath);
-
-  if (command === "create-deck") {
-    const deckPath = deckPathFrom(input);
-    let existingDeck;
-    if (await pathExists(deckPath)) {
-      try {
-        existingDeck = deckSummary(await readDeck(deckPath));
-      } catch {
-        existingDeck = { slideCount: undefined, slides: [] };
-      }
-    }
-    const result = await createDeck(deckPath, input);
-    const warnings = [];
-    if (result.ok && existingDeck) {
-      warnings.push({
-        code: "DECK_REINITIALIZED",
-        severity: "warning",
-        message: "create-deck replaced an existing deck.json in this workspace.",
-        previousDeck: existingDeck,
-        suggestion: "For normal repairs, prefer read-deck followed by replace-slide so existing slides are preserved.",
-      });
-    }
-    console.log(JSON.stringify({
-      ...result,
-      phase: result.ok ? "committed" : "source-validation",
-      deckPath,
-      deckModified: result.ok,
-      overwroteExistingDeck: Boolean(result.ok && existingDeck),
-      warnings,
-      previousDeck: existingDeck,
-      nextAction: result.ok && existingDeck
-        ? "Continue only if the reset was intentional. Otherwise reconstruct the affected slides through replace-slide from the latest valid source or plan."
-        : undefined,
-    }, null, 2));
-    process.exit(result.ok ? 0 : 1);
-  }
-
-  if (command === "read-deck") {
-    console.log(JSON.stringify(await readDeck(deckPathFrom(input)), null, 2));
-    return;
-  }
-
-  if (command === "replace-slide") {
-    const deckPath = deckPathFrom(input);
-    const deck = await readDeck(deckPath);
-    const normalizedSlide = normalizeSlide(input.slide);
-    const slideValidation = validateSlide(normalizedSlide, deck);
-    if (!slideValidation.ok) {
-      console.log(JSON.stringify({
-        ok: false,
-        phase: "slide-source-validation",
-        error: "slide source validation failed",
-        deckModified: false,
-        sourceValidation: slideValidation,
-        validation: slideValidation,
-        nextAction: "Repair this same slide and retry replace-slide before adding the next slide.",
-      }, null, 2));
-      process.exit(1);
-    }
-    const slideId = typeof input.slideId === "string" && /^\\d+$/.test(input.slideId) ? Number(input.slideId) : input.slideId;
-    const candidate = JSON.parse(JSON.stringify(deck));
-    let targetIndex = -1;
-    let insertedAt;
-    let replacedAt;
-    if (isAppendSlideId(slideId) || (typeof slideId === "number" && slideId === candidate.slides.length)) {
-      candidate.slides.push(normalizedSlide);
-      targetIndex = candidate.slides.length - 1;
-      insertedAt = targetIndex;
-    } else {
-      targetIndex = findSlideIndex(candidate, slideId);
-      if (targetIndex < 0) {
-        console.log(JSON.stringify({
-          ok: false,
-          phase: "target-resolution",
-          error: "slide not found",
-          deckModified: false,
-          slideId,
-          slideCount: candidate.slides.length,
-          nextAppendIndex: candidate.slides.length,
-          slides: deckSummary(candidate).slides,
-          nextAction: "If you expected this index to exist, a previous replace-slide failed and left the deck unchanged. Repair that failed slide first, or append with slideId:'append'.",
-        }, null, 2));
-        process.exit(1);
-      }
-      candidate.slides[targetIndex] = normalizedSlide;
-      replacedAt = targetIndex;
-    }
-    const validation = validateDeck(candidate, { baseDir: dirname(deckPath) });
-    if (!validation.ok) {
-      console.log(JSON.stringify({
-        ok: false,
-        phase: "deck-source-validation",
-        error: "deck source validation failed after candidate apply",
-        deckModified: false,
-        sourceValidation: validation,
-        validation,
-        nextAction: "Repair this same slide and retry replace-slide before adding the next slide.",
-      }, null, 2));
-      process.exit(1);
-    }
-    clearRenderDiagnostics();
-    renderToAst(sourceToRenderedDeck({ ...candidate, slides: [candidate.slides[targetIndex]] }, { baseDir: dirname(deckPath) }));
-    const diagnostics = getRenderDiagnostics();
-    const blocking = blockingDiagnostics(diagnostics);
-    const quality = qualityDiagnostics(diagnostics);
-    clearRenderDiagnostics();
-    const renderValidation = renderValidationPayload(diagnostics, blocking, quality);
-    if (blocking.length > 0) {
-      console.log(JSON.stringify({
-        ok: false,
-        phase: "render-validation",
-        error: "render validation failed for candidate slide",
-        deckModified: false,
-        sourceValidation: validation,
-        validation,
-        renderValidation,
-        diagnostics: renderValidation.diagnostics,
-        nextAction: "Source schema is valid, but rendering would fail or degrade. Repair the named render diagnostics on this same slide and retry replace-slide before adding the next slide.",
-      }, null, 2));
-      process.exit(1);
-    }
-    await writeDeck(deckPath, candidate);
-    console.log(JSON.stringify({
-      ok: true,
-      phase: "committed",
-      deckModified: true,
-      insertedAt,
-      replacedAt,
-      slideCount: candidate.slides.length,
-      sourceValidation: validation,
-      validation,
-      renderValidation,
-      diagnostics: renderValidation.diagnostics,
-    }, null, 2));
-    return;
-  }
-
-  if (command === "validate-render") {
-    const deckPath = deckPathFrom(input);
-    const outputPath = abs(input.outputPath || input.out || deckPath.replace(/\\\\.json$/, ".pptx"));
-    const deck = await readDeck(deckPath);
-    const validation = validateDeck(deck, { baseDir: dirname(deckPath) });
-    if (!validation.ok) {
-      console.log(JSON.stringify({
-        ok: false,
-        phase: "deck-source-validation",
-        error: "deck source validation failed",
-        deckModified: false,
-        sourceValidation: validation,
-        validation,
-      }, null, 2));
-      process.exit(1);
-    }
-    if (command === "validate-render" && input.render === false) {
-      console.log(JSON.stringify({ ok: true, phase: "source-validation", deckModified: false, sourceValidation: validation, validation }, null, 2));
-      return;
-    }
-    await mkdir(dirname(outputPath), { recursive: true });
-    clearRenderDiagnostics();
-    const rendered = sourceToRenderedDeck(deck, { baseDir: dirname(deckPath) });
-    const result = await renderToPptx(rendered, outputPath);
-    const diagnostics = getRenderDiagnostics();
-    const blocking = blockingDiagnostics(diagnostics);
-    const quality = qualityDiagnostics(diagnostics);
-    const renderValidation = renderValidationPayload(diagnostics, blocking, quality);
-    await writeFile(\`\${result.outputPath}.diagnostics.json\`, JSON.stringify(diagnostics, null, 2), "utf8");
-    console.log(JSON.stringify({
-      ok: blocking.length === 0,
-      phase: blocking.length === 0 ? "rendered" : "render-validation",
-      deckModified: false,
-      outputPath: result.outputPath,
-      domPath: result.domPath,
-      diagnosticsPath: \`\${result.outputPath}.diagnostics.json\`,
-      sourceValidation: validation,
-      validation,
-      renderValidation,
-      diagnostics: renderValidation.diagnostics,
-    }, null, 2));
-    process.exit(blocking.length === 0 ? 0 : 1);
-  }
-
-  usage();
-}
-
-main().catch((error) => {
-  if (error && error.slideml2JsonParse) {
-    console.log(JSON.stringify(error.payload, null, 2));
-    process.exit(1);
-  }
-  console.error(error instanceof Error ? error.stack || error.message : String(error));
-  process.exit(1);
-});
-`;
-  await writeFile(join(binDir, "slideml2.js"), cli, { mode: 0o755 });
-}
-
 async function verifyZip(zipPath: string): Promise<string[]> {
   const listing = await run("zipinfo", ["-1", zipPath], repoRoot);
   const entries = listing.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -745,7 +407,7 @@ async function main(): Promise<void> {
         notes: [
           "Unzip preserving the slideml2 directory.",
           "Runtime dependencies are bundled into runtime/dist/index.js; basic runtime/bin/slideml2.js commands run with Node.js immediately after unzip.",
-          "Run CLI commands from the deck workspace; omitted deckPath defaults to ./deck.json.",
+          "Run CLI commands from the deck workspace; omitted --deck defaults to ./deck.json.",
           "The runtime package is executable-only and intentionally omits TypeScript source, tests, examples, development scripts, and node_modules.",
           "The agent-facing interface is the CLI only; do not expose TypeScript handlers or npm scripts as separate command interfaces.",
           "Generated PPT outputs and dependency caches are intentionally excluded.",
@@ -756,10 +418,14 @@ async function main(): Promise<void> {
         cli: "node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js",
         defaultDeckPath: "./deck.json",
         commands: {
-          createDeck: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js create-deck create-deck.json",
-          readDeck: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js read-deck read-deck.json",
-          replaceSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js replace-slide replace-slide-01.json",
-          validateRender: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js validate-render validate-render.json",
+          initDeck: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js init-deck deck-init.json",
+          setDeck: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js set-deck deck-theme.json",
+          addSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js add-slide slide-01.json",
+          insertSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js insert-slide 1 slide-insert.json",
+          setSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js set-slide 0 slide-01.json",
+          deleteSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js delete-slide 0",
+          validate: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js validate",
+          render: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js render --out deck.pptx",
         },
         devInstallCommand: "not supported in the skill package; rebuild from the upstream SlideML2 repository",
         devBuildCommand: "not supported in the skill package; rebuild from the upstream SlideML2 repository",

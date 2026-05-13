@@ -260,20 +260,19 @@ describe("ppt generation flow runner", () => {
     await mkdir(dir, { recursive: true });
     const deckPath = join(dir, "deck.json");
     const outputPath = join(dir, "deck.pptx");
-    const validateArgsPath = join(dir, "validate-render.json");
     await writeFile(deckPath, JSON.stringify({ deck: {}, slides: [] }));
     await writeFile(outputPath, "fake pptx");
-    await writeFile(validateArgsPath, JSON.stringify({ render: true, outputPath }));
 
     const toolRecords = [
-      shellCliRecord(1, "create-deck", join(dir, "create-deck.json"), { ok: true, phase: "committed", deckModified: true }),
-      shellCliRecord(2, "replace-slide", join(dir, "slide-01.json"), { ok: true, phase: "committed", deckModified: true, insertedAt: 0 }),
-      shellCliRecord(3, "validate-render", validateArgsPath, {
+      shellCliRecord(1, "init-deck", join(dir, "deck-init.json"), { ok: true, stage: "commit", status: "ok", deckModified: true }),
+      shellCliRecord(2, "add-slide", join(dir, "slide-01.json"), { ok: true, stage: "commit", status: "ok", deckModified: true, insertedAt: 0 }),
+      shellCliRecord(3, "render", undefined, {
         ok: true,
-        phase: "rendered",
+        stage: "render",
+        status: "ok",
         outputPath,
         diagnostics: { blockingCount: 0, summary: {} },
-      }),
+      }, ["--out", outputPath], dir),
     ];
     const summary = summarizePptGenerationFlow([], toolRecords);
     const result: PptGenerationFlowResult = {
@@ -290,12 +289,12 @@ describe("ppt generation flow runner", () => {
       summary,
     };
 
-    expect(summary.toolNames).toEqual(expect.arrayContaining(["shell", "create_deck", "replace_slide", "validate_render"]));
+    expect(summary.toolNames).toEqual(expect.arrayContaining(["shell", "init_deck", "add_slide", "render"]));
     expect(summary.replaceSlideCount).toBe(1);
     expect(summary.finalValidateRender?.outputPath).toBe(outputPath);
 
     const verification = await verifyPptGenerationFlow(result, {
-      requiredTools: ["create_deck", "replace_slide", "validate_render"],
+      requiredTools: ["init_deck", "add_slide", "render"],
       minReplaceSlideCalls: 1,
       requireFinalValidateRender: true,
       requirePptxOutput: true,
@@ -307,22 +306,20 @@ describe("ppt generation flow runner", () => {
     expect(verification.ok, verification.failures.join("\n")).toBe(true);
   });
 
-  it("recovers final validate-render summary when shell JSON is truncated", async () => {
+  it("recovers final render summary when shell JSON is truncated", async () => {
     const dir = join(tmpdir(), `cowork-ppt-flow-cli-truncated-${Date.now()}`);
     await mkdir(dir, { recursive: true });
     const outputPath = join(dir, "deck.pptx");
-    const validateArgsPath = join(dir, "validate-render.json");
     await writeFile(outputPath, "fake pptx");
     await writeFile(`${outputPath}.diagnostics.json`, JSON.stringify([
       { severity: "warn", code: "TRUNCATED", slideId: "s1", nodeId: "s1.text" },
     ]));
-    await writeFile(validateArgsPath, JSON.stringify({ render: true, outputPath }));
 
     const toolRecords = [
-      shellCliRecord(1, "replace-slide", join(dir, "slide-01.json"), { ok: true, phase: "committed", deckModified: true, insertedAt: 0 }),
+      shellCliRecord(1, "add-slide", join(dir, "slide-01.json"), { ok: true, stage: "commit", status: "ok", deckModified: true, insertedAt: 0 }),
       {
-        ...shellCliRecord(2, "validate-render", validateArgsPath, { ok: true, phase: "rendered", outputPath, diagnostics: { blockingCount: 0 } }),
-        result: `{\n  "ok": true,\n  "phase": "rendered",\n  "outputPath": ${JSON.stringify(outputPath)},\n  "diagnosticsPath": ${JSON.stringify(`${outputPath}.diagnostics.json`)},\n  "diagnostics": {\n    "count": 99,\n    "quality": [`,
+        ...shellCliRecord(2, "render", undefined, { ok: true, stage: "render", status: "ok", outputPath, diagnostics: { blockingCount: 0 } }, ["--out", outputPath], dir),
+        result: `{\n  "ok": true,\n  "stage": "render",\n  "status": "ok",\n  "outputPath": ${JSON.stringify(outputPath)},\n  "diagnosticsPath": ${JSON.stringify(`${outputPath}.diagnostics.json`)},\n  "diagnostics": {\n    "count": 99,\n    "quality": [`,
       },
     ];
     const summary = summarizePptGenerationFlow([], toolRecords);
@@ -344,7 +341,7 @@ describe("ppt generation flow runner", () => {
     expect((summary.finalValidateRender?.diagnostics as Record<string, unknown> | undefined)?.blockingCount).toBe(0);
 
     const verification = await verifyPptGenerationFlow(result, {
-      requiredTools: ["replace_slide", "validate_render"],
+      requiredTools: ["add_slide", "render"],
       minReplaceSlideCalls: 1,
       requireFinalValidateRender: true,
       requirePptxOutput: true,
@@ -762,17 +759,20 @@ function installMockTools(): void {
 
 function shellCliRecord(
   step: number,
-  subcommand: "create-deck" | "replace-slide" | "validate-render",
-  argsPath: string,
+  subcommand: "init-deck" | "set-deck" | "add-slide" | "insert-slide" | "set-slide" | "delete-slide" | "validate" | "render",
+  argsPath: string | undefined,
   result: Record<string, unknown>,
+  extraArgs: string[] = [],
+  cwdOverride?: string,
 ) {
+  const cwd = cwdOverride || (argsPath ? dirname(argsPath) : tmpdir());
   return {
     step,
     name: "shell",
     toolCallId: `call-shell-${step}`,
     input: {
-      command: ["node", "/Users/river/.cowork/skills/slideml2/runtime/bin/slideml2.js", subcommand, argsPath],
-      cwd: dirname(argsPath),
+      command: ["node", "/Users/river/.cowork/skills/slideml2/runtime/bin/slideml2.js", subcommand, ...(argsPath ? [argsPath] : []), ...extraArgs],
+      cwd,
     },
     success: true,
     result: JSON.stringify(result),

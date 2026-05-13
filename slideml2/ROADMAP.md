@@ -22,12 +22,16 @@ SlideML2 now has a usable agent-facing foundation:
 - The Cowork app's real `runAgent` loop is the supported end-to-end generation
   workflow. The old standalone markdown-to-PPTX path has been retired.
 - The installable SlideML2 skill package exposes one CLI surface only:
-  `create-deck`, `read-deck`, `replace-slide`, and `validate-render`. Commands
-  run from the deck workspace and default to `./deck.json`.
-- `replace-slide` remains a write gate: it validates the candidate slide and
-  refuses to modify the deck when schema/render diagnostics block the page.
-- Full-deck `validate-render` produces PPTX plus diagnostics and render-tree
-  artifacts.
+  `init-deck`, `reset-deck`, `set-deck`, `list-slides`, `show-deck`,
+  `add-slide`, `insert-slide`, `set-slide`, `delete-slide`, `diagnose-slide`,
+  `validate`, and `render`. Commands run from
+  the deck workspace and default to `./deck.json`.
+- `add-slide`, `insert-slide`, and `set-slide` are write gates: they validate
+  the candidate slide and refuse to modify the deck when schema/render
+  diagnostics block the page. `set-deck` patches deck-level theme/config without
+  deleting slides; `reset-deck` is the explicit destructive reinitialization.
+- Full-deck `render --out` produces PPTX plus diagnostics and render-tree
+  artifacts; `validate` runs the same source/layout checks without writing PPTX.
 
 Implemented capability areas:
 
@@ -181,7 +185,7 @@ Delivered:
   dependencies.
 - Package v1.0.24 removed tool-adapter guidance and exposes only the CLI
   workflow.
-- The CLI defaults omitted `deckPath` to `./deck.json` in the deck workspace.
+- The CLI defaults omitted `--deck` to `./deck.json` in the deck workspace.
 - Normal CLI usage does not require `npm install`.
 - Current installed local skill under `/Users/river/.cowork/skills/slideml2`
   has the latest SKILL/business docs.
@@ -231,7 +235,7 @@ Scope:
 
 Acceptance:
 
-- `validate-render` can optionally run artifact QA after PPTX creation.
+- `render --out` can optionally run artifact QA after PPTX creation.
 - E2E case reports include artifact QA results and link them to slide/node ids
   where possible.
 - Artifact QA remains a final-product check; it must not encourage bypassing
@@ -313,7 +317,7 @@ Priority: P0/P1.
   fallback-applied shrink with the fitted font size.
 - Treat LibreOffice PDF bbox as the automated calibration target for now, with
   PowerPoint kept as sampled release validation. Do not block fast
-  `replace-slide` on PDF/PNG artifact QA.
+  `add-slide` / `insert-slide` / `set-slide` on PDF/PNG artifact QA.
 - Move component body/detail min-height from hand-written weighted-length
   estimates to declarative constraints plus the shared measurement model.
 - Make `TINY_RECT` and `SQUASHED` role-specific: text uses measured text fit,
@@ -368,7 +372,7 @@ Priority: P0.
 - Every run should produce reports, failure analysis, and improvement plans.
 - Fixes must be general: no case-id, filename, topic, or prompt workarounds.
 - Passing runs still matter when they contain recovered failures, repeated
-  `replace-slide` attempts, quality diagnostics, unused assets, or component
+  `add-slide` / `insert-slide` / `set-slide` attempts, quality diagnostics, unused assets, or component
   degradation.
 
 ### Toolchain Simplification
@@ -378,7 +382,8 @@ Priority: P0.
 - Supported deck creation/modification flow is the Cowork agent loop plus
   SlideML2 authoring/render tools.
 - The installable skill package exposes only the CLI workflow:
-  `create-deck`, `read-deck`, `replace-slide`, `validate-render`.
+  `init-deck`, `set-deck`, `add-slide`, `insert-slide`, `set-slide`,
+  `delete-slide`, `validate`, and `render`.
 - Deprecated standalone conversion flows should remain removed.
 
 ---
