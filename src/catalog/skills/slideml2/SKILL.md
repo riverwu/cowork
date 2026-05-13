@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.39
+version: 1.0.40
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -437,6 +437,8 @@ Fix these in `plan.md` before writing slide JSON:
   - cm for layout: `at`, `gap`, `padding`, `fixedWidth`, `fixedHeight`,
     `width`, `height`, `length`, named `areas`.
   - pt for type: `fontSize`, `lineWidth`, `borderWidth`, `thickness`.
+  - `lineSpacing` is special: values `<=3` are multipliers (`1.5` = 150%);
+    values `>3` are explicit points. Prefer `1.15–1.8` for prose.
   - normalized `0..0.5` for `cornerRadius` (it is a roundRect fraction,
     not cm or px).
 - Style precedence: theme → derived component tokens → primitive-node

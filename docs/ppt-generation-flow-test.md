@@ -5,7 +5,7 @@ This test path exercises the same Cowork agent path used by the app:
 - `runAgent`
 - the normal system prompt builder
 - the normal tool registry
-- the normal SlideML2 tools
+- the normal SlideML2 skill CLI workflow
 - the normal long-task progress events
 
 The runner does not inject a custom system prompt, does not replace the agent loop, and does not call SlideML2 directly. It only supplies a user message, captures the agent events/tool results, and verifies the final artifacts.
@@ -50,7 +50,7 @@ The JSON report includes scenario metadata, tool calls, agent events, LLM send/r
 
 The improvement files are generated even when the case passes. They include:
 
-- tool calls that blocked progress, such as `replace_slide`, `create_deck`, image/code generation, or final validation failures;
+- tool calls that blocked progress, such as `validate-slide`, `validate-manifest`, `compose`, image/code generation, or final validation failures;
 - recovered friction from successful calls, such as quality diagnostics, `DROP`/`DEMOTED`, `TRUNCATED`, `SQUASHED`, unused generated assets, or repeated repair loops;
 - component usage degradation, where the agent had to simplify, switch components, drop optional content, or accept a lower-density layout to pass validation;
 - improvement candidates grouped by component/tool/schema category with proposed general fixes and focused test suggestions.
@@ -64,9 +64,10 @@ Example `case.json`:
   "id": "latest-components",
   "desktopDebugLog": true,
   "expected": {
-    "requiredTools": ["read_file", "write_file", "create_deck", "replace_slide", "validate_render"],
-    "forbiddenTools": ["run_node"],
-    "minReplaceSlideCalls": 4,
+    "requiredTools": ["read_file", "write_file", "shell", "init_deck", "validate_slide", "validate_manifest", "compose"],
+    "forbiddenTools": ["create_deck", "replace_slide", "validate_render", "run_node"],
+    "minValidateSlideCalls": 4,
+    "requireSlideml2SkillRead": true,
     "requireFinalValidateRender": true,
     "requireProgressDone": true,
     "requirePptxOutput": true,
@@ -80,7 +81,9 @@ Example `prompt.md`:
 
 ```md
 生成一个 4 页商业/科研混合 PPT，读取 {{inputsDir}}/brief.md。
+必须先读取 /Users/river/.cowork/skills/slideml2/SKILL.md，并使用 manifest + CLI 工作流。
 必须覆盖 chart-card、table-card、process-flow、timeline、equation、code-block、citation/footnote。
+逐页写入 slides/*.json 后立即 validate-slide；不要批量生成或批量 validate。
 最终 PPTX 输出到 {{outputPath}}。
 ```
 
@@ -116,9 +119,10 @@ Create a scenario file:
   "workingDirectory": "/Users/river/Documents/Workspace",
   "desktopDebugLog": true,
   "expected": {
-    "requiredTools": ["read_file", "write_file", "create_deck", "replace_slide", "validate_render"],
-    "forbiddenTools": ["run_node"],
-    "minReplaceSlideCalls": 4,
+    "requiredTools": ["read_file", "write_file", "shell", "init_deck", "validate_slide", "validate_manifest", "compose"],
+    "forbiddenTools": ["create_deck", "replace_slide", "validate_render", "run_node"],
+    "minValidateSlideCalls": 4,
+    "requireSlideml2SkillRead": true,
     "requireFinalValidateRender": true,
     "requireProgressDone": true,
     "requirePptxOutput": true,
@@ -153,8 +157,8 @@ Provider settings are loaded in this order:
 ## What It Checks
 
 - Required/forbidden tool usage.
-- `replace_slide` count.
-- Final `validate_render({render:true})` success.
+- Per-slide `validate-slide` count.
+- Final `compose` success.
 - Blocking diagnostics count.
 - PPTX output path existence.
 - Done progress event.
@@ -170,7 +174,7 @@ pnpm exec vitest run src/lib/ai/ppt-generation-flow-runner.test.ts
 
 Use separate directories for different PPT generation targets:
 
-- Business deck: ask for data-driven KPI pages, references to local CSV/XLSX files, and require `create_deck`, `replace_slide`, `validate_render`.
+- Business deck: ask for data-driven KPI pages, references to local CSV/XLSX files, and require `init_deck`, `validate_slide`, `validate_manifest`, `compose`.
 - Research deck: include citations/footnotes requirements, formula/code-block requirements, and `maxBlockingDiagnostics:0`.
 - Visual stress deck: request dense code, timeline/process-flow pages, generated icons, and set `requiredTools` to include `generate_icon_sheet` when icon usage is part of the target.
 

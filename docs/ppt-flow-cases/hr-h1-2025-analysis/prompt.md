@@ -4,10 +4,12 @@
 - {{inputsDir}}/25年上半年人力数据分析-V1.xlsx
 
 工作流要求：
-- 必须先读取 SlideML2 的 SKILL.md，并使用 SlideML2 创建 deck，再通过 replace_slide 逐页生成。
+- 必须先用 `read_file` 读取 `/Users/river/.cowork/skills/slideml2/SKILL.md`，严格按其中的 manifest + CLI 工作流执行；不要使用旧的 `create_deck` / `replace_slide` / `validate_render` 工具。
 - Excel 是结构化二进制文件，read_file 只能作为快速预览；必须使用 run_python + openpyxl 或等价 Python 解析方式读取工作表、单元格区域、公式结果和图表元数据。
 - 不允许使用 web_search / web_fetch；本测试只评估基于用户提供 Excel 的离线分析能力。
-- 将你对 Excel 的结构理解、关键数值、图表重建方案和页结构写入工作区的 deck_plan.md 或 source_notes.md。
+- 将你对 Excel 的结构理解、关键数值、图表重建方案和页结构写入工作区的 `plan.md` 或 `source_notes.md`。
+- 使用 SKILL.md 中的 CLI 初始化 `deck-config.json`；每次只写一个 `slides/*.json`，立刻运行 `validate-slide`。若失败，只修正同一个 slide 文件并重跑 `validate-slide`，通过后再写下一页；创建期间和修改期间都不允许批量 validate 或批量生成后再回头修。
+- 全部页面通过后，写 `manifest.json` 控制页序，运行 `validate-manifest`，最后用 `compose --write-source build/deck.json --out {{outputPath}}` 生成 PPTX。
 - 最终 PPTX 输出到：{{outputPath}}
 
 已知输入结构（仍需你用 Python 核验）：
@@ -28,5 +30,5 @@
 - 避免直接截图堆叠 Excel；需要把关键表格和图表转译成可读的 SlideML2 chart-card、table-card、stat-strip、kpi-grid、bar-list、callout 或 process-flow。
 - 可以在少量页面使用 Excel 图表作为参考，但最终 PPT 中的图表必须可读，并且不能出现文字重叠、表格溢出、标题重复、页脚压正文。
 - 若数据较密，主动分页；不要把整张渠道表硬塞进一页。
-- 每次 replace_slide 后认真阅读 validation/diagnostics，必要时重写该页。
-- 完成后必须调用 validate_render(render:true)，确保 blocking diagnostics 为 0。
+- 每次 `validate-slide` 后认真阅读 validation/diagnostics，必要时重写同一个 slide 文件。
+- 完成后必须 `validate-manifest` 并 `compose` 成功，确保 blocking diagnostics 为 0。

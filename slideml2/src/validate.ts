@@ -537,6 +537,10 @@ function validateNode(
       suggestedFix: "For slide-level overlays use anchor:'bottom-right' plus width/height/offsetX/offsetY. For brand-mark or big-page-number use corner:'bottom-right'. For decorative-shapes use anchor:'top-right' or anchor:'full'.",
     }));
   }
+  validateIgnoredSpacingFields(node, path, slideId, issues);
+  validatePrimitiveGap(node, path, slideId, issues);
+  validateNodePaddingUnits(node, path, slideId, issues);
+  validateTextSpacingUnits(node, path, slideId, issues);
   const minNodeFontSize = node.type === "code-block" ? 5 : 7;
   if ("fontSize" in node && (typeof node.fontSize !== "number" || !Number.isFinite(node.fontSize) || node.fontSize < minNodeFontSize)) {
     issues.push(issue("error", "INVALID_NODE_FONT_SIZE", `${path}.fontSize must be a readable point size >= ${minNodeFontSize}.`, {
@@ -626,6 +630,182 @@ function validateNode(
     }));
   }
   node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options));
+}
+
+const IGNORED_NODE_SPACING_FIELDS = [
+  "margin",
+  "marginTop",
+  "marginBottom",
+  "marginLeft",
+  "marginRight",
+  "paddingTop",
+  "paddingBottom",
+  "paddingLeft",
+  "paddingRight",
+] as const;
+
+function validateIgnoredSpacingFields(node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
+  for (const field of IGNORED_NODE_SPACING_FIELDS) {
+    if (!(field in node)) continue;
+    issues.push(issue("error", "UNSUPPORTED_NODE_SPACING_FIELD", `${path}.${field} is not a supported SlideML2 node field, so it would not affect layout.`, {
+      slideId,
+      path: `${path}.${field}`,
+      nodeName: node.id,
+      suggestedFix: field.startsWith("margin")
+        ? "Use the parent stack/grid gap for spacing between siblings, a spacer node for deliberate whitespace, or text.spaceAfter for paragraph spacing."
+        : "Use padding for uniform container padding, surface.padding for component surfaces, or wrap content in an inset/card when it needs inner breathing room.",
+    }));
+  }
+}
+
+function validatePrimitiveGap(node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
+  if (!("gap" in node)) return;
+  if (!(node.type === "stack" || node.type === "grid" || node.type === "split")) return;
+  const rawGap = node.gap;
+  if (typeof rawGap !== "number" || !Number.isFinite(rawGap) || rawGap < 0) {
+    issues.push(issue("error", "INVALID_LAYOUT_GAP", `${path}.gap must be a non-negative number in centimeters.`, {
+      slideId,
+      path: `${path}.gap`,
+      nodeName: node.id,
+      suggestedFix: "Use a cm value such as gap:0.3 or gap:0.6. Do not use CSS px values.",
+    }));
+    return;
+  }
+  const childCount = Array.isArray(node.children) ? node.children.length : 0;
+  if (childCount <= 1 && node.type !== "split") return;
+  if (rawGap > 3) {
+    issues.push(issue("error", "LAYOUT_GAP_TOO_LARGE", `${path}.gap is ${rawGap}cm. gap uses centimeters; this usually means a px-style value was used and will collapse child regions.`, {
+      slideId,
+      path: `${path}.gap`,
+      nodeName: node.id,
+      suggestedFix: "Use gap around 0.25-0.8cm for ordinary grids/stacks. For intentional large whitespace, insert a spacer node with explicit fixedWidth/fixedHeight instead of making every child narrower.",
+    }));
+  } else if (rawGap > 1.6) {
+    issues.push(issue("warning", "LAYOUT_GAP_LARGE", `${path}.gap is ${rawGap}cm, which is unusually large for a ${node.type}.`, {
+      slideId,
+      path: `${path}.gap`,
+      nodeName: node.id,
+      suggestedFix: "Confirm this is centimeters. Common slide gaps are 0.25-0.8cm; use spacer nodes for intentional large whitespace.",
+    }));
+  }
+}
+
+function validateNodePaddingUnits(node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
+  if ("padding" in node) {
+    validatePaddingValue(node.padding, `${path}.padding`, slideId, node.id, issues);
+  }
+  const surface = node.surface;
+  if (surface && typeof surface === "object" && !Array.isArray(surface) && "padding" in surface) {
+    validatePaddingValue((surface as Record<string, unknown>).padding, `${path}.surface.padding`, slideId, node.id, issues);
+  }
+  if ("cellPadding" in node) {
+    validateCellPaddingValue(node.cellPadding, `${path}.cellPadding`, slideId, node.id, issues);
+  }
+}
+
+function validatePaddingValue(value: unknown, path: string, slideId: string, nodeName: string | undefined, issues: ValidationIssue[]): void {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    issues.push(issue("error", "INVALID_LAYOUT_PADDING", `${path} must be a non-negative number in centimeters.`, {
+      slideId,
+      path,
+      nodeName,
+      suggestedFix: "Use a cm value such as padding:0.3 or padding:0.6. Do not use CSS px values.",
+    }));
+    return;
+  }
+  if (value > 3) {
+    issues.push(issue("error", "LAYOUT_PADDING_TOO_LARGE", `${path} is ${value}cm. padding uses centimeters; this usually means a px-style value was used and will leave no usable content area.`, {
+      slideId,
+      path,
+      nodeName,
+      suggestedFix: "Use padding around 0.2-0.8cm for cards/panels. For deliberate whitespace, resize the region or add a spacer outside the component.",
+    }));
+  } else if (value > 1.6) {
+    issues.push(issue("warning", "LAYOUT_PADDING_LARGE", `${path} is ${value}cm, which is unusually large for slide content.`, {
+      slideId,
+      path,
+      nodeName,
+      suggestedFix: "Confirm this is centimeters. Common internal padding is 0.2-0.8cm.",
+    }));
+  }
+}
+
+function validateCellPaddingValue(value: unknown, path: string, slideId: string, nodeName: string | undefined, issues: ValidationIssue[]): void {
+  if (typeof value === "number") {
+    validatePaddingValue(value, path, slideId, nodeName, issues);
+    return;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    issues.push(issue("error", "INVALID_LAYOUT_PADDING", `${path} must be a number or {left,right,top,bottom} object in centimeters.`, {
+      slideId,
+      path,
+      nodeName,
+      suggestedFix: "Use cellPadding:0.18 or cellPadding:{left:0.18,right:0.18,top:0.1,bottom:0.1}.",
+    }));
+    return;
+  }
+  for (const side of ["left", "right", "top", "bottom"] as const) {
+    if (side in value) validatePaddingValue((value as Record<string, unknown>)[side], `${path}.${side}`, slideId, nodeName, issues);
+  }
+}
+
+function validateTextSpacingUnits(node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
+  if ("lineSpacing" in node) validateLineSpacingValue(node.lineSpacing, `${path}.lineSpacing`, slideId, node.id, issues);
+  if ("spaceAfter" in node) validatePointSpacingValue(node.spaceAfter, `${path}.spaceAfter`, slideId, node.id, issues);
+  if (!Array.isArray(node.paragraphs)) return;
+  node.paragraphs.forEach((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const rec = raw as Record<string, unknown>;
+    if ("lineSpacing" in rec) validateLineSpacingValue(rec.lineSpacing, `${path}.paragraphs[${index}].lineSpacing`, slideId, node.id, issues);
+    if ("spaceAfter" in rec) validatePointSpacingValue(rec.spaceAfter, `${path}.paragraphs[${index}].spaceAfter`, slideId, node.id, issues);
+  });
+}
+
+function validateLineSpacingValue(value: unknown, path: string, slideId: string, nodeName: string | undefined, issues: ValidationIssue[]): void {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    issues.push(issue("error", "INVALID_LINE_SPACING", `${path} must be a positive number.`, {
+      slideId,
+      path,
+      nodeName,
+      suggestedFix: "Use a multiplier such as lineSpacing:1.25 or lineSpacing:1.6. Values above 3 are interpreted as explicit points.",
+    }));
+    return;
+  }
+  if (value > 3 && value < 7) {
+    issues.push(issue("error", "LINE_SPACING_AMBIGUOUS_UNIT", `${path} is ${value}. Values above 3 are interpreted as points, so this would be too tight and likely came from a multiplier-style value.`, {
+      slideId,
+      path,
+      nodeName,
+      suggestedFix: "For proportional line spacing use 1.15-1.8. For explicit point spacing use a readable value such as 12, 14, or 18.",
+    }));
+  } else if (value > 80) {
+    issues.push(issue("warning", "LINE_SPACING_VERY_LARGE", `${path} is ${value}pt, which is unusually large for slide text.`, {
+      slideId,
+      path,
+      nodeName,
+      suggestedFix: "If this was meant as a percentage, use the multiplier form instead, e.g. 1.2 for 120%.",
+    }));
+  }
+}
+
+function validatePointSpacingValue(value: unknown, path: string, slideId: string, nodeName: string | undefined, issues: ValidationIssue[]): void {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    issues.push(issue("error", "INVALID_POINT_SPACING", `${path} must be a non-negative point value.`, {
+      slideId,
+      path,
+      nodeName,
+      suggestedFix: "Use points, e.g. spaceAfter:4 or spaceAfter:8. For inter-block layout spacing, prefer parent gap in centimeters.",
+    }));
+    return;
+  }
+  if (value > 60) {
+    issues.push(issue("warning", "POINT_SPACING_VERY_LARGE", `${path} is ${value}pt, which is unusually large for slide typography.`, {
+      slideId,
+      path,
+      nodeName,
+      suggestedFix: "If this was meant as pixels or centimeters, use a parent gap/spacer instead. Typical paragraph spaceAfter is 2-10pt.",
+    }));
+  }
 }
 
 function isTwoColumnRegionShorthand(node: DomNode, parent: DomNode | undefined, path: string): boolean {

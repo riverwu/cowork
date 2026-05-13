@@ -2,8 +2,10 @@
   "id": "youdao-company-profile",
   "desktopDebugLog": true,
   "expected": {
-    "requiredTools": ["web_search", "web_fetch", "write_file", "create_deck", "replace_slide", "validate_render"],
-    "minReplaceSlideCalls": 7,
+    "requiredTools": ["web_search", "web_fetch", "read_file", "write_file", "shell", "init_deck", "validate_slide", "validate_manifest", "compose"],
+    "forbiddenTools": ["create_deck", "replace_slide", "insert_slide", "delete_slide", "patch_deck", "validate_render"],
+    "minValidateSlideCalls": 7,
+    "requireSlideml2SkillRead": true,
     "requireFinalValidateRender": true,
     "requireProgressDone": true,
     "requirePptxOutput": true,

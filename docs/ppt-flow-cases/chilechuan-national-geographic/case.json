@@ -2,9 +2,10 @@
   "id": "chilechuan-national-geographic",
   "desktopDebugLog": true,
   "expected": {
-    "requiredTools": ["write_file", "create_deck", "replace_slide", "validate_render"],
-    "forbiddenTools": ["run_node"],
-    "minReplaceSlideCalls": 5,
+    "requiredTools": ["read_file", "write_file", "shell", "init_deck", "validate_slide", "validate_manifest", "compose"],
+    "forbiddenTools": ["create_deck", "replace_slide", "insert_slide", "delete_slide", "patch_deck", "validate_render", "run_node"],
+    "minValidateSlideCalls": 5,
+    "requireSlideml2SkillRead": true,
     "requireFinalValidateRender": true,
     "requireProgressDone": true,
     "requirePptxOutput": true,

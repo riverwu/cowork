@@ -153,7 +153,7 @@ const TEXT_DETAILED: Record<string, NodeFieldInfo> = {
   color: { valueType: "string", description: "theme token or 6-char hex" },
   align: { valueType: "enum", values: ["left", "center", "right", "justify"], description: "left | center | right | justify" },
   valign: { valueType: "enum", values: ["top", "middle", "bottom"], description: "vertical alignment within text box" },
-  lineSpacing: { valueType: "number", description: "line height in points (overrides theme)" },
+  lineSpacing: { valueType: "number", description: "line height override; <=3 means multiplier (1.5 = 150%), >3 means points; values too tight for the font are clamped to the natural line height" },
   spaceAfter: { valueType: "number", description: "space after paragraph in points" },
   indentLevel: { valueType: "number", description: "0..8 indent level (also drives bullet level)" },
   autoFit: { valueType: "enum", values: ["shrink", "resize"], description: "shrink: <a:normAutofit/>; resize: <a:spAutoFit/>" },

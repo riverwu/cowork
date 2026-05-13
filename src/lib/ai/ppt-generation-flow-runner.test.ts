@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
   const state = {
     deckPath: "/tmp/ppt-flow/deck.json",
     outputPath: "/tmp/ppt-flow/deck.pptx",
+    workingDirectory: "/tmp/ppt-flow",
   };
   const tools: Record<string, {
     definition: { name: string; description: string; parameters: Record<string, unknown> };
@@ -59,34 +60,84 @@ const mocks = vi.hoisted(() => {
         yield {
           type: "message-done",
           content: "",
-          toolCalls: [toolCall("create_deck", { deckPath: state.deckPath, title: "Flow test" })],
+          toolCalls: [toolCall("write_file", { path: `${state.workingDirectory}/deck-init.json`, content: JSON.stringify({ title: "Flow test", size: "16x9", theme: "default" }) })],
           stopReason: "tool_use",
         };
         return;
       }
-      if (step === 5 || step === 6) {
+      if (step === 5) {
         yield {
           type: "message-done",
           content: "",
-          toolCalls: [toolCall("replace_slide", {
-            deckPath: state.deckPath,
-            slideId: step - 5,
-            slide: { id: `s${step - 4}`, title: `Slide ${step - 4}`, children: [{ id: `s${step - 4}.txt`, type: "text", text: "ok" }] },
+          toolCalls: [toolCall("shell", {
+            command: ["node", "/Users/river/.cowork/skills/slideml2/runtime/bin/slideml2.js", "init-deck", "deck-init.json"],
+            cwd: state.workingDirectory,
           })],
           stopReason: "tool_use",
         };
         return;
       }
-      if (step === 7) {
+      if (step === 6 || step === 8) {
         yield {
           type: "message-done",
           content: "",
-          toolCalls: [toolCall("validate_render", { deckPath: state.deckPath, outputPath: state.outputPath, render: true })],
+          toolCalls: [toolCall("write_file", {
+            path: `${state.workingDirectory}/slides/0${step === 6 ? 1 : 2}.json`,
+            content: JSON.stringify({ id: `s${step === 6 ? 1 : 2}`, title: `Slide ${step === 6 ? 1 : 2}`, children: [{ id: `s${step === 6 ? 1 : 2}.txt`, type: "text", text: "ok" }] }),
+          })],
           stopReason: "tool_use",
         };
         return;
       }
-      if (step === 8) {
+      if (step === 7 || step === 9) {
+        yield {
+          type: "message-done",
+          content: "",
+          toolCalls: [toolCall("shell", {
+            command: ["node", "/Users/river/.cowork/skills/slideml2/runtime/bin/slideml2.js", "validate-slide", `slides/0${step === 7 ? 1 : 2}.json`],
+            cwd: state.workingDirectory,
+          })],
+          stopReason: "tool_use",
+        };
+        return;
+      }
+      if (step === 10) {
+        yield {
+          type: "message-done",
+          content: "",
+          toolCalls: [toolCall("write_file", {
+            path: `${state.workingDirectory}/manifest.json`,
+            content: JSON.stringify({ slides: [{ id: "s1", file: "slides/01.json" }, { id: "s2", file: "slides/02.json" }] }),
+          })],
+          stopReason: "tool_use",
+        };
+        return;
+      }
+      if (step === 11) {
+        yield {
+          type: "message-done",
+          content: "",
+          toolCalls: [toolCall("shell", {
+            command: ["node", "/Users/river/.cowork/skills/slideml2/runtime/bin/slideml2.js", "validate-manifest", "manifest.json"],
+            cwd: state.workingDirectory,
+          })],
+          stopReason: "tool_use",
+        };
+        return;
+      }
+      if (step === 12) {
+        yield {
+          type: "message-done",
+          content: "",
+          toolCalls: [toolCall("shell", {
+            command: ["node", "/Users/river/.cowork/skills/slideml2/runtime/bin/slideml2.js", "compose", "manifest.json", "--write-source", "build/deck.json", "--out", state.outputPath],
+            cwd: state.workingDirectory,
+          })],
+          stopReason: "tool_use",
+        };
+        return;
+      }
+      if (step === 13) {
         yield {
           type: "message-done",
           content: "",
@@ -173,6 +224,7 @@ describe("ppt generation flow runner", () => {
     await mkdir(dir, { recursive: true });
     mocks.state.deckPath = join(dir, "deck.json");
     mocks.state.outputPath = join(dir, "deck.pptx");
+    mocks.state.workingDirectory = dir;
     mocks.streamCalls.length = 0;
     installMockTools();
 
@@ -181,9 +233,10 @@ describe("ppt generation flow runner", () => {
       userPrompt: `生成一个 2 页测试 PPT，输出到 ${mocks.state.outputPath}`,
       workingDirectory: dir,
       expected: {
-        requiredTools: ["read_file", "write_file", "create_deck", "replace_slide", "validate_render"],
-        forbiddenTools: ["run_node"],
-        minReplaceSlideCalls: 2,
+        requiredTools: ["read_file", "write_file", "shell", "init_deck", "validate_slide", "validate_manifest", "compose"],
+        forbiddenTools: ["create_deck", "replace_slide", "validate_render", "run_node"],
+        minValidateSlideCalls: 2,
+        requireSlideml2SkillRead: true,
         requireFinalValidateRender: true,
         requireProgressDone: true,
         requirePptxOutput: true,
@@ -194,12 +247,12 @@ describe("ppt generation flow runner", () => {
     const verification = await verifyPptGenerationFlow(result);
 
     expect(verification.ok, verification.failures.join("\n")).toBe(true);
-    expect(result.summary.toolNames).toContain("validate_render");
+    expect(result.summary.toolNames).toContain("compose");
     expect(result.summary.replaceSlideCount).toBe(2);
     expect(result.summary.finalText).toContain("PPT 已生成");
     expect(result.llmSends[0]?.system).toContain("Current working directory");
-    expect(result.llmSends[0]?.tools.map((tool) => tool.name)).toContain("validate_render");
-    expect(mocks.streamCalls).toHaveLength(9);
+    expect(result.llmSends[0]?.tools.map((tool) => tool.name)).toContain("shell");
+    expect(mocks.streamCalls).toHaveLength(14);
   });
 
   it("can verify required source JSON and emitted PPTX XML substrings", async () => {
@@ -370,9 +423,10 @@ describe("ppt generation flow runner", () => {
     await writeFile(join(caseDir, "case.json"), JSON.stringify({
       id: "directory-component-coverage",
       expected: {
-        requiredTools: ["read_file", "write_file", "create_deck", "replace_slide", "validate_render"],
-        forbiddenTools: ["run_node"],
-        minReplaceSlideCalls: 2,
+        requiredTools: ["read_file", "write_file", "shell", "init_deck", "validate_slide", "validate_manifest", "compose"],
+        forbiddenTools: ["create_deck", "replace_slide", "validate_render", "run_node"],
+        minValidateSlideCalls: 2,
+        requireSlideml2SkillRead: true,
         requireFinalValidateRender: true,
         requireProgressDone: true,
         requirePptxOutput: true,
@@ -388,6 +442,7 @@ describe("ppt generation flow runner", () => {
 
     mocks.state.deckPath = join(caseDir, "outputs", "deck.json");
     mocks.state.outputPath = join(caseDir, "outputs", "deck.pptx");
+    mocks.state.workingDirectory = caseDir;
     mocks.streamCalls.length = 0;
     installMockTools();
 
@@ -738,6 +793,33 @@ function installMockTools(): void {
   mocks.tools.write_file = {
     definition: { name: "write_file", description: "write", parameters: { type: "object", properties: {} } },
     execute: vi.fn().mockResolvedValue("File written."),
+  };
+  mocks.tools.shell = {
+    definition: { name: "shell", description: "shell", parameters: { type: "object", properties: {} } },
+    execute: vi.fn(async (input) => {
+      const command = Array.isArray(input.command) ? input.command.filter((item): item is string => typeof item === "string") : [];
+      const cwd = typeof input.cwd === "string" ? input.cwd : mocks.state.workingDirectory;
+      const subcommand = command.find((item) => ["init-deck", "validate-slide", "validate-manifest", "compose"].includes(item));
+      if (subcommand === "compose") {
+        const outIndex = command.indexOf("--out");
+        const sourceIndex = command.indexOf("--write-source");
+        const outputPath = outIndex >= 0 && command[outIndex + 1] ? command[outIndex + 1]! : mocks.state.outputPath;
+        const sourcePath = sourceIndex >= 0 && command[sourceIndex + 1] ? join(cwd, command[sourceIndex + 1]!) : join(cwd, "build/deck.json");
+        await mkdir(dirname(sourcePath), { recursive: true });
+        await writeFile(sourcePath, JSON.stringify({ deck: {}, slides: [{ id: "s1" }, { id: "s2" }] }));
+        await mkdir(dirname(outputPath), { recursive: true });
+        await writeFile(outputPath, "fake pptx");
+        return JSON.stringify({
+          ok: true,
+          stage: "render",
+          status: "ok",
+          sourcePath,
+          outputPath,
+          diagnostics: { count: 0, summary: {}, blockingCount: 0, blocking: [], qualityCount: 0, quality: [] },
+        });
+      }
+      return JSON.stringify({ ok: true, stage: subcommand === "init-deck" ? "commit" : "validate", status: "ok", deckModified: subcommand === "init-deck" });
+    }),
   };
   mocks.tools.create_deck = {
     definition: { name: "create_deck", description: "create", parameters: { type: "object", properties: {} } },

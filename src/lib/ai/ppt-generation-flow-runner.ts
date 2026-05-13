@@ -89,6 +89,8 @@ export interface PptGenerationFlowExpectations {
   requiredTools?: string[];
   forbiddenTools?: string[];
   minReplaceSlideCalls?: number;
+  minValidateSlideCalls?: number;
+  requireSlideml2SkillRead?: boolean;
   requireProgressDone?: boolean;
   requireFinalValidateRender?: boolean;
   requirePptxOutput?: boolean;
@@ -266,14 +268,23 @@ export async function verifyPptGenerationFlow(
   for (const name of expectations.forbiddenTools || []) {
     if (toolNames.has(name)) failures.push(`Forbidden tool was called: ${name}`);
   }
+  if (expectations.requireSlideml2SkillRead && !wasSlideml2SkillRead(result.toolRecords)) {
+    failures.push("SlideML2 SKILL.md was not read before authoring.");
+  }
   if (expectations.minReplaceSlideCalls !== undefined && summary.replaceSlideCount < expectations.minReplaceSlideCalls) {
     failures.push(`Expected at least ${expectations.minReplaceSlideCalls} successful slide write command(s), got ${summary.replaceSlideCount}.`);
+  }
+  if (expectations.minValidateSlideCalls !== undefined) {
+    const count = successfulValidateSlideCount(result.toolRecords);
+    if (count < expectations.minValidateSlideCalls) {
+      failures.push(`Expected at least ${expectations.minValidateSlideCalls} successful validate-slide command(s), got ${count}.`);
+    }
   }
   if (expectations.requireProgressDone && !summary.progressEvents.some((event) => event.status === "done")) {
     failures.push("No done long-task progress event was emitted.");
   }
   if (expectations.requireFinalValidateRender && !validateRenderOk(summary.finalValidateRender)) {
-    failures.push("No successful final validate_render({render:true}) result was captured.");
+    failures.push("No successful final SlideML2 render result was captured via compose or validate_render({render:true}).");
   }
 
   const blockingCount = blockingDiagnosticsCount(summary.finalValidateRender);
@@ -1757,6 +1768,19 @@ function isSuccessfulReplaceSlideRecord(record: PptGenerationFlowToolRecord): bo
   return record.success !== false && (record.name === "replace_slide" || alias === "validate_slide");
 }
 
+function successfulValidateSlideCount(toolRecords: PptGenerationFlowToolRecord[]): number {
+  return toolRecords.filter((record) => record.success !== false && slideml2CliToolAlias(record) === "validate_slide").length;
+}
+
+function wasSlideml2SkillRead(toolRecords: PptGenerationFlowToolRecord[]): boolean {
+  return toolRecords.some((record) => {
+    if (record.name !== "read_file" || record.success === false) return false;
+    const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
+    const path = typeof input.path === "string" ? input.path : "";
+    return /(?:^|[/\\])slideml2[/\\]SKILL\.md$/i.test(path);
+  });
+}
+
 function isValidateRenderRecord(record: PptGenerationFlowToolRecord): boolean {
   const alias = slideml2CliToolAlias(record);
   return record.name === "validate_render" || alias === "compose";
@@ -1922,8 +1946,10 @@ function normalizeCaseExpectations(
     ? resolveCasePath(caseDirectory, expected.outputPath)
     : nodePath.join(outputsDirectory, `${id}.pptx`);
   return {
-    requiredTools: ["init_deck", "validate_slide", "compose"],
-    minReplaceSlideCalls: 1,
+    requiredTools: ["read_file", "init_deck", "validate_slide", "validate_manifest", "compose"],
+    forbiddenTools: ["create_deck", "replace_slide", "insert_slide", "delete_slide", "patch_deck", "validate_render"],
+    minValidateSlideCalls: 1,
+    requireSlideml2SkillRead: true,
     requireProgressDone: true,
     requireFinalValidateRender: true,
     requirePptxOutput: true,

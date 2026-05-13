@@ -3366,7 +3366,7 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
         align: paragraphAlign(rec.align ?? node.align),
       };
       if (typeof rec.indentLevel === "number" && rec.indentLevel > 0) para.indentLevel = rec.indentLevel;
-      para.lineSpacingHalfPt = typeof rec.lineSpacing === "number" ? rec.lineSpacing * 2 : lineSpacingHalfPtForStyle(paraStyle);
+      para.lineSpacingHalfPt = lineSpacingHalfPtForValue(rec.lineSpacing, paraStyle) ?? lineSpacingHalfPtForStyle(paraStyle);
       if (typeof rec.spaceAfter === "number") para.spaceAfterHalfPt = rec.spaceAfter * 2;
       if (rec.bullet === "auto") para.bullet = { auto: true };
       else if (rec.bullet === "number") para.bullet = { number: true };
@@ -3379,7 +3379,7 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
     runs,
   };
   if (typeof node.indentLevel === "number" && node.indentLevel > 0) para.indentLevel = node.indentLevel;
-  para.lineSpacingHalfPt = typeof node.lineSpacing === "number" ? node.lineSpacing * 2 : lineSpacingHalfPtForStyle(style);
+  para.lineSpacingHalfPt = lineSpacingHalfPtForValue(node.lineSpacing, style) ?? lineSpacingHalfPtForStyle(style);
   if (typeof node.spaceAfter === "number") para.spaceAfterHalfPt = node.spaceAfter * 2;
   return [para];
 }
@@ -3387,6 +3387,17 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
 function lineSpacingHalfPtForStyle(style: ReturnType<typeof textStyle>): number | undefined {
   if (!Number.isFinite(style.fontSize) || !Number.isFinite(style.lineHeight) || style.fontSize <= 0 || style.lineHeight <= 0) return undefined;
   return style.fontSize * style.lineHeight * 2;
+}
+
+function lineSpacingHalfPtForValue(rawLineSpacing: unknown, style: ReturnType<typeof textStyle>): number | undefined {
+  if (typeof rawLineSpacing !== "number" || !Number.isFinite(rawLineSpacing) || rawLineSpacing <= 0) return undefined;
+  // Agent-authored slides commonly use CSS/PowerPoint-style multipliers
+  // (`lineSpacing:1.5`, `1.7`). Larger values are treated as explicit point
+  // line spacing for backwards compatibility with earlier SlideML decks.
+  const pointValue = rawLineSpacing <= 3 ? style.fontSize * rawLineSpacing : rawLineSpacing;
+  const requestedHalfPt = pointValue * 2;
+  const naturalHalfPt = lineSpacingHalfPtForStyle(style);
+  return naturalHalfPt === undefined ? requestedHalfPt : Math.max(naturalHalfPt, requestedHalfPt);
 }
 
 function paragraphAlign(value: unknown): "left" | "center" | "right" | "justify" | undefined {
@@ -6427,7 +6438,7 @@ function textLineMetrics(theme: SimpleTheme, style: TextStyle, rawLineSpacing?: 
     ascentCm *= scale;
     descentCm *= scale;
   }
-  const requested = explicitLineSpacingCm(rawLineSpacing) ?? measurer.lineHeight(style.fontSize, style.lineHeight, family);
+  const requested = explicitLineSpacingCm(rawLineSpacing, style) ?? measurer.lineHeight(style.fontSize, style.lineHeight, family);
   const lineHeightCm = Math.max(naturalHeightCm, requested);
   return {
     ascentCm,
@@ -6444,11 +6455,9 @@ function textMetricsFamily(theme: SimpleTheme, style: TextStyle, text = ""): str
   return containsCjk(text) ? preferredFont(theme, "cjk", role, style.weight) : preferredFont(theme, "latin", role, style.weight);
 }
 
-function explicitLineSpacingCm(rawLineSpacing: unknown): number | undefined {
-  if (typeof rawLineSpacing === "number" && Number.isFinite(rawLineSpacing) && rawLineSpacing > 0) {
-    return rawLineSpacing * PT_TO_CM;
-  }
-  return undefined;
+function explicitLineSpacingCm(rawLineSpacing: unknown, style: ReturnType<typeof textStyle>): number | undefined {
+  const halfPt = lineSpacingHalfPtForValue(rawLineSpacing, style);
+  return halfPt === undefined ? undefined : halfPt * 0.5 * PT_TO_CM;
 }
 
 function minTextLineHeightCm(theme: SimpleTheme, style: ReturnType<typeof textStyle>, text = ""): number {

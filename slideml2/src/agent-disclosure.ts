@@ -66,7 +66,7 @@ export function buildAgentPromptPack(options: AgentPromptPackOptions = {}): stri
   const descriptions = describeComponents(components).found;
   const lines: string[] = [
     "SlideML2 compact guide:",
-    "- Output exactly one slide JSON: {id,title,children}.",
+    "- Output exactly one slide JSON: {id,title?,children}; omit title for custom full-canvas cover/section layouts.",
     "- Write the component name directly in `type`: {id,type:'callout',...fields}; never wrap as type:'component'+component:'X'.",
     "- Component nodes are flat; do not wrap fields in `props`.",
     "- Compose with top-level components, stack/grid/split, named areas, and anchored overlays. area:'content' uses the standard content rect.",
@@ -88,7 +88,7 @@ export function buildAgentPromptPack(options: AgentPromptPackOptions = {}): stri
     "- Color tokens: brand.primary, brand.tint, surface, surface.subtle, text.primary/muted/inverse, divider, success/warning/danger/info, palette names red..pink with .tint/.shade. Do not invent tokens.",
     "- Vary slide structure across a deck: insight-card is one option for standalone findings, not the default text container. Prefer executive-summary / explanation-block / comparison-list / fact-list whenever the content shape matches.",
     "- Use `optional: true` on captions/source-notes/secondary callouts so the layout can drop them when space is tight.",
-    "- Minimal shape: {\"id\":\"s1\",\"title\":\"Title\",\"children\":[{\"id\":\"s1.lead\",\"type\":\"lead\",\"area\":\"content\",\"text\":\"One insight\"}]}",
+    "- Minimal shape: {\"id\":\"s1\",\"children\":[{\"id\":\"s1.lead\",\"type\":\"lead\",\"area\":\"content\",\"text\":\"One insight\"}]}",
     "- Layout escape hatches (use sparingly, when components don't fit):",
     "    `at:[x,y,w,h]` — slide-level absolute positioning for covers, section dividers, hero numbers, rotated/overlap layouts.",
     "    `layer:\"behind\"|\"above\"` — child fills parent rect behind/above flow; use for backing images, scrims, ribbons, decoration grids.",

@@ -1464,6 +1464,49 @@ describe("component regressions", () => {
     expect(body?.paragraphs?.[0]?.lineSpacingHalfPt).toBeCloseTo(13 * 1.6 * 2, 2);
   });
 
+  it("node lineSpacing <= 3 is treated as a multiplier, not an absolute point value", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "line-spacing",
+        children: [{
+          id: "line-spacing.body",
+          type: "text",
+          text: "第一行会换行，第二行不应该压在第一行上。",
+          fontSize: 11,
+          lineSpacing: 1.7,
+        }],
+      }],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    const body = findRenderedByName(ast, "line-spacing.body") as { paragraphs?: Array<{ lineSpacingHalfPt?: number }> } | undefined;
+    expect(body?.paragraphs?.[0]?.lineSpacingHalfPt).toBeCloseTo(11 * 1.7 * 2, 2);
+  });
+
+  it("validator rejects ignored CSS-style spacing fields and px-like primitive gaps", () => {
+    const slide: SlideV2 = {
+      id: "unit-footguns",
+      children: [{
+        id: "unit-footguns.grid",
+        type: "grid",
+        columns: 3,
+        gap: 8,
+        padding: 16,
+        children: [
+          { id: "unit-footguns.a", type: "text", text: "A" },
+          { id: "unit-footguns.b", type: "text", text: "B", lineSpacing: 4 },
+          { id: "unit-footguns.c", type: "text", text: "C", marginBottom: 12 },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    const report = validateSlide(slide, baseDeck);
+    expect(report.errors.map((e) => e.code)).toContain("LAYOUT_GAP_TOO_LARGE");
+    expect(report.errors.map((e) => e.code)).toContain("LAYOUT_PADDING_TOO_LARGE");
+    expect(report.errors.map((e) => e.code)).toContain("LINE_SPACING_AMBIGUOUS_UNIT");
+    expect(report.errors.map((e) => e.code)).toContain("UNSUPPORTED_NODE_SPACING_FIELD");
+  });
+
   it("executive-summary findings use readable bullet spacing by default", () => {
     const slide: SlideV2 = {
       id: "summary",

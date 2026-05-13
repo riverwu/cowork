@@ -4,11 +4,13 @@
 - 读取 {{inputsDir}}/brief.md。
 
 工作流要求：
-- 先用 `write_file` 保存完整 `deck_plan.md`，说明每页目标、组件选择和新增 OOXML 能力覆盖点。
-- 用 `create_deck` 创建 deck，必须在初始调用中设置 `themeOverride.layout.areas`、`master:{layout,placeholders}` 和图表所需 `deck.dataSources`。placeholder 至少包含 `title` 和 `body`。
-- 逐页通过 `replace_slide` 生成，不要直接写 deck JSON。每次失败都根据 validation/diagnostics 修正同一个组件或布局，不要因为难通过而降级到普通文本。
-- 严禁用 `shell` / `run_node` / `run_python` / `write_file` 直接修改 `deck.json`。Deck 只能通过 SlideML2 CLI 工具链创建和逐页替换；如果忘记 dataSources，应重新创建 deck，而不是绕过工具链手改 JSON。
-- 最终调用 `validate_render({render:true})`，PPTX 输出到：{{outputPath}}。
+- 必须先用 `read_file` 读取 `/Users/river/.cowork/skills/slideml2/SKILL.md`，严格按其中的 manifest + CLI 工作流执行；不要使用旧的 `create_deck` / `replace_slide` / `validate_render` 工具。
+- 先用 `write_file` 保存完整 `plan.md`，说明每页目标、组件选择和新增 OOXML 能力覆盖点。
+- 用 SKILL.md 中的 CLI `init-deck` 初始化 `deck-config.json`，并用 `set-deck` 设置 `themeOverride.layout.areas`、`master:{layout,placeholders}` 和图表所需 `deck.dataSources`。placeholder 至少包含 `title` 和 `body`。
+- 每次只写一个 `slides/*.json`，立刻运行 `validate-slide`。若失败，只修正同一个 slide 文件并重跑 `validate-slide`，通过后再写下一页；创建期间和修改期间都不允许批量 validate 或批量生成后再回头修。不要因为难通过而降级到普通文本。
+- 严禁用 `run_node` / `run_python` / `write_file` 直接修改 `build/deck.json` 或绕过 CLI 写完整 deck。`write_file` 只用于 `plan.md`、`deck-init.json`、`deck-theme.json`、单页 `slides/*.json`、`manifest.json` 等 SKILL.md 允许的源文件。
+- 全部页面通过后，写 `manifest.json` 控制页序，运行 `validate-manifest`，最后用 `compose --write-source build/deck.json --out {{outputPath}}` 生成 PPTX。
+- 最终 `compose` 必须成功，PPTX 输出到：{{outputPath}}。
 
 必须覆盖的新增能力：
 - 至少 2 页设置 `transition`。

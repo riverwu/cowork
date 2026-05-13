@@ -53,7 +53,7 @@ When a run fails, classify the failure before editing:
 For every live run, including runs that eventually pass:
 
 1. Record the report directory, debug log directory, run workspace, and final failure summary.
-2. Read `failure-analysis.json` and `improvement-candidates.md`; passing cases still matter when they contain failed/recovered tool calls, repeated `replace_slide` repairs, quality diagnostics, unused generated assets, or component degradation such as `DROP`/`DEMOTED`.
+2. Read `failure-analysis.json` and `improvement-candidates.md`; passing cases still matter when they contain failed/recovered tool calls, repeated `validate-slide` repairs, quality diagnostics, unused generated assets, or component degradation such as `DROP`/`DEMOTED`.
 3. Identify whether each candidate is implementation, interface/spec, skill contract, runner/reporting, or case semantic.
 4. Make the smallest general fix in the appropriate layer after the plan is approved.
 5. Add or update focused automated coverage outside the live case when the issue is reproducible without an LLM.
@@ -63,5 +63,5 @@ For every live run, including runs that eventually pass:
 ## Examples
 
 - If `image_gen` rejects a size because the configured model requires a larger minimum canvas, fix the image tool schema/defaults/validation or skill guidance. Do not edit only one physics prompt to name a larger size.
-- If `replace_slide` repeatedly fails because a component underestimates text height, fix text measurement or component layout and add component tests. Do not tell one case to use fewer words as the only fix.
+- If `validate-slide` repeatedly fails because a component underestimates text height, fix text measurement or component layout and add component tests. Do not tell one case to use fewer words as the only fix.
 - If an agent does not understand how to use a new SlideML2 area/layout feature, update the SlideML2 skill contract and add a capability case. Do not hide the feature from that case.
