@@ -880,7 +880,7 @@ function hslToHex(h: number, s: number, l: number): string {
  * agent without a recoverable diagnostic.
  */
 export function color(theme: SimpleTheme, value: unknown, fallback = "text.primary"): string {
-  const fallbackHex = theme.colors[fallback] || "111827";
+  const fallbackHex = fallbackColorHex(theme, fallback);
   if (typeof value !== "string") {
     if (value !== undefined && value !== null) {
       colorWarnings.add(`<non-string:${typeof value}>`);
@@ -929,6 +929,16 @@ export function color(theme: SimpleTheme, value: unknown, fallback = "text.prima
     });
   }
   return fallbackHex;
+}
+
+function fallbackColorHex(theme: SimpleTheme, fallback: string): string {
+  const raw = typeof fallback === "string" ? fallback.trim() : "";
+  const stripped = raw.startsWith("#") ? raw.slice(1) : raw;
+  if (/^[0-9A-Fa-f]{6}$/.test(stripped)) return stripped.toUpperCase();
+  if (/^[0-9A-Fa-f]{3}$/.test(stripped)) {
+    return (stripped[0]! + stripped[0]! + stripped[1]! + stripped[1]! + stripped[2]! + stripped[2]!).toUpperCase();
+  }
+  return theme.colors[raw] || "111827";
 }
 
 function commonText(): Record<string, TextStyle> {

@@ -111,4 +111,34 @@ describe("yfnf28 magazine layout regressions", () => {
     const contrastFixes = getRenderDiagnostics().filter((d) => d.code === "LOW_CONTRAST_FIXED" && d.nodeId === "cover.title");
     expect(contrastFixes).toHaveLength(0);
   });
+
+  it("text over a slide-level bitmap background is not auto-recolored against white fallback", () => {
+    const slide: SlideV2 = {
+      id: "cover",
+      background: { src: IMG },
+      children: [
+        { id: "cover.title", type: "text", text: "敕勒川", style: "deck-title", color: "text.inverse", area: "content" } as unknown as DomNode,
+      ],
+    };
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(deck([slide], { colors: { background: "FEFEFE" } })));
+    const title = ast.slides[0]!.shapes.find((shape) => shape.name === "cover.title");
+    if (!title || title.type !== "text") throw new Error("Expected title text shape");
+    expect(title.paragraphs?.[0]?.runs?.[0]?.color).toBe("FFFFFF");
+    const contrastFixes = getRenderDiagnostics().filter((d) => d.code === "LOW_CONTRAST_FIXED" && d.nodeId === "cover.title");
+    expect(contrastFixes).toHaveLength(0);
+  });
+
+  it("warns when a behind image starts at the top edge but misses the slide bottom", () => {
+    const validation = validateDeck(deck([{
+      id: "rail",
+      children: [
+        { id: "rail.bg", type: "image", src: IMG, fit: "cover", layer: "behind", at: [0, 0, 9.5, 13.3] } as unknown as DomNode,
+        { id: "rail.text", type: "text", text: "正文", area: "content" } as unknown as DomNode,
+      ],
+    }]));
+    const warning = validation.warnings.find((item) => item.code === "BACKGROUND_IMAGE_PARTIAL_HEIGHT");
+    expect(warning, JSON.stringify(validation.warnings, null, 2)).toBeTruthy();
+    expect(warning?.suggestedFix).toContain("14.29");
+  });
 });

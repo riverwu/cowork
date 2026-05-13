@@ -1640,13 +1640,78 @@ function lastValidateRenderResult(toolRecords: PptGenerationFlowToolRecord[]): R
   for (let index = toolRecords.length - 1; index >= 0; index--) {
     const record = toolRecords[index]!;
     if (!isValidateRenderRecord(record) || record.success !== true || !record.result) continue;
-    const parsed = parseJsonObject(record.result);
-    if (!parsed) continue;
     const input = validateRenderInput(record);
     if (input.render === false) continue;
-    return parsed;
+    const parsed = parseJsonObject(record.result);
+    return parsed || recoverValidateRenderResult(record, input);
   }
   return undefined;
+}
+
+function recoverValidateRenderResult(record: PptGenerationFlowToolRecord, input: Record<string, unknown>): Record<string, unknown> | undefined {
+  const raw = record.result || "";
+  const cwd = slideml2CliCwd(record) || ".";
+  const outputPath = resolveMaybeRelativePath(
+    jsonStringField(raw, "outputPath")
+      || (typeof input.outputPath === "string" ? input.outputPath : undefined)
+      || (typeof input.out === "string" ? input.out : undefined),
+    cwd,
+  );
+  if (!outputPath) return undefined;
+  const diagnosticsPath = resolveMaybeRelativePath(jsonStringField(raw, "diagnosticsPath"), cwd)
+    || `${outputPath}.diagnostics.json`;
+  const domPath = resolveMaybeRelativePath(jsonStringField(raw, "domPath"), cwd)
+    || `${outputPath}.render-tree.json`;
+  const diagnostics = readDiagnosticsArray(diagnosticsPath);
+  const blocking = diagnostics.filter((item) => item.severity === "error");
+  const quality = diagnostics.filter((item) => item.severity !== "error");
+  return {
+    ok: record.success === true && blocking.length === 0,
+    phase: jsonStringField(raw, "phase") || "rendered",
+    deckModified: false,
+    outputPath,
+    domPath,
+    diagnosticsPath,
+    diagnostics: {
+      count: diagnostics.length,
+      summary: diagnostics.reduce<Record<string, number>>((acc, item) => {
+        const key = typeof item.code === "string" && item.code ? item.code : "UNKNOWN";
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {}),
+      blockingCount: blocking.length,
+      blocking: blocking.slice(0, 60),
+      qualityCount: quality.length,
+      quality: quality.slice(0, 20),
+      recoveredFromTruncatedToolResult: true,
+    },
+  };
+}
+
+function jsonStringField(raw: string, key: string): string | undefined {
+  const match = raw.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
+  if (!match?.[1]) return undefined;
+  try {
+    return JSON.parse(`"${match[1]}"`) as string;
+  } catch {
+    return match[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+}
+
+function resolveMaybeRelativePath(pathValue: string | undefined, cwd: string): string | undefined {
+  if (!pathValue) return undefined;
+  return nodePath.isAbsolute(pathValue) ? pathValue : nodePath.resolve(cwd, pathValue);
+}
+
+function readDiagnosticsArray(pathValue: string): Array<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse(nodeFs.readFileSync(pathValue, "utf8"));
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item))
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function collectValidateOutputPaths(validateResult: Record<string, unknown> | undefined, outputPaths: Set<string>): void {

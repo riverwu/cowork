@@ -139,6 +139,12 @@ export interface DataEncodingSpec {
     name?: string;
     type?: "bar" | "line";
     axis?: "primary" | "secondary";
+    color?: string;
+    lineWidth?: number;
+    lineDash?: "solid" | "dash" | "dashDot" | "dot";
+    smooth?: boolean;
+    marker?: unknown;
+    dataLabels?: unknown;
     trendLine?: { type?: "linear" | "exp" | "log" | "poly"; order?: number; label?: string } | boolean;
     errorBars?: { type?: "fixed" | "percent" | "stdDev" | "stdErr"; value?: number; direction?: "x" | "y" | "both" };
   }>;

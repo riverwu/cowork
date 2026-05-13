@@ -21,15 +21,15 @@ function findIssue(report: ReturnType<typeof validateSlide>, codeMatch: RegExp):
 }
 
 describe("validate flags common LLM misuses with actionable fixes", () => {
-  it("type:'caption' (a style token) is flagged as STYLE_AS_TYPE with the correct rewrite", () => {
+  it("type:'caption' (a style token) is normalized with the correct rewrite", () => {
     const slide: SlideV2 = {
       id: "misuse-caption",
       title: "标题",
       children: [{ id: "misuse-caption.body", type: "caption" as unknown as SlideV2["children"][number]["type"], text: "图注" }],
     };
     const report = validateSlide(slide, baseDeck);
-    const hit = findError(report, /STYLE_AS_TYPE/);
-    expect(hit, JSON.stringify(report.errors)).toBeDefined();
+    const hit = findIssue(report, /TEXT_STYLE_TYPE_ALIAS_NORMALIZED/);
+    expect(hit, JSON.stringify([...report.errors, ...report.warnings, ...report.info])).toBeDefined();
     expect(`${hit!.message} ${hit!.suggestedFix || ""}`).toMatch(/type.*text.*style.*caption/i);
   });
 

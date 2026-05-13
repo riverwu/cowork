@@ -50,7 +50,9 @@ export function sourceToRenderedDeck(source: Slideml2SourceDeck, options: DataBi
       themeOverride,
       master: source.deck.master,
     },
-    slides: source.slides.flatMap((slide) => expandArticleSlide(slide, pageWeight)).map(sourceSlideToRendered),
+    slides: source.slides
+      .flatMap((slide) => expandArticleSlide(slide, pageWeight))
+      .map((slide) => sourceSlideToRendered(normalizeSlide(slide))),
   };
 }
 
@@ -283,9 +285,46 @@ function aliasDimensionFields(node: DomNode): DomNode {
   return mutated;
 }
 
+// Common authoring aliases that preserve the same SlideML semantics. These are
+// normalized before render so the validator can stay strict about the canonical
+// tree while still accepting predictable LLM shorthand.
+const TEXT_STYLE_TYPE_ALIASES = new Set([
+  "h3", "h4", "h5", "h6",
+  "body", "caption", "footnote",
+  "metric-value", "metric-label", "card-title", "section-title",
+  "paragraph", "bullet", "bullet-compact", "quote-source",
+  "title",
+]);
+
+const NODE_OBJECT_SLOT_KEYS = ["evidence", "rail", "left", "right", "hero", "insight"] as const;
+const NODE_ARRAY_SLOT_KEYS = ["annotations", "supports"] as const;
+
+function normalizeAuthoringAliases(node: DomNode): DomNode {
+  let normalized = node;
+  if (typeof normalized.type === "string" && TEXT_STYLE_TYPE_ALIASES.has(normalized.type)) {
+    normalized = {
+      ...normalized,
+      type: "text",
+      style: typeof normalized.style === "string" && normalized.style.trim() ? normalized.style : normalized.type,
+    };
+  }
+  const scalarRatio = normalized.ratio;
+  if (typeof scalarRatio === "number" && Number.isFinite(scalarRatio) && scalarRatio > 0) {
+    normalized = { ...normalized, ratio: scalarRatioToPair(scalarRatio) };
+  }
+  return normalized;
+}
+
+function scalarRatioToPair(value: number): [number, number] {
+  if (value > 0 && value < 1) return [value, 1 - value];
+  if (value === 1) return [1, 1];
+  if (value > 1 && value < 100) return [value, 100 - value];
+  return [value, 1];
+}
+
 function ensureContentArea(slideId: string, children: DomNode[], hasSlideTitle = false): DomNode[] {
   // Run dimension-field aliasing on every child before content-area wrap.
-  children = children.map((c) => aliasDimensionFields(c));
+  children = children.map((c) => normalizeAuthoringAliases(aliasDimensionFields(c)));
   if (children.some((node) => node.area === "content")) return children;
   // yajush regression: agents put a footer/corner decoration (image with
   // anchor:"bottom-right" at slide-level expecting it to
@@ -337,12 +376,30 @@ function normalizeNode(slideId: string, node: DomNode, fallbackId: string): DomN
   if (!node || typeof node !== "object") return { id: fallbackId, type: "text", text: "" };
   const raw = node as DomNode & { component?: unknown };
   void raw;
-  const id = typeof node.id === "string" && node.id ? node.id : fallbackId;
-  return {
-    ...aliasDimensionFields(node),
+  const aliased = normalizeAuthoringAliases(aliasDimensionFields(node));
+  const id = typeof aliased.id === "string" && aliased.id ? aliased.id : fallbackId;
+  const normalized: DomNode = {
+    ...aliased,
     id,
-    children: Array.isArray(node.children) ? node.children.map((child, index) => normalizeNode(slideId, child, `${id}.${index + 1}`)) : node.children,
+    children: Array.isArray(aliased.children) ? aliased.children.map((child, index) => normalizeNode(slideId, child, `${id}.${index + 1}`)) : aliased.children,
   };
+  for (const key of NODE_OBJECT_SLOT_KEYS) {
+    const value = aliased[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      normalized[key] = normalizeNode(slideId, value as DomNode, `${id}.${key}`);
+    }
+  }
+  for (const key of NODE_ARRAY_SLOT_KEYS) {
+    const value = aliased[key];
+    if (Array.isArray(value)) {
+      normalized[key] = value.map((item, index) =>
+        item && typeof item === "object" && !Array.isArray(item)
+          ? normalizeNode(slideId, item as DomNode, `${id}.${key}.${index + 1}`)
+          : item
+      );
+    }
+  }
+  return normalized;
 }
 
 function expandArticleSlide(slide: SlideV2, pageWeight = 950): SlideV2[] {

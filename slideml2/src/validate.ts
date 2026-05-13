@@ -27,7 +27,7 @@ import { resolveDataSourceRowsById, type DataBindingOptions } from "./data-bindi
 import { inferTextKind } from "./text-normalizer.js";
 import type { DeckValidationSpec, DomNode, RenderedDeck, RenderedSlide, Slideml2SourceDeck, SlideV2, ThemeLayoutArea, ThemeOverride } from "./types.js";
 import { measureDeck } from "./render.js";
-import { sourceSlideToRendered, sourceToRenderedDeck } from "./source-deck.js";
+import { normalizeSlide, sourceSlideToRendered, sourceToRenderedDeck } from "./source-deck.js";
 import { emuToCm, SLIDE_SIZES } from "./units.js";
 import { unsupportedLatexCommands } from "./latex-omml.js";
 import { meaningfulSourceOverlap, rectContains, rectFromAbsoluteRectSpec, rectFromNodePlacement } from "./layout/geometry.js";
@@ -132,7 +132,7 @@ export function validateSlide(slide: SlideV2, deck?: Pick<Slideml2SourceDeck, "d
         brand: deck?.deck.brand || {},
         themeOverride: deck?.deck.themeOverride,
       },
-      slides: [sourceSlideToRendered(slide)],
+      slides: [sourceSlideToRendered(normalizeSlide(slide))],
     };
     validateLayout(rendered, issues);
   } catch (error) {
@@ -599,11 +599,12 @@ function validateNode(
     if (options.requireSources && !hasSourceMetadata(node)) issues.push(issue("error", "MISSING_DATA_SOURCE", `${path} chart requires source metadata by deck.validation.requireSources/strict mode.`, { slideId, path, nodeName: node.id, suggestedFix: "Add source:'...' or caption:'Source: ...' to make the evidence traceable." }));
   } else if (node.type !== "shape") {
     if (typeof node.type === "string" && STYLE_TOKENS_OFTEN_USED_AS_TYPE.has(node.type)) {
-      issues.push(issue("error", "STYLE_AS_TYPE", `${path}.type "${node.type}" is a text style token, not a node type. Use {type:"text", style:"${node.type}", text:"..."} instead.`, {
+      issues.push(issue("warning", "TEXT_STYLE_TYPE_ALIAS_NORMALIZED", `${path}.type "${node.type}" is a text style token. It will be normalized to {type:"text", style:"${node.type}"} before render.`, {
         slideId,
         path,
         nodeName: node.id,
-        suggestedFix: `Replace ${path}.type with "text" and add style:"${node.type}".`,
+        details: { canonicalType: "text", canonicalStyle: node.type },
+        suggestedFix: `For canonical SlideML, replace ${path}.type with "text" and add style:"${node.type}".`,
       }));
     } else {
       const nodeType = String(node.type);
@@ -2223,6 +2224,7 @@ function componentFieldTypeError(componentName: string, propName: string, prop: 
     case "boolean":
       return typeof value === "boolean" ? null : { expected: "a boolean", actual: describeValueType(value) };
     case "array":
+      if (componentName === "two-column" && propName === "ratio" && typeof value === "number" && Number.isFinite(value) && value > 0) return null;
       return Array.isArray(value) ? null : {
         expected: "an array",
         actual: describeValueType(value),
@@ -2645,6 +2647,7 @@ function validateLayout(deck: RenderedDeck, issues: ValidationIssue[]): void {
   const measuredSlides = measureDeck(deck);
   for (const [index, slide] of measuredSlides.entries()) {
     const renderedSlide = deck.slides[index];
+    const domById = renderedSlide ? collectDomNodesById(renderedSlide.dom) : new Map<string, DomNode>();
     if (renderedSlide) validateTopLevelPlacementOverlaps(renderedSlide, slide, issues);
     for (const node of slide.nodes) {
       if (node.rect.x < -0.01 || node.rect.y < -0.01 || node.rect.x + node.rect.w > theme.layout.slideWidthCm + 0.01 || node.rect.y + node.rect.h > theme.layout.slideHeightCm + 0.01) {
@@ -2653,8 +2656,40 @@ function validateLayout(deck: RenderedDeck, issues: ValidationIssue[]): void {
       if ((node.type === "text" || node.type === "bullets") && node.rect.h < 0.25) {
         issues.push(issue("warning", SOURCE_VALIDATION_CODE.TEXT_BOX_TOO_SHORT, `${node.id} has very little vertical space.`, { slideId: slide.slideId, nodeName: node.id, details: { rect: node.rect }, suggestedFix: "Increase parent grid/stack height or reduce sibling count." }));
       }
+      const domNode = domById.get(node.id);
+      if (domNode && isLikelyPartialHeightBackgroundImage(domNode, node.rect, theme.layout.slideWidthCm, theme.layout.slideHeightCm)) {
+        issues.push(issue("warning", SOURCE_VALIDATION_CODE.BACKGROUND_IMAGE_PARTIAL_HEIGHT, `${node.id} starts at the slide top and looks like a background/rail image, but its height (${node.rect.h.toFixed(2)}cm) does not reach the slide height (${theme.layout.slideHeightCm.toFixed(2)}cm).`, {
+          slideId: slide.slideId,
+          nodeName: node.id,
+          details: { rect: node.rect, slideHeightCm: theme.layout.slideHeightCm },
+          suggestedFix: `If this image is meant to run to the bottom edge, set its height to ${theme.layout.slideHeightCm.toFixed(2)}cm (for example at:[0,0,w,${theme.layout.slideHeightCm.toFixed(2)}]) or use slide.background for full-bleed imagery. If it is a content image, inset it from the slide edge and avoid layer:'behind'.`,
+        }));
+      }
     }
   }
+}
+
+function collectDomNodesById(root: DomNode): Map<string, DomNode> {
+  const map = new Map<string, DomNode>();
+  const visit = (node: DomNode): void => {
+    if (typeof node.id === "string" && node.id) map.set(node.id, node);
+    for (const child of node.children || []) visit(child);
+  };
+  visit(root);
+  return map;
+}
+
+function isLikelyPartialHeightBackgroundImage(node: DomNode, rect: { x: number; y: number; w: number; h: number }, slideWidthCm: number, slideHeightCm: number): boolean {
+  if (node.type !== "image") return false;
+  const rec = node as Record<string, unknown>;
+  const topAligned = Math.abs(rect.y) <= 0.03;
+  if (!topAligned) return false;
+  const nearlyFullHeight = rect.h >= slideHeightCm * 0.72;
+  const leavesVisibleBottomGap = rect.h < slideHeightCm - 0.25;
+  if (!nearlyFullHeight || !leavesVisibleBottomGap) return false;
+  const touchesLeftOrRightEdge = Math.abs(rect.x) <= 0.03 || rect.x + rect.w >= slideWidthCm - 0.03;
+  const looksLikeBackground = rec.layer === "behind" || typeof node.id === "string" && /(^|[.:-])(bg|background|hero|cover|rail)([.:-]|$)/i.test(node.id);
+  return touchesLeftOrRightEdge && looksLikeBackground;
 }
 
 function validateTopLevelPlacementOverlaps(
@@ -2722,14 +2757,18 @@ function topLevelExpandedOverlayItems(
     && item.rect
     && rectContains(other.rect, item.rect)
     && other.rect.w * other.rect.h > item.rect.w * item.rect.h * 1.15,
-  ));
+  )).filter((item) => !isDecorativeMeasuredOverlayItem(item.id, measuredNodes.find((node) => node.id === item.id)?.type || "", item.rect));
 }
 
 function isSignificantMeasuredOverlayNode(id: string, type: string, rect: { w: number; h: number }): boolean {
-  const pseudoNode = { id, type } as DomNode;
-  if (isDecorativeTopLevelPositionedChild(pseudoNode)) return false;
   if (type === "shape" && rect.h <= 0.08) return false;
   return rect.w >= 0.5 && rect.h >= 0.18;
+}
+
+function isDecorativeMeasuredOverlayItem(id: string, type: string, rect?: { w: number; h: number }): boolean {
+  const pseudoNode = { id, type } as DomNode;
+  if (isDecorativeTopLevelPositionedChild(pseudoNode)) return true;
+  return Boolean(rect && isDecorativeExpandedOverlayNode(id, type, rect));
 }
 
 function isTopLevelRegionChild(node: DomNode): boolean {
@@ -2754,8 +2793,19 @@ function isSignificantPositionedChild(node: DomNode): boolean {
 function isDecorativeTopLevelPositionedChild(node: DomNode): boolean {
   if (node.type === "decoration-grid" || node.type === "decorative-shapes" || node.type === "watermark" || node.type === "pointer-arrow") return true;
   const id = typeof node.id === "string" ? node.id.toLowerCase() : "";
-  if (id.includes(".decor") || id.includes("decoration") || id.includes("watermark") || id.includes("brand-mark")) return true;
+  if (id.includes(".decor") || id.includes("decoration") || id.includes("watermark") || id.includes("brand-mark") || id.endsWith(".scrim") || id.endsWith(".backdrop")) return true;
   return false;
+}
+
+function isDecorativeExpandedOverlayNode(id: string, type: string, rect: { w: number; h: number }): boolean {
+  const lower = id.toLowerCase();
+  if (type !== "image" && type !== "shape") return false;
+  if (lower.endsWith(".scrim") || lower.endsWith(".backdrop")) return true;
+  // cover-composition and similar full-bleed components expand their background
+  // image as a sibling of the content region. A large `.visual` child is the
+  // background layer, not a placed evidence object that should collide with
+  // area:'content'.
+  return lower.endsWith(".visual") && rect.w >= 10 && rect.h >= 6 && rect.w * rect.h >= 80;
 }
 
 function withDeckSizeLayout(sizeValue: unknown, override?: ThemeOverride): ThemeOverride | undefined {

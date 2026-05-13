@@ -1,0 +1,14 @@
+{
+  "id": "chilechuan-national-geographic",
+  "desktopDebugLog": true,
+  "expected": {
+    "requiredTools": ["write_file", "create_deck", "replace_slide", "validate_render"],
+    "forbiddenTools": ["run_node"],
+    "minReplaceSlideCalls": 5,
+    "requireFinalValidateRender": true,
+    "requireProgressDone": true,
+    "requirePptxOutput": true,
+    "outputPath": "outputs/chilechuan-national-geographic.pptx",
+    "maxBlockingDiagnostics": 0
+  }
+}

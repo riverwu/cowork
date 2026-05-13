@@ -307,6 +307,54 @@ describe("ppt generation flow runner", () => {
     expect(verification.ok, verification.failures.join("\n")).toBe(true);
   });
 
+  it("recovers final validate-render summary when shell JSON is truncated", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-cli-truncated-${Date.now()}`);
+    await mkdir(dir, { recursive: true });
+    const outputPath = join(dir, "deck.pptx");
+    const validateArgsPath = join(dir, "validate-render.json");
+    await writeFile(outputPath, "fake pptx");
+    await writeFile(`${outputPath}.diagnostics.json`, JSON.stringify([
+      { severity: "warn", code: "TRUNCATED", slideId: "s1", nodeId: "s1.text" },
+    ]));
+    await writeFile(validateArgsPath, JSON.stringify({ render: true, outputPath }));
+
+    const toolRecords = [
+      shellCliRecord(1, "replace-slide", join(dir, "slide-01.json"), { ok: true, phase: "committed", deckModified: true, insertedAt: 0 }),
+      {
+        ...shellCliRecord(2, "validate-render", validateArgsPath, { ok: true, phase: "rendered", outputPath, diagnostics: { blockingCount: 0 } }),
+        result: `{\n  "ok": true,\n  "phase": "rendered",\n  "outputPath": ${JSON.stringify(outputPath)},\n  "diagnosticsPath": ${JSON.stringify(`${outputPath}.diagnostics.json`)},\n  "diagnostics": {\n    "count": 99,\n    "quality": [`,
+      },
+    ];
+    const summary = summarizePptGenerationFlow([], toolRecords);
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "cli-truncated-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords,
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary,
+    };
+
+    expect(summary.finalValidateRender?.outputPath).toBe(outputPath);
+    expect((summary.finalValidateRender?.diagnostics as Record<string, unknown> | undefined)?.blockingCount).toBe(0);
+
+    const verification = await verifyPptGenerationFlow(result, {
+      requiredTools: ["replace_slide", "validate_render"],
+      minReplaceSlideCalls: 1,
+      requireFinalValidateRender: true,
+      requirePptxOutput: true,
+      outputPath,
+      maxBlockingDiagnostics: 0,
+    });
+
+    expect(verification.ok, verification.failures.join("\n")).toBe(true);
+  });
+
   it("loads a directory case, runs it, and writes complete reports under reports/", async () => {
     const caseDir = join(tmpdir(), `cowork-ppt-flow-case-${Date.now()}`);
     await mkdir(join(caseDir, "inputs"), { recursive: true });

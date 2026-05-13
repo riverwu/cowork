@@ -74,6 +74,16 @@ function findRunColor(ast: ReturnType<typeof renderToAst>, name: string): string
   return shape.paragraphs?.[0]?.runs?.[0]?.color;
 }
 
+function findDomNode(node: DomNode | undefined, id: string): DomNode | undefined {
+  if (!node) return undefined;
+  if (node.id === id) return node;
+  for (const child of node.children || []) {
+    const found = findDomNode(child, id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 describe("component regressions", () => {
   it("ctaButton renders text.inverse hex on a brand-fill surface", () => {
     const slide: SlideV2 = {
@@ -108,6 +118,321 @@ describe("component regressions", () => {
     const icon = findRenderedByName(ast, "icons.feature.icon");
     expect(icon?.type).toBe("image");
     expect((icon as { fit?: string } | undefined)?.fit).toBe("contain");
+  });
+
+  it("feature-card compact surface still reserves internal padding", () => {
+    const slide: SlideV2 = {
+      id: "feature-pad",
+      title: "Feature padding",
+      children: [
+        {
+          id: "feature-pad.card",
+          type: "feature-card",
+          title: "敕勒川",
+          body: "阴山南麓的草原空间。",
+          variant: "compact",
+          surface: { fill: "#1A2A3A", line: "#3A4A5A" },
+        },
+      ],
+    };
+    const measured = measureDeck(sourceToRenderedDeck(buildDeckWithSlide(slide)))[0]!.nodes;
+    const card = measured.find((n) => n.id === "feature-pad.card")?.rect;
+    const icon = measured.find((n) => n.id === "feature-pad.card.icon")?.rect;
+    const title = measured.find((n) => n.id === "feature-pad.card.title")?.rect;
+    expect(card).toBeDefined();
+    expect(icon).toBeDefined();
+    expect(title).toBeDefined();
+    expect(icon!.x - card!.x).toBeGreaterThanOrEqual(0.24);
+    expect(title!.x - card!.x).toBeGreaterThanOrEqual(0.24);
+  });
+
+  it("feature-card horizontal layout places decoration left of text without auto switching", () => {
+    const slide: SlideV2 = {
+      id: "feature-horizontal",
+      title: "Feature horizontal",
+      children: [
+        {
+          id: "feature-horizontal.card",
+          type: "feature-card",
+          title: "空间层级",
+          body: "川、山、天、野依次展开。",
+          layout: "horizontal",
+          variant: "compact",
+          decoration: { kind: "shape", shape: "diamond", size: "md", color: "brand.primary", background: "brand.tint" },
+          surface: { fill: "#1A2A3A", line: "#3A4A5A" },
+        } as unknown as DomNode,
+      ],
+    };
+    const measured = measureDeck(sourceToRenderedDeck(buildDeckWithSlide(slide)))[0]!.nodes;
+    const icon = measured.find((n) => n.id === "feature-horizontal.card.icon")?.rect;
+    const title = measured.find((n) => n.id === "feature-horizontal.card.title")?.rect;
+    expect(icon).toBeDefined();
+    expect(title).toBeDefined();
+    expect(title!.x).toBeGreaterThan(icon!.x + icon!.w + 0.18);
+  });
+
+  it("feature-card decoration:none disables the default icon", () => {
+    const slide: SlideV2 = {
+      id: "feature-none",
+      title: "No decoration",
+      children: [
+        {
+          id: "feature-none.card",
+          type: "feature-card",
+          title: "No icon",
+          body: "Plain text card.",
+          decoration: { kind: "none" },
+          variant: "card",
+        } as unknown as DomNode,
+      ],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    expect(findRenderedByName(ast, "feature-none.card.icon")).toBeUndefined();
+    expect(findRenderedByName(ast, "feature-none.card.marker")).toBeUndefined();
+  });
+
+  it("component surface line:none is honored on feature-card and other cards", () => {
+    const slide: SlideV2 = {
+      id: "card-border",
+      title: "Card borders",
+      children: [
+        { id: "card-border.feature", type: "feature-card", title: "Feature", body: "No border.", variant: "compact", fill: "#123456", line: "none" } as unknown as DomNode,
+        { id: "card-border.metric", type: "metric-card", value: "42", label: "No border", fill: "#123456", line: "none" } as unknown as DomNode,
+      ],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const featureBg = findRenderedByName(ast, "card-border.feature-background") as { line?: unknown } | undefined;
+    const metricBg = findRenderedByName(ast, "card-border.metric-background") as { line?: unknown } | undefined;
+    expect(featureBg).toBeDefined();
+    expect(metricBg).toBeDefined();
+    expect(featureBg?.line).toBeUndefined();
+    expect(metricBg?.line).toBeUndefined();
+  });
+
+  it("raw card panel frame and shape honor surface line controls", () => {
+    const slide: SlideV2 = {
+      id: "surface-pass",
+      title: "Surface passthrough",
+      children: [
+        {
+          id: "surface-pass.stack",
+          type: "stack",
+          direction: "vertical",
+          gap: 0.2,
+          children: [
+            {
+              id: "surface-pass.card",
+              type: "card",
+              fixedHeight: 0.85,
+              surface: { fill: "#123456", borderColor: "#ABCDEF", borderWidth: 2, borderStyle: "dot" },
+              children: [],
+            },
+            {
+              id: "surface-pass.panel",
+              type: "panel",
+              fixedHeight: 0.85,
+              surface: { fill: "#123456", line: "none" },
+              children: [],
+            },
+            {
+              id: "surface-pass.frame",
+              type: "frame",
+              fixedHeight: 0.4,
+              surface: { line: "none" },
+              children: [],
+            },
+            {
+              id: "surface-pass.shape",
+              type: "shape",
+              preset: "rect",
+              fixedHeight: 0.85,
+              fill: "#123456",
+              line: { color: "none" },
+            },
+            {
+              id: "surface-pass.shape-border",
+              type: "shape",
+              preset: "rect",
+              fixedHeight: 0.55,
+              fill: "none",
+              line: "#ABCDEF",
+              borderWidth: 3,
+              borderStyle: "dash",
+            },
+            {
+              id: "surface-pass.text-fill-none",
+              type: "text",
+              text: "Transparent text box",
+              fixedHeight: 0.45,
+              fill: "none",
+              line: "#ABCDEF",
+              lineWidth: 3,
+              lineDash: "dash",
+            },
+            {
+              id: "surface-pass.divider",
+              type: "divider",
+              fixedHeight: 0.2,
+              line: "#ABCDEF",
+              lineDash: "dash",
+            },
+            {
+              id: "surface-pass.divider-none",
+              type: "divider",
+              fixedHeight: 0.2,
+              line: "none",
+            },
+            {
+              id: "surface-pass.box",
+              type: "stack",
+              fixedHeight: 0.85,
+              surface: { fill: "#123456", border: { color: "#ABCDEF", width: 2, style: "dash" } },
+              children: [{ id: "surface-pass.box.text", type: "text", text: "Box", style: "label" }],
+            },
+          ],
+        } as unknown as DomNode,
+      ],
+    };
+
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const card = findRenderedByName(ast, "surface-pass.card-card") as { line?: { dash?: string; color?: string; width?: number } } | undefined;
+    const panel = findRenderedByName(ast, "surface-pass.panel-panel") as { line?: unknown } | undefined;
+    const frame = findRenderedByName(ast, "surface-pass.frame-frame") as { line?: unknown; fill?: { type?: string } } | undefined;
+    const shape = findRenderedByName(ast, "surface-pass.shape") as { line?: unknown } | undefined;
+    const shapeBorder = findRenderedByName(ast, "surface-pass.shape-border") as { line?: { color?: string; width?: number; dash?: string }; fill?: { type?: string } } | undefined;
+    const textFillNone = findRenderedByName(ast, "surface-pass.text-fill-none") as { line?: { color?: string; width?: number; dash?: string }; fill?: { type?: string } } | undefined;
+    const divider = findRenderedByName(ast, "surface-pass.divider") as { line?: { color?: string; dash?: string } } | undefined;
+    const dividerNone = findRenderedByName(ast, "surface-pass.divider-none") as { line?: unknown } | undefined;
+    const boxBg = findRenderedByName(ast, "surface-pass.box-background") as { line?: { color?: string; dash?: string; width?: number } } | undefined;
+    expect(card?.line?.color).toBe("ABCDEF");
+    expect(card?.line?.dash).toBe("dot");
+    expect(card?.line?.width).toBeGreaterThan(20000);
+    expect(panel?.line).toBeUndefined();
+    expect(frame?.line).toBeUndefined();
+    expect(frame?.fill?.type).toBe("none");
+    expect(shape?.line).toBeUndefined();
+    expect(shapeBorder?.fill?.type).toBe("none");
+    expect(shapeBorder?.line?.color).toBe("ABCDEF");
+    expect(shapeBorder?.line?.width).toBeGreaterThan(30000);
+    expect(shapeBorder?.line?.dash).toBe("dash");
+    expect(textFillNone?.fill?.type).toBe("none");
+    expect(textFillNone?.line?.color).toBe("ABCDEF");
+    expect(textFillNone?.line?.width).toBeGreaterThan(30000);
+    expect(textFillNone?.line?.dash).toBe("dash");
+    expect(divider?.line?.color).toBe("ABCDEF");
+    expect(divider?.line?.dash).toBe("dash");
+    expect(dividerNone?.line).toBeUndefined();
+    expect(boxBg?.line?.color).toBe("ABCDEF");
+    expect(boxBg?.line?.dash).toBe("dash");
+    expect(boxBg?.line?.width).toBeGreaterThan(20000);
+    const unknownColor = getRenderDiagnostics().filter((d) => d.code === "UNKNOWN_COLOR");
+    expect(unknownColor, JSON.stringify(unknownColor)).toHaveLength(0);
+  });
+
+  it("nested surface padding participates in wrapper layout measurement", () => {
+    const slide: SlideV2 = {
+      id: "surface-padding",
+      title: "Surface padding",
+      children: [
+        {
+          id: "surface-padding.card",
+          type: "card",
+          fixedHeight: 2.2,
+          surface: { fill: "#123456", padding: 0.8 },
+          children: [
+            { id: "surface-padding.card.text", type: "text", text: "Inner text", style: "paragraph" },
+          ],
+        } as unknown as DomNode,
+      ],
+    };
+    const measured = measureDeck(sourceToRenderedDeck(buildDeckWithSlide(slide)))[0]!.nodes;
+    const card = measured.find((n) => n.id === "surface-padding.card")?.rect;
+    const text = measured.find((n) => n.id === "surface-padding.card.text")?.rect;
+    expect(card).toBeDefined();
+    expect(text).toBeDefined();
+    expect(text!.x - card!.x).toBeGreaterThanOrEqual(0.75);
+    expect(text!.y - card!.y).toBeGreaterThanOrEqual(0.75);
+  });
+
+  it("table-card nested surface fill is forwarded to the table body", () => {
+    const slide: SlideV2 = {
+      id: "table-surface",
+      title: "Table surface",
+      children: [
+        {
+          id: "table-surface.tbl",
+          type: "table-card",
+          headers: ["Metric", "Value"],
+          rows: [["A", "1"]],
+          surface: { fill: "#123456" },
+        } as unknown as DomNode,
+      ],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const table = findRenderedByName(ast, "table-surface.tbl.table") as { cells?: Array<Array<{ fill?: { color?: string } }>> } | undefined;
+    expect(table?.cells?.[1]?.[0]?.fill?.color).toBe("123456");
+  });
+
+  it("table fills accept fill:none without treating it as a color token", () => {
+    const slide: SlideV2 = {
+      id: "table-fill-none",
+      title: "Table transparent fill",
+      children: [
+        {
+          id: "table-fill-none.tbl",
+          type: "table-card",
+          headers: ["Metric", "Value"],
+          rows: [[{ text: "A", fill: "none" }, "1"]],
+          surface: { fill: "none", line: "#ABCDEF" },
+          borderColor: "none",
+        } as unknown as DomNode,
+      ],
+    };
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const table = findRenderedByName(ast, "table-fill-none.tbl.table") as { cells?: Array<Array<{ fill?: { type?: string; color?: string } }>>; borders?: Record<string, unknown> } | undefined;
+    expect(table?.cells?.[1]?.[0]?.fill?.type).toBe("none");
+    expect(table?.cells?.[1]?.[1]?.fill?.type).toBe("none");
+    expect(table?.borders?.left).toBe("none");
+    expect(table?.borders?.right).toBe("none");
+    const unknownColor = getRenderDiagnostics().filter((d) => d.code === "UNKNOWN_COLOR");
+    expect(unknownColor, JSON.stringify(unknownColor)).toHaveLength(0);
+  });
+
+  it("image border aliases and none-style modifiers are honored", () => {
+    const slide: SlideV2 = {
+      id: "image-surface",
+      title: "Image modifiers",
+      children: [
+        {
+          id: "image-surface.img",
+          type: "image",
+          src: TINY_PNG,
+          alt: "modifier test",
+          borderColor: "#ABCDEF",
+          borderWidth: 2,
+          borderStyle: "dash",
+          lineOpacity: 0.4,
+          opacity: 0.72,
+          overlay: { color: "none", alpha: 0.2 },
+          shadow: { color: "none" },
+        } as unknown as DomNode,
+      ],
+    };
+
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const image = findRenderedByName(ast, "image-surface.img") as { border?: { color?: string; width?: number; dash?: string; alpha?: number }; opacity?: number; overlay?: unknown; shadow?: unknown } | undefined;
+    expect(image?.border?.color).toBe("ABCDEF");
+    expect(image?.border?.width).toBeGreaterThan(20000);
+    expect(image?.border?.dash).toBe("dash");
+    expect(image?.border?.alpha).toBe(0.4);
+    expect(image?.opacity).toBe(0.72);
+    expect(image?.overlay).toBeUndefined();
+    expect(image?.shadow).toBeUndefined();
+    const unknownColor = getRenderDiagnostics().filter((d) => d.code === "UNKNOWN_COLOR");
+    expect(unknownColor, JSON.stringify(unknownColor)).toHaveLength(0);
   });
 
   it("feature-card keeps generated iconSrc when a marker is also present", () => {
@@ -423,14 +748,14 @@ describe("component regressions", () => {
     expect(findRenderedByName(ast, "reg-explain-minimal.exp.title")?.type).toBe("text");
   });
 
-  it("STYLE_AS_TYPE error includes the precise rewrite for {type:'paragraph'}", () => {
+  it("text style type aliases are reported with the precise canonical rewrite", () => {
     const slide: SlideV2 = {
       id: "reg-style-as-type",
       children: [{ id: "reg-style-as-type.x", type: "paragraph" as unknown as SlideV2["children"][number]["type"], text: "abc" }],
     };
     const report = validateSlide(slide, baseDeck);
-    const hit = report.errors.find((e) => e.code === "STYLE_AS_TYPE");
-    expect(hit, JSON.stringify(report.errors)).toBeDefined();
+    const hit = report.warnings.find((e) => e.code === "TEXT_STYLE_TYPE_ALIAS_NORMALIZED");
+    expect(hit, JSON.stringify(report.warnings)).toBeDefined();
     expect(`${hit!.message} ${hit!.suggestedFix || ""}`).toMatch(/style:"paragraph"/);
   });
 
@@ -1442,5 +1767,111 @@ describe("component regressions", () => {
     renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
     const blocking = getRenderDiagnostics().filter((d) => BLOCKING_CODES.has(d.code) && d.severity !== "info");
     expect(blocking, blocking.map((d) => `${d.code} ${d.nodeId}: ${d.message}`).join("\n")).toHaveLength(0);
+  });
+
+  it("normalizes common authoring aliases without blocking component use", () => {
+    const slide: SlideV2 = {
+      id: "authoring-aliases",
+      children: [
+        {
+          id: "authoring-aliases.columns",
+          type: "two-column",
+          ratio: 55,
+          left: { children: [{ id: "authoring-aliases.left.title", type: "caption", text: "北朝民歌" }] },
+          right: { children: [{ id: "authoring-aliases.right.body", type: "text", style: "paragraph", text: "天似穹庐，笼盖四野。" }] },
+        } as unknown as DomNode,
+      ],
+    };
+    const deck = buildDeckWithSlide(slide);
+    const validation = validateDeck(deck);
+    expect(validation.errors, JSON.stringify(validation.errors, null, 2)).toHaveLength(0);
+    expect(validation.warnings.some((item) => item.code === "TEXT_STYLE_TYPE_ALIAS_NORMALIZED")).toBe(true);
+
+    const rendered = sourceToRenderedDeck(deck);
+    const columns = findDomNode(rendered.slides[0].dom, "authoring-aliases.columns");
+    const left = columns?.left as DomNode | undefined;
+    const caption = left?.children?.[0];
+    expect(columns?.ratio).toEqual([55, 45]);
+    expect(caption?.type).toBe("text");
+    expect(caption?.style).toBe("caption");
+  });
+
+  it("does not treat cover-composition full-bleed visual/scrim as top-level content overlap", () => {
+    const slide: SlideV2 = {
+      id: "cover-overlap",
+      children: [
+        {
+          id: "cover-overlap.cover",
+          type: "cover-composition",
+          title: "敕勒川",
+          subtitle: "阴山下的草原史诗",
+          tone: "inverse",
+          visual: { src: TINY_PNG, fillSlide: true, scrimOpacity: 0.35 },
+        } as unknown as DomNode,
+        {
+          id: "cover-overlap.caption",
+          type: "caption",
+          text: "国家地理风格 · 开篇页",
+          at: [24.8, 17.4, 7.2, 0.5],
+        } as unknown as DomNode,
+      ],
+    };
+    const validation = validateDeck(buildDeckWithSlide(slide));
+    const topLevelOverlaps = [...validation.errors, ...validation.warnings].filter((item) => item.code === "TOP_LEVEL_LAYOUT_OVERLAP");
+    expect(topLevelOverlaps, JSON.stringify(topLevelOverlaps, null, 2)).toHaveLength(0);
+  });
+
+  it("honors themeOverride text colors before contrast repair", () => {
+    const deck = {
+      ...buildDeckWithSlide({
+        id: "theme-text-color",
+        background: { fill: "111827" },
+        children: [{
+          id: "theme-text-color.title",
+          type: "text",
+          style: "slide-title",
+          text: "风吹草低见牛羊",
+          at: [1.2, 1.2, 20, 1.4],
+        } as unknown as DomNode],
+      }),
+      deck: {
+        ...baseDeck.deck,
+        themeOverride: {
+          text: {
+            "slide-title": { color: "F5F0E8" },
+            paragraph: { color: "E5E7EB" },
+          },
+        },
+      },
+    } as Slideml2SourceDeck;
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    expect(findRunColor(ast, "theme-text-color.title")).toBe("F5F0E8");
+    const titleContrastRepairs = getRenderDiagnostics().filter((d) =>
+      d.code === "LOW_CONTRAST_FIXED" && d.nodeId === "theme-text-color.title"
+    );
+    expect(titleContrastRepairs, JSON.stringify(titleContrastRepairs, null, 2)).toHaveLength(0);
+  });
+
+  it("renders primitive card.body instead of silently dropping it", () => {
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide({
+      id: "card-body",
+      children: [{
+        id: "card-body.item",
+        type: "card",
+        title: "空间即视角",
+        body: "川→山→天→野，镜头由近及远",
+        fixedHeight: 3.2,
+      } as unknown as DomNode],
+    })));
+    expect(firstTextShapeContaining(ast, "空间即视角")).toBeTruthy();
+    expect(firstTextShapeContaining(ast, "川→山→天→野")).toBeTruthy();
+    const parentChildCollisions = getRenderDiagnostics().filter((d) =>
+      (d.code === "COLLISION" || d.code === "SIBLING_INK_OVERLAP")
+      && d.nodeId === "card-body.item"
+      && d.measured?.other?.nodeId === "card-body.item.body"
+    );
+    expect(parentChildCollisions, JSON.stringify(parentChildCollisions, null, 2)).toHaveLength(0);
   });
 });

@@ -23,7 +23,73 @@ function usage() {
 }
 
 async function readJson(path) {
-  return JSON.parse(await readFile(resolve(process.cwd(), path), "utf8"));
+  const absolutePath = resolve(process.cwd(), path);
+  const text = await readFile(absolutePath, "utf8");
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw jsonParseErrorPayload(absolutePath, text, error);
+  }
+}
+
+function jsonParseErrorPayload(filePath, text, error) {
+  const message = error instanceof Error ? error.message : String(error);
+  const location = jsonErrorLocation(text, message);
+  const diagnostic = {
+    code: "INVALID_ARGS_JSON",
+    severity: "error",
+    file: filePath,
+    line: location.line,
+    column: location.column,
+    message: `Could not parse ${filePath}: ${message}`,
+    excerpt: jsonExcerpt(text, location.line, location.column),
+    suggestion: "Fix the args JSON and retry the same command. Escape embedded double quotes inside JSON strings; if generating args from code, write a JS object and serialize it with JSON.stringify instead of hand-writing JSON.",
+  };
+  const payload = {
+    ok: false,
+    phase: "input-json-parse",
+    error: "args JSON parse failed",
+    deckModified: false,
+    diagnostic,
+    diagnostics: { count: 1, summary: { INVALID_ARGS_JSON: 1 }, blockingCount: 1, blocking: [diagnostic] },
+    nextAction: "Repair the args JSON syntax, then rerun this exact slideml2 command. Do not recreate deck.json or switch tools.",
+  };
+  const out = new Error(diagnostic.message);
+  out.slideml2JsonParse = true;
+  out.payload = payload;
+  return out;
+}
+
+function jsonErrorLocation(text, message) {
+  const explicit = message.match(/line\s+(\d+)\s+column\s+(\d+)/i);
+  if (explicit) return { line: Number(explicit[1]), column: Number(explicit[2]) };
+  const match = message.match(/position\s+(\d+)/i);
+  const position = match ? Number(match[1]) : 0;
+  let line = 1;
+  let column = 1;
+  for (let i = 0; i < Math.min(position, text.length); i += 1) {
+    if (text[i] === "\n") {
+      line += 1;
+      column = 1;
+    } else {
+      column += 1;
+    }
+  }
+  return { line, column };
+}
+
+function jsonExcerpt(text, line, column) {
+  const lines = text.split(/\r?\n/);
+  const start = Math.max(1, line - 1);
+  const end = Math.min(lines.length, line + 1);
+  const width = String(end).length;
+  const out = [];
+  for (let n = start; n <= end; n += 1) {
+    const prefix = n === line ? ">" : " ";
+    out.push(`${prefix} ${String(n).padStart(width, " ")} | ${lines[n - 1] || ""}`);
+    if (n === line) out.push(`${" ".repeat(width + 4)}| ${" ".repeat(Math.max(0, column - 1))}^`);
+  }
+  return out.join("\n");
 }
 
 function abs(path) {
@@ -279,6 +345,10 @@ async function main() {
 }
 
 main().catch((error) => {
+  if (error && error.slideml2JsonParse) {
+    console.log(JSON.stringify(error.payload, null, 2));
+    process.exit(1);
+  }
   console.error(error instanceof Error ? error.stack || error.message : String(error));
   process.exit(1);
 });

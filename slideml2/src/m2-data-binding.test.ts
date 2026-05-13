@@ -528,7 +528,7 @@ describe("M2 data binding", () => {
             y: ["revenue", "marginPct"],
             seriesOptions: {
               revenue: { name: "Revenue", type: "bar" },
-              marginPct: { name: "Margin", type: "line", axis: "secondary", trendLine: { type: "linear", label: "Margin trend" }, errorBars: { type: "fixed", value: 0.02 } },
+              marginPct: { name: "Margin", type: "line", axis: "secondary", color: "2563EB", lineWidth: 2, lineDash: "dashDot", smooth: true, trendLine: { type: "linear", label: "Margin trend" }, errorBars: { type: "fixed", value: 0.02 } },
             },
           },
         }, {
@@ -554,7 +554,7 @@ describe("M2 data binding", () => {
     });
     expect(chart?.data?.series).toEqual([
       { name: "Revenue", values: [100, 128, 144], type: "bar" },
-      { name: "Margin", values: [0.36, 0.390625, 0.4305555555555556], type: "line", axis: "secondary", trendLine: { type: "linear", label: "Margin trend" }, errorBars: { type: "fixed", value: 0.02 } },
+      { name: "Margin", values: [0.36, 0.390625, 0.4305555555555556], type: "line", axis: "secondary", color: "2563EB", lineWidth: 2, lineDash: "dashDot", smooth: true, trendLine: { type: "linear", label: "Margin trend" }, errorBars: { type: "fixed", value: 0.02 } },
     ]);
     expect(table?.rows?.[0]).toEqual(["Q1", { text: "$100", align: "right" }, { text: "$36", align: "right" }, { text: "36%", align: "right" }]);
   });

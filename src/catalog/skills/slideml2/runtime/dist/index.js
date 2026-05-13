@@ -10079,6 +10079,7 @@ var SOURCE_VALIDATION_CODE = {
   INVALID_SLIDE_TRANSITION: "INVALID_SLIDE_TRANSITION",
   NODE_OUT_OF_BOUNDS: "NODE_OUT_OF_BOUNDS",
   TEXT_BOX_TOO_SHORT: "TEXT_BOX_TOO_SHORT",
+  BACKGROUND_IMAGE_PARTIAL_HEIGHT: "BACKGROUND_IMAGE_PARTIAL_HEIGHT",
   TOP_LEVEL_LAYOUT_OVERLAP: "TOP_LEVEL_LAYOUT_OVERLAP"
 };
 var BLOCKING_RENDER_DIAGNOSTIC_CODES = /* @__PURE__ */ new Set([
@@ -10320,11 +10321,11 @@ var STACK_DETAILED = {
   valign: { valueType: "enum", values: ["top", "middle", "bottom"], description: "cross-axis alignment for horizontal stacks" },
   padding: { valueType: "number", description: "number in cm; inner padding" },
   fill: { valueType: "string", description: "theme token" },
-  line: { valueType: "string", description: "theme token" },
+  line: { valueType: "string", description: "theme token, hex, or 'none' to disable stroke" },
   fillOpacity: { valueType: "number", description: "0..1 fill alpha" },
   lineOpacity: { valueType: "number", description: "0..1 line alpha" },
   lineWidth: { valueType: "number", description: "stroke width; 1-3 means pt, <=0.3 stays cm" },
-  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "dash style" },
+  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "dash style; 'solid' clears a dashed default" },
   shadow: { valueType: "object", description: "{color, alpha?, blur?, dx?, dy?}" },
   gradient: { valueType: "object", description: "{kind?, angle?, stops:[{color, position?, alpha?}]}" },
   cornerRadius: { valueType: "number", description: "0..0.5 fraction of shorter side, applied to fill/line shape" },
@@ -10343,11 +10344,11 @@ var GRID_DETAILED = {
   rowWeights: { valueType: "array", description: "number[]; explicit row proportions, otherwise equal" },
   rows: { valueType: "number", description: "minimum row count; rows expand automatically if children + colSpan/rowSpan need more" },
   fill: { valueType: "string", description: "theme token" },
-  line: { valueType: "string", description: "theme token" },
+  line: { valueType: "string", description: "theme token, hex, or 'none' to disable stroke" },
   fillOpacity: { valueType: "number", description: "0..1 fill alpha" },
   lineOpacity: { valueType: "number", description: "0..1 line alpha" },
   lineWidth: { valueType: "number", description: "stroke width; 1-3 means pt, <=0.3 stays cm" },
-  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "dash style" },
+  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "dash style; 'solid' clears a dashed default" },
   shadow: { valueType: "object", description: "{color, alpha?, blur?, dx?, dy?}" },
   gradient: { valueType: "object", description: "{kind?, angle?, stops:[{color, position?, alpha?}]}" },
   cornerRadius: { valueType: "number", description: "0..0.5 fraction of shorter side, applied to fill/line shape" },
@@ -10384,7 +10385,7 @@ var SPACER_DETAILED = {
 var DIVIDER_DETAILED = {
   orientation: { valueType: "enum", values: ["horizontal", "vertical", "auto"], description: "horizontal | vertical | auto" },
   thickness: { valueType: "number", description: "stroke thickness; prefer 1-3 for pt-sized rules. Legacy tiny cm values <=0.3 are accepted." },
-  line: { valueType: "string", description: "theme token or 6-char hex" },
+  line: { valueType: "string", description: "theme token, 6-char hex, or 'none' to disable stroke" },
   dash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "line dash style" },
   fixedWidth: { valueType: "number", description: "number in cm; useful for vertical dividers" },
   fixedHeight: { valueType: "number", description: "number in cm; useful for horizontal dividers" }
@@ -10411,8 +10412,12 @@ var TEXT_DETAILED = {
   spaceAfter: { valueType: "number", description: "space after paragraph in points" },
   indentLevel: { valueType: "number", description: "0..8 indent level (also drives bullet level)" },
   autoFit: { valueType: "enum", values: ["shrink", "resize"], description: "shrink: <a:normAutofit/>; resize: <a:spAutoFit/>" },
-  fill: { valueType: "string", description: "theme token; box fill behind text" },
-  line: { valueType: "string", description: "theme token; box border" },
+  fill: { valueType: "string", description: "theme token, hex, or 'none'; box fill behind text" },
+  line: { valueType: "string", description: "theme token, hex, or 'none'; box border" },
+  fillOpacity: { valueType: "number", description: "0..1 fill alpha" },
+  lineOpacity: { valueType: "number", description: "0..1 line alpha" },
+  lineWidth: { valueType: "number", description: "stroke width; 1-3 means pt, <=0.3 stays cm" },
+  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "dash style; 'solid' clears a dashed default" },
   cornerRadius: { valueType: "number", description: "0..0.5 fraction of shorter side; promotes geometry to roundRect" },
   fixedHeight: { valueType: "number", description: "number in cm; explicit height" },
   ...ANCHOR_FIELDS
@@ -10448,7 +10453,15 @@ var IMAGE_DETAILED = {
   minHeight: { valueType: "number", description: "number in cm; lower bound when inferred" },
   clip: { valueType: "enum", values: ["square", "rounded", "circle"], description: "image silhouette: square | rounded | circle" },
   cornerRadius: { valueType: "number", description: "0..0.5 fraction; for clip: rounded" },
-  border: { valueType: "object", description: "{ color, width?, dash? } drawn around clipped image" },
+  opacity: { valueType: "number", description: "Overall image opacity 0..1." },
+  line: { valueType: "string", description: "Alias for image border color; use 'none' to disable border." },
+  lineWidth: { valueType: "number", description: "Alias for image border width; 1-3 means pt, <=0.3 stays cm." },
+  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "Alias for image border dash style." },
+  lineOpacity: { valueType: "number", description: "0..1 image border alpha." },
+  borderColor: { valueType: "string", description: "Alias for image border color; 'none' disables the border." },
+  borderWidth: { valueType: "number", description: "Alias for image border width; 1-3 means pt, <=0.3 stays cm." },
+  borderStyle: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "Alias for image border dash style." },
+  border: { valueType: "object", description: "{ color|line, width?, lineWidth?, dash?|lineDash?|style?, alpha? } drawn around clipped image; color:'none' disables the border" },
   overlay: { valueType: "object", description: "{ color, alpha? } translucent color overlay" },
   crop: { valueType: "object", description: "{ left?, right?, top?, bottom? } source-rect crop fractions 0..1" },
   softEdge: { valueType: "number", description: "0..0.5 feathered edge fraction" },
@@ -10469,10 +10482,13 @@ var TABLE_DETAILED = {
   firstRowHeader: { valueType: "boolean", description: "optional: treat first row as header (default true when headers present)" },
   colWidths: { valueType: "array", description: "number[] in cm OR fractional weights; controls column proportions" },
   rowHeights: { valueType: "array", description: "number[] in cm; controls row heights" },
-  borderColor: { valueType: "string", description: "theme token or hex; cell border color" },
+  line: { valueType: "string", description: "Alias for default cell border color; use 'none' to disable all cell borders." },
+  lineWidth: { valueType: "number", description: "Alias for default cell border width; 1-3 means pt, <=0.3 stays cm." },
+  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "Alias for default cell border dash style." },
+  borderColor: { valueType: "string", description: "theme token or hex for cell border color; 'none' disables all cell borders" },
   borderWidth: { valueType: "number", description: "stroke thickness; prefer 0.5-1 for pt-sized cell borders. Legacy tiny cm values <=0.3 are accepted." },
   borderDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "Default cell border dash style." },
-  borders: { valueType: "object", description: "Default table borders {color,width,dash,alpha,left?,right?,top?,bottom?}; each side may be 'none' or a border object." },
+  borders: { valueType: "object", description: "Default table borders {color,width,dash,alpha,left?,right?,top?,bottom?}; value 'none', color:'none', or each side:'none' disables borders." },
   cellPadding: { valueType: "object", description: "Default cell padding in cm: number or {left/right/top/bottom}." },
   tableStyleId: { valueType: "string", description: "Native OOXML table style GUID." },
   bandRows: { valueType: "boolean", description: "Enable/disable table banded rows." },
@@ -10567,13 +10583,17 @@ var SHAPE_DETAILED = {
   tone: { valueType: "enum", values: ["brand", "neutral", "muted", "positive", "warning", "danger"], description: "Semantic marker color." },
   variant: { valueType: "enum", values: ["tint", "solid", "outline", "ghost", "ring", "badge"], description: "Marker treatment: tint (default), solid, outline/ring, ghost, or badge." },
   size: { valueType: "enum", values: ["xs", "sm", "md", "lg", "xl"], description: "Marker size preset; numeric cm also accepted." },
-  fill: { valueType: "string", description: "theme token or 6-char hex" },
-  line: { valueType: "string", description: "theme token or 6-char hex" },
+  fill: { valueType: "string", description: "theme token, 6-char hex, or 'none'" },
+  line: { valueType: "string", description: "theme token, 6-char hex, or 'none'" },
+  borderColor: { valueType: "string", description: "Alias for line color; theme token, 6-char hex, or 'none'." },
+  borderWidth: { valueType: "number", description: "Alias for lineWidth; 1-3 means pt, <=0.3 stays cm." },
+  borderStyle: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "Alias for lineDash; 'solid' clears a dashed default." },
+  border: { valueType: "object", description: "{ color|line, width?, lineWidth?, dash?|lineDash?|style? } alias for stroke settings." },
   fillOpacity: { valueType: "number", description: "0..1 fill alpha" },
   lineOpacity: { valueType: "number", description: "0..1 line alpha" },
   opacity: { valueType: "number", description: "Overall fill/line opacity 0..1 when specific opacity fields are omitted." },
   lineWidth: { valueType: "number", description: "stroke width; 1-3 means pt, <=0.3 stays cm" },
-  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "dash style" },
+  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "dash style; 'solid' clears a dashed default" },
   headEnd: { valueType: "object", description: "Optional line arrowhead {type:'none'|'triangle'|'stealth'|'diamond'|'oval'|'arrow', width?, length?}; applies to line/connector presets." },
   tailEnd: { valueType: "object", description: "Optional line tail arrowhead {type:'none'|'triangle'|'stealth'|'diamond'|'oval'|'arrow', width?, length?}; applies to line/connector presets." },
   shadow: { valueType: "object", description: "{color, alpha?, blur?, dx?, dy?}" },
@@ -10586,11 +10606,11 @@ var SHAPE_DETAILED = {
 var PANEL_DETAILED = {
   tone: { valueType: "enum", values: ["neutral", "muted", "brand", "positive", "warning", "danger", "tinted"], description: "Pre-mapped color set for fill/line/text. 'tinted' uses brand.tint; 'muted' uses a quieter neutral surface." },
   fill: { valueType: "string", description: "Override fill: theme token or hex." },
-  line: { valueType: "string", description: "Override line: theme token or hex." },
+  line: { valueType: "string", description: "Override line: theme token, hex, or 'none' to disable stroke." },
   fillOpacity: { valueType: "number", description: "0..1 fill alpha" },
   lineOpacity: { valueType: "number", description: "0..1 line alpha" },
   lineWidth: { valueType: "number", description: "stroke width; 1-3 means pt, <=0.3 stays cm" },
-  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "dash style" },
+  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "dash style; 'solid' clears a dashed default" },
   shadow: { valueType: "object", description: "{color, alpha?, blur?, dx?, dy?}" },
   gradient: { valueType: "object", description: "{kind?, angle?, stops:[{color, position?, alpha?}]}" },
   padding: { valueType: "number", description: "Inner padding in cm. Defaults to theme.component.panel.padding." },
@@ -10604,6 +10624,8 @@ var CARD_DETAILED = {
   ...PANEL_DETAILED,
   title: { valueType: "string", description: "Optional short card heading. Alias for header; preferred for authoring consistency." },
   header: { valueType: "string", description: "Optional short header text. Same rendering as title; header wins if both differ." },
+  body: { valueType: "string", description: "Optional short paragraph rendered under title/header. Use children for richer structured card content." },
+  content: { valueType: "array", description: "RichInline[] body content rendered under title/header. Use children for multiple blocks." },
   footer: { valueType: "string", description: "Optional short footer text (rendered as caption)." },
   accent: { valueType: "enum", values: ["none", "left", "top"], description: "Optional brand-color accent bar position." },
   accentColor: { valueType: "string", description: "Theme token for the accent bar (default: brand.primary)." }
@@ -10611,11 +10633,11 @@ var CARD_DETAILED = {
 var BAND_DETAILED = {
   tone: { valueType: "enum", values: ["neutral", "muted", "brand", "positive", "warning", "danger", "tinted"], description: "Pre-mapped color set. Muted uses a quieter neutral surface; strong semantic tones use inverse text." },
   fill: { valueType: "string", description: "Override fill." },
-  line: { valueType: "string", description: "Override line: theme token or hex." },
+  line: { valueType: "string", description: "Override line: theme token, hex, or 'none' to disable stroke." },
   fillOpacity: { valueType: "number", description: "0..1 fill alpha" },
   lineOpacity: { valueType: "number", description: "0..1 line alpha" },
   lineWidth: { valueType: "number", description: "stroke width; 1-3 means pt, <=0.3 stays cm" },
-  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "dash style" },
+  lineDash: { valueType: "enum", values: ["solid", "dash", "dashDot", "dot"], description: "dash style; 'solid' clears a dashed default" },
   shadow: { valueType: "object", description: "{color, alpha?, blur?, dx?, dy?}" },
   gradient: { valueType: "object", description: "{kind?, angle?, stops:[{color, position?, alpha?}]}" },
   height: { valueType: "number", description: "Band height in cm. Default 1.6cm." },
@@ -13173,14 +13195,24 @@ function applyAgentSurface(node, options = {}) {
     out.lineOpacity = merged.lineOpacity;
   if (typeof merged.lineWidth === "number")
     out.lineWidth = merged.lineWidth;
-  if (merged.lineDash && merged.lineDash !== "solid")
-    out.dash = merged.lineDash;
+  if (merged.lineDash) {
+    out.lineDash = merged.lineDash;
+    if (merged.lineDash === "solid")
+      delete out.dash;
+    else
+      out.dash = merged.lineDash;
+  }
   if (typeof merged.borderColor === "string")
     out.line = merged.borderColor;
   if (typeof merged.borderWidth === "number")
     out.lineWidth = merged.borderWidth;
-  if (merged.borderStyle && merged.borderStyle !== "solid")
-    out.dash = merged.borderStyle;
+  if (merged.borderStyle) {
+    out.borderStyle = merged.borderStyle;
+    if (merged.borderStyle === "solid")
+      delete out.dash;
+    else
+      out.dash = merged.borderStyle;
+  }
   if (typeof merged.cornerRadius === "number")
     out.cornerRadius = merged.cornerRadius;
   if (merged.border && typeof merged.border === "object") {
@@ -13188,8 +13220,13 @@ function applyAgentSurface(node, options = {}) {
       out.line = merged.border.color;
     if (typeof merged.border.width === "number")
       out.lineWidth = merged.border.width;
-    if (merged.border.style && merged.border.style !== "solid")
-      out.dash = merged.border.style;
+    if (merged.border.style) {
+      out.borderStyle = merged.border.style;
+      if (merged.border.style === "solid")
+        delete out.dash;
+      else
+        out.dash = merged.border.style;
+    }
     if (typeof merged.border.cornerRadius === "number")
       out.cornerRadius = merged.border.cornerRadius;
   } else if (typeof merged.border === "string") {
@@ -13203,7 +13240,7 @@ function applyAgentSurface(node, options = {}) {
     out.shadow = merged.shadow;
   if (merged.gradient && typeof merged.gradient === "object")
     out.gradient = merged.gradient;
-  if (merged.accent && merged.accent !== "none")
+  if (merged.accent === "none" || merged.accent === "left" || merged.accent === "top")
     out.accent = merged.accent;
   if (typeof merged.accentColor === "string")
     out.accentColor = merged.accentColor;
@@ -14056,62 +14093,45 @@ function ctaButton(slideId, id, options) {
 }
 function featureCard(slideId, id, options) {
   const dense = options.density === "compact" || options.variant === "compact";
-  const iconSize = dense ? 0.62 : 0.82;
+  const layout = options.layout === "horizontal" || options.layout !== "vertical" && dense ? "horizontal" : "vertical";
   const semanticTone = featureSemanticTone(options.tone);
   const iconColor = options.iconColor || featureAccentColor(semanticTone);
   const iconBackground = options.iconBackground || featureTintColor(semanticTone);
-  const marker = decorationMarkerNode(slideId, `${id}.marker`, options.marker, {
+  const explicitTitleMarker = options.decoration?.kind === "marker" && layout === "vertical" ? featureMarkerInput(options.decoration.marker || options.decoration.shape || "rounded-square") : void 0;
+  const titleMarker = decorationMarkerNode(slideId, `${id}.marker`, options.marker || explicitTitleMarker, {
     shape: "rounded-square",
-    tone: markerToneFromFeatureTone(semanticTone),
-    variant: "tint",
-    size: dense ? "xs" : "sm"
+    tone: options.decoration?.tone || markerToneFromFeatureTone(semanticTone),
+    variant: options.decoration?.variant || "tint",
+    size: options.decoration?.size || (dense ? "xs" : "sm")
   });
-  const titleNode = { id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "card-title", align: "left", color: options.titleColor || featureTitleColor(options.tone), minHeight: dense ? 0.42 : 0.5, autoFit: "shrink", layoutWeight: marker ? 1 : void 0 };
-  const iconNode = options.iconSrc ? {
-    id: `${slideId}.${id}.icon`,
-    type: "image",
-    src: options.iconSrc,
-    fit: "contain",
-    fixedWidth: iconSize,
-    fixedHeight: iconSize,
-    align: "start",
-    optional: true
-  } : {
-    id: `${slideId}.${id}.icon`,
-    type: "shape",
-    preset: options.icon || "ellipse",
-    fill: iconBackground,
-    line: iconColor,
-    lineWidth: 0.04,
-    fixedWidth: iconSize,
-    fixedHeight: iconSize,
-    // Without explicit align, the parent vertical stack stretches the icon
-    // across the card width (cross-axis) and we get a flat banner instead
-    // of a square glyph. Pin to start so fixedWidth is honored.
-    align: "start",
-    optional: true
-  };
-  const titleRow = marker ? {
+  const decorationNode = featureCardDecorationNode(slideId, id, options, {
+    layout,
+    dense,
+    semanticTone,
+    iconColor,
+    iconBackground,
+    hasLegacyTitleMarker: !!titleMarker
+  });
+  const titleNode = { id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "card-title", align: "left", color: options.titleColor || featureTitleColor(options.tone), minHeight: dense ? 0.42 : 0.5, autoFit: "shrink", layoutWeight: titleMarker ? 1 : void 0 };
+  const titleRow = titleMarker ? {
     id: `${slideId}.${id}.titleRow`,
     type: "stack",
     direction: "horizontal",
     gap: dense ? 0.14 : 0.18,
     valign: "middle",
-    children: [marker, titleNode]
+    children: [titleMarker, titleNode]
   } : titleNode;
-  const children = marker ? [
-    ...options.iconSrc ? [iconNode] : [],
-    titleRow
-  ] : [
-    iconNode,
-    titleNode
-  ];
+  const leadingChildren = [];
   if (options.badge) {
-    children.unshift({ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", color: "text.primary", fill: "surface.subtle", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1, max: 4.8, padding: 0.62 }), align: "center", autoFit: "shrink", noWrap: true });
+    leadingChildren.push({ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", color: "text.primary", fill: "surface.subtle", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1, max: 4.8, padding: 0.62 }), align: "center", autoFit: "shrink", noWrap: true });
   }
+  const textChildren = [
+    ...leadingChildren,
+    titleRow
+  ];
   const body = textWithRichContent(options.body?.trim() || "", options.content);
   if (body.text || body.content) {
-    children.push({
+    textChildren.push({
       id: `${slideId}.${id}.body`,
       type: "text",
       ...body,
@@ -14124,26 +14144,126 @@ function featureCard(slideId, id, options) {
     });
   }
   if (options.metric) {
-    children.push({ ...featureMetricNode(slideId, id, options.metric, dense), optional: true });
+    textChildren.push({ ...featureMetricNode(slideId, id, options.metric, dense), optional: true });
   }
   if (options.proof) {
-    children.push({ id: `${slideId}.${id}.proof`, type: "text", text: options.proof, style: "label", color: "text.muted", minHeight: 0.34, autoFit: "shrink", optional: true });
+    textChildren.push({ id: `${slideId}.${id}.proof`, type: "text", text: options.proof, style: "label", color: "text.muted", minHeight: 0.34, autoFit: "shrink", optional: true });
   }
   if (options.tags && options.tags.length) {
-    children.push({ id: `${slideId}.${id}.tags`, type: "stack", direction: "horizontal", gap: 0.12, optional: true, children: options.tags.slice(0, 4).map((tag, index) => ({ id: `${slideId}.${id}.tag${index}`, type: "text", text: String(tag), style: "label", fill: "surface.subtle", color: "text.muted", cornerRadius: 0.16, fixedHeight: 0.42, autoFit: "shrink", layoutWeight: 1 })) });
+    textChildren.push({ id: `${slideId}.${id}.tags`, type: "stack", direction: "horizontal", gap: 0.12, optional: true, children: options.tags.slice(0, 4).map((tag, index) => ({ id: `${slideId}.${id}.tag${index}`, type: "text", text: String(tag), style: "label", fill: "surface.subtle", color: "text.muted", cornerRadius: 0.16, fixedHeight: 0.42, autoFit: "shrink", layoutWeight: 1 })) });
   }
   if (options.ctaText) {
-    children.push({ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "label", color: "text.inverse", fill: "brand.primary", cornerRadius: 0.2, align: "center", valign: "middle", fixedHeight: 0.46, autoFit: "shrink", optional: true });
+    textChildren.push({ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "label", color: "text.inverse", fill: "brand.primary", cornerRadius: 0.2, align: "center", valign: "middle", fixedHeight: 0.46, autoFit: "shrink", optional: true });
   }
+  const children = layout === "horizontal" && decorationNode ? [
+    decorationNode,
+    {
+      id: `${slideId}.${id}.content`,
+      type: "stack",
+      direction: "vertical",
+      gap: dense ? 0.09 : 0.14,
+      layoutWeight: 1,
+      valign: "top",
+      children: textChildren
+    }
+  ] : [
+    ...decorationNode ? [decorationNode] : [],
+    ...textChildren
+  ];
+  const defaultSurface = featureCardDefaultSurface(options, dense);
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
-    direction: "vertical",
-    gap: dense ? 0.1 : 0.16,
+    direction: layout,
+    gap: layout === "horizontal" ? dense ? 0.28 : 0.36 : dense ? 0.1 : 0.16,
     role: "feature-card",
-    ...options.variant === "card" ? { fill: "surface", line: "divider", padding: dense ? 0.3 : 0.4, cornerRadius: 0.1 } : {},
+    valign: "top",
+    ...defaultSurface,
     children
   }, options);
+}
+function featureCardDefaultSurface(options, dense) {
+  const hasSurface = !!options.surface || typeof options.fill === "string" || typeof options.line === "string" || options.border !== void 0 || typeof options.borderColor === "string" || typeof options.elevation === "string" || options.shadow !== void 0 || options.gradient !== void 0;
+  if (options.variant === "card") {
+    return { fill: "surface", line: "divider", padding: dense ? 0.32 : 0.42, cornerRadius: 0.1 };
+  }
+  if (options.variant === "compact" || hasSurface) {
+    return { padding: dense ? 0.28 : 0.36, cornerRadius: 0.08 };
+  }
+  return {};
+}
+function featureCardDecorationNode(slideId, id, options, ctx) {
+  const spec = options.decoration;
+  const explicitKind = spec?.kind;
+  if (explicitKind === "none")
+    return void 0;
+  const tone = spec?.tone || markerToneFromFeatureTone(ctx.semanticTone);
+  const size = featureDecorationSizeCm(spec?.size, ctx.dense, ctx.layout);
+  if (explicitKind === "marker") {
+    if (ctx.layout === "vertical")
+      return void 0;
+    return decorationMarkerNode(slideId, `${id}.decoration`, featureMarkerInput(spec?.marker || spec?.shape || "rounded-square"), {
+      shape: "rounded-square",
+      tone,
+      variant: spec?.variant || "tint",
+      size: spec?.size || (ctx.dense ? "sm" : "md"),
+      valign: "top"
+    });
+  }
+  const src = spec?.src || spec?.iconSrc || options.iconSrc;
+  if (explicitKind === "image" || src) {
+    if (!src)
+      return void 0;
+    return {
+      id: `${slideId}.${id}.icon`,
+      type: "image",
+      src,
+      fit: "contain",
+      fixedWidth: size,
+      fixedHeight: size,
+      align: "start",
+      valign: "top",
+      optional: true
+    };
+  }
+  if (ctx.hasLegacyTitleMarker && !spec)
+    return void 0;
+  const shape = spec?.shape || spec?.icon || options.icon || "ellipse";
+  if (shape === "none")
+    return void 0;
+  return {
+    id: `${slideId}.${id}.icon`,
+    type: "shape",
+    preset: shape,
+    fill: spec?.background || ctx.iconBackground,
+    line: spec?.color || ctx.iconColor,
+    lineWidth: 0.04,
+    fixedWidth: size,
+    fixedHeight: size,
+    align: "start",
+    valign: "top",
+    optional: true
+  };
+}
+function featureMarkerInput(value) {
+  return value;
+}
+function featureDecorationSizeCm(size, dense, layout) {
+  if (typeof size === "number" && Number.isFinite(size) && size > 0)
+    return Math.max(0.24, Math.min(1.6, size));
+  if (size === "xs")
+    return 0.52;
+  if (size === "sm")
+    return 0.68;
+  if (size === "lg")
+    return 1.12;
+  if (size === "xl")
+    return 1.36;
+  if (size === "md")
+    return 0.9;
+  if (layout === "horizontal")
+    return dense ? 0.76 : 0.94;
+  return dense ? 0.82 : 1.02;
 }
 function featureSemanticTone(tone) {
   if (tone === "positive" || tone === "success" || tone === "good")
@@ -17598,6 +17718,7 @@ var COMPONENT_DEFINITIONS = [
   component("feature-card", "One feature, capability, benefit, or ingredient of an offer. Use for modular value propositions, not for arbitrary bullet paragraphs.", {
     icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional large icon shape preset. Prefer marker for subtle item decoration." },
     iconSrc: { type: "image-ref", description: "Optional generated/raster icon path. Use with generate_icon_sheet outputs; rendered as a contain-fit square icon." },
+    decoration: { type: "object", description: "Unified visual cue. Prefer over separate icon/iconSrc/marker when authoring new decks. Shape: {kind:'image'|'shape'|'marker'|'none', src?/iconSrc?, shape?/icon?, marker?, size?:'xs'|'sm'|'md'|'lg'|'xl'|number, color?, background?, tone?, variant?}. `marker` is compact; `image`/`shape` are larger visual icons." },
     title: { type: "string", required: true, semantic: "card-title", description: "Feature title." },
     body: { type: "string", semantic: "caption", description: "Optional supporting copy." },
     content: { type: "array", description: "Optional rich text runs for supporting copy." },
@@ -17611,6 +17732,7 @@ var COMPONENT_DEFINITIONS = [
     iconBackground: { type: "string", description: "Icon fill (theme token)." },
     tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger"], description: "Semantic feature tone; controls title, marker, and icon accent color." },
     titleColor: { type: "color-ref", description: "Explicit title color token when semantic tone is not enough." },
+    layout: { type: "enum", enum: ["vertical", "horizontal"], description: "Explicit card layout. vertical places the decoration above the title; horizontal places the decoration left of the text. No auto mode, so repeated feature-cards stay visually consistent. Compact feature-cards default to horizontal unless you set layout:'vertical'." },
     variant: { type: "enum", enum: ["plain", "card", "compact"], description: "Visual treatment." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
     surface: { type: "object", description: "Optional surface override." }
@@ -17785,7 +17907,7 @@ var COMPONENT_DEFINITIONS = [
     series: { type: "array", required: true, description: "Chart series. Series may set type:'bar'|'line' for combo, axis:'primary'|'secondary', trendLine, errorBars, color, lineWidth, lineDash, marker, or dataLabels." },
     data: { type: "object", description: "Optional { labels, series } alias bundle." },
     bind: { type: "object", description: "Optional deck data binding {source, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; resolves labels/series from deck.dataSources." },
-    encoding: { type: "object", description: "Binding encoding: {x, y, orientation?, series?, seriesName?, seriesOptions?}. y may be a string or string[]; seriesOptions can set bar/line type, secondary axis, trendLine, and errorBars per output series. For horizontal bars, use orientation:'horizontal' or x=numeric/y=categorical." },
+    encoding: { type: "object", description: "Binding encoding: {x, y, orientation?, series?, seriesName?, seriesOptions?}. y may be a string or string[]; seriesOptions can set name, color, lineWidth, lineDash, marker, dataLabels, bar/line type, secondary axis, trendLine, and errorBars per output series. For horizontal bars, use orientation:'horizontal' or x=numeric/y=categorical." },
     title: { type: "string", description: "Optional card/chart title." },
     badge: { type: "string", description: "Optional status/category badge." },
     insight: { type: "string", description: "Optional conclusion sentence." },
@@ -18455,6 +18577,7 @@ function expandComponent(slideId, node) {
       body: stringValue(node.body, ""),
       content: node.content,
       marker: decorationMarker(node.marker),
+      decoration: node.decoration && typeof node.decoration === "object" && !Array.isArray(node.decoration) ? node.decoration : void 0,
       badge: stringValue(node.badge, ""),
       tags: stringArray(node.tags),
       metric: node.metric && typeof node.metric === "object" ? {
@@ -18468,6 +18591,7 @@ function expandComponent(slideId, node) {
       iconBackground: stringValue(node.iconBackground, ""),
       tone: semanticTone,
       titleColor: stringValue(node.titleColor, semanticTone ? "" : rawTone),
+      layout: node.layout === "horizontal" || node.layout === "vertical" ? node.layout : void 0,
       variant: node.variant === "card" || node.variant === "compact" ? node.variant : void 0,
       density: node.density === "compact" || node.density === "comfortable" ? node.density : void 0,
       ...surfaceOptions(node)
@@ -20180,7 +20304,8 @@ function tableCardNode(slideId, name, node) {
   const tableHeaders = Array.isArray(node.headers) ? node.headers : Array.isArray(data.headers) ? data.headers : [];
   const denseTable = node.density === "compact" || node.variant === "compact" || tableRows.length + (tableHeaders.length ? 1 : 0) >= 7;
   const cardProps = cardToneProps(node.tone);
-  const cardFill = typeof node.fill === "string" ? node.fill : typeof cardProps.fill === "string" ? cardProps.fill : "surface";
+  const surface = node.surface && typeof node.surface === "object" && !Array.isArray(node.surface) ? node.surface : {};
+  const cardFill = typeof surface.fill === "string" ? surface.fill : typeof node.fill === "string" ? node.fill : typeof cardProps.fill === "string" ? cardProps.fill : "surface";
   const frameless = node.variant === "frameless";
   return applyAgentSurface({
     id: `${slideId}.${name}`,
@@ -21770,7 +21895,7 @@ function surfaceOptions(node) {
   const out = {};
   if (node.surface && typeof node.surface === "object")
     out.surface = node.surface;
-  for (const key of ["fill", "border", "borderColor", "borderWidth", "borderStyle", "cornerRadius", "padding", "elevation", "accent", "accentColor", "accentWidth"]) {
+  for (const key of ["fill", "fillOpacity", "line", "lineOpacity", "lineWidth", "lineDash", "border", "borderColor", "borderWidth", "borderStyle", "cornerRadius", "padding", "elevation", "shadow", "gradient", "accent", "accentColor", "accentWidth"]) {
     if (node[key] !== void 0)
       out[key] = node[key];
   }
@@ -22670,7 +22795,7 @@ function hslToHex(h, s, l) {
   return rgbToHex(Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255));
 }
 function color(theme, value, fallback = "text.primary") {
-  const fallbackHex = theme.colors[fallback] || "111827";
+  const fallbackHex = fallbackColorHex(theme, fallback);
   if (typeof value !== "string") {
     if (value !== void 0 && value !== null) {
       colorWarnings.add(`<non-string:${typeof value}>`);
@@ -22720,6 +22845,16 @@ function color(theme, value, fallback = "text.primary") {
     });
   }
   return fallbackHex;
+}
+function fallbackColorHex(theme, fallback) {
+  const raw = typeof fallback === "string" ? fallback.trim() : "";
+  const stripped = raw.startsWith("#") ? raw.slice(1) : raw;
+  if (/^[0-9A-Fa-f]{6}$/.test(stripped))
+    return stripped.toUpperCase();
+  if (/^[0-9A-Fa-f]{3}$/.test(stripped)) {
+    return (stripped[0] + stripped[0] + stripped[1] + stripped[1] + stripped[2] + stripped[2]).toUpperCase();
+  }
+  return theme.colors[raw] || "111827";
 }
 function commonText() {
   return {
@@ -23735,6 +23870,12 @@ function seriesOptionsSpec(value) {
       ...typeof rec.name === "string" && rec.name.trim() ? { name: rec.name.trim() } : {},
       ...rec.type === "bar" || rec.type === "line" ? { type: rec.type } : {},
       ...rec.axis === "primary" || rec.axis === "secondary" ? { axis: rec.axis } : {},
+      ...typeof rec.color === "string" && rec.color.trim() ? { color: rec.color.trim() } : {},
+      ...typeof rec.lineWidth === "number" && Number.isFinite(rec.lineWidth) ? { lineWidth: rec.lineWidth } : {},
+      ...rec.lineDash === "solid" || rec.lineDash === "dash" || rec.lineDash === "dashDot" || rec.lineDash === "dot" ? { lineDash: rec.lineDash } : {},
+      ...typeof rec.smooth === "boolean" ? { smooth: rec.smooth } : {},
+      ...rec.marker && typeof rec.marker === "object" && !Array.isArray(rec.marker) ? { marker: rec.marker } : {},
+      ...rec.dataLabels && typeof rec.dataLabels === "object" && !Array.isArray(rec.dataLabels) ? { dataLabels: rec.dataLabels } : {},
       ...rec.trendLine === true || rec.trendLine === false || isPlainObject(rec.trendLine) ? { trendLine: rec.trendLine } : {},
       ...isPlainObject(rec.errorBars) ? { errorBars: errorBarsSpec(rec.errorBars) } : {}
     };
@@ -24134,7 +24275,7 @@ function authoredChartSeriesStyle(record, fallbackName) {
     ...record.axis === "primary" || record.axis === "secondary" ? { axis: record.axis } : {},
     ...typeof record.color === "string" && record.color.trim() ? { color: record.color.trim() } : {},
     ...typeof record.lineWidth === "number" && Number.isFinite(record.lineWidth) ? { lineWidth: record.lineWidth } : {},
-    ...record.lineDash === "solid" || record.lineDash === "dash" || record.lineDash === "dot" ? { lineDash: record.lineDash } : {},
+    ...record.lineDash === "solid" || record.lineDash === "dash" || record.lineDash === "dashDot" || record.lineDash === "dot" ? { lineDash: record.lineDash } : {},
     ...typeof record.smooth === "boolean" ? { smooth: record.smooth } : {},
     ...record.marker && typeof record.marker === "object" && !Array.isArray(record.marker) ? { marker: record.marker } : {},
     ...record.dataLabels && typeof record.dataLabels === "object" && !Array.isArray(record.dataLabels) ? { dataLabels: record.dataLabels } : {},
@@ -24152,6 +24293,12 @@ function chartSeriesDecorations(option) {
   return {
     ...option?.type ? { type: option.type } : {},
     ...option?.axis ? { axis: option.axis } : {},
+    ...option?.color ? { color: option.color } : {},
+    ...typeof option?.lineWidth === "number" ? { lineWidth: option.lineWidth } : {},
+    ...option?.lineDash ? { lineDash: option.lineDash } : {},
+    ...typeof option?.smooth === "boolean" ? { smooth: option.smooth } : {},
+    ...option?.marker && typeof option.marker === "object" ? { marker: option.marker } : {},
+    ...option?.dataLabels && typeof option.dataLabels === "object" ? { dataLabels: option.dataLabels } : {},
     ...option?.trendLine ? { trendLine: option.trendLine } : {},
     ...option?.errorBars ? { errorBars: option.errorBars } : {}
   };
@@ -24712,7 +24859,7 @@ function sourceToRenderedDeck(source, options = {}) {
       themeOverride,
       master: source.deck.master
     },
-    slides: source.slides.flatMap((slide) => expandArticleSlide(slide, pageWeight)).map(sourceSlideToRendered)
+    slides: source.slides.flatMap((slide) => expandArticleSlide(slide, pageWeight)).map((slide) => sourceSlideToRendered(normalizeSlide(slide)))
   };
 }
 function mergeDeckChrome(themeOverride, chrome) {
@@ -24923,8 +25070,52 @@ function aliasDimensionFields(node) {
   }
   return mutated;
 }
+var TEXT_STYLE_TYPE_ALIASES = /* @__PURE__ */ new Set([
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "body",
+  "caption",
+  "footnote",
+  "metric-value",
+  "metric-label",
+  "card-title",
+  "section-title",
+  "paragraph",
+  "bullet",
+  "bullet-compact",
+  "quote-source",
+  "title"
+]);
+var NODE_OBJECT_SLOT_KEYS2 = ["evidence", "rail", "left", "right", "hero", "insight"];
+var NODE_ARRAY_SLOT_KEYS2 = ["annotations", "supports"];
+function normalizeAuthoringAliases(node) {
+  let normalized = node;
+  if (typeof normalized.type === "string" && TEXT_STYLE_TYPE_ALIASES.has(normalized.type)) {
+    normalized = {
+      ...normalized,
+      type: "text",
+      style: typeof normalized.style === "string" && normalized.style.trim() ? normalized.style : normalized.type
+    };
+  }
+  const scalarRatio = normalized.ratio;
+  if (typeof scalarRatio === "number" && Number.isFinite(scalarRatio) && scalarRatio > 0) {
+    normalized = { ...normalized, ratio: scalarRatioToPair(scalarRatio) };
+  }
+  return normalized;
+}
+function scalarRatioToPair(value) {
+  if (value > 0 && value < 1)
+    return [value, 1 - value];
+  if (value === 1)
+    return [1, 1];
+  if (value > 1 && value < 100)
+    return [value, 100 - value];
+  return [value, 1];
+}
 function ensureContentArea(slideId, children, hasSlideTitle = false) {
-  children = children.map((c) => aliasDimensionFields(c));
+  children = children.map((c) => normalizeAuthoringAliases(aliasDimensionFields(c)));
   if (children.some((node) => node.area === "content"))
     return children;
   const overlays = children.filter(isOverlayChildAtSource);
@@ -24972,12 +25163,26 @@ function normalizeNode(slideId, node, fallbackId) {
     return { id: fallbackId, type: "text", text: "" };
   const raw = node;
   void raw;
-  const id = typeof node.id === "string" && node.id ? node.id : fallbackId;
-  return {
-    ...aliasDimensionFields(node),
+  const aliased = normalizeAuthoringAliases(aliasDimensionFields(node));
+  const id = typeof aliased.id === "string" && aliased.id ? aliased.id : fallbackId;
+  const normalized = {
+    ...aliased,
     id,
-    children: Array.isArray(node.children) ? node.children.map((child, index) => normalizeNode(slideId, child, `${id}.${index + 1}`)) : node.children
+    children: Array.isArray(aliased.children) ? aliased.children.map((child, index) => normalizeNode(slideId, child, `${id}.${index + 1}`)) : aliased.children
   };
+  for (const key of NODE_OBJECT_SLOT_KEYS2) {
+    const value = aliased[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      normalized[key] = normalizeNode(slideId, value, `${id}.${key}`);
+    }
+  }
+  for (const key of NODE_ARRAY_SLOT_KEYS2) {
+    const value = aliased[key];
+    if (Array.isArray(value)) {
+      normalized[key] = value.map((item, index) => item && typeof item === "object" && !Array.isArray(item) ? normalizeNode(slideId, item, `${id}.${key}.${index + 1}`) : item);
+    }
+  }
+  return normalized;
 }
 function expandArticleSlide(slide, pageWeight = 950) {
   const article = findArticle(slide.children);
@@ -33049,6 +33254,7 @@ function pickShadedVariantForContrast(srcHex, bgHex, threshold) {
 }
 function runContrastCheck(slideId, slide, theme) {
   const slideBg = pickContrastBackgroundColor(slide.background);
+  const slideBgIsImage = slide.background?.type === "image";
   const surfaceCovers = [];
   const hits = [];
   for (const shape of slide.shapes) {
@@ -33077,7 +33283,7 @@ function runContrastCheck(slideId, slide, theme) {
           }
         }
       }
-      if (pickedImageSurface)
+      if (pickedImageSurface || slideBgIsImage && !picked)
         continue;
       const paragraphs = shape.paragraphs || [];
       for (let pi = 0; pi < paragraphs.length; pi++) {
@@ -33336,6 +33542,7 @@ function detectCollisionsForSlide(slideId, measured, slideDom) {
   const skipIds = collectCaptionPairs(measured);
   const layeredIds = collectLayeredIds(slideDom);
   const containerIds = collectContainerIds(slideDom);
+  const measuredParentById = collectMeasuredParentIds(measured);
   detectSiblingContainerOverlaps(slideId, measured, slideDom, overlayIds, layeredIds, containerIds);
   detectOverlayOcclusions(slideId, measured, slideDom, overlayIds);
   const candidates = measured.filter((node) => node.id !== slideDom.id && node.visualRole !== "container" && !isUnderAnyRoot(node.id, overlayIds) && !skipIds.has(node.id) && !layeredIds.has(node.id));
@@ -33346,6 +33553,8 @@ function detectCollisionsForSlide(slideId, measured, slideDom) {
       if (containerIds.has(a.id) || containerIds.has(b.id))
         continue;
       if (isAncestorOf(slideDom, a.id, b.id) || isAncestorOf(slideDom, b.id, a.id))
+        continue;
+      if (isMeasuredAncestorOf(measuredParentById, a.id, b.id) || isMeasuredAncestorOf(measuredParentById, b.id, a.id))
         continue;
       const aRect = collisionRect(a);
       const bRect = collisionRect(b);
@@ -33496,6 +33705,27 @@ function collectContainerIds(root) {
   };
   walk(root);
   return ids;
+}
+function collectMeasuredParentIds(measured) {
+  const parents = /* @__PURE__ */ new Map();
+  for (const node of measured) {
+    if (node.parentId)
+      parents.set(node.id, node.parentId);
+  }
+  return parents;
+}
+function isMeasuredAncestorOf(parentById, ancestorId, descendantId) {
+  const seen = /* @__PURE__ */ new Set();
+  let current = parentById.get(descendantId);
+  while (current) {
+    if (current === ancestorId)
+      return true;
+    if (seen.has(current))
+      return false;
+    seen.add(current);
+    current = parentById.get(current);
+  }
+  return false;
 }
 function collectCaptionPairs(measured) {
   const ids = /* @__PURE__ */ new Set();
@@ -34354,7 +34584,7 @@ function inferredVisualRelation(node) {
   return void 0;
 }
 function hasPaintedTextSurface(node) {
-  return typeof node.fill === "string" || typeof node.line === "string" || hasSurfaceGradient(node) || typeof node.cornerRadius === "number";
+  return surfaceFillToken(node.fill) !== void 0 || surfaceLineToken(node.line) !== void 0 || hasSurfaceGradient(node) || typeof node.cornerRadius === "number";
 }
 function measuredTextStyleForInk(theme, node, rect, baseStyle) {
   const styleKey = textStyleKey(node);
@@ -34365,7 +34595,7 @@ function paintedContainerRect(theme, node, rect) {
   const style = componentStyle(theme, node);
   const surface = surfaceNode(node, style);
   const hasFill = typeof surface.fill === "string" || hasSurfaceGradient(surface);
-  const hasLine = typeof surface.line === "string";
+  const hasLine = surfaceLineTokenForNode(surface) !== void 0;
   if (!hasFill && !hasLine)
     return void 0;
   return rect;
@@ -34415,7 +34645,8 @@ function measuredVisualRole(node) {
   return node.type;
 }
 function measuredAlpha(node) {
-  const raw = node.opacity ?? node.fillOpacity;
+  const surface = surfaceNode(node);
+  const raw = surface.opacity ?? surface.fillOpacity;
   return alphaProp(raw);
 }
 function decorativeInnerRect(theme, node, rect) {
@@ -34620,6 +34851,7 @@ function renderNode(theme, node, rect, rectsById, ids, slideId) {
   return [];
 }
 var squashedWarnings = /* @__PURE__ */ new Set();
+var SQUASHED_HEIGHT_TOLERANCE_CM = 0.04;
 function pushSquashedDiagnostic(theme, node, rect, slideId) {
   if (node.optional === true)
     return;
@@ -34647,7 +34879,7 @@ function pushSquashedDiagnostic(theme, node, rect, slideId) {
       return;
   }
   const minHeight = node.type === "text" ? textSquashMinHeight(theme, node, rect) : node.type === "bullets" ? 1 : 0.5;
-  const shortContent = (node.type === "text" || node.type === "bullets") && rect.h < minHeight;
+  const shortContent = (node.type === "text" || node.type === "bullets") && rect.h + SQUASHED_HEIGHT_TOLERANCE_CM < minHeight;
   const narrowContent = node.type === "bullets" && rect.w < 1.4;
   if (!shortContent && !narrowContent)
     return;
@@ -34721,7 +34953,7 @@ function textSquashMinHeight(theme, node, rect) {
   return Math.max(0.32, metrics.naturalHeightCm * 0.85 + textInkVerticalReserveCm(theme, node, style));
 }
 function decorativeChild(node) {
-  const children = node.children || [];
+  const children = decorativeContentChildren(node);
   if (children.length === 0)
     return null;
   if (children.length === 1)
@@ -34733,6 +34965,27 @@ function decorativeChild(node) {
     gap: 0.3,
     children
   };
+}
+function decorativeContentChildren(node) {
+  const explicitChildren = node.children || [];
+  if (node.type !== "card")
+    return explicitChildren;
+  const hasExplicitBody = explicitChildren.some((child) => child.id === `${node.id}.body`);
+  if (hasExplicitBody)
+    return explicitChildren;
+  const body = typeof node.body === "string" && node.body.trim() ? node.body.trim() : "";
+  const content = Array.isArray(node.content) ? node.content : void 0;
+  if (!body && !content)
+    return explicitChildren;
+  const bodyNode = {
+    id: `${node.id}.body`,
+    type: "text",
+    ...body ? { text: body } : { content },
+    style: "paragraph",
+    minHeight: 0.48,
+    autoFit: "shrink"
+  };
+  return [bodyNode, ...explicitChildren];
 }
 function toneTokens(theme, tone) {
   if (tone === void 0 || tone === null || tone === "")
@@ -34748,6 +35001,8 @@ function cardHeader(node) {
   return null;
 }
 function readableTextColorForFill(theme, fillToken, preferredToken) {
+  if (isSurfaceFillDisabled(fillToken))
+    return preferredToken || "text.primary";
   const fillHex = color(theme, fillToken, "surface");
   const candidates = [
     preferredToken,
@@ -34812,13 +35067,16 @@ function shadowForElevation(theme, elevation, accentToken) {
   };
 }
 function surfaceNode(node, style = {}) {
-  return { ...style, ...node };
+  const surface = recordValue(node.surface);
+  return { ...style, ...node, ...surface || {} };
 }
 function hasSurfaceGradient(node) {
   const raw = node.gradient;
   return Boolean(raw && typeof raw === "object" && Array.isArray(raw.stops));
 }
 function surfaceFill(theme, node, fillToken, fallback, alpha) {
+  if (isSurfaceFillDisabled(fillToken))
+    return { type: "none" };
   const gradient = surfaceGradientFill(theme, node, alpha);
   if (gradient)
     return gradient;
@@ -34866,23 +35124,86 @@ function surfaceShadow(theme, node, fallback) {
   return imageShadowSpec(theme, node) ?? fallback;
 }
 function surfaceDash(node) {
-  if (node.lineDash === "dash" || node.lineDash === "dashDot" || node.lineDash === "dot")
-    return node.lineDash;
-  if (node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot")
-    return node.dash;
+  return nonSolidDash(dashValue(node.lineDash) ?? dashValue(node.dash) ?? dashValue(node.borderStyle) ?? dashValueFromRecord(recordValue(node.border)));
+}
+function isSurfaceLineDisabled(value) {
+  return isNoneToken(value);
+}
+function isSurfaceFillDisabled(value) {
+  return isNoneToken(value);
+}
+function isNoneToken(value) {
+  if (typeof value !== "string")
+    return false;
+  const token = value.trim().toLowerCase();
+  return token === "none" || token === "transparent";
+}
+function surfaceFillToken(value) {
+  if (typeof value !== "string")
+    return void 0;
+  const token = value.trim();
+  if (!token || isSurfaceFillDisabled(token))
+    return void 0;
+  return token;
+}
+function surfaceLineToken(value) {
+  if (typeof value !== "string")
+    return void 0;
+  const token = value.trim();
+  if (!token || isSurfaceLineDisabled(token))
+    return void 0;
+  return token;
+}
+function surfaceLineValue(node) {
+  if (node.line !== void 0)
+    return node.line;
+  if (typeof node.borderColor === "string")
+    return node.borderColor;
+  if (node.border !== void 0) {
+    if (typeof node.border === "string")
+      return node.border;
+    const border = recordValue(node.border);
+    return stringFromRecord(border, "color") ?? stringFromRecord(border, "line");
+  }
   return void 0;
+}
+function surfaceLineTokenForNode(node, fallback) {
+  const raw = surfaceLineValue(node);
+  if (isSurfaceLineDisabled(raw))
+    return void 0;
+  return surfaceLineToken(raw) ?? fallback;
+}
+function surfaceLineWidth(node, fallback) {
+  const border = recordValue(node.border);
+  return normalizeStrokeCm(optionalNumberProp(node, "lineWidth") ?? optionalNumberProp(node, "borderWidth") ?? optionalNumberFromRecord(border, "width") ?? optionalNumberFromRecord(border, "lineWidth"), fallback);
+}
+function lineSpecCm(theme, token, widthCm, options = {}) {
+  return lineSpecEmu(theme, token, cm(widthCm), options);
+}
+function lineSpecEmu(theme, token, width, options = {}) {
+  if (!token)
+    return void 0;
+  return {
+    color: color(theme, token),
+    width,
+    ...options.dash ? { dash: options.dash } : {},
+    ...options.alpha !== void 0 ? { alpha: options.alpha } : {},
+    ...options.headEnd ? { headEnd: options.headEnd } : {},
+    ...options.tailEnd ? { tailEnd: options.tailEnd } : {}
+  };
 }
 function renderPanel(theme, node, rect, rectsById, ids, slideId) {
   const tone = toneTokens(theme, node.tone);
   const style = theme.component.panel || {};
   const surface = surfaceNode(node, style);
-  const fillToken = typeof node.fill === "string" ? node.fill : tone.fill || style.fill || "surface";
-  const lineToken = typeof node.line === "string" ? node.line : tone.line || style.line || "divider";
+  const authorSurface = surfaceNode(node);
+  const fillToken = typeof authorSurface.fill === "string" ? authorSurface.fill : tone.fill || style.fill || "surface";
+  const lineToken = surfaceLineTokenForNode(authorSurface, tone.line ?? style.line ?? "divider");
   const cornerRadius = optionalCornerRadiusProp(node) ?? style.cornerRadius ?? 0.12;
   const elevation = resolveElevation(node.elevation) ?? "flat";
   const shadow = surfaceShadow(theme, surface, shadowForElevation(theme, elevation, tone.accent));
-  const padding = optionalNumberProp(node, "padding") ?? style.padding ?? 0.45;
-  const lineWidth = normalizeStrokeCm(optionalNumberProp(surface, "lineWidth") ?? optionalNumberProp(surface, "borderWidth"), elevation === "outlined" ? 0.04 : 0.02);
+  const padding = optionalNumberProp(authorSurface, "padding") ?? style.padding ?? 0.45;
+  const lineWidth = surfaceLineWidth(surface, elevation === "outlined" ? 0.04 : 0.02);
   const fillAlpha = alphaProp(surface.fillOpacity);
   const lineAlpha = alphaProp(surface.lineOpacity);
   const dash = surfaceDash(surface);
@@ -34894,7 +35215,7 @@ function renderPanel(theme, node, rect, rectsById, ids, slideId) {
     preset: "roundRect",
     xfrm: xfrm(rect),
     fill: surfaceFill(theme, surface, fillToken, "surface", fillAlpha),
-    line: elevation === "raised" || elevation === "floating" ? void 0 : { color: color(theme, lineToken), width: cm(lineWidth), ...dash ? { dash } : {}, ...lineAlpha !== void 0 ? { alpha: lineAlpha } : {} },
+    line: elevation === "raised" || elevation === "floating" || !lineToken ? void 0 : lineSpecCm(theme, lineToken, lineWidth, { dash, alpha: lineAlpha }),
     cornerRadius,
     shadow
   }];
@@ -34909,13 +35230,14 @@ function renderCard(theme, node, rect, rectsById, ids, slideId) {
   const tone = toneTokens(theme, node.tone);
   const style = theme.component.card || {};
   const surface = surfaceNode(node, style);
-  const fillToken = typeof node.fill === "string" ? node.fill : tone.fill || style.fill || "surface";
-  const lineToken = typeof node.line === "string" ? node.line : tone.line || style.line || "divider";
+  const authorSurface = surfaceNode(node);
+  const fillToken = typeof authorSurface.fill === "string" ? authorSurface.fill : tone.fill || style.fill || "surface";
+  const lineToken = surfaceLineTokenForNode(authorSurface, tone.line ?? style.line ?? "divider");
   const cornerRadius = optionalCornerRadiusProp(node) ?? style.cornerRadius ?? 0.12;
-  const padding = optionalNumberProp(node, "padding") ?? style.padding ?? 0.5;
+  const padding = optionalNumberProp(authorSurface, "padding") ?? style.padding ?? 0.5;
   const elevation = resolveElevation(node.elevation) ?? "flat";
   const shadow = surfaceShadow(theme, surface, shadowForElevation(theme, elevation, tone.accent));
-  const lineWidth = normalizeStrokeCm(optionalNumberProp(surface, "lineWidth") ?? optionalNumberProp(surface, "borderWidth"), 0.02);
+  const lineWidth = surfaceLineWidth(surface, 0.02);
   const dashToken = surfaceDash(surface);
   const fillAlpha = alphaProp(surface.fillOpacity);
   const lineAlpha = alphaProp(surface.lineOpacity);
@@ -34932,7 +35254,7 @@ function renderCard(theme, node, rect, rectsById, ids, slideId) {
     preset: "roundRect",
     xfrm: xfrm(rect),
     fill: surfaceFill(theme, surface, fillToken, "surface", fillAlpha),
-    line: elevation === "floating" ? void 0 : { color: color(theme, lineToken), width: cm(lineWidth), ...dashToken ? { dash: dashToken } : {}, ...lineAlpha !== void 0 ? { alpha: lineAlpha } : {} },
+    line: elevation === "floating" || !lineToken ? void 0 : lineSpecCm(theme, lineToken, lineWidth, { dash: dashToken, alpha: lineAlpha }),
     cornerRadius,
     shadow
   }];
@@ -34979,12 +35301,13 @@ function renderBand(theme, node, rect, rectsById, ids, slideId) {
   const tone = toneRaw === "brand" ? { fill: "brand.primary", line: "brand.primary", fg: "text.inverse" } : toneRaw === "positive" ? { fill: "success", line: "success", fg: "text.inverse" } : toneRaw === "warning" ? { fill: "warning", line: "warning", fg: "text.inverse" } : toneRaw === "danger" ? { fill: "danger", line: "danger", fg: "text.inverse" } : toneTokens(theme, toneRaw);
   const style = theme.component.band || {};
   const surface = surfaceNode(node, style);
-  const fillToken = typeof node.fill === "string" ? node.fill : tone.fill || style.fill || "surface.subtle";
+  const authorSurface = surfaceNode(node);
+  const fillToken = typeof authorSurface.fill === "string" ? authorSurface.fill : tone.fill || style.fill || "surface.subtle";
   const childFgToken = readableTextColorForFill(theme, fillToken, tone.fg);
   const cornerRadius = optionalCornerRadiusProp(node) ?? style.cornerRadius ?? 0;
   const padding = decorativePadding(theme, node, rect);
-  const lineToken = typeof surface.line === "string" ? surface.line : null;
-  const lineWidth = normalizeStrokeCm(optionalNumberProp(surface, "lineWidth") ?? optionalNumberProp(surface, "borderWidth"), 0.02);
+  const lineToken = surfaceLineTokenForNode(authorSurface);
+  const lineWidth = surfaceLineWidth(surface, 0.02);
   const dashToken = surfaceDash(surface);
   const fillAlpha = alphaProp(surface.fillOpacity);
   const lineAlpha = alphaProp(surface.lineOpacity);
@@ -34999,7 +35322,7 @@ function renderBand(theme, node, rect, rectsById, ids, slideId) {
     xfrm: xfrm(rect),
     fill: surfaceFill(theme, surface, fillToken, "surface.subtle", fillAlpha),
     cornerRadius: cornerRadius > 0 ? cornerRadius : void 0,
-    line: lineToken ? { color: color(theme, lineToken), width: cm(lineWidth), ...dashToken ? { dash: dashToken } : {}, ...lineAlpha !== void 0 ? { alpha: lineAlpha } : {} } : void 0,
+    line: lineSpecCm(theme, lineToken, lineWidth, { dash: dashToken, alpha: lineAlpha }),
     shadow
   }];
   const child = decorativeChild(node);
@@ -35011,13 +35334,15 @@ function renderBand(theme, node, rect, rectsById, ids, slideId) {
 }
 function renderFrame(theme, node, rect, rectsById, ids, slideId) {
   const style = theme.component.frame || {};
-  const lineToken = stringProp2(node, "line", style.line || "divider");
-  const lineWidth = normalizeStrokeCm(optionalNumberProp(node, "lineWidth"), 0.025);
-  const dash = node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : void 0;
+  const surface = surfaceNode(node, style);
+  const authorSurface = surfaceNode(node);
+  const lineToken = surfaceLineTokenForNode(authorSurface, style.line || "divider");
+  const lineWidth = surfaceLineWidth(surface, 0.025);
+  const dash = surfaceDash(surface);
   const fixedH = optionalNumberProp(node, "fixedHeight");
   const isDividerLikeFrame = (!Array.isArray(node.children) || node.children.length === 0) && typeof fixedH === "number" && fixedH < 0.6;
   const cornerRadius = optionalCornerRadiusProp(node) ?? (isDividerLikeFrame ? 0 : style.cornerRadius ?? 0.12);
-  const padding = optionalNumberProp(node, "padding") ?? (isDividerLikeFrame ? 0 : style.padding ?? 0.4);
+  const padding = optionalNumberProp(authorSurface, "padding") ?? (isDividerLikeFrame ? 0 : style.padding ?? 0.4);
   const innerRect = { x: rect.x + padding, y: rect.y + padding, w: Math.max(0, rect.w - padding * 2), h: Math.max(0, rect.h - padding * 2) };
   const shapes = [{
     type: "shape",
@@ -35028,8 +35353,8 @@ function renderFrame(theme, node, rect, rectsById, ids, slideId) {
     // hollow outline). Use the line color as fill so it shows up.
     preset: "rect",
     xfrm: xfrm(rect),
-    fill: isDividerLikeFrame ? { type: "solid", color: color(theme, lineToken) } : { type: "none" },
-    line: isDividerLikeFrame ? void 0 : { color: color(theme, lineToken), width: cm(lineWidth), ...dash ? { dash } : {} },
+    fill: isDividerLikeFrame && lineToken ? { type: "solid", color: color(theme, lineToken) } : { type: "none" },
+    line: isDividerLikeFrame || !lineToken ? void 0 : lineSpecCm(theme, lineToken, lineWidth, { dash }),
     cornerRadius
   }];
   const child = decorativeChild(node);
@@ -35176,7 +35501,13 @@ function textShape(theme, node, rect, ids) {
   const autoFit = effectiveAutoFit === "shrink" || effectiveAutoFit === "resize" ? effectiveAutoFit : void 0;
   if (!autoFit)
     pushTextFitDiagnostics(theme, node, rect, baseStyle);
-  const cornerRadius = typeof node.cornerRadius === "number" ? normalizeCornerRadius(node.cornerRadius) : typeof node.fill === "string" || typeof node.line === "string" ? 0.08 : void 0;
+  const fillToken = typeof node.fill === "string" ? node.fill : void 0;
+  const lineToken = surfaceLineTokenForNode(node);
+  const lineWidth = surfaceLineWidth(node, 0.02);
+  const dash = surfaceDash(node);
+  const fillAlpha = alphaProp(node.fillOpacity ?? node.opacity);
+  const lineAlpha = alphaProp(node.lineOpacity ?? node.opacity);
+  const cornerRadius = typeof node.cornerRadius === "number" ? normalizeCornerRadius(node.cornerRadius) : surfaceFillToken(fillToken) !== void 0 || lineToken !== void 0 ? 0.08 : void 0;
   return {
     type: "text",
     id: ids.nextId++,
@@ -35186,8 +35517,8 @@ function textShape(theme, node, rect, ids) {
     paragraphs,
     margin: { l: cm(TEXT_SHAPE_MARGIN_X_CM), r: cm(TEXT_SHAPE_MARGIN_X_CM), t: cm(TEXT_SHAPE_MARGIN_Y_CM), b: cm(TEXT_SHAPE_MARGIN_Y_CM) },
     wrap: node.wrap === "none" || node.noWrap === true ? "none" : void 0,
-    fill: typeof node.fill === "string" ? { type: "solid", color: color(theme, node.fill) } : void 0,
-    line: typeof node.line === "string" ? { color: color(theme, node.line), width: cm(0.02) } : void 0,
+    fill: fillToken !== void 0 ? surfaceFill(theme, node, fillToken, "background", fillAlpha) : void 0,
+    line: lineSpecCm(theme, lineToken, lineWidth, { dash, alpha: lineAlpha }),
     cornerRadius,
     ...autoFit ? { autoFit } : {}
   };
@@ -35388,10 +35719,13 @@ function presetShape(theme, node, rect, ids) {
   const preset = presetCandidate;
   const fillRecord = recordValue(node.fill);
   const lineRecord = recordValue(node.line);
-  const lineWidthCm = normalizeStrokeCm(optionalNumberProp(node, "lineWidth") ?? optionalNumberFromRecord(lineRecord, "width") ?? optionalNumberFromRecord(lineRecord, "lineWidth") ?? marker?.lineWidth, marker?.lineWidth ?? 0.02);
-  const lineDash = node.lineDash === "dash" || node.lineDash === "dashDot" || node.lineDash === "dot" ? node.lineDash : node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : lineDashFromRecord(lineRecord) ?? marker?.dash;
+  const borderRecord = recordValue(node.border);
+  const lineWidthCm = normalizeStrokeCm(optionalNumberProp(node, "lineWidth") ?? optionalNumberProp(node, "borderWidth") ?? optionalNumberFromRecord(lineRecord, "width") ?? optionalNumberFromRecord(lineRecord, "lineWidth") ?? optionalNumberFromRecord(borderRecord, "width") ?? optionalNumberFromRecord(borderRecord, "lineWidth") ?? marker?.lineWidth, marker?.lineWidth ?? 0.02);
+  const authoredLineDash = dashValue(node.lineDash) ?? dashValueFromRecord(lineRecord) ?? dashValue(node.borderStyle) ?? dashValueFromRecord(borderRecord) ?? dashValue(node.dash);
+  const lineDash = authoredLineDash === "solid" ? void 0 : authoredLineDash ?? marker?.dash;
   const fillToken = typeof node.fill === "string" ? node.fill : stringFromRecord(fillRecord, "color") ?? stringFromRecord(fillRecord, "fill") ?? marker?.fill;
-  const lineToken = typeof node.line === "string" ? node.line : stringFromRecord(lineRecord, "color") ?? stringFromRecord(lineRecord, "line") ?? marker?.line;
+  const rawLineToken = typeof node.line === "string" ? node.line : stringFromRecord(lineRecord, "color") ?? stringFromRecord(lineRecord, "line") ?? (typeof node.borderColor === "string" ? node.borderColor : void 0) ?? (typeof node.border === "string" ? node.border : void 0) ?? stringFromRecord(borderRecord, "color") ?? stringFromRecord(borderRecord, "line");
+  const lineToken = isSurfaceLineDisabled(rawLineToken) ? void 0 : surfaceLineToken(rawLineToken) ?? marker?.line;
   const fillAlpha = alphaProp(node.fillOpacity ?? fillRecord?.opacity ?? fillRecord?.alpha ?? node.opacity ?? marker?.fillOpacity);
   const lineAlpha = alphaProp(node.lineOpacity ?? lineRecord?.opacity ?? lineRecord?.alpha ?? node.opacity ?? marker?.lineOpacity);
   const shapeRect = marker ? markerRect(rect, marker, node) : rect;
@@ -35405,14 +35739,7 @@ function presetShape(theme, node, rect, ids) {
     preset,
     xfrm: xfrm(shapeRect, shapeNode),
     fill: fillToken || hasSurfaceGradient(node) ? surfaceFill(theme, node, fillToken, "background", fillAlpha) : { type: "none" },
-    line: lineToken ? {
-      color: color(theme, lineToken),
-      width: cm(lineWidthCm),
-      ...lineDash ? { dash: lineDash } : {},
-      ...lineAlpha !== void 0 ? { alpha: lineAlpha } : {},
-      ...headEnd ? { headEnd } : {},
-      ...tailEnd ? { tailEnd } : {}
-    } : void 0,
+    line: lineSpecCm(theme, lineToken, lineWidthCm, { dash: lineDash, alpha: lineAlpha, headEnd, tailEnd }),
     ...typeof node.cornerRadius === "number" ? { cornerRadius: normalizeCornerRadius(node.cornerRadius) } : marker?.cornerRadius !== void 0 ? { cornerRadius: marker.cornerRadius } : {}
   };
   if (hasTextContent(node)) {
@@ -35564,7 +35891,8 @@ function dividerShape(theme, node, rect, ids) {
   const orientation = node.orientation === "horizontal" || node.orientation === "vertical" ? node.orientation : rect.w >= rect.h ? "horizontal" : "vertical";
   const thickness = normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 });
   const lineRect = orientation === "horizontal" ? { x: rect.x, y: rect.y + rect.h / 2, w: rect.w, h: Math.max(0.01, thickness) } : { x: rect.x + rect.w / 2, y: rect.y, w: Math.max(0.01, thickness), h: rect.h };
-  const dash = node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : void 0;
+  const dash = surfaceDash(surfaceNode(node));
+  const lineToken = surfaceLineTokenForNode(surfaceNode(node), "divider");
   return {
     type: "shape",
     id: ids.nextId++,
@@ -35572,7 +35900,7 @@ function dividerShape(theme, node, rect, ids) {
     preset: "line",
     xfrm: xfrm(lineRect),
     fill: { type: "none" },
-    line: { color: color(theme, node.line, "divider"), width: cm(Math.max(0.01, thickness)), ...dash ? { dash } : {} }
+    line: lineSpecCm(theme, lineToken, Math.max(0.01, thickness), { dash })
   };
 }
 function tableShape(theme, node, rect, ids, rectsById) {
@@ -35607,6 +35935,9 @@ function tableShape(theme, node, rect, ids, rectsById) {
   });
   pushEmptyTableDataDiagnostic(node, rect, sourceRows, rawRows, firstRowHeader);
   pushTableFitDiagnostics(theme, node, rect, allRows, colWidths, rowHeightsCm, firstRowHeader, semanticOuterRectForBody(node.id, "table", rectsById));
+  const tablePadding = tablePaddingSpec(node.cellPadding ?? node.padding);
+  const tableBorders = tableBorderSpec(theme, node.borders ?? node.border) ?? tableBorderSpec(theme, node.line) ?? tableBorderSpec(theme, node.borderColor);
+  const tableBorderDash = dashValue(node.borderDash) ?? dashValue(node.lineDash);
   return {
     type: "table",
     id: ids.nextId++,
@@ -35622,11 +35953,11 @@ function tableShape(theme, node, rect, ids, rectsById) {
     ...typeof node.firstCol === "boolean" ? { firstCol: node.firstCol } : {},
     ...typeof node.lastCol === "boolean" ? { lastCol: node.lastCol } : {},
     ...typeof node.lastRow === "boolean" ? { lastRow: node.lastRow } : {},
-    ...tablePaddingSpec(node.cellPadding ?? node.padding) ? { cellPadding: tablePaddingSpec(node.cellPadding ?? node.padding) } : {},
-    ...tableBorderSpec(theme, node.borders ?? node.border) ? { borders: tableBorderSpec(theme, node.borders ?? node.border) } : {},
-    borderColor: color(theme, typeof node.borderColor === "string" ? node.borderColor : "divider"),
-    borderWidth: cm(normalizeStrokeCm(node.borderWidth, 0.01)),
-    ...node.borderDash === "solid" || node.borderDash === "dash" || node.borderDash === "dashDot" || node.borderDash === "dot" ? { borderDash: node.borderDash } : {}
+    ...tablePadding ? { cellPadding: tablePadding } : {},
+    ...tableBorders ? { borders: tableBorders } : {},
+    ...!isSurfaceLineDisabled(node.line) && !isSurfaceLineDisabled(node.borderColor) ? { borderColor: color(theme, typeof node.borderColor === "string" ? node.borderColor : typeof node.line === "string" ? node.line : "divider") } : {},
+    borderWidth: cm(normalizeStrokeCm(node.borderWidth ?? node.lineWidth, 0.01)),
+    ...tableBorderDash ? { borderDash: tableBorderDash } : {}
   };
 }
 function tableSourceRows(node) {
@@ -35888,7 +36219,7 @@ function makeTableCell(theme, raw, isHeader, defaultAlign, defaults = {}) {
     const runs = customRuns ? customRuns.map((r) => richRunToTextRun(theme, r, style, bold)) : parsedRuns2?.matched ? parsedRuns2.runs.map((r) => richRunToTextRun(theme, r, effectiveStyle, bold)) : [plainTextRun(theme, text2, style, bold, color(theme, colorToken, style.color))];
     return {
       runs,
-      fill: fillToken ? { type: "solid", color: color(theme, fillToken) } : void 0,
+      fill: tableCellFill(theme, fillToken),
       align,
       valign,
       ...tablePaddingSpec(cell.padding) ? { padding: tablePaddingSpec(cell.padding) } : {},
@@ -35902,10 +36233,18 @@ function makeTableCell(theme, raw, isHeader, defaultAlign, defaults = {}) {
   const parsedRuns = parseMarkdownInline(text);
   return {
     runs: parsedRuns.matched ? parsedRuns.runs.map((r) => richRunToTextRun(theme, r, style, isStyleBold(style.weight))) : [plainTextRun(theme, text, style, isStyleBold(style.weight), color(theme, void 0, style.color))],
-    fill: isHeader ? { type: "solid", color: color(theme, defaults.headerFill || "surface.subtle") } : defaults.bodyFill ? { type: "solid", color: color(theme, defaults.bodyFill) } : void 0,
+    fill: tableCellFill(theme, isHeader ? defaults.headerFill || "surface.subtle" : defaults.bodyFill),
     align: isHeader ? "center" : defaultAlign,
     valign: "middle"
   };
+}
+function tableCellFill(theme, token) {
+  if (typeof token !== "string")
+    return void 0;
+  if (isSurfaceFillDisabled(token))
+    return { type: "none" };
+  const fillToken = surfaceFillToken(token);
+  return fillToken ? { type: "solid", color: color(theme, fillToken) } : void 0;
 }
 function tablePaddingSpec(value) {
   if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
@@ -35932,37 +36271,52 @@ function tablePaddingSpec(value) {
   return Object.keys(out).length > 0 ? out : void 0;
 }
 function tableBorderSpec(theme, value) {
+  if (isSurfaceLineDisabled(value))
+    return tableNoBorderSpec();
   if (!value || typeof value !== "object" || Array.isArray(value))
     return void 0;
   const rec = value;
   const out = {};
-  if (typeof rec.color === "string")
-    out.color = color(theme, rec.color);
-  if (typeof rec.width === "number" && Number.isFinite(rec.width))
-    out.width = cm(normalizeStrokeCm(rec.width, 0.01));
-  if (rec.dash === "solid" || rec.dash === "dash" || rec.dash === "dashDot" || rec.dash === "dot")
-    out.dash = rec.dash;
-  if (typeof rec.alpha === "number")
-    out.alpha = rec.alpha;
+  const baseSpec = tableBorderLineFromRecord(theme, rec);
+  if (baseSpec === "none")
+    return tableNoBorderSpec();
+  if (baseSpec)
+    Object.assign(out, baseSpec);
   for (const side of ["left", "right", "top", "bottom"]) {
     const v = rec[side];
     if (v === "none") {
       out[side] = "none";
     } else if (v && typeof v === "object" && !Array.isArray(v)) {
-      const raw = v;
-      const sideSpec = {};
-      if (typeof raw.color === "string")
-        sideSpec.color = color(theme, raw.color);
-      if (typeof raw.width === "number" && Number.isFinite(raw.width))
-        sideSpec.width = cm(normalizeStrokeCm(raw.width, 0.01));
-      if (raw.dash === "solid" || raw.dash === "dash" || raw.dash === "dashDot" || raw.dash === "dot")
-        sideSpec.dash = raw.dash;
-      if (typeof raw.alpha === "number")
-        sideSpec.alpha = raw.alpha;
-      out[side] = sideSpec;
+      const sideSpec = tableBorderLineFromRecord(theme, v);
+      if (sideSpec === "none") {
+        out[side] = "none";
+      } else if (sideSpec) {
+        out[side] = sideSpec;
+      }
     }
   }
   return Object.keys(out).length > 0 ? out : void 0;
+}
+function tableBorderLineFromRecord(theme, rec) {
+  if (isSurfaceLineDisabled(rec.color) || isSurfaceLineDisabled(rec.line))
+    return "none";
+  const out = {};
+  const lineToken = stringFromRecord(rec, "color") ?? stringFromRecord(rec, "line");
+  if (lineToken)
+    out.color = color(theme, lineToken);
+  const width = optionalNumberFromRecord(rec, "width") ?? optionalNumberFromRecord(rec, "lineWidth");
+  if (width !== void 0)
+    out.width = cm(normalizeStrokeCm(width, 0.01));
+  const dash = dashValueFromRecord(rec);
+  if (dash)
+    out.dash = dash;
+  const alpha = alphaProp(rec.alpha ?? rec.opacity);
+  if (alpha !== void 0)
+    out.alpha = alpha;
+  return Object.keys(out).length > 0 ? out : void 0;
+}
+function tableNoBorderSpec() {
+  return { left: "none", right: "none", top: "none", bottom: "none" };
 }
 function richRunToTextRun(theme, raw, style, defaultBold) {
   const rec = raw && typeof raw === "object" ? raw : {};
@@ -36472,14 +36826,19 @@ function imageShape(theme, node, rect, ids) {
   return [shape];
 }
 function imageBorderSpec(theme, node) {
-  const raw = node.border;
-  if (!raw || typeof raw !== "object")
+  const borderRecord = recordValue(node.border);
+  const rawLine = typeof node.border === "string" ? node.border : stringFromRecord(borderRecord, "color") ?? stringFromRecord(borderRecord, "line") ?? surfaceLineValue(node);
+  const hasBorderDirective = node.border !== void 0 || node.line !== void 0 || node.borderColor !== void 0 || node.lineWidth !== void 0 || node.borderWidth !== void 0 || node.lineDash !== void 0 || node.borderStyle !== void 0;
+  if (!hasBorderDirective)
     return void 0;
-  const rec = raw;
-  const colorToken = typeof rec.color === "string" ? rec.color : "divider";
-  const width = typeof rec.width === "number" ? cm(rec.width) : cm(0.025);
-  const dash = rec.dash === "dash" || rec.dash === "dashDot" || rec.dash === "dot" ? rec.dash : void 0;
-  return { color: color(theme, colorToken), width, ...dash ? { dash } : {} };
+  if (isSurfaceLineDisabled(rawLine))
+    return void 0;
+  const lineToken = surfaceLineToken(rawLine) ?? "divider";
+  const width = cm(normalizeStrokeCm(optionalNumberFromRecord(borderRecord, "width") ?? optionalNumberFromRecord(borderRecord, "lineWidth") ?? optionalNumberProp(node, "borderWidth") ?? optionalNumberProp(node, "lineWidth"), 0.025));
+  const borderDash = dashValueFromRecord(borderRecord);
+  const dash = borderDash === "solid" ? void 0 : nonSolidDash(borderDash) ?? surfaceDash(node);
+  const alpha = alphaProp(borderRecord?.alpha ?? borderRecord?.opacity ?? node.lineOpacity ?? node.opacity);
+  return lineSpecEmu(theme, lineToken, width, { dash, alpha });
 }
 function lineEndSpec(value) {
   if (!value || typeof value !== "object")
@@ -36496,6 +36855,8 @@ function imageOverlaySpec(theme, node) {
     return void 0;
   const rec = raw;
   if (typeof rec.color !== "string")
+    return void 0;
+  if (isSurfaceFillDisabled(rec.color))
     return void 0;
   const out = { color: color(theme, rec.color) };
   if (typeof rec.alpha === "number")
@@ -36524,6 +36885,8 @@ function imageShadowSpec(theme, node) {
     return void 0;
   const rec = raw;
   const colorToken = typeof rec.color === "string" ? rec.color : "111827";
+  if (isSurfaceFillDisabled(colorToken))
+    return void 0;
   const out = { color: color(theme, colorToken) };
   if (typeof rec.alpha === "number")
     out.alpha = rec.alpha;
@@ -36811,13 +37174,14 @@ function containerBackgroundShape(theme, node, rect, ids) {
   const style = componentStyle(theme, node);
   const surface = surfaceNode(node, style);
   const fillToken = typeof surface.fill === "string" ? surface.fill : void 0;
-  const lineToken = typeof surface.line === "string" ? surface.line : void 0;
-  if (!fillToken && !lineToken && !hasSurfaceGradient(surface))
+  const lineToken = surfaceLineTokenForNode(surface);
+  const hasFill = !isSurfaceFillDisabled(fillToken) && (surfaceFillToken(fillToken) !== void 0 || hasSurfaceGradient(surface));
+  if (!hasFill && !lineToken)
     return [];
   const cornerRadius = typeof surface.cornerRadius === "number" ? normalizeCornerRadius(surface.cornerRadius) : 0.08;
   const fillAlpha = alphaProp(surface.fillOpacity);
   const lineAlpha = alphaProp(surface.lineOpacity);
-  const lineWidth = normalizeStrokeCm(optionalNumberProp(surface, "lineWidth") ?? optionalNumberProp(surface, "borderWidth"), 0.02);
+  const lineWidth = surfaceLineWidth(surface, 0.02);
   const dash = surfaceDash(surface);
   const shape = {
     type: "shape",
@@ -36825,8 +37189,8 @@ function containerBackgroundShape(theme, node, rect, ids) {
     name: `${nodeLabel(node)}-background`,
     preset: "roundRect",
     xfrm: xfrm(rect),
-    fill: fillToken || hasSurfaceGradient(surface) ? surfaceFill(theme, surface, fillToken, "surface", fillAlpha) : { type: "none" },
-    line: lineToken ? { color: color(theme, lineToken), width: cm(lineWidth), ...dash ? { dash } : {}, ...lineAlpha !== void 0 ? { alpha: lineAlpha } : {} } : void 0,
+    fill: hasFill ? surfaceFill(theme, surface, fillToken, "surface", fillAlpha) : { type: "none" },
+    line: lineSpecCm(theme, lineToken, lineWidth, { dash, alpha: lineAlpha }),
     cornerRadius
   };
   const shadow = surfaceShadow(theme, surface);
@@ -37382,7 +37746,7 @@ function decorativeIntrinsicMain(theme, node, direction, crossSize) {
 function decorativePadding(theme, node, rect) {
   const styleKey = node.type === "panel" ? "panel" : node.type === "card" ? "card" : node.type === "band" ? "band" : node.type === "frame" ? "frame" : "inset";
   const style = theme.component[styleKey] || {};
-  const explicit = optionalNumberProp(node, "padding");
+  const explicit = optionalNumberProp(surfaceNode(node), "padding");
   if (explicit !== void 0)
     return explicit;
   const base = style.padding ?? (node.type === "band" ? 0.6 : 0.4);
@@ -38289,9 +38653,14 @@ function optionalNumberFromRecord(record, key) {
   const value = record?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : void 0;
 }
-function lineDashFromRecord(record) {
-  const value = stringFromRecord(record, "dash") ?? stringFromRecord(record, "lineDash");
-  return value === "dash" || value === "dashDot" || value === "dot" ? value : void 0;
+function dashValue(value) {
+  return value === "solid" || value === "dash" || value === "dashDot" || value === "dot" ? value : void 0;
+}
+function dashValueFromRecord(record) {
+  return dashValue(stringFromRecord(record, "dash") ?? stringFromRecord(record, "lineDash") ?? stringFromRecord(record, "style"));
+}
+function nonSolidDash(value) {
+  return value === "solid" ? void 0 : value;
 }
 function optionalCornerRadiusProp(node) {
   const value = optionalNumberProp(node, "cornerRadius");
@@ -38382,9 +38751,9 @@ function normalizeChartMarker(theme, value) {
     marker.symbol = rec.symbol;
   if (typeof rec.size === "number" && Number.isFinite(rec.size))
     marker.size = rec.size;
-  if (typeof rec.fill === "string")
+  if (typeof rec.fill === "string" && !isSurfaceFillDisabled(rec.fill))
     marker.fill = color(theme, rec.fill);
-  if (typeof rec.line === "string")
+  if (typeof rec.line === "string" && !isSurfaceLineDisabled(rec.line))
     marker.line = color(theme, rec.line);
   return Object.keys(marker).length > 0 ? marker : void 0;
 }
@@ -39723,7 +40092,7 @@ function validateSlide(slide, deck) {
         brand: deck?.deck.brand || {},
         themeOverride: deck?.deck.themeOverride
       },
-      slides: [sourceSlideToRendered(slide)]
+      slides: [sourceSlideToRendered(normalizeSlide(slide))]
     };
     validateLayout(rendered, issues);
   } catch (error) {
@@ -40182,11 +40551,12 @@ function validateNode(node, path, slideId, issues, parent, options = validationO
       issues.push(issue("error", "MISSING_DATA_SOURCE", `${path} chart requires source metadata by deck.validation.requireSources/strict mode.`, { slideId, path, nodeName: node.id, suggestedFix: "Add source:'...' or caption:'Source: ...' to make the evidence traceable." }));
   } else if (node.type !== "shape") {
     if (typeof node.type === "string" && STYLE_TOKENS_OFTEN_USED_AS_TYPE.has(node.type)) {
-      issues.push(issue("error", "STYLE_AS_TYPE", `${path}.type "${node.type}" is a text style token, not a node type. Use {type:"text", style:"${node.type}", text:"..."} instead.`, {
+      issues.push(issue("warning", "TEXT_STYLE_TYPE_ALIAS_NORMALIZED", `${path}.type "${node.type}" is a text style token. It will be normalized to {type:"text", style:"${node.type}"} before render.`, {
         slideId,
         path,
         nodeName: node.id,
-        suggestedFix: `Replace ${path}.type with "text" and add style:"${node.type}".`
+        details: { canonicalType: "text", canonicalStyle: node.type },
+        suggestedFix: `For canonical SlideML, replace ${path}.type with "text" and add style:"${node.type}".`
       }));
     } else {
       const nodeType = String(node.type);
@@ -41761,6 +42131,8 @@ function componentFieldTypeError(componentName, propName, prop, value) {
     case "boolean":
       return typeof value === "boolean" ? null : { expected: "a boolean", actual: describeValueType(value) };
     case "array":
+      if (componentName === "two-column" && propName === "ratio" && typeof value === "number" && Number.isFinite(value) && value > 0)
+        return null;
       return Array.isArray(value) ? null : {
         expected: "an array",
         actual: describeValueType(value),
@@ -42167,6 +42539,7 @@ function validateLayout(deck, issues) {
   const measuredSlides = measureDeck(deck);
   for (const [index, slide] of measuredSlides.entries()) {
     const renderedSlide = deck.slides[index];
+    const domById = renderedSlide ? collectDomNodesById(renderedSlide.dom) : /* @__PURE__ */ new Map();
     if (renderedSlide)
       validateTopLevelPlacementOverlaps(renderedSlide, slide, issues);
     for (const node of slide.nodes) {
@@ -42176,8 +42549,43 @@ function validateLayout(deck, issues) {
       if ((node.type === "text" || node.type === "bullets") && node.rect.h < 0.25) {
         issues.push(issue("warning", SOURCE_VALIDATION_CODE.TEXT_BOX_TOO_SHORT, `${node.id} has very little vertical space.`, { slideId: slide.slideId, nodeName: node.id, details: { rect: node.rect }, suggestedFix: "Increase parent grid/stack height or reduce sibling count." }));
       }
+      const domNode = domById.get(node.id);
+      if (domNode && isLikelyPartialHeightBackgroundImage(domNode, node.rect, theme.layout.slideWidthCm, theme.layout.slideHeightCm)) {
+        issues.push(issue("warning", SOURCE_VALIDATION_CODE.BACKGROUND_IMAGE_PARTIAL_HEIGHT, `${node.id} starts at the slide top and looks like a background/rail image, but its height (${node.rect.h.toFixed(2)}cm) does not reach the slide height (${theme.layout.slideHeightCm.toFixed(2)}cm).`, {
+          slideId: slide.slideId,
+          nodeName: node.id,
+          details: { rect: node.rect, slideHeightCm: theme.layout.slideHeightCm },
+          suggestedFix: `If this image is meant to run to the bottom edge, set its height to ${theme.layout.slideHeightCm.toFixed(2)}cm (for example at:[0,0,w,${theme.layout.slideHeightCm.toFixed(2)}]) or use slide.background for full-bleed imagery. If it is a content image, inset it from the slide edge and avoid layer:'behind'.`
+        }));
+      }
     }
   }
+}
+function collectDomNodesById(root) {
+  const map = /* @__PURE__ */ new Map();
+  const visit = (node) => {
+    if (typeof node.id === "string" && node.id)
+      map.set(node.id, node);
+    for (const child of node.children || [])
+      visit(child);
+  };
+  visit(root);
+  return map;
+}
+function isLikelyPartialHeightBackgroundImage(node, rect, slideWidthCm, slideHeightCm) {
+  if (node.type !== "image")
+    return false;
+  const rec = node;
+  const topAligned = Math.abs(rect.y) <= 0.03;
+  if (!topAligned)
+    return false;
+  const nearlyFullHeight = rect.h >= slideHeightCm * 0.72;
+  const leavesVisibleBottomGap = rect.h < slideHeightCm - 0.25;
+  if (!nearlyFullHeight || !leavesVisibleBottomGap)
+    return false;
+  const touchesLeftOrRightEdge = Math.abs(rect.x) <= 0.03 || rect.x + rect.w >= slideWidthCm - 0.03;
+  const looksLikeBackground = rec.layer === "behind" || typeof node.id === "string" && /(^|[.:-])(bg|background|hero|cover|rail)([.:-]|$)/i.test(node.id);
+  return touchesLeftOrRightEdge && looksLikeBackground;
 }
 function validateTopLevelPlacementOverlaps(renderedSlide, measuredSlide, issues) {
   const children = renderedSlide.dom.children || [];
@@ -42234,15 +42642,18 @@ function topLevelExpandedOverlayItems(children, measuredNodes) {
       items.push({ id: node.id, rect });
     }
   }
-  return items.filter((item) => !items.some((other) => other.id !== item.id && other.rect && item.rect && rectContains(other.rect, item.rect) && other.rect.w * other.rect.h > item.rect.w * item.rect.h * 1.15));
+  return items.filter((item) => !items.some((other) => other.id !== item.id && other.rect && item.rect && rectContains(other.rect, item.rect) && other.rect.w * other.rect.h > item.rect.w * item.rect.h * 1.15)).filter((item) => !isDecorativeMeasuredOverlayItem(item.id, measuredNodes.find((node) => node.id === item.id)?.type || "", item.rect));
 }
 function isSignificantMeasuredOverlayNode(id, type, rect) {
-  const pseudoNode = { id, type };
-  if (isDecorativeTopLevelPositionedChild(pseudoNode))
-    return false;
   if (type === "shape" && rect.h <= 0.08)
     return false;
   return rect.w >= 0.5 && rect.h >= 0.18;
+}
+function isDecorativeMeasuredOverlayItem(id, type, rect) {
+  const pseudoNode = { id, type };
+  if (isDecorativeTopLevelPositionedChild(pseudoNode))
+    return true;
+  return Boolean(rect && isDecorativeExpandedOverlayNode(id, type, rect));
 }
 function isTopLevelRegionChild(node) {
   return typeof node.area === "string" && node.area.trim().length > 0 && !hasSlideLevelPlacementOverride(node);
@@ -42271,9 +42682,17 @@ function isDecorativeTopLevelPositionedChild(node) {
   if (node.type === "decoration-grid" || node.type === "decorative-shapes" || node.type === "watermark" || node.type === "pointer-arrow")
     return true;
   const id = typeof node.id === "string" ? node.id.toLowerCase() : "";
-  if (id.includes(".decor") || id.includes("decoration") || id.includes("watermark") || id.includes("brand-mark"))
+  if (id.includes(".decor") || id.includes("decoration") || id.includes("watermark") || id.includes("brand-mark") || id.endsWith(".scrim") || id.endsWith(".backdrop"))
     return true;
   return false;
+}
+function isDecorativeExpandedOverlayNode(id, type, rect) {
+  const lower = id.toLowerCase();
+  if (type !== "image" && type !== "shape")
+    return false;
+  if (lower.endsWith(".scrim") || lower.endsWith(".backdrop"))
+    return true;
+  return lower.endsWith(".visual") && rect.w >= 10 && rect.h >= 6 && rect.w * rect.h >= 80;
 }
 function withDeckSizeLayout(sizeValue, override) {
   if (!isDeckSize(sizeValue))

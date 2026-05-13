@@ -35,6 +35,23 @@ export interface AgentSurface extends SurfaceOverride {
   accentWidth?: number;
 }
 
+export type FeatureCardLayout = "vertical" | "horizontal";
+export type FeatureCardDecorationKind = "image" | "shape" | "marker" | "none";
+
+export interface FeatureCardDecoration {
+  kind?: FeatureCardDecorationKind;
+  src?: string;
+  iconSrc?: string;
+  shape?: string;
+  icon?: string;
+  marker?: DecorationMarkerInput;
+  size?: DecorationMarkerSize;
+  color?: string;
+  background?: string;
+  tone?: DecorationMarkerTone;
+  variant?: DecorationMarkerVariant;
+}
+
 export type DecorationMarkerShape =
   | "dot"
   | "ring"
@@ -170,17 +187,29 @@ export function applyAgentSurface<T extends DomNode>(node: T, options: { surface
   if (typeof merged.line === "string") out.line = merged.line;
   if (typeof merged.lineOpacity === "number") out.lineOpacity = merged.lineOpacity;
   if (typeof merged.lineWidth === "number") out.lineWidth = merged.lineWidth;
-  if (merged.lineDash && merged.lineDash !== "solid") out.dash = merged.lineDash;
+  if (merged.lineDash) {
+    out.lineDash = merged.lineDash;
+    if (merged.lineDash === "solid") delete out.dash;
+    else out.dash = merged.lineDash;
+  }
   // Apply flat shorthand first so the object form (`surface.border:{...}`)
   // can override on conflict — the object form is the explicit-wins variant.
   if (typeof merged.borderColor === "string") out.line = merged.borderColor;
   if (typeof merged.borderWidth === "number") out.lineWidth = merged.borderWidth;
-  if (merged.borderStyle && merged.borderStyle !== "solid") out.dash = merged.borderStyle;
+  if (merged.borderStyle) {
+    out.borderStyle = merged.borderStyle;
+    if (merged.borderStyle === "solid") delete out.dash;
+    else out.dash = merged.borderStyle;
+  }
   if (typeof merged.cornerRadius === "number") out.cornerRadius = merged.cornerRadius;
   if (merged.border && typeof merged.border === "object") {
     if (typeof merged.border.color === "string") out.line = merged.border.color;
     if (typeof merged.border.width === "number") out.lineWidth = merged.border.width;
-    if (merged.border.style && merged.border.style !== "solid") out.dash = merged.border.style;
+    if (merged.border.style) {
+      out.borderStyle = merged.border.style;
+      if (merged.border.style === "solid") delete out.dash;
+      else out.dash = merged.border.style;
+    }
     if (typeof merged.border.cornerRadius === "number") out.cornerRadius = merged.border.cornerRadius;
   } else if (typeof merged.border === "string") {
     out.line = merged.border;
@@ -189,7 +218,7 @@ export function applyAgentSurface<T extends DomNode>(node: T, options: { surface
   if (merged.elevation) out.elevation = merged.elevation;
   if (merged.shadow && typeof merged.shadow === "object") out.shadow = merged.shadow;
   if (merged.gradient && typeof merged.gradient === "object") out.gradient = merged.gradient;
-  if (merged.accent && merged.accent !== "none") out.accent = merged.accent;
+  if (merged.accent === "none" || merged.accent === "left" || merged.accent === "top") out.accent = merged.accent;
   if (typeof merged.accentColor === "string") out.accentColor = merged.accentColor;
   if (typeof merged.accentWidth === "number") out.accentWidth = merged.accentWidth;
   return out as T;
@@ -1293,6 +1322,7 @@ export function ctaButton(slideId: string, id: string, options: { text: string; 
 export function featureCard(slideId: string, id: string, options: {
   icon?: string;
   iconSrc?: string;
+  decoration?: FeatureCardDecoration;
   title: string;
   body?: string;
   content?: unknown;
@@ -1308,70 +1338,52 @@ export function featureCard(slideId: string, id: string, options: {
   ctaText?: string;
   variant?: "plain" | "card" | "compact";
   density?: "comfortable" | "compact";
+  layout?: FeatureCardLayout;
 } & { surface?: AgentSurface } & AgentSurface): DomNode {
   const dense = options.density === "compact" || options.variant === "compact";
-  const iconSize = dense ? 0.62 : 0.82;
+  const layout: FeatureCardLayout = options.layout === "horizontal" || (options.layout !== "vertical" && dense) ? "horizontal" : "vertical";
   const semanticTone = featureSemanticTone(options.tone);
   const iconColor = options.iconColor || featureAccentColor(semanticTone);
   const iconBackground = options.iconBackground || featureTintColor(semanticTone);
-  const marker = decorationMarkerNode(slideId, `${id}.marker`, options.marker, {
+  const explicitTitleMarker = options.decoration?.kind === "marker" && layout === "vertical"
+    ? featureMarkerInput(options.decoration.marker || options.decoration.shape || "rounded-square")
+    : undefined;
+  const titleMarker = decorationMarkerNode(slideId, `${id}.marker`, options.marker || explicitTitleMarker, {
     shape: "rounded-square",
-    tone: markerToneFromFeatureTone(semanticTone),
-    variant: "tint",
-    size: dense ? "xs" : "sm",
+    tone: options.decoration?.tone || markerToneFromFeatureTone(semanticTone),
+    variant: options.decoration?.variant || "tint",
+    size: options.decoration?.size || (dense ? "xs" : "sm"),
   });
-  const titleNode: DomNode = { id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "card-title", align: "left", color: options.titleColor || featureTitleColor(options.tone), minHeight: dense ? 0.42 : 0.5, autoFit: "shrink", layoutWeight: marker ? 1 : undefined };
-  const iconNode: DomNode = options.iconSrc
-    ? {
-        id: `${slideId}.${id}.icon`,
-        type: "image",
-        src: options.iconSrc,
-        fit: "contain",
-        fixedWidth: iconSize,
-        fixedHeight: iconSize,
-        align: "start",
-        optional: true,
-      }
-    : {
-        id: `${slideId}.${id}.icon`,
-        type: "shape",
-        preset: options.icon || "ellipse",
-        fill: iconBackground,
-        line: iconColor,
-        lineWidth: 0.04,
-        fixedWidth: iconSize,
-        fixedHeight: iconSize,
-        // Without explicit align, the parent vertical stack stretches the icon
-        // across the card width (cross-axis) and we get a flat banner instead
-        // of a square glyph. Pin to start so fixedWidth is honored.
-        align: "start",
-        optional: true,
-      };
-  const titleRow: DomNode = marker
+  const decorationNode = featureCardDecorationNode(slideId, id, options, {
+    layout,
+    dense,
+    semanticTone,
+    iconColor,
+    iconBackground,
+    hasLegacyTitleMarker: !!titleMarker,
+  });
+  const titleNode: DomNode = { id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "card-title", align: "left", color: options.titleColor || featureTitleColor(options.tone), minHeight: dense ? 0.42 : 0.5, autoFit: "shrink", layoutWeight: titleMarker ? 1 : undefined };
+  const titleRow: DomNode = titleMarker
     ? {
         id: `${slideId}.${id}.titleRow`,
         type: "stack",
         direction: "horizontal",
         gap: dense ? 0.14 : 0.18,
         valign: "middle",
-        children: [marker, titleNode],
+        children: [titleMarker, titleNode],
       }
     : titleNode;
-  const children: DomNode[] = marker
-    ? [
-        ...(options.iconSrc ? [iconNode] : []),
-        titleRow,
-      ]
-    : [
-        iconNode,
-        titleNode,
-      ];
+  const leadingChildren: DomNode[] = [];
   if (options.badge) {
-    children.unshift({ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", color: "text.primary", fill: "surface.subtle", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1.0, max: 4.8, padding: 0.62 }), align: "center", autoFit: "shrink", noWrap: true });
+    leadingChildren.push({ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", color: "text.primary", fill: "surface.subtle", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1.0, max: 4.8, padding: 0.62 }), align: "center", autoFit: "shrink", noWrap: true });
   }
+  const textChildren: DomNode[] = [
+    ...leadingChildren,
+    titleRow,
+  ];
   const body = textWithRichContent(options.body?.trim() || "", options.content);
   if (body.text || body.content) {
-    children.push({
+    textChildren.push({
       id: `${slideId}.${id}.body`,
       type: "text",
       ...body,
@@ -1384,26 +1396,144 @@ export function featureCard(slideId: string, id: string, options: {
     });
   }
   if (options.metric) {
-    children.push({ ...featureMetricNode(slideId, id, options.metric, dense), optional: true });
+    textChildren.push({ ...featureMetricNode(slideId, id, options.metric, dense), optional: true });
   }
   if (options.proof) {
-    children.push({ id: `${slideId}.${id}.proof`, type: "text", text: options.proof, style: "label", color: "text.muted", minHeight: 0.34, autoFit: "shrink", optional: true });
+    textChildren.push({ id: `${slideId}.${id}.proof`, type: "text", text: options.proof, style: "label", color: "text.muted", minHeight: 0.34, autoFit: "shrink", optional: true });
   }
   if (options.tags && options.tags.length) {
-    children.push({ id: `${slideId}.${id}.tags`, type: "stack", direction: "horizontal", gap: 0.12, optional: true, children: options.tags.slice(0, 4).map((tag, index) => ({ id: `${slideId}.${id}.tag${index}`, type: "text" as const, text: String(tag), style: "label" as const, fill: "surface.subtle", color: "text.muted", cornerRadius: 0.16, fixedHeight: 0.42, autoFit: "shrink" as const, layoutWeight: 1 })) });
+    textChildren.push({ id: `${slideId}.${id}.tags`, type: "stack", direction: "horizontal", gap: 0.12, optional: true, children: options.tags.slice(0, 4).map((tag, index) => ({ id: `${slideId}.${id}.tag${index}`, type: "text" as const, text: String(tag), style: "label" as const, fill: "surface.subtle", color: "text.muted", cornerRadius: 0.16, fixedHeight: 0.42, autoFit: "shrink" as const, layoutWeight: 1 })) });
   }
   if (options.ctaText) {
-    children.push({ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "label", color: "text.inverse", fill: "brand.primary", cornerRadius: 0.2, align: "center", valign: "middle", fixedHeight: 0.46, autoFit: "shrink", optional: true });
+    textChildren.push({ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "label", color: "text.inverse", fill: "brand.primary", cornerRadius: 0.2, align: "center", valign: "middle", fixedHeight: 0.46, autoFit: "shrink", optional: true });
   }
+  const children: DomNode[] = layout === "horizontal" && decorationNode
+    ? [
+        decorationNode,
+        {
+          id: `${slideId}.${id}.content`,
+          type: "stack",
+          direction: "vertical",
+          gap: dense ? 0.09 : 0.14,
+          layoutWeight: 1,
+          valign: "top",
+          children: textChildren,
+        },
+      ]
+    : [
+        ...(decorationNode ? [decorationNode] : []),
+        ...textChildren,
+      ];
+  const defaultSurface = featureCardDefaultSurface(options, dense);
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
-    direction: "vertical",
-    gap: dense ? 0.1 : 0.16,
+    direction: layout,
+    gap: layout === "horizontal" ? (dense ? 0.28 : 0.36) : (dense ? 0.1 : 0.16),
     role: "feature-card",
-    ...(options.variant === "card" ? { fill: "surface", line: "divider", padding: dense ? 0.3 : 0.4, cornerRadius: 0.1 } : {}),
+    valign: "top",
+    ...defaultSurface,
     children,
   } as DomNode, options);
+}
+
+function featureCardDefaultSurface(options: { variant?: "plain" | "card" | "compact"; surface?: AgentSurface } & AgentSurface, dense: boolean): Partial<DomNode> {
+  const hasSurface = !!options.surface
+    || typeof options.fill === "string"
+    || typeof options.line === "string"
+    || options.border !== undefined
+    || typeof options.borderColor === "string"
+    || typeof options.elevation === "string"
+    || options.shadow !== undefined
+    || options.gradient !== undefined;
+  if (options.variant === "card") {
+    return { fill: "surface", line: "divider", padding: dense ? 0.32 : 0.42, cornerRadius: 0.1 };
+  }
+  if (options.variant === "compact" || hasSurface) {
+    return { padding: dense ? 0.28 : 0.36, cornerRadius: 0.08 };
+  }
+  return {};
+}
+
+function featureCardDecorationNode(
+  slideId: string,
+  id: string,
+  options: {
+    icon?: string;
+    iconSrc?: string;
+    decoration?: FeatureCardDecoration;
+    marker?: DecorationMarkerInput;
+  },
+  ctx: {
+    layout: FeatureCardLayout;
+    dense: boolean;
+    semanticTone: DecorationMarkerTone;
+    iconColor: string;
+    iconBackground: string;
+    hasLegacyTitleMarker: boolean;
+  },
+): DomNode | undefined {
+  const spec = options.decoration;
+  const explicitKind = spec?.kind;
+  if (explicitKind === "none") return undefined;
+  const tone = spec?.tone || markerToneFromFeatureTone(ctx.semanticTone);
+  const size = featureDecorationSizeCm(spec?.size, ctx.dense, ctx.layout);
+  if (explicitKind === "marker") {
+    if (ctx.layout === "vertical") return undefined;
+    return decorationMarkerNode(slideId, `${id}.decoration`, featureMarkerInput(spec?.marker || spec?.shape || "rounded-square"), {
+      shape: "rounded-square",
+      tone,
+      variant: spec?.variant || "tint",
+      size: spec?.size || (ctx.dense ? "sm" : "md"),
+      valign: "top",
+    });
+  }
+  const src = spec?.src || spec?.iconSrc || options.iconSrc;
+  if (explicitKind === "image" || src) {
+    if (!src) return undefined;
+    return {
+      id: `${slideId}.${id}.icon`,
+      type: "image",
+      src,
+      fit: "contain",
+      fixedWidth: size,
+      fixedHeight: size,
+      align: "start",
+      valign: "top",
+      optional: true,
+    };
+  }
+  if (ctx.hasLegacyTitleMarker && !spec) return undefined;
+  const shape = spec?.shape || spec?.icon || options.icon || "ellipse";
+  if (shape === "none") return undefined;
+  return {
+    id: `${slideId}.${id}.icon`,
+    type: "shape",
+    preset: shape,
+    fill: spec?.background || ctx.iconBackground,
+    line: spec?.color || ctx.iconColor,
+    lineWidth: 0.04,
+    fixedWidth: size,
+    fixedHeight: size,
+    align: "start",
+    valign: "top",
+    optional: true,
+  };
+}
+
+function featureMarkerInput(value: DecorationMarkerInput | string | undefined): DecorationMarkerInput | undefined {
+  return value as DecorationMarkerInput | undefined;
+}
+
+function featureDecorationSizeCm(size: DecorationMarkerSize | undefined, dense: boolean, layout: FeatureCardLayout): number {
+  if (typeof size === "number" && Number.isFinite(size) && size > 0) return Math.max(0.24, Math.min(1.6, size));
+  if (size === "xs") return 0.52;
+  if (size === "sm") return 0.68;
+  if (size === "lg") return 1.12;
+  if (size === "xl") return 1.36;
+  if (size === "md") return 0.9;
+  if (layout === "horizontal") return dense ? 0.76 : 0.94;
+  return dense ? 0.82 : 1.02;
 }
 
 function featureSemanticTone(tone: unknown): DecorationMarkerTone {

@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.30
+version: 1.0.31
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -213,8 +213,10 @@ into its own slide while preserving component semantics.
 A `replace-slide` payload's `slide` object supports:
 
 - `id` required stable slide id.
-- `title` optional metadata/default visible title. Omit it for full-canvas
-  custom covers or pages that already carry a visible hero title.
+- `title` optional default visible title. Set it only when you want the
+  renderer's standard title band. Omit it for full-canvas custom covers,
+  magazine/poster layouts, or pages that already render their own visible
+  title inside `children`.
 - `background` optional token, 6-char hex, gradient/fill object, or image
   `{src}`.
 - `transition` optional native PowerPoint slide transition:
@@ -236,8 +238,10 @@ A `replace-slide` payload's `slide` object supports:
   15+ → 2–3. Never use a break around a single content slide.
 - No bare "Thank You / End" slide. Replace with 3–5 takeaways, the strongest
   data point, or contact / QR. If the deck truly ends there, drop the slide.
-- A `slide.title` and a body `cover-composition` / `slide-title` /
-  `deck-title` / `section-break` title together are duplicates. Pick one.
+- A `slide.title` plus a visible title in `children` is a duplicate layout.
+  Pick one. For custom editorial pages, omit `slide.title` and place the
+  title yourself; for standard business pages, use `slide.title` and do not
+  add another title text box.
 - When repairing density, preserve semantic ordinals: "判断 1/2/3",
   "Step 1/2/3" must stay visible in the title, eyebrow, label, or first card.
 
@@ -336,6 +340,10 @@ Notes:
   or put them inside one `stack` / `split`.
 - If a custom title system uses `at` or named areas, omit `slide.title` to
   avoid duplicate titles.
+- For edge-to-edge image rails/backgrounds, use the real slide dimensions.
+  16:9 is 25.4 × 14.288 cm; `contentBottom`/13.2/13.3 is not full height.
+  For a full-slide visual, prefer `slide.background:{src}`. For a left/right
+  rail, set `at:[0,0,w,14.288]` (or the current slide height).
 - `layer:"behind"` does not consume flow space and is exempt from overlay
   occlusion checks. `layer:"above"` participates in occlusion detection.
 
@@ -464,7 +472,8 @@ inline runs `{kind:"cite",refId}` and `{kind:"footnoteRef",footnoteId}`.
 
 ```
 tone        = brand | positive | warning | danger | neutral
-surface     = { fill, line, lineWidth, lineDash, cornerRadius, padding, elevation, shadow, gradient, accent, accentColor, accentWidth }
+surface     = { fill, fillOpacity, line, lineOpacity, lineWidth, lineDash, borderColor, borderWidth, borderStyle, cornerRadius, padding, elevation, shadow, gradient, accent, accentColor, accentWidth }
+              Use `fill:"none"` for transparent surfaces and `line:"none"` for borderless surfaces. `lineDash:"solid"` clears a dashed default.
 marker      = { shape: dot|ring|square|rounded-square|diamond|side-bar|slash|index-chip,
                 variant: tint|solid|outline|ghost|ring|badge, tone, size: xs|sm|md|lg|xl }
 image-ref   = absolute path string
@@ -489,7 +498,7 @@ Children are required unless noted. Containers may carry `fixedHeight` /
 - `grid` — Matrix of peer modules. Use colSpan/rowSpan for one semantic hero plus satellites. type='grid' required={children} optional={columns, gap, area, columnWeights, rowWeights, rows, fixedHeight}
 - `split` — Primary + support. `ratio` is a target proportion, not a hint. type='split' required={children} optional={direction, ratio, gap, area, padding, align, valign}
 - `panel` — Surface wrapper for a related semantic group. type='panel' optional={tone, fill, line, padding, cornerRadius, elevation:flat|raised|outlined, fixedHeight, children}
-- `card` — Contained module with optional title/footer/accent. `title` and `header` are the same field; prefer `title`. type='card' optional={title, header (alias), footer, accent:none|left|top, accentColor, tone, fill, line, padding, cornerRadius, elevation, fixedHeight, fixedWidth, children}
+- `card` — Contained module with optional title/body/footer/accent. `title` and `header` are the same field; prefer `title`. Use `body` for one short paragraph, or `children` for richer structured content. type='card' optional={title, header (alias), body, content:rich-runs, footer, accent:none|left|top, accentColor, tone, fill, line, padding, cornerRadius, elevation, fixedHeight, fixedWidth, children}
 - `band` — Wide emphasis band for a section thesis, verdict, or hero quote. type='band' optional={tone, fill, height, fixedHeight, cornerRadius, padding, children}
 - `frame` — Border-only wrapper. `lineWidth` is stroke pt, not cm. type='frame' optional={line, lineWidth, dash:solid|dash|dashDot|dot, cornerRadius, padding, fixedHeight, fixedWidth, children}
 - `inset` — Invisible padding wrapper for one semantic child. type='inset' optional={padding, fixedHeight, fixedWidth, children}
@@ -591,7 +600,7 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.5.
 
 ### 3.9 Identity, Markers, Action
 
-- `feature-card` — One feature/capability/benefit. Supports iconSrc, badge, content runs, tags, metric proof, source line, compact CTA. type='feature-card' required={title} optional={icon:rect|roundRect|ellipse|triangle|rightTriangle|pentagon|diamond, iconSrc:image-ref, marker, body, content:rich-runs, badge, tags, metric:{value,label,tone?}, proof, ctaText, iconColor, iconBackground, tone, titleColor:color-ref, variant:plain|card|compact, density, surface}
+- `feature-card` — One feature/capability/benefit. Use explicit `layout:"vertical"|"horizontal"` to keep repeated cards consistent; horizontal places the decoration left of the text and is better for short card height. `variant:"compact"` defaults to horizontal deterministically; set `layout:"vertical"` when a top icon is intended. Prefer unified `decoration` for new decks: `{kind:"image"|"shape"|"marker"|"none", src?/iconSrc?, shape?/icon?, marker?, size?, color?, background?, tone?, variant?}`. Legacy `icon`, `iconSrc`, and `marker` still work. `compact` and custom `surface` cards keep internal padding by default; set `surface:{line:"none"}` or top-level `line:"none"` for borderless styles. type='feature-card' required={title} optional={layout:vertical|horizontal, decoration, icon, iconSrc:image-ref, marker, body, content:rich-runs, badge, tags, metric:{value,label,tone?}, proof, ctaText, iconColor, iconBackground, tone, titleColor:color-ref, variant:plain|card|compact, density, surface}
 - `logo-strip` — Set of customer/partner/integration logos. type='logo-strip' required={logos:[{src,alt}] | items | images} optional={columns, caption}
 - `tag-list` — Short keywords / categories / filters. type='tag-list' required={items} optional={tone}
 - `badge` — Single short status chip (NEW, RISK, BETA, DRAFT). type='badge' required={text} optional={tone}
@@ -640,8 +649,8 @@ needed.
 
 - `text` — Plain body copy (see §3.7). For multi-line bullets use `bullets`.
 - `bullets` — Bulleted list. type='bullets' required={items: string[] | [{text|runs:rich-runs}]} optional={title, density, size, marker, numberStyle}
-- `shape` — Raw geometry preset. type='shape' optional={preset, fill, line, lineWidth, cornerRadius, rotation, headEnd, tailEnd, thickness, ...}
-- `image` — Raster image without card chrome. type='image' required={src:image-ref} optional={alt, fit:cover|contain|fill, opacity, width, height}
+- `shape` — Raw geometry preset. type='shape' optional={preset, fill, fillOpacity, line, lineOpacity, lineWidth, lineDash, borderColor, borderWidth, borderStyle, border:{color|line,width?,dash?|style?}, cornerRadius, rotation, headEnd, tailEnd, thickness, ...}
+- `image` — Raster image without card chrome. type='image' required={src:image-ref} optional={alt, fit:cover|contain|fill, opacity, width, height, clip, cornerRadius, line, lineWidth, lineDash, borderColor, borderWidth, borderStyle, border:{color|line,width?,dash?|style?}, overlay, shadow}
 - `divider` — Horizontal or vertical thin rule. type='divider' optional={direction, thickness, color, length}
 - `spacer` — Empty flex spacing in a stack/grid. type='spacer' optional={fixedHeight, fixedWidth, weight}
 

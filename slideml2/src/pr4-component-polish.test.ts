@@ -54,6 +54,23 @@ describe("PR4: applyAgentSurface helper merges options into wrapper nodes", () =
     expect(out.padding).toBe(0.6);
   });
 
+  it("lineDash/borderStyle:'solid' clears an inherited dashed stroke", () => {
+    const node: DomNode = { id: "x", type: "stack", dash: "dot", children: [] };
+    const lineSolid = applyAgentSurface(node, { lineDash: "solid" });
+    expect(lineSolid.lineDash).toBe("solid");
+    expect(lineSolid.dash).toBeUndefined();
+
+    const borderSolid = applyAgentSurface(node, { surface: { border: { style: "solid" } } });
+    expect(borderSolid.borderStyle).toBe("solid");
+    expect(borderSolid.dash).toBeUndefined();
+  });
+
+  it("accent:'none' is preserved so agents can disable default accent bars", () => {
+    const node: DomNode = { id: "x", type: "card", accent: "left", children: [] };
+    const out = applyAgentSurface(node, { accent: "none" });
+    expect(out.accent).toBe("none");
+  });
+
   it("does not modify defaults the agent didn't set", () => {
     const node: DomNode = { id: "x", type: "stack", fill: "default-fill", children: [] };
     const out = applyAgentSurface(node, {});

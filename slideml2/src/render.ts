@@ -628,6 +628,7 @@ function pickShadedVariantForContrast(srcHex: string, bgHex: string, threshold: 
 
 function runContrastCheck(slideId: string, slide: { shapes: ShapeList; background?: { type: string; color?: string; stops?: Array<{ color: string }> } }, theme?: SimpleTheme): void {
   const slideBg = pickContrastBackgroundColor(slide.background);
+  const slideBgIsImage = slide.background?.type === "image";
   const surfaceCovers: SurfaceCover[] = [];
   type Hit = {
     fg: string;
@@ -672,7 +673,7 @@ function runContrastCheck(slideId: string, slide: { shapes: ShapeList; backgroun
       // slide's fallback bg is white). If the author wants deterministic
       // contrast, a solid/scrim/panel surface above the image will be picked
       // by the branch above and checked normally.
-      if (pickedImageSurface) continue;
+      if (pickedImageSurface || slideBgIsImage && !picked) continue;
       const paragraphs = shape.paragraphs || [];
       for (let pi = 0; pi < paragraphs.length; pi++) {
         const para = paragraphs[pi]!;
@@ -1055,6 +1056,7 @@ function detectCollisionsForSlide(slideId: string, measured: MeasuredNode[], sli
   const skipIds = collectCaptionPairs(measured);
   const layeredIds = collectLayeredIds(slideDom);
   const containerIds = collectContainerIds(slideDom);
+  const measuredParentById = collectMeasuredParentIds(measured);
   detectSiblingContainerOverlaps(slideId, measured, slideDom, overlayIds, layeredIds, containerIds);
   detectOverlayOcclusions(slideId, measured, slideDom, overlayIds);
   const candidates = measured.filter((node) =>
@@ -1066,6 +1068,7 @@ function detectCollisionsForSlide(slideId: string, measured: MeasuredNode[], sli
       const b = candidates[j]!;
       if (containerIds.has(a.id) || containerIds.has(b.id)) continue;
       if (isAncestorOf(slideDom, a.id, b.id) || isAncestorOf(slideDom, b.id, a.id)) continue;
+      if (isMeasuredAncestorOf(measuredParentById, a.id, b.id) || isMeasuredAncestorOf(measuredParentById, b.id, a.id)) continue;
       const aRect = collisionRect(a);
       const bRect = collisionRect(b);
       if (!aRect || !bRect) continue;
@@ -1275,6 +1278,26 @@ function collectContainerIds(root: DomNode): Set<string> {
   };
   walk(root);
   return ids;
+}
+
+function collectMeasuredParentIds(measured: MeasuredNode[]): Map<string, string> {
+  const parents = new Map<string, string>();
+  for (const node of measured) {
+    if (node.parentId) parents.set(node.id, node.parentId);
+  }
+  return parents;
+}
+
+function isMeasuredAncestorOf(parentById: Map<string, string>, ancestorId: string, descendantId: string): boolean {
+  const seen = new Set<string>();
+  let current = parentById.get(descendantId);
+  while (current) {
+    if (current === ancestorId) return true;
+    if (seen.has(current)) return false;
+    seen.add(current);
+    current = parentById.get(current);
+  }
+  return false;
 }
 
 function collectCaptionPairs(measured: MeasuredNode[]): Set<string> {
@@ -2232,8 +2255,8 @@ function inferredVisualRelation(node: DomNode): MeasuredNode["relation"] | undef
 }
 
 function hasPaintedTextSurface(node: DomNode): boolean {
-  return typeof node.fill === "string"
-    || typeof node.line === "string"
+  return surfaceFillToken(node.fill) !== undefined
+    || surfaceLineToken(node.line) !== undefined
     || hasSurfaceGradient(node)
     || typeof node.cornerRadius === "number";
 }
@@ -2250,7 +2273,7 @@ function paintedContainerRect(theme: SimpleTheme, node: DomNode, rect: Rect): Re
   const style = componentStyle(theme, node);
   const surface = surfaceNode(node, style);
   const hasFill = typeof surface.fill === "string" || hasSurfaceGradient(surface);
-  const hasLine = typeof surface.line === "string";
+  const hasLine = surfaceLineTokenForNode(surface) !== undefined;
   if (!hasFill && !hasLine) return undefined;
   return rect;
 }
@@ -2297,7 +2320,8 @@ function measuredVisualRole(node: DomNode): string {
 }
 
 function measuredAlpha(node: DomNode): number | undefined {
-  const raw = node.opacity ?? node.fillOpacity;
+  const surface = surfaceNode(node);
+  const raw = surface.opacity ?? surface.fillOpacity;
   return alphaProp(raw);
 }
 
@@ -2509,6 +2533,7 @@ function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
 }
 
 const squashedWarnings = new Set<string>();
+const SQUASHED_HEIGHT_TOLERANCE_CM = 0.04;
 
 function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, slideId: string): void {
   if (node.optional === true) return;
@@ -2534,7 +2559,7 @@ function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, s
     if (visibleInkHeight <= rect.h + 0.04) return;
   }
   const minHeight = node.type === "text" ? textSquashMinHeight(theme, node, rect) : node.type === "bullets" ? 1.0 : 0.5;
-  const shortContent = (node.type === "text" || node.type === "bullets") && rect.h < minHeight;
+  const shortContent = (node.type === "text" || node.type === "bullets") && rect.h + SQUASHED_HEIGHT_TOLERANCE_CM < minHeight;
   const narrowContent = node.type === "bullets" && rect.w < 1.4;
   if (!shortContent && !narrowContent) return;
   squashedWarnings.add(key);
@@ -2613,7 +2638,7 @@ function textSquashMinHeight(theme: SimpleTheme, node: DomNode, rect?: Rect): nu
  * single child. Multiple children are auto-wrapped in a vertical stack. */
 
 function decorativeChild(node: DomNode): DomNode | null {
-  const children = node.children || [];
+  const children = decorativeContentChildren(node);
   if (children.length === 0) return null;
   if (children.length === 1) return children[0]!;
   return {
@@ -2623,6 +2648,25 @@ function decorativeChild(node: DomNode): DomNode | null {
     gap: 0.3,
     children,
   };
+}
+
+function decorativeContentChildren(node: DomNode): DomNode[] {
+  const explicitChildren = node.children || [];
+  if (node.type !== "card") return explicitChildren;
+  const hasExplicitBody = explicitChildren.some((child) => child.id === `${node.id}.body`);
+  if (hasExplicitBody) return explicitChildren;
+  const body = typeof node.body === "string" && node.body.trim() ? node.body.trim() : "";
+  const content = Array.isArray(node.content) ? node.content : undefined;
+  if (!body && !content) return explicitChildren;
+  const bodyNode: DomNode = {
+    id: `${node.id}.body`,
+    type: "text",
+    ...(body ? { text: body } : { content }),
+    style: "paragraph",
+    minHeight: 0.48,
+    autoFit: "shrink",
+  } as DomNode;
+  return [bodyNode, ...explicitChildren];
 }
 
 function toneTokens(theme: SimpleTheme, tone: unknown): { fill?: string; line?: string; fg?: string; accent?: string } {
@@ -2638,6 +2682,7 @@ function cardHeader(node: DomNode): { text: string; field: "header" | "title" } 
 }
 
 function readableTextColorForFill(theme: SimpleTheme, fillToken: string, preferredToken?: string): string {
+  if (isSurfaceFillDisabled(fillToken)) return preferredToken || "text.primary";
   const fillHex = color(theme, fillToken, "surface");
   const candidates = [
     preferredToken,
@@ -2712,7 +2757,8 @@ function shadowForElevation(theme: SimpleTheme, elevation: ElevationName, accent
 }
 
 function surfaceNode(node: DomNode, style: object = {}): DomNode {
-  return { ...style, ...node } as DomNode;
+  const surface = recordValue(node.surface);
+  return { ...style, ...node, ...(surface || {}) } as DomNode;
 }
 
 function hasSurfaceGradient(node: DomNode): boolean {
@@ -2721,6 +2767,7 @@ function hasSurfaceGradient(node: DomNode): boolean {
 }
 
 function surfaceFill(theme: SimpleTheme, node: DomNode, fillToken: string | undefined, fallback: string, alpha?: number): FillSpec {
+  if (isSurfaceFillDisabled(fillToken)) return { type: "none" };
   const gradient = surfaceGradientFill(theme, node, alpha);
   if (gradient) return gradient;
   return withFillAlpha(resolveFill(theme, fillToken, fallback), alpha);
@@ -2764,28 +2811,114 @@ function surfaceShadow(theme: SimpleTheme, node: DomNode, fallback?: ShadowSpec)
   return imageShadowSpec(theme, node) ?? fallback;
 }
 
-function surfaceDash(node: DomNode): "dash" | "dashDot" | "dot" | undefined {
-  if (node.lineDash === "dash" || node.lineDash === "dashDot" || node.lineDash === "dot") return node.lineDash;
-  if (node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot") return node.dash;
+function surfaceDash(node: DomNode): LineSpec["dash"] | undefined {
+  return nonSolidDash(
+    dashValue(node.lineDash)
+      ?? dashValue(node.dash)
+      ?? dashValue(node.borderStyle)
+      ?? dashValueFromRecord(recordValue(node.border)),
+  );
+}
+
+function isSurfaceLineDisabled(value: unknown): boolean {
+  return isNoneToken(value);
+}
+
+function isSurfaceFillDisabled(value: unknown): boolean {
+  return isNoneToken(value);
+}
+
+function isNoneToken(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const token = value.trim().toLowerCase();
+  return token === "none" || token === "transparent";
+}
+
+function surfaceFillToken(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const token = value.trim();
+  if (!token || isSurfaceFillDisabled(token)) return undefined;
+  return token;
+}
+
+function surfaceLineToken(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const token = value.trim();
+  if (!token || isSurfaceLineDisabled(token)) return undefined;
+  return token;
+}
+
+function surfaceLineValue(node: DomNode): unknown {
+  if (node.line !== undefined) return node.line;
+  if (typeof node.borderColor === "string") return node.borderColor;
+  if (node.border !== undefined) {
+    if (typeof node.border === "string") return node.border;
+    const border = recordValue(node.border);
+    return stringFromRecord(border, "color") ?? stringFromRecord(border, "line");
+  }
   return undefined;
+}
+
+function surfaceLineTokenForNode(node: DomNode, fallback?: string): string | undefined {
+  const raw = surfaceLineValue(node);
+  if (isSurfaceLineDisabled(raw)) return undefined;
+  return surfaceLineToken(raw) ?? fallback;
+}
+
+function surfaceLineWidth(node: DomNode, fallback: number): number {
+  const border = recordValue(node.border);
+  return normalizeStrokeCm(
+    optionalNumberProp(node, "lineWidth")
+      ?? optionalNumberProp(node, "borderWidth")
+      ?? optionalNumberFromRecord(border, "width")
+      ?? optionalNumberFromRecord(border, "lineWidth"),
+    fallback,
+  );
+}
+
+function lineSpecCm(theme: SimpleTheme, token: string | undefined, widthCm: number, options: {
+  dash?: LineSpec["dash"];
+  alpha?: number;
+  headEnd?: LineSpec["headEnd"];
+  tailEnd?: LineSpec["tailEnd"];
+} = {}): LineSpec | undefined {
+  return lineSpecEmu(theme, token, cm(widthCm), options);
+}
+
+function lineSpecEmu(theme: SimpleTheme, token: string | undefined, width: number, options: {
+  dash?: LineSpec["dash"];
+  alpha?: number;
+  headEnd?: LineSpec["headEnd"];
+  tailEnd?: LineSpec["tailEnd"];
+} = {}): LineSpec | undefined {
+  if (!token) return undefined;
+  return {
+    color: color(theme, token),
+    width,
+    ...(options.dash ? { dash: options.dash } : {}),
+    ...(options.alpha !== undefined ? { alpha: options.alpha } : {}),
+    ...(options.headEnd ? { headEnd: options.headEnd } : {}),
+    ...(options.tailEnd ? { tailEnd: options.tailEnd } : {}),
+  };
 }
 
 function renderPanel(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
   const tone = toneTokens(theme, node.tone);
   const style = theme.component.panel || {};
   const surface = surfaceNode(node, style);
-  const fillToken = typeof node.fill === "string" ? node.fill : tone.fill || style.fill || "surface";
-  const lineToken = typeof node.line === "string" ? node.line : tone.line || style.line || "divider";
+  const authorSurface = surfaceNode(node);
+  const fillToken = typeof authorSurface.fill === "string" ? authorSurface.fill : tone.fill || style.fill || "surface";
+  const lineToken = surfaceLineTokenForNode(authorSurface, tone.line ?? style.line ?? "divider");
   const cornerRadius = optionalCornerRadiusProp(node) ?? style.cornerRadius ?? 0.12;
   // Panels default to "flat" — they're surface containers, not raised
   // cards. Agents who want elevation pass elevation:"raised".
   const elevation = resolveElevation(node.elevation) ?? "flat";
   const shadow = surfaceShadow(theme, surface, shadowForElevation(theme, elevation, tone.accent));
-  const padding = optionalNumberProp(node, "padding") ?? style.padding ?? 0.45;
+  const padding = optionalNumberProp(authorSurface, "padding") ?? style.padding ?? 0.45;
   // Stroke-like fields are normalized separately from layout dimensions:
   // legacy tiny values (0.02cm) remain valid, while agent-authored `1` means
   // 1pt instead of a 1cm block.
-  const lineWidth = normalizeStrokeCm(optionalNumberProp(surface, "lineWidth") ?? optionalNumberProp(surface, "borderWidth"), elevation === "outlined" ? 0.04 : 0.02);
+  const lineWidth = surfaceLineWidth(surface, elevation === "outlined" ? 0.04 : 0.02);
   const fillAlpha = alphaProp(surface.fillOpacity);
   const lineAlpha = alphaProp(surface.lineOpacity);
   const dash = surfaceDash(surface);
@@ -2797,9 +2930,9 @@ function renderPanel(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
     preset: "roundRect",
     xfrm: xfrm(rect),
     fill: surfaceFill(theme, surface, fillToken, "surface", fillAlpha),
-    line: elevation === "raised" || elevation === "floating"
+    line: elevation === "raised" || elevation === "floating" || !lineToken
       ? undefined
-      : { color: color(theme, lineToken), width: cm(lineWidth), ...(dash ? { dash } : {}), ...(lineAlpha !== undefined ? { alpha: lineAlpha } : {}) },
+      : lineSpecCm(theme, lineToken, lineWidth, { dash, alpha: lineAlpha }),
     cornerRadius,
     shadow,
   }];
@@ -2815,17 +2948,18 @@ function renderCard(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const tone = toneTokens(theme, node.tone);
   const style = theme.component.card || {};
   const surface = surfaceNode(node, style);
-  const fillToken = typeof node.fill === "string" ? node.fill : tone.fill || style.fill || "surface";
-  const lineToken = typeof node.line === "string" ? node.line : tone.line || style.line || "divider";
+  const authorSurface = surfaceNode(node);
+  const fillToken = typeof authorSurface.fill === "string" ? authorSurface.fill : tone.fill || style.fill || "surface";
+  const lineToken = surfaceLineTokenForNode(authorSurface, tone.line ?? style.line ?? "divider");
   const cornerRadius = optionalCornerRadiusProp(node) ?? style.cornerRadius ?? 0.12;
-  const padding = optionalNumberProp(node, "padding") ?? style.padding ?? 0.5;
+  const padding = optionalNumberProp(authorSurface, "padding") ?? style.padding ?? 0.5;
   // Cards default to subtle elevation so they stand off the page; agents who
   // want a flat card pass elevation:"flat". The shadow inherits the tone's
   // accent color so brand-toned cards cast a faint colored shadow.
   const elevation = resolveElevation(node.elevation) ?? "flat";
   const shadow = surfaceShadow(theme, surface, shadowForElevation(theme, elevation, tone.accent));
   // Per-card border width / dash override.
-  const lineWidth = normalizeStrokeCm(optionalNumberProp(surface, "lineWidth") ?? optionalNumberProp(surface, "borderWidth"), 0.02);
+  const lineWidth = surfaceLineWidth(surface, 0.02);
   const dashToken = surfaceDash(surface);
   const fillAlpha = alphaProp(surface.fillOpacity);
   const lineAlpha = alphaProp(surface.lineOpacity);
@@ -2846,9 +2980,9 @@ function renderCard(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
     preset: "roundRect",
     xfrm: xfrm(rect),
     fill: surfaceFill(theme, surface, fillToken, "surface", fillAlpha),
-    line: elevation === "floating"
+    line: elevation === "floating" || !lineToken
       ? undefined
-      : { color: color(theme, lineToken), width: cm(lineWidth), ...(dashToken ? { dash: dashToken } : {}), ...(lineAlpha !== undefined ? { alpha: lineAlpha } : {}) },
+      : lineSpecCm(theme, lineToken, lineWidth, { dash: dashToken, alpha: lineAlpha }),
     cornerRadius,
     shadow,
   }];
@@ -2911,13 +3045,14 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
           : toneTokens(theme, toneRaw);
   const style = theme.component.band || {};
   const surface = surfaceNode(node, style);
-  const fillToken = typeof node.fill === "string" ? node.fill : tone.fill || style.fill || "surface.subtle";
+  const authorSurface = surfaceNode(node);
+  const fillToken = typeof authorSurface.fill === "string" ? authorSurface.fill : tone.fill || style.fill || "surface.subtle";
   const childFgToken = readableTextColorForFill(theme, fillToken, tone.fg);
   const cornerRadius = optionalCornerRadiusProp(node) ?? style.cornerRadius ?? 0;
   const padding = decorativePadding(theme, node, rect);
   // Optional agent overrides on bands.
-  const lineToken = typeof surface.line === "string" ? surface.line : null;
-  const lineWidth = normalizeStrokeCm(optionalNumberProp(surface, "lineWidth") ?? optionalNumberProp(surface, "borderWidth"), 0.02);
+  const lineToken = surfaceLineTokenForNode(authorSurface);
+  const lineWidth = surfaceLineWidth(surface, 0.02);
   const dashToken = surfaceDash(surface);
   const fillAlpha = alphaProp(surface.fillOpacity);
   const lineAlpha = alphaProp(surface.lineOpacity);
@@ -2932,7 +3067,7 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
     xfrm: xfrm(rect),
     fill: surfaceFill(theme, surface, fillToken, "surface.subtle", fillAlpha),
     cornerRadius: cornerRadius > 0 ? cornerRadius : undefined,
-    line: lineToken ? { color: color(theme, lineToken), width: cm(lineWidth), ...(dashToken ? { dash: dashToken } : {}), ...(lineAlpha !== undefined ? { alpha: lineAlpha } : {}) } : undefined,
+    line: lineSpecCm(theme, lineToken, lineWidth, { dash: dashToken, alpha: lineAlpha }),
     shadow,
   }];
   const child = decorativeChild(node);
@@ -2945,9 +3080,11 @@ function renderBand(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
 
 function renderFrame(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
   const style = theme.component.frame || {};
-  const lineToken = stringProp(node, "line", style.line || "divider");
-  const lineWidth = normalizeStrokeCm(optionalNumberProp(node, "lineWidth"), 0.025);
-  const dash = node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : undefined;
+  const surface = surfaceNode(node, style);
+  const authorSurface = surfaceNode(node);
+  const lineToken = surfaceLineTokenForNode(authorSurface, style.line || "divider");
+  const lineWidth = surfaceLineWidth(surface, 0.025);
+  const dash = surfaceDash(surface);
   // 761q1u fix: agents reach for `frame` with a tiny fixedHeight as a
   // horizontal accent rule (`{type:"frame", line:"FFFFFF", fixedHeight:0.08}`).
   // The default frame radius (0.12) on a 0.08cm-tall rect produces a
@@ -2959,7 +3096,7 @@ function renderFrame(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
   const isDividerLikeFrame = (!Array.isArray(node.children) || node.children.length === 0)
     && typeof fixedH === "number" && fixedH < 0.6;
   const cornerRadius = optionalCornerRadiusProp(node) ?? (isDividerLikeFrame ? 0 : (style.cornerRadius ?? 0.12));
-  const padding = optionalNumberProp(node, "padding") ?? (isDividerLikeFrame ? 0 : (style.padding ?? 0.4));
+  const padding = optionalNumberProp(authorSurface, "padding") ?? (isDividerLikeFrame ? 0 : (style.padding ?? 0.4));
   const innerRect: Rect = { x: rect.x + padding, y: rect.y + padding, w: Math.max(0, rect.w - padding * 2), h: Math.max(0, rect.h - padding * 2) };
   const shapes: ShapeList = [{
     type: "shape",
@@ -2970,12 +3107,12 @@ function renderFrame(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: M
     // hollow outline). Use the line color as fill so it shows up.
     preset: "rect",
     xfrm: xfrm(rect),
-    fill: isDividerLikeFrame
+    fill: isDividerLikeFrame && lineToken
       ? { type: "solid", color: color(theme, lineToken) }
       : { type: "none" },
-    line: isDividerLikeFrame
+    line: isDividerLikeFrame || !lineToken
       ? undefined
-      : { color: color(theme, lineToken), width: cm(lineWidth), ...(dash ? { dash } : {}) },
+      : lineSpecCm(theme, lineToken, lineWidth, { dash }),
     cornerRadius,
   }];
   const child = decorativeChild(node);
@@ -3164,9 +3301,15 @@ function textShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId:
   const paragraphs = buildParagraphs(theme, node, style);
   const autoFit = effectiveAutoFit === "shrink" || effectiveAutoFit === "resize" ? effectiveAutoFit : undefined;
   if (!autoFit) pushTextFitDiagnostics(theme, node, rect, baseStyle);
+  const fillToken = typeof node.fill === "string" ? node.fill : undefined;
+  const lineToken = surfaceLineTokenForNode(node);
+  const lineWidth = surfaceLineWidth(node, 0.02);
+  const dash = surfaceDash(node);
+  const fillAlpha = alphaProp(node.fillOpacity ?? node.opacity);
+  const lineAlpha = alphaProp(node.lineOpacity ?? node.opacity);
   const cornerRadius = typeof node.cornerRadius === "number"
     ? normalizeCornerRadius(node.cornerRadius)
-    : (typeof node.fill === "string" || typeof node.line === "string" ? 0.08 : undefined);
+    : (surfaceFillToken(fillToken) !== undefined || lineToken !== undefined ? 0.08 : undefined);
   return {
     type: "text",
     id: ids.nextId++,
@@ -3176,8 +3319,8 @@ function textShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId:
     paragraphs,
     margin: { l: cm(TEXT_SHAPE_MARGIN_X_CM), r: cm(TEXT_SHAPE_MARGIN_X_CM), t: cm(TEXT_SHAPE_MARGIN_Y_CM), b: cm(TEXT_SHAPE_MARGIN_Y_CM) },
     wrap: node.wrap === "none" || node.noWrap === true ? "none" : undefined,
-    fill: typeof node.fill === "string" ? { type: "solid", color: color(theme, node.fill) } : undefined,
-    line: typeof node.line === "string" ? { color: color(theme, node.line), width: cm(0.02) } : undefined,
+    fill: fillToken !== undefined ? surfaceFill(theme, node, fillToken, "background", fillAlpha) : undefined,
+    line: lineSpecCm(theme, lineToken, lineWidth, { dash, alpha: lineAlpha }),
     cornerRadius,
     ...(autoFit ? { autoFit } : {}),
   };
@@ -3411,20 +3554,34 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
   const preset = presetCandidate as ShapePreset;
   const fillRecord = recordValue(node.fill);
   const lineRecord = recordValue(node.line);
+  const borderRecord = recordValue(node.border);
   const lineWidthCm = normalizeStrokeCm(
     optionalNumberProp(node, "lineWidth")
+      ?? optionalNumberProp(node, "borderWidth")
       ?? optionalNumberFromRecord(lineRecord, "width")
       ?? optionalNumberFromRecord(lineRecord, "lineWidth")
+      ?? optionalNumberFromRecord(borderRecord, "width")
+      ?? optionalNumberFromRecord(borderRecord, "lineWidth")
       ?? marker?.lineWidth,
     marker?.lineWidth ?? 0.02,
   );
-  const lineDash = node.lineDash === "dash" || node.lineDash === "dashDot" || node.lineDash === "dot"
-    ? node.lineDash
-    : node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot"
-      ? node.dash
-      : lineDashFromRecord(lineRecord) ?? marker?.dash;
+  const authoredLineDash =
+    dashValue(node.lineDash)
+      ?? dashValueFromRecord(lineRecord)
+      ?? dashValue(node.borderStyle)
+      ?? dashValueFromRecord(borderRecord)
+      ?? dashValue(node.dash);
+  const lineDash = authoredLineDash === "solid" ? undefined : authoredLineDash ?? marker?.dash;
   const fillToken = typeof node.fill === "string" ? node.fill : stringFromRecord(fillRecord, "color") ?? stringFromRecord(fillRecord, "fill") ?? marker?.fill;
-  const lineToken = typeof node.line === "string" ? node.line : stringFromRecord(lineRecord, "color") ?? stringFromRecord(lineRecord, "line") ?? marker?.line;
+  const rawLineToken = typeof node.line === "string"
+    ? node.line
+    : stringFromRecord(lineRecord, "color")
+      ?? stringFromRecord(lineRecord, "line")
+      ?? (typeof node.borderColor === "string" ? node.borderColor : undefined)
+      ?? (typeof node.border === "string" ? node.border : undefined)
+      ?? stringFromRecord(borderRecord, "color")
+      ?? stringFromRecord(borderRecord, "line");
+  const lineToken = isSurfaceLineDisabled(rawLineToken) ? undefined : surfaceLineToken(rawLineToken) ?? marker?.line;
   const fillAlpha = alphaProp(node.fillOpacity ?? fillRecord?.opacity ?? fillRecord?.alpha ?? node.opacity ?? marker?.fillOpacity);
   const lineAlpha = alphaProp(node.lineOpacity ?? lineRecord?.opacity ?? lineRecord?.alpha ?? node.opacity ?? marker?.lineOpacity);
   const shapeRect = marker ? markerRect(rect, marker, node) : rect;
@@ -3440,14 +3597,7 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
     preset,
     xfrm: xfrm(shapeRect, shapeNode),
     fill: fillToken || hasSurfaceGradient(node) ? surfaceFill(theme, node, fillToken, "background", fillAlpha) : { type: "none" },
-    line: lineToken ? {
-      color: color(theme, lineToken),
-      width: cm(lineWidthCm),
-      ...(lineDash ? { dash: lineDash } : {}),
-      ...(lineAlpha !== undefined ? { alpha: lineAlpha } : {}),
-      ...(headEnd ? { headEnd } : {}),
-      ...(tailEnd ? { tailEnd } : {}),
-    } : undefined,
+    line: lineSpecCm(theme, lineToken, lineWidthCm, { dash: lineDash, alpha: lineAlpha, headEnd, tailEnd }),
     ...(typeof node.cornerRadius === "number" ? { cornerRadius: normalizeCornerRadius(node.cornerRadius) } : marker?.cornerRadius !== undefined ? { cornerRadius: marker.cornerRadius } : {}),
   };
   if (hasTextContent(node)) {
@@ -3609,7 +3759,8 @@ function dividerShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
   const lineRect = orientation === "horizontal"
     ? { x: rect.x, y: rect.y + rect.h / 2, w: rect.w, h: Math.max(0.01, thickness) }
     : { x: rect.x + rect.w / 2, y: rect.y, w: Math.max(0.01, thickness), h: rect.h };
-  const dash = node.dash === "dash" || node.dash === "dashDot" || node.dash === "dot" ? node.dash : undefined;
+  const dash = surfaceDash(surfaceNode(node));
+  const lineToken = surfaceLineTokenForNode(surfaceNode(node), "divider");
   return {
     type: "shape",
     id: ids.nextId++,
@@ -3617,7 +3768,7 @@ function dividerShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
     preset: "line",
     xfrm: xfrm(lineRect),
     fill: { type: "none" },
-    line: { color: color(theme, node.line, "divider"), width: cm(Math.max(0.01, thickness)), ...(dash ? { dash } : {}) },
+    line: lineSpecCm(theme, lineToken, Math.max(0.01, thickness), { dash }),
   };
 }
 
@@ -3659,6 +3810,9 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   });
   pushEmptyTableDataDiagnostic(node, rect, sourceRows, rawRows, firstRowHeader);
   pushTableFitDiagnostics(theme, node, rect, allRows, colWidths, rowHeightsCm, firstRowHeader, semanticOuterRectForBody(node.id, "table", rectsById));
+  const tablePadding = tablePaddingSpec(node.cellPadding ?? node.padding);
+  const tableBorders = tableBorderSpec(theme, node.borders ?? node.border) ?? tableBorderSpec(theme, node.line) ?? tableBorderSpec(theme, node.borderColor);
+  const tableBorderDash = dashValue(node.borderDash) ?? dashValue(node.lineDash);
   return {
     type: "table",
     id: ids.nextId++,
@@ -3674,11 +3828,11 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     ...(typeof node.firstCol === "boolean" ? { firstCol: node.firstCol } : {}),
     ...(typeof node.lastCol === "boolean" ? { lastCol: node.lastCol } : {}),
     ...(typeof node.lastRow === "boolean" ? { lastRow: node.lastRow } : {}),
-    ...(tablePaddingSpec(node.cellPadding ?? node.padding) ? { cellPadding: tablePaddingSpec(node.cellPadding ?? node.padding) } : {}),
-    ...(tableBorderSpec(theme, node.borders ?? node.border) ? { borders: tableBorderSpec(theme, node.borders ?? node.border) } : {}),
-    borderColor: color(theme, typeof node.borderColor === "string" ? node.borderColor : "divider"),
-    borderWidth: cm(normalizeStrokeCm(node.borderWidth, 0.01)),
-    ...(node.borderDash === "solid" || node.borderDash === "dash" || node.borderDash === "dashDot" || node.borderDash === "dot" ? { borderDash: node.borderDash } : {}),
+    ...(tablePadding ? { cellPadding: tablePadding } : {}),
+    ...(tableBorders ? { borders: tableBorders } : {}),
+    ...(!isSurfaceLineDisabled(node.line) && !isSurfaceLineDisabled(node.borderColor) ? { borderColor: color(theme, typeof node.borderColor === "string" ? node.borderColor : typeof node.line === "string" ? node.line : "divider") } : {}),
+    borderWidth: cm(normalizeStrokeCm(node.borderWidth ?? node.lineWidth, 0.01)),
+    ...(tableBorderDash ? { borderDash: tableBorderDash } : {}),
   };
 }
 
@@ -3995,7 +4149,7 @@ function makeTableCell(
         : [plainTextRun(theme, text, style, bold, color(theme, colorToken, style.color))];
     return {
       runs,
-      fill: fillToken ? { type: "solid", color: color(theme, fillToken) } : undefined,
+      fill: tableCellFill(theme, fillToken),
       align,
       valign,
       ...(tablePaddingSpec(cell.padding) ? { padding: tablePaddingSpec(cell.padding) } : {}),
@@ -4011,12 +4165,17 @@ function makeTableCell(
     runs: parsedRuns.matched
       ? parsedRuns.runs.map((r) => richRunToTextRun(theme, r, style, isStyleBold(style.weight)))
       : [plainTextRun(theme, text, style, isStyleBold(style.weight), color(theme, undefined, style.color))],
-    fill: isHeader
-      ? { type: "solid", color: color(theme, defaults.headerFill || "surface.subtle") }
-      : defaults.bodyFill ? { type: "solid", color: color(theme, defaults.bodyFill) } : undefined,
+    fill: tableCellFill(theme, isHeader ? defaults.headerFill || "surface.subtle" : defaults.bodyFill),
     align: isHeader ? "center" : defaultAlign,
     valign: "middle",
   };
+}
+
+function tableCellFill(theme: SimpleTheme, token: unknown): FillSpec | undefined {
+  if (typeof token !== "string") return undefined;
+  if (isSurfaceFillDisabled(token)) return { type: "none" };
+  const fillToken = surfaceFillToken(token);
+  return fillToken ? { type: "solid", color: color(theme, fillToken) } : undefined;
 }
 
 function tablePaddingSpec(value: unknown): Partial<Record<"l" | "t" | "r" | "b", number>> | undefined {
@@ -4043,28 +4202,45 @@ function tablePaddingSpec(value: unknown): Partial<Record<"l" | "t" | "r" | "b",
 }
 
 function tableBorderSpec(theme: SimpleTheme, value: unknown): TableCell["border"] | undefined {
+  if (isSurfaceLineDisabled(value)) return tableNoBorderSpec();
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const rec = value as Record<string, unknown>;
   const out: Record<string, unknown> = {};
-  if (typeof rec.color === "string") out.color = color(theme, rec.color);
-  if (typeof rec.width === "number" && Number.isFinite(rec.width)) out.width = cm(normalizeStrokeCm(rec.width, 0.01));
-  if (rec.dash === "solid" || rec.dash === "dash" || rec.dash === "dashDot" || rec.dash === "dot") out.dash = rec.dash;
-  if (typeof rec.alpha === "number") out.alpha = rec.alpha;
+  const baseSpec = tableBorderLineFromRecord(theme, rec);
+  if (baseSpec === "none") return tableNoBorderSpec();
+  if (baseSpec) Object.assign(out, baseSpec);
   for (const side of ["left", "right", "top", "bottom"] as TableBorderSide[]) {
     const v = rec[side];
     if (v === "none") {
       out[side] = "none";
     } else if (v && typeof v === "object" && !Array.isArray(v)) {
-      const raw = v as Record<string, unknown>;
-      const sideSpec: TableBorderLineSpec = {};
-      if (typeof raw.color === "string") sideSpec.color = color(theme, raw.color);
-      if (typeof raw.width === "number" && Number.isFinite(raw.width)) sideSpec.width = cm(normalizeStrokeCm(raw.width, 0.01));
-      if (raw.dash === "solid" || raw.dash === "dash" || raw.dash === "dashDot" || raw.dash === "dot") sideSpec.dash = raw.dash;
-      if (typeof raw.alpha === "number") sideSpec.alpha = raw.alpha;
-      out[side] = sideSpec;
+      const sideSpec = tableBorderLineFromRecord(theme, v as Record<string, unknown>);
+      if (sideSpec === "none") {
+        out[side] = "none";
+      } else if (sideSpec) {
+        out[side] = sideSpec;
+      }
     }
   }
   return Object.keys(out).length > 0 ? out as TableCell["border"] : undefined;
+}
+
+function tableBorderLineFromRecord(theme: SimpleTheme, rec: Record<string, unknown>): TableBorderLineSpec | "none" | undefined {
+  if (isSurfaceLineDisabled(rec.color) || isSurfaceLineDisabled(rec.line)) return "none";
+  const out: TableBorderLineSpec = {};
+  const lineToken = stringFromRecord(rec, "color") ?? stringFromRecord(rec, "line");
+  if (lineToken) out.color = color(theme, lineToken);
+  const width = optionalNumberFromRecord(rec, "width") ?? optionalNumberFromRecord(rec, "lineWidth");
+  if (width !== undefined) out.width = cm(normalizeStrokeCm(width, 0.01));
+  const dash = dashValueFromRecord(rec);
+  if (dash) out.dash = dash;
+  const alpha = alphaProp(rec.alpha ?? rec.opacity);
+  if (alpha !== undefined) out.alpha = alpha;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function tableNoBorderSpec(): TableCell["border"] {
+  return { left: "none", right: "none", top: "none", bottom: "none" } as TableCell["border"];
 }
 
 function richRunToTextRun(theme: SimpleTheme, raw: unknown, style: ReturnType<typeof textStyle>, defaultBold: boolean): TextRun {
@@ -4603,13 +4779,33 @@ function imageShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
 }
 
 function imageBorderSpec(theme: SimpleTheme, node: DomNode): LineSpec | undefined {
-  const raw = node.border;
-  if (!raw || typeof raw !== "object") return undefined;
-  const rec = raw as Record<string, unknown>;
-  const colorToken = typeof rec.color === "string" ? rec.color : "divider";
-  const width = typeof rec.width === "number" ? cm(rec.width) : cm(0.025);
-  const dash = rec.dash === "dash" || rec.dash === "dashDot" || rec.dash === "dot" ? rec.dash : undefined;
-  return { color: color(theme, colorToken), width, ...(dash ? { dash } : {}) };
+  const borderRecord = recordValue(node.border);
+  const rawLine = typeof node.border === "string"
+    ? node.border
+    : stringFromRecord(borderRecord, "color")
+      ?? stringFromRecord(borderRecord, "line")
+      ?? surfaceLineValue(node);
+  const hasBorderDirective = node.border !== undefined
+    || node.line !== undefined
+    || node.borderColor !== undefined
+    || node.lineWidth !== undefined
+    || node.borderWidth !== undefined
+    || node.lineDash !== undefined
+    || node.borderStyle !== undefined;
+  if (!hasBorderDirective) return undefined;
+  if (isSurfaceLineDisabled(rawLine)) return undefined;
+  const lineToken = surfaceLineToken(rawLine) ?? "divider";
+  const width = cm(normalizeStrokeCm(
+    optionalNumberFromRecord(borderRecord, "width")
+      ?? optionalNumberFromRecord(borderRecord, "lineWidth")
+      ?? optionalNumberProp(node, "borderWidth")
+      ?? optionalNumberProp(node, "lineWidth"),
+    0.025,
+  ));
+  const borderDash = dashValueFromRecord(borderRecord);
+  const dash = borderDash === "solid" ? undefined : nonSolidDash(borderDash) ?? surfaceDash(node);
+  const alpha = alphaProp(borderRecord?.alpha ?? borderRecord?.opacity ?? node.lineOpacity ?? node.opacity);
+  return lineSpecEmu(theme, lineToken, width, { dash, alpha });
 }
 
 function lineEndSpec(value: unknown): LineSpec["headEnd"] | undefined {
@@ -4628,6 +4824,7 @@ function imageOverlaySpec(theme: SimpleTheme, node: DomNode): { color: string; a
   if (!raw || typeof raw !== "object") return undefined;
   const rec = raw as Record<string, unknown>;
   if (typeof rec.color !== "string") return undefined;
+  if (isSurfaceFillDisabled(rec.color)) return undefined;
   const out: { color: string; alpha?: number } = { color: color(theme, rec.color) };
   if (typeof rec.alpha === "number") out.alpha = rec.alpha;
   return out;
@@ -4650,6 +4847,7 @@ function imageShadowSpec(theme: SimpleTheme, node: DomNode): { color: string; al
   if (!raw || typeof raw !== "object") return undefined;
   const rec = raw as Record<string, unknown>;
   const colorToken = typeof rec.color === "string" ? rec.color : "111827";
+  if (isSurfaceFillDisabled(colorToken)) return undefined;
   const out: { color: string; alpha?: number; blur?: number; dx?: number; dy?: number } = { color: color(theme, colorToken) };
   if (typeof rec.alpha === "number") out.alpha = rec.alpha;
   if (typeof rec.blur === "number") out.blur = rec.blur;
@@ -4973,12 +5171,13 @@ function containerBackgroundShape(theme: SimpleTheme, node: DomNode, rect: Rect,
   const style = componentStyle(theme, node);
   const surface = surfaceNode(node, style);
   const fillToken = typeof surface.fill === "string" ? surface.fill : undefined;
-  const lineToken = typeof surface.line === "string" ? surface.line : undefined;
-  if (!fillToken && !lineToken && !hasSurfaceGradient(surface)) return [];
+  const lineToken = surfaceLineTokenForNode(surface);
+  const hasFill = !isSurfaceFillDisabled(fillToken) && (surfaceFillToken(fillToken) !== undefined || hasSurfaceGradient(surface));
+  if (!hasFill && !lineToken) return [];
   const cornerRadius = typeof surface.cornerRadius === "number" ? normalizeCornerRadius(surface.cornerRadius) : 0.08;
   const fillAlpha = alphaProp(surface.fillOpacity);
   const lineAlpha = alphaProp(surface.lineOpacity);
-  const lineWidth = normalizeStrokeCm(optionalNumberProp(surface, "lineWidth") ?? optionalNumberProp(surface, "borderWidth"), 0.02);
+  const lineWidth = surfaceLineWidth(surface, 0.02);
   const dash = surfaceDash(surface);
   const shape: Extract<ShapeList[number], { type: "shape" }> = {
     type: "shape",
@@ -4986,8 +5185,8 @@ function containerBackgroundShape(theme: SimpleTheme, node: DomNode, rect: Rect,
     name: `${nodeLabel(node)}-background`,
     preset: "roundRect",
     xfrm: xfrm(rect),
-    fill: fillToken || hasSurfaceGradient(surface) ? surfaceFill(theme, surface, fillToken, "surface", fillAlpha) : { type: "none" },
-    line: lineToken ? { color: color(theme, lineToken), width: cm(lineWidth), ...(dash ? { dash } : {}), ...(lineAlpha !== undefined ? { alpha: lineAlpha } : {}) } : undefined,
+    fill: hasFill ? surfaceFill(theme, surface, fillToken, "surface", fillAlpha) : { type: "none" },
+    line: lineSpecCm(theme, lineToken, lineWidth, { dash, alpha: lineAlpha }),
     cornerRadius,
   };
   const shadow = surfaceShadow(theme, surface);
@@ -5610,7 +5809,7 @@ function decorativeIntrinsicMain(theme: SimpleTheme, node: DomNode, direction: "
 function decorativePadding(theme: SimpleTheme, node: DomNode, rect?: Rect): number {
   const styleKey = node.type === "panel" ? "panel" : node.type === "card" ? "card" : node.type === "band" ? "band" : node.type === "frame" ? "frame" : "inset";
   const style = theme.component[styleKey] || {};
-  const explicit = optionalNumberProp(node, "padding");
+  const explicit = optionalNumberProp(surfaceNode(node), "padding");
   if (explicit !== undefined) return explicit;
   const base = style.padding ?? (node.type === "band" ? 0.6 : 0.4);
   if (node.type !== "band") return base;
@@ -6622,9 +6821,20 @@ function optionalNumberFromRecord(record: Record<string, unknown> | undefined, k
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function dashValue(value: unknown): LineSpec["dash"] | undefined {
+  return value === "solid" || value === "dash" || value === "dashDot" || value === "dot" ? value : undefined;
+}
+
+function dashValueFromRecord(record: Record<string, unknown> | undefined): LineSpec["dash"] | undefined {
+  return dashValue(stringFromRecord(record, "dash") ?? stringFromRecord(record, "lineDash") ?? stringFromRecord(record, "style"));
+}
+
+function nonSolidDash(value: LineSpec["dash"] | undefined): LineSpec["dash"] | undefined {
+  return value === "solid" ? undefined : value;
+}
+
 function lineDashFromRecord(record: Record<string, unknown> | undefined): LineSpec["dash"] | undefined {
-  const value = stringFromRecord(record, "dash") ?? stringFromRecord(record, "lineDash");
-  return value === "dash" || value === "dashDot" || value === "dot" ? value : undefined;
+  return nonSolidDash(dashValueFromRecord(record));
 }
 
 function optionalCornerRadiusProp(node: DomNode): number | undefined {
@@ -6710,8 +6920,8 @@ function normalizeChartMarker(theme: SimpleTheme, value: unknown): ChartMarkerSp
   const marker: ChartMarkerSpec = {};
   if (rec.symbol === "none" || rec.symbol === "circle" || rec.symbol === "dash" || rec.symbol === "diamond" || rec.symbol === "dot" || rec.symbol === "plus" || rec.symbol === "square" || rec.symbol === "star" || rec.symbol === "triangle" || rec.symbol === "x") marker.symbol = rec.symbol;
   if (typeof rec.size === "number" && Number.isFinite(rec.size)) marker.size = rec.size;
-  if (typeof rec.fill === "string") marker.fill = color(theme, rec.fill);
-  if (typeof rec.line === "string") marker.line = color(theme, rec.line);
+  if (typeof rec.fill === "string" && !isSurfaceFillDisabled(rec.fill)) marker.fill = color(theme, rec.fill);
+  if (typeof rec.line === "string" && !isSurfaceLineDisabled(rec.line)) marker.line = color(theme, rec.line);
   return Object.keys(marker).length > 0 ? marker : undefined;
 }
 

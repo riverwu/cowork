@@ -10,7 +10,7 @@ import {
 } from "./components.js";
 import { listNodeTypes } from "./node-types.js";
 import type { DomNode, NodeType } from "./types.js";
-import type { AgentSurface, DecorationMarkerInput } from "./components.js";
+import type { AgentSurface, DecorationMarkerInput, FeatureCardDecoration } from "./components.js";
 import { latexToMathText, richRunsPlainText } from "./m3-rich-inline.js";
 import { normalizeStrokeCm } from "./units.js";
 import { rectFromAbsoluteRectSpec, rectFromNodeBoxFields, rectFromNodePlacement } from "./layout/geometry.js";
@@ -370,6 +370,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   component("feature-card", "One feature, capability, benefit, or ingredient of an offer. Use for modular value propositions, not for arbitrary bullet paragraphs.", {
     icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional large icon shape preset. Prefer marker for subtle item decoration." },
     iconSrc: { type: "image-ref", description: "Optional generated/raster icon path. Use with generate_icon_sheet outputs; rendered as a contain-fit square icon." },
+    decoration: { type: "object", description: "Unified visual cue. Prefer over separate icon/iconSrc/marker when authoring new decks. Shape: {kind:'image'|'shape'|'marker'|'none', src?/iconSrc?, shape?/icon?, marker?, size?:'xs'|'sm'|'md'|'lg'|'xl'|number, color?, background?, tone?, variant?}. `marker` is compact; `image`/`shape` are larger visual icons." },
     title: { type: "string", required: true, semantic: "card-title", description: "Feature title." },
     body: { type: "string", semantic: "caption", description: "Optional supporting copy." },
     content: { type: "array", description: "Optional rich text runs for supporting copy." },
@@ -383,6 +384,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     iconBackground: { type: "string", description: "Icon fill (theme token)." },
     tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger"], description: "Semantic feature tone; controls title, marker, and icon accent color." },
     titleColor: { type: "color-ref", description: "Explicit title color token when semantic tone is not enough." },
+    layout: { type: "enum", enum: ["vertical", "horizontal"], description: "Explicit card layout. vertical places the decoration above the title; horizontal places the decoration left of the text. No auto mode, so repeated feature-cards stay visually consistent. Compact feature-cards default to horizontal unless you set layout:'vertical'." },
     variant: { type: "enum", enum: ["plain", "card", "compact"], description: "Visual treatment." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
     surface: { type: "object", description: "Optional surface override." },
@@ -557,7 +559,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     series: { type: "array", required: true, description: "Chart series. Series may set type:'bar'|'line' for combo, axis:'primary'|'secondary', trendLine, errorBars, color, lineWidth, lineDash, marker, or dataLabels." },
     data: { type: "object", description: "Optional { labels, series } alias bundle." },
     bind: { type: "object", description: "Optional deck data binding {source, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; resolves labels/series from deck.dataSources." },
-    encoding: { type: "object", description: "Binding encoding: {x, y, orientation?, series?, seriesName?, seriesOptions?}. y may be a string or string[]; seriesOptions can set bar/line type, secondary axis, trendLine, and errorBars per output series. For horizontal bars, use orientation:'horizontal' or x=numeric/y=categorical." },
+    encoding: { type: "object", description: "Binding encoding: {x, y, orientation?, series?, seriesName?, seriesOptions?}. y may be a string or string[]; seriesOptions can set name, color, lineWidth, lineDash, marker, dataLabels, bar/line type, secondary axis, trendLine, and errorBars per output series. For horizontal bars, use orientation:'horizontal' or x=numeric/y=categorical." },
     title: { type: "string", description: "Optional card/chart title." },
     badge: { type: "string", description: "Optional status/category badge." },
     insight: { type: "string", description: "Optional conclusion sentence." },
@@ -1253,6 +1255,7 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       body: stringValue(node.body, ""),
       content: node.content,
       marker: decorationMarker(node.marker),
+      decoration: node.decoration && typeof node.decoration === "object" && !Array.isArray(node.decoration) ? node.decoration as FeatureCardDecoration : undefined,
       badge: stringValue(node.badge, ""),
       tags: stringArray(node.tags),
       metric: node.metric && typeof node.metric === "object" ? {
@@ -1266,6 +1269,7 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       iconBackground: stringValue(node.iconBackground, ""),
       tone: semanticTone,
       titleColor: stringValue(node.titleColor, semanticTone ? "" : rawTone),
+      layout: node.layout === "horizontal" || node.layout === "vertical" ? node.layout : undefined,
       variant: node.variant === "card" || node.variant === "compact" ? node.variant : undefined,
       density: node.density === "compact" || node.density === "comfortable" ? node.density : undefined,
       ...surfaceOptions(node),
@@ -3019,7 +3023,8 @@ function tableCardNode(slideId: string, name: string, node: DomNode): DomNode {
   const tableHeaders = Array.isArray(node.headers) ? node.headers : Array.isArray(data.headers) ? data.headers : [];
   const denseTable = node.density === "compact" || node.variant === "compact" || tableRows.length + (tableHeaders.length ? 1 : 0) >= 7;
   const cardProps = cardToneProps(node.tone);
-  const cardFill = typeof node.fill === "string" ? node.fill : typeof cardProps.fill === "string" ? cardProps.fill : "surface";
+  const surface = node.surface && typeof node.surface === "object" && !Array.isArray(node.surface) ? node.surface as Record<string, unknown> : {};
+  const cardFill = typeof surface.fill === "string" ? surface.fill : typeof node.fill === "string" ? node.fill : typeof cardProps.fill === "string" ? cardProps.fill : "surface";
   const frameless = node.variant === "frameless";
   return applyAgentSurface({
     id: `${slideId}.${name}`,
@@ -4578,7 +4583,7 @@ function processFlowMarker(value: unknown): ProcessFlowMarker | undefined {
 function surfaceOptions(node: DomNode): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   if (node.surface && typeof node.surface === "object") out.surface = node.surface;
-  for (const key of ["fill", "border", "borderColor", "borderWidth", "borderStyle", "cornerRadius", "padding", "elevation", "accent", "accentColor", "accentWidth"]) {
+  for (const key of ["fill", "fillOpacity", "line", "lineOpacity", "lineWidth", "lineDash", "border", "borderColor", "borderWidth", "borderStyle", "cornerRadius", "padding", "elevation", "shadow", "gradient", "accent", "accentColor", "accentWidth"]) {
     if (node[key] !== undefined) out[key] = node[key];
   }
   return out;
