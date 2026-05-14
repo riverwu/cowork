@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.41
+version: 1.0.42
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -117,6 +117,7 @@ Before `set-deck` replaces `references`, `footnotes`, or `dataSources`, read the
 | `validate-slide <slide.json>` | Validate one standalone slide file with no side effects. |
 | `validate-manifest <manifest.json>` | Validate manifest entries, referenced slides, and full composed layout with no writes. |
 | `compose <manifest.json>` | Atomically compose ordered slide files into final deck source and/or PPTX. |
+| `slice-icons <sheet.png>` | Slice an AI-generated icon sheet into individual PNG icons and `assets/icons/manifest.json`. |
 | `help [command]` | Print command-specific help and argument examples. |
 
 Common flags:
@@ -124,6 +125,8 @@ Common flags:
 - `--deck <path>` targets a config file other than `./deck-config.json`.
 - `--out <path>` sets PPTX output for `compose`.
 - `--write-source <path>` sets the composed full deck JSON output path.
+- `--icons <path>`, `--out-dir <path>`, `--grid 2x2`, and `--output-size 768`
+  are for `slice-icons`.
 - `--dry-run` validates `init-deck`, `set-deck`, or `compose` without writing; prefer `validate-manifest` over `compose --dry-run` unless CI needs the same line.
 
 ### Argument Files
@@ -579,6 +582,62 @@ For research / commercial provenance: put bibliography in
 `deck.references[{id,title?,authors?,year?,venue?,doi?,url?,citation?}]`,
 footnotes in `deck.footnotes[{id,text}]`, and reference them with rich
 inline runs `{kind:"cite",refId}` and `{kind:"footnoteRef",footnoteId}`.
+
+### 2.9 Generated Icon Assets
+
+When the deck needs reusable icons, plan them before slide JSON. The asset plan
+must map each icon name to an actual field such as `feature-card.iconSrc`,
+`timeline.items[].iconSrc`, `process-flow.steps[].iconSrc`, or `image.src`.
+Skip icon generation when the deck will not reference the returned files.
+
+Use whatever image-generation capability the host agent provides to create one
+square icon sheet. Prompt for a strict `1x1`, `2x2`, or `3x3` grid: plain
+white/transparent background, no text, no labels, no captions, no app tiles,
+one centered standalone icon per cell, consistent stroke/weight, and modest
+even padding. Use visual English descriptions; filenames and Chinese labels
+belong in `icons.json`, not in the image prompt.
+
+Write `icons.json` beside the sheet:
+
+```json
+[
+  { "name": "bank", "label": "银行", "description": "front view bank building line icon" },
+  { "name": "risk", "label": "风险", "description": "shield with alert symbol line icon" }
+]
+```
+
+Then slice the sheet with the SlideML2 runtime:
+
+```bash
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" slice-icons assets/icons/icon-sheet.png \
+  --icons assets/icons/icons.json \
+  --out-dir assets/icons \
+  --grid 2x2 \
+  --output-size 768
+```
+
+`slice-icons` writes `assets/icons/manifest.json` and one PNG per icon name.
+It uses the explicit grid and removes likely tile frames, black separator
+rules, stray labels, and near-background pixels. If the sheet has a different
+layout, rerun with the correct `--grid`; for non-transparent white-background
+icons, add `--no-transparent`.
+
+Manifest shape:
+
+```json
+{
+  "sheetPath": "/abs/assets/icons/icon-sheet.png",
+  "manifestPath": "/abs/assets/icons/manifest.json",
+  "grid": { "columns": 2, "rows": 2 },
+  "icons": [{ "name": "bank", "path": "/abs/assets/icons/bank.png" }]
+}
+```
+
+Use `manifest.icons[].path`, not the sheet image, in slide JSON. Examples:
+`feature-card.iconSrc:"/abs/assets/icons/bank.png"`,
+`process-flow.steps[].iconSrc:"/abs/assets/icons/review.png"`,
+`timeline.items[].iconSrc:"/abs/assets/icons/launch.png"`, or
+`image.src`/`image-card.src` with `fit:"contain"`.
 
 ---
 

@@ -16,6 +16,8 @@ export {
 export type { RenderDiagnosticCode } from "./diagnostic-codes.js";
 export { applyEdits } from "./edit.js";
 export { inspectDeck } from "./inspect.js";
+export { sliceIconSheet, normalizeIconRequests, normalizeGridSpec } from "./icon-sheet.js";
+export type { IconGridSpec, IconManifest, IconRequest, SliceIconSheetOptions } from "./icon-sheet.js";
 export { inspectLayout } from "./layout-inspect.js";
 export type { InspectedLayoutNode, InspectedSlideLayout } from "./layout-inspect.js";
 export { buildDom, getSlide } from "./layouts.js";

@@ -114,6 +114,7 @@ describe("slideml2 SKILL golden copy", () => {
     expect(packageScript).toContain("entry.includes(\"/runtime/src/\")");
     expect(packageScript).not.toContain('"runtime/src/index.ts"');
     expect(packageScript).toContain("init-deck deck-init.json");
+    expect(packageScript).toContain("slice-icons assets/icons/icon-sheet.png");
     expect(packageScript).not.toContain("md2" + "pptx");
     expect(packageScript).not.toContain("render-source-deck");
     expect(syncScript).toContain("slideml2/SKILL.md");
@@ -123,9 +124,23 @@ describe("slideml2 SKILL golden copy", () => {
     expect(readFileSync(runtimeCliPath, "utf8")).toContain("validate-slide");
     expect(readFileSync(runtimeCliPath, "utf8")).toContain("validate-manifest");
     expect(readFileSync(runtimeCliPath, "utf8")).toContain("compose");
+    expect(readFileSync(runtimeCliPath, "utf8")).toContain("slice-icons");
     expect(readFileSync(runtimeCliPath, "utf8")).not.toContain("\"add-slide\"");
     expect(readFileSync(runtimeCliPath, "utf8")).not.toContain("\"insert-slide\"");
     expect(readFileSync(runtimeCliPath, "utf8")).not.toContain("\"delete-slide\"");
+  });
+
+  it("documents host-agent icon generation plus runtime sheet slicing", () => {
+    const skill = skillText();
+
+    expect(skill).toContain("### 2.9 Generated Icon Assets");
+    expect(skill).toContain("Use whatever image-generation capability the host agent provides");
+    expect(skill).toContain("square icon sheet");
+    expect(skill).toContain("icons.json");
+    expect(skill).toContain("slice-icons assets/icons/icon-sheet.png");
+    expect(skill).toContain("manifest.icons[].path");
+    expect(skill).toContain("feature-card.iconSrc");
+    expect(skill).toContain("timeline.items[].iconSrc");
   });
 
   it("supports the manifest-compose CLI without stateful slide append commands", () => {

@@ -11,6 +11,7 @@ import {
   normalizeSlide,
   renderToAst,
   renderToPptx,
+  sliceIconSheet,
   sourceToRenderedDeck,
   validateDeck,
   validateSlide,
@@ -31,6 +32,7 @@ const COMMANDS = [
   "validate-slide",
   "validate-manifest",
   "compose",
+  "slice-icons",
   "help",
 ];
 
@@ -47,12 +49,15 @@ Commands:
   validate-manifest <manifest.json>
                                  Validate manifest order and referenced slide files.
   compose <manifest.json>        Compose ordered slide files into deck source and/or PPTX.
+  slice-icons <sheet.png>        Slice an AI-generated icon sheet into PNG icons.
   help [command]                 Show command help.
 
 Common flags:
   --deck <path>          Deck config source path. Default: ./deck-config.json.
   --out <path>           PPTX output path for compose.
   --write-source <path>  Composed full deck JSON output path for compose.
+  --icons <path>         Icon specs JSON for slice-icons.
+  --out-dir <path>       Output directory for slice-icons.
   --dry-run              Run validation but do not write files.
   --strict               Reserved for stricter validation policy.
   --json-output          Accepted for clarity; JSON output is always enabled.
@@ -90,10 +95,30 @@ Read deck config plus ordered slide files from manifest.json, validate the
 full composed deck, then atomically write the composed deck source and optional
 PPTX. Slide order comes only from manifest.json, not command history. At least
 one of --write-source or --out is required.`,
+  "slice-icons": `Usage: slideml2 slice-icons <sheet.png> --icons icons.json --out-dir assets/icons [--manifest assets/icons/manifest.json] [--grid 3x3] [--output-size 768] [--no-transparent]
+
+Slice an AI-generated PNG icon sheet into individual square PNG icons and write
+a manifest. icons.json is an array of strings or objects:
+  [{ "name":"bank", "label":"银行", "description":"bank building line icon" }]
+
+The command uses the explicit grid and robust cell detection. It discards
+probable tile frames, black separator lines, stray labels, and near-background
+pixels so icons can be referenced as feature-card.iconSrc, timeline iconSrc,
+process-flow step iconSrc, or image src.`,
 };
 
 function printHelp(command) {
-  console.log(HELP[command] || HELP.main);
+  const key = HELP[command] ? command : "main";
+  printPayload({
+    ok: true,
+    command: "help",
+    stage: "help",
+    status: "ok",
+    deckModified: false,
+    helpCommand: key,
+    help: HELP[key],
+    commands: COMMANDS,
+  });
 }
 
 function abs(path) {
@@ -115,6 +140,7 @@ function writeSourcePathFrom(flags) {
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
+  const valueFlags = new Set(["deck", "out", "write-source", "icons", "out-dir", "manifest", "grid", "output-size"]);
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--help" || arg === "-h") {
@@ -125,7 +151,11 @@ function parseArgs(argv) {
       flags.strict = true;
     } else if (arg === "--json-output") {
       flags.jsonOutput = true;
-    } else if (arg === "--deck" || arg === "--out" || arg === "--write-source") {
+    } else if (arg === "--transparent") {
+      flags.transparent = true;
+    } else if (arg === "--no-transparent") {
+      flags.transparent = false;
+    } else if (arg.startsWith("--") && valueFlags.has(arg.slice(2))) {
       const value = argv[++i];
       if (!value) usage(`Missing value for ${arg}`);
       flags[arg.slice(2)] = value;
@@ -367,17 +397,31 @@ function diagnosticsSummary(items) {
 }
 
 function renderValidationPayload(diagnostics, blocking, quality) {
+  const sortedBlocking = sortDiagnostics(blocking);
+  const sortedQuality = sortDiagnostics(quality);
   return {
     ok: blocking.length === 0,
     diagnostics: {
       count: diagnostics.length,
       summary: diagnosticsSummary(diagnostics),
       blockingCount: blocking.length,
-      blocking: blocking.slice(0, 80),
+      blocking: sortedBlocking.slice(0, 80),
       qualityCount: quality.length,
-      quality: quality.slice(0, 30),
+      quality: sortedQuality.slice(0, 30),
     },
   };
+}
+
+function sortDiagnostics(items) {
+  const severityRank = { error: 0, warn: 1, warning: 1, info: 2 };
+  return [...items].sort((a, b) => {
+    const severity = (severityRank[a.severity] ?? 1) - (severityRank[b.severity] ?? 1);
+    if (severity) return severity;
+    return String(a.code || "").localeCompare(String(b.code || ""))
+      || String(a.slideId || "").localeCompare(String(b.slideId || ""))
+      || String(a.nodeId || "").localeCompare(String(b.nodeId || ""))
+      || String(a.message || "").localeCompare(String(b.message || ""));
+  });
 }
 
 function issue(level, code, message, extra = {}) {
@@ -897,11 +941,68 @@ async function runCompose(command, manifestPath, flags) {
   }));
 }
 
+function parseGridFlag(value) {
+  if (!value) return undefined;
+  const match = /^(\d+)(?:x(\d+))?$/i.exec(String(value).trim());
+  if (!match) usage(`--grid must look like 1x1, 2x2, or 3x3. Got: ${value}`);
+  return { columns: Number(match[1]), rows: Number(match[2] || match[1]) };
+}
+
+function parseOutputSizeFlag(value) {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) usage(`--output-size must be a positive number. Got: ${value}`);
+  return Math.floor(parsed);
+}
+
+async function runSliceIcons(command, sheetPath, flags) {
+  if (!sheetPath) usage("slice-icons requires <sheet.png>");
+  if (!flags.icons) usage("slice-icons requires --icons icons.json");
+  if (!flags["out-dir"]) usage("slice-icons requires --out-dir assets/icons");
+  const icons = await readJson(flags.icons, "icon specs");
+  const outputDir = abs(flags["out-dir"]);
+  const manifestPath = flags.manifest ? abs(flags.manifest) : resolve(outputDir, "manifest.json");
+  const manifest = await sliceIconSheet({
+    sheetPath: abs(sheetPath),
+    icons,
+    outputDir,
+    manifestPath,
+    grid: parseGridFlag(flags.grid),
+    outputSize: parseOutputSizeFlag(flags["output-size"]),
+    makeTransparent: flags.transparent !== false,
+  });
+  printPayload(commandPayload(command, {
+    ok: true,
+    stage: "assets",
+    status: "ok",
+    deckModified: false,
+    sheetPath: manifest.sheetPath,
+    manifestPath: manifest.manifestPath,
+    outputDir,
+    grid: manifest.grid,
+    outputSize: manifest.outputSize,
+    makeTransparent: manifest.makeTransparent,
+    iconCount: manifest.icons.length,
+    icons: manifest.icons,
+    nextAction: "Use manifest.icons[].path as iconSrc/image src in slide JSON, then rerun validate-slide or validate-manifest.",
+  }));
+}
+
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
   if (!command) {
-    printHelp("main");
-    process.exit(EXIT.usage);
+    printPayload({
+      ok: false,
+      command: "help",
+      stage: "input",
+      status: "usage-error",
+      deckModified: false,
+      error: "Missing command.",
+      helpCommand: "main",
+      help: HELP.main,
+      commands: COMMANDS,
+      nextAction: "Choose one command from commands and retry with the documented command shape.",
+    }, EXIT.usage);
   }
   if (command === "help") {
     printHelp(rest[0] || "main");
@@ -919,6 +1020,7 @@ async function main() {
   if (command === "validate-slide") return runValidateSlide(command, positional[0], flags);
   if (command === "validate-manifest") return runValidateManifest(command, positional[0], flags);
   if (command === "compose") return runCompose(command, positional[0], flags);
+  if (command === "slice-icons") return runSliceIcons(command, positional[0], flags);
   usage(`Unknown command: ${command}`);
 }
 

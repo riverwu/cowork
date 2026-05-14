@@ -178,6 +178,7 @@ node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" set-deck deck-theme.json
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-slide slides/01-cover.json
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-manifest manifest.json
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" compose manifest.json --write-source build/deck.json --out build/deck.pptx
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" slice-icons assets/icons/icon-sheet.png --icons assets/icons/icons.json --out-dir assets/icons --grid 2x2
 \`\`\`
 
 All CLI commands run from the deck workspace. If \`--deck\` is omitted, the CLI
@@ -190,6 +191,7 @@ Supported agent-facing commands are:
 - \`validate-slide\`
 - \`validate-manifest\`
 - \`compose\`
+- \`slice-icons\`
 
 Do not call TypeScript handlers, npm scripts, or tool adapters as the agent
 interface. Rebuilds must happen from the upstream SlideML2 repository; this
@@ -277,6 +279,7 @@ node /path/to/slideml2/runtime/bin/slideml2.js set-deck deck-theme.json
 node /path/to/slideml2/runtime/bin/slideml2.js validate-slide slides/01-cover.json
 node /path/to/slideml2/runtime/bin/slideml2.js validate-manifest manifest.json
 node /path/to/slideml2/runtime/bin/slideml2.js compose manifest.json --write-source build/deck.json --out deck.pptx
+node /path/to/slideml2/runtime/bin/slideml2.js slice-icons assets/icons/icon-sheet.png --icons assets/icons/icons.json --out-dir assets/icons --grid 2x2
 \`\`\`
 
 This package is runtime-only: it intentionally omits TypeScript source, tests,
@@ -308,6 +311,9 @@ Do not write a complete deck JSON by hand and jump straight to final PPTX
 generation. Use \`init-deck\`, validate each slide file with
 \`validate-slide\`, validate ordering with \`validate-manifest\`, and finish
 with \`compose\`. Slide order is manifest order, not command order.
+
+Use \`slice-icons\` after host image generation to split one icon sheet into
+individual PNG files plus \`assets/icons/manifest.json\`.
 `;
   await writeFile(join(runtimeRoot, "RUNTIME.md"), readme);
 }
@@ -416,6 +422,7 @@ async function main(): Promise<void> {
           validateSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js validate-slide slides/01-cover.json",
           validateManifest: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js validate-manifest manifest.json",
           compose: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js compose manifest.json --write-source build/deck.json --out deck.pptx",
+          sliceIcons: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js slice-icons assets/icons/icon-sheet.png --icons assets/icons/icons.json --out-dir assets/icons --grid 2x2",
         },
         devInstallCommand: "not supported in the skill package; rebuild from the upstream SlideML2 repository",
         devBuildCommand: "not supported in the skill package; rebuild from the upstream SlideML2 repository",

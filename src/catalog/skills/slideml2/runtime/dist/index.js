@@ -311,7 +311,7 @@ var require_BufferList = __commonJS({
         this.head = this.tail = null;
         this.length = 0;
       };
-      BufferList.prototype.join = function join2(s) {
+      BufferList.prototype.join = function join3(s) {
         if (this.length === 0) return "";
         var p = this.head;
         var ret = "" + p.data;
@@ -2286,8 +2286,8 @@ var require_lib2 = __commonJS({
         return this;
       }
       var p = this.constructor;
-      return this.then(resolve4, reject2);
-      function resolve4(value) {
+      return this.then(resolve5, reject2);
+      function resolve5(value) {
         function yes() {
           return value;
         }
@@ -2440,8 +2440,8 @@ var require_lib2 = __commonJS({
       }
       return out;
     }
-    Promise2.resolve = resolve3;
-    function resolve3(value) {
+    Promise2.resolve = resolve4;
+    function resolve4(value) {
       if (value instanceof this) {
         return value;
       }
@@ -2972,10 +2972,10 @@ var require_utils = __commonJS({
       var promise = external.Promise.resolve(inputData).then(function(data) {
         var isBlob = support.blob && (data instanceof Blob || ["[object File]", "[object Blob]"].indexOf(Object.prototype.toString.call(data)) !== -1);
         if (isBlob && typeof FileReader !== "undefined") {
-          return new external.Promise(function(resolve3, reject) {
+          return new external.Promise(function(resolve4, reject) {
             var reader = new FileReader();
             reader.onload = function(e) {
-              resolve3(e.target.result);
+              resolve4(e.target.result);
             };
             reader.onerror = function(e) {
               reject(e.target.error);
@@ -3530,7 +3530,7 @@ var require_StreamHelper = __commonJS({
       }
     }
     function accumulate(helper, updateCallback) {
-      return new external.Promise(function(resolve3, reject) {
+      return new external.Promise(function(resolve4, reject) {
         var dataArray = [];
         var chunkType = helper._internalType, resultType = helper._outputType, mimeType = helper._mimeType;
         helper.on("data", function(data, meta) {
@@ -3544,7 +3544,7 @@ var require_StreamHelper = __commonJS({
         }).on("end", function() {
           try {
             var result = transformZipOutput(resultType, concat(chunkType, dataArray), mimeType);
-            resolve3(result);
+            resolve4(result);
           } catch (e) {
             reject(e);
           }
@@ -3760,9 +3760,9 @@ var require_crc32 = __commonJS({
       }
       return table;
     }
-    var crcTable = makeTable();
-    function crc32(crc, buf, len, pos) {
-      var t = crcTable, end = pos + len;
+    var crcTable2 = makeTable();
+    function crc322(crc, buf, len, pos) {
+      var t = crcTable2, end = pos + len;
       crc = crc ^ -1;
       for (var i = pos; i < end; i++) {
         crc = crc >>> 8 ^ t[(crc ^ buf[i]) & 255];
@@ -3770,7 +3770,7 @@ var require_crc32 = __commonJS({
       return crc ^ -1;
     }
     function crc32str(crc, str, len, pos) {
-      var t = crcTable, end = pos + len;
+      var t = crcTable2, end = pos + len;
       crc = crc ^ -1;
       for (var i = pos; i < end; i++) {
         crc = crc >>> 8 ^ t[(crc ^ str.charCodeAt(i)) & 255];
@@ -3783,7 +3783,7 @@ var require_crc32 = __commonJS({
       }
       var isArray = utils.getTypeOf(input) !== "string";
       if (isArray) {
-        return crc32(crc | 0, input, input.length, 0);
+        return crc322(crc | 0, input, input.length, 0);
       } else {
         return crc32str(crc | 0, input, input.length, 0);
       }
@@ -3796,7 +3796,7 @@ var require_Crc32Probe = __commonJS({
   "node_modules/.pnpm/jszip@3.10.1/node_modules/jszip/lib/stream/Crc32Probe.js"(exports, module) {
     "use strict";
     var GenericWorker = require_GenericWorker();
-    var crc32 = require_crc32();
+    var crc322 = require_crc32();
     var utils = require_utils();
     function Crc32Probe() {
       GenericWorker.call(this, "Crc32Probe");
@@ -3804,7 +3804,7 @@ var require_Crc32Probe = __commonJS({
     }
     utils.inherits(Crc32Probe, GenericWorker);
     Crc32Probe.prototype.processChunk = function(chunk) {
-      this.streamInfo.crc32 = crc32(chunk.data, this.streamInfo.crc32 || 0);
+      this.streamInfo.crc32 = crc322(chunk.data, this.streamInfo.crc32 || 0);
       this.push(chunk);
     };
     module.exports = Crc32Probe;
@@ -3842,10 +3842,10 @@ var require_compressedObject = __commonJS({
     var DataWorker = require_DataWorker();
     var Crc32Probe = require_Crc32Probe();
     var DataLengthProbe = require_DataLengthProbe();
-    function CompressedObject(compressedSize, uncompressedSize, crc32, compression, data) {
+    function CompressedObject(compressedSize, uncompressedSize, crc322, compression, data) {
       this.compressedSize = compressedSize;
       this.uncompressedSize = uncompressedSize;
-      this.crc32 = crc32;
+      this.crc32 = crc322;
       this.compression = compression;
       this.compressedContent = data;
     }
@@ -4766,16 +4766,16 @@ var require_crc322 = __commonJS({
       }
       return table;
     }
-    var crcTable = makeTable();
-    function crc32(crc, buf, len, pos) {
-      var t = crcTable, end = pos + len;
+    var crcTable2 = makeTable();
+    function crc322(crc, buf, len, pos) {
+      var t = crcTable2, end = pos + len;
       crc ^= -1;
       for (var i = pos; i < end; i++) {
         crc = crc >>> 8 ^ t[(crc ^ buf[i]) & 255];
       }
       return crc ^ -1;
     }
-    module.exports = crc32;
+    module.exports = crc322;
   }
 });
 
@@ -4813,7 +4813,7 @@ var require_deflate = __commonJS({
     var utils = require_common();
     var trees = require_trees();
     var adler32 = require_adler32();
-    var crc32 = require_crc322();
+    var crc322 = require_crc322();
     var msg = require_messages();
     var Z_NO_FLUSH = 0;
     var Z_PARTIAL_FLUSH = 1;
@@ -4916,7 +4916,7 @@ var require_deflate = __commonJS({
       if (strm.state.wrap === 1) {
         strm.adler = adler32(strm.adler, buf, len, start);
       } else if (strm.state.wrap === 2) {
-        strm.adler = crc32(strm.adler, buf, len, start);
+        strm.adler = crc322(strm.adler, buf, len, start);
       }
       strm.next_in += len;
       strm.total_in += len;
@@ -5558,7 +5558,7 @@ var require_deflate = __commonJS({
               put_byte(s, s.gzhead.extra.length >> 8 & 255);
             }
             if (s.gzhead.hcrc) {
-              strm.adler = crc32(strm.adler, s.pending_buf, s.pending, 0);
+              strm.adler = crc322(strm.adler, s.pending_buf, s.pending, 0);
             }
             s.gzindex = 0;
             s.status = EXTRA_STATE;
@@ -5595,7 +5595,7 @@ var require_deflate = __commonJS({
           while (s.gzindex < (s.gzhead.extra.length & 65535)) {
             if (s.pending === s.pending_buf_size) {
               if (s.gzhead.hcrc && s.pending > beg) {
-                strm.adler = crc32(strm.adler, s.pending_buf, s.pending - beg, beg);
+                strm.adler = crc322(strm.adler, s.pending_buf, s.pending - beg, beg);
               }
               flush_pending(strm);
               beg = s.pending;
@@ -5607,7 +5607,7 @@ var require_deflate = __commonJS({
             s.gzindex++;
           }
           if (s.gzhead.hcrc && s.pending > beg) {
-            strm.adler = crc32(strm.adler, s.pending_buf, s.pending - beg, beg);
+            strm.adler = crc322(strm.adler, s.pending_buf, s.pending - beg, beg);
           }
           if (s.gzindex === s.gzhead.extra.length) {
             s.gzindex = 0;
@@ -5623,7 +5623,7 @@ var require_deflate = __commonJS({
           do {
             if (s.pending === s.pending_buf_size) {
               if (s.gzhead.hcrc && s.pending > beg) {
-                strm.adler = crc32(strm.adler, s.pending_buf, s.pending - beg, beg);
+                strm.adler = crc322(strm.adler, s.pending_buf, s.pending - beg, beg);
               }
               flush_pending(strm);
               beg = s.pending;
@@ -5640,7 +5640,7 @@ var require_deflate = __commonJS({
             put_byte(s, val);
           } while (val !== 0);
           if (s.gzhead.hcrc && s.pending > beg) {
-            strm.adler = crc32(strm.adler, s.pending_buf, s.pending - beg, beg);
+            strm.adler = crc322(strm.adler, s.pending_buf, s.pending - beg, beg);
           }
           if (val === 0) {
             s.gzindex = 0;
@@ -5656,7 +5656,7 @@ var require_deflate = __commonJS({
           do {
             if (s.pending === s.pending_buf_size) {
               if (s.gzhead.hcrc && s.pending > beg) {
-                strm.adler = crc32(strm.adler, s.pending_buf, s.pending - beg, beg);
+                strm.adler = crc322(strm.adler, s.pending_buf, s.pending - beg, beg);
               }
               flush_pending(strm);
               beg = s.pending;
@@ -5673,7 +5673,7 @@ var require_deflate = __commonJS({
             put_byte(s, val);
           } while (val !== 0);
           if (s.gzhead.hcrc && s.pending > beg) {
-            strm.adler = crc32(strm.adler, s.pending_buf, s.pending - beg, beg);
+            strm.adler = crc322(strm.adler, s.pending_buf, s.pending - beg, beg);
           }
           if (val === 0) {
             s.status = HCRC_STATE;
@@ -6731,7 +6731,7 @@ var require_inflate = __commonJS({
     "use strict";
     var utils = require_common();
     var adler32 = require_adler32();
-    var crc32 = require_crc322();
+    var crc322 = require_crc322();
     var inflate_fast = require_inffast();
     var inflate_table = require_inftrees();
     var CODES = 0;
@@ -7035,7 +7035,7 @@ var require_inflate = __commonJS({
                 state.check = 0;
                 hbuf[0] = hold & 255;
                 hbuf[1] = hold >>> 8 & 255;
-                state.check = crc32(state.check, hbuf, 2, 0);
+                state.check = crc322(state.check, hbuf, 2, 0);
                 hold = 0;
                 bits = 0;
                 state.mode = FLAGS;
@@ -7098,7 +7098,7 @@ var require_inflate = __commonJS({
               if (state.flags & 512) {
                 hbuf[0] = hold & 255;
                 hbuf[1] = hold >>> 8 & 255;
-                state.check = crc32(state.check, hbuf, 2, 0);
+                state.check = crc322(state.check, hbuf, 2, 0);
               }
               hold = 0;
               bits = 0;
@@ -7121,7 +7121,7 @@ var require_inflate = __commonJS({
                 hbuf[1] = hold >>> 8 & 255;
                 hbuf[2] = hold >>> 16 & 255;
                 hbuf[3] = hold >>> 24 & 255;
-                state.check = crc32(state.check, hbuf, 4, 0);
+                state.check = crc322(state.check, hbuf, 4, 0);
               }
               hold = 0;
               bits = 0;
@@ -7143,7 +7143,7 @@ var require_inflate = __commonJS({
               if (state.flags & 512) {
                 hbuf[0] = hold & 255;
                 hbuf[1] = hold >>> 8 & 255;
-                state.check = crc32(state.check, hbuf, 2, 0);
+                state.check = crc322(state.check, hbuf, 2, 0);
               }
               hold = 0;
               bits = 0;
@@ -7166,7 +7166,7 @@ var require_inflate = __commonJS({
                 if (state.flags & 512) {
                   hbuf[0] = hold & 255;
                   hbuf[1] = hold >>> 8 & 255;
-                  state.check = crc32(state.check, hbuf, 2, 0);
+                  state.check = crc322(state.check, hbuf, 2, 0);
                 }
                 hold = 0;
                 bits = 0;
@@ -7199,7 +7199,7 @@ var require_inflate = __commonJS({
                     );
                   }
                   if (state.flags & 512) {
-                    state.check = crc32(state.check, input, copy, next);
+                    state.check = crc322(state.check, input, copy, next);
                   }
                   have -= copy;
                   next += copy;
@@ -7225,7 +7225,7 @@ var require_inflate = __commonJS({
                   }
                 } while (len && copy < have);
                 if (state.flags & 512) {
-                  state.check = crc32(state.check, input, copy, next);
+                  state.check = crc322(state.check, input, copy, next);
                 }
                 have -= copy;
                 next += copy;
@@ -7251,7 +7251,7 @@ var require_inflate = __commonJS({
                   }
                 } while (len && copy < have);
                 if (state.flags & 512) {
-                  state.check = crc32(state.check, input, copy, next);
+                  state.check = crc322(state.check, input, copy, next);
                 }
                 have -= copy;
                 next += copy;
@@ -7826,7 +7826,7 @@ var require_inflate = __commonJS({
                 state.total += _out;
                 if (_out) {
                   strm.adler = state.check = /*UPDATE(state.check, put - _out, _out);*/
-                  state.flags ? crc32(state.check, output, _out, put - _out) : adler32(state.check, output, _out, put - _out);
+                  state.flags ? crc322(state.check, output, _out, put - _out) : adler32(state.check, output, _out, put - _out);
                 }
                 _out = left;
                 if ((state.flags ? hold : zswap32(hold)) !== state.check) {
@@ -7892,7 +7892,7 @@ var require_inflate = __commonJS({
       state.total += _out;
       if (state.wrap && _out) {
         strm.adler = state.check = /*UPDATE(state.check, strm.next_out - _out, _out);*/
-        state.flags ? crc32(state.check, output, _out, strm.next_out - _out) : adler32(state.check, output, _out, strm.next_out - _out);
+        state.flags ? crc322(state.check, output, _out, strm.next_out - _out) : adler32(state.check, output, _out, strm.next_out - _out);
       }
       strm.data_type = state.bits + (state.last ? 64 : 0) + (state.mode === TYPE ? 128 : 0) + (state.mode === LEN_ || state.mode === COPY_ ? 256 : 0);
       if ((_in === 0 && _out === 0 || flush === Z_FINISH) && ret === Z_OK) {
@@ -8316,7 +8316,7 @@ var require_ZipFileWorker = __commonJS({
     var utils = require_utils();
     var GenericWorker = require_GenericWorker();
     var utf8 = require_utf8();
-    var crc32 = require_crc32();
+    var crc322 = require_crc32();
     var signature = require_signature();
     var decToHex = function(dec, bytes) {
       var hex = "", i;
@@ -8380,7 +8380,7 @@ var require_ZipFileWorker = __commonJS({
       if (useUTF8ForFileName) {
         unicodePathExtraField = // Version
         decToHex(1, 1) + // NameCRC32
-        decToHex(crc32(encodedFileName), 4) + // UnicodeName
+        decToHex(crc322(encodedFileName), 4) + // UnicodeName
         utfEncodedFileName;
         extraFields += // Info-ZIP Unicode Path Extra Field
         "up" + // size
@@ -8390,7 +8390,7 @@ var require_ZipFileWorker = __commonJS({
       if (useUTF8ForComment) {
         unicodeCommentExtraField = // Version
         decToHex(1, 1) + // CommentCRC32
-        decToHex(crc32(encodedComment), 4) + // UnicodeName
+        decToHex(crc322(encodedComment), 4) + // UnicodeName
         utfEncodedComment;
         extraFields += // Info-ZIP Unicode Path Extra Field
         "uc" + // size
@@ -9657,7 +9657,7 @@ var require_load = __commonJS({
     var Crc32Probe = require_Crc32Probe();
     var nodejsUtils = require_nodejsUtils();
     function checkEntryCRC32(zipEntry) {
-      return new external.Promise(function(resolve3, reject) {
+      return new external.Promise(function(resolve4, reject) {
         var worker = zipEntry.decompressed.getContentWorker().pipe(new Crc32Probe());
         worker.on("error", function(e) {
           reject(e);
@@ -9665,7 +9665,7 @@ var require_load = __commonJS({
           if (worker.streamInfo.crc32 !== zipEntry.decompressed.crc32) {
             reject(new Error("Corrupted zip : CRC32 mismatch"));
           } else {
-            resolve3();
+            resolve4();
           }
         }).resume();
       });
@@ -10073,7 +10073,9 @@ var RENDER_DIAGNOSTIC_CODES = [
   "LOW_CONTRAST",
   "LOW_CONTRAST_FIXED",
   "SHAPE_INVISIBLE",
-  "SHAPE_INVISIBLE_FIXED"
+  "SHAPE_INVISIBLE_FIXED",
+  "MISSING_ANCHOR_TARGET",
+  "MISSING_DATA_BINDING_SOURCE"
 ];
 var SOURCE_VALIDATION_CODE = {
   INVALID_SLIDE_TRANSITION: "INVALID_SLIDE_TRANSITION",
@@ -10098,7 +10100,9 @@ var BLOCKING_RENDER_DIAGNOSTIC_CODES = /* @__PURE__ */ new Set([
   "SHAPE_INVISIBLE",
   "UNKNOWN_COLOR",
   "UNKNOWN_STYLE",
-  "OFF_SLIDE"
+  "OFF_SLIDE",
+  "MISSING_ANCHOR_TARGET",
+  "MISSING_DATA_BINDING_SOURCE"
 ]);
 var QUALITY_RENDER_DIAGNOSTIC_CODES = /* @__PURE__ */ new Set([
   "TRUNCATED",
@@ -10578,7 +10582,7 @@ var SHAPE_DETAILED = {
     description: "OOXML preset geometry name"
   },
   role: { valueType: "enum", values: ["item-marker"], description: "Semantic role. item-marker renders a small stable decoration mark inside its allocated rect instead of stretching to fill it." },
-  marker: { valueType: "object", description: "Item-decoration shorthand: string or {shape|preset|marker, tone?, variant?, size?}. Shapes: dot, ring, square, rounded-square, diamond, side-bar, slash, index-chip." },
+  marker: { valueType: "object", description: "Item-decoration shorthand: string or {shape|preset|marker, content?/glyph?/text?, tone?, variant?, size?}. String can be a marker shape or a short glyph such as '!', '$', 'Q1', or emoji. Shapes: dot, ring, square, rounded-square, diamond, side-bar, slash, index-chip." },
   shape: { valueType: "enum", values: ["dot", "ring", "square", "rounded-square", "diamond", "side-bar", "slash", "index-chip"], description: "Alias used with role:'item-marker' when marker is omitted." },
   tone: { valueType: "enum", values: ["brand", "neutral", "muted", "positive", "warning", "danger"], description: "Semantic marker color." },
   variant: { valueType: "enum", values: ["tint", "solid", "outline", "ghost", "ring", "badge"], description: "Marker treatment: tint (default), solid, outline/ring, ghost, or badge." },
@@ -10822,23 +10826,816 @@ function isComponentLikeType(type) {
   return type === "component" || /^[a-z][a-z0-9-]+$/.test(type);
 }
 
+// slideml2/dist/icon-sheet.js
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { deflateSync, inflateSync } from "node:zlib";
+var PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+var DEFAULT_OUTPUT_SIZE = 768;
+async function sliceIconSheet(options) {
+  const sheetPath = resolve(options.sheetPath);
+  const outputDir = resolve(options.outputDir);
+  const manifestPath = resolve(options.manifestPath || join(outputDir, "manifest.json"));
+  const icons = normalizeIconRequests(options.icons);
+  if (icons.length === 0)
+    throw new Error("slice-icons requires at least one icon spec.");
+  const grid = normalizeGridSpec(options.grid, icons.length);
+  const outputSize = clampInt(options.outputSize, 256, 2048, DEFAULT_OUTPUT_SIZE);
+  const makeTransparent = options.makeTransparent !== false;
+  await mkdir(outputDir, { recursive: true });
+  await mkdir(dirname(manifestPath), { recursive: true });
+  const sheet = decodePngRgba(await readFile(sheetPath));
+  const gridRect = detectGridRect(sheet, grid);
+  const cellWidth = (gridRect.right - gridRect.left) / grid.columns;
+  const cellHeight = (gridRect.bottom - gridRect.top) / grid.rows;
+  const maxIcons = Math.min(icons.length, grid.columns * grid.rows);
+  const manifestIcons = [];
+  for (let index = 0; index < maxIcons; index += 1) {
+    const icon = icons[index];
+    const column = index % grid.columns;
+    const row = Math.floor(index / grid.columns);
+    const cellRect = roundRect({
+      left: gridRect.left + column * cellWidth,
+      top: gridRect.top + row * cellHeight,
+      right: gridRect.left + (column + 1) * cellWidth,
+      bottom: gridRect.top + (row + 1) * cellHeight
+    }, sheet.width, sheet.height);
+    const cropped = cropIconFromCell(sheet, cellRect, outputSize, makeTransparent);
+    const iconPath = join(outputDir, `${icon.name}.png`);
+    await writeFile(iconPath, encodePngRgba(cropped.image));
+    manifestIcons.push({
+      ...icon,
+      path: iconPath,
+      cell: { row, column },
+      crop: {
+        x: cropped.crop.left,
+        y: cropped.crop.top,
+        width: cropped.crop.right - cropped.crop.left,
+        height: cropped.crop.bottom - cropped.crop.top
+      }
+    });
+  }
+  const manifest = {
+    sheetPath,
+    manifestPath,
+    grid,
+    outputSize,
+    makeTransparent,
+    icons: manifestIcons
+  };
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}
+`, "utf8");
+  return manifest;
+}
+function normalizeIconRequests(value) {
+  if (!Array.isArray(value))
+    throw new Error("icons must be an array of strings or {name,label,description} objects.");
+  const seen = /* @__PURE__ */ new Map();
+  return value.map((item, index) => {
+    const record = item && typeof item === "object" && !Array.isArray(item) ? item : {};
+    const rawName = typeof item === "string" ? item : firstString(record.name, record.id, record.key);
+    const rawLabel = typeof item === "string" ? item : firstString(record.label, record.title, record.name, rawName);
+    const rawDescription = typeof item === "string" ? item : firstString(record.description, record.prompt, record.body, rawLabel, rawName);
+    let name = slugify(rawName) || slugify(rawLabel) || `icon_${index + 1}`;
+    const count = seen.get(name) || 0;
+    seen.set(name, count + 1);
+    if (count > 0)
+      name = `${name}_${count + 1}`;
+    return {
+      name,
+      label: rawLabel.trim() || name,
+      description: rawDescription.trim() || rawLabel.trim() || name
+    };
+  });
+}
+function normalizeGridSpec(value, count) {
+  if (typeof value === "string") {
+    const match = /^(\d+)(?:x(\d+))?$/i.exec(value.trim());
+    if (match) {
+      const columns = clampInt(Number(match[1]), 1, 8, 1);
+      const rows = clampInt(Number(match[2] || match[1]), 1, 8, columns);
+      return { columns, rows };
+    }
+  }
+  const record = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const explicitColumns = typeof record.columns === "number" ? Math.floor(record.columns) : void 0;
+  const explicitRows = typeof record.rows === "number" ? Math.floor(record.rows) : void 0;
+  if (explicitColumns && explicitRows && explicitColumns > 0 && explicitRows > 0) {
+    return { columns: Math.min(8, explicitColumns), rows: Math.min(8, explicitRows) };
+  }
+  const size = Math.max(1, Math.min(3, Math.ceil(Math.sqrt(Math.max(1, count)))));
+  return { columns: size, rows: size };
+}
+function cropIconFromCell(sheet, cellRect, outputSize, makeTransparent) {
+  const cell = cropImage(sheet, cellRect);
+  const focus = insetRect({ left: 0, top: 0, right: cell.width, bottom: cell.height }, Math.max(2, Math.round(Math.min(cell.width, cell.height) * 0.035)));
+  const bbox = iconContentBox(cell, {
+    expectedCenter: { x: cell.width / 2, y: cell.height / 2 },
+    focusRect: focus,
+    dropEdgeFrames: true
+  });
+  const rawCrop = bbox ? constrainRect(expandRect(bbox, Math.max(8, Math.round(Math.max(cell.width, cell.height) * 0.035))), cell.width, cell.height) : insetRect({ left: 0, top: 0, right: cell.width, bottom: cell.height }, Math.max(2, Math.round(Math.min(cell.width, cell.height) * 0.08)));
+  const guard = expandRect(focus, Math.max(4, Math.round(Math.min(cell.width, cell.height) * 0.08)));
+  const guardedCrop = intersectRect(rawCrop, constrainRect(guard, cell.width, cell.height)) || rawCrop;
+  let icon = cropImage(cell, guardedCrop);
+  const tight = iconContentBox(icon, { dropEdgeFrames: false });
+  if (tight) {
+    icon = cropImage(icon, constrainRect(expandRect(tight, Math.max(6, Math.round(Math.max(icon.width, icon.height) * 0.035))), icon.width, icon.height));
+  }
+  if (makeTransparent)
+    icon = removeBackground(icon);
+  const maxArtwork = Math.round(outputSize * 0.82);
+  const scale = Math.min(1, maxArtwork / Math.max(1, icon.width), maxArtwork / Math.max(1, icon.height));
+  const resized = resizeImage(icon, Math.max(1, Math.round(icon.width * scale)), Math.max(1, Math.round(icon.height * scale)));
+  const canvas = blankImage(outputSize, outputSize, makeTransparent ? [255, 255, 255, 0] : [255, 255, 255, 255]);
+  pasteImage(canvas, resized, Math.floor((outputSize - resized.width) / 2), Math.floor((outputSize - resized.height) / 2), !makeTransparent);
+  return {
+    image: canvas,
+    crop: {
+      left: cellRect.left + guardedCrop.left,
+      top: cellRect.top + guardedCrop.top,
+      right: cellRect.left + guardedCrop.right,
+      bottom: cellRect.top + guardedCrop.bottom
+    }
+  };
+}
+function detectGridRect(image, grid) {
+  const lineRect = detectLineGridRect(image, grid);
+  if (lineRect)
+    return lineRect;
+  const content = contentBox(image);
+  if (!content)
+    return { left: 0, top: 0, right: image.width, bottom: image.height };
+  const fullArea = image.width * image.height;
+  const contentArea = (content.right - content.left) * (content.bottom - content.top);
+  if (contentArea > fullArea * 0.82)
+    return { left: 0, top: 0, right: image.width, bottom: image.height };
+  const padded = constrainRect(expandRect(content, Math.max(image.width, image.height) * 0.018), image.width, image.height);
+  return fitAspectRect(padded, grid.columns / grid.rows, image.width, image.height);
+}
+function detectLineGridRect(image, grid) {
+  const vertical = detectLineClusters(image, "vertical");
+  const horizontal = detectLineClusters(image, "horizontal");
+  const v = bestLineSequence(vertical, grid.columns + 1);
+  const h = bestLineSequence(horizontal, grid.rows + 1);
+  if (!v || !h)
+    return null;
+  const left = Math.max(0, Math.round(v[0].start));
+  const right = Math.min(image.width, Math.round(v[v.length - 1].end));
+  const top = Math.max(0, Math.round(h[0].start));
+  const bottom = Math.min(image.height, Math.round(h[h.length - 1].end));
+  if (right - left < image.width * 0.25 || bottom - top < image.height * 0.25)
+    return null;
+  return fitAspectRect({ left, top, right, bottom }, grid.columns / grid.rows, image.width, image.height);
+}
+function detectLineClusters(image, axis) {
+  const length = axis === "vertical" ? image.width : image.height;
+  const span = axis === "vertical" ? image.height : image.width;
+  const threshold = Math.max(8, span * 0.42);
+  const counts = [];
+  for (let p = 0; p < length; p += 1) {
+    let count = 0;
+    let start2 = -1;
+    let end = -1;
+    for (let q = 0; q < span; q += 1) {
+      const x = axis === "vertical" ? p : q;
+      const y = axis === "vertical" ? q : p;
+      const idx = (y * image.width + x) * 4;
+      const r = image.data[idx];
+      const g = image.data[idx + 1];
+      const b = image.data[idx + 2];
+      const a = image.data[idx + 3];
+      if (a > 16 && isLikelyRulePixel(r, g, b)) {
+        count += 1;
+        if (start2 < 0)
+          start2 = q;
+        end = q;
+      }
+    }
+    counts.push(count >= threshold ? count : 0);
+  }
+  const clusters = [];
+  let start = -1;
+  let weighted = 0;
+  let weight = 0;
+  let maxCoverage = 0;
+  for (let p = 0; p <= length; p += 1) {
+    const count = p < length ? counts[p] : 0;
+    if (count > 0) {
+      if (start < 0)
+        start = p;
+      weighted += p * count;
+      weight += count;
+      maxCoverage = Math.max(maxCoverage, count);
+    } else if (start >= 0) {
+      const end = p;
+      const thickness = end - start;
+      const position = weight > 0 ? weighted / weight : (start + end) / 2;
+      if (thickness <= Math.max(12, length * 0.035)) {
+        clusters.push({ position, start, end, coverage: maxCoverage / span, thickness });
+      }
+      start = -1;
+      weighted = 0;
+      weight = 0;
+      maxCoverage = 0;
+    }
+  }
+  return clusters;
+}
+function isLikelyRulePixel(r, g, b) {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  return max < 92 || max - min < 18 && max < 150;
+}
+function bestLineSequence(lines, needed) {
+  if (lines.length < needed)
+    return null;
+  let best = null;
+  const sorted = lines.slice().sort((a, b) => a.position - b.position);
+  for (let start = 0; start <= sorted.length - needed; start += 1) {
+    const window2 = sorted.slice(start, start + needed);
+    const gaps = [];
+    for (let i = 1; i < window2.length; i += 1)
+      gaps.push(window2[i].position - window2[i - 1].position);
+    const avg = gaps.reduce((sum, gap) => sum + gap, 0) / Math.max(1, gaps.length);
+    if (avg <= 1)
+      continue;
+    const variance = gaps.reduce((sum, gap) => sum + Math.abs(gap - avg) / avg, 0) / Math.max(1, gaps.length);
+    const coverage = window2.reduce((sum, line) => sum + line.coverage, 0) / window2.length;
+    const score = variance - coverage * 0.08;
+    if (!best || score < best.score)
+      best = { score, window: window2 };
+  }
+  return best && best.score < 0.42 ? best.window : null;
+}
+function contentBox(image) {
+  const bg = estimateBackground(image);
+  const mask = foregroundMask(image, bg, 30);
+  const boxes = componentBoxes(mask, image.width, image.height);
+  const area = image.width * image.height;
+  const minArea = Math.max(12, area * 4e-4);
+  const keep = boxes.filter((box) => {
+    const w = box.right - box.left;
+    const h = box.bottom - box.top;
+    const captionLike = w > h * 2.8 && h < image.height * 0.12 && box.top < image.height * 0.24;
+    return box.area >= minArea && !captionLike;
+  });
+  return mergeRects(keep);
+}
+function iconContentBox(image, options = {}) {
+  const bg = estimateBackground(image, options.focusRect ? insetRect(options.focusRect, Math.min(options.focusRect.right - options.focusRect.left, options.focusRect.bottom - options.focusRect.top) * 0.08) : void 0);
+  const mask = foregroundMask(image, bg, 30);
+  const boxes = componentBoxes(mask, image.width, image.height);
+  if (!boxes.length)
+    return null;
+  const imageArea = image.width * image.height;
+  const minArea = Math.max(8, imageArea * 8e-5);
+  const candidates = [];
+  const frameBoxes = /* @__PURE__ */ new Set();
+  for (const box of boxes) {
+    if (box.area < minArea)
+      continue;
+    if (options.focusRect && !hasMeaningfulOverlap(box, options.focusRect))
+      continue;
+    if (options.dropEdgeFrames !== false && isFrameLike(box, image.width, image.height, options.focusRect)) {
+      frameBoxes.add(box);
+      continue;
+    }
+    if (isTextLike(box, image.width, image.height))
+      continue;
+    candidates.push(box);
+  }
+  const fallback = candidates.length ? candidates : boxes.filter((box) => !frameBoxes.has(box) && (!options.focusRect || hasOverlap(box, options.focusRect)));
+  if (!fallback.length)
+    return null;
+  const largest = fallback.slice().sort((a, b) => scoreComponent(b, image, options) - scoreComponent(a, image, options))[0];
+  const cx = (largest.left + largest.right) / 2;
+  const cy = (largest.top + largest.bottom) / 2;
+  const filtered = fallback.filter((box) => {
+    const bx = (box.left + box.right) / 2;
+    const by = (box.top + box.bottom) / 2;
+    const far = Math.abs(bx - cx) > image.width * 0.42 || Math.abs(by - cy) > image.height * 0.42;
+    const tiny = box.area < largest.area * 0.1;
+    return !(far && tiny);
+  });
+  const merged = mergeRects(filtered.length ? filtered : [largest]);
+  if (!merged)
+    return null;
+  if (!options.focusRect)
+    return merged;
+  const guard = constrainRect(expandRect(options.focusRect, Math.max(4, Math.round(Math.min(image.width, image.height) * 0.08))), image.width, image.height);
+  return intersectRect(merged, guard) || merged;
+}
+function hasMeaningfulOverlap(box, focus) {
+  const overlap = overlapArea(box, focus);
+  if (overlap <= 0)
+    return false;
+  const area = Math.max(1, (box.right - box.left) * (box.bottom - box.top));
+  const focusArea = Math.max(1, (focus.right - focus.left) * (focus.bottom - focus.top));
+  const cx = (box.left + box.right) / 2;
+  const cy = (box.top + box.bottom) / 2;
+  return cx >= focus.left && cx <= focus.right && cy >= focus.top && cy <= focus.bottom || overlap >= Math.min(area * 0.22, focusArea * 0.015);
+}
+function hasOverlap(box, focus) {
+  return overlapArea(box, focus) > 0;
+}
+function overlapArea(a, b) {
+  return Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+}
+function isFrameLike(box, width, height, focusRect) {
+  const focus = focusRect || { left: 0, top: 0, right: width, bottom: height };
+  const focusW = Math.max(1, focus.right - focus.left);
+  const focusH = Math.max(1, focus.bottom - focus.top);
+  const boxW = box.right - box.left;
+  const boxH = box.bottom - box.top;
+  const slop = Math.max(3, Math.round(Math.min(focusW, focusH) * 0.045));
+  const touchesLeft = box.left <= focus.left + slop;
+  const touchesRight = box.right >= focus.right - slop;
+  const touchesTop = box.top <= focus.top + slop;
+  const touchesBottom = box.bottom >= focus.bottom - slop;
+  const touchCount = [touchesLeft, touchesRight, touchesTop, touchesBottom].filter(Boolean).length;
+  const spanW = boxW >= focusW * 0.68;
+  const spanH = boxH >= focusH * 0.68;
+  const thinVerticalRule = boxW <= focusW * 0.08 && spanH && (touchesTop || touchesBottom || touchesLeft || touchesRight);
+  const thinHorizontalRule = boxH <= focusH * 0.08 && spanW && (touchesTop || touchesBottom || touchesLeft || touchesRight);
+  const wrapsCenter = box.left < focus.left + focusW * 0.18 && box.right > focus.right - focusW * 0.18 && box.top < focus.top + focusH * 0.18 && box.bottom > focus.bottom - focusH * 0.18;
+  return thinVerticalRule || thinHorizontalRule || touchCount >= 2 && (spanW || spanH) || wrapsCenter && touchCount >= 2;
+}
+function isTextLike(box, width, height) {
+  const boxW = box.right - box.left;
+  const boxH = box.bottom - box.top;
+  const topBand = box.bottom < height * 0.26;
+  const bottomBand = box.top > height * 0.55;
+  const shallow = boxH < height * 0.2;
+  const wideFlat = shallow && boxW > boxH * 1.25;
+  const tiny = boxW * boxH < width * height * 0.04;
+  return wideFlat || (topBand || bottomBand) && tiny && shallow;
+}
+function scoreComponent(box, image, options) {
+  let focusBonus = 1;
+  if (options.focusRect)
+    focusBonus += overlapArea(box, options.focusRect) / Math.max(1, box.area) * 1.8;
+  if (!options.expectedCenter)
+    return box.area * focusBonus;
+  const cx = (box.left + box.right) / 2;
+  const cy = (box.top + box.bottom) / 2;
+  const dx = Math.abs(cx - options.expectedCenter.x) / Math.max(1, image.width);
+  const dy = Math.abs(cy - options.expectedCenter.y) / Math.max(1, image.height);
+  return box.area * focusBonus / (1 + (dx + dy) * 2.4);
+}
+function foregroundMask(image, bg, threshold) {
+  const mask = new Uint8Array(image.width * image.height);
+  for (let i = 0, p = 0; i < image.data.length; i += 4, p += 1) {
+    const r = image.data[i];
+    const g = image.data[i + 1];
+    const b = image.data[i + 2];
+    const a = image.data[i + 3];
+    if (!isBackgroundPixel(r, g, b, a, bg, threshold))
+      mask[p] = 1;
+  }
+  return mask;
+}
+function isBackgroundPixel(r, g, b, a, bg, threshold) {
+  if (a <= 8)
+    return true;
+  const diff = Math.abs(r - bg[0]) + Math.abs(g - bg[1]) + Math.abs(b - bg[2]);
+  if (diff <= threshold * 3)
+    return true;
+  const bgNearWhite = bg[0] >= 210 && bg[1] >= 210 && bg[2] >= 210;
+  return bgNearWhite && r >= 225 && g >= 225 && b >= 225 && Math.max(r, g, b) - Math.min(r, g, b) <= 42;
+}
+function estimateBackground(image, rect) {
+  const area = rect ? constrainRect(rect, image.width, image.height) : { left: 0, top: 0, right: image.width, bottom: image.height };
+  const w = Math.max(1, area.right - area.left);
+  const h = Math.max(1, area.bottom - area.top);
+  const patch = Math.max(2, Math.round(Math.min(w, h) * 0.055));
+  const inset = Math.max(1, Math.round(Math.min(w, h) * 0.035));
+  const samples = [];
+  const patches = [
+    { left: area.left + inset, top: area.top + inset, right: area.left + inset + patch, bottom: area.top + inset + patch },
+    { left: area.right - inset - patch, top: area.top + inset, right: area.right - inset, bottom: area.top + inset + patch },
+    { left: area.left + inset, top: area.bottom - inset - patch, right: area.left + inset + patch, bottom: area.bottom - inset },
+    { left: area.right - inset - patch, top: area.bottom - inset - patch, right: area.right - inset, bottom: area.bottom - inset }
+  ];
+  for (const patchRect of patches) {
+    const clipped = constrainRect(patchRect, image.width, image.height);
+    const step = Math.max(1, Math.round(Math.min(clipped.right - clipped.left, clipped.bottom - clipped.top) / 8));
+    for (let y = clipped.top; y < clipped.bottom; y += step) {
+      for (let x = clipped.left; x < clipped.right; x += step) {
+        const idx = (y * image.width + x) * 4;
+        const a = image.data[idx + 3];
+        if (a > 8)
+          samples.push([image.data[idx], image.data[idx + 1], image.data[idx + 2]]);
+      }
+    }
+  }
+  if (!samples.length)
+    return [255, 255, 255];
+  const buckets = /* @__PURE__ */ new Map();
+  for (const rgb of samples) {
+    const key = rgb.map((value) => Math.round(value / 16)).join(",");
+    const prev = buckets.get(key);
+    if (prev)
+      prev.count += 1;
+    else
+      buckets.set(key, { count: 1, rgb });
+  }
+  return Array.from(buckets.values()).sort((a, b) => {
+    if (b.count !== a.count)
+      return b.count - a.count;
+    const al = a.rgb[0] + a.rgb[1] + a.rgb[2];
+    const bl = b.rgb[0] + b.rgb[1] + b.rgb[2];
+    return bl - al;
+  })[0].rgb;
+}
+function componentBoxes(mask, width, height) {
+  const seen = new Uint8Array(mask.length);
+  const boxes = [];
+  for (let idx = 0; idx < mask.length; idx += 1) {
+    if (seen[idx] || mask[idx] === 0)
+      continue;
+    const stack = [idx];
+    seen[idx] = 1;
+    let minX = idx % width;
+    let maxX = minX;
+    let minY = Math.floor(idx / width);
+    let maxY = minY;
+    let area = 0;
+    while (stack.length) {
+      const current = stack.pop();
+      area += 1;
+      const y = Math.floor(current / width);
+      const x = current - y * width;
+      if (x < minX)
+        minX = x;
+      if (x > maxX)
+        maxX = x;
+      if (y < minY)
+        minY = y;
+      if (y > maxY)
+        maxY = y;
+      for (let ny = y - 1; ny <= y + 1; ny += 1) {
+        if (ny < 0 || ny >= height)
+          continue;
+        for (let nx = x - 1; nx <= x + 1; nx += 1) {
+          if (nx < 0 || nx >= width)
+            continue;
+          const next = ny * width + nx;
+          if (seen[next] || mask[next] === 0)
+            continue;
+          seen[next] = 1;
+          stack.push(next);
+        }
+      }
+    }
+    boxes.push({ left: minX, top: minY, right: maxX + 1, bottom: maxY + 1, area });
+  }
+  return boxes;
+}
+function removeBackground(image) {
+  const bg = estimateBackground(image);
+  const data = new Uint8Array(image.data);
+  for (let i = 0; i < data.length; i += 4) {
+    if (isBackgroundPixel(data[i], data[i + 1], data[i + 2], data[i + 3], bg, 30))
+      data[i + 3] = 0;
+  }
+  return { width: image.width, height: image.height, data };
+}
+function cropImage(image, rect) {
+  const clipped = constrainRect(rect, image.width, image.height);
+  const width = Math.max(1, clipped.right - clipped.left);
+  const height = Math.max(1, clipped.bottom - clipped.top);
+  const data = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    const srcStart = ((clipped.top + y) * image.width + clipped.left) * 4;
+    const dstStart = y * width * 4;
+    data.set(image.data.subarray(srcStart, srcStart + width * 4), dstStart);
+  }
+  return { width, height, data };
+}
+function resizeImage(image, width, height) {
+  if (image.width === width && image.height === height)
+    return { width, height, data: new Uint8Array(image.data) };
+  const data = new Uint8Array(width * height * 4);
+  const scaleX = image.width / width;
+  const scaleY = image.height / height;
+  for (let y = 0; y < height; y += 1) {
+    const srcY = (y + 0.5) * scaleY - 0.5;
+    const y0 = Math.max(0, Math.floor(srcY));
+    const y1 = Math.min(image.height - 1, y0 + 1);
+    const fy = Math.max(0, srcY - y0);
+    for (let x = 0; x < width; x += 1) {
+      const srcX = (x + 0.5) * scaleX - 0.5;
+      const x0 = Math.max(0, Math.floor(srcX));
+      const x1 = Math.min(image.width - 1, x0 + 1);
+      const fx = Math.max(0, srcX - x0);
+      const dst = (y * width + x) * 4;
+      for (let c = 0; c < 4; c += 1) {
+        const p00 = image.data[(y0 * image.width + x0) * 4 + c];
+        const p10 = image.data[(y0 * image.width + x1) * 4 + c];
+        const p01 = image.data[(y1 * image.width + x0) * 4 + c];
+        const p11 = image.data[(y1 * image.width + x1) * 4 + c];
+        data[dst + c] = Math.round((p00 * (1 - fx) + p10 * fx) * (1 - fy) + (p01 * (1 - fx) + p11 * fx) * fy);
+      }
+    }
+  }
+  return { width, height, data };
+}
+function blankImage(width, height, rgba) {
+  const data = new Uint8Array(width * height * 4);
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = rgba[0];
+    data[i + 1] = rgba[1];
+    data[i + 2] = rgba[2];
+    data[i + 3] = rgba[3];
+  }
+  return { width, height, data };
+}
+function pasteImage(target, source, left, top, compositeOnWhite) {
+  for (let y = 0; y < source.height; y += 1) {
+    const ty = top + y;
+    if (ty < 0 || ty >= target.height)
+      continue;
+    for (let x = 0; x < source.width; x += 1) {
+      const tx = left + x;
+      if (tx < 0 || tx >= target.width)
+        continue;
+      const src = (y * source.width + x) * 4;
+      const dst = (ty * target.width + tx) * 4;
+      const a = source.data[src + 3] / 255;
+      if (compositeOnWhite) {
+        target.data[dst] = Math.round(source.data[src] * a + 255 * (1 - a));
+        target.data[dst + 1] = Math.round(source.data[src + 1] * a + 255 * (1 - a));
+        target.data[dst + 2] = Math.round(source.data[src + 2] * a + 255 * (1 - a));
+        target.data[dst + 3] = 255;
+      } else {
+        target.data[dst] = source.data[src];
+        target.data[dst + 1] = source.data[src + 1];
+        target.data[dst + 2] = source.data[src + 2];
+        target.data[dst + 3] = source.data[src + 3];
+      }
+    }
+  }
+}
+function decodePngRgba(buffer) {
+  if (!buffer.subarray(0, 8).equals(PNG_SIGNATURE))
+    throw new Error("Only PNG icon sheets are supported.");
+  let offset = 8;
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  let palette;
+  let transparency;
+  const idat = [];
+  while (offset < buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString("ascii", offset + 4, offset + 8);
+    const data = buffer.subarray(offset + 8, offset + 8 + length);
+    offset += 12 + length;
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data[8];
+      colorType = data[9];
+    } else if (type === "PLTE") {
+      palette = Buffer.from(data);
+    } else if (type === "tRNS") {
+      transparency = Buffer.from(data);
+    } else if (type === "IDAT") {
+      idat.push(Buffer.from(data));
+    } else if (type === "IEND") {
+      break;
+    }
+  }
+  if (bitDepth !== 8)
+    throw new Error(`Unsupported PNG bit depth ${bitDepth}; use an 8-bit PNG sheet.`);
+  const channels = pngChannels(colorType);
+  const rowBytes = width * channels;
+  const inflated = inflateSync(Buffer.concat(idat));
+  const raw = new Uint8Array(width * height * channels);
+  let src = 0;
+  for (let y = 0; y < height; y += 1) {
+    const filter = inflated[src++];
+    const rowStart = y * rowBytes;
+    for (let x = 0; x < rowBytes; x += 1) {
+      const value = inflated[src++];
+      const left = x >= channels ? raw[rowStart + x - channels] : 0;
+      const up = y > 0 ? raw[rowStart + x - rowBytes] : 0;
+      const upLeft = y > 0 && x >= channels ? raw[rowStart + x - rowBytes - channels] : 0;
+      raw[rowStart + x] = unfilterByte(filter, value, left, up, upLeft);
+    }
+  }
+  const rgba = new Uint8Array(width * height * 4);
+  for (let p = 0; p < width * height; p += 1) {
+    const out = p * 4;
+    const input = p * channels;
+    if (colorType === 6) {
+      rgba[out] = raw[input];
+      rgba[out + 1] = raw[input + 1];
+      rgba[out + 2] = raw[input + 2];
+      rgba[out + 3] = raw[input + 3];
+    } else if (colorType === 2) {
+      rgba[out] = raw[input];
+      rgba[out + 1] = raw[input + 1];
+      rgba[out + 2] = raw[input + 2];
+      rgba[out + 3] = 255;
+    } else if (colorType === 0) {
+      rgba[out] = raw[input];
+      rgba[out + 1] = raw[input];
+      rgba[out + 2] = raw[input];
+      rgba[out + 3] = 255;
+    } else if (colorType === 4) {
+      rgba[out] = raw[input];
+      rgba[out + 1] = raw[input];
+      rgba[out + 2] = raw[input];
+      rgba[out + 3] = raw[input + 1];
+    } else if (colorType === 3) {
+      if (!palette)
+        throw new Error("Indexed PNG is missing PLTE chunk.");
+      const idx = raw[input];
+      rgba[out] = palette[idx * 3] ?? 0;
+      rgba[out + 1] = palette[idx * 3 + 1] ?? 0;
+      rgba[out + 2] = palette[idx * 3 + 2] ?? 0;
+      rgba[out + 3] = transparency?.[idx] ?? 255;
+    }
+  }
+  return { width, height, data: rgba };
+}
+function encodePngRgba(image) {
+  const raw = Buffer.alloc((image.width * 4 + 1) * image.height);
+  for (let y = 0; y < image.height; y += 1) {
+    const rowStart = y * (image.width * 4 + 1);
+    raw[rowStart] = 0;
+    raw.set(image.data.subarray(y * image.width * 4, (y + 1) * image.width * 4), rowStart + 1);
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(image.width, 0);
+  ihdr.writeUInt32BE(image.height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk("IHDR", ihdr),
+    pngChunk("IDAT", deflateSync(raw)),
+    pngChunk("IEND", Buffer.alloc(0))
+  ]);
+}
+function pngChannels(colorType) {
+  if (colorType === 0 || colorType === 3)
+    return 1;
+  if (colorType === 2)
+    return 3;
+  if (colorType === 4)
+    return 2;
+  if (colorType === 6)
+    return 4;
+  throw new Error(`Unsupported PNG color type ${colorType}; use RGB or RGBA PNG.`);
+}
+function unfilterByte(filter, value, left, up, upLeft) {
+  if (filter === 0)
+    return value;
+  if (filter === 1)
+    return value + left & 255;
+  if (filter === 2)
+    return value + up & 255;
+  if (filter === 3)
+    return value + Math.floor((left + up) / 2) & 255;
+  if (filter === 4)
+    return value + paeth(left, up, upLeft) & 255;
+  throw new Error(`Unsupported PNG filter type ${filter}.`);
+}
+function paeth(a, b, c) {
+  const p = a + b - c;
+  const pa = Math.abs(p - a);
+  const pb = Math.abs(p - b);
+  const pc = Math.abs(p - c);
+  if (pa <= pb && pa <= pc)
+    return a;
+  return pb <= pc ? b : c;
+}
+function pngChunk(type, data) {
+  const out = Buffer.alloc(12 + data.length);
+  out.writeUInt32BE(data.length, 0);
+  out.write(type, 4, 4, "ascii");
+  data.copy(out, 8);
+  out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
+  return out;
+}
+var crcTable;
+function crc32(data) {
+  const table = crcTable ?? (crcTable = makeCrcTable());
+  let crc = 4294967295;
+  for (const byte of data)
+    crc = table[(crc ^ byte) & 255] ^ crc >>> 8;
+  return (crc ^ 4294967295) >>> 0;
+}
+function makeCrcTable() {
+  const table = [];
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1)
+      c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+}
+function roundRect(rect, width, height) {
+  return constrainRect({
+    left: Math.round(rect.left),
+    top: Math.round(rect.top),
+    right: Math.round(rect.right),
+    bottom: Math.round(rect.bottom)
+  }, width, height);
+}
+function insetRect(rect, inset) {
+  const safe = Math.max(0, Math.round(inset));
+  return {
+    left: Math.min(rect.right - 1, rect.left + safe),
+    top: Math.min(rect.bottom - 1, rect.top + safe),
+    right: Math.max(rect.left + 1, rect.right - safe),
+    bottom: Math.max(rect.top + 1, rect.bottom - safe)
+  };
+}
+function expandRect(rect, pad) {
+  return {
+    left: rect.left - pad,
+    top: rect.top - pad,
+    right: rect.right + pad,
+    bottom: rect.bottom + pad
+  };
+}
+function constrainRect(rect, width, height) {
+  const left = Math.max(0, Math.min(width - 1, Math.round(rect.left)));
+  const top = Math.max(0, Math.min(height - 1, Math.round(rect.top)));
+  const right = Math.max(left + 1, Math.min(width, Math.round(rect.right)));
+  const bottom = Math.max(top + 1, Math.min(height, Math.round(rect.bottom)));
+  return { left, top, right, bottom };
+}
+function intersectRect(a, b) {
+  const left = Math.max(a.left, b.left);
+  const top = Math.max(a.top, b.top);
+  const right = Math.min(a.right, b.right);
+  const bottom = Math.min(a.bottom, b.bottom);
+  return right > left && bottom > top ? { left, top, right, bottom } : null;
+}
+function mergeRects(rects) {
+  if (!rects.length)
+    return null;
+  return {
+    left: Math.min(...rects.map((rect) => rect.left)),
+    top: Math.min(...rects.map((rect) => rect.top)),
+    right: Math.max(...rects.map((rect) => rect.right)),
+    bottom: Math.max(...rects.map((rect) => rect.bottom))
+  };
+}
+function fitAspectRect(rect, targetAspect, width, height) {
+  let boxW = Math.max(1, rect.right - rect.left);
+  let boxH = Math.max(1, rect.bottom - rect.top);
+  const cx = (rect.left + rect.right) / 2;
+  const cy = (rect.top + rect.bottom) / 2;
+  if (boxW / boxH > targetAspect)
+    boxH = boxW / targetAspect;
+  else
+    boxW = boxH * targetAspect;
+  return constrainRect({ left: cx - boxW / 2, top: cy - boxH / 2, right: cx + boxW / 2, bottom: cy + boxH / 2 }, width, height);
+}
+function firstString(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim())
+      return value.trim();
+  }
+  return "";
+}
+function slugify(value) {
+  return value.normalize("NFKD").replace(/[^\w\s-]/g, "").trim().toLowerCase().replace(/[\s_-]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 48);
+}
+function clampInt(value, min, max, fallback) {
+  if (typeof value !== "number" || !Number.isFinite(value))
+    return fallback;
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
 // slideml2/dist/render.js
 import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import { mkdir as mkdir2, writeFile as writeFile2 } from "node:fs/promises";
-import { dirname as dirname2, extname } from "node:path";
+import { mkdir as mkdir3, writeFile as writeFile3 } from "node:fs/promises";
+import { dirname as dirname3, extname } from "node:path";
 
 // slideml2/dist/emitter/package.js
 var import_jszip2 = __toESM(require_lib3(), 1);
 
 // slideml2/dist/assets.js
 import { createHash } from "node:crypto";
-import { readFile as readFile2, writeFile, mkdir } from "node:fs/promises";
+import { readFile as readFile3, writeFile as writeFile2, mkdir as mkdir2 } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname as dirname2, isAbsolute, join as join2, resolve as resolve2 } from "node:path";
 
 // slideml2/dist/emitter/image.js
-import { readFile } from "node:fs/promises";
+import { readFile as readFile2 } from "node:fs/promises";
 
 // slideml2/dist/emitter/image-dim.js
 function probeImageDimensions(bytes, ext) {
@@ -10990,7 +11787,7 @@ async function resolveImage(src) {
   if (!ext) {
     throw new Error(`Cannot determine image extension for path ${src}`);
   }
-  const bytes = await readFile(src);
+  const bytes = await readFile2(src);
   return withDimensions({ bytes: new Uint8Array(bytes), ext, mimeType: EXT_TO_MIME[ext] });
 }
 function withDimensions(img) {
@@ -11052,10 +11849,10 @@ var Assets = class {
       return src;
     if (/^https?:\/\//i.test(src))
       return src;
-    return isAbsolute(src) ? src : resolve(this.baseDir, src);
+    return isAbsolute(src) ? src : resolve2(this.baseDir, src);
   }
 };
-var HTTP_CACHE_DIR = join(homedir(), ".cache", "slideml", "http");
+var HTTP_CACHE_DIR = join2(homedir(), ".cache", "slideml", "http");
 async function resolveSrc(src) {
   if (/^https?:\/\//i.test(src)) {
     const cached = await readHttpCache(src);
@@ -11072,8 +11869,8 @@ async function readHttpCache(url) {
   if (!existsSync(path) || !existsSync(`${path}.meta`))
     return void 0;
   try {
-    const bytes = await readFile2(path);
-    const meta = JSON.parse(await readFile2(`${path}.meta`, "utf8"));
+    const bytes = await readFile3(path);
+    const meta = JSON.parse(await readFile3(`${path}.meta`, "utf8"));
     return {
       bytes: new Uint8Array(bytes),
       ext: meta.ext,
@@ -11086,9 +11883,9 @@ async function readHttpCache(url) {
 }
 async function writeHttpCache(url, img) {
   const path = httpCachePath(url);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, img.bytes);
-  await writeFile(`${path}.meta`, JSON.stringify({
+  await mkdir2(dirname2(path), { recursive: true });
+  await writeFile2(path, img.bytes);
+  await writeFile2(`${path}.meta`, JSON.stringify({
     ext: img.ext,
     mimeType: img.mimeType,
     ...img.dimensions ? { dimensions: img.dimensions } : {}
@@ -11096,7 +11893,7 @@ async function writeHttpCache(url, img) {
 }
 function httpCachePath(url) {
   const h = createHash("sha256").update(url).digest("hex").slice(0, 32);
-  return join(HTTP_CACHE_DIR, h);
+  return join2(HTTP_CACHE_DIR, h);
 }
 
 // slideml2/dist/emitter/xml.js
@@ -11107,8 +11904,13 @@ var XML_ESCAPE = {
   '"': "&quot;",
   "'": "&apos;"
 };
+var INVALID_XML_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
+var STABLE_OOXML_TIMESTAMP = "2026-01-01T00:00:00Z";
+function sanitizeXmlText(s) {
+  return s.replace(INVALID_XML_CHARS, "");
+}
 function xmlEscape(s) {
-  return s.replace(/[&<>"']/g, (c) => XML_ESCAPE[c] ?? c);
+  return sanitizeXmlText(s).replace(/[&<>"']/g, (c) => XML_ESCAPE[c] ?? c);
 }
 var SMART_QUOTES = {
   "\u201C": "&#x201C;",
@@ -11604,9 +12406,9 @@ function numberFormatCode(format) {
     case "percent":
       return "0%";
     case "wanyuan":
-      return "#,##0&quot;\u4E07&quot;";
+      return '#,##0"\u4E07"';
     case "yi":
-      return "0.0&quot;\u4EBF&quot;";
+      return '0.0"\u4EBF"';
     case "General":
       return "General";
     default:
@@ -11614,10 +12416,10 @@ function numberFormatCode(format) {
   }
 }
 function xmlEscapeText(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  return xmlEscape(s);
 }
 function formatCodeAttr(s) {
-  return s.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  return xmlEscape(s);
 }
 
 // slideml2/dist/emitter/chart-workbook.js
@@ -11832,7 +12634,7 @@ function workbookAppXml() {
 </Properties>`;
 }
 function workbookCoreXml() {
-  const created = "2026-01-01T00:00:00Z";
+  const created = STABLE_OOXML_TIMESTAMP;
   return `${XML_DECL}
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 <dc:creator>SlideML2</dc:creator>
@@ -12032,8 +12834,11 @@ function paragraphPropsXml(p) {
 }
 function runXml(run, isLast, rels) {
   if (run.mathOmml) {
+    if (run.color)
+      assertHex(run.color, "TextRun.color");
+    const mathOmml = run.color ? mathOmmlWithRunColor(run.mathOmml, run.color) : run.mathOmml;
     const softBreak2 = run.breakLine && !isLast ? `<a:br><a:rPr lang="en-US"/></a:br>` : "";
-    return `<a14:m xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">${run.mathOmml}</a14:m>${softBreak2}`;
+    return `<a14:m xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${mathOmml}</a14:m>${softBreak2}`;
   }
   if (run.color)
     assertHex(run.color, "TextRun.color");
@@ -12064,6 +12869,15 @@ function runXml(run, isLast, rels) {
   const softBreak = run.breakLine && !isLast ? `<a:br><a:rPr lang="en-US"/></a:br>` : "";
   const text = `<a:t xml:space="preserve">${escapeText(run.text)}</a:t>`;
   return `<a:r>${rPr}${text}</a:r>${softBreak}`;
+}
+function mathOmmlWithRunColor(omml, hex) {
+  const colorPr = `<w:rPr><w:color w:val="${hex.toUpperCase()}"/></w:rPr>`;
+  return omml.replace(/<m:r>(<m:rPr>[\s\S]*?<\/m:rPr>)?(<w:rPr>[\s\S]*?<\/w:rPr>)?/g, (_match, mathPr = "", wordPr = "") => {
+    if (!wordPr)
+      return `<m:r>${mathPr}${colorPr}`;
+    const patchedWordPr = /<w:color\b/.test(wordPr) ? wordPr.replace(/<w:color\b[^>]*\/>/, `<w:color w:val="${hex.toUpperCase()}"/>`) : wordPr.replace("</w:rPr>", `<w:color w:val="${hex.toUpperCase()}"/></w:rPr>`);
+    return `<m:r>${mathPr}${patchedWordPr}`;
+  });
 }
 function isInternalSlideLink(target) {
   return /^#?slide\d+$/i.test(target.trim()) || /^slide:\d+$/i.test(target.trim());
@@ -12373,8 +13187,10 @@ function imageShapeXml(shape, _slidePart, rels) {
   rels.entries.push({
     id: rId,
     type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
-    target: `../media/${shape.name ?? `image${shape.id}`}.png`
+    target: `../media/${shape.name ?? `image${shape.id}`}.png`,
     // package emitter rewrites filename
+    role: "shape-image",
+    assetSrc: shape.src
   });
   const nvPicPr = `<p:nvPicPr><p:cNvPr id="${shape.id}" name="${shape.name ?? `Picture ${shape.id}`}"` + (shape.altText ? attr("descr", shape.altText) : "") + `/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>`;
   const blipInner = [];
@@ -12611,17 +13427,19 @@ function backgroundXml(slide, rels) {
   rels.entries.push({
     id: rId,
     type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
-    target: `../media/__background-${slide.background.src}`
+    target: `../media/__background-${slide.background.src}`,
     // package emitter rewrites
+    role: "background-image",
+    assetSrc: slide.background.src
   });
   return `<p:bg><p:bgPr><a:blipFill dpi="0" rotWithShape="1"><a:blip r:embed="${rId}"/><a:srcRect/><a:stretch><a:fillRect/></a:stretch></a:blipFill><a:effectLst/></p:bgPr></p:bg>`;
 }
 function slideRelsXml(rels, slideLayoutRId) {
   const layoutRel = `<Relationship Id="${slideLayoutRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>`;
   const otherRels = rels.entries.map((e) => {
-    const tm = e.targetMode ? ` TargetMode="${e.targetMode}"` : "";
-    const target = e.target.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-    return `<Relationship Id="${e.id}" Type="${e.type}" Target="${target}"${tm}/>`;
+    const tm = e.targetMode ? ` TargetMode="${xmlEscape(e.targetMode)}"` : "";
+    const target = xmlEscape(e.target);
+    return `<Relationship Id="${xmlEscape(e.id)}" Type="${xmlEscape(e.type)}" Target="${target}"${tm}/>`;
   }).join("");
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${layoutRel}${otherRels}</Relationships>`;
@@ -12763,13 +13581,16 @@ async function emitPackage(deck, themeOxml) {
     let bgRelConsumed = false;
     built.rels.entries = built.rels.entries.map((rel) => {
       if (rel.type.endsWith("/image")) {
-        if (bgImageSrc && !bgRelConsumed) {
+        const explicitSrc = rel.assetSrc;
+        const src = explicitSrc || (bgImageSrc && !bgRelConsumed ? bgImageSrc : imageShapes[imgRelIdx++]?.src);
+        if (rel.role === "background-image" || src === bgImageSrc && !bgRelConsumed) {
           bgRelConsumed = true;
-          const entry2 = assets.get(bgImageSrc);
-          return { ...rel, target: `../media/${entry2.filename}` };
         }
-        const src = imageShapes[imgRelIdx++].src;
+        if (!src)
+          throw new Error(`slides[${slideNum}] image relationship ${rel.id} has no source asset`);
         const entry = assets.get(src);
+        if (!entry)
+          throw new Error(`slides[${slideNum}] image relationship ${rel.id} references uninterned asset "${src}"`);
         return { ...rel, target: `../media/${entry.filename}` };
       }
       if (rel.type.endsWith("/chart")) {
@@ -12872,7 +13693,7 @@ function appXml(slideCount) {
 </Properties>`;
 }
 function coreXml(title, author) {
-  const now = (/* @__PURE__ */ new Date()).toISOString().replace(/\.\d+Z$/, "Z");
+  const now = STABLE_OOXML_TIMESTAMP;
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 <dc:title>${escapeForXml(title)}</dc:title>
@@ -13091,7 +13912,7 @@ function tableStylesXml() {
 <a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" def="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"/>`;
 }
 function escapeForXml(s) {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c] ?? c);
+  return xmlEscape(s);
 }
 
 // slideml2/dist/components.js
@@ -13109,7 +13930,7 @@ function decorationMarkerNode(slideId, id, marker, defaults = {}) {
   const spec = normalizeDecorationMarker(marker, defaults);
   if (!spec)
     return void 0;
-  const dims = decorationMarkerDimensionsCm(spec.shape, markerSizeCm(spec.size));
+  const dims = decorationMarkerDimensionsCm(spec.shape, markerSizeCm(spec.size), spec.content);
   return {
     id: `${slideId}.${id}`,
     type: "shape",
@@ -13119,7 +13940,15 @@ function decorationMarkerNode(slideId, id, marker, defaults = {}) {
     fixedHeight: dims.h,
     align: "start",
     valign: defaults.valign || "middle",
-    optional: true
+    optional: true,
+    ...spec.content ? {
+      text: spec.content,
+      style: "label",
+      bold: true,
+      color: decorationMarkerContentColor(spec.tone, spec.variant),
+      autoFit: "shrink",
+      noWrap: true
+    } : {}
   };
 }
 function normalizeDecorationMarker(marker, defaults) {
@@ -13127,13 +13956,19 @@ function normalizeDecorationMarker(marker, defaults) {
     return null;
   const rawShape = typeof marker === "string" ? marker : marker?.shape ?? marker?.marker ?? marker?.preset ?? marker?.type ?? defaults.shape;
   const shape = normalizeDecorationMarkerShape(rawShape);
-  if (!shape)
+  const explicitContent = typeof marker === "object" ? marker.content ?? marker.glyph ?? marker.text : void 0;
+  const content = normalizeDecorationMarkerContent(explicitContent ?? (shape ? void 0 : rawShape));
+  const fallbackShape = normalizeDecorationMarkerShape(defaults.shape) || "rounded-square";
+  const resolvedShape = shape || (content ? fallbackShape : null);
+  if (!resolvedShape)
     return null;
+  const explicitVariant = typeof marker === "object" ? marker.variant : void 0;
   return {
-    shape,
+    shape: resolvedShape,
     tone: (typeof marker === "object" ? marker.tone : void 0) || defaults.tone || "brand",
-    variant: (typeof marker === "object" ? marker.variant : void 0) || defaults.variant || "tint",
-    size: (typeof marker === "object" ? marker.size : void 0) || defaults.size || "sm"
+    variant: explicitVariant || (content ? "badge" : defaults.variant) || "tint",
+    size: (typeof marker === "object" ? marker.size : void 0) || defaults.size || "sm",
+    ...content ? { content } : {}
   };
 }
 function normalizeDecorationMarkerShape(value) {
@@ -13141,6 +13976,30 @@ function normalizeDecorationMarkerShape(value) {
     return null;
   const normalized = value === "rect" ? "square" : value === "roundRect" || value === "roundedSquare" || value === "round-square" || value === "rounded-rect" ? "rounded-square" : value === "ellipse" ? "dot" : value === "bar" || value === "stripe" || value === "side-rail" ? "side-bar" : value === "chip" || value === "index" ? "index-chip" : value;
   return DECORATION_MARKER_SHAPES.has(normalized) ? normalized : null;
+}
+function normalizeDecorationMarkerContent(value) {
+  if (typeof value !== "string")
+    return void 0;
+  const trimmed = value.trim();
+  if (!trimmed)
+    return void 0;
+  const glyphs = Array.from(trimmed);
+  if (glyphs.length > 3)
+    return void 0;
+  return trimmed;
+}
+function decorationMarkerContentColor(tone, variant) {
+  if (tone === "neutral" || tone === "muted")
+    return "text.primary";
+  if (variant === "solid" || variant === "badge")
+    return "text.inverse";
+  if (tone === "positive")
+    return "success";
+  if (tone === "warning")
+    return "warning";
+  if (tone === "danger")
+    return "danger";
+  return "brand.primary";
 }
 function markerSizeCm(value) {
   if (typeof value === "number" && Number.isFinite(value) && value > 0)
@@ -13155,7 +14014,12 @@ function markerSizeCm(value) {
     return 0.68;
   return 0.38;
 }
-function decorationMarkerDimensionsCm(shape, size) {
+function decorationMarkerDimensionsCm(shape, size, content) {
+  if (content) {
+    const glyphSize = Math.max(0.42, size);
+    const widthMultiplier = Math.max(1, Math.min(1.6, Array.from(content).length * 0.62));
+    return { w: glyphSize * widthMultiplier, h: glyphSize };
+  }
   if (shape === "side-bar")
     return { w: Math.max(0.06, size * 0.22), h: Math.max(0.55, size * 1.9) };
   if (shape === "slash")
@@ -13336,6 +14200,7 @@ function metricCard(slideId, id, value, label, options = {}) {
     align: "center",
     valign: "bottom",
     autoFit: "shrink",
+    noWrap: true,
     ...valueSize ? { size: valueSize } : {},
     ...content.length > 0 ? { content } : {}
   };
@@ -13418,7 +14283,8 @@ function metricCard(slideId, id, value, label, options = {}) {
 }
 function metricValueNeedsCompactScale(value) {
   const weighted = weightedTextLength(value);
-  return weighted >= 4.2 || /[\u4e00-\u9fff]/.test(value) || /^[-+]/.test(value.trim());
+  const cjkCount = Array.from(value).filter((char) => /[\u4e00-\u9fff]/.test(char)).length;
+  return weighted >= 4.2 || cjkCount >= 2 && weighted >= 3 || /^[-+]/.test(value.trim());
 }
 function metricValueSize(value, dense) {
   if (dense)
@@ -14098,12 +14964,13 @@ function featureCard(slideId, id, options) {
   const iconColor = options.iconColor || featureAccentColor(semanticTone);
   const iconBackground = options.iconBackground || featureTintColor(semanticTone);
   const explicitTitleMarker = options.decoration?.kind === "marker" && layout === "vertical" ? featureMarkerInput(options.decoration.marker || options.decoration.shape || "rounded-square") : void 0;
-  const titleMarker = decorationMarkerNode(slideId, `${id}.marker`, options.marker || explicitTitleMarker, {
+  const titleMarkerBase = decorationMarkerNode(slideId, `${id}.marker`, options.marker || explicitTitleMarker, {
     shape: "rounded-square",
     tone: options.decoration?.tone || markerToneFromFeatureTone(semanticTone),
     variant: options.decoration?.variant || "tint",
     size: options.decoration?.size || (dense ? "xs" : "sm")
   });
+  const titleMarker = titleMarkerBase ? { ...titleMarkerBase, optional: false, __featureCardSemanticChild: true } : void 0;
   const decorationNode = featureCardDecorationNode(slideId, id, options, {
     layout,
     dense,
@@ -14202,13 +15069,14 @@ function featureCardDecorationNode(slideId, id, options, ctx) {
   if (explicitKind === "marker") {
     if (ctx.layout === "vertical")
       return void 0;
-    return decorationMarkerNode(slideId, `${id}.decoration`, featureMarkerInput(spec?.marker || spec?.shape || "rounded-square"), {
+    const markerNode = decorationMarkerNode(slideId, `${id}.decoration`, featureMarkerInput(spec?.marker || spec?.shape || "rounded-square"), {
       shape: "rounded-square",
       tone,
       variant: spec?.variant || "tint",
       size: spec?.size || (ctx.dense ? "sm" : "md"),
       valign: "top"
     });
+    return markerNode ? { ...markerNode, optional: false, __featureCardSemanticChild: true } : void 0;
   }
   const src = spec?.src || spec?.iconSrc || options.iconSrc;
   if (explicitKind === "image" || src) {
@@ -14909,11 +15777,17 @@ function barList(slideId, id, options) {
   const max = declaredMax > 0 ? declaredMax : 1;
   const sort = options.sort || "none";
   const sorted = sort === "none" ? options.items.slice() : options.items.slice().sort((a, b) => sort === "desc" ? b.value - a.value : a.value - b.value);
+  const compact = options.density === "compact" || sorted.length >= 5;
+  const labelHeight = compact ? 0.36 : 0.5;
+  const rowHeight = compact ? 0.34 : 0.5;
+  const trackHeight = compact ? 0.2 : 0.32;
+  const rowGap = compact ? 0.24 : 0.4;
+  const itemGap = compact ? 0.05 : 0.1;
   return {
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.3,
+    gap: compact ? 0.16 : 0.3,
     role: "bar-list",
     children: sorted.map((item, index) => {
       const ratio = Math.max(1e-3, Math.min(1, item.value / max));
@@ -14924,11 +15798,11 @@ function barList(slideId, id, options) {
         id: `${slideId}.${id}.${index}`,
         type: "stack",
         direction: "vertical",
-        gap: 0.1,
+        gap: itemGap,
         children: [
           // Label sits on its own row: full-width, left-aligned, no
           // floating value to compete for attention.
-          { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle", fixedHeight: 0.5, size: "md" },
+          { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle", fixedHeight: labelHeight, size: compact ? "sm" : "md", autoFit: "shrink" },
           // Bar row: [track | value]. The value is a fixed-width column
           // *immediately after* the track, so it visually anchors to the
           // bar's right end zone — no longer floating at the slide's far
@@ -14940,8 +15814,8 @@ function barList(slideId, id, options) {
             id: `${slideId}.${id}.${index}.row`,
             type: "stack",
             direction: "horizontal",
-            gap: 0.4,
-            fixedHeight: 0.5,
+            gap: rowGap,
+            fixedHeight: rowHeight,
             valign: "middle",
             children: [
               // Continuous-track progress bar (qtt7dd slide 11): single
@@ -14951,7 +15825,7 @@ function barList(slideId, id, options) {
                 type: "stack",
                 direction: "horizontal",
                 gap: 0,
-                fixedHeight: 0.32,
+                fixedHeight: trackHeight,
                 fill: trackToken,
                 cornerRadius: 0.5,
                 padding: 0,
@@ -14961,7 +15835,7 @@ function barList(slideId, id, options) {
                   { id: `${slideId}.${id}.${index}.spacer`, type: "spacer", layoutWeight: Math.max(1e-3, 1 - ratio) }
                 ]
               },
-              { id: `${slideId}.${id}.${index}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", valign: "middle", fixedWidth: valueWidthCm, size: "md", bold: true }
+              { id: `${slideId}.${id}.${index}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", valign: "middle", fixedWidth: valueWidthCm, fixedHeight: rowHeight, size: compact ? "sm" : "md", bold: true, autoFit: "shrink" }
             ]
           }
         ]
@@ -17591,6 +18465,7 @@ var COMPONENT_DEFINITIONS = [
     align: { type: "enum", enum: ["left", "center", "right"], description: "Equation alignment." },
     caption: { type: "string", description: "Optional explanatory caption." },
     style: { type: "string", description: "Text style for the equation body. Defaults to body so page-level typography stays respected; use section-title/slide-title only for hero equations." },
+    color: { type: "color-ref", description: "Optional equation body color token. Defaults to the selected text style and participates in contrast repair." },
     size: { type: "string", description: "Optional semantic size dial (xs/sm/md/lg/xl/2xl) applied to the equation body." },
     fontSize: { type: "number", description: "Optional explicit equation body font size in points." },
     renderMode: { type: "enum", enum: ["omml"], description: "Native Office Math renderer. Unsupported LaTeX commands are rejected instead of emitted as plain text." }
@@ -17654,7 +18529,7 @@ var COMPONENT_DEFINITIONS = [
     content: { type: "array", description: "Optional rich text runs for the body." },
     bullets: { type: "array", semantic: "bullet", description: "Optional short substeps." },
     icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional step icon." },
-    marker: { type: "object", description: "Optional semantic item marker instead of a full icon. String or {shape:'dot|ring|square|rounded-square|diamond|side-bar|slash|index-chip', variant?:'tint|solid|outline|ghost|ring|badge', tone?, size?}. Use for subtle list-item decoration." },
+    marker: { type: "object", description: "Optional semantic item marker instead of a full icon. String may be a shape name or a short glyph/content marker like '!', '$', 'Q1', or an emoji. Object form: {shape|marker|preset, content?/glyph?/text?, variant?:'tint|solid|outline|ghost|ring|badge', tone?, size?}. Use for subtle list-item decoration." },
     status: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Semantic step state." },
     owner: { type: "string", description: "Optional owner/role." },
     time: { type: "string", description: "Optional duration/date." },
@@ -17717,12 +18592,12 @@ var COMPONENT_DEFINITIONS = [
   }, "text on roundRect surface", "stack"),
   component("feature-card", "One feature, capability, benefit, or ingredient of an offer. Use for modular value propositions, not for arbitrary bullet paragraphs.", {
     icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional large icon shape preset. Prefer marker for subtle item decoration." },
-    iconSrc: { type: "image-ref", description: "Optional generated/raster icon path. Use with generate_icon_sheet outputs; rendered as a contain-fit square icon." },
-    decoration: { type: "object", description: "Unified visual cue. Prefer over separate icon/iconSrc/marker when authoring new decks. Shape: {kind:'image'|'shape'|'marker'|'none', src?/iconSrc?, shape?/icon?, marker?, size?:'xs'|'sm'|'md'|'lg'|'xl'|number, color?, background?, tone?, variant?}. `marker` is compact; `image`/`shape` are larger visual icons." },
+    iconSrc: { type: "image-ref", description: "Optional generated/raster icon path. Use with slice-icons outputs; rendered as a contain-fit square icon." },
+    decoration: { type: "object", description: "Unified visual cue. Prefer over separate icon/iconSrc/marker when authoring new decks. Shape: {kind:'image'|'shape'|'marker'|'none', src?/iconSrc?, shape?/icon?, marker?, size?:'xs'|'sm'|'md'|'lg'|'xl'|number, color?, background?, tone?, variant?}. `marker` accepts shape names or short glyphs like '!', '$', 'Q1', emoji; `image`/`shape` are larger visual icons." },
     title: { type: "string", required: true, semantic: "card-title", description: "Feature title." },
     body: { type: "string", semantic: "caption", description: "Optional supporting copy." },
     content: { type: "array", description: "Optional rich text runs for supporting copy." },
-    marker: { type: "object", description: "Optional semantic item marker that sits beside the title and replaces the large icon. String or {shape:'dot|ring|square|rounded-square|diamond|side-bar|slash|index-chip', variant?, tone?, size?}. Use when a small decorative cue is enough." },
+    marker: { type: "object", description: "Optional semantic item marker that sits beside the title and replaces the large icon. String may be a shape name or short glyph/content marker like '!', '$', 'Q1', or emoji. Object form: {shape|marker|preset, content?/glyph?/text?, variant?, tone?, size?}. Use when a small decorative cue is enough." },
     badge: { type: "string", description: "Optional category/status badge." },
     tags: { type: "array", description: "Optional compact tags." },
     metric: { type: "object", description: "Optional proof metric {value,label,tone?}. Concise numeric values render as compact KPI; prose/star-rating values render as supporting evidence to preserve card hierarchy." },
@@ -17796,7 +18671,8 @@ var COMPONENT_DEFINITIONS = [
   component("bar-list", "Ranked or sortable categorical numeric/rating comparison. Use when the viewer should see who is bigger/smaller across 4-8 items.", {
     items: { type: "array", required: true, description: "Array of { label/name/title, value/score/percent, max?, valueLabel?, tone? }. Numeric strings like '75%' are accepted. Star strings like '\u2605\u2605\u2605\u2605' are rendered as rating labels and converted to numeric bar lengths." },
     tone: { type: "enum", enum: ["brand", "positive", "neutral", "warning", "danger"], description: "Default bar fill color. 'neutral' renders de-emphasized gray bars." },
-    sort: { type: "enum", enum: ["desc", "asc", "none"], description: "Sort items by value (default 'none' \u2014 keep input order)." }
+    sort: { type: "enum", enum: ["desc", "asc", "none"], description: "Sort items by value (default 'none' \u2014 keep input order)." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density. 5+ item lists auto-use compact, but pass compact in mixed slides or short columns." }
   }, "stack of (label-row + horizontal-track) per item", "stack"),
   component("stat-strip", "Inline row of headline metrics with minimal chrome. Use when 3-6 numbers support one read and card frames would be too heavy.", {
     items: { type: "array", required: true, description: "Array of { value, label, tone? } items. Per-item tone (brand|positive|neutral|warning|danger) sets that cell's value color and overrides the strip default \u2014 useful for mixed signals (good/risk/bad in one row)." },
@@ -17867,10 +18743,10 @@ var COMPONENT_DEFINITIONS = [
     surface: { type: "object", description: "Optional surface override." }
   }, "tinted+bordered panel with accent bar + headline + detail", "stack"),
   component("numbered-grid", "Designed set of ordered priorities, principles, or framework points. Use when each item is a peer module and the number itself communicates order.", {
-    items: { type: "array", required: true, description: "Array of { title/label/name, body/description/text?, marker?, tone? } items. marker can be string or {shape,variant,tone,size}." },
+    items: { type: "array", required: true, description: "Array of { title/label/name, body/description/text?, marker?, tone? } items. marker can be shape string, short glyph string, or {shape/content,variant,tone,size}." },
     columns: { type: "number", description: "Columns (default min(4, items.length))." },
     tone: { type: "enum", enum: ["brand", "neutral"], description: "Number color tone." },
-    marker: { type: "object", description: "Optional marker applied to every item title row. Prefer this over raw square shapes for item decoration." },
+    marker: { type: "object", description: "Optional marker applied to every item title row. String shape or short glyph, or {shape/content,variant,tone,size}. Prefer this over raw square shapes for item decoration." },
     numberStyle: { type: "enum", enum: ["chip", "plain"], description: "Number treatment. chip is default; plain uses oversized text numerals." }
   }, "grid of (big-number, card-title, caption) cells", "stack"),
   component("tag-list", "Set of short keywords, categories, feature flags, or filters. Use for compact classification; not for sentences or long labels.", {
@@ -18059,7 +18935,7 @@ var COMPONENT_DEFINITIONS = [
   component("takeaway-list", "Multi-item Key Takeaways: 3-5 short conclusions, each with a colored accent bar + bold headline + optional 1-line detail. Right component for a wrap-up / summary slide.", {
     items: { type: "array", required: true, description: "Array of {headline, detail?, tone?, marker?}. Per-item tone (brand|positive|warning|danger|neutral) overrides the list default \u2014 useful for a 'three findings + one caveat' shape where the caveat is muted (neutral) and the findings are chromatic." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Default accent tone for items that don't supply one. 'neutral' renders a divider-gray bar (de-emphasized)." },
-    marker: { type: "object", description: "Optional list-wide item marker. String or {shape,variant,tone,size}. Replaces the default accent bar; use side-bar for a slimmer rail, ring/dot/diamond for lightweight bullets." }
+    marker: { type: "object", description: "Optional list-wide item marker. String shape or short glyph, or {shape/content,variant,tone,size}. Replaces the default accent bar; use side-bar for a slimmer rail, ring/dot/diamond for lightweight bullets." }
   }, "stack(items:Array<marker/bar+stack(headline,detail)>)", "stack"),
   component("warning-list", "Tone-coded list of warnings, risks, redlines, anti-patterns, or rule violations. Use for '5 things to avoid', '\u7EA2\u7EBF / \u8B66\u793A / \u96F7\u533A', 'do-not-do' lists, threat enumeration. Default tone is `warning` (orange) but per-item tone supports a danger/warning mix. Sized for 3-8 items on a single slide WITHOUT degrading to a plain numbered-list \u2014 replaces the failure-prone pattern of stacking 4+ `callout` cards in a vertical stack.", {
     items: { type: "array", required: true, description: "Array of {title|headline, body|detail?, tone?, marker?}. \u22653 items recommended; \u22648 supported on one slide." },
@@ -18235,15 +19111,17 @@ var COMPONENT_DEFINITIONS = [
     lockupWidth: { type: "number", description: "Optional title lockup width in cm. Defaults wider when no heroStat is present." },
     lockupHeight: { type: "number", description: "Optional title lockup height in cm." }
   }, "fragment(background + title-lockup overlays)", "stack"),
-  component("chapter-divider", "High-impact chapter opener with full-slide color field, large chapter number, title/subtitle lockup, and optional progress bar. Use for major section resets only.", {
+  component("chapter-divider", "High-impact chapter opener with full-slide color field, title/subtitle lockup, optional explicit chapter number, and optional progress bar. Use as a direct slide child for major section resets only.", {
     title: { type: "string", required: true, description: "Chapter title." },
     subtitle: { type: "string", description: "Optional subtitle." },
-    chapter: { type: "string", description: "Large chapter number or label, e.g. 03." },
-    eyebrow: { type: "string", description: "Small label above title." },
+    chapter: { type: "string", description: "Optional large chapter number or short label, e.g. 03. Omit to render no top-right number." },
+    number: { type: "string", description: "Alias for chapter. Omit to render no top-right number." },
+    showNumber: { type: "boolean", description: "When true and chapter/number is omitted, render current+1 as the top-right number. Defaults false." },
+    eyebrow: { type: "string", description: "Small label above title. English labels are uppercase/spaced; CJK labels render without extra letter spacing." },
     sections: { type: "array", description: "Optional section names for timeline-axis-bar." },
-    current: { type: "number", description: "0-based current section index when sections are provided." },
-    tone: { type: "enum", enum: ["brand", "neutral", "inverse"], description: "Color treatment." }
-  }, "fragment(full-slide band + big-page-number + title-lockup)", "stack"),
+    current: { type: "number", description: "0-based current section index when sections are provided. First section is 0, not 1." },
+    tone: { type: "enum", enum: ["brand", "neutral", "inverse"], description: "Color treatment. brand = brand field with inverse text; neutral = surface with primary text; inverse = surface with brand text." }
+  }, "fragment(full-slide band + optional big-page-number + title-lockup)", "stack"),
   component("evidence-layout", "Two-region evidence page: visual proof on the left or top, interpretation panel beside/below it, plus optional annotations. Use for chart/screenshot/image/table + conclusion pages so the slide says what the evidence means.", {
     evidence: { type: "object", required: true, description: "DomNode for chart-card, image-card, table-card, chart, image, or diagram." },
     insight: { type: "object", description: "DomNode for insight-card/key-takeaway/callout. If omitted, headline/detail create an insight-card." },
@@ -18718,7 +19596,8 @@ function expandComponent(slideId, node) {
     }).filter((item) => item.label) : [];
     const sortRaw = node.sort;
     const sort = sortRaw === "desc" || sortRaw === "asc" || sortRaw === "none" ? sortRaw : void 0;
-    return withComponentRoot(node, barList(slideId, name, { items, tone, sort }));
+    const density = node.density === "compact" || node.density === "comfortable" ? node.density : void 0;
+    return withComponentRoot(node, barList(slideId, name, { items, tone, sort, density }));
   }
   if (componentName === "stat-strip") {
     const allowedTones = /* @__PURE__ */ new Set(["brand", "positive", "neutral", "warning", "danger"]);
@@ -19782,21 +20661,23 @@ function coverCompositionNode(slideId, name, node) {
 }
 function chapterDividerNode(slideId, name, node) {
   const tone = node.tone === "neutral" || node.tone === "inverse" ? node.tone : "brand";
-  const inverse = tone === "brand" || tone === "inverse";
-  const bg = tone === "neutral" ? "surface" : "brand.primary";
-  const fg = inverse ? "text.inverse" : "text.primary";
+  const bg = tone === "brand" ? "brand.primary" : "surface";
+  const fg = tone === "brand" ? "text.inverse" : tone === "inverse" ? "brand.primary" : "text.primary";
+  const number = chapterDividerNumber(node);
+  const eyebrow = stringValue(node.eyebrow, "");
+  const eyebrowHasCjk = /[\u4e00-\u9fff]/.test(eyebrow);
   const children = [
     { id: `${slideId}.${name}.bg`, type: "shape", preset: "rect", fill: bg, line: bg, anchor: "top-left", offsetX: 0, offsetY: 0, fillSlide: true, zIndex: -2 },
-    {
-      ...bigPageNumber(slideId, `${name}.num`, { current: stringValue(node.chapter, stringValue(node.number, "01")), corner: "top-right", tone: tone === "neutral" ? "muted" : "brand" }),
-      color: inverse ? "text.inverse" : "brand.primary",
+    ...number ? [{
+      ...bigPageNumber(slideId, `${name}.num`, { current: number, corner: "top-right", tone: tone === "brand" ? "brand" : "muted" }),
+      color: tone === "brand" ? "text.inverse" : tone === "inverse" ? "brand.primary" : "text.muted",
       anchor: "top-right",
       offsetX: 0.9,
       offsetY: 0.7,
       width: 6.5,
       height: 2.2,
       zIndex: 1
-    },
+    }] : [],
     {
       id: `${slideId}.${name}.lockup`,
       type: "stack",
@@ -19809,7 +20690,7 @@ function chapterDividerNode(slideId, name, node) {
       height: 5,
       zIndex: 2,
       children: [
-        ...stringValue(node.eyebrow, "") ? [{ id: `${slideId}.${name}.eyebrow`, type: "text", text: stringValue(node.eyebrow, ""), style: "label", color: fg, uppercase: true, letterSpacing: 120, minHeight: 0.45, autoFit: "shrink" }] : [],
+        ...eyebrow ? [{ id: `${slideId}.${name}.eyebrow`, type: "text", text: eyebrow, style: "label", color: fg, uppercase: !eyebrowHasCjk, letterSpacing: eyebrowHasCjk ? 0 : 120, minHeight: 0.45, autoFit: "shrink" }] : [],
         { id: `${slideId}.${name}.title`, type: "text", text: stringValue(node.title, ""), style: "deck-title", color: fg, align: "left", autoFit: "shrink" },
         ...stringValue(node.subtitle, "") ? [{ id: `${slideId}.${name}.subtitle`, type: "text", text: stringValue(node.subtitle, ""), style: "lead", color: fg, align: "left", minHeight: 0.8, autoFit: "shrink" }] : []
       ]
@@ -19820,6 +20701,15 @@ function chapterDividerNode(slideId, name, node) {
     children.push({ ...timelineAxisBar(slideId, `${name}.nav`, { sections, current: numberValue(node.current, 0), tone: "neutral" }), anchor: "bottom-left", offsetX: 1.4, offsetY: 0.7, width: 17, height: 1, zIndex: 2 });
   }
   return { id: `${slideId}.${name}`, type: "fragment", children };
+}
+function chapterDividerNumber(node) {
+  const explicit = stringValue(node.chapter, stringValue(node.number, ""));
+  if (explicit)
+    return explicit;
+  if (node.showNumber !== true)
+    return "";
+  const current = numberValue(node.current, 0);
+  return String(Math.max(0, Math.floor(current)) + 1);
 }
 function heroAndSupportNode(slideId, name, node) {
   const tone = componentTone(node.tone) || "brand";
@@ -21255,6 +22145,7 @@ function equationNode(slideId, name, node) {
     type: "text",
     style,
     align,
+    ...typeof node.color === "string" && node.color.trim() ? { color: node.color } : {},
     content: [{ kind: "math", latex }],
     autoFit: "shrink",
     noWrap: true,
@@ -22276,7 +23167,7 @@ function mergeTheme(base, brandPrimary, override, prebuiltColors, prebuiltColorA
       imageGuidance: override?.guidance?.imageGuidance ?? base.guidance.imageGuidance,
       avoid: override?.guidance?.avoid ?? base.guidance.avoid
     },
-    chrome: { ...base.chrome, ...override?.chrome || {} },
+    chrome: mergeChrome(base.chrome, override?.chrome),
     imageGrowWeight: override?.imageGrowWeight ?? base.imageGrowWeight,
     sizeScale: { ...base.sizeScale, ...override?.sizeScale || {} }
   };
@@ -22462,9 +23353,9 @@ function mergeTextStyles(base, override) {
     const existing = out[key] || base.paragraph || { fontSize: 11, color: "text.primary", lineHeight: 1.4 };
     out[key] = {
       fontSize: typeof value.fontSize === "number" ? value.fontSize : existing.fontSize,
-      weight: value.weight ?? value.fontWeight ?? existing.weight,
+      weight: value.weight ?? value.fontWeight ?? (value.bold === true ? "bold" : void 0) ?? existing.weight,
       color: typeof value.color === "string" ? value.color : existing.color,
-      lineHeight: typeof value.lineHeight === "number" ? value.lineHeight : existing.lineHeight,
+      lineHeight: typeof value.lineHeight === "number" ? value.lineHeight : typeof value.lineSpacing === "number" ? value.lineSpacing : existing.lineHeight,
       margin: value.margin ?? existing.margin,
       letterSpacing: value.letterSpacing ?? existing.letterSpacing,
       fontFamily: value.fontFamily ?? existing.fontFamily,
@@ -22492,7 +23383,10 @@ function completeDerivedTextStyles(out, base, override) {
     if (!value)
       return false;
     if (prop === "weight") {
-      return Object.prototype.hasOwnProperty.call(value, "weight") || Object.prototype.hasOwnProperty.call(value, "fontWeight");
+      return Object.prototype.hasOwnProperty.call(value, "weight") || Object.prototype.hasOwnProperty.call(value, "fontWeight") || Object.prototype.hasOwnProperty.call(value, "bold");
+    }
+    if (prop === "lineHeight") {
+      return Object.prototype.hasOwnProperty.call(value, "lineHeight") || Object.prototype.hasOwnProperty.call(value, "lineSpacing");
     }
     return Object.prototype.hasOwnProperty.call(value, prop);
   };
@@ -22608,7 +23502,7 @@ function mergeFonts(base, override) {
   return {
     latin: mergeScriptFonts(base.latin, override.latin),
     cjk: mergeScriptFonts(base.cjk, override.cjk),
-    mono: normalizeFontChain(override.mono) ?? [...base.mono]
+    mono: mergeMonoFonts(base.mono, override.mono)
   };
 }
 function mergeScriptFonts(base, override) {
@@ -22632,12 +23526,59 @@ function normalizeFontChain(value) {
   }
   return void 0;
 }
+function mergeMonoFonts(base, override) {
+  if (!override)
+    return [...base];
+  if (typeof override === "string" || Array.isArray(override)) {
+    return normalizeFontChain(override) ?? [...base];
+  }
+  return normalizeFontChain(override.text) ?? normalizeFontChain(override.display) ?? [...base];
+}
+function mergeChrome(base, override) {
+  if (!override)
+    return { ...base };
+  return {
+    ...base,
+    ...override,
+    pageNumber: normalizeBoolean(override.pageNumber, base.pageNumber),
+    footerLine: normalizeBoolean(override.footerLine, base.footerLine),
+    brandMark: normalizeBrandMark(override.brandMark, base.brandMark)
+  };
+}
+function normalizeBoolean(value, fallback) {
+  if (typeof value === "boolean")
+    return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "yes", "y", "1", "on"].includes(normalized))
+      return true;
+    if (["false", "no", "n", "0", "off", "none"].includes(normalized))
+      return false;
+  }
+  return fallback;
+}
+function normalizeBrandMark(value, fallback) {
+  if (value === "none" || value === "top-right" || value === "bottom-right")
+    return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "topright" || normalized === "top_right" || normalized === "top right")
+      return "top-right";
+    if (normalized === "bottomright" || normalized === "bottom_right" || normalized === "bottom right")
+      return "bottom-right";
+  }
+  return fallback;
+}
 function mergeComponentStyles(base, override) {
   if (!override)
     return { ...base };
   const out = { ...base };
   for (const [key, value] of Object.entries(override)) {
-    const { cornerRadius: rawCornerRadius, padding: rawPadding, ...restWithLegacy } = value;
+    const raw = value;
+    const surface = raw.surface && typeof raw.surface === "object" && !Array.isArray(raw.surface) ? raw.surface : {};
+    const mergedValue = { ...surface, ...raw };
+    delete mergedValue.surface;
+    const { cornerRadius: rawCornerRadius, padding: rawPadding, ...restWithLegacy } = mergedValue;
     const rest = { ...restWithLegacy };
     delete rest.radius;
     const cornerRadius = typeof rawCornerRadius === "number" ? normalizeCornerRadius(rawCornerRadius) : void 0;
@@ -23081,7 +24022,7 @@ function defaultBase(brandPrimary) {
       brandMark: "none",
       pageNumber: false,
       footerLine: false,
-      footerHeight: 0.55,
+      footerHeight: 0.72,
       footerPadding: 0.5
     },
     imageGrowWeight: 2
@@ -23435,10 +24376,12 @@ var THEME_TEXT_STYLE_FIELDS = [
   "fontWeight",
   "color",
   "lineHeight",
+  "lineSpacing",
   "margin",
   "letterSpacing",
   "fontFamily",
   "fontFeatures",
+  "bold",
   "uppercase",
   "italic"
 ];
@@ -23495,7 +24438,8 @@ var THEME_COMPONENT_STYLE_FIELDS = [
   "gradient",
   "accent",
   "accentColor",
-  "accentWidth"
+  "accentWidth",
+  "surface"
 ];
 var THEME_CHROME_FIELDS = [
   "brandMark",
@@ -23523,7 +24467,8 @@ var THEME_SCRIPT_FONT_FIELD_SET = new Set(THEME_SCRIPT_FONT_FIELDS);
 
 // slideml2/dist/data-binding.js
 import { readFileSync } from "node:fs";
-import { isAbsolute as isAbsolute2, resolve as resolve2 } from "node:path";
+import { isAbsolute as isAbsolute2, resolve as resolve3 } from "node:path";
+var MAX_COMPUTED_DATA_SOURCE_DEPTH = 50;
 function resolveDataBindings(source, options = {}) {
   const sources = resolveDataSources(source.deck.dataSources, options);
   if (sources.size === 0)
@@ -23560,21 +24505,27 @@ function dataSourceSpecMap(dataSources) {
     return null;
   return dataSources;
 }
-function resolveDataSourceById(id, specs, cache, resolving, options) {
+function resolveDataSourceById(id, specs, cache, resolving, options, depth = 0) {
   const cached = cache.get(id);
   if (cached)
     return cached;
+  if (depth > MAX_COMPUTED_DATA_SOURCE_DEPTH) {
+    throw new Error(`computed data source chain exceeds ${MAX_COMPUTED_DATA_SOURCE_DEPTH} levels at ${id}`);
+  }
   if (!(id in specs))
     throw new Error(`missing data source: ${id}`);
   if (resolving.has(id))
     throw new Error(`cyclic computed data source: ${Array.from(resolving).concat(id).join(" -> ")}`);
   resolving.add(id);
-  const raw = specs[id];
-  const type = raw?.type || inferDataSourceType(raw);
-  const resolved = type === "computed" ? resolveComputedDataSource(id, raw, specs, cache, resolving, options) : { id, ...resolveDataSource(raw, options) };
-  cache.set(id, resolved);
-  resolving.delete(id);
-  return resolved;
+  try {
+    const raw = specs[id];
+    const type = raw?.type || inferDataSourceType(raw);
+    const resolved = type === "computed" ? resolveComputedDataSource(id, raw, specs, cache, resolving, options, depth + 1) : { id, ...resolveDataSource(raw, options) };
+    cache.set(id, resolved);
+    return resolved;
+  } finally {
+    resolving.delete(id);
+  }
 }
 function resolveDataSource(spec, options = {}) {
   if (!spec || typeof spec !== "object" || Array.isArray(spec)) {
@@ -23585,12 +24536,12 @@ function resolveDataSource(spec, options = {}) {
     return withSourceMetadata(spec, { type, rows: parseCsvRows(String(spec.csv ?? spec.text ?? ""), spec.delimiter || ",") });
   }
   if (type === "file-csv") {
-    const rawPath = firstString(spec.path, spec.file);
+    const rawPath = firstString2(spec.path, spec.file);
     if (!rawPath)
       throw new Error("file-csv data source requires path");
     if (/^[a-z]+:\/\//i.test(rawPath))
       throw new Error("file-csv path must be a local filesystem path, not a URL");
-    const filePath = isAbsolute2(rawPath) ? rawPath : resolve2(options.baseDir || process.cwd(), rawPath);
+    const filePath = isAbsolute2(rawPath) ? rawPath : resolve3(options.baseDir || process.cwd(), rawPath);
     const text = readFileSync(filePath, "utf8");
     return withSourceMetadata(spec, { type, path: filePath, rows: parseCsvRows(text, spec.delimiter || ",") });
   }
@@ -23621,11 +24572,11 @@ function withSourceMetadata(spec, resolved) {
     ...typeof spec.accessedAt === "string" && spec.accessedAt.trim() ? { accessedAt: spec.accessedAt.trim() } : {}
   };
 }
-function resolveComputedDataSource(id, spec, specs, cache, resolving, options) {
-  const sourceId = firstString(spec.source, spec.from);
+function resolveComputedDataSource(id, spec, specs, cache, resolving, options, depth) {
+  const sourceId = firstString2(spec.source, spec.from);
   if (!sourceId)
     throw new Error("computed data source requires source");
-  const source = resolveDataSourceById(sourceId, specs, cache, resolving, options);
+  const source = resolveDataSourceById(sourceId, specs, cache, resolving, options, depth);
   let rows = source.rows.map((row) => ({ ...row }));
   rows = applyComputedColumns(rows, computedColumns(spec.computed ?? spec.columns));
   if (spec.view && typeof spec.view === "object" && !Array.isArray(spec.view)) {
@@ -23744,9 +24695,9 @@ function bindNodeData(node, bind, encoding, rows, source) {
   }
   if (kind === "metric-card" || kind === "hero-stat") {
     const first = rows[0] || {};
-    const valueKey = firstString(encoding.value, singleString(encoding.y), "value");
-    const labelKey = firstString(encoding.label, encoding.x, "label");
-    const deltaKey = firstString(encoding.delta, "delta");
+    const valueKey = firstString2(encoding.value, singleString(encoding.y), "value");
+    const labelKey = firstString2(encoding.label, encoding.x, "label");
+    const deltaKey = firstString2(encoding.delta, "delta");
     return {
       ...node,
       value: node.value ?? formatDataValue(first[valueKey]),
@@ -23815,12 +24766,12 @@ function dataEncoding(value) {
         return item;
       if (item && typeof item === "object" && !Array.isArray(item)) {
         const column = item;
-        const key = firstString(column.key, column.field, column.name, column.id, column.accessor, column.value);
+        const key = firstString2(column.key, column.field, column.name, column.id, column.accessor, column.value);
         if (!key)
           return "";
         return {
           key,
-          label: firstString(column.label, column.header, column.title, column.name) || void 0,
+          label: firstString2(column.label, column.header, column.title, column.name) || void 0,
           type: normalizeColumnType(column.type),
           format: typeof column.format === "string" ? column.format : void 0,
           align: isColumnAlign(column.align) ? column.align : void 0,
@@ -23841,7 +24792,7 @@ function dataStatItemEncodingSpecs(value) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw))
       continue;
     const rec = raw;
-    const valueKey = firstString(rec.value, rec.key, rec.field);
+    const valueKey = firstString2(rec.value, rec.key, rec.field);
     if (!valueKey)
       continue;
     items.push({
@@ -24207,10 +25158,10 @@ function compareValues(a, b) {
   return String(a ?? "").localeCompare(String(b ?? ""));
 }
 function chartDataFromRows(rows, encoding, node) {
-  const xKey = firstString(encoding.x, "label");
-  const yKeys = Array.isArray(encoding.y) ? encoding.y : [firstString(encoding.y, "value")];
+  const xKey = firstString2(encoding.x, "label");
+  const yKeys = Array.isArray(encoding.y) ? encoding.y : [firstString2(encoding.y, "value")];
   const seriesKey = encoding.series;
-  const chartKind = firstString(node.chartType, node.chart, "bar");
+  const chartKind = firstString2(node.chartType, node.chart, "bar");
   const orientation = encoding.orientation || (node.orientation === "horizontal" || node.orientation === "vertical" ? node.orientation : void 0);
   if (!orientation && isBarLikeChart(chartKind) && yKeys.length === 1 && xKey && yKeys[0] && rows.length > 0) {
     const xSchema = inferColumnSchema(rows, xKey);
@@ -24262,7 +25213,7 @@ function mergeBoundChartSeries(boundSeries, authoredSeries) {
   if (authoredRecords.length === 0)
     return boundSeries;
   return boundSeries.map((series, index) => {
-    const authored = authoredRecords.find((record) => firstString(record.name) === series.name) ?? authoredRecords[index];
+    const authored = authoredRecords.find((record) => firstString2(record.name) === series.name) ?? authoredRecords[index];
     if (!authored)
       return series;
     return { ...series, ...authoredChartSeriesStyle(authored, series.name) };
@@ -24270,7 +25221,7 @@ function mergeBoundChartSeries(boundSeries, authoredSeries) {
 }
 function authoredChartSeriesStyle(record, fallbackName) {
   return {
-    name: firstString(record.name, fallbackName),
+    name: firstString2(record.name, fallbackName),
     ...record.type === "bar" || record.type === "line" ? { type: record.type } : {},
     ...record.axis === "primary" || record.axis === "secondary" ? { axis: record.axis } : {},
     ...typeof record.color === "string" && record.color.trim() ? { color: record.color.trim() } : {},
@@ -24328,7 +25279,7 @@ function statStripItemsFromRows(rows, encoding) {
   if (encoding.items?.length) {
     const row = rows[0] || {};
     return encoding.items.map((item) => {
-      const valueKey2 = firstString(item.value, item.key, item.field);
+      const valueKey2 = firstString2(item.value, item.key, item.field);
       const label = statItemLabel(row, item, valueKey2);
       const column = inferTableColumn(rows, {
         key: valueKey2,
@@ -24343,8 +25294,8 @@ function statStripItemsFromRows(rows, encoding) {
       };
     });
   }
-  const valueKey = firstString(encoding.value, singleString(encoding.y), "value");
-  const labelKey = firstString(encoding.label, encoding.x, "label");
+  const valueKey = firstString2(encoding.value, singleString(encoding.y), "value");
+  const labelKey = firstString2(encoding.label, encoding.x, "label");
   return rows.map((row) => ({
     value: formatDataValue(row[valueKey]),
     label: formatDataValue(row[labelKey])
@@ -24625,7 +25576,7 @@ function formatDataValue(value) {
 function componentKind(node) {
   return node.type === "component" && typeof node.component === "string" ? node.component : String(node.type || "");
 }
-function firstString(...values) {
+function firstString2(...values) {
   for (const value of values) {
     if (typeof value === "string" && value.trim())
       return value.trim();
@@ -24923,7 +25874,7 @@ function findBodyHeroTitle(nodes) {
     if (!node || typeof node !== "object")
       continue;
     const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
-    if (componentName === "section-break" || componentName === "title-lockup" || componentName === "cover-composition") {
+    if (componentName === "section-break" || componentName === "title-lockup" || componentName === "cover-composition" || componentName === "chapter-divider") {
       found = true;
       if (typeof node.title === "string" && node.title.trim())
         titles.push(node.title);
@@ -32838,10 +33789,10 @@ var SHAPE_PRESETS = /* @__PURE__ */ new Set([
 async function renderToPptx(deck, outputPath) {
   const ast = renderToAst(deck);
   const buffer = await emitPackage(ast);
-  await mkdir2(dirname2(outputPath), { recursive: true });
-  await writeFile2(outputPath, buffer);
+  await mkdir3(dirname3(outputPath), { recursive: true });
+  await writeFile3(outputPath, buffer);
   const domPath = `${outputPath}.render-tree.json`;
-  await writeFile2(domPath, JSON.stringify(materializeDeck(deck), null, 2), "utf8");
+  await writeFile3(domPath, JSON.stringify(materializeDeck(deck), null, 2), "utf8");
   return { outputPath, domPath };
 }
 async function renderSourceDeckToPptx(deck, outputPath, options = {}) {
@@ -34416,8 +35367,17 @@ function layoutSlide(theme, slideDom) {
     }
     for (const child of deferred) {
       const childRect = rectForAnchorToOverlay(child, rectsById);
-      if (!childRect)
+      if (!childRect) {
+        pushDiagnostic({
+          severity: "error",
+          code: "MISSING_ANCHOR_TARGET",
+          slideId: currentSlideId || void 0,
+          nodeId: nodeLabel(child),
+          message: `Overlay '${nodeLabel(child)}' references missing anchorTo target '${String(child.anchorTo || "")}'.`,
+          suggestion: "Keep the overlay intent, but set anchorTo to an existing node id on the same slide or convert it to a slide-level anchor."
+        });
         continue;
+      }
       measureSubtree(theme, child, childRect, measured, rectsById);
     }
   } finally {
@@ -34555,9 +35515,9 @@ function estimateInkRect(theme, node, rect) {
       return rect.w >= rect.h ? { x: rect.x, y: rect.y + Math.max(0, (rect.h - thickness) / 2), w: rect.w, h: Math.min(rect.h, thickness) } : { x: rect.x + Math.max(0, (rect.w - thickness) / 2), y: rect.y, w: Math.min(rect.w, thickness), h: rect.h };
     }
     if (preset === "ellipse")
-      return insetRect(rect, 0.08, 0.08);
+      return insetRect2(rect, 0.08, 0.08);
     if (preset === "diamond" || preset === "triangle" || preset === "rightTriangle")
-      return insetRect(rect, 0.14, 0.12);
+      return insetRect2(rect, 0.14, 0.12);
   }
   if (node.type === "divider") {
     const thickness = normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.04;
@@ -34624,7 +35584,7 @@ function placeInkRect(node, slot, size) {
   const y = valign === "middle" ? slot.y + (slot.h - h) / 2 : valign === "bottom" ? slot.y + slot.h - h : slot.y;
   return { x, y, w, h };
 }
-function insetRect(rect, xRatio, yRatio) {
+function insetRect2(rect, xRatio, yRatio) {
   const dx = Math.min(rect.w * xRatio, rect.w / 2);
   const dy = Math.min(rect.h * yRatio, rect.h / 2);
   return { x: rect.x + dx, y: rect.y + dy, w: Math.max(0, rect.w - dx * 2), h: Math.max(0, rect.h - dy * 2) };
@@ -35435,6 +36395,8 @@ function renderChrome(theme, deck, slideIndex, ids, slideBgHex) {
   const layout = theme.layout;
   const chrome = theme.chrome;
   const footerY = layout.slideHeightCm - chrome.footerHeight;
+  const chromeTextHeight = Math.max(0.64, chrome.footerHeight - 0.05);
+  const chromeTextY = Math.min(layout.slideHeightCm - chromeTextHeight - 0.02, footerY + Math.max(0.03, (chrome.footerHeight - chromeTextHeight) / 2));
   if (chrome.footerLine) {
     out.push({
       type: "shape",
@@ -35454,8 +36416,9 @@ function renderChrome(theme, deck, slideIndex, ids, slideBgHex) {
       text: `${slideIndex + 1} / ${deck.slides.length}`,
       style: "footnote",
       align: "right",
-      color: pageColor
-    }, { x: layout.slideWidthCm - chrome.footerPadding - 2, y: footerY + 0.05, w: 2, h: chrome.footerHeight - 0.05 }, ids));
+      color: pageColor,
+      autoFit: "shrink"
+    }, { x: layout.slideWidthCm - chrome.footerPadding - 2, y: chromeTextY, w: 2, h: chromeTextHeight }, ids));
   }
   const footerText = typeof chrome.footerText === "string" && chrome.footerText.trim() ? chrome.footerText.trim() : "";
   if (footerText) {
@@ -35467,12 +36430,13 @@ function renderChrome(theme, deck, slideIndex, ids, slideBgHex) {
       text: footerText,
       style: "footnote",
       align: "left",
-      color: footerColor
+      color: footerColor,
+      autoFit: "shrink"
     }, {
       x: layout.pageMarginX,
-      y: footerY + 0.05,
+      y: chromeTextY,
       w: Math.max(2, layout.slideWidthCm - layout.pageMarginX * 2 - rightReserve),
-      h: chrome.footerHeight - 0.05
+      h: chromeTextHeight
     }, ids));
   }
   return out;
@@ -35759,9 +36723,9 @@ function presetShape(theme, node, rect, ids) {
     };
     const styleKey = textStyleKey(shapeTextNode);
     const baseStyle = effectiveTextStyle(theme, shapeTextNode, "label");
-    const style = shapeTextNode.autoFit === "shrink" ? autoShrinkStyle(theme, shapeTextNode, baseStyle, shapeRect, styleKey) : baseStyle;
+    const style = shapeTextNode.autoFit === "shrink" ? autoShrinkStyle(theme, shapeTextNode, baseStyle, shapeRect, styleKey, { emitDiagnostics: node.role !== "item-marker" }) : baseStyle;
     shape.paragraphs = buildParagraphs(theme, shapeTextNode, style);
-    shape.margin = { l: cm(0.16), r: cm(0.16), t: cm(0.08), b: cm(0.08) };
+    shape.margin = node.role === "item-marker" ? { l: cm(0.03), r: cm(0.03), t: cm(0.02), b: cm(0.02) } : { l: cm(0.16), r: cm(0.16), t: cm(0.08), b: cm(0.08) };
     shape.valign = valignProp(shapeTextNode, styleKey) ?? "middle";
     shape.wrap = shapeTextNode.wrap === "none" || shapeTextNode.noWrap === true ? "none" : void 0;
     if (shapeTextNode.autoFit === "shrink" || shapeTextNode.autoFit === "resize")
@@ -35795,7 +36759,7 @@ function markerVisualSpec(theme, node) {
   const rawVariant = node.variant ?? markerRec?.variant;
   const variant = rawVariant === "solid" || rawVariant === "outline" || rawVariant === "ghost" || rawVariant === "ring" || rawVariant === "badge" ? rawVariant : marker === "ring" ? "ring" : "tint";
   const preset = markerPreset(marker);
-  const dims = markerDimensions(marker, size);
+  const dims = markerDimensions(marker, size, markerContent(node, markerRec));
   const accent = tone.accent;
   const tint = tone.fill;
   const fill = variant === "solid" || variant === "badge" ? accent : variant === "outline" || variant === "ring" ? void 0 : variant === "ghost" ? accent : tint;
@@ -35858,7 +36822,18 @@ function markerPreset(marker) {
     return "line";
   return "rect";
 }
-function markerDimensions(marker, size) {
+function markerContent(node, markerRec) {
+  const raw = typeof node.text === "string" && node.text.trim() ? node.text : typeof markerRec?.content === "string" && markerRec.content.trim() ? markerRec.content : typeof markerRec?.glyph === "string" && markerRec.glyph.trim() ? markerRec.glyph : typeof markerRec?.text === "string" && markerRec.text.trim() ? markerRec.text : void 0;
+  if (!raw)
+    return void 0;
+  return Array.from(raw).length <= 3 ? raw : void 0;
+}
+function markerDimensions(marker, size, content) {
+  if (content) {
+    const glyphSize = Math.max(0.42, size);
+    const widthMultiplier = Math.max(1, Math.min(1.6, Array.from(content).length * 0.62));
+    return { w: glyphSize * widthMultiplier, h: glyphSize };
+  }
   if (marker === "side-bar")
     return { w: Math.max(0.06, size * 0.22), h: Math.max(0.55, size * 1.9) };
   if (marker === "slash")
@@ -35913,6 +36888,7 @@ function dividerShape(theme, node, rect, ids) {
 }
 function tableShape(theme, node, rect, ids, rectsById) {
   const sourceRows = tableSourceRows(node);
+  pushMissingDataBindingSourceDiagnostic(node, "Table");
   const columnModel = tableColumnModel(node, sourceRows);
   const headers = columnModel.headers;
   const widthsFromColumns = columnModel.widthsFromColumns;
@@ -36451,6 +37427,7 @@ function semanticOuterRectForBody(nodeId, suffix, rectsById) {
 function chartShape(theme, node, rect, ids, rectsById) {
   const labels = Array.isArray(node.labels) ? node.labels.map(String) : [];
   const series = normalizeChartSeries(theme, node.series);
+  pushMissingDataBindingSourceDiagnostic(node, "Chart");
   const resolvedChartType = chartType(node.chartType);
   const hasRenderableData = chartHasRenderableData(resolvedChartType, labels, series);
   if (!hasRenderableData)
@@ -36517,6 +37494,23 @@ function pushEmptyChartDataDiagnostic(node, labels, series) {
       renderedRows: rowCount,
       lineCount: labels.length
     }
+  });
+}
+function pushMissingDataBindingSourceDiagnostic(node, noun) {
+  const lineage = node.dataLineage;
+  if (!lineage || typeof lineage !== "object" || Array.isArray(lineage))
+    return;
+  const status = lineage.status;
+  if (status !== "missing-source")
+    return;
+  const source = typeof lineage.source === "string" ? String(lineage.source) : "";
+  pushDiagnostic({
+    severity: "error",
+    code: "MISSING_DATA_BINDING_SOURCE",
+    slideId: currentSlideId || void 0,
+    nodeId: nodeLabel(node),
+    message: `${noun} '${nodeLabel(node)}' references missing data source '${source}'.`,
+    suggestion: "Keep the component and repair bind.source to an existing deck.dataSources id, or remove bind and provide explicit chart/table data."
   });
 }
 function normalizeChartDataLabels(value, defaults) {
@@ -37165,12 +38159,12 @@ function materializeDeck(deck) {
 function serializeMeasuredNode(node) {
   return {
     ...node,
-    rect: roundRect(node.rect),
-    ...node.inkRect ? { inkRect: roundRect(node.inkRect) } : {},
-    ...node.visualRect ? { visualRect: roundRect(node.visualRect) } : {}
+    rect: roundRect2(node.rect),
+    ...node.inkRect ? { inkRect: roundRect2(node.inkRect) } : {},
+    ...node.visualRect ? { visualRect: roundRect2(node.visualRect) } : {}
   };
 }
-function roundRect(rect) {
+function roundRect2(rect) {
   return {
     x: Math.round(rect.x * 1e3) / 1e3,
     y: Math.round(rect.y * 1e3) / 1e3,
@@ -37530,7 +38524,7 @@ function computeGridPlacements(children, columns) {
     if (!child || typeof child !== "object")
       continue;
     const colSpan = clamp(Math.floor(numberProp(child, "colSpan", 1)), 1, columns);
-    const rowSpan = Math.max(1, Math.floor(numberProp(child, "rowSpan", 1)));
+    const rowSpan = clamp(Math.floor(numberProp(child, "rowSpan", 1)), 1, Math.max(1, children.length * 4));
     let placed = false;
     for (let row = 0; !placed; row++) {
       for (let col = 0; col + colSpan <= columns; col++) {
@@ -37555,16 +38549,16 @@ function layoutGridChildren(theme, node, rect) {
   if (flowOnly.length === 0) {
     return layered.map((c) => ({ node: c, rect }));
   }
-  const children = flowOnly;
   const columns = Math.max(1, numberProp(node, "columns", 2));
+  const gap = gapCm(theme, node);
+  const availableWidth = Math.max(0, rect.w - gap * (columns - 1));
+  const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
+  const children = prepareGridChildrenForLayout(theme, node, flowOnly, columns, colWidths, gap);
   const placements = computeGridPlacements(children, columns);
   const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
   const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
   const rows = Math.max(1, declaredRows, usedRows);
-  const gap = gapCm(theme, node);
-  const availableWidth = Math.max(0, rect.w - gap * (columns - 1));
   const availableHeight = Math.max(0, rect.h - gap * (rows - 1));
-  const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
   const colX = positionsFromSizes(rect.x, gap, colWidths);
   const rowHeights = resolveGridRowHeights(theme, placements, columns, rows, availableHeight, colWidths, gap, node.rowWeights);
   const rowY = positionsFromSizes(rect.y, gap, rowHeights);
@@ -37586,6 +38580,80 @@ function layoutGridChildren(theme, node, rect) {
   if (layered.length === 0)
     return flowOut;
   return [...flowOut, ...layered.map((c) => ({ node: c, rect }))];
+}
+function prepareGridChildrenForLayout(theme, node, children, columns, colWidths, gap) {
+  if (node.role !== "kpi-grid" || children.length === 0)
+    return children;
+  const placements = computeGridPlacements(children, columns);
+  let valueBandHeight = 0;
+  const valueMinById = /* @__PURE__ */ new Map();
+  for (const placement of placements) {
+    if (findMetricValueNode(placement.child) === void 0)
+      continue;
+    let cellWidth = 0;
+    for (let i = 0; i < placement.colSpan; i++)
+      cellWidth += colWidths[placement.col + i] || 0;
+    if (placement.colSpan > 1)
+      cellWidth += gap * (placement.colSpan - 1);
+    const measured = measuredMetricValueBand(theme, placement.child, cellWidth);
+    if (!measured)
+      continue;
+    valueBandHeight = Math.max(valueBandHeight, measured.bandHeight);
+    valueMinById.set(placement.child.id, measured.textMinHeight);
+  }
+  if (valueBandHeight <= 0)
+    return children;
+  return children.map((child) => {
+    const textMinHeight2 = valueMinById.get(child.id);
+    return textMinHeight2 === void 0 ? child : withMeasuredMetricValueBand(child, valueBandHeight, textMinHeight2);
+  });
+}
+function measuredMetricValueBand(theme, metricCardNode, cellWidth) {
+  const valueWrap = findMetricValueWrap(metricCardNode);
+  const valueNode = findMetricValueNode(metricCardNode);
+  if (!valueWrap || !valueNode)
+    return void 0;
+  const cardContent = contentRect(theme, metricCardNode, { x: 0, y: 0, w: Math.max(0.25, cellWidth), h: 10 });
+  const wrapContent = contentRect(theme, valueWrap, { x: 0, y: 0, w: Math.max(0.25, cardContent.w), h: 10 });
+  const width = Math.max(0.45, wrapContent.w);
+  const style = effectiveTextStyle(theme, valueNode, "paragraph");
+  const textMinHeight2 = Math.max(textSquashMinHeight(theme, valueNode), textNeededHeight(theme, { ...valueNode, wrapMinHeight: true }, width, style));
+  const current = optionalNumberProp(valueWrap, "fixedHeight") ?? optionalNumberProp(valueWrap, "maxHeight") ?? optionalNumberProp(valueWrap, "minHeight") ?? 0;
+  return {
+    bandHeight: Math.min(2.4, Math.max(current, textMinHeight2)),
+    textMinHeight: textMinHeight2
+  };
+}
+function withMeasuredMetricValueBand(metricCardNode, bandHeight, textMinHeight2) {
+  if (!Array.isArray(metricCardNode.children))
+    return metricCardNode;
+  return {
+    ...metricCardNode,
+    children: metricCardNode.children.map((child) => {
+      if (!isMetricValueWrap(child))
+        return child;
+      return {
+        ...child,
+        fixedHeight: bandHeight,
+        maxHeight: bandHeight,
+        minHeight: bandHeight,
+        children: (child.children || []).map((grandchild) => isMetricValueNode(grandchild) ? { ...grandchild, minHeight: textMinHeight2, wrapMinHeight: true } : grandchild)
+      };
+    })
+  };
+}
+function findMetricValueWrap(node) {
+  return (node.children || []).find(isMetricValueWrap);
+}
+function findMetricValueNode(node) {
+  const wrap = findMetricValueWrap(node);
+  return (wrap?.children || []).find(isMetricValueNode);
+}
+function isMetricValueWrap(node) {
+  return node.type === "stack" && typeof node.id === "string" && node.id.endsWith(".value-wrap");
+}
+function isMetricValueNode(node) {
+  return node.type === "text" && typeof node.id === "string" && node.id.endsWith(".value");
 }
 function resolveMainSizes(theme, children, direction, availableMain, crossSize) {
   return solveSizes(children.map((child) => childMainSpec(theme, child, direction, crossSize)), availableMain);
@@ -38111,18 +39179,19 @@ function verticalStackIntrinsicWidth(theme, node, heightCm) {
   return Math.max(0, ...childWidths) + pad * 2;
 }
 function gridIntrinsicHeight(theme, node, widthCm) {
-  const children = node.children || [];
-  if (children.length === 0)
+  const rawChildren = node.children || [];
+  if (rawChildren.length === 0)
     return 0;
   const columns = Math.max(1, numberProp(node, "columns", 2));
-  const placements = computeGridPlacements(children, columns);
-  const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
-  const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
-  const rows = Math.max(1, declaredRows, usedRows);
   const gap = gapCm(theme, node);
   const contentWidth = contentRect(theme, node, { x: 0, y: 0, w: widthCm, h: 10 }).w;
   const availableWidth = Math.max(0, contentWidth - gap * (columns - 1));
   const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
+  const children = prepareGridChildrenForLayout(theme, node, rawChildren, columns, colWidths, gap);
+  const placements = computeGridPlacements(children, columns);
+  const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
+  const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
+  const rows = Math.max(1, declaredRows, usedRows);
   const rowHeights = new Array(rows).fill(0);
   for (const placement of placements) {
     let spanWidth = 0;
@@ -38451,19 +39520,28 @@ function autoShrinkStyle(theme, node, style, rect, styleKey, options = {}) {
   const text = (lines.length > 0 ? lines : [rawText.replace(/\n/g, " ")]).join("\n");
   if (!text)
     return style;
-  const inner = Math.max(0.1, rect.w - 0.35);
-  const innerHeight = Math.max(0.12, rect.h - 0.12);
+  const compactMarkerText = node.role === "item-marker";
+  const inner = Math.max(compactMarkerText ? 0.08 : 0.1, rect.w - (compactMarkerText ? 0.06 : 0.35));
+  const innerHeight = Math.max(compactMarkerText ? 0.1 : 0.12, rect.h - (compactMarkerText ? 0.04 : 0.12));
   const textLines = text.split("\n");
+  const noWrap = node.wrap === "none" || node.noWrap === true;
   const measurer = createTextMeasurer(theme);
   const computeFit = (fontPt) => {
     let widthNeeded = 0;
     let unbreakableNeeded = 0;
     let wrappedLines = 0;
     for (const line of textLines) {
-      const metrics = measurer.wrapLines(line, fontPt, style.weight, inner);
-      widthNeeded = Math.max(widthNeeded, metrics.widthCm);
-      unbreakableNeeded = Math.max(unbreakableNeeded, metrics.unbreakableCm);
-      wrappedLines += metrics.lines;
+      if (noWrap) {
+        const lineWidth = measurer.textWidth(line, fontPt, style.weight);
+        widthNeeded = Math.max(widthNeeded, lineWidth);
+        unbreakableNeeded = Math.max(unbreakableNeeded, lineWidth);
+        wrappedLines += 1;
+      } else {
+        const metrics = measurer.wrapLines(line, fontPt, style.weight, inner);
+        widthNeeded = Math.max(widthNeeded, metrics.widthCm);
+        unbreakableNeeded = Math.max(unbreakableNeeded, metrics.unbreakableCm);
+        wrappedLines += metrics.lines;
+      }
     }
     const measuredStyle = { ...style, fontSize: fontPt };
     const lineHeightCm = textLineMetrics(theme, measuredStyle, node.lineSpacing, text).lineHeightCm;
@@ -38471,7 +39549,7 @@ function autoShrinkStyle(theme, node, style, rect, styleKey, options = {}) {
     const heightNeeded = wrappedLines * lineHeightCm + heightReserve;
     const mustFitSingleLineHeight = wrappedLines > 1 || (styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") && rect.h <= 0.5;
     return {
-      fits: unbreakableNeeded <= inner && (!mustFitSingleLineHeight || heightNeeded <= innerHeight + 0.08),
+      fits: (noWrap ? widthNeeded <= inner : unbreakableNeeded <= inner) && (!mustFitSingleLineHeight || heightNeeded <= innerHeight + 0.08),
       widthNeeded,
       heightNeeded,
       unbreakableNeeded
@@ -38929,7 +40007,7 @@ function dedupeOps(ops) {
 }
 
 // slideml2/dist/agent/component-agent.js
-import { readFile as readFile3, writeFile as writeFile3 } from "node:fs/promises";
+import { readFile as readFile4, writeFile as writeFile4 } from "node:fs/promises";
 
 // slideml2/dist/deck-disclosure.js
 function describeDeck() {
@@ -39335,13 +40413,13 @@ function describeDeck() {
 
 // slideml2/dist/agent/component-agent.js
 async function generateWithComponentAgent(markdownPath, outputPath, logo, config = llmConfigFromEnv()) {
-  const markdown = await readFile3(markdownPath, "utf8");
+  const markdown = await readFile4(markdownPath, "utf8");
   const plan = await planWithComponentAgent(markdown, logo, config);
   const deck = deckFromComponentPlan(plan, logo);
   const planPath = `${outputPath}.component-plan.json`;
   const slideml2Path = `${outputPath}.slideml2.json`;
-  await writeFile3(planPath, JSON.stringify(plan, null, 2), "utf8");
-  await writeFile3(slideml2Path, JSON.stringify(deck, null, 2), "utf8");
+  await writeFile4(planPath, JSON.stringify(plan, null, 2), "utf8");
+  await writeFile4(slideml2Path, JSON.stringify(deck, null, 2), "utf8");
   const rendered = await renderToPptx(deck, outputPath);
   return { plan, deck, outputPath, planPath, slideml2Path, domPath: rendered.domPath };
 }
@@ -39689,7 +40767,7 @@ function isRecord2(value) {
 }
 
 // slideml2/dist/agent/batch-agent.js
-import { readFile as readFile5, writeFile as writeFile5 } from "node:fs/promises";
+import { readFile as readFile6, stat, writeFile as writeFile6 } from "node:fs/promises";
 
 // slideml2/dist/agent-disclosure.js
 var STARTER_COMPONENTS = [
@@ -40025,8 +41103,8 @@ function unique(items) {
 }
 
 // slideml2/dist/deck-ops.js
-import { mkdir as mkdir3, readFile as readFile4, writeFile as writeFile4 } from "node:fs/promises";
-import { dirname as dirname3 } from "node:path";
+import { mkdir as mkdir4, readFile as readFile5, writeFile as writeFile5 } from "node:fs/promises";
+import { dirname as dirname4 } from "node:path";
 
 // slideml2/dist/validate.js
 var LAYOUT_CONTAINERS = /* @__PURE__ */ new Set(["stack", "grid", "split", "panel", "card", "band", "frame", "inset", "fragment"]);
@@ -40054,6 +41132,50 @@ var THEME_FONT_WEIGHT_NAMES = /* @__PURE__ */ new Set([
 var SOURCE_DECK_FIELD_SET = /* @__PURE__ */ new Set(["slideml2", "deck", "slides"]);
 var DECK_FIELD_SET = /* @__PURE__ */ new Set(["size", "theme", "themeOverride", "brand", "chrome", "validation", "master", "dataSources", "references", "footnotes", "metadata"]);
 var REQUIRED_CHILD_CONTAINERS = /* @__PURE__ */ new Set(["stack", "grid", "split", "fragment"]);
+var MAX_VALIDATION_NODE_DEPTH = 80;
+var MAX_VALIDATION_NODES_PER_SLIDE = 5e3;
+var MAX_TEXT_LENGTH_ISSUES_PER_SLIDE = 80;
+var TEXT_VALUE_KEYS = /* @__PURE__ */ new Set([
+  "text",
+  "content",
+  "title",
+  "subtitle",
+  "headline",
+  "body",
+  "detail",
+  "description",
+  "label",
+  "name",
+  "caption",
+  "eyebrow",
+  "kicker",
+  "summary",
+  "quote",
+  "formula",
+  "latex",
+  "code",
+  "alt",
+  "altText",
+  "metricValue",
+  "metricLabel"
+]);
+var TEXT_CONTAINER_KEYS = /* @__PURE__ */ new Set([
+  "content",
+  "paragraphs",
+  "runs",
+  "items",
+  "bullets",
+  "points",
+  "list",
+  "lines",
+  "rows",
+  "headers",
+  "cells",
+  "columns",
+  "supporting",
+  "facts",
+  "keyFacts"
+]);
 function validationOptions(spec) {
   const mode = normalizeValidationMode(spec?.mode);
   return {
@@ -40080,7 +41202,10 @@ function validateSlide(slide, deck) {
     validateSlideAreaReferences(slide, deck, issues);
   if (Array.isArray(slide.children))
     validateSlideTitleLabelDuplication(slide, issues);
-  slide.children?.forEach((node, index) => validateNode(node, `children[${index}]`, slide.id, issues, void 0, options));
+  const nodeState = createNodeValidationState();
+  slide.children?.forEach((node, index) => validateNode(node, `children[${index}]`, slide.id, issues, void 0, options, nodeState));
+  if (issues.some((item) => item.level === "error"))
+    return report(issues);
   const bodyHeroTitle = Array.isArray(slide.children) ? findBodyHeroTitle2(slide.children) : { found: false, titles: [] };
   if (typeof slide.title === "string" && slide.title.trim() && bodyHeroTitle.found && !bodyHeroTitleMatchesSlideTitle2(slide.title, bodyHeroTitle.titles)) {
     issues.push(issue("error", "DUPLICATE_HERO_TITLE", "slide.title is set AND the body already carries a hero title (cover-composition / section-break / deck-title / slide-title text). Only one \u2014 drop slide.title for cover/section pages, or remove the body title for ordinary pages.", {
@@ -40436,7 +41561,14 @@ function validateSlideTitleLabelDuplication(slide, issues) {
 function normalizeTitleLabel(value) {
   return value.normalize("NFKC").toLowerCase().replace(/^[\s#]*(?:slide|page)?\s*\d+[\s:._\-—–|]*/i, "").replace(/^[\s#]*(?:[ivxlcdm]+|[一二三四五六七八九十]+)[\s:._\-—–|]+/i, "").replace(/[^\p{Letter}\p{Number}]+/gu, " ").trim();
 }
-function validateNode(node, path, slideId, issues, parent, options = validationOptions()) {
+function validateNode(node, path, slideId, issues, parent, options = validationOptions(), state = createNodeValidationState(), depth = 0) {
+  if (state.limitReported)
+    return;
+  state.nodes += 1;
+  if (state.nodes > MAX_VALIDATION_NODES_PER_SLIDE || depth > MAX_VALIDATION_NODE_DEPTH) {
+    reportValidationLimit(path, slideId, issues, state, depth);
+    return;
+  }
   if (!node || typeof node !== "object") {
     issues.push(issue("error", "INVALID_NODE", `${path} must be a node object.`, { slideId, path }));
     return;
@@ -40445,7 +41577,7 @@ function validateNode(node, path, slideId, issues, parent, options = validationO
     const children = Array.isArray(node.children) ? node.children : [];
     children.forEach((child, index) => {
       const childPath = `${path}.children[${index}]`;
-      validateNode(withSyntheticNodeIds(child, `${slideId}.${path.replace(/[^A-Za-z0-9_.-]+/g, ".")}.${index + 1}`), childPath, slideId, issues, node, options);
+      validateNode(withSyntheticNodeIds(child, `${slideId}.${path.replace(/[^A-Za-z0-9_.-]+/g, ".")}.${index + 1}`), childPath, slideId, issues, node, options, state, depth + 1);
     });
     return;
   }
@@ -40458,7 +41590,7 @@ function validateNode(node, path, slideId, issues, parent, options = validationO
       nodeName: typeof node.id === "string" ? node.id : void 0,
       suggestedFix: 'Add a type field \u2014 e.g. {type:"text", text:"..."} for body copy, {type:"stack"} for a flow group.'
     }));
-    node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options));
+    node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options, state, depth + 1));
     return;
   }
   if (!isComponentTypedNode(node)) {
@@ -40505,7 +41637,7 @@ function validateNode(node, path, slideId, issues, parent, options = validationO
     }));
   }
   if (isComponentTypedNode(node))
-    validateComponentNode(node, path, slideId, issues, options);
+    validateComponentNode(node, path, slideId, issues, options, parent);
   else if (LAYOUT_CONTAINERS.has(String(node.type))) {
     const childrenRequired = REQUIRED_CHILD_CONTAINERS.has(String(node.type));
     if (!Array.isArray(node.children)) {
@@ -40579,15 +41711,57 @@ function validateNode(node, path, slideId, issues, parent, options = validationO
       }));
     }
   }
-  if (options.maxTextLength && node.type === "text" && typeof node.text === "string" && node.text.length > options.maxTextLength) {
-    issues.push(issue("error", "TEXT_TOO_LONG", `${path}.text has ${node.text.length} characters; deck.validation.maxTextLength is ${options.maxTextLength}.`, {
-      slideId,
-      path,
-      nodeName: node.id,
-      suggestedFix: "Shorten the text, split it into bullets/paragraphs, or raise deck.validation.maxTextLength for leave-behind decks."
-    }));
-  }
-  node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options));
+  if (options.maxTextLength)
+    validateNodeTextLengths(node, path, slideId, issues, options.maxTextLength, state);
+  node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options, state, depth + 1));
+}
+function createNodeValidationState() {
+  return { nodes: 0, limitReported: false, textLengthIssues: 0 };
+}
+function reportValidationLimit(path, slideId, issues, state, depth) {
+  if (state.limitReported)
+    return;
+  state.limitReported = true;
+  const byDepth = depth > MAX_VALIDATION_NODE_DEPTH;
+  issues.push(issue("error", "VALIDATION_LIMIT_EXCEEDED", byDepth ? `${path} exceeds the maximum validation depth of ${MAX_VALIDATION_NODE_DEPTH}.` : `Slide ${slideId} exceeds the maximum validation node count of ${MAX_VALIDATION_NODES_PER_SLIDE}.`, {
+    slideId,
+    path,
+    details: { depth, nodeCount: state.nodes, maxDepth: MAX_VALIDATION_NODE_DEPTH, maxNodes: MAX_VALIDATION_NODES_PER_SLIDE },
+    suggestedFix: "Flatten deeply nested containers and split very large pages across multiple slides before retrying validation."
+  }));
+}
+function validateNodeTextLengths(node, path, slideId, issues, maxTextLength, state) {
+  const visit = (value, currentPath, key, inTextContainer, depth) => {
+    if (state.textLengthIssues >= MAX_TEXT_LENGTH_ISSUES_PER_SLIDE || depth > 20)
+      return;
+    if (typeof value === "string") {
+      const shouldCheck = inTextContainer || key !== void 0 && TEXT_VALUE_KEYS.has(key);
+      if (shouldCheck && value.length > maxTextLength) {
+        state.textLengthIssues += 1;
+        issues.push(issue("error", "TEXT_TOO_LONG", `${currentPath} has ${value.length} characters; deck.validation.maxTextLength is ${maxTextLength}.`, {
+          slideId,
+          path: currentPath,
+          nodeName: node.id,
+          suggestedFix: "Shorten the text, split it into bullets/paragraphs, or raise deck.validation.maxTextLength for leave-behind decks."
+        }));
+      }
+      return;
+    }
+    if (!value || typeof value !== "object")
+      return;
+    if (Array.isArray(value)) {
+      const nextTextContainer = inTextContainer || key !== void 0 && TEXT_CONTAINER_KEYS.has(key);
+      value.forEach((item, index) => visit(item, `${currentPath}[${index}]`, void 0, nextTextContainer, depth + 1));
+      return;
+    }
+    for (const [childKey, childValue] of Object.entries(value)) {
+      if (childKey === "children")
+        continue;
+      const nextTextContainer = inTextContainer || TEXT_CONTAINER_KEYS.has(childKey);
+      visit(childValue, `${currentPath}.${childKey}`, childKey, nextTextContainer, depth + 1);
+    }
+  };
+  visit(node, path, void 0, false, 0);
 }
 var IGNORED_NODE_SPACING_FIELDS = [
   "margin",
@@ -40932,7 +42106,7 @@ function validateThemeOverride(deck, issues) {
         suggestedFix: "Use at least 7pt for footnotes/captions and 9pt+ for normal content."
       }));
     }
-    const weight = style.weight ?? style.fontWeight;
+    const weight = style.weight ?? style.fontWeight ?? (style.bold === true ? "bold" : void 0);
     const namedWeight = typeof weight === "string" ? weight.trim().toLowerCase() : void 0;
     const validWeight = weight === void 0 || typeof weight === "number" && weight >= 100 && weight <= 900 || namedWeight !== void 0 && THEME_FONT_WEIGHT_NAMES.has(namedWeight);
     if (!validWeight) {
@@ -40946,6 +42120,13 @@ function validateThemeOverride(deck, issues) {
       issues.push(issue("error", "INVALID_THEME_FONT_FAMILY", `${path}.fontFamily must be display, text, or mono.`, {
         path: `${path}.fontFamily`,
         suggestedFix: "Use fontFamily:'display' for titles, 'text' for body, or 'mono' for code/data identifiers."
+      }));
+    }
+    const bold = style.bold;
+    if (bold !== void 0 && typeof bold !== "boolean") {
+      issues.push(issue("error", "INVALID_THEME_TEXT_BOLD", `${path}.bold must be boolean.`, {
+        path: `${path}.bold`,
+        suggestedFix: "Use bold:true as shorthand for weight:'bold', or remove the field."
       }));
     }
   }
@@ -41379,6 +42560,8 @@ function isPlainObject2(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 function validateDataBindings(deck, issues, options = {}) {
+  if (issues.some((item) => item.code === "VALIDATION_LIMIT_EXCEEDED"))
+    return;
   const sourceIds = new Set(Object.keys(deck.deck?.dataSources || {}));
   const sourceRows = dataSourceRowsById(deck.deck?.dataSources, options);
   deck.slides.forEach((slide, slideIndex) => {
@@ -41397,8 +42580,10 @@ function dataSourceRowsById(dataSources, options = {}) {
   }
   return out;
 }
-function validateNodeDataBinding(node, path, slideId, sourceIds, sourceRows, issues) {
+function validateNodeDataBinding(node, path, slideId, sourceIds, sourceRows, issues, depth = 0) {
   if (!node || typeof node !== "object")
+    return;
+  if (depth > MAX_VALIDATION_NODE_DEPTH)
     return;
   const bind = node.bind;
   if (bind !== void 0 && !isEmptyObject(bind))
@@ -41409,16 +42594,24 @@ function validateNodeDataBinding(node, path, slideId, sourceIds, sourceRows, iss
   if (bind && typeof bind === "object" && !Array.isArray(bind) && !isEmptyObject(bind)) {
     const sourceId = typeof bind.source === "string" ? String(bind.source).trim() : "";
     const rows = sourceRows.get(sourceId);
+    if (rows && rows.length === 0) {
+      issues.push(issue("error", "EMPTY_DATA_BIND_SOURCE", `${path}.bind.source "${sourceId}" resolved to zero rows for this bound node.`, {
+        slideId,
+        path: `${path}.bind.source`,
+        nodeName: node.id,
+        suggestedFix: "Repair the data source or bind.filter so the component receives at least one row; otherwise remove the bind and author explicit chart/table data."
+      }));
+    }
     if (rows && rows.length)
       validateDataFieldReferences(bind, encoding, rows, `${path}.bind`, slideId, node.id, issues);
   }
-  node.children?.forEach((child, index) => validateNodeDataBinding(child, `${path}.children[${index}]`, slideId, sourceIds, sourceRows, issues));
+  node.children?.forEach((child, index) => validateNodeDataBinding(child, `${path}.children[${index}]`, slideId, sourceIds, sourceRows, issues, depth + 1));
   if (Array.isArray(node.items)) {
     node.items.forEach((item, index) => {
       if (item && typeof item === "object" && !Array.isArray(item)) {
         const content = item.content;
         if (content && typeof content === "object" && !Array.isArray(content)) {
-          validateNodeDataBinding(content, `${path}.items[${index}].content`, slideId, sourceIds, sourceRows, issues);
+          validateNodeDataBinding(content, `${path}.items[${index}].content`, slideId, sourceIds, sourceRows, issues, depth + 1);
         }
       }
     });
@@ -42130,10 +43323,6 @@ function validateThemeFonts(override, issues) {
       }));
       continue;
     }
-    if (key === "mono") {
-      validateFontChain(value, path, issues);
-      continue;
-    }
     if (typeof value === "string" || Array.isArray(value)) {
       validateFontChain(value, path, issues);
       continue;
@@ -42141,7 +43330,7 @@ function validateThemeFonts(override, issues) {
     if (!value || typeof value !== "object") {
       issues.push(issue("error", "INVALID_THEME_FONT_VALUE", `${path} must be a font face string, string array, or {display?, text?}.`, {
         path,
-        suggestedFix: "Use e.g. fonts.latin:{display:['Helvetica Neue'], text:['Arial']} or fonts.cjk:{display:'Microsoft YaHei', text:'Microsoft YaHei'}."
+        suggestedFix: "Use e.g. fonts.latin:{display:['Helvetica Neue'], text:['Arial']}, fonts.cjk:{display:'Microsoft YaHei', text:'Microsoft YaHei'}, or fonts.mono:'Menlo'."
       }));
       continue;
     }
@@ -42180,19 +43369,25 @@ function validateThemeChrome(override, issues) {
       }));
       continue;
     }
-    if ((key === "pageNumber" || key === "footerLine") && typeof value !== "boolean") {
+    if ((key === "pageNumber" || key === "footerLine") && typeof value !== "boolean" && !isBooleanString(value)) {
       issues.push(issue("error", "INVALID_THEME_CHROME_VALUE", `${path} must be boolean.`, { path, suggestedFix: `Use ${key}: true or false.` }));
     }
     if ((key === "footerHeight" || key === "footerPadding") && (typeof value !== "number" || !Number.isFinite(value))) {
       issues.push(issue("error", "INVALID_THEME_CHROME_VALUE", `${path} must be a finite number.`, { path, suggestedFix: "Use centimeters, e.g. footerHeight:0.55." }));
     }
-    if (key === "brandMark" && value !== "none" && value !== "top-right" && value !== "bottom-right") {
+    if (key === "brandMark" && value !== "none" && value !== "top-right" && value !== "bottom-right" && !isBrandMarkAlias(value)) {
       issues.push(issue("error", "INVALID_THEME_CHROME_VALUE", `${path} must be none, top-right, or bottom-right.`, { path, suggestedFix: "Use brandMark:'none'|'top-right'|'bottom-right'." }));
     }
     if (key === "footerText" && typeof value !== "string") {
       issues.push(issue("error", "INVALID_THEME_CHROME_VALUE", `${path} must be a string.`, { path, suggestedFix: "Use footerText:'Internal use' or omit it." }));
     }
   }
+}
+function isBooleanString(value) {
+  return typeof value === "string" && ["true", "false", "yes", "no", "y", "n", "1", "0", "on", "off", "none"].includes(value.trim().toLowerCase());
+}
+function isBrandMarkAlias(value) {
+  return typeof value === "string" && ["topright", "top_right", "top right", "bottomright", "bottom_right", "bottom right"].includes(value.trim().toLowerCase());
 }
 function validateThemeColorsShape(deck, issues) {
   const colors = deck.deck?.themeOverride?.colors;
@@ -42307,6 +43502,8 @@ function componentFieldTypeError(componentName, propName, prop, value) {
     return null;
   if (propName === "scale" && typeof value === "string" && ["xs", "sm", "small", "md"].includes(value.trim().toLowerCase()))
     return null;
+  if (propName === "marker" && prop.type === "object" && typeof value === "string" && value.trim())
+    return null;
   switch (prop.type) {
     case "string":
     case "image-ref":
@@ -42331,7 +43528,7 @@ function componentFieldTypeError(componentName, propName, prop, value) {
       return null;
   }
 }
-function validateComponentNode(node, path, slideId, issues, options) {
+function validateComponentNode(node, path, slideId, issues, options, parent) {
   const name = getComponentName(node) || node.component;
   if (!isComponentName(name)) {
     issues.push(issue(options.allowUnknownComponents ? "warning" : "error", "UNKNOWN_COMPONENT", `${path} component "${String(name)}" is not registered.`, {
@@ -42363,6 +43560,8 @@ function validateComponentNode(node, path, slideId, issues, options) {
   }
   if (name === "freeform-group")
     validateFreeformGroupIntent(node, path, slideId, issues);
+  if (name === "chapter-divider")
+    validateChapterDividerUsage(node, path, slideId, issues, parent);
   if (name === "matrix-2x2") {
     const itemsArr = Array.isArray(node.items) ? node.items : [];
     const ql = node.quadrantLabels && typeof node.quadrantLabels === "object" ? node.quadrantLabels : null;
@@ -42522,6 +43721,28 @@ function validateComponentNode(node, path, slideId, issues, options) {
     }));
   }
 }
+function validateChapterDividerUsage(node, path, slideId, issues, parent) {
+  if (parent) {
+    issues.push(issue("error", "COMPONENT_MUST_BE_TOP_LEVEL", "chapter-divider renders full-slide overlays and must be a direct slide child.", {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "Move chapter-divider to slide.children as the only main section-reset component. Use band/title-lockup/text if you need a divider inside a grid, split, or stack."
+    }));
+  }
+  const sections = Array.isArray(node.sections) ? node.sections : [];
+  if (sections.length === 0 || node.current === void 0 || node.current === null || node.current === "")
+    return;
+  const current = typeof node.current === "number" && Number.isFinite(node.current) ? node.current : typeof node.current === "string" && node.current.trim() ? Number(node.current) : NaN;
+  if (!Number.isInteger(current) || current < 0 || current >= sections.length) {
+    issues.push(issue("error", "CHAPTER_DIVIDER_CURRENT_OUT_OF_RANGE", `chapter-divider.current must be a 0-based index from 0 to ${Math.max(0, sections.length - 1)} when sections are provided.`, {
+      slideId,
+      path: `${path}.current`,
+      nodeName: node.id,
+      suggestedFix: "Use current:0 for the first section, current:1 for the second, etc.; do not pass a 1-based chapter number."
+    }));
+  }
+}
 function validateDomNodeArrayField(node, fieldName, path, slideId, issues, options) {
   const value = node[fieldName];
   if (!Array.isArray(value))
@@ -42651,7 +43872,7 @@ function findBodyHeroTitle2(nodes) {
     if (!node || typeof node !== "object")
       continue;
     const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
-    if (componentName === "section-break" || componentName === "title-lockup" || componentName === "cover-composition") {
+    if (componentName === "section-break" || componentName === "title-lockup" || componentName === "cover-composition" || componentName === "chapter-divider") {
       found = true;
       if (typeof node.title === "string" && node.title.trim())
         titles.push(node.title);
@@ -42916,7 +44137,7 @@ function dedupeIssues(issues) {
 // slideml2/dist/deck-ops.js
 async function createDeck(deckPath, options = {}) {
   const deck = createSourceDeck(options);
-  const validation = validateDeck(deck, { baseDir: dirname3(deckPath) });
+  const validation = validateDeck(deck, { baseDir: dirname4(deckPath) });
   if (!validation.ok)
     return summary(deck, {
       ok: false,
@@ -42934,7 +44155,7 @@ async function setDeckProps(deckPath, props) {
     delete allowed.themeOverride;
   }
   deck.deck = { ...deck.deck, ...allowed };
-  const validation = validateDeck(deck, { baseDir: dirname3(deckPath) });
+  const validation = validateDeck(deck, { baseDir: dirname4(deckPath) });
   if (!validation.ok)
     return summary(deck, {
       ok: false,
@@ -43006,23 +44227,23 @@ async function deleteSlide(deckPath, slideIdOrIndex) {
   return summary(deck, { ok: true, deletedAt: index });
 }
 async function validateDeckPath(deckPath) {
-  return validateDeck(await readDeck(deckPath), { baseDir: dirname3(deckPath) });
+  return validateDeck(await readDeck(deckPath), { baseDir: dirname4(deckPath) });
 }
 async function renderDeck(deckPath, outputPath) {
   const deck = await readDeck(deckPath);
-  const validation = validateDeck(deck, { baseDir: dirname3(deckPath) });
-  const rendered = await renderSourceDeckToPptx(deck, outputPath, { baseDir: dirname3(deckPath) });
+  const validation = validateDeck(deck, { baseDir: dirname4(deckPath) });
+  const rendered = await renderSourceDeckToPptx(deck, outputPath, { baseDir: dirname4(deckPath) });
   return { ...rendered, validation };
 }
 async function readDeck(deckPath) {
-  const parsed = JSON.parse(await readFile4(deckPath, "utf8"));
+  const parsed = JSON.parse(await readFile5(deckPath, "utf8"));
   if (parsed.slideml2 !== 2)
     throw new Error(`Expected SlideML2 source deck with slideml2: 2 at ${deckPath}`);
   return parsed;
 }
 async function writeDeck(deckPath, deck) {
-  await mkdir3(dirname3(deckPath), { recursive: true });
-  await writeFile4(deckPath, JSON.stringify(deck, null, 2), "utf8");
+  await mkdir4(dirname4(deckPath), { recursive: true });
+  await writeFile5(deckPath, JSON.stringify(deck, null, 2), "utf8");
 }
 function summary(deck, extra) {
   return {
@@ -43043,45 +44264,95 @@ function findSlideIndex(deck, slideIdOrIndex) {
 }
 
 // slideml2/dist/agent/batch-agent.js
+var DEFAULT_MAX_MARKDOWN_BYTES = 2 * 1024 * 1024;
+var DEFAULT_MAX_REPAIR_ROUNDS = 6;
 async function generateDeckWithBatchAgent(options) {
   const config = options.config || llmConfigFromEnv2();
-  const markdown = await readFile5(options.markdownPath, "utf8");
+  const markdown = await readMarkdownInput(options.markdownPath, config.maxInputBytes ?? DEFAULT_MAX_MARKDOWN_BYTES);
   await createDeck(options.deckPath, { title: firstHeading2(markdown) || "SlideML2 Deck", theme: options.theme || "default", brand: options.brand });
   const plan = (await planOutlines(markdown, config)).slice(0, options.maxSlides || 7);
   const planPath = `${options.outputPath}.batch-plan.json`;
-  await writeFile5(planPath, JSON.stringify(plan, null, 2), "utf8");
+  await writeFile6(planPath, JSON.stringify(plan, null, 2), "utf8");
   let repairCount = 0;
+  let fallbackCount = 0;
+  const fallbackReasons = [];
   for (const outline2 of plan) {
-    const slide = await generateSlideFromOutline(outline2, config);
-    const validation2 = validateSlide(slide, await readDeck(options.deckPath));
+    const generated = await generateSlideFromOutlineResult(outline2, config);
+    if (generated.fallbackUsed) {
+      fallbackCount += 1;
+      fallbackReasons.push(`${outline2.id}: ${generated.fallbackReason || "generation fallback"}`);
+    }
+    const validation2 = validateSlide(generated.slide, await readDeck(options.deckPath));
     if (!validation2.ok) {
-      const repaired = await repairSlide(slide, validation2, config);
+      const repaired = await repairSlideResult(generated.slide, validation2, config);
+      if (repaired.fallbackUsed) {
+        fallbackCount += 1;
+        fallbackReasons.push(`${outline2.id}: ${repaired.fallbackReason || "repair fallback"}`);
+      }
       repairCount++;
-      await appendSlide(options.deckPath, repaired);
+      await appendSlide(options.deckPath, repaired.slide);
     } else {
-      await appendSlide(options.deckPath, slide);
+      await appendSlide(options.deckPath, generated.slide);
     }
   }
   let deck = await readDeck(options.deckPath);
   let validation = validateDeck(deck);
-  for (const error of validation.errors.slice(0, 3)) {
+  const maxRepairRounds = Math.max(0, Math.floor(config.maxRepairRounds ?? DEFAULT_MAX_REPAIR_ROUNDS));
+  let repairAbandoned = false;
+  for (let round2 = 0; !validation.ok && round2 < maxRepairRounds; round2++) {
+    const error = validation.errors.find((item) => item.slideId);
+    if (!error)
+      break;
     const index = deck.slides.findIndex((slide) => slide.id === error.slideId);
     if (index < 0)
       continue;
-    const repaired = await repairSlide(deck.slides[index], validation, config);
-    await replaceSlide(options.deckPath, index, repaired);
+    const repaired = await repairSlideResult(deck.slides[index], validation, config);
+    if (repaired.fallbackUsed) {
+      fallbackCount += 1;
+      fallbackReasons.push(`${deck.slides[index].id}: ${repaired.fallbackReason || "repair fallback"}`);
+    }
+    await replaceSlide(options.deckPath, index, repaired.slide);
     repairCount++;
     deck = await readDeck(options.deckPath);
     validation = validateDeck(deck);
-    if (validation.ok)
-      break;
   }
   await writeDeck(options.deckPath, deck);
+  const validationPath = `${options.outputPath}.validation.json`;
+  if (!validation.ok) {
+    repairAbandoned = true;
+    await writeFile6(validationPath, JSON.stringify(validation, null, 2), "utf8");
+    return {
+      deckPath: options.deckPath,
+      outputPath: options.outputPath,
+      planPath,
+      validationPath,
+      validation,
+      repairCount,
+      status: "validation-failed",
+      fallbackUsed: fallbackCount > 0,
+      fallbackCount,
+      fallbackReasons,
+      repairAbandoned,
+      renderSkipped: true
+    };
+  }
   const rendered = await renderDeck(options.deckPath, options.outputPath);
   validation = rendered.validation;
-  const validationPath = `${options.outputPath}.validation.json`;
-  await writeFile5(validationPath, JSON.stringify(validation, null, 2), "utf8");
-  return { deckPath: options.deckPath, outputPath: options.outputPath, planPath, validationPath, validation, repairCount };
+  await writeFile6(validationPath, JSON.stringify(validation, null, 2), "utf8");
+  return {
+    deckPath: options.deckPath,
+    outputPath: options.outputPath,
+    planPath,
+    validationPath,
+    validation,
+    repairCount,
+    status: validation.ok ? "ok" : "validation-failed",
+    fallbackUsed: fallbackCount > 0,
+    fallbackCount,
+    fallbackReasons,
+    repairAbandoned: !validation.ok,
+    renderSkipped: false
+  };
 }
 async function planOutlines(markdown, config) {
   const text = await callLlm(config, batchSystemPrompt(), [
@@ -43102,6 +44373,9 @@ async function planOutlines(markdown, config) {
   }).slice(0, 7);
 }
 async function generateSlideFromOutline(outline2, config) {
+  return (await generateSlideFromOutlineResult(outline2, config)).slide;
+}
+async function generateSlideFromOutlineResult(outline2, config) {
   const promptPack = buildAgentPromptPack({ intent: [outline2.title, outline2.intent, ...outline2.keyFacts].join(" "), includeExamples: false });
   const text = await callLlm(config, batchSystemPrompt(), [
     "\u4E3A\u4E0B\u9762\u4E00\u4E2A\u9875\u9762\u89C4\u5212\u751F\u6210\u5355\u4E2A SlideML2 slide JSON\u3002\u53EA\u5305\u542B id\u3001title\u3001children\u3002",
@@ -43112,15 +44386,18 @@ async function generateSlideFromOutline(outline2, config) {
   ].join("\n\n"), 2600);
   try {
     const raw = await parseJsonWithRepair(text, config);
-    return normalizeSlide3(raw) || fallbackSlide(outline2);
-  } catch {
-    return fallbackSlide(outline2);
+    const slide = normalizeSlide3(raw);
+    if (slide)
+      return { slide, fallbackUsed: false };
+    return { slide: fallbackSlide(outline2), fallbackUsed: true, fallbackReason: "LLM JSON did not normalize to a slide" };
+  } catch (error) {
+    return { slide: fallbackSlide(outline2), fallbackUsed: true, fallbackReason: error instanceof Error ? error.message : String(error) };
   }
 }
 async function generateOneSlideWithLlm(outline2, config = llmConfigFromEnv2()) {
   return generateSlideFromOutline(outline2, config);
 }
-async function repairSlide(slide, validation, config) {
+async function repairSlideResult(slide, validation, config) {
   const text = await callLlm(config, batchSystemPrompt(), [
     "\u4E0B\u9762\u8FD9\u9875 SlideML2 slide validate \u5931\u8D25\u3002\u8BF7\u6574\u9875\u91CD\u5199\uFF0C\u53EA\u8FD4\u56DE\u5355\u4E2A slide JSON\u3002",
     "\u5FC5\u987B\u4FDD\u6301\u76F8\u540C id\uFF0C\u53EF\u4EE5\u8C03\u6574 title \u548C children\u3002\u4E0D\u8981\u505A node patch\u3002",
@@ -43132,50 +44409,34 @@ async function repairSlide(slide, validation, config) {
     JSON.stringify(slide, null, 2)
   ].join("\n\n"), 3200);
   try {
-    return normalizeSlide3(JSON.parse(extractJson(text))) || slide;
+    const parsed = normalizeSlide3(JSON.parse(extractJson(text)));
+    if (parsed)
+      return { slide: parsed, fallbackUsed: false };
   } catch {
-    try {
-      return normalizeSlide3(await parseJsonWithRepair(text, config)) || fallbackSlide({ id: slide.id, title: slide.title || slide.id, intent: "repair fallback", keyFacts: [] });
-    } catch {
-      return fallbackSlide({ id: slide.id, title: slide.title || slide.id, intent: "repair fallback", keyFacts: [] });
-    }
+  }
+  try {
+    const parsed = normalizeSlide3(await parseJsonWithRepair(text, config));
+    if (parsed)
+      return { slide: parsed, fallbackUsed: false };
+    return {
+      slide: fallbackSlide({ id: slide.id, title: slide.title || slide.id, intent: "repair fallback", keyFacts: [] }),
+      fallbackUsed: true,
+      fallbackReason: "repair JSON did not normalize to a slide"
+    };
+  } catch (error) {
+    return {
+      slide: fallbackSlide({ id: slide.id, title: slide.title || slide.id, intent: "repair fallback", keyFacts: [] }),
+      fallbackUsed: true,
+      fallbackReason: error instanceof Error ? error.message : String(error)
+    };
   }
 }
-async function callLlm(config, system, user, maxTokens) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.timeoutMs || 9e4);
-  let response;
-  try {
-    response = await fetch(`${normalizeAnthropicBaseURL2(config.baseURL)}/v1/messages`, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": config.apiKey,
-        "anthropic-version": "2023-06-01"
-      },
-      body: JSON.stringify({
-        model: config.model,
-        max_tokens: config.maxTokens || maxTokens,
-        system,
-        messages: [{ role: "user", content: user }],
-        stream: false
-      })
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError")
-      throw new Error(`LLM timed out after ${config.timeoutMs || 9e4}ms`);
-    throw error;
-  } finally {
-    clearTimeout(timeout);
+async function readMarkdownInput(markdownPath, maxBytes) {
+  const info = await stat(markdownPath);
+  if (info.size > maxBytes) {
+    throw new Error(`Markdown input is ${info.size} bytes; maxInputBytes is ${maxBytes}. Split or summarize the source before batch generation.`);
   }
-  if (!response.ok)
-    throw new Error(`LLM failed ${response.status}: ${await response.text()}`);
-  const json = await response.json();
-  const text = json.content?.map((part) => part.text || "").join("\n").trim();
-  if (!text)
-    throw new Error("LLM returned empty content");
-  return text;
+  return readFile6(markdownPath, "utf8");
 }
 async function repairJson2(broken, config) {
   return callLlm(config, "\u4F60\u662F JSON \u4FEE\u590D\u5668\u3002\u53EA\u8F93\u51FA\u5408\u6CD5 JSON\uFF0C\u4E0D\u8981\u89E3\u91CA\uFF0C\u4E0D\u8981 markdown \u4EE3\u7801\u5757\u3002", `\u4FEE\u590D\u4E0B\u9762\u7684 JSON\u3002\u4FDD\u6301\u539F\u610F\uFF1B\u5982\u679C\u5C3E\u90E8\u5BF9\u8C61\u4E0D\u5B8C\u6574\uFF0C\u53EF\u4EE5\u5220\u9664\u4E0D\u5B8C\u6574\u5C3E\u90E8\uFF0C\u4F46\u5FC5\u987B\u8F93\u51FA\u5408\u6CD5 JSON\u3002
@@ -43253,6 +44514,42 @@ function normalizeNode2(raw, fallbackName) {
     type,
     children: isCompositeContainer ? normalizedChildren : void 0
   };
+}
+async function callLlm(config, system, user, maxTokens) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs || 9e4);
+  let response;
+  try {
+    response = await fetch(`${normalizeAnthropicBaseURL2(config.baseURL)}/v1/messages`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": config.apiKey,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: config.maxTokens || maxTokens,
+        system,
+        messages: [{ role: "user", content: user }],
+        stream: false
+      })
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError")
+      throw new Error(`LLM timed out after ${config.timeoutMs || 9e4}ms`);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (!response.ok)
+    throw new Error(`LLM failed ${response.status}: ${await response.text()}`);
+  const json = await response.json();
+  const text = json.content?.map((part) => part.text || "").join("\n").trim();
+  if (!text)
+    throw new Error("LLM returned empty content");
+  return text;
 }
 function normalizeFields(type, fields) {
   const normalized = { ...fields };
@@ -43690,6 +44987,8 @@ export {
   listThemes,
   logoStrip,
   metricCard,
+  normalizeGridSpec,
+  normalizeIconRequests,
   normalizeSlide,
   numberedGrid,
   numberedList,
@@ -43712,6 +45011,7 @@ export {
   runSimpleAgentLoop,
   sectionBreak,
   setDeckProps,
+  sliceIconSheet,
   sourceToRenderedDeck,
   statComparison,
   statStrip,
