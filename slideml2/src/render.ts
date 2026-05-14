@@ -3221,6 +3221,11 @@ function renderChrome(theme: SimpleTheme, deck: RenderedDeck, slideIndex: number
   const layout = theme.layout;
   const chrome = theme.chrome;
   const footerY = layout.slideHeightCm - chrome.footerHeight;
+  const chromeTextHeight = Math.max(0.64, chrome.footerHeight - 0.05);
+  const chromeTextY = Math.min(
+    layout.slideHeightCm - chromeTextHeight - 0.02,
+    footerY + Math.max(0.03, (chrome.footerHeight - chromeTextHeight) / 2),
+  );
   if (chrome.footerLine) {
     out.push({
       type: "shape",
@@ -3245,7 +3250,8 @@ function renderChrome(theme: SimpleTheme, deck: RenderedDeck, slideIndex: number
       style: "footnote",
       align: "right",
       color: pageColor,
-    }, { x: layout.slideWidthCm - chrome.footerPadding - 2, y: footerY + 0.05, w: 2, h: chrome.footerHeight - 0.05 }, ids));
+      autoFit: "shrink",
+    }, { x: layout.slideWidthCm - chrome.footerPadding - 2, y: chromeTextY, w: 2, h: chromeTextHeight }, ids));
   }
   const footerText = typeof chrome.footerText === "string" && chrome.footerText.trim() ? chrome.footerText.trim() : "";
   if (footerText) {
@@ -3258,11 +3264,12 @@ function renderChrome(theme: SimpleTheme, deck: RenderedDeck, slideIndex: number
       style: "footnote",
       align: "left",
       color: footerColor,
+      autoFit: "shrink",
     }, {
       x: layout.pageMarginX,
-      y: footerY + 0.05,
+      y: chromeTextY,
       w: Math.max(2, layout.slideWidthCm - layout.pageMarginX * 2 - rightReserve),
-      h: chrome.footerHeight - 0.05,
+      h: chromeTextHeight,
     }, ids));
   }
   return out;

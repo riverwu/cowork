@@ -1390,6 +1390,53 @@ describe("component regressions", () => {
     expect(body?.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt).toBeGreaterThanOrEqual(20);
   });
 
+  it("numbered-grid accepts string marker aliases in validation", () => {
+    const deck = buildDeckWithSlide({
+      id: "marker-alias",
+      title: "Marker aliases",
+      children: [{
+        id: "marker-alias.grid",
+        type: "numbered-grid",
+        marker: "chip",
+        items: [
+          { title: "A", body: "Alpha" },
+          { title: "B", body: "Beta" },
+        ],
+      } as unknown as DomNode],
+    });
+
+    const validation = validateDeck(deck);
+    expect(validation.errors.map((error) => error.code)).not.toContain("INVALID_FIELD_USAGE");
+  });
+
+  it("bar-list auto-compacts five-item lists so mixed slides do not collapse", () => {
+    const slide: SlideV2 = {
+      id: "dense-bars",
+      title: "渠道结构和关键动作",
+      children: [{
+        id: "dense-bars.bars",
+        type: "bar-list",
+        fixedHeight: 5.18,
+        sort: "desc",
+        items: [
+          { label: "线上直营", value: 42, valueLabel: "42%" },
+          { label: "平台分销", value: 25, valueLabel: "25%" },
+          { label: "企业客户", value: 16, valueLabel: "16%" },
+          { label: "线下门店", value: 11, valueLabel: "11%" },
+          { label: "其他渠道", value: 6, valueLabel: "6%" },
+        ],
+      } as unknown as DomNode],
+    };
+
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const failures = getRenderDiagnostics().filter((diagnostic) =>
+      diagnostic.nodeId?.startsWith("dense-bars.bars")
+      && ["FALLBACK_FAILED", "SQUASHED", "TINY_RECT"].includes(diagnostic.code)
+    );
+    expect(failures, failures.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
+
   it("rich callout body in a business split gets enough height before text shrink", () => {
     const slide: SlideV2 = {
       id: "s3",

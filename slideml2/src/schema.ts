@@ -29,10 +29,12 @@ export const THEME_TEXT_STYLE_FIELDS = [
   "fontWeight",
   "color",
   "lineHeight",
+  "lineSpacing",
   "margin",
   "letterSpacing",
   "fontFamily",
   "fontFeatures",
+  "bold",
   "uppercase",
   "italic",
 ] as const;
@@ -115,6 +117,7 @@ export const THEME_COMPONENT_STYLE_FIELDS = [
   "accent",
   "accentColor",
   "accentWidth",
+  "surface",
 ] as const;
 
 export const THEME_CHROME_FIELDS = [

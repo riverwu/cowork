@@ -243,6 +243,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     align: { type: "enum", enum: ["left", "center", "right"], description: "Equation alignment." },
     caption: { type: "string", description: "Optional explanatory caption." },
     style: { type: "string", description: "Text style for the equation body. Defaults to body so page-level typography stays respected; use section-title/slide-title only for hero equations." },
+    color: { type: "color-ref", description: "Optional equation body color token. Defaults to the selected text style and participates in contrast repair." },
     size: { type: "string", description: "Optional semantic size dial (xs/sm/md/lg/xl/2xl) applied to the equation body." },
     fontSize: { type: "number", description: "Optional explicit equation body font size in points." },
     renderMode: { type: "enum", enum: ["omml"], description: "Native Office Math renderer. Unsupported LaTeX commands are rejected instead of emitted as plain text." },
@@ -449,6 +450,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     items: { type: "array", required: true, description: "Array of { label/name/title, value/score/percent, max?, valueLabel?, tone? }. Numeric strings like '75%' are accepted. Star strings like '★★★★' are rendered as rating labels and converted to numeric bar lengths." },
     tone: { type: "enum", enum: ["brand", "positive", "neutral", "warning", "danger"], description: "Default bar fill color. 'neutral' renders de-emphasized gray bars." },
     sort: { type: "enum", enum: ["desc", "asc", "none"], description: "Sort items by value (default 'none' — keep input order)." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density. 5+ item lists auto-use compact, but pass compact in mixed slides or short columns." },
   }, "stack of (label-row + horizontal-track) per item", "stack"),
   component("stat-strip", "Inline row of headline metrics with minimal chrome. Use when 3-6 numbers support one read and card frames would be too heavy.", {
     items: { type: "array", required: true, description: "Array of { value, label, tone? } items. Per-item tone (brand|positive|neutral|warning|danger) sets that cell's value color and overrides the strip default — useful for mixed signals (good/risk/bad in one row)." },
@@ -522,7 +524,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     items: { type: "array", required: true, description: "Array of { title/label/name, body/description/text?, marker?, tone? } items. marker can be string or {shape,variant,tone,size}." },
     columns: { type: "number", description: "Columns (default min(4, items.length))." },
     tone: { type: "enum", enum: ["brand", "neutral"], description: "Number color tone." },
-    marker: { type: "object", description: "Optional marker applied to every item title row. Prefer this over raw square shapes for item decoration." },
+    marker: { type: "object", description: "Optional marker applied to every item title row. String or {shape,variant,tone,size}. Prefer this over raw square shapes for item decoration." },
     numberStyle: { type: "enum", enum: ["chip", "plain"], description: "Number treatment. chip is default; plain uses oversized text numerals." },
   }, "grid of (big-number, card-title, caption) cells", "stack"),
   component("tag-list", "Set of short keywords, categories, feature flags, or filters. Use for compact classification; not for sentences or long labels.", {
@@ -1398,7 +1400,8 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
     }).filter((item) => item.label) : [];
     const sortRaw = node.sort;
     const sort = sortRaw === "desc" || sortRaw === "asc" || sortRaw === "none" ? sortRaw : undefined;
-    return withComponentRoot(node, barList(slideId, name, { items, tone, sort }));
+    const density = node.density === "compact" || node.density === "comfortable" ? node.density : undefined;
+    return withComponentRoot(node, barList(slideId, name, { items, tone, sort, density }));
   }
   if (componentName === "stat-strip") {
     const allowedTones = new Set(["brand", "positive", "neutral", "warning", "danger"]);
@@ -3926,6 +3929,7 @@ function equationNode(slideId: string, name: string, node: DomNode): DomNode {
     type: "text",
     style,
     align,
+    ...(typeof node.color === "string" && node.color.trim() ? { color: node.color } : {}),
     content: [{ kind: "math", latex }],
     autoFit: "shrink",
     noWrap: true,

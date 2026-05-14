@@ -1456,15 +1456,48 @@ describe("slideml2 MVP", () => {
     deck.deck.chrome = { pageNumber: true, footerText: "Internal use" };
     deck.slides.push(sourceSlide("summary", "执行摘要"));
 
+    clearRenderDiagnostics();
     const ast = renderToAst(sourceToRenderedDeck(deck));
     const names = ast.slides[0]!.shapes.map((shape) => shape.name);
     expect(names).toContain("chrome.footer-text");
     expect(names).toContain("chrome.page-1");
+    const chromeBoxFailures = getDiagnosticsByCode("FALLBACK_FAILED")
+      .concat(getDiagnosticsByCode("TEXT_BOX_TOO_SHORT"))
+      .filter((diagnostic) => String(diagnostic.nodeId || "").startsWith("chrome."));
+    expect(chromeBoxFailures, chromeBoxFailures.map((d) => d.message).join("\n")).toHaveLength(0);
     const footer = ast.slides[0]!.shapes.find((shape) => shape.name === "chrome.footer-text");
     expect(footer?.type).toBe("text");
     if (footer?.type === "text") {
       expect(footer.paragraphs[0]?.runs[0]?.text).toBe("Internal use");
     }
+  });
+
+  it("accepts common themeOverride aliases emitted by agents", () => {
+    const deck = createSourceDeck({ title: "Theme aliases", theme: "default" });
+    deck.deck.themeOverride = {
+      text: {
+        paragraph: { lineSpacing: 1.28, bold: false },
+        "section-title": { bold: true },
+      },
+      component: {
+        card: { surface: { fill: "surface.subtle", padding: 0.2 } },
+      },
+      fonts: {
+        mono: { text: "Menlo" },
+      },
+      chrome: {
+        pageNumber: "true" as never,
+        brandMark: "topRight" as never,
+      },
+    };
+    deck.slides.push(sourceSlide("summary", "执行摘要"));
+
+    const validation = validateDeck(deck);
+    const codes = validation.errors.map((error) => error.code);
+    expect(codes).not.toContain("UNKNOWN_THEME_TEXT_FIELD");
+    expect(codes).not.toContain("UNKNOWN_THEME_COMPONENT_FIELD");
+    expect(codes).not.toContain("INVALID_THEME_FONT_VALUE");
+    expect(codes).not.toContain("INVALID_THEME_CHROME_VALUE");
   });
 
   it("validates source slides with actionable component errors", () => {
@@ -1488,7 +1521,7 @@ describe("slideml2 MVP", () => {
     const deck = createSourceDeck({ title: "Invalid theme", theme: "default" });
     deck.deck.themeOverride = {
       layout: { pageMarginY: 0.9 },
-      text: { paragraph: { lineSpacing: 1.4 } },
+      text: { paragraph: { tracking: 1.4 } },
       component: { card: { borderRadius: 8 } },
       fonts: { body: ["Arial"] },
     } as never;

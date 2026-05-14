@@ -257,26 +257,30 @@ export interface ThemeOverride {
     fontWeight?: ThemeTextWeight;
     color?: string;
     lineHeight?: number;
+    /** Agent-friendly alias for lineHeight. */
+    lineSpacing?: number;
     margin?: { l?: number; r?: number; t?: number; b?: number };
     letterSpacing?: number;
     /** Pull from the theme's display, text, or mono font role. */
     fontFamily?: "display" | "text" | "mono";
     /** OpenType feature flags ('tnum', 'smcp', ...) emitted on every run. */
     fontFeatures?: string[];
+    /** Agent-friendly alias for weight:'bold'. */
+    bold?: boolean;
     uppercase?: boolean;
     italic?: boolean;
   }>;
-  component?: Record<string, Omit<SurfaceOverride, "accent"> & { accent?: string | SurfaceOverride["accent"] }>;
+  component?: Record<string, Omit<SurfaceOverride, "accent"> & { accent?: string | SurfaceOverride["accent"]; surface?: SurfaceOverride }>;
   tone?: Record<string, { fg: string; bg: string; line: string }>;
   layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number; areas: Record<string, ThemeLayoutArea> }>;
   /** Per-script font chains. `latin` and `cjk` accept either a single
    *  font face, a string[] chain (doubles as text + display), or
-   *  `{ display?, text? }` for separate display + text faces. `mono` is
-   *  always a single chain. */
+   *  `{ display?, text? }` for separate display + text faces. `mono`
+   *  accepts the same object and uses text/display as the mono chain. */
   fonts?: {
     latin?: ThemeFontChain | { display?: ThemeFontChain; text?: ThemeFontChain };
     cjk?: ThemeFontChain | { display?: ThemeFontChain; text?: ThemeFontChain };
-    mono?: ThemeFontChain;
+    mono?: ThemeFontChain | { display?: ThemeFontChain; text?: ThemeFontChain };
   };
   chart?: { series?: string[] };
   chrome?: { brandMark?: "none" | "top-right" | "bottom-right"; pageNumber?: boolean; footerText?: string; footerLine?: boolean; footerHeight?: number; footerPadding?: number };

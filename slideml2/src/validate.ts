@@ -985,7 +985,7 @@ function validateThemeOverride(deck: Slideml2SourceDeck, issues: ValidationIssue
         suggestedFix: "Use at least 7pt for footnotes/captions and 9pt+ for normal content.",
       }));
     }
-    const weight = style.weight ?? (style as Record<string, unknown>).fontWeight;
+    const weight = style.weight ?? (style as Record<string, unknown>).fontWeight ?? ((style as Record<string, unknown>).bold === true ? "bold" : undefined);
     const namedWeight = typeof weight === "string" ? weight.trim().toLowerCase() : undefined;
     const validWeight = weight === undefined
       || (typeof weight === "number" && weight >= 100 && weight <= 900)
@@ -1001,6 +1001,13 @@ function validateThemeOverride(deck: Slideml2SourceDeck, issues: ValidationIssue
       issues.push(issue("error", "INVALID_THEME_FONT_FAMILY", `${path}.fontFamily must be display, text, or mono.`, {
         path: `${path}.fontFamily`,
         suggestedFix: "Use fontFamily:'display' for titles, 'text' for body, or 'mono' for code/data identifiers.",
+      }));
+    }
+    const bold = (style as Record<string, unknown>).bold;
+    if (bold !== undefined && typeof bold !== "boolean") {
+      issues.push(issue("error", "INVALID_THEME_TEXT_BOLD", `${path}.bold must be boolean.`, {
+        path: `${path}.bold`,
+        suggestedFix: "Use bold:true as shorthand for weight:'bold', or remove the field.",
       }));
     }
   }
@@ -2222,10 +2229,6 @@ function validateThemeFonts(override: Record<string, unknown>, issues: Validatio
       }));
       continue;
     }
-    if (key === "mono") {
-      validateFontChain(value, path, issues);
-      continue;
-    }
     if (typeof value === "string" || Array.isArray(value)) {
       validateFontChain(value, path, issues);
       continue;
@@ -2233,7 +2236,7 @@ function validateThemeFonts(override: Record<string, unknown>, issues: Validatio
     if (!value || typeof value !== "object") {
       issues.push(issue("error", "INVALID_THEME_FONT_VALUE", `${path} must be a font face string, string array, or {display?, text?}.`, {
         path,
-        suggestedFix: "Use e.g. fonts.latin:{display:['Helvetica Neue'], text:['Arial']} or fonts.cjk:{display:'Microsoft YaHei', text:'Microsoft YaHei'}.",
+        suggestedFix: "Use e.g. fonts.latin:{display:['Helvetica Neue'], text:['Arial']}, fonts.cjk:{display:'Microsoft YaHei', text:'Microsoft YaHei'}, or fonts.mono:'Menlo'.",
       }));
       continue;
     }
@@ -2274,19 +2277,27 @@ function validateThemeChrome(override: Record<string, unknown>, issues: Validati
       }));
       continue;
     }
-    if ((key === "pageNumber" || key === "footerLine") && typeof value !== "boolean") {
+    if ((key === "pageNumber" || key === "footerLine") && typeof value !== "boolean" && !isBooleanString(value)) {
       issues.push(issue("error", "INVALID_THEME_CHROME_VALUE", `${path} must be boolean.`, { path, suggestedFix: `Use ${key}: true or false.` }));
     }
     if ((key === "footerHeight" || key === "footerPadding") && (typeof value !== "number" || !Number.isFinite(value))) {
       issues.push(issue("error", "INVALID_THEME_CHROME_VALUE", `${path} must be a finite number.`, { path, suggestedFix: "Use centimeters, e.g. footerHeight:0.55." }));
     }
-    if (key === "brandMark" && value !== "none" && value !== "top-right" && value !== "bottom-right") {
+    if (key === "brandMark" && value !== "none" && value !== "top-right" && value !== "bottom-right" && !isBrandMarkAlias(value)) {
       issues.push(issue("error", "INVALID_THEME_CHROME_VALUE", `${path} must be none, top-right, or bottom-right.`, { path, suggestedFix: "Use brandMark:'none'|'top-right'|'bottom-right'." }));
     }
     if (key === "footerText" && typeof value !== "string") {
       issues.push(issue("error", "INVALID_THEME_CHROME_VALUE", `${path} must be a string.`, { path, suggestedFix: "Use footerText:'Internal use' or omit it." }));
     }
   }
+}
+
+function isBooleanString(value: unknown): boolean {
+  return typeof value === "string" && ["true", "false", "yes", "no", "y", "n", "1", "0", "on", "off", "none"].includes(value.trim().toLowerCase());
+}
+
+function isBrandMarkAlias(value: unknown): boolean {
+  return typeof value === "string" && ["topright", "top_right", "top right", "bottomright", "bottom_right", "bottom right"].includes(value.trim().toLowerCase());
 }
 
 function validateThemeColorsShape(deck: Slideml2SourceDeck, issues: ValidationIssue[]): void {
@@ -2394,6 +2405,7 @@ function componentFieldTypeError(componentName: string, propName: string, prop: 
   if (value === undefined || value === null || value === "") return null;
   if (prop.type === "enum") return null;
   if (propName === "scale" && typeof value === "string" && ["xs", "sm", "small", "md"].includes(value.trim().toLowerCase())) return null;
+  if (propName === "marker" && prop.type === "object" && typeof value === "string" && /\bString or\b/i.test(prop.description || "")) return null;
   switch (prop.type) {
     case "string":
     case "image-ref":

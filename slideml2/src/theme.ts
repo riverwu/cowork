@@ -100,6 +100,7 @@ export interface TextStyle {
   fontWeight?: FontWeight;
   color: string;
   lineHeight: number;
+  lineSpacing?: number;
   margin?: { l?: number; r?: number; t?: number; b?: number };
   /** Letter spacing in 1/100 pt. Negative tightens, positive opens. */
   letterSpacing?: number;
@@ -114,6 +115,8 @@ export interface TextStyle {
    *  small-caps on eyebrows. Renderer support varies; PowerPoint honors
    *  `tnum` and `smcp` reliably on installed OpenType fonts. */
   fontFeatures?: string[];
+  /** Agent-friendly alias for weight:'bold' in themeOverride.text. */
+  bold?: boolean;
   /** Uppercase transform applied at render time (CSS text-transform). */
   uppercase?: boolean;
   /** Italic by default for this style (e.g. quote, citation). */
@@ -284,7 +287,7 @@ function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOve
       imageGuidance: override?.guidance?.imageGuidance ?? base.guidance.imageGuidance,
       avoid: override?.guidance?.avoid ?? base.guidance.avoid,
     },
-    chrome: { ...base.chrome, ...(override?.chrome || {}) },
+    chrome: mergeChrome(base.chrome, override?.chrome),
     imageGrowWeight: override?.imageGrowWeight ?? base.imageGrowWeight,
     sizeScale: { ...base.sizeScale, ...(override?.sizeScale || {}) },
   };
@@ -483,9 +486,13 @@ function mergeTextStyles(base: Record<string, TextStyle>, override?: Record<stri
     const existing = out[key] || base.paragraph || { fontSize: 11, color: "text.primary", lineHeight: 1.4 };
     out[key] = {
       fontSize: typeof value.fontSize === "number" ? value.fontSize : existing.fontSize,
-      weight: value.weight ?? value.fontWeight ?? existing.weight,
+      weight: value.weight ?? value.fontWeight ?? (value.bold === true ? "bold" : undefined) ?? existing.weight,
       color: typeof value.color === "string" ? value.color : existing.color,
-      lineHeight: typeof value.lineHeight === "number" ? value.lineHeight : existing.lineHeight,
+      lineHeight: typeof value.lineHeight === "number"
+        ? value.lineHeight
+        : typeof value.lineSpacing === "number"
+          ? value.lineSpacing
+          : existing.lineHeight,
       margin: value.margin ?? existing.margin,
       letterSpacing: value.letterSpacing ?? existing.letterSpacing,
       fontFamily: value.fontFamily ?? existing.fontFamily,
@@ -518,7 +525,13 @@ function completeDerivedTextStyles(
     const value = override[key];
     if (!value) return false;
     if (prop === "weight") {
-      return Object.prototype.hasOwnProperty.call(value, "weight") || Object.prototype.hasOwnProperty.call(value, "fontWeight");
+      return Object.prototype.hasOwnProperty.call(value, "weight")
+        || Object.prototype.hasOwnProperty.call(value, "fontWeight")
+        || Object.prototype.hasOwnProperty.call(value, "bold");
+    }
+    if (prop === "lineHeight") {
+      return Object.prototype.hasOwnProperty.call(value, "lineHeight")
+        || Object.prototype.hasOwnProperty.call(value, "lineSpacing");
     }
     return Object.prototype.hasOwnProperty.call(value, prop);
   };
@@ -645,7 +658,7 @@ type ScriptFontOverride = FontChainOverride | { display?: FontChainOverride; tex
 
 function mergeFonts(
   base: SimpleTheme["fonts"],
-  override?: { latin?: ScriptFontOverride; cjk?: ScriptFontOverride; mono?: FontChainOverride },
+  override?: { latin?: ScriptFontOverride; cjk?: ScriptFontOverride; mono?: ScriptFontOverride },
 ): SimpleTheme["fonts"] {
   if (!override) {
     return { latin: { ...base.latin }, cjk: { ...base.cjk }, mono: [...base.mono] };
@@ -653,7 +666,7 @@ function mergeFonts(
   return {
     latin: mergeScriptFonts(base.latin, override.latin),
     cjk: mergeScriptFonts(base.cjk, override.cjk),
-    mono: normalizeFontChain(override.mono) ?? [...base.mono],
+    mono: mergeMonoFonts(base.mono, override.mono),
   };
 }
 
@@ -682,11 +695,56 @@ function normalizeFontChain(value?: FontChainOverride): string[] | undefined {
   return undefined;
 }
 
+function mergeMonoFonts(base: string[], override?: ScriptFontOverride): string[] {
+  if (!override) return [...base];
+  if (typeof override === "string" || Array.isArray(override)) {
+    return normalizeFontChain(override) ?? [...base];
+  }
+  return normalizeFontChain(override.text) ?? normalizeFontChain(override.display) ?? [...base];
+}
+
+function mergeChrome(base: SimpleTheme["chrome"], override?: ThemeOverride["chrome"]): SimpleTheme["chrome"] {
+  if (!override) return { ...base };
+  return {
+    ...base,
+    ...override,
+    pageNumber: normalizeBoolean(override.pageNumber, base.pageNumber),
+    footerLine: normalizeBoolean(override.footerLine, base.footerLine),
+    brandMark: normalizeBrandMark(override.brandMark, base.brandMark),
+  };
+}
+
+function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "yes", "y", "1", "on"].includes(normalized)) return true;
+    if (["false", "no", "n", "0", "off", "none"].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+function normalizeBrandMark(value: unknown, fallback: SimpleTheme["chrome"]["brandMark"]): SimpleTheme["chrome"]["brandMark"] {
+  if (value === "none" || value === "top-right" || value === "bottom-right") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "topright" || normalized === "top_right" || normalized === "top right") return "top-right";
+    if (normalized === "bottomright" || normalized === "bottom_right" || normalized === "bottom right") return "bottom-right";
+  }
+  return fallback;
+}
+
 function mergeComponentStyles(base: Record<string, ComponentStyle>, override?: Record<string, ComponentStyle>): Record<string, ComponentStyle> {
   if (!override) return { ...base };
   const out: Record<string, ComponentStyle> = { ...base };
   for (const [key, value] of Object.entries(override)) {
-    const { cornerRadius: rawCornerRadius, padding: rawPadding, ...restWithLegacy } = value as ComponentStyle & { radius?: unknown };
+    const raw = value as ComponentStyle & { radius?: unknown; surface?: unknown };
+    const surface = raw.surface && typeof raw.surface === "object" && !Array.isArray(raw.surface)
+      ? raw.surface as Partial<ComponentStyle>
+      : {};
+    const mergedValue = { ...surface, ...raw };
+    delete (mergedValue as Record<string, unknown>).surface;
+    const { cornerRadius: rawCornerRadius, padding: rawPadding, ...restWithLegacy } = mergedValue as ComponentStyle & { radius?: unknown };
     const rest = { ...restWithLegacy };
     delete rest.radius;
     const cornerRadius = typeof rawCornerRadius === "number"
@@ -1192,7 +1250,7 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       brandMark: "none",
       pageNumber: false,
       footerLine: false,
-      footerHeight: 0.55,
+      footerHeight: 0.72,
       footerPadding: 0.5,
     },
     imageGrowWeight: 2,

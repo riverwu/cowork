@@ -270,7 +270,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       console.log(
         `[Agent] Compacted history: ${params.messages.length} → ${workingMessages.length} messages, ~${compacted.estimatedTokens} tokens.`,
       );
-      params.debugLog?.recordCompacted({
+      await params.debugLog?.recordCompacted({
         summary: compacted.summary,
         preservedUserMessages: workingMessages.length - 1,
         estimatedTokens: compacted.estimatedTokens,
@@ -317,7 +317,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     droppedMessages: fit.droppedMessages,
     droppedMemory,
   });
-  params.debugLog?.recordContextManifest(contextManifest);
+  await params.debugLog?.recordContextManifest(contextManifest);
   console.log(`[Agent] Context manifest: ${JSON.stringify(contextManifest)}`);
 
   const currentMessages: LLMMessage[] = [...fit.messages];
@@ -359,7 +359,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     // Signal LLM is thinking (waiting for response)
     yield { type: "thinking", active: true };
 
-    params.debugLog?.recordSend({
+    await params.debugLog?.recordSend({
       step,
       system,
       tools: toolDefs,
@@ -384,7 +384,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     } catch (err) {
       yield { type: "thinking", active: false };
       const message = `LLM request failed: ${err instanceof Error ? err.message : String(err)}`;
-      params.debugLog?.recordError({ step, error: message, phase: "llm-request" });
+      await params.debugLog?.recordError({ step, error: message, phase: "llm-request" });
       const compacted = await compactAfterLlmRequestFailure({
         provider,
         messages: currentMessages,
@@ -399,7 +399,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
           estimatedTokens: compacted.estimatedTokens,
           reason: "llm-request-failed",
         };
-        params.debugLog?.recordCompacted({
+        await params.debugLog?.recordCompacted({
           summary: compacted.summary,
           preservedUserMessages: compacted.messages.filter((m) => m.role === "user").length - 1,
           estimatedTokens: compacted.estimatedTokens,
@@ -413,7 +413,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     yield { type: "thinking", active: false };
 
     if (doneEvent && doneEvent.type === "message-done") {
-      params.debugLog?.recordResponse({
+      await params.debugLog?.recordResponse({
         step,
         text: turnText || doneEvent.content || "",
         toolCalls: doneEvent.toolCalls,
@@ -507,7 +507,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       // so tools appear one at a time in UI, not all at once.
       yield { type: "skill-start", skill: toolCall.name, input: toolCall.input, toolCallId: toolCall.id };
 
-      params.debugLog?.recordToolStart({
+      await params.debugLog?.recordToolStart({
         step,
         name: toolCall.name,
         input: toolCall.input,
@@ -578,7 +578,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         const durationMs = Date.now() - startTime;
         const errResult = `Tool execution error in ${toolCall.name}: ${err instanceof Error ? err.message : String(err)}`;
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: formatToolResultForLlm(toolCall.name, errResult, false, toolCall.input) });
-        params.debugLog?.recordToolDone({
+        await params.debugLog?.recordToolDone({
           step,
           name: toolCall.name,
           toolCallId: toolCall.id,
@@ -609,7 +609,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   }
   } finally {
     setCurrentLongTask(null);
-    params.debugLog?.recordCompleted({
+    await params.debugLog?.recordCompleted({
       totalSteps: 0,
       hitStepLimit,
       finalText: fullAssistantText,

@@ -66,13 +66,13 @@ describe("M3 scientific authoring capabilities", () => {
     expect(unsupported.unsupported).toContain("\\begin");
   });
 
-  it("emits native Office Math into the final pptx package", async () => {
+  it("emits native Office Math with repaired contrast color into the final pptx package", async () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,
       deck: { size: "16x9", theme: "default" },
       slides: [{
         id: "omml-pptx",
-        title: "Office math",
+        background: "0F172A",
         children: [{
           id: "omml-pptx.eq",
           type: "equation",
@@ -88,6 +88,8 @@ describe("M3 scientific authoring capabilities", () => {
     expect(slideXml).toContain("<a14:m");
     expect(slideXml).toContain("<m:oMathPara>");
     expect(slideXml).toContain("<m:borderBox>");
+    expect(slideXml).toContain('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"');
+    expect(slideXml).toContain('<w:color w:val="FFFFFF"/>');
     expect(slideXml).not.toContain("boxed");
     expect(slideXml).not.toContain("vec");
   });
@@ -217,7 +219,7 @@ describe("M3 scientific authoring capabilities", () => {
     expect(table?.cells[2]?.[1]?.fill?.color).toBeDefined();
   });
 
-  it("equation uses the same rich math path and honors explicit font size", () => {
+  it("equation uses the same rich math path and honors explicit font size and color", () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,
       deck: { size: "16x9", theme: "default" },
@@ -229,6 +231,7 @@ describe("M3 scientific authoring capabilities", () => {
           type: "equation",
           latex: "\\tan\\alpha = \\frac{\\sin\\alpha}{\\cos\\alpha}",
           fontSize: 12,
+          color: "006400",
         }],
       }],
     };
@@ -239,6 +242,7 @@ describe("M3 scientific authoring capabilities", () => {
     expect(run?.text).toBe("tan α = sin α/cos α");
     expect(run?.mathOmml).toContain("<m:f>");
     expect(run?.sizeHalfPt).toBe(24);
+    expect(run?.color).toBe("006400");
   });
 
   it("code-block can render long code in columns without forced truncation", () => {

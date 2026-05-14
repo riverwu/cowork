@@ -2251,6 +2251,7 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
 }
 
 export type BarListTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+export type BarListDensity = "comfortable" | "compact";
 
 function barListFillToken(tone: BarListTone | undefined): string {
   if (tone === "positive") return "success";
@@ -2260,18 +2261,24 @@ function barListFillToken(tone: BarListTone | undefined): string {
   return "brand.primary";
 }
 
-export function barList(slideId: string, id: string, options: { items: Array<{ label: string; value: number; max?: number; valueLabel?: string; tone?: BarListTone }>; tone?: BarListTone; sort?: "desc" | "asc" | "none" }): DomNode {
+export function barList(slideId: string, id: string, options: { items: Array<{ label: string; value: number; max?: number; valueLabel?: string; tone?: BarListTone }>; tone?: BarListTone; sort?: "desc" | "asc" | "none"; density?: BarListDensity }): DomNode {
   const tone = options.tone || "brand";
   const trackToken = "surface.subtle";
   const declaredMax = options.items.reduce((m, item) => Math.max(m, item.max ?? item.value), 0);
   const max = declaredMax > 0 ? declaredMax : 1;
   const sort = options.sort || "none";
   const sorted = sort === "none" ? options.items.slice() : options.items.slice().sort((a, b) => sort === "desc" ? b.value - a.value : a.value - b.value);
+  const compact = options.density === "compact" || sorted.length >= 5;
+  const labelHeight = compact ? 0.36 : 0.5;
+  const rowHeight = compact ? 0.34 : 0.5;
+  const trackHeight = compact ? 0.2 : 0.32;
+  const rowGap = compact ? 0.24 : 0.4;
+  const itemGap = compact ? 0.05 : 0.1;
   return {
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.3,
+    gap: compact ? 0.16 : 0.3,
     role: "bar-list",
     children: sorted.map((item, index) => {
       const ratio = Math.max(0.001, Math.min(1, item.value / max));
@@ -2286,11 +2293,11 @@ export function barList(slideId: string, id: string, options: { items: Array<{ l
         id: `${slideId}.${id}.${index}`,
         type: "stack",
         direction: "vertical",
-        gap: 0.1,
+        gap: itemGap,
         children: [
           // Label sits on its own row: full-width, left-aligned, no
           // floating value to compete for attention.
-          { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle", fixedHeight: 0.5, size: "md" },
+          { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle", fixedHeight: labelHeight, size: compact ? "sm" : "md", autoFit: "shrink" },
           // Bar row: [track | value]. The value is a fixed-width column
           // *immediately after* the track, so it visually anchors to the
           // bar's right end zone — no longer floating at the slide's far
@@ -2302,8 +2309,8 @@ export function barList(slideId: string, id: string, options: { items: Array<{ l
             id: `${slideId}.${id}.${index}.row`,
             type: "stack",
             direction: "horizontal",
-            gap: 0.4,
-            fixedHeight: 0.5,
+            gap: rowGap,
+            fixedHeight: rowHeight,
             valign: "middle",
             children: [
               // Continuous-track progress bar (qtt7dd slide 11): single
@@ -2313,7 +2320,7 @@ export function barList(slideId: string, id: string, options: { items: Array<{ l
                 type: "stack",
                 direction: "horizontal",
                 gap: 0,
-                fixedHeight: 0.32,
+                fixedHeight: trackHeight,
                 fill: trackToken,
                 cornerRadius: 0.5,
                 padding: 0,
@@ -2323,7 +2330,7 @@ export function barList(slideId: string, id: string, options: { items: Array<{ l
                   { id: `${slideId}.${id}.${index}.spacer`, type: "spacer", layoutWeight: Math.max(0.001, 1 - ratio) },
                 ],
               },
-              { id: `${slideId}.${id}.${index}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", valign: "middle", fixedWidth: valueWidthCm, size: "md", bold: true },
+              { id: `${slideId}.${id}.${index}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", valign: "middle", fixedWidth: valueWidthCm, fixedHeight: rowHeight, size: compact ? "sm" : "md", bold: true, autoFit: "shrink" },
             ],
           },
         ],

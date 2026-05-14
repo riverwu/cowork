@@ -296,9 +296,11 @@ PowerPoint vocabulary bridge: Title Slide ≈ Cover; Section Header ≈ Section
 break; Two Content / Comparison ≈ comparison content; Picture with Caption ≈
 data+interpretation or walkthrough.
 
-`plan.md` must assign every slide a family before choosing components.
+Use family as a planning check, not a closed taxonomy. For short, editorial,
+poster, showcase, or highly custom decks, you may jump directly to a recipe or
+custom archetype if `plan.md` states the layout intent and pacing reason.
 
-| Family | Use | 15-slide expectation | SlideML2 entry |
+| Family | Use | Typical count in a 12–20 slide analytical deck | SlideML2 entry |
 |---|---|---:|---|
 | Cover | First slide | 1 | `cover-composition` |
 | TOC / Outline | Navigation for 10+ content slides | 0–1 | `outline` |
@@ -313,12 +315,13 @@ data+interpretation or walkthrough.
 | Reading / long-form | Article-like passage | 0–1 | `article` |
 | Closing | Takeaways / action | 1 | `takeaway-list`, `cta` |
 
-Except Content analytic, any family >50% is a redesign signal; within Content,
-3+ consecutive same-archetype slides is a redesign signal unless appendix-like.
+For analytical decks, any non-content family >50% or 3+ consecutive
+same-archetype content slides is a redesign signal unless `plan.md` explicitly
+marks the deck as editorial, lecture/reference, appendix, or showcase material.
 
 ### 2.2 Compositional Archetypes
 
-After family, pick the page's composition job:
+After family, pick or name the page's composition job:
 
 | Archetype | Use when | Typical primary |
 |---|---|---|
@@ -329,13 +332,18 @@ After family, pick the page's composition job:
 | Process / time | Sequence is the meaning | `process-flow`, `timeline` |
 | Screenshot walkthrough | Image plus numbered observations | `snapshot-callouts` |
 | Executive synthesis | Memo-style answer | `executive-summary` |
+| Editorial statement | Quote, manifesto, provocation, or breath page | `title-lockup`, `quote`, `band`, `key-takeaway` |
+| Single visual / diagram | One image, artifact, or system diagram carries the page | `image-card`, `freeform-group`, `annotation` |
+| Decision matrix | Criteria, weighted options, or two-axis choice | `comparison-table`, `matrix-2x2`, `scorecard` |
 
-Picking an archetype first prevents the default "title + equal cards" shape.
-The routing table then chooses the component inside that archetype.
+Archetypes are starting points. If none fits, use a custom layout intent in
+`plan.md`; still declare the reader path, dominant object, and supporting
+components before writing JSON.
 
 ### 2.3 Composition
 
-- Content slides ≥ 70% of total. Chrome (cover, TOC, section-break, closing) ≤ 30%.
+- For analytical/report decks, content slides ≥ 70% of total. Chrome (cover,
+  TOC, section-break, closing) ≤ 30%.
 - A balanced 12–20 slide business/research deck usually has 1 cover, 0–1 TOC,
   1 executive summary, 1–3 section breaks, 1 closing, and 8–14 content slides across at least 3 archetypes.
 - One hero per slide. At most one element at deck-title / cover-title /
@@ -347,7 +355,21 @@ The routing table then chooses the component inside that archetype.
 - No section-break + single content slide + section-break pattern. Merge the
   lone slide into a neighboring section or expand it into a real chapter.
 - Pick layout intent before component: claim+proof, hero+satellites,
-  data+interpretation, peer comparison, process/time, screenshot, synthesis.
+  data+interpretation, peer comparison, process/time, screenshot, synthesis,
+  editorial statement, single visual/diagram, or decision matrix.
+- Prefer recipes when they express the page faster than raw component picking:
+  memo answer = `executive-summary` + optional `key-takeaway`; data evidence =
+  chart/evidence 60–70% + rail/source note; walkthrough = `snapshot-callouts`
+  + takeaway; editorial pause = `title-lockup`/`quote`/`band` with ≥40% open
+  space; process explainer = `process-flow` + short synthesis.
+- Build rhythm deliberately: alternate dense evidence with lighter
+  interpretation, use overview → detail → overview, and place a landmark
+  `chapter-divider` or `hero-stat` after long sections.
+- Make hierarchy visible: the primary object usually owns 60–70% of the
+  content area; rails stay ≤35%; sources/captions stay visually secondary;
+  emphasize only the 1–2 elements the reader should see first.
+- Use asymmetric splits such as `[0.62,0.38]` or `[0.7,0.3]` when evidence and
+  interpretation have different weights. Use `[0.5,0.5]` only for true peers.
 - Vary primary archetype across the deck. Avoid 3+ consecutive slides with the
   same primary component or layout intent unless the content truly demands it.
 - In `plan.md`, count repeated archetypes. ≥3 table-only pages, ≥4 equal-card grids, or 5+ slides without data evidence is a redesign signal.
@@ -362,7 +384,9 @@ The routing table then chooses the component inside that archetype.
 
 ### 2.4 Deck-Level Antipatterns
 
-Fix these in `plan.md` before writing slide JSON:
+Fix these in `plan.md` before writing slide JSON. Treat them as analytical-deck
+smell tests; deliberate editorial/showcase repetition is acceptable when the
+layout intent says why.
 
 - Same-archetype run: 3 chart-card pages, 4 feature-card grids, or 3 table-only pages in a row.
 - Equal-card monoculture: ≥40% of content slides are card grids.
@@ -581,6 +605,24 @@ direction   = horizontal | vertical
 `density`, `align`, `direction` are referenced by name below without
 re-enumeration.
 
+Component selection shortcuts:
+
+- Build each page around one heavy primary: `cover-composition`,
+  `chapter-divider`, `hero-stat`, `chart-card`/`chart-with-rail`,
+  `table-card`, `image-card`/`snapshot-callouts`, `code-block`, or `equation`.
+  Add at most 1–2 light supports such as `side-rail`, `key-takeaway`,
+  `source-note`, `legend`, `annotation`, `badge`, or `brand-mark`.
+- Natural pairs: chart/evidence + `key-takeaway`/`source-note`; image/artifact
+  + `annotation`/`pointer-arrow`; process + short synthesis; comparison +
+  source note or a same-data `bar-list`. Avoid chart + table + KPI grid as
+  equal peers on one slide.
+- Narrative choice: one verdict → `key-takeaway`; thesis + 2–4 findings →
+  `executive-summary`; 3–5 parallel conclusions → `takeaway-list`; why/how
+  prose → `explanation-block`; evidence rows → `fact-list`.
+- Density choice: ≤4 peers can use `kpi-grid`, `feature-card`, or
+  `comparison-card`; 5–8 ranked items use `bar-list`; dense rows/options use
+  `table-card`/`comparison-table` or split pages.
+
 ### 3.1 Layout Containers
 
 Children are required unless noted. Containers may carry `fixedHeight` /
@@ -644,7 +686,7 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.8.
 - `image-card` — Inspectable image with optional annotations/callouts. type='image-card' required={src:image-ref} optional={alt, title, badge, insight, annotations, callouts, caption, fit:cover|contain|fill, imageWidth, tone, variant, surface}
 - `quote` — Verbatim or voice-like statement. type='quote' required={text} optional={source}
 - `source-note` — Quiet provenance / caveat. type='source-note' required={text} optional={align}
-- `equation` — Display math via OMML. Supported LaTeX renders natively; unsupported commands fail validation. Split dense derivations across slides or set explicit `fontSize` / `size`. type='equation' required={latex} optional={label, number, align, caption, style, size, fontSize, renderMode:omml} capacity="single display formula >=4.0x1.0cm; formula grid cells >=5.0x1.4cm"
+- `equation` — Display math via OMML. Supported LaTeX renders natively; unsupported commands fail validation. Split dense derivations across slides or set explicit `fontSize` / `size`; set `color` for intentional contrast overrides. type='equation' required={latex} optional={label, number, align, caption, style, color, size, fontSize, renderMode:omml} capacity="single display formula >=4.0x1.0cm; formula grid cells >=5.0x1.4cm"
 - `bibliography` — Auto bibliography from `deck.references`. Use with `{kind:"cite",refId}` runs. type='bibliography' optional={title, style:numeric|author-year|short, includeAll}
 - `legend` — Color/category key. type='legend' required={items:[{label, color}]} optional={direction}
 
@@ -768,10 +810,12 @@ validation rather than being emitted as plain text.
 
 ## 4. Routing — Page Job → First Component
 
-Use this table only after deciding slide family (§2.1) and compositional
-archetype (§2.2). The same job can map differently by family: a comparison
-inside a section reset is a `chapter-divider`, not a `comparison-table`. Add at
-most 1–2 support components.
+Use this table as first-pass routing after family/archetype, or directly for
+short/editorial pages whose recipe already states the layout intent. The same
+job can map differently by density and family: a sparse ranking can be a
+`kpi-grid`, a dense ranking is a `bar-list`, and a comparison inside a section
+reset is a `chapter-divider`, not a `comparison-table`. Add at most 1–2 support
+components.
 
 | Page job                                | First component                | Good support                                    |
 |-----------------------------------------|--------------------------------|-------------------------------------------------|

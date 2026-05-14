@@ -135,8 +135,10 @@ function paragraphPropsXml(p: Paragraph): string {
 /** `<a:r>` — one styled text run. */
 function runXml(run: TextRun, isLast: boolean, rels?: RunRels): string {
   if (run.mathOmml) {
+    if (run.color) assertHex(run.color, "TextRun.color");
+    const mathOmml = run.color ? mathOmmlWithRunColor(run.mathOmml, run.color) : run.mathOmml;
     const softBreak = run.breakLine && !isLast ? `<a:br><a:rPr lang="en-US"/></a:br>` : "";
-    return `<a14:m xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">${run.mathOmml}</a14:m>${softBreak}`;
+    return `<a14:m xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${mathOmml}</a14:m>${softBreak}`;
   }
 
   if (run.color) assertHex(run.color, "TextRun.color");
@@ -209,6 +211,17 @@ function runXml(run: TextRun, isLast: boolean, rels?: RunRels): string {
   const text = `<a:t xml:space="preserve">${escapeText(run.text)}</a:t>`;
 
   return `<a:r>${rPr}${text}</a:r>${softBreak}`;
+}
+
+function mathOmmlWithRunColor(omml: string, hex: string): string {
+  const colorPr = `<w:rPr><w:color w:val="${hex.toUpperCase()}"/></w:rPr>`;
+  return omml.replace(/<m:r>(<m:rPr>[\s\S]*?<\/m:rPr>)?(<w:rPr>[\s\S]*?<\/w:rPr>)?/g, (_match, mathPr = "", wordPr = "") => {
+    if (!wordPr) return `<m:r>${mathPr}${colorPr}`;
+    const patchedWordPr = /<w:color\b/.test(wordPr)
+      ? wordPr.replace(/<w:color\b[^>]*\/>/, `<w:color w:val="${hex.toUpperCase()}"/>`)
+      : wordPr.replace("</w:rPr>", `<w:color w:val="${hex.toUpperCase()}"/></w:rPr>`);
+    return `<m:r>${mathPr}${patchedWordPr}`;
+  });
 }
 
 function isInternalSlideLink(target: string): boolean {

@@ -362,6 +362,45 @@ describe("ppt generation flow runner", () => {
     expect(verification.ok, verification.failures.join("\n")).toBe(true);
   });
 
+  it("treats SlideML2 shell ok:false payloads and non-zero exits as failed records", () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-cli-fail-${Date.now()}`);
+    const toolRecords = [
+      {
+        ...shellCliRecord(1, "validate-slide", join(dir, "slides/01-cover.json"), {
+          ok: false,
+          status: "schema-error",
+          error: "Slide validation failed.",
+        }, [], dir),
+        success: true,
+        result: `${JSON.stringify({ ok: false, status: "schema-error", error: "Slide validation failed." }, null, 2)}\n\n[Exit code: 10]`,
+      },
+      shellCliRecord(2, "validate-slide", join(dir, "slides/02-market.json"), {
+        ok: true,
+        status: "ok",
+      }, [], dir),
+    ];
+
+    const summary = summarizePptGenerationFlow([], toolRecords);
+    expect(summary.replaceSlideCount).toBe(1);
+
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "cli-fail-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords,
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary,
+    };
+    const analysis = analyzePptGenerationFlowImprovements(result, { ok: false, failures: ["failed"], summary });
+    expect(analysis.summary.failedToolCalls).toBe(1);
+    expect(analysis.blockingFailureSignals[0]?.message).toContain("Slide validation failed");
+  });
+
   it("recovers final render summary when shell JSON is truncated", async () => {
     const dir = join(tmpdir(), `cowork-ppt-flow-cli-truncated-${Date.now()}`);
     await mkdir(dir, { recursive: true });
@@ -796,7 +835,7 @@ function installMockTools(): void {
   };
   mocks.tools.shell = {
     definition: { name: "shell", description: "shell", parameters: { type: "object", properties: {} } },
-    execute: vi.fn(async (input) => {
+    execute: vi.fn(async (input: Record<string, unknown>) => {
       const command = Array.isArray(input.command) ? input.command.filter((item): item is string => typeof item === "string") : [];
       const cwd = typeof input.cwd === "string" ? input.cwd : mocks.state.workingDirectory;
       const subcommand = command.find((item) => ["init-deck", "validate-slide", "validate-manifest", "compose"].includes(item));

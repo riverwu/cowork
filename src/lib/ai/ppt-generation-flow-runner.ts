@@ -3,6 +3,7 @@ import * as nodeFs from "node:fs";
 import { inflateRawSync } from "node:zlib";
 import { runAgent, type ActiveSkill, type ContextManifest } from "./agent";
 import { DebugLogger } from "./debug-log";
+import { extractFailureSnippet, isToolResultFailure } from "./tool-result";
 import type { LLMMessage, ToolCall, ToolDefinition } from "./providers/types";
 import type { AgentEvent } from "@/types";
 
@@ -196,6 +197,18 @@ export interface PptGenerationFlowImprovementAnalysis {
   recoveredFrictionSignals: PptGenerationFlowSignal[];
   finalQualitySignals: PptGenerationFlowSignal[];
   candidates: PptGenerationFlowImprovementCandidate[];
+}
+
+interface DebugLogHealth {
+  directory: string;
+  logPath?: string;
+  lineCount: number;
+  parseErrorCount: number;
+  seqInversions: number;
+  seqGaps: number;
+  firstSeq?: number;
+  lastSeq?: number;
+  eventCounts: Record<string, number>;
 }
 
 type PptGenerationMonitorEvent =
@@ -777,6 +790,7 @@ function flowReportPayload(
   verification: PptGenerationFlowVerification,
   caseDefinition?: PptGenerationFlowCase,
 ): Record<string, unknown> {
+  const debugLogHealth = analyzeDebugLogHealth(result.debugLogDirectory);
   return {
     case: caseDefinition ? {
       id: caseDefinition.id,
@@ -791,6 +805,7 @@ function flowReportPayload(
     finishedAt: result.finishedAt,
     durationMs: result.durationMs,
     debugLogDirectory: result.debugLogDirectory,
+    debugLogHealth,
     summary: result.summary,
     verification,
     agentEvents: result.events,
@@ -821,11 +836,12 @@ export function analyzePptGenerationFlowImprovements(
   caseDefinition?: PptGenerationFlowCase | null,
 ): PptGenerationFlowImprovementAnalysis {
   const caseId = caseDefinition?.id || result.scenario.id;
-  const blockingFailureSignals = result.toolRecords
+  const toolRecords = result.toolRecords.map(normalizeToolRecordForReports);
+  const blockingFailureSignals = toolRecords
     .filter((record) => record.success === false)
     .map((record) => signalFromToolRecord(record, "blocking-failure"))
     .filter((signal): signal is PptGenerationFlowSignal => Boolean(signal));
-  const recoveredFrictionSignals = result.toolRecords
+  const recoveredFrictionSignals = toolRecords
     .filter((record) => record.success !== false)
     .map((record) => signalFromToolRecord(record, "recovered-friction"))
     .filter((signal): signal is PptGenerationFlowSignal => Boolean(signal));
@@ -1546,6 +1562,10 @@ function inferComponentTypes(value: string): string[] {
 }
 
 function summarizeToolSignal(toolName: string, result: string, diagnosticCodes: string[]): string {
+  const failureSnippet = extractFailureSnippet(result);
+  if (failureSnippet) {
+    return diagnosticCodes.length ? `${failureSnippet} Codes: ${diagnosticCodes.join(", ")}.` : failureSnippet;
+  }
   const firstLine = result.split(/\r?\n/).find((line) => line.trim())?.trim() || `${toolName} produced a recoverable signal.`;
   if (diagnosticCodes.length) return `${firstLine} Codes: ${diagnosticCodes.join(", ")}.`;
   return firstLine;
@@ -1558,6 +1578,7 @@ function markdownFlowReport(
 ): string {
   const status = verification.ok ? "PASS" : "FAIL";
   const blockingCount = blockingDiagnosticsCount(result.summary.finalValidateRender);
+  const debugLogHealth = analyzeDebugLogHealth(result.debugLogDirectory);
   const toolRows = result.toolRecords.map((record) => (
     `| ${record.step} | ${record.name} | ${record.success === false ? "fail" : "ok"} | ${record.durationMs ?? ""} | ${escapeMarkdownTable(excerpt(record.result || "", 140))} |`
   )).join("\n");
@@ -1575,6 +1596,7 @@ function markdownFlowReport(
     `- Duration: ${Math.round(result.durationMs / 1000)}s`,
     `- Working directory: ${result.scenario.workingDirectory}`,
     `- Debug log: ${result.debugLogDirectory || "not enabled"}`,
+    `- Debug log health: ${formatDebugLogHealth(debugLogHealth)}`,
     `- Final blocking diagnostics: ${Number.isFinite(blockingCount) ? blockingCount : "unknown"}`,
     "",
     "## Verification",
@@ -1622,7 +1644,8 @@ export async function writePptGenerationFlowReport(path: string, result: PptGene
 }
 
 export function summarizePptGenerationFlow(events: AgentEvent[], toolRecords: PptGenerationFlowToolRecord[]): PptGenerationFlowSummary {
-  const finalValidateRender = lastValidateRenderResult(toolRecords);
+  const normalizedToolRecords = toolRecords.map(normalizeToolRecordForReports);
+  const finalValidateRender = lastValidateRenderResult(normalizedToolRecords);
   const outputPaths = new Set<string>();
   collectValidateOutputPaths(finalValidateRender, outputPaths);
   for (const event of events) {
@@ -1631,14 +1654,14 @@ export function summarizePptGenerationFlow(events: AgentEvent[], toolRecords: Pp
     }
   }
   const toolNames = new Set<string>();
-  for (const record of toolRecords.filter((record) => record.result !== undefined || record.input !== undefined)) {
+  for (const record of normalizedToolRecords.filter((record) => record.result !== undefined || record.input !== undefined)) {
     toolNames.add(record.name);
     const cliAlias = slideml2CliToolAlias(record);
     if (cliAlias) toolNames.add(cliAlias);
   }
   return {
     toolNames: [...toolNames],
-    replaceSlideCount: toolRecords.filter((record) => isSuccessfulReplaceSlideRecord(record)).length,
+    replaceSlideCount: normalizedToolRecords.filter((record) => isSuccessfulReplaceSlideRecord(record)).length,
     outputPaths: [...outputPaths],
     finalValidateRender,
     finalText: events.filter((event): event is Extract<AgentEvent, { type: "text-delta" }> => event.type === "text-delta").map((event) => event.text).join(""),
@@ -1764,12 +1787,16 @@ function finalValidateDeckPath(toolRecords: PptGenerationFlowToolRecord[]): stri
 }
 
 function isSuccessfulReplaceSlideRecord(record: PptGenerationFlowToolRecord): boolean {
+  record = normalizeToolRecordForReports(record);
   const alias = slideml2CliToolAlias(record);
   return record.success !== false && (record.name === "replace_slide" || alias === "validate_slide");
 }
 
 function successfulValidateSlideCount(toolRecords: PptGenerationFlowToolRecord[]): number {
-  return toolRecords.filter((record) => record.success !== false && slideml2CliToolAlias(record) === "validate_slide").length;
+  return toolRecords
+    .map(normalizeToolRecordForReports)
+    .filter((record) => record.success !== false && slideml2CliToolAlias(record) === "validate_slide")
+    .length;
 }
 
 function wasSlideml2SkillRead(toolRecords: PptGenerationFlowToolRecord[]): boolean {
@@ -1987,6 +2014,74 @@ function escapeMarkdownTable(value: string): string {
   return value.replace(/\r?\n/g, " ").replace(/\|/g, "\\|");
 }
 
+function analyzeDebugLogHealth(directory: string | null): DebugLogHealth | null {
+  if (!directory) return null;
+  try {
+    const entries = nodeFs.readdirSync(directory);
+    const fileName = entries.find((entry) => /^request-.*\.log$/i.test(entry))
+      || entries.find((entry) => /\.log$/i.test(entry));
+    if (!fileName) {
+      return {
+        directory,
+        lineCount: 0,
+        parseErrorCount: 0,
+        seqInversions: 0,
+        seqGaps: 0,
+        eventCounts: {},
+      };
+    }
+    const logPath = nodePath.join(directory, fileName);
+    const lines = nodeFs.readFileSync(logPath, "utf8").split(/\r?\n/).filter((line) => line.trim().length > 0);
+    let parseErrorCount = 0;
+    let seqInversions = 0;
+    let seqGaps = 0;
+    let firstSeq: number | undefined;
+    let lastSeq: number | undefined;
+    const eventCounts: Record<string, number> = {};
+    for (const line of lines) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        parseErrorCount += 1;
+        continue;
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+      const record = parsed as Record<string, unknown>;
+      const seq = typeof record.seq === "number" && Number.isFinite(record.seq) ? record.seq : undefined;
+      if (seq !== undefined) {
+        if (firstSeq === undefined) firstSeq = seq;
+        if (lastSeq !== undefined) {
+          if (seq <= lastSeq) seqInversions += 1;
+          if (seq > lastSeq + 1) seqGaps += seq - lastSeq - 1;
+        }
+        lastSeq = seq;
+      }
+      if (typeof record.event === "string" && record.event) {
+        eventCounts[record.event] = (eventCounts[record.event] || 0) + 1;
+      }
+    }
+    return {
+      directory,
+      logPath,
+      lineCount: lines.length,
+      parseErrorCount,
+      seqInversions,
+      seqGaps,
+      firstSeq,
+      lastSeq,
+      eventCounts,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatDebugLogHealth(health: DebugLogHealth | null): string {
+  if (!health) return "not available";
+  return `lines=${health.lineCount}, parseErrors=${health.parseErrorCount}, seqInversions=${health.seqInversions}, seqGaps=${health.seqGaps}`;
+}
+
 class PptGenerationFlowMonitor extends DebugLogger {
   readonly events: PptGenerationMonitorEvent[] = [];
   readonly llmSends: PptGenerationFlowResult["llmSends"] = [];
@@ -2036,18 +2131,19 @@ class PptGenerationFlowMonitor extends DebugLogger {
   }
 
   override async recordToolDone(payload: { step: number; name: string; toolCallId: string; result: string; success: boolean; durationMs: number }): Promise<void> {
-    this.events.push({ event: "tool-done", payload });
-    const existing = this.byToolCallId.get(payload.toolCallId);
+    const normalized = normalizeToolDonePayload(payload);
+    this.events.push({ event: "tool-done", payload: normalized });
+    const existing = this.byToolCallId.get(normalized.toolCallId);
     this.byToolCallId.set(payload.toolCallId, {
-      step: payload.step,
-      name: payload.name,
-      toolCallId: payload.toolCallId,
+      step: normalized.step,
+      name: normalized.name,
+      toolCallId: normalized.toolCallId,
       input: existing?.input,
-      result: payload.result,
-      success: payload.success,
-      durationMs: payload.durationMs,
+      result: normalized.result,
+      success: normalized.success,
+      durationMs: normalized.durationMs,
     });
-    await this.forward?.recordToolDone(payload);
+    await this.forward?.recordToolDone(normalized);
   }
 
   override async recordError(payload: { step: number; error: string; phase: string }): Promise<void> {
@@ -2073,4 +2169,14 @@ class PptGenerationFlowMonitor extends DebugLogger {
   toolRecords(): PptGenerationFlowToolRecord[] {
     return [...this.byToolCallId.values()].sort((a, b) => a.step - b.step || a.toolCallId.localeCompare(b.toolCallId));
   }
+}
+
+function normalizeToolDonePayload<T extends { result: string; success: boolean }>(payload: T): T {
+  if (payload.success === false || !isToolResultFailure(payload.result)) return payload;
+  return { ...payload, success: false };
+}
+
+function normalizeToolRecordForReports(record: PptGenerationFlowToolRecord): PptGenerationFlowToolRecord {
+  if (record.success === false || !record.result || !isToolResultFailure(record.result)) return record;
+  return { ...record, success: false };
 }
