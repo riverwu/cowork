@@ -260,7 +260,11 @@ function pieChartXml(shape: ChartShape, colors: HexColor[], doughnut: boolean, r
   // PowerPoint for Mac repairs pie/doughnut charts when c:dLblPos is emitted
   // in this series-level label block. Let Office choose the position; labels
   // remain enabled and editable without corrupting the package.
-  }, { pointCount: shape.labels.length, omitPosition: true });
+  }, {
+    pointCount: shape.labels.length,
+    omitPosition: true,
+    hiddenPointIndexes: hiddenPieLabelIndexes(series.values, shape.dataLabels?.minPercent ?? 0.03),
+  });
   return (
     `<c:${elem}>` +
     `<c:varyColors val="1"/>` +
@@ -372,7 +376,7 @@ function dataLabelsXmlOf(
     showLegendKey?: boolean;
     showLeaderLines?: boolean;
   },
-  options: { pointCount?: number; omitPosition?: boolean } = {},
+  options: { pointCount?: number; omitPosition?: boolean; hiddenPointIndexes?: Set<number> } = {},
 ): string {
   const labels = shape.dataLabels;
   const show = labels?.show ?? shape.showValues ?? false;
@@ -395,12 +399,14 @@ function dataLabelsXmlOf(
     `<c:showBubbleSize val="0"/>`;
   const pointLabelsXml = options.pointCount && options.pointCount > 0
     ? Array.from({ length: options.pointCount }, (_, idx) =>
-      `<c:dLbl><c:idx val="${idx}"/>` +
-      `<c:numFmt formatCode="General" sourceLinked="0"/>` +
-      `<c:spPr/>` +
-      defaultDataLabelTextPrXml() +
-      showFlagsXml +
-      `</c:dLbl>`,
+      options.hiddenPointIndexes?.has(idx)
+        ? `<c:dLbl><c:idx val="${idx}"/><c:delete val="1"/></c:dLbl>`
+        : `<c:dLbl><c:idx val="${idx}"/>` +
+          `<c:numFmt formatCode="General" sourceLinked="0"/>` +
+          `<c:spPr/>` +
+          defaultDataLabelTextPrXml() +
+          showFlagsXml +
+          `</c:dLbl>`,
     ).join("")
     : "";
   return (
@@ -413,6 +419,19 @@ function dataLabelsXmlOf(
     leaderLinesXml +
     `</c:dLbls>`
   );
+}
+
+function hiddenPieLabelIndexes(values: Array<number | null>, minPercent: number | undefined): Set<number> | undefined {
+  const threshold = typeof minPercent === "number" && Number.isFinite(minPercent) ? Math.max(0, minPercent) : 0;
+  if (threshold <= 0) return undefined;
+  const numeric = values.map((value) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
+  const total = numeric.reduce((sum, value) => sum + value, 0);
+  if (total <= 0) return undefined;
+  const hidden = new Set<number>();
+  numeric.forEach((value, index) => {
+    if (value > 0 && value / total < threshold) hidden.add(index);
+  });
+  return hidden.size ? hidden : undefined;
 }
 
 function defaultDataLabelTextPrXml(): string {

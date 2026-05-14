@@ -12676,7 +12676,7 @@ var CHART_DETAILED = {
   showValues: { valueType: "boolean", description: "boolean" },
   showLegend: { valueType: "boolean", description: "boolean (default true when series.length > 1)" },
   orientation: { valueType: "enum", values: ["vertical", "horizontal"], description: "bar-like chart orientation; horizontal is useful for ranked categories with long labels" },
-  dataLabels: { valueType: "object", description: "{show?, position?: 'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue?, showCategoryName?, showSeriesName?, showPercent?, showLegendKey?, showLeaderLines?}; pie/doughnut default to category+percent labels" },
+  dataLabels: { valueType: "object", description: "{show?, position?: 'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue?, showCategoryName?, showSeriesName?, showPercent?, showLegendKey?, showLeaderLines?, minPercent?}; pie/doughnut default to category+percent labels and suppress labels for slices below 3%" },
   positiveColor: { valueType: "string", description: "theme token or hex for positive bar/stacked-bar/combo points" },
   negativeColor: { valueType: "string", description: "theme token or hex for negative bar/stacked-bar/combo points; defaults to theme danger" },
   colors: { valueType: "array", description: "hex[] without # prefix; series color cycle (overrides theme palette)" },
@@ -14299,7 +14299,11 @@ function pieChartXml(shape, colors, doughnut, refContext) {
     // PowerPoint for Mac repairs pie/doughnut charts when c:dLblPos is emitted
     // in this series-level label block. Let Office choose the position; labels
     // remain enabled and editable without corrupting the package.
-  }, { pointCount: shape.labels.length, omitPosition: true });
+  }, {
+    pointCount: shape.labels.length,
+    omitPosition: true,
+    hiddenPointIndexes: hiddenPieLabelIndexes(series.values, shape.dataLabels?.minPercent ?? 0.03)
+  });
   return `<c:${elem}><c:varyColors val="1"/><c:ser><c:idx val="0"/><c:order val="0"/>` + seriesTxXml(series.name, 0, refContext) + shape.labels.map((_, i) => `<c:dPt><c:idx val="${i}"/><c:bubble3D val="0"/><c:spPr><a:solidFill><a:srgbClr val="${colors[i % colors.length]}"/></a:solidFill></c:spPr></c:dPt>`).join("") + dataLabelsXml + catRefXml(shape.labels, refContext) + valRefXml(series.values, refContext, 0) + `</c:ser><c:firstSliceAng val="0"/>` + holeXml + `</c:${elem}>`;
 }
 function seriesXml(s, idx, colors, labels, showValues = false, isLine = false, isArea = false, shape, refContext) {
@@ -14357,8 +14361,23 @@ function dataLabelsXmlOf(shape, defaults, options = {}) {
   const showLeaderLines = labels?.showLeaderLines ?? defaults.showLeaderLines;
   const leaderLinesXml = typeof showLeaderLines === "boolean" ? `<c:showLeaderLines val="${showLeaderLines ? 1 : 0}"/>` : "";
   const showFlagsXml = `<c:showLegendKey val="${showLegendKey ? 1 : 0}"/><c:showVal val="${showValue ? 1 : 0}"/><c:showCatName val="${showCategoryName ? 1 : 0}"/><c:showSerName val="${showSeriesName ? 1 : 0}"/><c:showPercent val="${showPercent ? 1 : 0}"/><c:showBubbleSize val="0"/>`;
-  const pointLabelsXml = options.pointCount && options.pointCount > 0 ? Array.from({ length: options.pointCount }, (_, idx) => `<c:dLbl><c:idx val="${idx}"/><c:numFmt formatCode="General" sourceLinked="0"/><c:spPr/>` + defaultDataLabelTextPrXml() + showFlagsXml + `</c:dLbl>`).join("") : "";
+  const pointLabelsXml = options.pointCount && options.pointCount > 0 ? Array.from({ length: options.pointCount }, (_, idx) => options.hiddenPointIndexes?.has(idx) ? `<c:dLbl><c:idx val="${idx}"/><c:delete val="1"/></c:dLbl>` : `<c:dLbl><c:idx val="${idx}"/><c:numFmt formatCode="General" sourceLinked="0"/><c:spPr/>` + defaultDataLabelTextPrXml() + showFlagsXml + `</c:dLbl>`).join("") : "";
   return `<c:dLbls>` + pointLabelsXml + `<c:numFmt formatCode="General" sourceLinked="0"/>` + defaultDataLabelTextPrXml() + positionXml + showFlagsXml + leaderLinesXml + `</c:dLbls>`;
+}
+function hiddenPieLabelIndexes(values, minPercent) {
+  const threshold = typeof minPercent === "number" && Number.isFinite(minPercent) ? Math.max(0, minPercent) : 0;
+  if (threshold <= 0)
+    return void 0;
+  const numeric = values.map((value) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
+  const total = numeric.reduce((sum, value) => sum + value, 0);
+  if (total <= 0)
+    return void 0;
+  const hidden = /* @__PURE__ */ new Set();
+  numeric.forEach((value, index) => {
+    if (value > 0 && value / total < threshold)
+      hidden.add(index);
+  });
+  return hidden.size ? hidden : void 0;
 }
 function defaultDataLabelTextPrXml() {
   return `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1200"><a:solidFill><a:srgbClr val="111827"/></a:solidFill><a:latin typeface="Arial"/></a:defRPr></a:pPr></a:p></c:txPr>`;
@@ -18003,8 +18022,8 @@ function barList(slideId, id, options) {
                 padding: 0,
                 layoutWeight: 1,
                 children: [
-                  { id: `${slideId}.${id}.${index}.fill`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, layoutWeight: Math.max(1e-3, ratio) },
-                  { id: `${slideId}.${id}.${index}.spacer`, type: "spacer", layoutWeight: Math.max(1e-3, 1 - ratio) }
+                  { id: `${slideId}.${id}.${index}.fill`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, basis: 0, minWidth: 0.02, layoutWeight: Math.max(1e-3, ratio) },
+                  { id: `${slideId}.${id}.${index}.spacer`, type: "spacer", basis: 0, minWidth: 0, layoutWeight: Math.max(1e-3, 1 - ratio) }
                 ]
               },
               { id: `${slideId}.${id}.${index}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", valign: "middle", fixedWidth: valueWidthCm, fixedHeight: rowHeight, size: compact ? "sm" : "md", bold: true, autoFit: "shrink" }
@@ -20841,7 +20860,7 @@ var COMPONENT_DEFINITIONS = [
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Color tone for the value." }
   }, "stack of metric-value(2xl) + card-title + caption", "stack"),
   component("bar-list", "Ranked or sortable categorical numeric/rating comparison. Use when the viewer should see who is bigger/smaller across 4-8 items.", {
-    items: { type: "array", required: true, description: "Array of { label/name/title, value/score/percent, max?, valueLabel?, tone? }. Numeric strings like '75%' are accepted. Star strings like '\u2605\u2605\u2605\u2605' are rendered as rating labels and converted to numeric bar lengths." },
+    items: { type: "array", required: true, description: "Array of { label/name/title, value/score/percent, max?, valueLabel?, tone? }. Numeric strings like '75%', currency/unit strings like '\xA5274.7\u4E07', and star strings like '\u2605\u2605\u2605\u2605' are accepted for bar lengths; valueLabel preserves display text." },
     tone: { type: "enum", enum: ["brand", "positive", "neutral", "warning", "danger"], description: "Default bar fill color. 'neutral' renders de-emphasized gray bars." },
     sort: { type: "enum", enum: ["desc", "asc", "none"], description: "Sort items by value (default 'none' \u2014 keep input order)." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density. 5+ item lists auto-use compact, but pass compact in mixed slides or short columns." }
@@ -20963,7 +20982,7 @@ var COMPONENT_DEFINITIONS = [
     showLegend: { type: "boolean", description: "Show chart legend." },
     showValues: { type: "boolean", description: "Show values on chart marks." },
     orientation: { type: "enum", enum: ["vertical", "horizontal"], description: "Bar-like chart orientation. Horizontal bars are useful for ranked categories with long labels." },
-    dataLabels: { type: "object", description: "Optional data-label controls {show, position:'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue, showCategoryName, showSeriesName, showPercent, showLegendKey, showLeaderLines}. Pie/doughnut default to category+percent labels." },
+    dataLabels: { type: "object", description: "Optional data-label controls {show, position:'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue, showCategoryName, showSeriesName, showPercent, showLegendKey, showLeaderLines, minPercent}. Pie/doughnut default to category+percent labels and suppress labels for slices below 3% unless minPercent is set." },
     xAxis: { type: "object", description: "Optional x/category axis controls {title, show, min, max, majorUnit, numberFormat, gridlines, tickLabelRotation, tickLabelPosition}." },
     yAxis: { type: "object", description: "Optional primary value axis controls {title, show, min, max, majorUnit, numberFormat, gridlines, tickLabelRotation, tickLabelPosition}." },
     secondaryYAxis: { type: "object", description: "Optional secondary value axis controls for series using axis:'secondary'." },
@@ -21761,7 +21780,7 @@ function expandComponent(slideId, node) {
       return {
         label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))),
         value,
-        max: rec.max === void 0 ? void 0 : numberValue(rec.max, void 0),
+        max: rec.max === void 0 ? void 0 : barListValue(rec.max),
         valueLabel,
         tone: coerceTone(rec.tone)
       };
@@ -25041,6 +25060,9 @@ function barListValue(...values) {
     const numeric = numberValue(value, void 0);
     if (typeof numeric === "number")
       return numeric;
+    const decorated = decoratedNumberValue(value);
+    if (typeof decorated === "number")
+      return decorated;
     const rating = starRatingValue(value);
     if (typeof rating === "number")
       return rating;
@@ -25062,6 +25084,20 @@ function starRatingValue(value) {
     return void 0;
   const filled = Array.from(value).filter((ch) => ch === "\u2605" || ch === "\u2B50").length;
   return filled > 0 ? filled : void 0;
+}
+function decoratedNumberValue(value) {
+  if (typeof value !== "string")
+    return void 0;
+  const normalized = value.trim().replace(/,/g, "");
+  const match = normalized.match(/[-+]?\d+(?:\.\d+)?/);
+  if (!match)
+    return void 0;
+  const parsed = Number.parseFloat(match[0]);
+  if (!Number.isFinite(parsed))
+    return void 0;
+  const after = normalized.slice((match.index || 0) + match[0].length).trim();
+  const multiplier = after.startsWith("\u4EBF") ? 1e8 : after.startsWith("\u4E07") ? 1e4 : /^[kK]\b/.test(after) ? 1e3 : /^[mM]\b/.test(after) ? 1e6 : /^[bB]\b/.test(after) ? 1e9 : 1;
+  return parsed * multiplier;
 }
 function numberValue(value, fallback) {
   if (typeof value === "number" && Number.isFinite(value))
@@ -39705,6 +39741,8 @@ function normalizeChartDataLabels(value, defaults) {
       out.showLegendKey = rec.showLegendKey;
     if (typeof rec.showLeaderLines === "boolean")
       out.showLeaderLines = rec.showLeaderLines;
+    if (typeof rec.minPercent === "number" && Number.isFinite(rec.minPercent) && rec.minPercent >= 0)
+      out.minPercent = Math.min(1, rec.minPercent);
     return out;
   }
   if (defaults.pieLike) {
@@ -39713,7 +39751,8 @@ function normalizeChartDataLabels(value, defaults) {
       position: "bestFit",
       showCategoryName: true,
       showPercent: true,
-      showLeaderLines: true
+      showLeaderLines: true,
+      minPercent: 0.03
     };
   }
   if (defaults.showValues) {
@@ -40832,7 +40871,8 @@ function resolveMainSizes(theme, children, direction, availableMain, crossSize) 
 }
 function childMainSpec(theme, node, direction, crossSize) {
   const fixed = optionalNumberProp(node, direction === "horizontal" ? "fixedWidth" : "fixedHeight");
-  const intrinsic = intrinsicMainSize(theme, node, direction, crossSize);
+  const explicitBasis = optionalNumberProp(node, direction === "horizontal" ? "basisWidth" : "basisHeight") ?? optionalNumberProp(node, "basis");
+  const intrinsic = explicitBasis ?? intrinsicMainSize(theme, node, direction, crossSize);
   const min = optionalNumberProp(node, direction === "horizontal" ? "minWidth" : "minHeight") ?? intrinsicMinSize(theme, node, direction, crossSize);
   const max = optionalNumberProp(node, direction === "horizontal" ? "maxWidth" : "maxHeight") ?? Number.POSITIVE_INFINITY;
   const hasExplicitWeight = optionalNumberProp(node, "layoutWeight") !== void 0;

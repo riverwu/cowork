@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.43
+version: 1.0.44
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -718,9 +718,9 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.8.
 - `metric-card` — Single compact KPI. type='metric-card' required={value+label | bind+encoding} optional={unit, trend:up|down|flat, delta, status, comparison, source, sparkline, variant, density, surface, bind, encoding}
 - `stat-strip` — Inline row of 3–6 supporting numbers. type='stat-strip' required={items | bind+encoding:{value,label} | bind+encoding:{items:[{label,value,type?,format?,tone?}]}} optional={tone, bind, encoding}
 - `stat-comparison` — Before/after with delta. type='stat-comparison' required={beforeLabel, beforeValue, afterLabel, afterValue} optional={trend, deltaLabel}
-- `bar-list` — Ranked categorical comparison, 4–8 items. `value` may be a number, percent string, or star rating. type='bar-list' required={items:[{label|name|title, value|score|percent, valueLabel?, tone?}]} optional={tone, sort:desc|asc|none}
+- `bar-list` — Ranked categorical comparison, 4–8 items. `value` may be a number, percent string, currency/unit string such as `¥274.7万`, or star rating. Use `valueLabel` when display text differs from numeric value. type='bar-list' required={items:[{label|name|title, value|score|percent, valueLabel?, tone?}]} optional={tone, sort:desc|asc|none}
 - `progress-bar` — Single progress-to-target. type='progress-bar' required={label, value} optional={max, valueLabel, tone}
-- `chart-card` — Titled chart with optional insight, caption, dataLabels. Pie/doughnut must show slice labels. type='chart-card' required={chartType:bar|stacked-bar|line|pie|doughnut|area|combo|scatter|waterfall, labels+series | data.{labels,series} | bind+encoding} optional={title, badge, insight, caption, showLegend, showValues, dataLabels:{show,position,bestFit|center|insideEnd|insideBase|outsideEnd,showValue,showCategoryName,showSeriesName,showPercent,showLegendKey,showLeaderLines}, positiveColor, negativeColor, yFormat:int|decimal|percent|wanyuan|yi, tone, variant, surface, bind, encoding, orientation, xAxis, yAxis, secondaryYAxis, legend:{show,position,overlay}, plotArea:{x,y,w,h}} capacity="bar/line/combo body >=4.8x3.0cm; pie/doughnut >=5.2x4.4cm before chrome; keep readable aspect ratio"
+- `chart-card` — Titled chart with optional insight, caption, dataLabels. Pie/doughnut show major slice labels by default and suppress labels for slices below 3% unless `dataLabels.minPercent` is set. type='chart-card' required={chartType:bar|stacked-bar|line|pie|doughnut|area|combo|scatter|waterfall, labels+series | data.{labels,series} | bind+encoding} optional={title, badge, insight, caption, showLegend, showValues, dataLabels:{show,position,bestFit|center|insideEnd|insideBase|outsideEnd,showValue,showCategoryName,showSeriesName,showPercent,showLegendKey,showLeaderLines,minPercent}, positiveColor, negativeColor, yFormat:int|decimal|percent|wanyuan|yi, tone, variant, surface, bind, encoding, orientation, xAxis, yAxis, secondaryYAxis, legend:{show,position,overlay}, plotArea:{x,y,w,h}} capacity="bar/line/combo body >=4.8x3.0cm; pie/doughnut >=5.2x4.4cm before chrome; keep readable aspect ratio"
 
 ### 3.4 Comparison & Decisions
 

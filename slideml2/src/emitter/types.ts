@@ -433,6 +433,8 @@ export interface ChartDataLabels {
   showPercent?: boolean;
   showLegendKey?: boolean;
   showLeaderLines?: boolean;
+  /** Hide pie/doughnut labels for slices below this share. 0.03 = 3%. */
+  minPercent?: number;
 }
 
 /**

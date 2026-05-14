@@ -754,6 +754,37 @@ describe("bar-list value width: short numbers no longer waste 1.6cm", () => {
     const cx = (value!.xfrm!.cx) / EMU;
     expect(cx).toBeLessThanOrEqual(1.0 + 0.01);
   });
+
+  it("parses currency/unit display strings for comparable bar lengths", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.b",
+        type: "bar-list",
+        items: [
+          { label: "iOS", value: "¥274.7万" },
+          { label: "PC", value: "¥182.7万" },
+          { label: "Small", value: "¥10.2万" },
+        ],
+      } as never],
+    };
+    const list = shapes(slide);
+    const fillWidth = (suffix: string) => {
+      const fill = list.find((s) => typeof (s as { name?: string }).name === "string" && (s as { name: string }).name.endsWith(suffix)) as
+        | { xfrm?: { cx: number } } | undefined;
+      expect(fill, suffix).toBeDefined();
+      return fill!.xfrm!.cx / EMU;
+    };
+    const first = fillWidth(".0.fill");
+    const second = fillWidth(".1.fill");
+    const third = fillWidth(".2.fill");
+    expect(first).toBeGreaterThan(second);
+    expect(second).toBeGreaterThan(third);
+    expect(second / first).toBeGreaterThan(0.55);
+    expect(second / first).toBeLessThan(0.85);
+    expect(third / first).toBeLessThan(0.3);
+  });
 });
 
 describe("chart-card padding tightens when no caption (slide 14 fix)", () => {

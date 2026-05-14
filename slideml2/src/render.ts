@@ -4545,6 +4545,7 @@ function normalizeChartDataLabels(
     if (typeof rec.showPercent === "boolean") out.showPercent = rec.showPercent;
     if (typeof rec.showLegendKey === "boolean") out.showLegendKey = rec.showLegendKey;
     if (typeof rec.showLeaderLines === "boolean") out.showLeaderLines = rec.showLeaderLines;
+    if (typeof rec.minPercent === "number" && Number.isFinite(rec.minPercent) && rec.minPercent >= 0) out.minPercent = Math.min(1, rec.minPercent);
     return out;
   }
   if (defaults.pieLike) {
@@ -4554,6 +4555,7 @@ function normalizeChartDataLabels(
       showCategoryName: true,
       showPercent: true,
       showLeaderLines: true,
+      minPercent: 0.03,
     };
   }
   if (defaults.showValues) {
@@ -5803,7 +5805,8 @@ interface SizeSpec {
 
 function childMainSpec(theme: SimpleTheme, node: DomNode, direction: "horizontal" | "vertical", crossSize: number): SizeSpec {
   const fixed = optionalNumberProp(node, direction === "horizontal" ? "fixedWidth" : "fixedHeight");
-  const intrinsic = intrinsicMainSize(theme, node, direction, crossSize);
+  const explicitBasis = optionalNumberProp(node, direction === "horizontal" ? "basisWidth" : "basisHeight") ?? optionalNumberProp(node, "basis");
+  const intrinsic = explicitBasis ?? intrinsicMainSize(theme, node, direction, crossSize);
   const min = optionalNumberProp(node, direction === "horizontal" ? "minWidth" : "minHeight") ?? intrinsicMinSize(theme, node, direction, crossSize);
   const max = optionalNumberProp(node, direction === "horizontal" ? "maxWidth" : "maxHeight") ?? Number.POSITIVE_INFINITY;
   const hasExplicitWeight = optionalNumberProp(node, "layoutWeight") !== undefined;

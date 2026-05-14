@@ -2385,8 +2385,8 @@ export function barList(slideId: string, id: string, options: { items: Array<{ l
                 padding: 0,
                 layoutWeight: 1,
                 children: [
-                  { id: `${slideId}.${id}.${index}.fill`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, layoutWeight: Math.max(0.001, ratio) },
-                  { id: `${slideId}.${id}.${index}.spacer`, type: "spacer", layoutWeight: Math.max(0.001, 1 - ratio) },
+                  { id: `${slideId}.${id}.${index}.fill`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, basis: 0, minWidth: 0.02, layoutWeight: Math.max(0.001, ratio) },
+                  { id: `${slideId}.${id}.${index}.spacer`, type: "spacer", basis: 0, minWidth: 0, layoutWeight: Math.max(0.001, 1 - ratio) },
                 ],
               },
               { id: `${slideId}.${id}.${index}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", valign: "middle", fixedWidth: valueWidthCm, fixedHeight: rowHeight, size: compact ? "sm" : "md", bold: true, autoFit: "shrink" },

@@ -679,6 +679,30 @@ describe("emitter — package end-to-end", () => {
     expect(chartXml.indexOf("<c:dLbls>")).toBeLessThan(chartXml.indexOf("<c:cat>"));
   });
 
+  it("suppresses tiny pie/doughnut slice labels while keeping major labels", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "doughnut",
+          labels: ["Main", "Tiny A", "Tiny B", "Trace"],
+          dataLabels: { show: true, showCategoryName: true, showPercent: true },
+          series: [{ name: "Share", values: [826.7, 4.75, 4.67, 0.05] }],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+
+    expect(chartXml).toContain('<c:dLbl><c:idx val="0"/>');
+    expect(chartXml).toContain('<c:dLbl><c:idx val="1"/><c:delete val="1"/></c:dLbl>');
+    expect(chartXml).toContain('<c:dLbl><c:idx val="2"/><c:delete val="1"/></c:dLbl>');
+    expect(chartXml).toContain('<c:dLbl><c:idx val="3"/><c:delete val="1"/></c:dLbl>');
+  });
+
   it("emits area as <c:areaChart> with translucent series fill", async () => {
     const deck: DeckAst = {
       size: "16x9",

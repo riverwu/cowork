@@ -447,7 +447,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Color tone for the value." },
   }, "stack of metric-value(2xl) + card-title + caption", "stack"),
   component("bar-list", "Ranked or sortable categorical numeric/rating comparison. Use when the viewer should see who is bigger/smaller across 4-8 items.", {
-    items: { type: "array", required: true, description: "Array of { label/name/title, value/score/percent, max?, valueLabel?, tone? }. Numeric strings like '75%' are accepted. Star strings like '★★★★' are rendered as rating labels and converted to numeric bar lengths." },
+    items: { type: "array", required: true, description: "Array of { label/name/title, value/score/percent, max?, valueLabel?, tone? }. Numeric strings like '75%', currency/unit strings like '¥274.7万', and star strings like '★★★★' are accepted for bar lengths; valueLabel preserves display text." },
     tone: { type: "enum", enum: ["brand", "positive", "neutral", "warning", "danger"], description: "Default bar fill color. 'neutral' renders de-emphasized gray bars." },
     sort: { type: "enum", enum: ["desc", "asc", "none"], description: "Sort items by value (default 'none' — keep input order)." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density. 5+ item lists auto-use compact, but pass compact in mixed slides or short columns." },
@@ -569,7 +569,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     showLegend: { type: "boolean", description: "Show chart legend." },
     showValues: { type: "boolean", description: "Show values on chart marks." },
     orientation: { type: "enum", enum: ["vertical", "horizontal"], description: "Bar-like chart orientation. Horizontal bars are useful for ranked categories with long labels." },
-    dataLabels: { type: "object", description: "Optional data-label controls {show, position:'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue, showCategoryName, showSeriesName, showPercent, showLegendKey, showLeaderLines}. Pie/doughnut default to category+percent labels." },
+    dataLabels: { type: "object", description: "Optional data-label controls {show, position:'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue, showCategoryName, showSeriesName, showPercent, showLegendKey, showLeaderLines, minPercent}. Pie/doughnut default to category+percent labels and suppress labels for slices below 3% unless minPercent is set." },
     xAxis: { type: "object", description: "Optional x/category axis controls {title, show, min, max, majorUnit, numberFormat, gridlines, tickLabelRotation, tickLabelPosition}." },
     yAxis: { type: "object", description: "Optional primary value axis controls {title, show, min, max, majorUnit, numberFormat, gridlines, tickLabelRotation, tickLabelPosition}." },
     secondaryYAxis: { type: "object", description: "Optional secondary value axis controls for series using axis:'secondary'." },
@@ -1395,7 +1395,7 @@ export function expandComponent(slideId: string, node: DomNode): DomNode {
       return {
         label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))),
         value,
-        max: rec.max === undefined ? undefined : numberValue(rec.max, undefined),
+        max: rec.max === undefined ? undefined : barListValue(rec.max),
         valueLabel,
         tone: coerceTone(rec.tone),
       };
@@ -4682,6 +4682,8 @@ function barListValue(...values: unknown[]): number {
   for (const value of values) {
     const numeric = numberValue(value, undefined);
     if (typeof numeric === "number") return numeric;
+    const decorated = decoratedNumberValue(value);
+    if (typeof decorated === "number") return decorated;
     const rating = starRatingValue(value);
     if (typeof rating === "number") return rating;
   }
@@ -4700,6 +4702,23 @@ function starRatingValue(value: unknown): number | undefined {
   if (typeof value !== "string") return undefined;
   const filled = Array.from(value).filter((ch) => ch === "★" || ch === "⭐").length;
   return filled > 0 ? filled : undefined;
+}
+
+function decoratedNumberValue(value: unknown): number | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().replace(/,/g, "");
+  const match = normalized.match(/[-+]?\d+(?:\.\d+)?/);
+  if (!match) return undefined;
+  const parsed = Number.parseFloat(match[0]!);
+  if (!Number.isFinite(parsed)) return undefined;
+  const after = normalized.slice((match.index || 0) + match[0]!.length).trim();
+  const multiplier = after.startsWith("亿") ? 100_000_000
+    : after.startsWith("万") ? 10_000
+      : /^[kK]\b/.test(after) ? 1_000
+        : /^[mM]\b/.test(after) ? 1_000_000
+          : /^[bB]\b/.test(after) ? 1_000_000_000
+            : 1;
+  return parsed * multiplier;
 }
 
 function numberValue(value: unknown, fallback: number): number;

@@ -271,7 +271,7 @@ const CHART_DETAILED: Record<string, NodeFieldInfo> = {
   showValues: { valueType: "boolean", description: "boolean" },
   showLegend: { valueType: "boolean", description: "boolean (default true when series.length > 1)" },
   orientation: { valueType: "enum", values: ["vertical", "horizontal"], description: "bar-like chart orientation; horizontal is useful for ranked categories with long labels" },
-  dataLabels: { valueType: "object", description: "{show?, position?: 'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue?, showCategoryName?, showSeriesName?, showPercent?, showLegendKey?, showLeaderLines?}; pie/doughnut default to category+percent labels" },
+  dataLabels: { valueType: "object", description: "{show?, position?: 'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue?, showCategoryName?, showSeriesName?, showPercent?, showLegendKey?, showLeaderLines?, minPercent?}; pie/doughnut default to category+percent labels and suppress labels for slices below 3%" },
   positiveColor: { valueType: "string", description: "theme token or hex for positive bar/stacked-bar/combo points" },
   negativeColor: { valueType: "string", description: "theme token or hex for negative bar/stacked-bar/combo points; defaults to theme danger" },
   colors: { valueType: "array", description: "hex[] without # prefix; series color cycle (overrides theme palette)" },
