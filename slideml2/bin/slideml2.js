@@ -93,7 +93,17 @@ one of --write-source or --out is required.`,
 };
 
 function printHelp(command) {
-  console.log(HELP[command] || HELP.main);
+  const key = HELP[command] ? command : "main";
+  printPayload({
+    ok: true,
+    command: "help",
+    stage: "help",
+    status: "ok",
+    deckModified: false,
+    helpCommand: key,
+    help: HELP[key],
+    commands: COMMANDS,
+  });
 }
 
 function abs(path) {
@@ -367,17 +377,31 @@ function diagnosticsSummary(items) {
 }
 
 function renderValidationPayload(diagnostics, blocking, quality) {
+  const sortedBlocking = sortDiagnostics(blocking);
+  const sortedQuality = sortDiagnostics(quality);
   return {
     ok: blocking.length === 0,
     diagnostics: {
       count: diagnostics.length,
       summary: diagnosticsSummary(diagnostics),
       blockingCount: blocking.length,
-      blocking: blocking.slice(0, 80),
+      blocking: sortedBlocking.slice(0, 80),
       qualityCount: quality.length,
-      quality: quality.slice(0, 30),
+      quality: sortedQuality.slice(0, 30),
     },
   };
+}
+
+function sortDiagnostics(items) {
+  const severityRank = { error: 0, warn: 1, warning: 1, info: 2 };
+  return [...items].sort((a, b) => {
+    const severity = (severityRank[a.severity] ?? 1) - (severityRank[b.severity] ?? 1);
+    if (severity) return severity;
+    return String(a.code || "").localeCompare(String(b.code || ""))
+      || String(a.slideId || "").localeCompare(String(b.slideId || ""))
+      || String(a.nodeId || "").localeCompare(String(b.nodeId || ""))
+      || String(a.message || "").localeCompare(String(b.message || ""));
+  });
 }
 
 function issue(level, code, message, extra = {}) {
@@ -900,8 +924,18 @@ async function runCompose(command, manifestPath, flags) {
 async function main() {
   const [command, ...rest] = process.argv.slice(2);
   if (!command) {
-    printHelp("main");
-    process.exit(EXIT.usage);
+    printPayload({
+      ok: false,
+      command: "help",
+      stage: "input",
+      status: "usage-error",
+      deckModified: false,
+      error: "Missing command.",
+      helpCommand: "main",
+      help: HELP.main,
+      commands: COMMANDS,
+      nextAction: "Choose one command from commands and retry with the documented command shape.",
+    }, EXIT.usage);
   }
   if (command === "help") {
     printHelp(rest[0] || "main");

@@ -304,6 +304,36 @@ describe("M1 schema contract", () => {
     expect(report.warnings.map((w) => w.code)).toContain("UNKNOWN_NODE_TYPE");
   });
 
+  it("fails gracefully on deeply nested slides instead of overflowing the stack", () => {
+    let child: Record<string, unknown> = { id: "deep.leaf", type: "text", text: "leaf" };
+    for (let i = 0; i < 90; i += 1) {
+      child = { id: `deep.${i}`, type: "stack", children: [child] };
+    }
+
+    const report = validateDeck(baseDeck({}, [child as never]));
+
+    expect(report.errors.map((issue) => issue.code)).toContain("VALIDATION_LIMIT_EXCEEDED");
+    expect(report.errors.map((issue) => issue.code)).not.toContain("LAYOUT_VALIDATION_CRASH");
+  });
+
+  it("applies maxTextLength to bullets, rich text, and table cells", () => {
+    const report = validateDeck(baseDeck(
+      { validation: { maxTextLength: 8 } },
+      [
+        { id: "s.bullets", type: "bullets", items: ["this bullet is too long"] },
+        { id: "s.rich", type: "text", content: [{ text: "rich text is too long" }] },
+        { id: "s.table", type: "table", headers: ["Column"], rows: [["table cell is too long"]] },
+      ],
+    ));
+
+    const paths = report.errors.filter((issue) => issue.code === "TEXT_TOO_LONG").map((issue) => issue.path);
+    expect(paths).toEqual(expect.arrayContaining([
+      "children[0].items[0]",
+      "children[1].content[0].text",
+      "children[2].rows[0][0]",
+    ]));
+  });
+
   it("strict mode requires image alt text and chart/table source metadata", () => {
     const report = validateDeck(baseDeck(
       { validation: { mode: "strict" } },

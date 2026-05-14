@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { buildAgentPromptPack, getAgentSystemPrompt } from "../agent-disclosure.js";
 import { appendSlide, createDeck, readDeck, replaceSlide, renderDeck, writeDeck } from "../deck-ops.js";
 import { validateDeck, validateSlide, type ValidationReport } from "../validate.js";
@@ -10,6 +10,8 @@ export interface BatchAgentConfig {
   model: string;
   maxTokens?: number;
   timeoutMs?: number;
+  maxInputBytes?: number;
+  maxRepairRounds?: number;
 }
 
 export interface BatchAgentResult {
@@ -19,6 +21,12 @@ export interface BatchAgentResult {
   validationPath: string;
   validation: ValidationReport;
   repairCount: number;
+  status: "ok" | "validation-failed";
+  fallbackUsed: boolean;
+  fallbackCount: number;
+  fallbackReasons: string[];
+  repairAbandoned: boolean;
+  renderSkipped: boolean;
 }
 
 interface PageOutline {
@@ -29,6 +37,15 @@ interface PageOutline {
 }
 
 export interface PublicPageOutline extends PageOutline {}
+
+interface SlideGenerationResult {
+  slide: SlideV2;
+  fallbackUsed: boolean;
+  fallbackReason?: string;
+}
+
+const DEFAULT_MAX_MARKDOWN_BYTES = 2 * 1024 * 1024;
+const DEFAULT_MAX_REPAIR_ROUNDS = 6;
 
 export async function generateDeckWithBatchAgent(options: {
   markdownPath: string;
@@ -41,43 +58,91 @@ export async function generateDeckWithBatchAgent(options: {
   config?: BatchAgentConfig;
 }): Promise<BatchAgentResult> {
   const config = options.config || llmConfigFromEnv();
-  const markdown = await readFile(options.markdownPath, "utf8");
+  const markdown = await readMarkdownInput(options.markdownPath, config.maxInputBytes ?? DEFAULT_MAX_MARKDOWN_BYTES);
   await createDeck(options.deckPath, { title: firstHeading(markdown) || "SlideML2 Deck", theme: options.theme || "default", brand: options.brand });
   const plan = (await planOutlines(markdown, config)).slice(0, options.maxSlides || 7);
   const planPath = `${options.outputPath}.batch-plan.json`;
   await writeFile(planPath, JSON.stringify(plan, null, 2), "utf8");
 
   let repairCount = 0;
+  let fallbackCount = 0;
+  const fallbackReasons: string[] = [];
   for (const outline of plan) {
-    const slide = await generateSlideFromOutline(outline, config);
-    const validation = validateSlide(slide, await readDeck(options.deckPath));
+    const generated = await generateSlideFromOutlineResult(outline, config);
+    if (generated.fallbackUsed) {
+      fallbackCount += 1;
+      fallbackReasons.push(`${outline.id}: ${generated.fallbackReason || "generation fallback"}`);
+    }
+    const validation = validateSlide(generated.slide, await readDeck(options.deckPath));
     if (!validation.ok) {
-      const repaired = await repairSlide(slide, validation, config);
+      const repaired = await repairSlideResult(generated.slide, validation, config);
+      if (repaired.fallbackUsed) {
+        fallbackCount += 1;
+        fallbackReasons.push(`${outline.id}: ${repaired.fallbackReason || "repair fallback"}`);
+      }
       repairCount++;
-      await appendSlide(options.deckPath, repaired);
+      await appendSlide(options.deckPath, repaired.slide);
     } else {
-      await appendSlide(options.deckPath, slide);
+      await appendSlide(options.deckPath, generated.slide);
     }
   }
 
   let deck = await readDeck(options.deckPath);
   let validation = validateDeck(deck);
-  for (const error of validation.errors.slice(0, 3)) {
+  const maxRepairRounds = Math.max(0, Math.floor(config.maxRepairRounds ?? DEFAULT_MAX_REPAIR_ROUNDS));
+  let repairAbandoned = false;
+  for (let round = 0; !validation.ok && round < maxRepairRounds; round++) {
+    const error = validation.errors.find((item) => item.slideId);
+    if (!error) break;
     const index = deck.slides.findIndex((slide) => slide.id === error.slideId);
     if (index < 0) continue;
-    const repaired = await repairSlide(deck.slides[index]!, validation, config);
-    await replaceSlide(options.deckPath, index, repaired);
+    const repaired = await repairSlideResult(deck.slides[index]!, validation, config);
+    if (repaired.fallbackUsed) {
+      fallbackCount += 1;
+      fallbackReasons.push(`${deck.slides[index]!.id}: ${repaired.fallbackReason || "repair fallback"}`);
+    }
+    await replaceSlide(options.deckPath, index, repaired.slide);
     repairCount++;
     deck = await readDeck(options.deckPath);
     validation = validateDeck(deck);
-    if (validation.ok) break;
   }
   await writeDeck(options.deckPath, deck);
+  const validationPath = `${options.outputPath}.validation.json`;
+  if (!validation.ok) {
+    repairAbandoned = true;
+    await writeFile(validationPath, JSON.stringify(validation, null, 2), "utf8");
+    return {
+      deckPath: options.deckPath,
+      outputPath: options.outputPath,
+      planPath,
+      validationPath,
+      validation,
+      repairCount,
+      status: "validation-failed",
+      fallbackUsed: fallbackCount > 0,
+      fallbackCount,
+      fallbackReasons,
+      repairAbandoned,
+      renderSkipped: true,
+    };
+  }
   const rendered = await renderDeck(options.deckPath, options.outputPath);
   validation = rendered.validation;
-  const validationPath = `${options.outputPath}.validation.json`;
   await writeFile(validationPath, JSON.stringify(validation, null, 2), "utf8");
-  return { deckPath: options.deckPath, outputPath: options.outputPath, planPath, validationPath, validation, repairCount };
+  return {
+    deckPath: options.deckPath,
+    outputPath: options.outputPath,
+    planPath,
+    validationPath,
+    validation,
+    repairCount,
+    status: validation.ok ? "ok" : "validation-failed",
+    fallbackUsed: fallbackCount > 0,
+    fallbackCount,
+    fallbackReasons,
+    repairAbandoned: !validation.ok,
+    renderSkipped: false,
+  };
 }
 
 async function planOutlines(markdown: string, config: BatchAgentConfig): Promise<PageOutline[]> {
@@ -100,6 +165,10 @@ async function planOutlines(markdown: string, config: BatchAgentConfig): Promise
 }
 
 async function generateSlideFromOutline(outline: PageOutline, config: BatchAgentConfig): Promise<SlideV2> {
+  return (await generateSlideFromOutlineResult(outline, config)).slide;
+}
+
+async function generateSlideFromOutlineResult(outline: PageOutline, config: BatchAgentConfig): Promise<SlideGenerationResult> {
   const promptPack = buildAgentPromptPack({ intent: [outline.title, outline.intent, ...outline.keyFacts].join(" "), includeExamples: false });
   const text = await callLlm(config, batchSystemPrompt(), [
     "为下面一个页面规划生成单个 SlideML2 slide JSON。只包含 id、title、children。",
@@ -110,9 +179,11 @@ async function generateSlideFromOutline(outline: PageOutline, config: BatchAgent
   ].join("\n\n"), 2600);
   try {
     const raw = await parseJsonWithRepair(text, config) as unknown;
-    return normalizeSlide(raw) || fallbackSlide(outline);
-  } catch {
-    return fallbackSlide(outline);
+    const slide = normalizeSlide(raw);
+    if (slide) return { slide, fallbackUsed: false };
+    return { slide: fallbackSlide(outline), fallbackUsed: true, fallbackReason: "LLM JSON did not normalize to a slide" };
+  } catch (error) {
+    return { slide: fallbackSlide(outline), fallbackUsed: true, fallbackReason: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -121,6 +192,10 @@ export async function generateOneSlideWithLlm(outline: PublicPageOutline, config
 }
 
 async function repairSlide(slide: SlideV2, validation: ValidationReport, config: BatchAgentConfig): Promise<SlideV2> {
+  return (await repairSlideResult(slide, validation, config)).slide;
+}
+
+async function repairSlideResult(slide: SlideV2, validation: ValidationReport, config: BatchAgentConfig): Promise<SlideGenerationResult> {
   const text = await callLlm(config, batchSystemPrompt(), [
     "下面这页 SlideML2 slide validate 失败。请整页重写，只返回单个 slide JSON。",
     "必须保持相同 id，可以调整 title 和 children。不要做 node patch。",
@@ -132,48 +207,34 @@ async function repairSlide(slide: SlideV2, validation: ValidationReport, config:
     JSON.stringify(slide, null, 2),
   ].join("\n\n"), 3200);
   try {
-    return normalizeSlide(JSON.parse(extractJson(text))) || slide;
+    const parsed = normalizeSlide(JSON.parse(extractJson(text)));
+    if (parsed) return { slide: parsed, fallbackUsed: false };
   } catch {
-    try {
-      return normalizeSlide(await parseJsonWithRepair(text, config)) || fallbackSlide({ id: slide.id, title: slide.title || slide.id, intent: "repair fallback", keyFacts: [] });
-    } catch {
-      return fallbackSlide({ id: slide.id, title: slide.title || slide.id, intent: "repair fallback", keyFacts: [] });
-    }
+    // Fall through to the repair parser; it can ask the LLM to repair dirty JSON.
+  }
+  try {
+    const parsed = normalizeSlide(await parseJsonWithRepair(text, config));
+    if (parsed) return { slide: parsed, fallbackUsed: false };
+    return {
+      slide: fallbackSlide({ id: slide.id, title: slide.title || slide.id, intent: "repair fallback", keyFacts: [] }),
+      fallbackUsed: true,
+      fallbackReason: "repair JSON did not normalize to a slide",
+    };
+  } catch (error) {
+    return {
+      slide: fallbackSlide({ id: slide.id, title: slide.title || slide.id, intent: "repair fallback", keyFacts: [] }),
+      fallbackUsed: true,
+      fallbackReason: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
-async function callLlm(config: BatchAgentConfig, system: string, user: string, maxTokens: number): Promise<string> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.timeoutMs || 90_000);
-  let response: Response;
-  try {
-    response = await fetch(`${normalizeAnthropicBaseURL(config.baseURL)}/v1/messages`, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": config.apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: config.model,
-        max_tokens: config.maxTokens || maxTokens,
-        system,
-        messages: [{ role: "user", content: user }],
-        stream: false,
-      }),
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") throw new Error(`LLM timed out after ${config.timeoutMs || 90_000}ms`);
-    throw error;
-  } finally {
-    clearTimeout(timeout);
+async function readMarkdownInput(markdownPath: string, maxBytes: number): Promise<string> {
+  const info = await stat(markdownPath);
+  if (info.size > maxBytes) {
+    throw new Error(`Markdown input is ${info.size} bytes; maxInputBytes is ${maxBytes}. Split or summarize the source before batch generation.`);
   }
-  if (!response.ok) throw new Error(`LLM failed ${response.status}: ${await response.text()}`);
-  const json = await response.json() as { content?: Array<{ text?: string }> };
-  const text = json.content?.map((part) => part.text || "").join("\n").trim();
-  if (!text) throw new Error("LLM returned empty content");
-  return text;
+  return readFile(markdownPath, "utf8");
 }
 
 async function repairJson(broken: string, config: BatchAgentConfig): Promise<string> {
@@ -258,6 +319,40 @@ function normalizeNode(raw: unknown, fallbackName: string): SlideV2["children"][
     type: type as SlideV2["children"][number]["type"],
     children: isCompositeContainer ? normalizedChildren : undefined,
   };
+}
+
+async function callLlm(config: BatchAgentConfig, system: string, user: string, maxTokens: number): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs || 90_000);
+  let response: Response;
+  try {
+    response = await fetch(`${normalizeAnthropicBaseURL(config.baseURL)}/v1/messages`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": config.apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: config.maxTokens || maxTokens,
+        system,
+        messages: [{ role: "user", content: user }],
+        stream: false,
+      }),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") throw new Error(`LLM timed out after ${config.timeoutMs || 90_000}ms`);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+  if (!response.ok) throw new Error(`LLM failed ${response.status}: ${await response.text()}`);
+  const json = await response.json() as { content?: Array<{ text?: string }> };
+  const text = json.content?.map((part) => part.text || "").join("\n").trim();
+  if (!text) throw new Error("LLM returned empty content");
+  return text;
 }
 
 function normalizeFields(type: string, fields: Record<string, unknown>): Record<string, unknown> {

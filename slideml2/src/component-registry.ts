@@ -307,7 +307,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     content: { type: "array", description: "Optional rich text runs for the body." },
     bullets: { type: "array", semantic: "bullet", description: "Optional short substeps." },
     icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional step icon." },
-    marker: { type: "object", description: "Optional semantic item marker instead of a full icon. String or {shape:'dot|ring|square|rounded-square|diamond|side-bar|slash|index-chip', variant?:'tint|solid|outline|ghost|ring|badge', tone?, size?}. Use for subtle list-item decoration." },
+    marker: { type: "object", description: "Optional semantic item marker instead of a full icon. String may be a shape name or a short glyph/content marker like '!', '$', 'Q1', or an emoji. Object form: {shape|marker|preset, content?/glyph?/text?, variant?:'tint|solid|outline|ghost|ring|badge', tone?, size?}. Use for subtle list-item decoration." },
     status: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Semantic step state." },
     owner: { type: "string", description: "Optional owner/role." },
     time: { type: "string", description: "Optional duration/date." },
@@ -371,11 +371,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   component("feature-card", "One feature, capability, benefit, or ingredient of an offer. Use for modular value propositions, not for arbitrary bullet paragraphs.", {
     icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional large icon shape preset. Prefer marker for subtle item decoration." },
     iconSrc: { type: "image-ref", description: "Optional generated/raster icon path. Use with generate_icon_sheet outputs; rendered as a contain-fit square icon." },
-    decoration: { type: "object", description: "Unified visual cue. Prefer over separate icon/iconSrc/marker when authoring new decks. Shape: {kind:'image'|'shape'|'marker'|'none', src?/iconSrc?, shape?/icon?, marker?, size?:'xs'|'sm'|'md'|'lg'|'xl'|number, color?, background?, tone?, variant?}. `marker` is compact; `image`/`shape` are larger visual icons." },
+    decoration: { type: "object", description: "Unified visual cue. Prefer over separate icon/iconSrc/marker when authoring new decks. Shape: {kind:'image'|'shape'|'marker'|'none', src?/iconSrc?, shape?/icon?, marker?, size?:'xs'|'sm'|'md'|'lg'|'xl'|number, color?, background?, tone?, variant?}. `marker` accepts shape names or short glyphs like '!', '$', 'Q1', emoji; `image`/`shape` are larger visual icons." },
     title: { type: "string", required: true, semantic: "card-title", description: "Feature title." },
     body: { type: "string", semantic: "caption", description: "Optional supporting copy." },
     content: { type: "array", description: "Optional rich text runs for supporting copy." },
-    marker: { type: "object", description: "Optional semantic item marker that sits beside the title and replaces the large icon. String or {shape:'dot|ring|square|rounded-square|diamond|side-bar|slash|index-chip', variant?, tone?, size?}. Use when a small decorative cue is enough." },
+    marker: { type: "object", description: "Optional semantic item marker that sits beside the title and replaces the large icon. String may be a shape name or short glyph/content marker like '!', '$', 'Q1', or emoji. Object form: {shape|marker|preset, content?/glyph?/text?, variant?, tone?, size?}. Use when a small decorative cue is enough." },
     badge: { type: "string", description: "Optional category/status badge." },
     tags: { type: "array", description: "Optional compact tags." },
     metric: { type: "object", description: "Optional proof metric {value,label,tone?}. Concise numeric values render as compact KPI; prose/star-rating values render as supporting evidence to preserve card hierarchy." },
@@ -521,10 +521,10 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     surface: { type: "object", description: "Optional surface override." },
   }, "tinted+bordered panel with accent bar + headline + detail", "stack"),
   component("numbered-grid", "Designed set of ordered priorities, principles, or framework points. Use when each item is a peer module and the number itself communicates order.", {
-    items: { type: "array", required: true, description: "Array of { title/label/name, body/description/text?, marker?, tone? } items. marker can be string or {shape,variant,tone,size}." },
+    items: { type: "array", required: true, description: "Array of { title/label/name, body/description/text?, marker?, tone? } items. marker can be shape string, short glyph string, or {shape/content,variant,tone,size}." },
     columns: { type: "number", description: "Columns (default min(4, items.length))." },
     tone: { type: "enum", enum: ["brand", "neutral"], description: "Number color tone." },
-    marker: { type: "object", description: "Optional marker applied to every item title row. String or {shape,variant,tone,size}. Prefer this over raw square shapes for item decoration." },
+    marker: { type: "object", description: "Optional marker applied to every item title row. String shape or short glyph, or {shape/content,variant,tone,size}. Prefer this over raw square shapes for item decoration." },
     numberStyle: { type: "enum", enum: ["chip", "plain"], description: "Number treatment. chip is default; plain uses oversized text numerals." },
   }, "grid of (big-number, card-title, caption) cells", "stack"),
   component("tag-list", "Set of short keywords, categories, feature flags, or filters. Use for compact classification; not for sentences or long labels.", {
@@ -713,7 +713,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   component("takeaway-list", "Multi-item Key Takeaways: 3-5 short conclusions, each with a colored accent bar + bold headline + optional 1-line detail. Right component for a wrap-up / summary slide.", {
     items: { type: "array", required: true, description: "Array of {headline, detail?, tone?, marker?}. Per-item tone (brand|positive|warning|danger|neutral) overrides the list default — useful for a 'three findings + one caveat' shape where the caveat is muted (neutral) and the findings are chromatic." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Default accent tone for items that don't supply one. 'neutral' renders a divider-gray bar (de-emphasized)." },
-    marker: { type: "object", description: "Optional list-wide item marker. String or {shape,variant,tone,size}. Replaces the default accent bar; use side-bar for a slimmer rail, ring/dot/diamond for lightweight bullets." },
+    marker: { type: "object", description: "Optional list-wide item marker. String shape or short glyph, or {shape/content,variant,tone,size}. Replaces the default accent bar; use side-bar for a slimmer rail, ring/dot/diamond for lightweight bullets." },
   }, "stack(items:Array<marker/bar+stack(headline,detail)>)", "stack"),
   component("warning-list", "Tone-coded list of warnings, risks, redlines, anti-patterns, or rule violations. Use for '5 things to avoid', '红线 / 警示 / 雷区', 'do-not-do' lists, threat enumeration. Default tone is `warning` (orange) but per-item tone supports a danger/warning mix. Sized for 3-8 items on a single slide WITHOUT degrading to a plain numbered-list — replaces the failure-prone pattern of stacking 4+ `callout` cards in a vertical stack.", {
     items: { type: "array", required: true, description: "Array of {title|headline, body|detail?, tone?, marker?}. ≥3 items recommended; ≤8 supported on one slide." },
@@ -889,15 +889,17 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     lockupWidth: { type: "number", description: "Optional title lockup width in cm. Defaults wider when no heroStat is present." },
     lockupHeight: { type: "number", description: "Optional title lockup height in cm." },
   }, "fragment(background + title-lockup overlays)", "stack"),
-  component("chapter-divider", "High-impact chapter opener with full-slide color field, large chapter number, title/subtitle lockup, and optional progress bar. Use for major section resets only.", {
+  component("chapter-divider", "High-impact chapter opener with full-slide color field, title/subtitle lockup, optional explicit chapter number, and optional progress bar. Use as a direct slide child for major section resets only.", {
     title: { type: "string", required: true, description: "Chapter title." },
     subtitle: { type: "string", description: "Optional subtitle." },
-    chapter: { type: "string", description: "Large chapter number or label, e.g. 03." },
-    eyebrow: { type: "string", description: "Small label above title." },
+    chapter: { type: "string", description: "Optional large chapter number or short label, e.g. 03. Omit to render no top-right number." },
+    number: { type: "string", description: "Alias for chapter. Omit to render no top-right number." },
+    showNumber: { type: "boolean", description: "When true and chapter/number is omitted, render current+1 as the top-right number. Defaults false." },
+    eyebrow: { type: "string", description: "Small label above title. English labels are uppercase/spaced; CJK labels render without extra letter spacing." },
     sections: { type: "array", description: "Optional section names for timeline-axis-bar." },
-    current: { type: "number", description: "0-based current section index when sections are provided." },
-    tone: { type: "enum", enum: ["brand", "neutral", "inverse"], description: "Color treatment." },
-  }, "fragment(full-slide band + big-page-number + title-lockup)", "stack"),
+    current: { type: "number", description: "0-based current section index when sections are provided. First section is 0, not 1." },
+    tone: { type: "enum", enum: ["brand", "neutral", "inverse"], description: "Color treatment. brand = brand field with inverse text; neutral = surface with primary text; inverse = surface with brand text." },
+  }, "fragment(full-slide band + optional big-page-number + title-lockup)", "stack"),
   component("evidence-layout", "Two-region evidence page: visual proof on the left or top, interpretation panel beside/below it, plus optional annotations. Use for chart/screenshot/image/table + conclusion pages so the slide says what the evidence means.", {
     evidence: { type: "object", required: true, description: "DomNode for chart-card, image-card, table-card, chart, image, or diagram." },
     insight: { type: "object", description: "DomNode for insight-card/key-takeaway/callout. If omitted, headline/detail create an insight-card." },
@@ -2485,21 +2487,23 @@ function coverCompositionNode(slideId: string, name: string, node: DomNode): Dom
 
 function chapterDividerNode(slideId: string, name: string, node: DomNode): DomNode {
   const tone = node.tone === "neutral" || node.tone === "inverse" ? node.tone : "brand";
-  const inverse = tone === "brand" || tone === "inverse";
-  const bg = tone === "neutral" ? "surface" : "brand.primary";
-  const fg = inverse ? "text.inverse" : "text.primary";
+  const bg = tone === "brand" ? "brand.primary" : "surface";
+  const fg = tone === "brand" ? "text.inverse" : tone === "inverse" ? "brand.primary" : "text.primary";
+  const number = chapterDividerNumber(node);
+  const eyebrow = stringValue(node.eyebrow, "");
+  const eyebrowHasCjk = /[\u4e00-\u9fff]/.test(eyebrow);
   const children: DomNode[] = [
     { id: `${slideId}.${name}.bg`, type: "shape", preset: "rect", fill: bg, line: bg, anchor: "top-left", offsetX: 0, offsetY: 0, fillSlide: true, zIndex: -2 },
-    {
-      ...bigPageNumber(slideId, `${name}.num`, { current: stringValue(node.chapter, stringValue(node.number, "01")), corner: "top-right", tone: tone === "neutral" ? "muted" : "brand" }),
-      color: inverse ? "text.inverse" : "brand.primary",
+    ...(number ? [{
+      ...bigPageNumber(slideId, `${name}.num`, { current: number, corner: "top-right", tone: tone === "brand" ? "brand" : "muted" }),
+      color: tone === "brand" ? "text.inverse" : tone === "inverse" ? "brand.primary" : "text.muted",
       anchor: "top-right",
       offsetX: 0.9,
       offsetY: 0.7,
       width: 6.5,
       height: 2.2,
       zIndex: 1,
-    } as DomNode,
+    } as DomNode] : []),
     {
       id: `${slideId}.${name}.lockup`,
       type: "stack",
@@ -2512,7 +2516,7 @@ function chapterDividerNode(slideId: string, name: string, node: DomNode): DomNo
       height: 5.0,
       zIndex: 2,
       children: [
-        ...(stringValue(node.eyebrow, "") ? [{ id: `${slideId}.${name}.eyebrow`, type: "text" as const, text: stringValue(node.eyebrow, ""), style: "label", color: fg, uppercase: true, letterSpacing: 120, minHeight: 0.45, autoFit: "shrink" as const }] : []),
+        ...(eyebrow ? [{ id: `${slideId}.${name}.eyebrow`, type: "text" as const, text: eyebrow, style: "label", color: fg, uppercase: !eyebrowHasCjk, letterSpacing: eyebrowHasCjk ? 0 : 120, minHeight: 0.45, autoFit: "shrink" as const }] : []),
         { id: `${slideId}.${name}.title`, type: "text", text: stringValue(node.title, ""), style: "deck-title", color: fg, align: "left", autoFit: "shrink" },
         ...(stringValue(node.subtitle, "") ? [{ id: `${slideId}.${name}.subtitle`, type: "text" as const, text: stringValue(node.subtitle, ""), style: "lead", color: fg, align: "left" as const, minHeight: 0.8, autoFit: "shrink" as const }] : []),
       ],
@@ -2523,6 +2527,14 @@ function chapterDividerNode(slideId: string, name: string, node: DomNode): DomNo
     children.push({ ...timelineAxisBar(slideId, `${name}.nav`, { sections, current: numberValue(node.current, 0), tone: "neutral" }), anchor: "bottom-left", offsetX: 1.4, offsetY: 0.7, width: 17, height: 1.0, zIndex: 2 } as DomNode);
   }
   return { id: `${slideId}.${name}`, type: "fragment", children };
+}
+
+function chapterDividerNumber(node: DomNode): string {
+  const explicit = stringValue(node.chapter, stringValue(node.number, ""));
+  if (explicit) return explicit;
+  if (node.showNumber !== true) return "";
+  const current = numberValue(node.current, 0);
+  return String(Math.max(0, Math.floor(current)) + 1);
 }
 
 function heroAndSupportNode(slideId: string, name: string, node: DomNode): DomNode {

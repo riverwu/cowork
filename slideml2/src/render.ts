@@ -2086,7 +2086,17 @@ function layoutSlide(theme: SimpleTheme, slideDom: DomNode): LayoutResult {
     // Pass 2: anchorTo overlays — reference frame is the target's rect.
     for (const child of deferred) {
       const childRect = rectForAnchorToOverlay(child, rectsById);
-      if (!childRect) continue; // target not found; skip rather than crash.
+      if (!childRect) {
+        pushDiagnostic({
+          severity: "error",
+          code: "MISSING_ANCHOR_TARGET",
+          slideId: currentSlideId || undefined,
+          nodeId: nodeLabel(child),
+          message: `Overlay '${nodeLabel(child)}' references missing anchorTo target '${String(child.anchorTo || "")}'.`,
+          suggestion: "Keep the overlay intent, but set anchorTo to an existing node id on the same slide or convert it to a slide-level anchor.",
+        });
+        continue;
+      }
       measureSubtree(theme, child, childRect, measured, rectsById);
     }
   } finally {
@@ -3627,9 +3637,13 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
     };
     const styleKey = textStyleKey(shapeTextNode);
     const baseStyle = effectiveTextStyle(theme, shapeTextNode, "label");
-    const style = shapeTextNode.autoFit === "shrink" ? autoShrinkStyle(theme, shapeTextNode, baseStyle, shapeRect, styleKey) : baseStyle;
+    const style = shapeTextNode.autoFit === "shrink"
+      ? autoShrinkStyle(theme, shapeTextNode, baseStyle, shapeRect, styleKey, { emitDiagnostics: node.role !== "item-marker" })
+      : baseStyle;
     shape.paragraphs = buildParagraphs(theme, shapeTextNode, style);
-    shape.margin = { l: cm(0.16), r: cm(0.16), t: cm(0.08), b: cm(0.08) };
+    shape.margin = node.role === "item-marker"
+      ? { l: cm(0.03), r: cm(0.03), t: cm(0.02), b: cm(0.02) }
+      : { l: cm(0.16), r: cm(0.16), t: cm(0.08), b: cm(0.08) };
     shape.valign = valignProp(shapeTextNode, styleKey) ?? "middle";
     shape.wrap = shapeTextNode.wrap === "none" || shapeTextNode.noWrap === true ? "none" : undefined;
     if (shapeTextNode.autoFit === "shrink" || shapeTextNode.autoFit === "resize") shape.autoFit = shapeTextNode.autoFit;
@@ -3675,7 +3689,7 @@ function markerVisualSpec(theme: SimpleTheme, node: DomNode): MarkerVisualSpec |
       ? "ring"
       : "tint";
   const preset = markerPreset(marker);
-  const dims = markerDimensions(marker, size);
+  const dims = markerDimensions(marker, size, markerContent(node, markerRec));
   const accent = tone.accent;
   const tint = tone.fill;
   const fill = variant === "solid" || variant === "badge"
@@ -3737,7 +3751,26 @@ function markerPreset(marker: string): ShapePreset {
   return "rect";
 }
 
-function markerDimensions(marker: string, size: number): { w: number; h: number } {
+function markerContent(node: DomNode, markerRec: Record<string, unknown> | null): string | undefined {
+  const raw = typeof node.text === "string" && node.text.trim()
+    ? node.text
+    : typeof markerRec?.content === "string" && markerRec.content.trim()
+      ? markerRec.content
+      : typeof markerRec?.glyph === "string" && markerRec.glyph.trim()
+        ? markerRec.glyph
+        : typeof markerRec?.text === "string" && markerRec.text.trim()
+          ? markerRec.text
+          : undefined;
+  if (!raw) return undefined;
+  return Array.from(raw).length <= 3 ? raw : undefined;
+}
+
+function markerDimensions(marker: string, size: number, content?: string): { w: number; h: number } {
+  if (content) {
+    const glyphSize = Math.max(0.42, size);
+    const widthMultiplier = Math.max(1, Math.min(1.6, Array.from(content).length * 0.62));
+    return { w: glyphSize * widthMultiplier, h: glyphSize };
+  }
   if (marker === "side-bar") return { w: Math.max(0.06, size * 0.22), h: Math.max(0.55, size * 1.9) };
   if (marker === "slash") return { w: Math.max(0.5, size * 1.55), h: Math.max(0.16, size * 0.32) };
   if (marker === "index-chip") return { w: size * 1.35, h: size };
@@ -3798,6 +3831,7 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   // Normalize both into the form-1 shape before rendering so the rest of the
   // path can stay simple.
   const sourceRows = tableSourceRows(node);
+  pushMissingDataBindingSourceDiagnostic(node, "Table");
   const columnModel = tableColumnModel(node, sourceRows);
   const headers = columnModel.headers;
   const widthsFromColumns = columnModel.widthsFromColumns;
@@ -4400,6 +4434,7 @@ function semanticOuterRectForBody(nodeId: string, suffix: string, rectsById?: Ma
 function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }, rectsById?: Map<string, Rect>): ShapeList[number] {
   const labels = Array.isArray(node.labels) ? node.labels.map(String) : [];
   const series = normalizeChartSeries(theme, node.series);
+  pushMissingDataBindingSourceDiagnostic(node, "Chart");
   const resolvedChartType = chartType(node.chartType);
   const hasRenderableData = chartHasRenderableData(resolvedChartType, labels, series);
   if (!hasRenderableData) pushEmptyChartDataDiagnostic(node, labels, series);
@@ -4476,6 +4511,22 @@ function pushEmptyChartDataDiagnostic(node: DomNode, labels: string[], series: C
       renderedRows: rowCount,
       lineCount: labels.length,
     },
+  });
+}
+
+function pushMissingDataBindingSourceDiagnostic(node: DomNode, noun: "Chart" | "Table"): void {
+  const lineage = node.dataLineage;
+  if (!lineage || typeof lineage !== "object" || Array.isArray(lineage)) return;
+  const status = (lineage as Record<string, unknown>).status;
+  if (status !== "missing-source") return;
+  const source = typeof (lineage as Record<string, unknown>).source === "string" ? String((lineage as Record<string, unknown>).source) : "";
+  pushDiagnostic({
+    severity: "error",
+    code: "MISSING_DATA_BINDING_SOURCE",
+    slideId: currentSlideId || undefined,
+    nodeId: nodeLabel(node),
+    message: `${noun} '${nodeLabel(node)}' references missing data source '${source}'.`,
+    suggestion: "Keep the component and repair bind.source to an existing deck.dataSources id, or remove bind and provide explicit chart/table data.",
   });
 }
 
@@ -5599,7 +5650,7 @@ function computeGridPlacements(children: DomNode[], columns: number): GridPlacem
   for (const child of children) {
     if (!child || typeof child !== "object") continue;
     const colSpan = clamp(Math.floor(numberProp(child, "colSpan", 1)), 1, columns);
-    const rowSpan = Math.max(1, Math.floor(numberProp(child, "rowSpan", 1)));
+    const rowSpan = clamp(Math.floor(numberProp(child, "rowSpan", 1)), 1, Math.max(1, children.length * 4));
     let placed = false;
     for (let row = 0; !placed; row++) {
       for (let col = 0; col + colSpan <= columns; col++) {
@@ -5625,16 +5676,16 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
   if (flowOnly.length === 0) {
     return layered.map((c) => ({ node: c, rect }));
   }
-  const children = flowOnly;
   const columns = Math.max(1, numberProp(node, "columns", 2));
+  const gap = gapCm(theme, node);
+  const availableWidth = Math.max(0, rect.w - gap * (columns - 1));
+  const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
+  const children = prepareGridChildrenForLayout(theme, node, flowOnly, columns, colWidths, gap);
   const placements = computeGridPlacements(children, columns);
   const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
   const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
   const rows = Math.max(1, declaredRows, usedRows);
-  const gap = gapCm(theme, node);
-  const availableWidth = Math.max(0, rect.w - gap * (columns - 1));
   const availableHeight = Math.max(0, rect.h - gap * (rows - 1));
-  const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
   const colX = positionsFromSizes(rect.x, gap, colWidths);
   const rowHeights = resolveGridRowHeights(theme, placements, columns, rows, availableHeight, colWidths, gap, node.rowWeights);
   const rowY = positionsFromSizes(rect.y, gap, rowHeights);
@@ -5651,6 +5702,90 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
   });
   if (layered.length === 0) return flowOut;
   return [...flowOut, ...layered.map((c) => ({ node: c, rect }))];
+}
+
+function prepareGridChildrenForLayout(theme: SimpleTheme, node: DomNode, children: DomNode[], columns: number, colWidths: number[], gap: number): DomNode[] {
+  if (node.role !== "kpi-grid" || children.length === 0) return children;
+  const placements = computeGridPlacements(children, columns);
+  let valueBandHeight = 0;
+  const valueMinById = new Map<string, number>();
+
+  for (const placement of placements) {
+    if (findMetricValueNode(placement.child) === undefined) continue;
+    let cellWidth = 0;
+    for (let i = 0; i < placement.colSpan; i++) cellWidth += colWidths[placement.col + i] || 0;
+    if (placement.colSpan > 1) cellWidth += gap * (placement.colSpan - 1);
+    const measured = measuredMetricValueBand(theme, placement.child, cellWidth);
+    if (!measured) continue;
+    valueBandHeight = Math.max(valueBandHeight, measured.bandHeight);
+    valueMinById.set(placement.child.id, measured.textMinHeight);
+  }
+
+  if (valueBandHeight <= 0) return children;
+  return children.map((child) => {
+    const textMinHeight = valueMinById.get(child.id);
+    return textMinHeight === undefined ? child : withMeasuredMetricValueBand(child, valueBandHeight, textMinHeight);
+  });
+}
+
+function measuredMetricValueBand(theme: SimpleTheme, metricCardNode: DomNode, cellWidth: number): { bandHeight: number; textMinHeight: number } | undefined {
+  const valueWrap = findMetricValueWrap(metricCardNode);
+  const valueNode = findMetricValueNode(metricCardNode);
+  if (!valueWrap || !valueNode) return undefined;
+  const cardContent = contentRect(theme, metricCardNode, { x: 0, y: 0, w: Math.max(0.25, cellWidth), h: 10 });
+  const wrapContent = contentRect(theme, valueWrap, { x: 0, y: 0, w: Math.max(0.25, cardContent.w), h: 10 });
+  const width = Math.max(0.45, wrapContent.w);
+  const style = effectiveTextStyle(theme, valueNode, "paragraph");
+  const textMinHeight = Math.max(
+    textSquashMinHeight(theme, valueNode),
+    textNeededHeight(theme, { ...valueNode, wrapMinHeight: true }, width, style),
+  );
+  const current = optionalNumberProp(valueWrap, "fixedHeight")
+    ?? optionalNumberProp(valueWrap, "maxHeight")
+    ?? optionalNumberProp(valueWrap, "minHeight")
+    ?? 0;
+  return {
+    bandHeight: Math.min(2.4, Math.max(current, textMinHeight)),
+    textMinHeight,
+  };
+}
+
+function withMeasuredMetricValueBand(metricCardNode: DomNode, bandHeight: number, textMinHeight: number): DomNode {
+  if (!Array.isArray(metricCardNode.children)) return metricCardNode;
+  return {
+    ...metricCardNode,
+    children: metricCardNode.children.map((child) => {
+      if (!isMetricValueWrap(child)) return child;
+      return {
+        ...child,
+        fixedHeight: bandHeight,
+        maxHeight: bandHeight,
+        minHeight: bandHeight,
+        children: (child.children || []).map((grandchild) =>
+          isMetricValueNode(grandchild)
+            ? { ...grandchild, minHeight: textMinHeight, wrapMinHeight: true }
+            : grandchild
+        ),
+      };
+    }),
+  };
+}
+
+function findMetricValueWrap(node: DomNode): DomNode | undefined {
+  return (node.children || []).find(isMetricValueWrap);
+}
+
+function findMetricValueNode(node: DomNode): DomNode | undefined {
+  const wrap = findMetricValueWrap(node);
+  return (wrap?.children || []).find(isMetricValueNode);
+}
+
+function isMetricValueWrap(node: DomNode): boolean {
+  return node.type === "stack" && typeof node.id === "string" && node.id.endsWith(".value-wrap");
+}
+
+function isMetricValueNode(node: DomNode): boolean {
+  return node.type === "text" && typeof node.id === "string" && node.id.endsWith(".value");
 }
 
 function resolveMainSizes(theme: SimpleTheme, children: DomNode[], direction: "horizontal" | "vertical", availableMain: number, crossSize: number): number[] {
@@ -6208,17 +6343,18 @@ function verticalStackIntrinsicWidth(theme: SimpleTheme, node: DomNode, heightCm
 }
 
 function gridIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number): number {
-  const children = node.children || [];
-  if (children.length === 0) return 0;
+  const rawChildren = node.children || [];
+  if (rawChildren.length === 0) return 0;
   const columns = Math.max(1, numberProp(node, "columns", 2));
-  const placements = computeGridPlacements(children, columns);
-  const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
-  const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
-  const rows = Math.max(1, declaredRows, usedRows);
   const gap = gapCm(theme, node);
   const contentWidth = contentRect(theme, node, { x: 0, y: 0, w: widthCm, h: 10 }).w;
   const availableWidth = Math.max(0, contentWidth - gap * (columns - 1));
   const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
+  const children = prepareGridChildrenForLayout(theme, node, rawChildren, columns, colWidths, gap);
+  const placements = computeGridPlacements(children, columns);
+  const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
+  const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
+  const rows = Math.max(1, declaredRows, usedRows);
   // Each row's intrinsic height is the max of (placed child intrinsic / rowSpan)
   // for children that start in that row OR span across it.
   const rowHeights = new Array(rows).fill(0);
@@ -6616,19 +6752,28 @@ function autoShrinkStyle(
   if (!text) return style;
   // Width margin baked into textShape (l:0.1 + r:0.1 = 0.2 cm) plus a safety
   // buffer so we land well inside the renderer's actual line-break threshold.
-  const inner = Math.max(0.1, rect.w - 0.35);
-  const innerHeight = Math.max(0.12, rect.h - 0.12);
+  const compactMarkerText = node.role === "item-marker";
+  const inner = Math.max(compactMarkerText ? 0.08 : 0.1, rect.w - (compactMarkerText ? 0.06 : 0.35));
+  const innerHeight = Math.max(compactMarkerText ? 0.1 : 0.12, rect.h - (compactMarkerText ? 0.04 : 0.12));
   const textLines = text.split("\n");
+  const noWrap = node.wrap === "none" || node.noWrap === true;
   const measurer = createTextMeasurer(theme);
   const computeFit = (fontPt: number): { fits: boolean; widthNeeded: number; heightNeeded: number; unbreakableNeeded: number } => {
     let widthNeeded = 0;
     let unbreakableNeeded = 0;
     let wrappedLines = 0;
     for (const line of textLines) {
-      const metrics = measurer.wrapLines(line, fontPt, style.weight, inner);
-      widthNeeded = Math.max(widthNeeded, metrics.widthCm);
-      unbreakableNeeded = Math.max(unbreakableNeeded, metrics.unbreakableCm);
-      wrappedLines += metrics.lines;
+      if (noWrap) {
+        const lineWidth = measurer.textWidth(line, fontPt, style.weight);
+        widthNeeded = Math.max(widthNeeded, lineWidth);
+        unbreakableNeeded = Math.max(unbreakableNeeded, lineWidth);
+        wrappedLines += 1;
+      } else {
+        const metrics = measurer.wrapLines(line, fontPt, style.weight, inner);
+        widthNeeded = Math.max(widthNeeded, metrics.widthCm);
+        unbreakableNeeded = Math.max(unbreakableNeeded, metrics.unbreakableCm);
+        wrappedLines += metrics.lines;
+      }
     }
     const measuredStyle = { ...style, fontSize: fontPt };
     const lineHeightCm = textLineMetrics(theme, measuredStyle, node.lineSpacing, text).lineHeightCm;
@@ -6639,7 +6784,7 @@ function autoShrinkStyle(
     const mustFitSingleLineHeight = wrappedLines > 1
       || ((styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") && rect.h <= 0.5);
     return {
-      fits: unbreakableNeeded <= inner && (!mustFitSingleLineHeight || heightNeeded <= innerHeight + 0.08),
+      fits: (noWrap ? widthNeeded <= inner : unbreakableNeeded <= inner) && (!mustFitSingleLineHeight || heightNeeded <= innerHeight + 0.08),
       widthNeeded,
       heightNeeded,
       unbreakableNeeded,

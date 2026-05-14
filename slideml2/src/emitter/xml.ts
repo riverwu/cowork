@@ -14,10 +14,16 @@ const XML_ESCAPE: Record<string, string> = {
   '"': "&quot;",
   "'": "&apos;",
 };
+const INVALID_XML_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g;
+export const STABLE_OOXML_TIMESTAMP = "2026-01-01T00:00:00Z";
+
+export function sanitizeXmlText(s: string): string {
+  return s.replace(INVALID_XML_CHARS, "");
+}
 
 /** Escape characters that have meaning in XML element content / attributes. */
 export function xmlEscape(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => XML_ESCAPE[c] ?? c);
+  return sanitizeXmlText(s).replace(/[&<>"']/g, (c) => XML_ESCAPE[c] ?? c);
 }
 
 /**

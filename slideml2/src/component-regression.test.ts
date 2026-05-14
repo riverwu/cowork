@@ -1102,6 +1102,63 @@ describe("component regressions", () => {
     expect(num.w).toBeLessThanOrEqual(1.1);
   });
 
+  it("chapter-divider does not synthesize a top-right number by default", () => {
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide({
+      id: "reg-chapter-divider",
+      children: [{
+        id: "reg-chapter-divider.chapter",
+        type: "chapter-divider",
+        title: "Research background",
+        subtitle: "Context reset without a chapter label",
+      } as unknown as DomNode],
+    })));
+
+    const names = ast.slides[0]!.shapes.map((shape) => String((shape as { name?: string }).name || ""));
+    expect(names.some((name) => name.endsWith(".num"))).toBe(false);
+    expect(firstTextShapeContaining(ast, "Research background")).toBeDefined();
+  });
+
+  it("chapter-divider renders an explicit chapter number and suppresses duplicate slide.title", () => {
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide({
+      id: "reg-chapter-number",
+      title: "AI strategy",
+      children: [{
+        id: "reg-chapter-number.chapter",
+        type: "chapter-divider",
+        chapter: "03",
+        title: "AI strategy",
+        tone: "brand",
+      } as unknown as DomNode],
+    }));
+    const ast = renderToAst(rendered);
+    const num = ast.slides[0]!.shapes.find((shape) => String((shape as { name?: string }).name || "").endsWith(".num"));
+
+    expect(JSON.stringify(num)).toContain("03");
+    expect(findDomNode(rendered.slides[0]!.dom, "reg-chapter-number.title")).toBeUndefined();
+  });
+
+  it("chapter-divider rejects nested placement and invalid current indexes", () => {
+    const report = validateDeck(buildDeckWithSlide({
+      id: "reg-bad-chapter",
+      children: [{
+        id: "reg-bad-chapter.grid",
+        type: "grid",
+        columns: 2,
+        children: [{
+          id: "reg-bad-chapter.grid.chapter",
+          type: "chapter-divider",
+          title: "Nested reset",
+          sections: ["A", "B"],
+          current: 2,
+        }],
+      } as unknown as DomNode],
+    }));
+    const codes = report.errors.map((error) => error.code);
+
+    expect(codes).toContain("COMPONENT_MUST_BE_TOP_LEVEL");
+    expect(codes).toContain("CHAPTER_DIVIDER_CURRENT_OUT_OF_RANGE");
+  });
+
   it("single full-slide chapter band is not constrained to the content rect", () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,

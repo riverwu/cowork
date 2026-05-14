@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.40
+version: 1.0.41
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -642,7 +642,7 @@ Children are required unless noted. Containers may carry `fixedHeight` /
 ### 3.2 Page Archetypes
 
 - `cover-composition` — Editorial cover with optional full-bleed visual, dominant title lockup, hero stat. type='cover-composition' required={title} optional={subtitle, eyebrow, visual:{src,fit,anchor?,width?,height?,opacity?}, heroStat:{value,label,caption}, tone:neutral|inverse|brand, decor:none|grid|shapes, titleSize:deck-title|slide-title|section-title, lockupWidth, lockupHeight}
-- `chapter-divider` — High-impact section opener. type='chapter-divider' required={title} optional={subtitle, chapter, eyebrow, sections, current, tone:brand|neutral|inverse}
+- `chapter-divider` — High-impact top-level section opener. type='chapter-divider' required={title} optional={subtitle, chapter/number, showNumber, eyebrow, sections, current, tone:brand|neutral|inverse}. It renders no top-right number unless `chapter`/`number` is provided or `showNumber:true`; use only as a direct slide child.
 - `hero-and-support` — One dominant claim plus 2–4 satellites. Use instead of a flat 2×2 grid when one idea leads. type='hero-and-support' required={headline, supports} optional={hero, detail, items (alias), layout:left|top, ratio, gap, tone}
 - `chart-with-rail` — Dominant chart/table/evidence plus a narrow rail. type='chart-with-rail' required={evidence} optional={rail, headline, detail, items, layout:rail-right|rail-left|stacked, ratio, gap, tone} capacity="chart body >=4.8x3.0cm; rail <=30% width; stack when rail text is long"
 - `snapshot-callouts` — Screenshot + numbered callouts. Use `freeform-group` only when markers must point at exact coordinates. type='snapshot-callouts' required={src:image-ref, callouts} optional={title, caption, items (alias), fit:cover|contain|fill, layout:rail-right|rail-left|below, ratio, gap, tone}

@@ -203,7 +203,7 @@ describe("anchorTo — relative slide-level overlays", () => {
     expect(Math.abs(cardTop - badgeTop)).toBeLessThanOrEqual(0.05);
   });
 
-  it("anchorTo with a missing target id is silently dropped (no crash)", () => {
+  it("anchorTo with a missing target id is dropped with a blocking diagnostic", () => {
     const slide: SlideV2 = {
       id: "s",
       title: "x",
@@ -222,6 +222,11 @@ describe("anchorTo — relative slide-level overlays", () => {
     const ast = renderToAst(sourceToRenderedDeck(deck(slide)));
     const orphan = find(ast.slides[0].shapes, "s.orphan");
     expect(orphan).toBeUndefined();
+    const diagnostic = getRenderDiagnostics().find((item) => item.code === "MISSING_ANCHOR_TARGET");
+    expect(diagnostic).toMatchObject({
+      severity: "error",
+      nodeId: "s.orphan",
+    });
   });
 
   it("an anchorTo overlay inherits 'top-right' anchor when omitted", () => {

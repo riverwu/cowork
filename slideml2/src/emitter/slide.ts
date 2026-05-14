@@ -6,7 +6,7 @@
  */
 
 import { gradientFillXml, shapeXml, type SlideRels } from "./shapes.js";
-import { assertHex } from "./xml.js";
+import { assertHex, xmlEscape } from "./xml.js";
 import type { SlideAst } from "./types.js";
 
 const SLIDE_NS =
@@ -113,6 +113,8 @@ function backgroundXml(slide: SlideAst, rels: SlideRels): string {
     id: rId,
     type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
     target: `../media/__background-${slide.background.src}`, // package emitter rewrites
+    role: "background-image",
+    assetSrc: slide.background.src,
   });
   return (
     `<p:bg>` +
@@ -138,11 +140,9 @@ export function slideRelsXml(rels: SlideRels, slideLayoutRId: string): string {
 
   const otherRels = rels.entries
     .map((e) => {
-      const tm = e.targetMode ? ` TargetMode="${e.targetMode}"` : "";
-      // Hyperlink targets must be XML-escaped (& → &amp;) but the target is
-      // already a URL with possible &; we minimal-escape to keep it safe.
-      const target = e.target.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-      return `<Relationship Id="${e.id}" Type="${e.type}" Target="${target}"${tm}/>`;
+      const tm = e.targetMode ? ` TargetMode="${xmlEscape(e.targetMode)}"` : "";
+      const target = xmlEscape(e.target);
+      return `<Relationship Id="${xmlEscape(e.id)}" Type="${xmlEscape(e.type)}" Target="${target}"${tm}/>`;
     })
     .join("");
 

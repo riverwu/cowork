@@ -152,7 +152,14 @@ function runRelsForSlide(rels: SlideRels): RunRels {
 export interface SlideRels {
   /** Map of relationship ID → target path within the .pptx package.
    *  `targetMode === "External"` is required for hyperlinks; omit otherwise. */
-  entries: Array<{ id: string; type: string; target: string; targetMode?: "External" }>;
+  entries: Array<{
+    id: string;
+    type: string;
+    target: string;
+    targetMode?: "External";
+    role?: "background-image" | "shape-image";
+    assetSrc?: string;
+  }>;
 }
 
 /**
@@ -213,6 +220,8 @@ function imageShapeXml(shape: ImageShape, _slidePart: string, rels: SlideRels): 
     id: rId,
     type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
     target: `../media/${shape.name ?? `image${shape.id}`}.png`, // package emitter rewrites filename
+    role: "shape-image",
+    assetSrc: shape.src,
   });
 
   const nvPicPr =

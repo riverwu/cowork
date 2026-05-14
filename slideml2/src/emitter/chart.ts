@@ -15,7 +15,7 @@
  *   - one `<p:graphicFrame>` shape on the slide
  */
 
-import { assertHex } from "./xml.js";
+import { assertHex, xmlEscape } from "./xml.js";
 import type { ChartAxisSpec, ChartDataLabels, ChartMarkerSpec, ChartNumberFormat, ChartShape, HexColor, LineSpec } from "./types.js";
 
 const NS_CHART = "http://schemas.openxmlformats.org/drawingml/2006/chart";
@@ -906,7 +906,7 @@ function gridlineSpPrXml(grid: Exclude<ChartAxisSpec["gridlines"], boolean | und
  *   `wanyuan` / `yi`; here we just append the unit suffix to the formatCode.
  *
  * To keep the format-code path local (no upstream pre-division), we use:
- *   wanyuan → `"#,##0&quot;万&quot;"` and document that values should already
+ *   wanyuan → `"#,##0\"万\""` and document that values should already
  *   be expressed in 万元 (i.e. 8230 not 82_300_000). Same convention for
  *   `yi`. This matches how Chinese finance decks talk about numbers.
  */
@@ -915,31 +915,20 @@ function numberFormatCode(format: ChartNumberFormat | string): string {
     case "int":     return "0";
     case "decimal": return "0.0";
     case "percent": return "0%";
-    case "wanyuan": return "#,##0&quot;万&quot;";
-    case "yi":      return "0.0&quot;亿&quot;";
+    case "wanyuan": return "#,##0\"万\"";
+    case "yi":      return "0.0\"亿\"";
     case "General": return "General";
     default: return format;
   }
 }
 
 /**
- * XML-escape text inside chart elements. We re-implement here to avoid
- * a dependency cycle with `./xml.ts` (which carries smart-quote handling
- * we don't want to apply inside numeric text).
+ * XML-escape chart text without the smart-quote handling used by rich text.
  */
 function xmlEscapeText(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+  return xmlEscape(s);
 }
 
 function formatCodeAttr(s: string): string {
-  return s
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+  return xmlEscape(s);
 }

@@ -202,9 +202,10 @@ describe("slideml2 SKILL golden copy", () => {
 
     expect(skill).toContain("### 2.1 Slide Family Map");
     expect(skill).toContain("### 2.2 Compositional Archetypes");
-    expect(skill).toContain("Picking an archetype first");
+    expect(skill).toContain("Use family as a planning check, not a closed taxonomy");
+    expect(skill).toContain("Pick layout intent before component");
     expect(skill).toContain("## 4. Routing — Page Job → First Component");
-    expect(skill).toContain("Use this table only after deciding slide family");
+    expect(skill).toContain("Use this table as first-pass routing after family/archetype");
     expect(skill).toContain("| Executive answer / final synthesis");
     expect(skill).toContain("`executive-summary`");
     expect(skill).toContain("Raw `text` is residual");

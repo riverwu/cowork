@@ -9,6 +9,7 @@ type BoundTableColumn = DataColumnEncodingSpec & { label: string; inferred?: boo
 type ChartSeriesOption = NonNullable<DataEncodingSpec["seriesOptions"]>[string];
 type BoundChartSeries = ChartSeries;
 type BoundChartData = { labels: string[]; series: BoundChartSeries[]; orientation?: "vertical" | "horizontal" };
+const MAX_COMPUTED_DATA_SOURCE_DEPTH = 50;
 
 export interface DataColumnSchema {
   key: string;
@@ -77,20 +78,27 @@ function resolveDataSourceById(
   cache: Map<string, ResolvedDataSource>,
   resolving: Set<string>,
   options: DataBindingOptions,
+  depth = 0,
 ): ResolvedDataSource {
   const cached = cache.get(id);
   if (cached) return cached;
+  if (depth > MAX_COMPUTED_DATA_SOURCE_DEPTH) {
+    throw new Error(`computed data source chain exceeds ${MAX_COMPUTED_DATA_SOURCE_DEPTH} levels at ${id}`);
+  }
   if (!(id in specs)) throw new Error(`missing data source: ${id}`);
   if (resolving.has(id)) throw new Error(`cyclic computed data source: ${Array.from(resolving).concat(id).join(" -> ")}`);
   resolving.add(id);
-  const raw = specs[id] as DataSourceSpec;
-  const type = raw?.type || inferDataSourceType(raw);
-  const resolved = type === "computed"
-    ? resolveComputedDataSource(id, raw, specs, cache, resolving, options)
-    : { id, ...resolveDataSource(raw, options) };
-  cache.set(id, resolved);
-  resolving.delete(id);
-  return resolved;
+  try {
+    const raw = specs[id] as DataSourceSpec;
+    const type = raw?.type || inferDataSourceType(raw);
+    const resolved = type === "computed"
+      ? resolveComputedDataSource(id, raw, specs, cache, resolving, options, depth + 1)
+      : { id, ...resolveDataSource(raw, options) };
+    cache.set(id, resolved);
+    return resolved;
+  } finally {
+    resolving.delete(id);
+  }
 }
 
 function resolveDataSource(spec: DataSourceSpec, options: DataBindingOptions = {}): Omit<ResolvedDataSource, "id"> {
@@ -147,10 +155,11 @@ function resolveComputedDataSource(
   cache: Map<string, ResolvedDataSource>,
   resolving: Set<string>,
   options: DataBindingOptions,
+  depth: number,
 ): ResolvedDataSource {
   const sourceId = firstString(spec.source, (spec as Record<string, unknown>).from);
   if (!sourceId) throw new Error("computed data source requires source");
-  const source = resolveDataSourceById(sourceId, specs, cache, resolving, options);
+  const source = resolveDataSourceById(sourceId, specs, cache, resolving, options, depth);
   let rows = source.rows.map((row) => ({ ...row }));
   rows = applyComputedColumns(rows, computedColumns(spec.computed ?? spec.columns));
   if (spec.view && typeof spec.view === "object" && !Array.isArray(spec.view)) {

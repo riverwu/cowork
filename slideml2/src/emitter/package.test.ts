@@ -105,6 +105,29 @@ describe("emitter — package end-to-end", () => {
     expect(presXml).toContain('cx="9144000"');
     expect(presXml).toContain('cy="5143500"');
     expect(presXml).toContain('<p:sldId id="256"');
+    const coreXml = await zip.file("docProps/core.xml")!.async("string");
+    expect(coreXml).toContain("2026-01-01T00:00:00Z");
+  });
+
+  it("maps background and shape image relationships by explicit source", async () => {
+    const pngA = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=", "base64");
+    const pngB = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR42mP8z8AABQMBgJ3c6mQAAAAASUVORK5CYII=", "base64");
+    const bg = `data:image/png;base64,${pngA.toString("base64")}`;
+    const shape = `data:image/png;base64,${pngB.toString("base64")}`;
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        background: { type: "image", src: bg },
+        shapes: [{ type: "image", id: 2, xfrm: { x: 0, y: 0, cx: cm(2), cy: cm(2) }, src: shape }],
+      }],
+    };
+
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const slideRels = await zip.file("ppt/slides/_rels/slide1.xml.rels")!.async("string");
+
+    expect(slideRels).toContain('Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"');
+    expect(slideRels).toContain('Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image2.png"');
+    expect(slideRels).not.toContain("__background");
   });
 
   it("produces multi-slide deck with sequential rel numbering", async () => {
@@ -324,6 +347,33 @@ describe("emitter — package end-to-end", () => {
     expect(slideXml).toMatch(/u="sng"/);
   });
 
+  it("sanitizes illegal XML controls and fully escapes relationship targets", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "text",
+          id: 2,
+          xfrm: { x: 0, y: 0, cx: cm(20), cy: cm(3) },
+          paragraphs: [{
+            runs: [
+              { text: "bad\u0000text", sizeHalfPt: 28 },
+              { text: "link", sizeHalfPt: 28, hyperlink: "https://example.com/search?q=<x>&mode=\"strict\"" },
+            ],
+          }],
+        }],
+      }],
+    };
+
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    const slideRels = await zip.file("ppt/slides/_rels/slide1.xml.rels")!.async("string");
+
+    expect(slideXml).toContain("badtext");
+    expect(slideXml).not.toContain("\u0000");
+    expect(slideRels).toContain("q=&lt;x&gt;&amp;mode=&quot;strict&quot;");
+  });
+
   it("emits stacked-bar with grouping=stacked and overlap=100", async () => {
     const deck: DeckAst = {
       size: "16x9",
@@ -417,6 +467,26 @@ describe("emitter — package end-to-end", () => {
     expect(chartXml).toContain('<c:symbol val="diamond"/>');
     expect(chartXml).toContain('<c:smooth val="1"/>');
     expect(chartXml).toContain('<c:showVal val="1"/>');
+  });
+
+  it("escapes chart number format attributes including ampersands", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "bar",
+          labels: ["A"],
+          yAxis: { numberFormat: '0 "A&B"' },
+          series: [{ name: "Revenue", values: [100] }],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    expect(chartXml).toContain('formatCode="0 &quot;A&amp;B&quot;"');
   });
 
   it("keeps manual chart plot area within the chart frame", async () => {

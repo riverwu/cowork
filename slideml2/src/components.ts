@@ -67,11 +67,15 @@ export type DecorationMarkerTone = "brand" | "neutral" | "muted" | "positive" | 
 export type DecorationMarkerSize = "xs" | "sm" | "md" | "lg" | "xl" | number;
 export type DecorationMarkerInput =
   | DecorationMarkerShape
+  | string
   | {
-      shape?: DecorationMarkerShape;
-      marker?: DecorationMarkerShape;
-      preset?: DecorationMarkerShape;
-      type?: DecorationMarkerShape;
+      shape?: DecorationMarkerShape | string;
+      marker?: DecorationMarkerShape | string;
+      preset?: DecorationMarkerShape | string;
+      type?: DecorationMarkerShape | string;
+      content?: string;
+      glyph?: string;
+      text?: string;
       tone?: DecorationMarkerTone;
       variant?: DecorationMarkerVariant;
       size?: DecorationMarkerSize;
@@ -81,6 +85,14 @@ const DECORATION_MARKER_SHAPES = new Set<string>([
   "dot", "ring", "square", "rounded-square", "diamond", "side-bar", "slash", "index-chip",
 ]);
 
+type NormalizedDecorationMarker = {
+  shape: DecorationMarkerShape;
+  tone: DecorationMarkerTone;
+  variant: DecorationMarkerVariant;
+  size: DecorationMarkerSize;
+  content?: string;
+};
+
 function decorationMarkerNode(
   slideId: string,
   id: string,
@@ -89,7 +101,7 @@ function decorationMarkerNode(
 ): DomNode | undefined {
   const spec = normalizeDecorationMarker(marker, defaults);
   if (!spec) return undefined;
-  const dims = decorationMarkerDimensionsCm(spec.shape, markerSizeCm(spec.size));
+  const dims = decorationMarkerDimensionsCm(spec.shape, markerSizeCm(spec.size), spec.content);
   return {
     id: `${slideId}.${id}`,
     type: "shape",
@@ -100,24 +112,42 @@ function decorationMarkerNode(
     align: "start",
     valign: defaults.valign || "middle",
     optional: true,
+    ...(spec.content
+      ? {
+          text: spec.content,
+          style: "label",
+          bold: true,
+          color: decorationMarkerContentColor(spec.tone, spec.variant),
+          autoFit: "shrink",
+          noWrap: true,
+        }
+      : {}),
   };
 }
 
 function normalizeDecorationMarker(
   marker: DecorationMarkerInput | undefined,
   defaults: { shape?: DecorationMarkerShape; tone?: DecorationMarkerTone; variant?: DecorationMarkerVariant; size?: DecorationMarkerSize },
-): { shape: DecorationMarkerShape; tone: DecorationMarkerTone; variant: DecorationMarkerVariant; size: DecorationMarkerSize } | null {
+): NormalizedDecorationMarker | null {
   if (marker === undefined) return null;
   const rawShape = typeof marker === "string"
     ? marker
     : marker?.shape ?? marker?.marker ?? marker?.preset ?? marker?.type ?? defaults.shape;
   const shape = normalizeDecorationMarkerShape(rawShape);
-  if (!shape) return null;
+  const explicitContent = typeof marker === "object"
+    ? marker.content ?? marker.glyph ?? marker.text
+    : undefined;
+  const content = normalizeDecorationMarkerContent(explicitContent ?? (shape ? undefined : rawShape));
+  const fallbackShape = normalizeDecorationMarkerShape(defaults.shape) || "rounded-square";
+  const resolvedShape = shape || (content ? fallbackShape : null);
+  if (!resolvedShape) return null;
+  const explicitVariant = typeof marker === "object" ? marker.variant : undefined;
   return {
-    shape,
+    shape: resolvedShape,
     tone: (typeof marker === "object" ? marker.tone : undefined) || defaults.tone || "brand",
-    variant: (typeof marker === "object" ? marker.variant : undefined) || defaults.variant || "tint",
+    variant: explicitVariant || (content ? "badge" : defaults.variant) || "tint",
     size: (typeof marker === "object" ? marker.size : undefined) || defaults.size || "sm",
+    ...(content ? { content } : {}),
   };
 }
 
@@ -133,6 +163,24 @@ function normalizeDecorationMarkerShape(value: unknown): DecorationMarkerShape |
   return DECORATION_MARKER_SHAPES.has(normalized) ? normalized as DecorationMarkerShape : null;
 }
 
+function normalizeDecorationMarkerContent(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const glyphs = Array.from(trimmed);
+  if (glyphs.length > 3) return undefined;
+  return trimmed;
+}
+
+function decorationMarkerContentColor(tone: DecorationMarkerTone, variant: DecorationMarkerVariant): string {
+  if (tone === "neutral" || tone === "muted") return "text.primary";
+  if (variant === "solid" || variant === "badge") return "text.inverse";
+  if (tone === "positive") return "success";
+  if (tone === "warning") return "warning";
+  if (tone === "danger") return "danger";
+  return "brand.primary";
+}
+
 function markerSizeCm(value: DecorationMarkerSize | undefined): number {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) return Math.max(0.12, Math.min(0.9, value));
   if (value === "xs") return 0.18;
@@ -142,7 +190,12 @@ function markerSizeCm(value: DecorationMarkerSize | undefined): number {
   return 0.38;
 }
 
-function decorationMarkerDimensionsCm(shape: DecorationMarkerShape, size: number): { w: number; h: number } {
+function decorationMarkerDimensionsCm(shape: DecorationMarkerShape, size: number, content?: string): { w: number; h: number } {
+  if (content) {
+    const glyphSize = Math.max(0.42, size);
+    const widthMultiplier = Math.max(1, Math.min(1.6, Array.from(content).length * 0.62));
+    return { w: glyphSize * widthMultiplier, h: glyphSize };
+  }
   if (shape === "side-bar") return { w: Math.max(0.06, size * 0.22), h: Math.max(0.55, size * 1.9) };
   if (shape === "slash") return { w: Math.max(0.5, size * 1.55), h: Math.max(0.16, size * 0.32) };
   if (shape === "index-chip") return { w: size * 1.35, h: size };
@@ -345,6 +398,7 @@ export function metricCard(
     align: "center",
     valign: "bottom",
     autoFit: "shrink",
+    noWrap: true,
     ...(valueSize ? { size: valueSize } : {}),
     ...(content.length > 0 ? { content } : {}),
   };
@@ -435,7 +489,8 @@ export function metricCard(
 
 function metricValueNeedsCompactScale(value: string): boolean {
   const weighted = weightedTextLength(value);
-  return weighted >= 4.2 || /[\u4e00-\u9fff]/.test(value) || /^[-+]/.test(value.trim());
+  const cjkCount = Array.from(value).filter((char) => /[\u4e00-\u9fff]/.test(char)).length;
+  return weighted >= 4.2 || (cjkCount >= 2 && weighted >= 3.0) || /^[-+]/.test(value.trim());
 }
 
 function metricValueSize(value: string, dense: boolean): "xs" | "sm" | undefined {
@@ -1348,12 +1403,15 @@ export function featureCard(slideId: string, id: string, options: {
   const explicitTitleMarker = options.decoration?.kind === "marker" && layout === "vertical"
     ? featureMarkerInput(options.decoration.marker || options.decoration.shape || "rounded-square")
     : undefined;
-  const titleMarker = decorationMarkerNode(slideId, `${id}.marker`, options.marker || explicitTitleMarker, {
+  const titleMarkerBase = decorationMarkerNode(slideId, `${id}.marker`, options.marker || explicitTitleMarker, {
     shape: "rounded-square",
     tone: options.decoration?.tone || markerToneFromFeatureTone(semanticTone),
     variant: options.decoration?.variant || "tint",
     size: options.decoration?.size || (dense ? "xs" : "sm"),
   });
+  const titleMarker = titleMarkerBase
+    ? { ...titleMarkerBase, optional: false, __featureCardSemanticChild: true }
+    : undefined;
   const decorationNode = featureCardDecorationNode(slideId, id, options, {
     layout,
     dense,
@@ -1480,13 +1538,14 @@ function featureCardDecorationNode(
   const size = featureDecorationSizeCm(spec?.size, ctx.dense, ctx.layout);
   if (explicitKind === "marker") {
     if (ctx.layout === "vertical") return undefined;
-    return decorationMarkerNode(slideId, `${id}.decoration`, featureMarkerInput(spec?.marker || spec?.shape || "rounded-square"), {
+    const markerNode = decorationMarkerNode(slideId, `${id}.decoration`, featureMarkerInput(spec?.marker || spec?.shape || "rounded-square"), {
       shape: "rounded-square",
       tone,
       variant: spec?.variant || "tint",
       size: spec?.size || (ctx.dense ? "sm" : "md"),
       valign: "top",
     });
+    return markerNode ? { ...markerNode, optional: false, __featureCardSemanticChild: true } : undefined;
   }
   const src = spec?.src || spec?.iconSrc || options.iconSrc;
   if (explicitKind === "image" || src) {

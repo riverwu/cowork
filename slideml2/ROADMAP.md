@@ -1,6 +1,6 @@
 # SlideML2 Roadmap
 
-Last updated: 2026-05-12
+Last updated: 2026-05-14
 
 This roadmap tracks the current SlideML2 implementation and the remaining work
 needed for reliable commercial, research, and technical presentation delivery.
@@ -60,8 +60,12 @@ Known remaining gaps:
   blank charts, or distorted tables.
 - Schema/disclosure/docs are improved but not fully generated from a single
   registry; drift can still occur.
-- Advanced statistical charts, generalized diagram grammar, brand templates,
-  provenance audit, accessibility, and animation are not complete.
+- A small set of semantic components still cannot be reliably replaced by
+  `grid` / `split` / `freeform-group` authoring: maps, Gantt/project plans,
+  node-link diagrams, org charts, swimlanes, and long-content pagination.
+- Advanced statistical charts, cohort views, calendar layouts, generalized
+  diagram grammar, brand templates, provenance audit, accessibility, and
+  animation are not complete.
 
 ---
 
@@ -241,21 +245,81 @@ Acceptance:
 - Artifact QA remains a final-product check; it must not encourage bypassing
   SlideML2 source validation.
 
-### M5: Diagram Grammar, Accessibility, And Presentation Builds
+### M5: Irreplaceable Semantic Components And Layout Capabilities
 
-Priority: P1/P2.
+Priority: P0/P1.
 
-Goal: cover complex organizational, process, and presentation-delivery needs.
+Goal: add the component/capability gaps that agents cannot reliably compensate
+for with generic layout primitives. These are cases where correctness depends
+on geometry, data semantics, routing, pagination, or domain-specific placement,
+not just visual taste.
 
 Scope:
 
-- General `diagram` component:
-  - `flowchart`, `org-chart`, `network`, `sankey`, `tree`, `causal-loop`;
-  - shared `nodes` / `edges` grammar;
-  - output as editable PowerPoint shapes/text.
+- P0 semantic components:
+  - `geo-map`: first support choropleth, point map, and route map with legends,
+    labels, and source/projection metadata. A bitmap base map is acceptable, but
+    authored data points/regions/routes must remain structured and diagnosable.
+  - `gantt` / `project-plan`: tasks with start/end, owners, milestones,
+    dependencies, status, and critical-path/phase grouping where possible.
+  - `node-link-diagram` / `architecture-diagram`: shared editable
+    `nodes` / `edges` grammar, automatic placement, connector routing,
+    grouping, labels, and collision avoidance. First modes: flowchart, tree,
+    network, and system architecture.
+  - `org-chart` / `hierarchy-tree`: automatic multi-level tree layout,
+    reporting-line connectors, compact mode, and support for person/role cards.
+  - `swimlane-flow` / `service-blueprint`: lanes, phases, cross-lane arrows,
+    handoff labels, and support for customer/system/backstage process views.
+  - Long-content pagination: `table-card`, `article`, `code-block`,
+    `glossary`, and `bibliography` should split across slides when needed,
+    repeat headers/continuation labels, and never silently drop core content.
+- P1 semantic components:
+  - `sankey` / `alluvial` for flow volume and attribution stories.
+  - `treemap` for area-encoded portfolio, market, cost, or category structure.
+  - Distribution charts: `histogram`, `box-plot`, and a compact distribution
+    plot for scientific, experimental, and quality decks.
+  - `cohort-retention`: triangular retention/repeat-rate view with cohort
+    baselines, period offsets, and retention-specific color scaling.
+  - `calendar-view` / `agenda-schedule`: calendar grids, multi-day events,
+    workshop/session agendas, and release calendars.
+  - `device-mockup` / `browser-frame`: structured product demo frames with
+    safe screenshot area, chrome, caption, and callout attachment zones.
+- Defer to recipes, not new components, unless E2E cases prove repeated
+  degradation:
+  - dashboard pages using `scorecard`, `chart-card`, `table-card`, and `grid`;
+  - risk registers and RACI matrices using `table-card`, `warning-list`, and
+    `matrix-2x2`;
+  - persona, Kanban, case-study, and before/after pages using
+    `profile-card`, `comparison-table`, `two-column`, `hero-and-support`, and
+    `stat-comparison`.
+
+Acceptance:
+
+- Each P0 component has registry schema, validation, renderer, disclosure/SKILL
+  docs, and focused tests before being recommended to agents.
+- The P0 components render as editable PowerPoint shapes/text where practical.
+  Maps may use a base image, but authored data overlays remain structured.
+- Diagnostics must be semantic and repairable: invalid dates, impossible spans,
+  missing map regions, broken edges, lane overflow, connector collisions, and
+  pagination loss should point to the exact field/node.
+- E2E reports include at least one realistic case per P0 area before the
+  component is considered generally available.
+- Generic layout fallbacks are allowed only as explicit degradation with a
+  diagnostic; they must not silently replace these semantic components.
+
+### M6: Accessibility And Presentation Builds
+
+Priority: P1/P2.
+
+Goal: cover accessibility and delivery-mode needs after the core semantic
+coverage gaps are closed.
+
+Scope:
+
 - Accessibility:
   - slide `readingOrder`;
   - stricter alt/title/caption coverage;
+  - color-blind palette audit;
   - contrast and reading-order audit report.
 - Animation/build sequence:
   - node-level appear/fade/fly basics;
@@ -264,7 +328,6 @@ Scope:
 
 Acceptance:
 
-- Complex diagrams render without image fallback for common cases.
 - Strict accessibility report gives measurable coverage.
 - Basic click-build sequences open in PowerPoint without repair.
 

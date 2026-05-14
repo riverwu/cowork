@@ -1,6 +1,6 @@
 import JSZip from "jszip";
 import type { ChartShape } from "./types.js";
-import { XML_DECL, xmlEscape } from "./xml.js";
+import { STABLE_OOXML_TIMESTAMP, XML_DECL, xmlEscape } from "./xml.js";
 
 interface WorkbookSeries {
   name: string;
@@ -263,7 +263,7 @@ function workbookAppXml(): string {
 }
 
 function workbookCoreXml(): string {
-  const created = "2026-01-01T00:00:00Z";
+  const created = STABLE_OOXML_TIMESTAMP;
   return `${XML_DECL}
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 <dc:creator>SlideML2</dc:creator>

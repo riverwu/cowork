@@ -25,6 +25,8 @@ import type { RenderDiagnosticCode } from "./diagnostic-codes.js";
  *   PIE_LABELS_HIDDEN pie/doughnut chart hides slice labels
  *   EMPTY_CHART_DATA chart has no renderable labels/series after data binding
  *   EMPTY_TABLE_DATA table has authored object rows but no body cell text matched columns/headers
+ *   MISSING_ANCHOR_TARGET anchorTo overlay references a node id that does not exist
+ *   MISSING_DATA_BINDING_SOURCE bound chart/table references a source that did not resolve
  *   PAGE_OVER_CAPACITY multiple large components together exceed a single readable page budget
  *   REGION_OVER_CAPACITY a split/rail/local region has more direct content blocks than its readable budget
  */

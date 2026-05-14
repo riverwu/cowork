@@ -35,6 +35,8 @@ export const RENDER_DIAGNOSTIC_CODES = [
   "LOW_CONTRAST_FIXED",
   "SHAPE_INVISIBLE",
   "SHAPE_INVISIBLE_FIXED",
+  "MISSING_ANCHOR_TARGET",
+  "MISSING_DATA_BINDING_SOURCE",
 ] as const;
 
 export type RenderDiagnosticCode = typeof RENDER_DIAGNOSTIC_CODES[number];
@@ -74,6 +76,8 @@ export const BLOCKING_RENDER_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
   "UNKNOWN_COLOR",
   "UNKNOWN_STYLE",
   "OFF_SLIDE",
+  "MISSING_ANCHOR_TARGET",
+  "MISSING_DATA_BINDING_SOURCE",
 ]);
 
 export const QUALITY_RENDER_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([

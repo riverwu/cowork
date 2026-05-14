@@ -85,6 +85,31 @@ describe("dense data component regressions from live PPT flow", () => {
     expect(blocking, blocking.map((d) => `${d.code}:${d.nodeId}:${d.message}`).join("\n")).toHaveLength(0);
   });
 
+  it("kpi-grid measures dense CJK value bands in constrained dashboard slots", () => {
+    const slide: SlideV2 = {
+      id: "dense-kpis",
+      title: "关键经营指标",
+      children: [{
+        id: "dense-kpis.grid",
+        type: "kpi-grid",
+        at: [2, 3, 12, 4.25],
+        columns: 3,
+        metrics: [
+          { value: "56.3亿元", label: "年度收入", trend: "up" },
+          { value: "8220万元", label: "经营利润", trend: "up" },
+          { value: "-19.6个百分点", label: "智能设备收入变化", trend: "down" },
+          { value: "23.4亿元", label: "现金储备", trend: "up" },
+          { value: "102.8万人", label: "月活用户", trend: "up" },
+        ],
+      } as never],
+    };
+    const diagnostics = allDiagnostics(slide);
+    const blocking = diagnostics.filter((d) => d.severity === "error" && BLOCKING.has(d.code));
+    expect(blocking, blocking.map((d) => `${d.code}:${d.nodeId}:${d.message}`).join("\n")).toHaveLength(0);
+    const valueSquash = diagnostics.filter((d) => d.severity === "error" && d.code === "SQUASHED" && /\.value$/.test(String(d.nodeId || "")));
+    expect(valueSquash, valueSquash.map((d) => `${d.code}:${d.nodeId}:${d.message}`).join("\n")).toHaveLength(0);
+  });
+
   it("numbered equations keep the equation number in a small readable slot", () => {
     const slide: SlideV2 = {
       id: "equations",

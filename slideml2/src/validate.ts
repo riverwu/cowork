@@ -58,6 +58,24 @@ const THEME_FONT_WEIGHT_NAMES = new Set([
 const SOURCE_DECK_FIELD_SET = new Set(["slideml2", "deck", "slides"]);
 const DECK_FIELD_SET = new Set(["size", "theme", "themeOverride", "brand", "chrome", "validation", "master", "dataSources", "references", "footnotes", "metadata"]);
 const REQUIRED_CHILD_CONTAINERS = new Set(["stack", "grid", "split", "fragment"]);
+const MAX_VALIDATION_NODE_DEPTH = 80;
+const MAX_VALIDATION_NODES_PER_SLIDE = 5000;
+const MAX_TEXT_LENGTH_ISSUES_PER_SLIDE = 80;
+const TEXT_VALUE_KEYS = new Set([
+  "text", "content", "title", "subtitle", "headline", "body", "detail", "description",
+  "label", "name", "caption", "eyebrow", "kicker", "summary", "quote",
+  "formula", "latex", "code", "alt", "altText", "metricValue", "metricLabel",
+]);
+const TEXT_CONTAINER_KEYS = new Set([
+  "content", "paragraphs", "runs", "items", "bullets", "points", "list", "lines",
+  "rows", "headers", "cells", "columns", "supporting", "facts", "keyFacts",
+]);
+
+interface NodeValidationState {
+  nodes: number;
+  limitReported: boolean;
+  textLengthIssues: number;
+}
 
 export interface ValidationIssue {
   level: "error" | "warning" | "info";
@@ -108,11 +126,16 @@ export function validateSlide(slide: SlideV2, deck?: Pick<Slideml2SourceDeck, "d
   validateSlideTransitionSpec(slide, issues);
   if (Array.isArray(slide.children)) validateSlideAreaReferences(slide, deck, issues);
   if (Array.isArray(slide.children)) validateSlideTitleLabelDuplication(slide, issues);
-  slide.children?.forEach((node, index) => validateNode(node, `children[${index}]`, slide.id, issues, undefined, options));
+  const nodeState = createNodeValidationState();
+  slide.children?.forEach((node, index) => validateNode(node, `children[${index}]`, slide.id, issues, undefined, options, nodeState));
   // Generic rule: a slide may carry exactly ONE visible hero title. `slide.title`
   // may duplicate the visible body hero title as metadata/navigation text; when
   // it differs, the renderer would create two competing hero titles. `h1` is an
   // in-content module heading, so it must not block ordinary slide titles.
+  // Skip the layout pass when the structure is broken; layout solver assumes
+  // well-formed nodes (typed, with ids, recognized component types).
+  // Surfacing the schema errors first gives the agent an actionable fix.
+  if (issues.some((item) => item.level === "error")) return report(issues);
   const bodyHeroTitle = Array.isArray(slide.children) ? findBodyHeroTitle(slide.children) : { found: false, titles: [] };
   if (typeof slide.title === "string" && slide.title.trim() && bodyHeroTitle.found && !bodyHeroTitleMatchesSlideTitle(slide.title, bodyHeroTitle.titles)) {
     issues.push(issue("error", "DUPLICATE_HERO_TITLE", "slide.title is set AND the body already carries a hero title (cover-composition / section-break / deck-title / slide-title text). Only one — drop slide.title for cover/section pages, or remove the body title for ordinary pages.", {
@@ -120,9 +143,6 @@ export function validateSlide(slide: SlideV2, deck?: Pick<Slideml2SourceDeck, "d
       suggestedFix: "If this is a cover or chapter divider, either make slide.title match the body hero title exactly so it is treated as metadata, or drop slide.title and let the body's section-break/deck-title text be the headline.",
     }));
   }
-  // Skip the layout pass when the structure is broken; layout solver assumes
-  // well-formed nodes (typed, with ids, recognized component types).
-  // Surfacing the schema errors first gives the agent an actionable fix.
   if (issues.some((item) => item.level === "error")) return report(issues);
   try {
     const rendered: RenderedDeck = {
@@ -486,7 +506,15 @@ function validateNode(
   issues: ValidationIssue[],
   parent?: DomNode,
   options: EffectiveValidationOptions = validationOptions(),
+  state: NodeValidationState = createNodeValidationState(),
+  depth = 0,
 ): void {
+  if (state.limitReported) return;
+  state.nodes += 1;
+  if (state.nodes > MAX_VALIDATION_NODES_PER_SLIDE || depth > MAX_VALIDATION_NODE_DEPTH) {
+    reportValidationLimit(path, slideId, issues, state, depth);
+    return;
+  }
   if (!node || typeof node !== "object") {
     issues.push(issue("error", "INVALID_NODE", `${path} must be a node object.`, { slideId, path }));
     return;
@@ -495,7 +523,7 @@ function validateNode(
     const children = Array.isArray(node.children) ? node.children : [];
     children.forEach((child, index) => {
       const childPath = `${path}.children[${index}]`;
-      validateNode(withSyntheticNodeIds(child as DomNode, `${slideId}.${path.replace(/[^A-Za-z0-9_.-]+/g, ".")}.${index + 1}`), childPath, slideId, issues, node, options);
+      validateNode(withSyntheticNodeIds(child as DomNode, `${slideId}.${path.replace(/[^A-Za-z0-9_.-]+/g, ".")}.${index + 1}`), childPath, slideId, issues, node, options, state, depth + 1);
     });
     return;
   }
@@ -511,7 +539,7 @@ function validateNode(
     // downstream branches all fall through to UNKNOWN_NODE_TYPE on
     // String(undefined), which the rm8s07 log showed as a confusing pair of
     // errors per node. Children are still walked.
-    node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options));
+    node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options, state, depth + 1));
     return;
   }
   // `name` and `props` are reserved on raw primitives, but components frequently
@@ -560,7 +588,7 @@ function validateNode(
       suggestedFix: "Prefer a token such as text.primary, text.inverse, brand.primary, or a themeOverride.colors key. For a deliberate one-off text color, use #RRGGBB or bare RRGGBB.",
     }));
   }
-  if (isComponentTypedNode(node)) validateComponentNode(node, path, slideId, issues, options);
+  if (isComponentTypedNode(node)) validateComponentNode(node, path, slideId, issues, options, parent);
   else if (LAYOUT_CONTAINERS.has(String(node.type))) {
     const childrenRequired = REQUIRED_CHILD_CONTAINERS.has(String(node.type));
     if (!Array.isArray(node.children)) {
@@ -621,15 +649,64 @@ function validateNode(
       }));
     }
   }
-  if (options.maxTextLength && node.type === "text" && typeof node.text === "string" && node.text.length > options.maxTextLength) {
-    issues.push(issue("error", "TEXT_TOO_LONG", `${path}.text has ${node.text.length} characters; deck.validation.maxTextLength is ${options.maxTextLength}.`, {
-      slideId,
-      path,
-      nodeName: node.id,
-      suggestedFix: "Shorten the text, split it into bullets/paragraphs, or raise deck.validation.maxTextLength for leave-behind decks.",
-    }));
-  }
-  node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options));
+  if (options.maxTextLength) validateNodeTextLengths(node, path, slideId, issues, options.maxTextLength, state);
+  node.children?.forEach((child, index) => validateNode(child, `${path}.children[${index}]`, slideId, issues, node, options, state, depth + 1));
+}
+
+function createNodeValidationState(): NodeValidationState {
+  return { nodes: 0, limitReported: false, textLengthIssues: 0 };
+}
+
+function reportValidationLimit(path: string, slideId: string, issues: ValidationIssue[], state: NodeValidationState, depth: number): void {
+  if (state.limitReported) return;
+  state.limitReported = true;
+  const byDepth = depth > MAX_VALIDATION_NODE_DEPTH;
+  issues.push(issue("error", "VALIDATION_LIMIT_EXCEEDED", byDepth
+    ? `${path} exceeds the maximum validation depth of ${MAX_VALIDATION_NODE_DEPTH}.`
+    : `Slide ${slideId} exceeds the maximum validation node count of ${MAX_VALIDATION_NODES_PER_SLIDE}.`, {
+    slideId,
+    path,
+    details: { depth, nodeCount: state.nodes, maxDepth: MAX_VALIDATION_NODE_DEPTH, maxNodes: MAX_VALIDATION_NODES_PER_SLIDE },
+    suggestedFix: "Flatten deeply nested containers and split very large pages across multiple slides before retrying validation.",
+  }));
+}
+
+function validateNodeTextLengths(
+  node: DomNode,
+  path: string,
+  slideId: string,
+  issues: ValidationIssue[],
+  maxTextLength: number,
+  state: NodeValidationState,
+): void {
+  const visit = (value: unknown, currentPath: string, key: string | undefined, inTextContainer: boolean, depth: number): void => {
+    if (state.textLengthIssues >= MAX_TEXT_LENGTH_ISSUES_PER_SLIDE || depth > 20) return;
+    if (typeof value === "string") {
+      const shouldCheck = inTextContainer || (key !== undefined && TEXT_VALUE_KEYS.has(key));
+      if (shouldCheck && value.length > maxTextLength) {
+        state.textLengthIssues += 1;
+        issues.push(issue("error", "TEXT_TOO_LONG", `${currentPath} has ${value.length} characters; deck.validation.maxTextLength is ${maxTextLength}.`, {
+          slideId,
+          path: currentPath,
+          nodeName: node.id,
+          suggestedFix: "Shorten the text, split it into bullets/paragraphs, or raise deck.validation.maxTextLength for leave-behind decks.",
+        }));
+      }
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      const nextTextContainer = inTextContainer || (key !== undefined && TEXT_CONTAINER_KEYS.has(key));
+      value.forEach((item, index) => visit(item, `${currentPath}[${index}]`, undefined, nextTextContainer, depth + 1));
+      return;
+    }
+    for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
+      if (childKey === "children") continue;
+      const nextTextContainer = inTextContainer || TEXT_CONTAINER_KEYS.has(childKey);
+      visit(childValue, `${currentPath}.${childKey}`, childKey, nextTextContainer, depth + 1);
+    }
+  };
+  visit(node, path, undefined, false, 0);
 }
 
 const IGNORED_NODE_SPACING_FIELDS = [
@@ -1476,6 +1553,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 function validateDataBindings(deck: Slideml2SourceDeck, issues: ValidationIssue[], options: DataBindingOptions = {}): void {
+  if (issues.some((item) => item.code === "VALIDATION_LIMIT_EXCEEDED")) return;
   const sourceIds = new Set(Object.keys(deck.deck?.dataSources || {}));
   const sourceRows = dataSourceRowsById(deck.deck?.dataSources, options);
   deck.slides.forEach((slide, slideIndex) => {
@@ -1496,8 +1574,9 @@ function dataSourceRowsById(dataSources: unknown, options: DataBindingOptions = 
   return out;
 }
 
-function validateNodeDataBinding(node: DomNode, path: string, slideId: string, sourceIds: Set<string>, sourceRows: Map<string, Record<string, unknown>[]>, issues: ValidationIssue[]): void {
+function validateNodeDataBinding(node: DomNode, path: string, slideId: string, sourceIds: Set<string>, sourceRows: Map<string, Record<string, unknown>[]>, issues: ValidationIssue[], depth = 0): void {
   if (!node || typeof node !== "object") return;
+  if (depth > MAX_VALIDATION_NODE_DEPTH) return;
   const bind = (node as Record<string, unknown>).bind;
   if (bind !== undefined && !isEmptyObject(bind)) validateBindSpec(bind, `${path}.bind`, slideId, node.id, sourceIds, issues);
   const encoding = (node as Record<string, unknown>).encoding;
@@ -1505,15 +1584,23 @@ function validateNodeDataBinding(node: DomNode, path: string, slideId: string, s
   if (bind && typeof bind === "object" && !Array.isArray(bind) && !isEmptyObject(bind)) {
     const sourceId = typeof (bind as Record<string, unknown>).source === "string" ? String((bind as Record<string, unknown>).source).trim() : "";
     const rows = sourceRows.get(sourceId);
+    if (rows && rows.length === 0) {
+      issues.push(issue("error", "EMPTY_DATA_BIND_SOURCE", `${path}.bind.source "${sourceId}" resolved to zero rows for this bound node.`, {
+        slideId,
+        path: `${path}.bind.source`,
+        nodeName: node.id,
+        suggestedFix: "Repair the data source or bind.filter so the component receives at least one row; otherwise remove the bind and author explicit chart/table data.",
+      }));
+    }
     if (rows && rows.length) validateDataFieldReferences(bind as Record<string, unknown>, encoding, rows, `${path}.bind`, slideId, node.id, issues);
   }
-  node.children?.forEach((child, index) => validateNodeDataBinding(child, `${path}.children[${index}]`, slideId, sourceIds, sourceRows, issues));
+  node.children?.forEach((child, index) => validateNodeDataBinding(child, `${path}.children[${index}]`, slideId, sourceIds, sourceRows, issues, depth + 1));
   if (Array.isArray(node.items)) {
     node.items.forEach((item, index) => {
       if (item && typeof item === "object" && !Array.isArray(item)) {
         const content = (item as Record<string, unknown>).content;
         if (content && typeof content === "object" && !Array.isArray(content)) {
-          validateNodeDataBinding(content as DomNode, `${path}.items[${index}].content`, slideId, sourceIds, sourceRows, issues);
+          validateNodeDataBinding(content as DomNode, `${path}.items[${index}].content`, slideId, sourceIds, sourceRows, issues, depth + 1);
         }
       }
     });
@@ -2405,7 +2492,7 @@ function componentFieldTypeError(componentName: string, propName: string, prop: 
   if (value === undefined || value === null || value === "") return null;
   if (prop.type === "enum") return null;
   if (propName === "scale" && typeof value === "string" && ["xs", "sm", "small", "md"].includes(value.trim().toLowerCase())) return null;
-  if (propName === "marker" && prop.type === "object" && typeof value === "string" && /\bString or\b/i.test(prop.description || "")) return null;
+  if (propName === "marker" && prop.type === "object" && typeof value === "string" && value.trim()) return null;
   switch (prop.type) {
     case "string":
     case "image-ref":
@@ -2432,7 +2519,7 @@ function componentFieldTypeError(componentName: string, propName: string, prop: 
   }
 }
 
-function validateComponentNode(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], options: EffectiveValidationOptions): void {
+function validateComponentNode(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], options: EffectiveValidationOptions, parent?: DomNode): void {
   const name = getComponentName(node) || node.component;
   if (!isComponentName(name)) {
     issues.push(issue(options.allowUnknownComponents ? "warning" : "error", "UNKNOWN_COMPONENT", `${path} component "${String(name)}" is not registered.`, {
@@ -2462,6 +2549,7 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
     }));
   }
   if (name === "freeform-group") validateFreeformGroupIntent(node, path, slideId, issues);
+  if (name === "chapter-divider") validateChapterDividerUsage(node, path, slideId, issues, parent);
   if (name === "matrix-2x2") {
     const itemsArr = Array.isArray(node.items) ? node.items : [];
     const ql = node.quadrantLabels && typeof node.quadrantLabels === "object" ? node.quadrantLabels as Record<string, unknown> : null;
@@ -2633,6 +2721,32 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
   }
 }
 
+function validateChapterDividerUsage(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], parent?: DomNode): void {
+  if (parent) {
+    issues.push(issue("error", "COMPONENT_MUST_BE_TOP_LEVEL", "chapter-divider renders full-slide overlays and must be a direct slide child.", {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "Move chapter-divider to slide.children as the only main section-reset component. Use band/title-lockup/text if you need a divider inside a grid, split, or stack.",
+    }));
+  }
+  const sections = Array.isArray(node.sections) ? node.sections : [];
+  if (sections.length === 0 || node.current === undefined || node.current === null || node.current === "") return;
+  const current = typeof node.current === "number" && Number.isFinite(node.current)
+    ? node.current
+    : typeof node.current === "string" && node.current.trim()
+      ? Number(node.current)
+      : NaN;
+  if (!Number.isInteger(current) || current < 0 || current >= sections.length) {
+    issues.push(issue("error", "CHAPTER_DIVIDER_CURRENT_OUT_OF_RANGE", `chapter-divider.current must be a 0-based index from 0 to ${Math.max(0, sections.length - 1)} when sections are provided.`, {
+      slideId,
+      path: `${path}.current`,
+      nodeName: node.id,
+      suggestedFix: "Use current:0 for the first section, current:1 for the second, etc.; do not pass a 1-based chapter number.",
+    }));
+  }
+}
+
 function validateDomNodeArrayField(node: DomNode, fieldName: string, path: string, slideId: string, issues: ValidationIssue[], options: EffectiveValidationOptions): void {
   const value = (node as Record<string, unknown>)[fieldName];
   if (!Array.isArray(value)) return;
@@ -2759,7 +2873,7 @@ function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[]
   for (const node of nodes) {
     if (!node || typeof node !== "object") continue;
     const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
-    if (componentName === "section-break" || componentName === "title-lockup" || componentName === "cover-composition") {
+    if (componentName === "section-break" || componentName === "title-lockup" || componentName === "cover-composition" || componentName === "chapter-divider") {
       found = true;
       if (typeof node.title === "string" && node.title.trim()) titles.push(node.title);
     } else if (node.type === "deck-title" || node.type === "slide-title") {

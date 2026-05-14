@@ -21,6 +21,7 @@ import {
 import { slideRelsXml, slideXml } from "./slide.js";
 import { SLIDE_SIZES } from "../units.js";
 import type { ChartShape, DeckAst, ImageShape } from "./types.js";
+import { STABLE_OOXML_TIMESTAMP, xmlEscape } from "./xml.js";
 
 /**
  * Wrap an asset.intern call so failures (404s, missing files,
@@ -195,23 +196,18 @@ export async function emitPackage(deck: DeckAst, themeOxml?: ResolvedThemeOxml):
       );
     }
 
-    // Image rels appear in TWO orders inside built.rels.entries:
-    //   - background-image rel (added by the slide emitter, FIRST when present)
-    //   - shape-image rels (added by image shape emitters, in slide-order)
-    // We resolve them by which side they're on. Background uses src directly;
-    // shape rels consume image shapes in order.
     const bgImageSrc = slide.background?.type === "image" ? slide.background.src : undefined;
     let bgRelConsumed = false;
     built.rels.entries = built.rels.entries.map((rel) => {
       if (rel.type.endsWith("/image")) {
-        // First image rel is the background (when present), then shape rels.
-        if (bgImageSrc && !bgRelConsumed) {
+        const explicitSrc = rel.assetSrc;
+        const src = explicitSrc || (bgImageSrc && !bgRelConsumed ? bgImageSrc : imageShapes[imgRelIdx++]?.src);
+        if (rel.role === "background-image" || (src === bgImageSrc && !bgRelConsumed)) {
           bgRelConsumed = true;
-          const entry = assets.get(bgImageSrc)!;
-          return { ...rel, target: `../media/${entry.filename}` };
         }
-        const src = imageShapes[imgRelIdx++]!.src;
-        const entry = assets.get(src)!;
+        if (!src) throw new Error(`slides[${slideNum}] image relationship ${rel.id} has no source asset`);
+        const entry = assets.get(src);
+        if (!entry) throw new Error(`slides[${slideNum}] image relationship ${rel.id} references uninterned asset "${src}"`);
         return { ...rel, target: `../media/${entry.filename}` };
       }
       if (rel.type.endsWith("/chart")) {
@@ -355,7 +351,7 @@ function appXml(slideCount: number): string {
 }
 
 function coreXml(title: string, author: string): string {
-  const now = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  const now = STABLE_OOXML_TIMESTAMP;
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 <dc:title>${escapeForXml(title)}</dc:title>
@@ -624,5 +620,5 @@ function tableStylesXml(): string {
 // =============================================================================
 
 function escapeForXml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" }[c] ?? c));
+  return xmlEscape(s);
 }

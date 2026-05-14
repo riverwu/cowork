@@ -90,6 +90,24 @@ describe("item-marker rendering", () => {
     expect(shapes.some((s) => s.name === "s.feature.icon")).toBe(false);
   });
 
+  it("feature-card decoration marker accepts short glyph strings", () => {
+    const shapes = renderShapes({
+      id: "s.feature",
+      type: "feature-card",
+      title: "DOJ antitrust",
+      body: "Potential structural remedies remain the largest risk.",
+      decoration: { kind: "marker", marker: "!", tone: "danger" },
+      density: "compact",
+    } as unknown as DomNode);
+
+    const marker = byName(shapes, "s.feature.decoration");
+    expect(marker?.preset).toBe("roundRect");
+    expect(JSON.stringify(marker)).toContain("!");
+    expect(cm(marker?.xfrm?.cx)).toBeGreaterThanOrEqual(0.4);
+    expect(shapes.some((s) => s.name === "s.feature.icon")).toBe(false);
+    expect(getRenderDiagnostics().filter((d) => d.code === "DROP" && String(d.nodeId).includes("marker"))).toHaveLength(0);
+  });
+
   it("takeaway-list marker replaces the default accent bar per item", () => {
     const shapes = renderShapes({
       id: "s.takeaways",

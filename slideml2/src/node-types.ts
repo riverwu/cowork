@@ -297,7 +297,7 @@ const SHAPE_DETAILED: Record<string, NodeFieldInfo> = {
     description: "OOXML preset geometry name",
   },
   role: { valueType: "enum", values: ["item-marker"], description: "Semantic role. item-marker renders a small stable decoration mark inside its allocated rect instead of stretching to fill it." },
-  marker: { valueType: "object", description: "Item-decoration shorthand: string or {shape|preset|marker, tone?, variant?, size?}. Shapes: dot, ring, square, rounded-square, diamond, side-bar, slash, index-chip." },
+  marker: { valueType: "object", description: "Item-decoration shorthand: string or {shape|preset|marker, content?/glyph?/text?, tone?, variant?, size?}. String can be a marker shape or a short glyph such as '!', '$', 'Q1', or emoji. Shapes: dot, ring, square, rounded-square, diamond, side-bar, slash, index-chip." },
   shape: { valueType: "enum", values: ["dot", "ring", "square", "rounded-square", "diamond", "side-bar", "slash", "index-chip"], description: "Alias used with role:'item-marker' when marker is omitted." },
   tone: { valueType: "enum", values: ["brand", "neutral", "muted", "positive", "warning", "danger"], description: "Semantic marker color." },
   variant: { valueType: "enum", values: ["tint", "solid", "outline", "ghost", "ring", "badge"], description: "Marker treatment: tint (default), solid, outline/ring, ghost, or badge." },

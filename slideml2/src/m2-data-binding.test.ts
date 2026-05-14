@@ -489,6 +489,29 @@ describe("M2 data binding", () => {
     expect(sourceErrors.map((item) => item.code)).toEqual(["INVALID_DATA_BIND_SOURCE"]);
   });
 
+  it("blocks bound components when their source resolves to zero rows", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          empty: { type: "inline-csv", csv: "segment,value\n" },
+        },
+      },
+      slides: [{
+        id: "empty-bind",
+        children: [
+          { id: "empty-bind.chart", type: "chart", chartType: "bar", bind: { source: "empty" }, encoding: { x: "segment", y: "value" } },
+        ] as unknown as DomNode[],
+      }],
+    };
+
+    const validation = validateDeck(deck);
+
+    expect(validation.errors.map((item) => item.code)).toContain("EMPTY_DATA_BIND_SOURCE");
+  });
+
   it("derives computed data sources and drives dual-axis bound charts", () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,
