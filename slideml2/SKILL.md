@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.42
+version: 1.0.43
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -117,7 +117,7 @@ Before `set-deck` replaces `references`, `footnotes`, or `dataSources`, read the
 | `validate-slide <slide.json>` | Validate one standalone slide file with no side effects. |
 | `validate-manifest <manifest.json>` | Validate manifest entries, referenced slides, and full composed layout with no writes. |
 | `compose <manifest.json>` | Atomically compose ordered slide files into final deck source and/or PPTX. |
-| `slice-icons <sheet.png>` | Slice an AI-generated icon sheet into individual PNG icons and `assets/icons/manifest.json`. |
+| `slice-icons <sheet-image>` | Slice an AI-generated PNG/JPEG icon sheet into individual PNG icons and `assets/icons/manifest.json`. |
 | `help [command]` | Print command-specific help and argument examples. |
 
 Common flags:
@@ -618,9 +618,11 @@ node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" slice-icons assets/icons/icon
 
 `slice-icons` writes `assets/icons/manifest.json` and one PNG per icon name.
 It uses the explicit grid and removes likely tile frames, black separator
-rules, stray labels, and near-background pixels. If the sheet has a different
-layout, rerun with the correct `--grid`; for non-transparent white-background
-icons, add `--no-transparent`.
+rules, stray labels, and near-background pixels. It detects PNG vs JPEG/JFIF
+from file bytes rather than the extension, so engine outputs saved at a `.png`
+path still work when the payload is JPEG. If the sheet has a different layout,
+rerun with the correct `--grid`; for non-transparent white-background icons,
+add `--no-transparent`.
 
 Manifest shape:
 

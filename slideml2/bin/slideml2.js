@@ -49,7 +49,7 @@ Commands:
   validate-manifest <manifest.json>
                                  Validate manifest order and referenced slide files.
   compose <manifest.json>        Compose ordered slide files into deck source and/or PPTX.
-  slice-icons <sheet.png>        Slice an AI-generated icon sheet into PNG icons.
+  slice-icons <sheet-image>      Slice an AI-generated PNG/JPEG icon sheet into PNG icons.
   help [command]                 Show command help.
 
 Common flags:
@@ -95,10 +95,12 @@ Read deck config plus ordered slide files from manifest.json, validate the
 full composed deck, then atomically write the composed deck source and optional
 PPTX. Slide order comes only from manifest.json, not command history. At least
 one of --write-source or --out is required.`,
-  "slice-icons": `Usage: slideml2 slice-icons <sheet.png> --icons icons.json --out-dir assets/icons [--manifest assets/icons/manifest.json] [--grid 3x3] [--output-size 768] [--no-transparent]
+  "slice-icons": `Usage: slideml2 slice-icons <sheet-image> --icons icons.json --out-dir assets/icons [--manifest assets/icons/manifest.json] [--grid 3x3] [--output-size 768] [--no-transparent]
 
-Slice an AI-generated PNG icon sheet into individual square PNG icons and write
-a manifest. icons.json is an array of strings or objects:
+Slice an AI-generated PNG or JPEG/JFIF icon sheet into individual square PNG
+icons and write a manifest. The input format is detected from bytes, not from
+the filename extension, because some image engines save JPEG bytes to a
+requested .png path. icons.json is an array of strings or objects:
   [{ "name":"bank", "label":"银行", "description":"bank building line icon" }]
 
 The command uses the explicit grid and robust cell detection. It discards
@@ -956,7 +958,7 @@ function parseOutputSizeFlag(value) {
 }
 
 async function runSliceIcons(command, sheetPath, flags) {
-  if (!sheetPath) usage("slice-icons requires <sheet.png>");
+  if (!sheetPath) usage("slice-icons requires <sheet-image>");
   if (!flags.icons) usage("slice-icons requires --icons icons.json");
   if (!flags["out-dir"]) usage("slice-icons requires --out-dir assets/icons");
   const icons = await readJson(flags.icons, "icon specs");

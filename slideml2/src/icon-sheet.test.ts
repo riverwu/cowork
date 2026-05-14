@@ -1,8 +1,11 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { __iconSheetTest, sliceIconSheet } from "./icon-sheet.js";
+
+const fixtureRoot = resolve(dirname(fileURLToPath(import.meta.url)), "fixtures/icon-sheets/seedream");
 
 describe("icon sheet slicing", () => {
   it("slices sheets separated by black grid lines without keeping the frames", async () => {
@@ -61,6 +64,71 @@ describe("icon sheet slicing", () => {
       expect(manifest.icons[3]!.crop.x).toBeGreaterThan(150);
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("slices real Seedream-generated JPEG sheets saved with png extensions", async () => {
+    const cases = [
+      {
+        file: "youdao-business-3x3.seedream.png",
+        grid: { columns: 3, rows: 3 },
+        icons: ["startup", "education", "hardware", "marketing", "ai_chip", "finance", "globe", "trophy", "warning"],
+        minAlphaRatio: 0.05,
+      },
+      {
+        file: "chilechuan-dark-3x3-six-icons.seedream.png",
+        grid: { columns: 3, rows: 3 },
+        icons: ["mountain", "yurt", "sky", "grassland", "sheep", "wind"],
+        minAlphaRatio: 0.012,
+      },
+      {
+        file: "physics-dark-3x3.seedream.png",
+        grid: { columns: 3, rows: 3 },
+        icons: ["inertia", "acceleration", "force_arrow", "action_reaction", "impulse", "momentum", "spring_energy", "rotation", "orbit"],
+        minAlphaRatio: 0.035,
+      },
+      {
+        file: "physics-dark-1x1.seedream.png",
+        grid: { columns: 1, rows: 1 },
+        icons: ["wave"],
+        minAlphaRatio: 0.035,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const dir = await mkdtemp(join(tmpdir(), `slideml2-seedream-${testCase.file}-`));
+      try {
+        const sheetPath = join(fixtureRoot, testCase.file);
+        const sheetBytes = await readFile(sheetPath);
+        expect([...sheetBytes.subarray(0, 2)], testCase.file).toEqual([0xff, 0xd8]);
+        const sheet = __iconSheetTest.decodeImageRgba(sheetBytes);
+
+        const manifest = await sliceIconSheet({
+          sheetPath,
+          outputDir: join(dir, "icons"),
+          icons: testCase.icons,
+          grid: testCase.grid,
+          outputSize: 256,
+          makeTransparent: true,
+        });
+
+        expect(manifest.icons).toHaveLength(testCase.icons.length);
+        for (const [index, icon] of manifest.icons.entries()) {
+          expect(icon.name).toBe(testCase.icons[index]);
+          expect(icon.cell).toEqual({
+            row: Math.floor(index / testCase.grid.columns),
+            column: index % testCase.grid.columns,
+          });
+          expectCropInExpectedGridCell(icon.crop, sheet.width, sheet.height, testCase.grid.columns, testCase.grid.rows, index);
+
+          const output = __iconSheetTest.decodePngRgba(await readFile(icon.path));
+          const stats = alphaStats(output);
+          expect(stats.alphaRatio, `${testCase.file}:${icon.name}`).toBeGreaterThan(testCase.minAlphaRatio);
+          expect(stats.edgeOpaque, `${testCase.file}:${icon.name}`).toBeLessThan(64);
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
     }
   });
 });
@@ -150,4 +218,45 @@ function edgeDarkOpaquePixels(image: { width: number; height: number; data: Uint
     }
   }
   return count;
+}
+
+function alphaStats(image: { width: number; height: number; data: Uint8Array }): { alphaRatio: number; edgeOpaque: number } {
+  let opaque = 0;
+  let edgeOpaque = 0;
+  for (let y = 0; y < image.height; y += 1) {
+    for (let x = 0; x < image.width; x += 1) {
+      const alpha = image.data[(y * image.width + x) * 4 + 3]!;
+      if (alpha <= 8) continue;
+      opaque += 1;
+      if (x < 3 || x >= image.width - 3 || y < 3 || y >= image.height - 3) edgeOpaque += 1;
+    }
+  }
+  return { alphaRatio: opaque / (image.width * image.height), edgeOpaque };
+}
+
+function expectCropInExpectedGridCell(
+  crop: { x: number; y: number; width: number; height: number },
+  sheetWidth: number,
+  sheetHeight: number,
+  columns: number,
+  rows: number,
+  index: number,
+): void {
+  const column = index % columns;
+  const row = Math.floor(index / columns);
+  const cellWidth = sheetWidth / columns;
+  const cellHeight = sheetHeight / rows;
+  const slackX = cellWidth * 0.10;
+  const slackY = cellHeight * 0.10;
+  const centerX = crop.x + crop.width / 2;
+  const centerY = crop.y + crop.height / 2;
+
+  expect(centerX).toBeGreaterThanOrEqual(column * cellWidth - slackX);
+  expect(centerX).toBeLessThanOrEqual((column + 1) * cellWidth + slackX);
+  expect(centerY).toBeGreaterThanOrEqual(row * cellHeight - slackY);
+  expect(centerY).toBeLessThanOrEqual((row + 1) * cellHeight + slackY);
+  expect(crop.width).toBeGreaterThanOrEqual(cellWidth * 0.10);
+  expect(crop.height).toBeGreaterThanOrEqual(cellHeight * 0.10);
+  expect(crop.width).toBeLessThanOrEqual(sheetWidth);
+  expect(crop.height).toBeLessThanOrEqual(sheetHeight);
 }

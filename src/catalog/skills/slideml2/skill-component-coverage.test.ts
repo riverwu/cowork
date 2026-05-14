@@ -138,6 +138,8 @@ describe("slideml2 SKILL golden copy", () => {
     expect(skill).toContain("square icon sheet");
     expect(skill).toContain("icons.json");
     expect(skill).toContain("slice-icons assets/icons/icon-sheet.png");
+    expect(skill).toContain("PNG vs JPEG/JFIF");
+    expect(skill).toContain("saved at a `.png`");
     expect(skill).toContain("manifest.icons[].path");
     expect(skill).toContain("feature-card.iconSrc");
     expect(skill).toContain("timeline.items[].iconSrc");

@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { deflateSync, inflateSync } from "node:zlib";
+import * as jpeg from "jpeg-js";
 
 export interface IconRequest {
   name: string;
@@ -62,6 +63,7 @@ interface GridLine {
 }
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const JPEG_SIGNATURE = Buffer.from([0xff, 0xd8]);
 const DEFAULT_OUTPUT_SIZE = 768;
 
 export async function sliceIconSheet(options: SliceIconSheetOptions): Promise<IconManifest> {
@@ -77,7 +79,7 @@ export async function sliceIconSheet(options: SliceIconSheetOptions): Promise<Ic
   await mkdir(outputDir, { recursive: true });
   await mkdir(dirname(manifestPath), { recursive: true });
 
-  const sheet = decodePngRgba(await readFile(sheetPath));
+  const sheet = decodeImageRgba(await readFile(sheetPath));
   const gridRect = detectGridRect(sheet, grid);
   const cellWidth = (gridRect.right - gridRect.left) / grid.columns;
   const cellHeight = (gridRect.bottom - gridRect.top) / grid.rows;
@@ -605,6 +607,25 @@ function pasteImage(target: RgbaImage, source: RgbaImage, left: number, top: num
   }
 }
 
+function decodeImageRgba(buffer: Buffer): RgbaImage {
+  if (buffer.subarray(0, 8).equals(PNG_SIGNATURE)) return decodePngRgba(buffer);
+  if (buffer.subarray(0, 2).equals(JPEG_SIGNATURE)) return decodeJpegRgba(buffer);
+  throw new Error("Icon sheets must be PNG or JPEG/JFIF images.");
+}
+
+function decodeJpegRgba(buffer: Buffer): RgbaImage {
+  const decoded = jpeg.decode(buffer, {
+    useTArray: true,
+    maxResolutionInMP: 80,
+    maxMemoryUsageInMB: 768,
+  });
+  return {
+    width: decoded.width,
+    height: decoded.height,
+    data: decoded.data instanceof Uint8Array ? new Uint8Array(decoded.data) : Uint8Array.from(decoded.data),
+  };
+}
+
 function decodePngRgba(buffer: Buffer): RgbaImage {
   if (!buffer.subarray(0, 8).equals(PNG_SIGNATURE)) throw new Error("Only PNG icon sheets are supported.");
   let offset = 8;
@@ -712,6 +733,8 @@ function encodePngRgba(image: RgbaImage): Buffer {
 }
 
 export const __iconSheetTest = {
+  decodeImageRgba,
+  decodeJpegRgba,
   decodePngRgba,
   encodePngRgba,
 };
