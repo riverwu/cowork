@@ -132,6 +132,36 @@ export async function getMcpInstallStatus(): Promise<InstallStatus[]> {
   return statuses;
 }
 
+export interface SkillSyncResult {
+  updated: string[];
+  failed: Array<{ id: string; error: string }>;
+}
+
+/**
+ * Keep already-installed bundled skills aligned with the packaged catalog.
+ * This deliberately does not install skills the user has never installed; it
+ * only repairs stale installed copies so the agent reads the current guidance.
+ */
+export async function syncInstalledCatalogSkills(): Promise<SkillSyncResult> {
+  const statuses = await getSkillInstallStatus();
+  const result: SkillSyncResult = { updated: [], failed: [] };
+
+  for (const status of statuses) {
+    if (!status.installed || !status.needsUpdate) continue;
+    try {
+      await installCatalogSkill(status.id);
+      result.updated.push(status.id);
+    } catch (err) {
+      result.failed.push({
+        id: status.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return result;
+}
+
 /** Install a skill from the catalog — copies all files to ~/.cowork/skills/{id}/ */
 export async function installCatalogSkill(id: string): Promise<void> {
   const skill = CATALOG_SKILLS.find((s) => s.id === id);

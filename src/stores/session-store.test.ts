@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  activeContextMessages,
   assembleLlmMessages,
   isContextSummary,
   isSessionArchive,
+  parseCompactCommand,
   parseNewSessionCommand,
   sanitizeMessageSequence,
 } from "./session-store";
@@ -85,6 +87,46 @@ describe("assembleLlmMessages — native tool-block sequence", () => {
     expect(tools[0]).toMatchObject({ toolCallId: "z" });
   });
 
+  it("does not carry old skill instruction markdown reads into later LLM turns", () => {
+    const out = assembleLlmMessages([
+      userMsg("make a deck"),
+      assistantMsg("I loaded the skill.", [
+        {
+          skill: "read_file",
+          status: "done",
+          input: { path: "/Users/river/.cowork/skills/slideml2/SKILL.md" },
+          result: "full SlideML2 skill body",
+          success: true,
+          toolCallId: "tu_skill",
+        },
+        {
+          skill: "read_file",
+          status: "done",
+          input: { path: "/Users/river/.cowork/skills/slideml2/business.md" },
+          result: "full business style body",
+          success: true,
+          toolCallId: "tu_business",
+        },
+        {
+          skill: "read_file",
+          status: "done",
+          input: { path: "/Users/river/Documents/source.md" },
+          result: "source body",
+          success: true,
+          toolCallId: "tu_source",
+        },
+      ]),
+      userMsg("continue"),
+    ]);
+
+    expect(out.find((m) => m.role === "tool" && m.toolCallId === "tu_skill")).toBeUndefined();
+    expect(out.find((m) => m.role === "tool" && m.toolCallId === "tu_business")).toBeUndefined();
+    expect(out.find((m) => m.role === "tool" && m.toolCallId === "tu_source")).toMatchObject({
+      role: "tool",
+      toolCallId: "tu_source",
+    });
+  });
+
   it("ships hidden context summaries as user handoff messages", () => {
     const summary = systemMsg("__CONTEXT_SUMMARY__\nCompacted after LLM request failure.");
     expect(isContextSummary(summary)).toBe(true);
@@ -134,6 +176,39 @@ describe("new-session slash command", () => {
     expect(parseNewSessionCommand("please create a new slide")).toEqual({
       isNewSession: false,
       remainingContent: "please create a new slide",
+    });
+  });
+});
+
+describe("/new context boundary", () => {
+  it("keeps visible history available while limiting LLM context to messages after the divider", () => {
+    const oldUser = userMsg("old request", "u-old");
+    const oldAssistant = assistantMsg("old output", []);
+    const divider = systemMsg("__CONTEXT_CLEARED__");
+    const newUser = userMsg("new request", "u-new");
+
+    const visibleHistory = [oldUser, oldAssistant, divider, newUser];
+    expect(visibleHistory).toHaveLength(4);
+    expect(activeContextMessages(visibleHistory)).toEqual([newUser]);
+    expect(assembleLlmMessages(activeContextMessages(visibleHistory))).toEqual([
+      { role: "user", content: "new request" },
+    ]);
+  });
+});
+
+describe("compact slash command", () => {
+  it("recognizes /compact and strips follow-up content", () => {
+    expect(parseCompactCommand("/compact")).toEqual({ isCompact: true, remainingContent: "" });
+    expect(parseCompactCommand("/compact 继续修第 4 页")).toEqual({
+      isCompact: true,
+      remainingContent: "继续修第 4 页",
+    });
+  });
+
+  it("leaves normal messages untouched", () => {
+    expect(parseCompactCommand("please compact this layout")).toEqual({
+      isCompact: false,
+      remainingContent: "please compact this layout",
     });
   });
 });

@@ -44,7 +44,7 @@ describe("PR4: applyAgentSurface helper merges options into wrapper nodes", () =
     const out = applyAgentSurface(node, {
       borderColor: "AAA",
       borderWidth: 0.02,
-      surface: { border: { color: "BBB", width: 0.08, style: "dash", radius: 0.3 }, elevation: "floating", padding: 0.6 },
+      surface: { border: { color: "BBB", width: 0.08, style: "dash", cornerRadius: 0.3 }, elevation: "floating", padding: 0.6 },
     });
     expect(out.line).toBe("BBB");
     expect(out.lineWidth).toBe(0.08);
@@ -52,6 +52,23 @@ describe("PR4: applyAgentSurface helper merges options into wrapper nodes", () =
     expect(out.cornerRadius).toBe(0.3);
     expect(out.elevation).toBe("floating");
     expect(out.padding).toBe(0.6);
+  });
+
+  it("lineDash/borderStyle:'solid' clears an inherited dashed stroke", () => {
+    const node: DomNode = { id: "x", type: "stack", dash: "dot", children: [] };
+    const lineSolid = applyAgentSurface(node, { lineDash: "solid" });
+    expect(lineSolid.lineDash).toBe("solid");
+    expect(lineSolid.dash).toBeUndefined();
+
+    const borderSolid = applyAgentSurface(node, { surface: { border: { style: "solid" } } });
+    expect(borderSolid.borderStyle).toBe("solid");
+    expect(borderSolid.dash).toBeUndefined();
+  });
+
+  it("accent:'none' is preserved so agents can disable default accent bars", () => {
+    const node: DomNode = { id: "x", type: "card", accent: "left", children: [] };
+    const out = applyAgentSurface(node, { accent: "none" });
+    expect(out.accent).toBe("none");
   });
 
   it("does not modify defaults the agent didn't set", () => {

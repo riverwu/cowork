@@ -9,8 +9,8 @@ export function auditDeck(deck: RenderedDeck, task: AgentTask = {}): AuditReport
       const logo = nodes.find((node) => node.id === `${slide.id}.brandLogo`);
       if (!logo) {
         issues.push({ code: "MISSING_BRAND_LOGO", slideId: slide.id, message: "Slide is missing brand logo node." });
-      } else if (logo.position !== "bottom-right") {
-        issues.push({ code: "BRAND_LOGO_POSITION", slideId: slide.id, nodeName: logo.id, message: "Brand logo must be positioned bottom-right." });
+      } else if (logo.anchor !== "bottom-right") {
+        issues.push({ code: "BRAND_LOGO_POSITION", slideId: slide.id, nodeName: logo.id, message: "Brand logo must be anchored bottom-right." });
       }
     }
     if (task.requireCoverBrandBackground && slide.layout === "cover" && slide.dom.background !== "brand.primary") {

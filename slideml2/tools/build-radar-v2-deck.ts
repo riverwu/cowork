@@ -63,8 +63,8 @@ const deck: Slideml2SourceDeck = {
         "source-note": { fontSize: 8.5, color: "text.muted", lineHeight: 1.15 },
       },
       component: {
-        card: { fill: "surface", line: "divider", padding: 0.45, radius: 0.18 },
-        panel: { fill: "surface", line: "divider", padding: 0.45, radius: 0.18 },
+        card: { fill: "surface", line: "divider", padding: 0.45, cornerRadius: 0.18 },
+        panel: { fill: "surface", line: "divider", padding: 0.45, cornerRadius: 0.18 },
       },
       chart: { series: ["brand.primary", "brand.secondary", "orange", "green", "red"] },
       guidance: {

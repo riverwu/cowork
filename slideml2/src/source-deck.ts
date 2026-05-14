@@ -1,24 +1,43 @@
-import type { DomNode, RenderedDeck, RenderedSlide, Slideml2SourceDeck, SlideV2 } from "./types.js";
+import type { DeckSpec, DomNode, RenderedDeck, RenderedSlide, Slideml2SourceDeck, SlideV2 } from "./types.js";
 import { buildTheme } from "./theme.js";
+import { isDeckSize } from "./schema.js";
+import { resolveDataBindings, type DataBindingOptions } from "./data-binding.js";
+import { resolveScientificReferences } from "./m3-references.js";
+import { rectFromNodePlacement } from "./layout/geometry.js";
 
 export function createSourceDeck(options: {
   title?: string;
+  size?: DeckSpec["size"];
   theme?: string;
   brand?: { name?: string; primary?: string; logo?: string };
+  themeOverride?: DeckSpec["themeOverride"];
+  validation?: DeckSpec["validation"];
+  master?: DeckSpec["master"];
+  dataSources?: DeckSpec["dataSources"];
+  references?: DeckSpec["references"];
+  footnotes?: DeckSpec["footnotes"];
 } = {}): Slideml2SourceDeck {
   return {
     slideml2: 2,
     deck: {
-      size: "16x9",
+      size: isDeckSize(options.size) ? options.size : "16x9",
       theme: options.theme || "default",
       brand: options.brand || { name: options.title, primary: "2563EB" },
+      themeOverride: options.themeOverride,
+      validation: options.validation,
+      master: options.master,
+      dataSources: options.dataSources,
+      references: options.references,
+      footnotes: options.footnotes,
       metadata: options.title ? { title: options.title } : {},
     },
     slides: [],
   };
 }
 
-export function sourceToRenderedDeck(source: Slideml2SourceDeck): RenderedDeck {
+export function sourceToRenderedDeck(source: Slideml2SourceDeck, options: DataBindingOptions = {}): RenderedDeck {
+  source = resolveDataBindings(source, options);
+  source = resolveScientificReferences(source);
   const themeOverride = mergeDeckChrome(source.deck.themeOverride, source.deck.chrome);
   const theme = buildTheme(source.deck.brand || {}, source.deck.theme || "default", themeOverride);
   const articleStyle = theme.text.article || theme.text.paragraph;
@@ -29,8 +48,11 @@ export function sourceToRenderedDeck(source: Slideml2SourceDeck): RenderedDeck {
       theme: source.deck.theme || "default",
       brand: source.deck.brand || {},
       themeOverride,
+      master: source.deck.master,
     },
-    slides: source.slides.flatMap((slide) => expandArticleSlide(slide, pageWeight)).map(sourceSlideToRendered),
+    slides: source.slides
+      .flatMap((slide) => expandArticleSlide(slide, pageWeight))
+      .map((slide) => sourceSlideToRendered(normalizeSlide(slide))),
   };
 }
 
@@ -57,6 +79,8 @@ function computeArticlePageWeight(fontSize: number, lineHeight: number): number 
 }
 
 export function sourceSlideToRendered(slide: SlideV2): RenderedSlide {
+  const shouldInjectSlideTitle = shouldRenderSlideTitle(slide);
+  const slideTitle = typeof slide.title === "string" ? slide.title : "";
   return {
     id: slide.id,
     layout: "title-and-content",
@@ -65,21 +89,64 @@ export function sourceSlideToRendered(slide: SlideV2): RenderedSlide {
       type: "slide",
       background: resolveSlideBackground(slide),
       notes: slide.notes,
+      transition: slide.transition,
       children: [
-        ...(slide.title ? [{
+        ...(shouldInjectSlideTitle ? [{
           id: `${slide.id}.title`,
           type: "slide-title" as const,
-          text: slide.title,
+          text: slideTitle,
           align: "left",
           // Long Chinese / English titles routinely overflow the 1.45cm
           // title rect. autoFit:"shrink" lets the renderer scale the title
           // down to fit instead of clipping, preserving the agent's text.
           autoFit: "shrink" as const,
         }] : []),
-        ...ensureContentArea(slide.id, slide.children, Boolean(slide.title)),
+        ...ensureContentArea(slide.id, slide.children, shouldInjectSlideTitle),
       ],
     },
   };
+}
+
+function shouldRenderSlideTitle(slide: SlideV2): boolean {
+  if (typeof slide.title !== "string" || !slide.title.trim()) return false;
+  const bodyHeroTitle = findBodyHeroTitle(slide.children || []);
+  if (!bodyHeroTitle.found) return true;
+  return !bodyHeroTitleMatchesSlideTitle(slide.title, bodyHeroTitle.titles);
+}
+
+function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[] } {
+  const titles: string[] = [];
+  let found = false;
+  for (const node of nodes) {
+    if (!node || typeof node !== "object") continue;
+    const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
+    if (componentName === "section-break" || componentName === "title-lockup" || componentName === "cover-composition" || componentName === "chapter-divider") {
+      found = true;
+      if (typeof node.title === "string" && node.title.trim()) titles.push(node.title);
+    } else if (node.type === "deck-title" || node.type === "slide-title") {
+      found = true;
+      if (typeof node.text === "string" && node.text.trim()) titles.push(node.text);
+    } else if (node.type === "text" && (node.style === "deck-title" || node.style === "slide-title" || node.style === "section-title")) {
+      found = true;
+      if (typeof node.text === "string" && node.text.trim()) titles.push(node.text);
+    }
+    const inner = (node.children as DomNode[] | undefined) || [];
+    if (inner.length) {
+      const nested = findBodyHeroTitle(inner);
+      found = found || nested.found;
+      titles.push(...nested.titles);
+    }
+  }
+  return { found, titles };
+}
+
+function bodyHeroTitleMatchesSlideTitle(slideTitle: string, bodyTitles: string[]): boolean {
+  const normalizedSlideTitle = normalizeHeroTitle(slideTitle);
+  return bodyTitles.length > 0 && bodyTitles.every((title) => normalizeHeroTitle(title) === normalizedSlideTitle);
+}
+
+function normalizeHeroTitle(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 /**
@@ -128,7 +195,7 @@ export function normalizeSlide(slide: SlideV2): SlideV2 {
   };
 }
 
-// Anchor / position values that the renderer treats as slide-level overlays
+// Anchor values that the renderer treats as slide-level overlays
 // (they get a fixed rect from rectForSlideChild instead of flowing inside the
 // content stack). Mirrored from render.ts ANCHOR_POINTS / isOverlayChild.
 const OVERLAY_ANCHOR_POINTS = new Set([
@@ -145,30 +212,41 @@ const OVERLAY_ANCHOR_POINTS = new Set([
 // metadata gets buried inside the content stack and is ignored.
 const OVERLAY_COMPONENT_TYPES = new Set([
   "watermark", "corner-mark", "callout-marker", "big-page-number",
+  "brand-mark",
   "freeform-group", "cover-composition", "chapter-divider",
 ]);
 
 function isOverlayChildAtSource(node: DomNode): boolean {
   if (!node || typeof node !== "object") return false;
   if ((node.type === "decoration-grid" || node.type === "decorative-shapes") && node.asBackground !== false) return true;
+  if (node.layer === "behind" || node.layer === "above") return true;
   if (typeof node.anchor === "string" && OVERLAY_ANCHOR_POINTS.has(node.anchor)) return true;
   if (typeof node.anchorTo === "string" && node.anchorTo.length > 0) return true;
-  if (isAbsoluteAt(node.at)) return true;
-  if (node.type === "image" && (node.position === "bottom-right" || node.position === "top-right" || node.position === "center")) return true;
+  if (rectFromNodePlacement(node)) return true;
+  if (isOverlayWrapperAtSource(node)) return true;
   if (typeof node.type === "string" && OVERLAY_COMPONENT_TYPES.has(node.type)) return true;
   return false;
 }
 
-/**
- * `at: [x, y, w, h]` — slide-relative absolute positioning. Validates as
- * a 4-number array; the renderer clamps w/h ≤ 0 to a tiny floor. A
- * non-array or wrong-length value is silently ignored — the node falls
- * through to the next overlay-detection path or to flow.
- */
-function isAbsoluteAt(value: unknown): value is [number, number, number, number] {
-  return Array.isArray(value)
-    && value.length === 4
-    && value.every((n) => typeof n === "number" && Number.isFinite(n));
+function isOverlayWrapperAtSource(node: DomNode): boolean {
+  if (node.type !== "stack" && node.type !== "freeform-group") return false;
+  if (!Array.isArray(node.children) || node.children.length === 0) return false;
+  if (node.area || node.at || rectFromNodePlacement(node) || node.anchor || node.anchorTo) return false;
+  if (hasVisibleWrapperSurface(node)) return false;
+  return node.children.every((child) => isOverlayChildAtSource(child));
+}
+
+function hasVisibleWrapperSurface(node: DomNode): boolean {
+  return [
+    "fill",
+    "background",
+    "line",
+    "borderColor",
+    "borderWidth",
+    "tone",
+    "title",
+    "header",
+  ].some((key) => node[key] !== undefined);
 }
 
 function aliasDimensionFields(node: DomNode): DomNode {
@@ -180,13 +258,14 @@ function aliasDimensionFields(node: DomNode): DomNode {
   // rendered at default size.
   //
   // Caveats:
-  //   - `image` / `chart` / `table` with anchor/position read `width` /
+  //   - `image` / `chart` / `table` with anchor read `width` /
   //     `height` directly via numberProp() — do not strip those.
   //   - Other container types: copy `height`→`fixedHeight` (canonical
   //     field) but keep both available so any code reading either form
   //     still works.
   const skipAlias = node.type === "image" || node.type === "chart" || node.type === "table"
-    || typeof node.anchor === "string" || typeof node.position === "string";
+    || typeof node.anchor === "string"
+    || Boolean(rectFromNodePlacement(node));
   let mutated = node;
   if (!skipAlias) {
     if (typeof node.height === "number" && node.fixedHeight === undefined) {
@@ -206,18 +285,72 @@ function aliasDimensionFields(node: DomNode): DomNode {
   return mutated;
 }
 
+// Common authoring aliases that preserve the same SlideML semantics. These are
+// normalized before render so the validator can stay strict about the canonical
+// tree while still accepting predictable LLM shorthand.
+const TEXT_STYLE_TYPE_ALIASES = new Set([
+  "h3", "h4", "h5", "h6",
+  "body", "caption", "footnote",
+  "metric-value", "metric-label", "card-title", "section-title",
+  "paragraph", "bullet", "bullet-compact", "quote-source",
+  "title",
+]);
+
+const NODE_OBJECT_SLOT_KEYS = ["evidence", "rail", "left", "right", "hero", "insight"] as const;
+const NODE_ARRAY_SLOT_KEYS = ["annotations", "supports"] as const;
+
+function normalizeAuthoringAliases(node: DomNode): DomNode {
+  let normalized = node;
+  if (typeof normalized.type === "string" && TEXT_STYLE_TYPE_ALIASES.has(normalized.type)) {
+    normalized = {
+      ...normalized,
+      type: "text",
+      style: typeof normalized.style === "string" && normalized.style.trim() ? normalized.style : normalized.type,
+    };
+  }
+  const scalarRatio = normalized.ratio;
+  if (typeof scalarRatio === "number" && Number.isFinite(scalarRatio) && scalarRatio > 0) {
+    normalized = { ...normalized, ratio: scalarRatioToPair(scalarRatio) };
+  }
+  return normalized;
+}
+
+function scalarRatioToPair(value: number): [number, number] {
+  if (value > 0 && value < 1) return [value, 1 - value];
+  if (value === 1) return [1, 1];
+  if (value > 1 && value < 100) return [value, 100 - value];
+  return [value, 1];
+}
+
 function ensureContentArea(slideId: string, children: DomNode[], hasSlideTitle = false): DomNode[] {
   // Run dimension-field aliasing on every child before content-area wrap.
-  children = children.map((c) => aliasDimensionFields(c));
+  children = children.map((c) => normalizeAuthoringAliases(aliasDimensionFields(c)));
   if (children.some((node) => node.area === "content")) return children;
   // yajush regression: agents put a footer/corner decoration (image with
-  // position:"bottom-right" or anchor:"...") at slide-level expecting it to
+  // anchor:"bottom-right" at slide-level expecting it to
   // float over the slide. ensureContentArea used to wrap EVERY child inside
   // the content stack, so the seal got flowed and stretched to fill the
   // content rect. Now we split overlay-style children out: they stay at
   // slide level so rectForSlideChild gives them a proper anchored rect.
   const overlays = children.filter(isOverlayChildAtSource);
-  const flow = children.filter((c) => !isOverlayChildAtSource(c));
+  const explicitAreas = children.filter((c) => !isOverlayChildAtSource(c) && isExplicitAreaChild(c));
+  const flow = children.filter((c) => !isOverlayChildAtSource(c) && !isExplicitAreaChild(c));
+  if (explicitAreas.length > 0) {
+    if (flow.length === 0) return [...explicitAreas, ...overlays];
+    return [
+      {
+        id: `${slideId}.content`,
+        type: "stack",
+        area: "content",
+        direction: "vertical",
+        gap: 0.35,
+        children: flow,
+      },
+      ...explicitAreas,
+      ...overlays,
+    ];
+  }
+  if (flow.length === 0) return overlays;
   const onlyFlow = flow[0];
   if (!hasSlideTitle && flow.length === 1 && onlyFlow?.type === "band" && onlyFlow.area === undefined && onlyFlow.fixedHeight === undefined && onlyFlow.height === undefined) {
     return [onlyFlow, ...overlays];
@@ -235,16 +368,38 @@ function ensureContentArea(slideId: string, children: DomNode[], hasSlideTitle =
   ];
 }
 
+function isExplicitAreaChild(node: DomNode): boolean {
+  return typeof node.area === "string" && node.area.trim().length > 0;
+}
+
 function normalizeNode(slideId: string, node: DomNode, fallbackId: string): DomNode {
   if (!node || typeof node !== "object") return { id: fallbackId, type: "text", text: "" };
   const raw = node as DomNode & { component?: unknown };
   void raw;
-  const id = typeof node.id === "string" && node.id ? node.id : fallbackId;
-  return {
-    ...aliasDimensionFields(node),
+  const aliased = normalizeAuthoringAliases(aliasDimensionFields(node));
+  const id = typeof aliased.id === "string" && aliased.id ? aliased.id : fallbackId;
+  const normalized: DomNode = {
+    ...aliased,
     id,
-    children: Array.isArray(node.children) ? node.children.map((child, index) => normalizeNode(slideId, child, `${id}.${index + 1}`)) : node.children,
+    children: Array.isArray(aliased.children) ? aliased.children.map((child, index) => normalizeNode(slideId, child, `${id}.${index + 1}`)) : aliased.children,
   };
+  for (const key of NODE_OBJECT_SLOT_KEYS) {
+    const value = aliased[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      normalized[key] = normalizeNode(slideId, value as DomNode, `${id}.${key}`);
+    }
+  }
+  for (const key of NODE_ARRAY_SLOT_KEYS) {
+    const value = aliased[key];
+    if (Array.isArray(value)) {
+      normalized[key] = value.map((item, index) =>
+        item && typeof item === "object" && !Array.isArray(item)
+          ? normalizeNode(slideId, item as DomNode, `${id}.${key}.${index + 1}`)
+          : item
+      );
+    }
+  }
+  return normalized;
 }
 
 function expandArticleSlide(slide: SlideV2, pageWeight = 950): SlideV2[] {

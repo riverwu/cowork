@@ -1,0 +1,54 @@
+{
+  "name": "slideml2",
+  "version": "1.0.32",
+  "description": "Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.",
+  "generatedAt": "2026-05-13T07:56:14.945Z",
+  "sourceCommit": "18cc73655bb5",
+  "files": [
+    "slideml2/",
+    "slideml2/business.md",
+    "slideml2/runtime/",
+    "slideml2/runtime/bin/",
+    "slideml2/runtime/bin/slideml2.js",
+    "slideml2/runtime/dist/",
+    "slideml2/runtime/dist/index.js",
+    "slideml2/runtime/package.json",
+    "slideml2/runtime/RUNTIME.md",
+    "slideml2/README.md",
+    "slideml2/planning-template.md",
+    "slideml2/SKILL.md",
+    "slideml2/manifest.json",
+    "slideml2/LICENSE.txt"
+  ],
+  "install": {
+    "zipRoot": "slideml2",
+    "targetDirectory": "$CODEX_HOME/skills/slideml2",
+    "notes": [
+      "Unzip preserving the slideml2 directory.",
+      "Runtime dependencies are bundled into runtime/dist/index.js; basic runtime/bin/slideml2.js commands run with Node.js immediately after unzip.",
+      "Run CLI commands from the deck workspace; omitted --deck defaults to ./deck.json.",
+      "The runtime package is executable-only and intentionally omits TypeScript source, tests, examples, development scripts, and node_modules.",
+      "The agent-facing interface is the CLI only; do not expose TypeScript handlers or npm scripts as separate command interfaces.",
+      "Generated PPT outputs and dependency caches are intentionally excluded."
+    ]
+  },
+  "runtime": {
+    "directory": "slideml2/runtime",
+    "cli": "node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js",
+    "defaultDeckPath": "./deck.json",
+    "commands": {
+      "initDeck": "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js init-deck deck-init.json",
+      "setDeck": "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js set-deck deck-theme.json",
+      "addSlide": "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js add-slide slide-01.json",
+      "insertSlide": "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js insert-slide 1 slide-insert.json",
+      "setSlide": "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js set-slide 0 slide-01.json",
+      "deleteSlide": "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js delete-slide 0",
+      "validate": "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js validate",
+      "render": "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js render --out deck.pptx"
+    },
+    "devInstallCommand": "not supported in the skill package; rebuild from the upstream SlideML2 repository",
+    "devBuildCommand": "not supported in the skill package; rebuild from the upstream SlideML2 repository"
+  },
+  "packageFile": "slideml2-skill-v1.0.32.zip",
+  "sha256": "121ee0599a7256ae26645fc95c91f86fceeebae78c439e914431550fbe5854f8"
+}

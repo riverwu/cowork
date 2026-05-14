@@ -81,7 +81,7 @@ describe("761q1u-1: frame-as-divider fallback (mirror band-divider)", () => {
 });
 
 describe("761q1u-2: numbered-grid 5+ items uses smaller chip in dense mode", () => {
-  it("numbered-grid with 5 items emits a 0.7cm chip (not 0.95cm) so body fits", () => {
+  it("numbered-grid with 5 items emits a compact chip so body fits", () => {
     const slide: SlideV2 = {
       id: "toc",
       title: "Contents",
@@ -101,10 +101,10 @@ describe("761q1u-2: numbered-grid 5+ items uses smaller chip in dense mode", () 
     const ast = renderToAst(sourceToRenderedDeck(deck([slide])));
     const shapes = ast.slides[0].shapes as Array<{ type: string; xfrm?: { cx: number; cy: number }; fill?: { type: string; color?: string }; paragraphs?: Array<{ runs: Array<{ text: string }> }> }>;
     // Chip is rendered as a TEXT shape (not "shape") with a single-char run
-    // (the index "1".."5") and a brand-color fill, sized 0.7×0.7cm.
+    // (the index "1".."5") and a compact brand-color fill.
     const chipShapes = shapes.filter((s) => s.type === "text" && s.fill?.type === "solid"
-      && s.xfrm?.cx === Math.round(0.7 * EMU_PER_CM)
-      && s.xfrm?.cy === Math.round(0.7 * EMU_PER_CM)
+      && s.xfrm?.cx === Math.round(0.54 * EMU_PER_CM)
+      && s.xfrm?.cy === Math.round(0.54 * EMU_PER_CM)
       && s.paragraphs?.length === 1 && /^\d$/.test(s.paragraphs[0]!.runs[0]!.text));
     expect(chipShapes.length).toBeGreaterThanOrEqual(1);
   });

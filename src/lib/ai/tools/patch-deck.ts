@@ -1,5 +1,6 @@
 import type { Tool } from "./types";
 import { slideml2PatchDeck, slideml2ReadDeck, type Slideml2JsonPatchOp } from "@/lib/tauri";
+import { recordSlideWrite, slideAuthoringCheckpointHint, slideSemanticLayoutHint } from "./slideml2-authoring-state";
 
 /**
  * patch_deck v2 — unified DOM-edit primitive.
@@ -19,6 +20,8 @@ export const patchDeckTool: Tool = {
   definition: {
     name: "patch_deck",
     description: `Edit any part of the deck DOM by JSON Pointer path. Unified primitive for theme tokens, brand fields, chrome settings, slide content, slide ordering, and slide insertion/deletion.
+
+Use patch_deck for focused repairs, deck-level theme/chrome edits, reorder/delete operations, and occasional slide replacement. Do not use it to bulk-author the full deck in one call. Normal slide authoring should go through \`replace_slide\`, which validates a single candidate slide and commits only when it passes. After all slides are added, run \`validate_render({render:true})\` once for full-deck PPTX export and final QA. If a whole-slide patch is mostly manually positioned \`text\`, the result includes a non-blocking semantic layout warning with better component candidates.
 
 You no longer write {op,path,value} ops. Put paths into the group whose name expresses the intent:
 
@@ -220,7 +223,12 @@ The whole deck is re-validated after each call; failed validation rolls back wit
       if (insertObj) counts.push(`insert=${Object.keys(insertObj).length}`);
       if (moveObj) counts.push(`move=${Object.keys(moveObj).length}`);
       if (copyObj) counts.push(`copy=${Object.keys(copyObj).length}`);
-      return `Patch applied (${counts.join(", ")}). slideCount=${result.summary.slideCount}.`;
+      const slideTargets = slideTargetsTouchedByOps(ops);
+      const semanticHints = semanticHintsForSlideOps(ops);
+      const slideWriteLine = slideTargets.length > 0
+        ? patchSlideWriteLine(deckPath, slideTargets, semanticHints)
+        : "";
+      return `Patch applied (${counts.join(", ")}). slideCount=${result.summary.slideCount}.${slideWriteLine}`;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return `Error: patch_deck failed.\n${message}`;
@@ -232,6 +240,51 @@ The whole deck is re-validated after each call; failed validation rolls back wit
     return rawResult.slice(0, 200);
   },
 };
+
+function patchSlideWriteLine(deckPath: string, slideTargets: string[], semanticHints: string[] = []): string {
+  let writes = 0;
+  for (const target of slideTargets) {
+    writes = recordSlideWrite(deckPath, target);
+  }
+  const bulkHint = slideTargets.length > 2
+    ? ` Bulk slide patch touched ${slideTargets.length} slide targets; normal slide authoring should use replace_slide one page at a time so each candidate is validated before commit.`
+    : "";
+  const semanticHint = semanticHints.length > 0 ? `\n${[...new Set(semanticHints)].slice(0, 3).join("\n")}` : "";
+  return ` slideWritesSinceFinalRender=${writes}.${bulkHint}${semanticHint}\n${slideAuthoringCheckpointHint(deckPath, writes)}`;
+}
+
+function semanticHintsForSlideOps(ops: Slideml2JsonPatchOp[]): string[] {
+  const hints: string[] = [];
+  for (const op of ops) {
+    if (!("value" in op)) continue;
+    if (!isWholeSlidePath(op.path)) continue;
+    const hint = slideSemanticLayoutHint(op.value);
+    if (hint) hints.push(hint);
+  }
+  return hints;
+}
+
+function isWholeSlidePath(path: string): boolean {
+  return path === "/slides/-" || /^\/slides\/(?:\d+|before:[^/]+|after:[^/]+)$/.test(path);
+}
+
+function slideTargetsTouchedByOps(ops: Slideml2JsonPatchOp[]): string[] {
+  const targets = new Set<string>();
+  for (const op of ops) {
+    for (const path of [op.path, "from" in op ? op.from : undefined]) {
+      const target = typeof path === "string" ? slideTargetFromPath(path) : null;
+      if (target) targets.add(target);
+    }
+  }
+  return [...targets];
+}
+
+function slideTargetFromPath(path: string): string | null {
+  if (path === "/slides") return "/slides";
+  const match = /^\/slides\/([^/]+)/.exec(path);
+  if (!match) return null;
+  return `/slides/${match[1]}`;
+}
 
 /* --------------------------- coercion helpers --------------------------- */
 

@@ -57,6 +57,14 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("mode `append`");
     expect(prompt).toContain("short loader");
     expect(prompt).toContain("Do not use `shell` to run `node script.js`");
+    expect(prompt).toContain("Installed skill CLIs");
+  });
+
+  it("keeps domain-specific toolchains ahead of generic scripts", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).toContain("domain toolchain takes precedence");
+    expect(prompt).toContain("Do not hand-edit that source artifact");
+    expect(prompt).toContain("Do not generate a separate replacement deliverable");
   });
 
   it("guides long coding work through targeted patches", () => {

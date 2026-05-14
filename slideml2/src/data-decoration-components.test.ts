@@ -298,7 +298,7 @@ describe("decorative-shapes", () => {
       id: "s", title: "x",
       children: [{
         id: "s.ds", type: "decorative-shapes",
-        motif: "confetti", position: "full", tone: "accent", count: 16,
+        motif: "confetti", anchor: "full", tone: "accent", count: 16,
       } as unknown as DomNode],
     };
     expectClean(slide, "decorative-shapes");
@@ -309,7 +309,7 @@ describe("decorative-shapes", () => {
       id: "s", title: "x",
       children: [{
         id: "s.ds", type: "decorative-shapes",
-        motif: "corner-blobs", position: "bottom-right", tone: "brand", count: 6,
+        motif: "corner-blobs", anchor: "bottom-right", tone: "brand", count: 6,
       } as unknown as DomNode],
     };
     expectClean(slide, "decorative-shapes-corner");
@@ -402,7 +402,7 @@ describe("big-page-number", () => {
       id: "s", title: "x",
       children: [{
         id: "s.bpn", type: "big-page-number",
-        current: 5, total: 22, position: "top-right", tone: "brand",
+        current: 5, total: 22, corner: "top-right", tone: "brand",
       } as unknown as DomNode],
     };
     expectClean(slide, "big-page-number");

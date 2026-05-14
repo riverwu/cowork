@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { patchDeckTool } from "./patch-deck";
+import { resetAllSlideMl2AuthoringState } from "./slideml2-authoring-state";
 
 vi.mock("@/lib/tauri", () => ({
   slideml2PatchDeck: vi.fn(),
@@ -14,6 +15,7 @@ const mockRead = slideml2ReadDeck as unknown as ReturnType<typeof vi.fn>;
 beforeEach(() => {
   mockPatch.mockReset();
   mockRead.mockReset();
+  resetAllSlideMl2AuthoringState();
   mockPatch.mockResolvedValue({ ok: true, summary: { slideCount: 5 } });
   // Default deck for read: 5 slides with ids cover, intro, body1, body2, end
   mockRead.mockResolvedValue({
@@ -119,6 +121,22 @@ describe("patch_deck v2 — unset group", () => {
 });
 
 describe("patch_deck v2 — insert group", () => {
+  it("warns against bulk slide authoring and defers full render until final QA", async () => {
+    const result = await patchDeckTool.execute({
+      deckPath: "/tmp/x.json",
+      insert: {
+        "/slides/-": { id: "s1" },
+        "/slides/1": { id: "s2" },
+        "/slides/2": { id: "s3" },
+      },
+    });
+
+    expect(String(result)).toContain("Bulk slide patch touched 3 slide targets");
+    expect(String(result)).toContain("replace_slide one page at a time");
+    expect(String(result)).toContain("pending final full-deck render");
+    expect(String(result)).toContain("After all slides are added");
+  });
+
   it("insert with /slides/N emits add op (splice)", async () => {
     await patchDeckTool.execute({
       deckPath: "/tmp/x.json",

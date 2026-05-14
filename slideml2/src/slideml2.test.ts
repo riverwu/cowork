@@ -24,7 +24,6 @@ import {
   findNodeForTest,
   generateDeckWithBatchAgent,
   generateOneSlideWithLlm,
-  generateFromMarkdown,
   generateWithComponentAgent,
   insertSlide,
   listNodeTypesForTest,
@@ -32,8 +31,7 @@ import {
   listTextKinds,
   listThemes,
   measureDeck,
-  planPagesFromMarkdown,
-  planPagesFromMarkdownWithLlm,
+  normalizeSlide,
   renderToAst,
   renderToPptx,
   replaceSlide,
@@ -53,6 +51,8 @@ describe("slideml2 MVP", () => {
   it("describes the available semantic node types", () => {
     expect(listNodeTypesForTest().map((item) => item.type)).toEqual(["slide", "stack", "grid", "split", "spacer", "divider", "text", "bullets", "image", "table", "chart", "shape", "component", "panel", "card", "band", "frame", "inset"]);
     expect(describeNodeType("bullets").fields.items).toContain("string[]");
+    expect(describeNodeType("card").fields.title).toContain("Alias for header");
+    expect(describeNodeType("card").fields.header).toContain("Same rendering as title");
   });
 
   it("builds semantic DOM from simple layout specs", () => {
@@ -60,14 +60,14 @@ describe("slideml2 MVP", () => {
     const cover = deck.slides.find((slide) => slide.id === "cover");
     expect(cover?.dom.id).toBe("cover.root");
     expect(findNodeForTest(cover!.dom, "cover.title")?.text).toBe("Youdao Company");
-    expect(findNodeForTest(cover!.dom, "cover.brandLogo")?.position).toBe("top-right");
+    expect(findNodeForTest(cover!.dom, "cover.brandLogo")?.anchor).toBe("top-right");
   });
 
   it("applies the four primitive edit operations to the DOM", () => {
     const deck = buildDom(sampleSource());
     const edited = applyEdits(deck, [
       { op: "setSlideProp", slideId: "cover", prop: "background", value: "brand.primary" },
-      { op: "setNodeProp", slideId: "cover", nodeName: "cover.brandLogo", prop: "position", value: "bottom-right" },
+      { op: "setNodeProp", slideId: "cover", nodeName: "cover.brandLogo", prop: "anchor", value: "bottom-right" },
       {
         op: "insertNode",
         slideId: "business",
@@ -83,7 +83,7 @@ describe("slideml2 MVP", () => {
     ]);
 
     expect(edited.slides.find((slide) => slide.id === "cover")?.dom.background).toBe("brand.primary");
-    expect(findNodeForTest(edited.slides[0]!.dom, "cover.brandLogo")?.position).toBe("bottom-right");
+    expect(findNodeForTest(edited.slides[0]!.dom, "cover.brandLogo")?.anchor).toBe("bottom-right");
     expect(findNodeForTest(edited.slides[1]!.dom, "business.businessLines")?.items).toHaveLength(2);
     expect(findNodeForTest(edited.slides[1]!.dom, "business.bullets")).toBeNull();
   });
@@ -549,92 +549,6 @@ describe("slideml2 MVP", () => {
     expect(sidecar.slides).toHaveLength(2);
   });
 
-  it("plans pages from markdown, writes SlideML2 JSON, and renders", async () => {
-    const markdown = `# 有道智能学习业务分析
-
-品牌色：#E8382C
-
-## 业务经营概览
-
-学习服务、智能硬件与在线营销形成互补组合，增长质量取决于 AI 能力和硬件入口的协同。
-
-### 指标
-
-- 2024年营收：56.3亿
-- 全年盈利：首次
-- 月活用户：2.8亿+
-
-### 关键判断
-
-- 硬件承担高频学习入口
-- 大模型提升学习服务体验
-- 营销业务提供现金流支撑
-
-### 图片
-
-图题：品牌入口与学习场景
-
-## 从工具到 AI 学习平台
-
-页面需要同时容纳阶段说明和四个演进节点，自动布局要保留标题、导语和卡片间距。
-
-### 阶段
-
-1. 词典入口：用高频工具建立用户基础。
-2. 内容服务：扩展课程、翻译和学习资源。
-3. 智能硬件：用词典笔等设备进入学习现场。
-4. AI Agent：把大模型能力嵌入学习流程。
-
-## 三类业务的角色分工
-
-复杂页面不应该把所有信息挤成一组均分文本框，而应保留主结论和并列比较区。
-
-### 学习服务
-
-- 内容和订阅承接需求
-- AI 提升个性化体验
-
-### 智能硬件
-
-- 形成场景入口
-- 具备品牌可见度
-
-### 在线营销
-
-- 贡献现金流
-- 依托用户规模
-`;
-    const plan = planPagesFromMarkdown(markdown, sampleLogo());
-    expect(plan.pages.map((page) => page.kind)).toEqual(["dashboard", "timeline", "comparison"]);
-    expect(plan.pages.map((page) => page.structure)).toEqual([
-      "标题 + 主结论 + 三指标条 + 左侧关键判断 + 右侧图片与图题",
-      "标题 + 导语 + 横向阶段卡片",
-      "标题 + 主结论 + 并列比较卡片",
-    ]);
-
-    const dir = await mkdtemp(join(tmpdir(), "slideml2-md-"));
-    const markdownPath = join(dir, "input.md");
-    const outputPath = join(dir, "markdown-demo.pptx");
-    await writeFile(markdownPath, markdown, "utf8");
-    const result = await generateFromMarkdown(markdownPath, outputPath, sampleLogo());
-    expect(result.deck.slides).toHaveLength(3);
-    expect((await stat(result.outputPath)).size).toBeGreaterThan(1000);
-    expect(JSON.parse(await readFile(result.planPath, "utf8")).pages).toHaveLength(3);
-    expect(JSON.parse(await readFile(result.slideml2Path, "utf8")).slides).toHaveLength(3);
-    assertShapeBounds(renderToAst(result.deck));
-  });
-
-  it.skipIf(!runRealLlmTest)("plans pages from markdown with a real LLM", async () => {
-    const markdown = await readFile("examples/youdao_ai_learning.md", "utf8");
-    const plan = await planPagesFromMarkdownWithLlm(markdown, sampleLogo());
-    expect(plan.pages.length).toBeGreaterThanOrEqual(3);
-    expect(plan.pages.map((page) => page.kind)).toEqual(expect.arrayContaining(["dashboard", "timeline", "comparison"]));
-    for (const page of plan.pages) {
-      expect(page.title).toBeTruthy();
-      expect(page.structure).toBeTruthy();
-    }
-  }, 120_000);
-
   it("expands an agent component tree into renderable SlideML2 DOM", async () => {
     const deck = deckFromComponentPlan({
       title: "智能穿戴硬件新品调查报告",
@@ -760,6 +674,99 @@ describe("slideml2 MVP", () => {
     expect(textAlternatives.found["comparison-list"]?.fields.items.required).toBe(true);
     expect(textAlternatives.found["fact-list"]?.fields.items.required).toBe(true);
     expect(describeComponents(["unknown-component"]).missing).toEqual(["unknown-component"]);
+  });
+
+  it("exposes copyable schema examples that validate after normalization", () => {
+    const names = listComponents().map((item) => item.name);
+    const described = describeComponents(names).found;
+    const failures: Array<{ name: string; codes: string[] }> = [];
+    const blockingCodes = new Set(["FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "LOW_CONTRAST", "UNKNOWN_COLOR", "UNKNOWN_STYLE"]);
+    for (const [name, detail] of Object.entries(described)) {
+      for (const [index, example] of (detail.examples || []).entries()) {
+        const slide = normalizeSlide({ id: `example-${name}-${index}`, children: [example as never] } as never);
+        const validation = validateSlide(slide, { deck: { size: "16x9", theme: "default" } });
+        if (!validation.ok) failures.push({ name, codes: validation.errors.map((item) => item.code) });
+        clearRenderDiagnostics();
+        renderToAst(sourceToRenderedDeck({ slideml2: 2, deck: { size: "16x9", theme: "default" }, slides: [slide] } as never));
+        const blocking = [...blockingCodes].flatMap((code) => getDiagnosticsByCode(code as Parameters<typeof getDiagnosticsByCode>[0]));
+        if (blocking.length > 0) failures.push({ name, codes: blocking.map((item) => item.code) });
+      }
+    }
+    for (const node of listNodeTypesForTest()) {
+      const examples = Array.isArray((node as { examples?: unknown[] }).examples) ? (node as { examples: unknown[] }).examples : [];
+      for (const [index, example] of examples.entries()) {
+        const slide = normalizeSlide({ id: `node-example-${node.type}-${index}`, children: [example as never] } as never);
+        const validation = validateSlide(slide, { deck: { size: "16x9", theme: "default" } });
+        if (!validation.ok) failures.push({ name: node.type, codes: validation.errors.map((item) => item.code) });
+        clearRenderDiagnostics();
+        renderToAst(sourceToRenderedDeck({ slideml2: 2, deck: { size: "16x9", theme: "default" }, slides: [slide] } as never));
+        const blocking = [...blockingCodes].flatMap((code) => getDiagnosticsByCode(code as Parameters<typeof getDiagnosticsByCode>[0]));
+        if (blocking.length > 0) failures.push({ name: node.type, codes: blocking.map((item) => item.code) });
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it("budgets wrapped in-card headings before body text to prevent visual overlap", () => {
+    const deck = createSourceDeck({ title: "Wrapped heading regression" });
+    deck.deck.themeOverride = { text: { paragraph: { fontSize: 11, lineHeight: 1.4 } } };
+    deck.slides.push({
+      id: "abstract",
+      background: "FAF9F6",
+      children: [{
+        id: "s2.card",
+        type: "card",
+        tone: "neutral",
+        fill: "surface",
+        line: "divider",
+        cornerRadius: 0.1,
+        elevation: "raised",
+        at: [10.5, 1, 13.8, 12.3],
+        padding: 0.6,
+        children: [
+          { id: "s2.eyebrow", type: "text", text: "ABSTRACT", color: "text.muted", style: "label" },
+          { id: "s2.h", type: "h1", text: "Truth or Image? Reputation Pressure and Student Honesty" },
+          { id: "s2.rule", type: "accent-rule", tone: "brand", length: 4, thickness: 1 },
+          { id: "s2.body", type: "text", text: "This study investigates how reputation pressure affects the tendency of Grade 8 students to lie in school-related situations. Twelve participants completed a fifteen-item anagram challenge framed as a competition. Students were divided into two groups of six, balanced by academic level, in separate classrooms. Group A worked under low reputation pressure (scores private); Group B worked under high reputation pressure (scores announced publicly). The difference between reported and actual score was used as the measure of dishonest inflation.", style: "paragraph" },
+          { id: "s2.findings", type: "text", text: "Group A's average inflation was 1.50 anagrams; Group B's was 7.17 — nearly five times larger. The two distributions did not overlap at any point (p ≈ 0.001). Actual performance between groups was nearly identical (mean actual scores differ by only 0.5), making performance differences an unlikely explanation.", style: "paragraph" },
+        ],
+      }],
+    });
+
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    const shapes = ast.slides[0]!.shapes;
+    const title = shapes.find((shape) => shape.name === "s2.h")!;
+    const rule = shapes.find((shape) => shape.name === "s2.rule")!;
+    const body = shapes.find((shape) => shape.name === "s2.body")!;
+    const findings = shapes.find((shape) => shape.name === "s2.findings")!;
+    const EMU_PER_CM = 360000;
+    expect(title.xfrm!.cy / EMU_PER_CM).toBeGreaterThan(1.35);
+    expect(rule.xfrm!.y).toBeGreaterThan(title.xfrm!.y + title.xfrm!.cy);
+    expect(body.xfrm!.cy / EMU_PER_CM).toBeGreaterThan(2.75);
+    expect(findings.xfrm!.y).toBeGreaterThan(body.xfrm!.y + body.xfrm!.cy);
+    expect(getDiagnosticsByCode("TRUNCATED").filter((item) => item.nodeId === "s2.h")).toEqual([]);
+    expect(getDiagnosticsByCode("FALLBACK_FAILED").filter((item) => item.nodeId === "s2.body" || item.nodeId === "s2.findings")).toEqual([]);
+  });
+
+  it("reports fixed-height paragraph boxes whose wrapped text would overlap nearby content", () => {
+    const deck = createSourceDeck({ title: "Paragraph fit regression" });
+    deck.slides.push({
+      id: "paragraph-fit",
+      children: [{
+        id: "paragraph-fit.body",
+        type: "text",
+        style: "paragraph",
+        at: [1, 1, 7.2, 1.0],
+        text: "This paragraph is intentionally too long for a shallow fixed-height text box. The validator should estimate the wrapped text height and fail before PowerPoint lets the overflowing lines draw over the next object.",
+      }],
+    });
+
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(deck));
+    const failures = getDiagnosticsByCode("FALLBACK_FAILED").filter((item) => item.nodeId === "paragraph-fit.body");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.message).toContain("PowerPoint would overflow");
   });
 
   it("renders text narrative alternatives without falling back to repeated insight cards", () => {
@@ -898,7 +905,9 @@ describe("slideml2 MVP", () => {
     const blocking = [...blockingCodes].flatMap((code) => getDiagnosticsByCode(code as Parameters<typeof getDiagnosticsByCode>[0]));
     expect(blocking.map((item) => `${item.code}:${item.nodeId}`)).toEqual([]);
     const names = ast.slides[0]!.shapes.map((shape) => shape.name || "");
-    expect(names.some((name) => name.includes("dense-facts.factlist.items"))).toBe(true);
+    expect(names.some((name) => name.includes("dense-facts.factlist.1."))).toBe(true);
+    expect(names.some((name) => name.includes("dense-facts.factlist.6."))).toBe(true);
+    expect(ast.slides[0]!.shapes.some((shape) => shape.type === "table" && shape.name === "dense-facts.factlist.items")).toBe(false);
   });
 
   it("adapts long key-takeaway headlines inside normal content flow", () => {
@@ -1057,6 +1066,7 @@ describe("slideml2 MVP", () => {
     expect(described.found["side-rail"]?.children.allowed).toBe(true);
     expect(described.found["accent-rule"]?.fields.direction.enum).toEqual(["horizontal", "vertical"]);
     expect(described.found["axis-ruler"]?.fields.items.required).toBe(true);
+    expect(describeComponents(["freeform-group"]).found["freeform-group"]?.children).toMatchObject({ allowed: true, required: true });
 
     const sourceDeck = createSourceDeck({ title: "Visual primitives" });
     sourceDeck.slides.push({
@@ -1176,29 +1186,24 @@ describe("slideml2 MVP", () => {
     expect(table!.borderWidth).toBeLessThan(30_000);
   });
 
-  it("treats severely compressed component regions as blocking render diagnostics", () => {
+  it("treats severely compressed text regions as blocking render diagnostics", () => {
     const sourceDeck = createSourceDeck({ title: "Squashed layout" });
     sourceDeck.slides.push({
       id: "squashed",
-      title: "Too many peer cards",
+      title: "Too little text room",
       children: [{
-        id: "squashed.content",
-        type: "grid",
-        area: "content",
-        columns: 10,
-        gap: 0.35,
-        children: Array.from({ length: 10 }, (_, index) => ({
-          id: `squashed.card${index + 1}`,
-          type: "card",
-          children: [{ id: `squashed.card${index + 1}.text`, type: "text", text: `Card ${index + 1}` }],
-        })),
+        id: "squashed.text",
+        type: "text",
+        at: [1, 3, 10, 0.22],
+        text: "This paragraph has enough content that a sub-line-height region is not usable.",
       }],
     });
     clearRenderDiagnostics();
     renderToAst(sourceToRenderedDeck(sourceDeck));
     const squashed = getDiagnosticsByCode("SQUASHED");
     expect(squashed.length).toBeGreaterThan(0);
-    expect(squashed[0]?.suggestion).toContain("reduce");
+    expect(squashed[0]?.severity).toBe("error");
+    expect(squashed[0]?.suggestion).toContain("increase");
   });
 
   it("preserves common layout and visual props when semantic components expand", () => {
@@ -1290,7 +1295,7 @@ describe("slideml2 MVP", () => {
         themeOverride: {
           colors: { "brand.primary": "0F766E", surface: "F8FAFC" },
           text: { "card-title": { fontSize: 16, weight: "bold" as const, color: "brand.primary", lineHeight: 1.15 } },
-          component: { card: { padding: 0.42, radius: 0.18 } },
+          component: { card: { padding: 0.42, cornerRadius: 0.18 } },
           guidance: {
             scenario: "board dashboard",
             componentGuidance: {
@@ -1411,20 +1416,88 @@ describe("slideml2 MVP", () => {
     expect(validation.errors).toHaveLength(0);
   });
 
+  it("rejects invalid createDeck options before writing an unusable source deck", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "slideml2-ops-"));
+    const deckPath = join(dir, "invalid.slideml2.json");
+    const result = await createDeck(deckPath, {
+      title: "Invalid deck",
+      theme: "default",
+      themeOverride: {
+        layout: { contentTop: 1.4 },
+        chrome: { brandMark: false as never },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.validation?.errors.map((issue) => issue.code)).toEqual(expect.arrayContaining([
+      "INVALID_THEME_CHROME_VALUE",
+    ]));
+    expect(result.validation?.errors.map((issue) => issue.code)).not.toContain("THEME_LAYOUT_TITLE_OVERLAP");
+    await expect(stat(deckPath)).rejects.toThrow();
+  });
+
+  it("allows lowered contentTop for no-title or full-page layout decks", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "slideml2-ops-"));
+    const deckPath = join(dir, "full-page.slideml2.json");
+    const result = await createDeck(deckPath, {
+      title: "Full-page deck",
+      theme: "default",
+      themeOverride: {
+        layout: { contentTop: 1.4, contentBottom: 13.2 },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    await expect(stat(deckPath)).resolves.toBeDefined();
+  });
+
   it("renders deck.chrome footer text and page numbers through the theme chrome path", () => {
     const deck = createSourceDeck({ title: "Chrome", theme: "default" });
     deck.deck.chrome = { pageNumber: true, footerText: "Internal use" };
     deck.slides.push(sourceSlide("summary", "执行摘要"));
 
+    clearRenderDiagnostics();
     const ast = renderToAst(sourceToRenderedDeck(deck));
     const names = ast.slides[0]!.shapes.map((shape) => shape.name);
     expect(names).toContain("chrome.footer-text");
     expect(names).toContain("chrome.page-1");
+    const chromeBoxFailures = getDiagnosticsByCode("FALLBACK_FAILED")
+      .concat(getDiagnosticsByCode("TEXT_BOX_TOO_SHORT"))
+      .filter((diagnostic) => String(diagnostic.nodeId || "").startsWith("chrome."));
+    expect(chromeBoxFailures, chromeBoxFailures.map((d) => d.message).join("\n")).toHaveLength(0);
     const footer = ast.slides[0]!.shapes.find((shape) => shape.name === "chrome.footer-text");
     expect(footer?.type).toBe("text");
     if (footer?.type === "text") {
       expect(footer.paragraphs[0]?.runs[0]?.text).toBe("Internal use");
     }
+  });
+
+  it("accepts common themeOverride aliases emitted by agents", () => {
+    const deck = createSourceDeck({ title: "Theme aliases", theme: "default" });
+    deck.deck.themeOverride = {
+      text: {
+        paragraph: { lineSpacing: 1.28, bold: false },
+        "section-title": { bold: true },
+      },
+      component: {
+        card: { surface: { fill: "surface.subtle", padding: 0.2 } },
+      },
+      fonts: {
+        mono: { text: "Menlo" },
+      },
+      chrome: {
+        pageNumber: "true" as never,
+        brandMark: "topRight" as never,
+      },
+    };
+    deck.slides.push(sourceSlide("summary", "执行摘要"));
+
+    const validation = validateDeck(deck);
+    const codes = validation.errors.map((error) => error.code);
+    expect(codes).not.toContain("UNKNOWN_THEME_TEXT_FIELD");
+    expect(codes).not.toContain("UNKNOWN_THEME_COMPONENT_FIELD");
+    expect(codes).not.toContain("INVALID_THEME_FONT_VALUE");
+    expect(codes).not.toContain("INVALID_THEME_CHROME_VALUE");
   });
 
   it("validates source slides with actionable component errors", () => {
@@ -1448,7 +1521,7 @@ describe("slideml2 MVP", () => {
     const deck = createSourceDeck({ title: "Invalid theme", theme: "default" });
     deck.deck.themeOverride = {
       layout: { pageMarginY: 0.9 },
-      text: { paragraph: { lineSpacing: 1.4 } },
+      text: { paragraph: { tracking: 1.4 } },
       component: { card: { borderRadius: 8 } },
       fonts: { body: ["Arial"] },
     } as never;
@@ -1462,6 +1535,103 @@ describe("slideml2 MVP", () => {
       "UNKNOWN_THEME_COMPONENT_FIELD",
       "UNKNOWN_THEME_FONT_FIELD",
     ]));
+  });
+
+  it("reports invalid numeric layout values without crashing validation", () => {
+    const deck = createSourceDeck({ title: "Invalid layout value", theme: "default" });
+    deck.deck.themeOverride = {
+      layout: { contentBottom: "13.3" },
+    } as never;
+    deck.slides.push(sourceSlide("summary", "执行摘要"));
+
+    const validation = validateDeck(deck);
+    expect(validation.ok).toBe(false);
+    expect(validation.errors.map((err) => err.code)).toContain("INVALID_THEME_LAYOUT_VALUE");
+    expect(validation.errors.map((err) => err.code)).not.toContain("LAYOUT_VALIDATION_CRASH");
+  });
+
+  it("rejects legacy ambiguous theme names and impossible content area geometry", () => {
+    const deck = createSourceDeck({ title: "Invalid layout", theme: "default" });
+    deck.deck.themeOverride = {
+      layout: { contentBottom: 6, contentBottomMargin: 13 },
+      component: { card: { radius: 0.18 } },
+    } as never;
+    deck.slides.push(sourceSlide("summary", "执行摘要"));
+
+    const validation = validateDeck(deck);
+    expect(validation.ok).toBe(false);
+    expect(validation.errors.map((err) => err.code)).toEqual(expect.arrayContaining([
+      "UNKNOWN_THEME_LAYOUT_FIELD",
+      "THEME_LAYOUT_CONTENT_AREA_TOO_SMALL",
+      "UNKNOWN_THEME_COMPONENT_FIELD",
+    ]));
+    expect(validation.errors.find((err) => err.code === "THEME_LAYOUT_CONTENT_AREA_TOO_SMALL")?.suggestedFix).toContain("contentBottom is the content area's bottom y-coordinate");
+    expect(validation.errors.find((err) => err.path === "deck.themeOverride.component.card.radius")?.suggestedFix).toContain("Rename radius to cornerRadius");
+  });
+
+  it("warns when theme layout leaves too little practical content height", () => {
+    const deck = createSourceDeck({ title: "Tight layout", theme: "default" });
+    deck.deck.themeOverride = {
+      layout: { contentTop: 5.3, contentBottom: 13.3 },
+    };
+    deck.slides.push(sourceSlide("summary", "执行摘要"));
+
+    const validation = validateDeck(deck);
+    expect(validation.ok).toBe(true);
+    expect(validation.warnings.find((warning) => warning.code === "THEME_LAYOUT_CONTENT_AREA_TIGHT")?.suggestedFix).toContain("effective content height");
+  });
+
+  it("rejects required component arrays and objects with the wrong type", () => {
+    const deck = createSourceDeck({ title: "Component type validation", theme: "default" });
+    deck.slides.push({
+      id: "bad-required",
+      children: [
+        { id: "bad-required.pros", type: "pros-cons", pros: "pros", cons: ["Valid con"] },
+        { id: "bad-required.tags", type: "tag-list", items: "items" },
+        { id: "bad-required.cols", type: "two-column", left: "left", right: { id: "bad-required.r", type: "text", text: "Right" } },
+      ] as never,
+    });
+
+    const validation = validateDeck(deck);
+    expect(validation.ok).toBe(false);
+    const invalids = validation.errors.filter((err) => err.code === "INVALID_FIELD_USAGE");
+    expect(invalids.map((err) => err.path)).toEqual(expect.arrayContaining([
+      "children[0].pros",
+      "children[1].items",
+      "children[2].left",
+    ]));
+  });
+
+  it("validateSlide uses deck themeOverride for layout bounds", () => {
+    const slide = {
+      id: "narrow-theme",
+      children: [{ id: "narrow-theme.t", type: "text", text: "x", at: [9.8, 1, 1, 1] }],
+    } as never;
+    const validation = validateSlide(slide, {
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { name: "Narrow", primary: "2563EB" },
+        themeOverride: { layout: { slideWidthCm: 10 } },
+      },
+    });
+    expect(validation.errors.find((err) => err.code === "NODE_OUT_OF_BOUNDS"))?.toBeDefined();
+  });
+
+  it("rejects legacy node position placement in favor of anchor/corner", () => {
+    const deck = createSourceDeck({ title: "Invalid placement", theme: "default" });
+    deck.slides.push({
+      id: "placement",
+      title: "Placement",
+      children: [
+        { id: "placement.mark", type: "text", text: "Source", position: "bottom-right", width: 2.6, height: 0.45 },
+      ],
+    } as never);
+
+    const validation = validateDeck(deck);
+    expect(validation.ok).toBe(false);
+    expect(validation.errors.map((err) => err.code)).toContain("LEGACY_NODE_POSITION");
+    expect(validation.errors.find((err) => err.code === "LEGACY_NODE_POSITION")?.suggestedFix).toContain("anchor:'bottom-right'");
   });
 
   it("renders the same component source deck with three themes", async () => {
@@ -1896,6 +2066,31 @@ describe("slideml2 MVP", () => {
     expect(getDiagnosticsByCode("TRUNCATED").filter((d) => d.nodeId === "insight-fit.c1.detail")).toHaveLength(0);
   });
 
+  it("preserves insight-card rich content and metric fields", () => {
+    const deck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "insight-content",
+        children: [{
+          id: "insight-content.card",
+          type: "insight-card",
+          headline: "D 垂直 Agent",
+          badge: "Harvey / 迈富时 / 百望",
+          content: [{ text: "全部赢家！\n\n通用能力越强，垂直特殊性越值钱" }],
+          metric: { value: "Harvey $11B", label: "法律" },
+          tone: "positive",
+        }],
+      }],
+    } as const;
+    const rendered = sourceToRenderedDeck(deck);
+    const json = JSON.stringify(rendered);
+    expect(json).toContain("全部赢家");
+    expect(json).toContain("通用能力越强");
+    expect(json).toContain("Harvey $11B");
+    expect(json).toContain("法律");
+  });
+
   it("warns when a deck repeats insight-card grids across many slides", () => {
     const slides = Array.from({ length: 3 }, (_, slideIndex) => ({
       id: `repeat-${slideIndex + 1}`,
@@ -1914,6 +2109,27 @@ describe("slideml2 MVP", () => {
     const report = validateDeck({ slideml2: 2, deck: { size: "16x9", theme: "default" }, slides } as any);
     expect(report.errors).toHaveLength(0);
     expect(report.warnings.some((warning) => warning.code === "REPEATED_CARD_LAYOUT")).toBe(true);
+  });
+
+  it("warns when a deck repeats generic equal card grids across many slides", () => {
+    const slides = Array.from({ length: 4 }, (_, slideIndex) => ({
+      id: `equal-grid-${slideIndex + 1}`,
+      children: [{
+        id: `equal-grid-${slideIndex + 1}.g`,
+        type: "grid",
+        columns: 3,
+        children: Array.from({ length: 3 }, (_, cardIndex) => ({
+          id: `equal-grid-${slideIndex + 1}.c${cardIndex + 1}`,
+          type: "comparison-card",
+          title: `Option ${cardIndex + 1}`,
+          points: ["Fast", "Low risk"],
+        })),
+      }],
+    }));
+    const report = validateDeck({ slideml2: 2, deck: { size: "16x9", theme: "default" }, slides } as any);
+    expect(report.errors).toHaveLength(0);
+    expect(report.warnings.some((warning) => warning.code === "REPEATED_EQUAL_GRID_LAYOUT")).toBe(true);
+    expect(report.warnings.find((warning) => warning.code === "REPEATED_EQUAL_GRID_LAYOUT")?.suggestedFix).toContain("hero-and-support");
   });
 
   it("describeDeck exposes the full prompt rule set the agent should follow", () => {
@@ -2149,7 +2365,7 @@ describe("slideml2 MVP", () => {
     expect(bodyShape.paragraphs[0]!.runs[0]!.color).toBe("FF6B6B");
   });
 
-  it("validateSlide flags DUPLICATE_HERO_TITLE when slide.title coexists with body section-break or deck-title", () => {
+  it("validateSlide flags DUPLICATE_HERO_TITLE for conflicting body hero titles but allows matching metadata titles", () => {
     const withSectionBreak = validateSlide({
       id: "cover",
       title: "智能竞争雷达 v2",
@@ -2163,7 +2379,7 @@ describe("slideml2 MVP", () => {
     });
     expect(withSectionBreak.errors.map((e) => e.code)).toContain("DUPLICATE_HERO_TITLE");
 
-    const withDeckTitleText = validateSlide({
+    const matchingDeckTitleSlide = {
       id: "cover2",
       title: "Deck title",
       children: [{
@@ -2175,8 +2391,31 @@ describe("slideml2 MVP", () => {
           { id: "cover2.sub", type: "text", style: "lead", text: "subtitle" },
         ],
       }],
+    } as const;
+    const withDeckTitleText = validateSlide(matchingDeckTitleSlide as never);
+    expect(withDeckTitleText.errors.map((e) => e.code)).not.toContain("DUPLICATE_HERO_TITLE");
+
+    const renderedMatching = sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [matchingDeckTitleSlide as never],
     });
-    expect(withDeckTitleText.errors.map((e) => e.code)).toContain("DUPLICATE_HERO_TITLE");
+    expect(findNodeForTest(renderedMatching.slides[0]!.dom, "cover2.title")).toBeNull();
+    expect(findNodeForTest(renderedMatching.slides[0]!.dom, "cover2.hero")?.text).toBe("Deck title");
+
+    const conflictingDeckTitleText = validateSlide({
+      id: "cover3",
+      title: "Metadata title",
+      children: [{
+        id: "cover3.content",
+        type: "stack",
+        area: "content",
+        children: [
+          { id: "cover3.hero", type: "text", style: "deck-title", text: "Visible title" },
+        ],
+      }],
+    });
+    expect(conflictingDeckTitleText.errors.map((e) => e.code)).toContain("DUPLICATE_HERO_TITLE");
 
     const onlySlideTitle = validateSlide({
       id: "ok1",
@@ -2331,6 +2570,238 @@ describe("slideml2 MVP", () => {
     expect(cardInner).toBeTruthy();
     expect(panelInner!.rect.w).toBeGreaterThan(0);
     expect(cardInner!.rect.h).toBeGreaterThan(0);
+  });
+
+  it("renders primitive card.title as the card heading alias", () => {
+    clearRenderDiagnostics();
+    const card = {
+      id: "card-title-alias.card",
+      type: "card" as const,
+      title: "Visible title",
+      accent: "left",
+      children: [{ id: "card-title-alias.card.body", type: "text" as const, style: "paragraph", text: "Body text remains below the heading." }],
+    };
+    const deck: ReturnType<typeof buildDom> = {
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "card-title-alias",
+        layout: "title-and-content",
+        dom: {
+          id: "card-title-alias.root",
+          type: "slide",
+          background: "background",
+          children: [{
+            id: "card-title-alias.content",
+            type: "stack",
+            area: "content",
+            children: [card],
+          }],
+        },
+      }],
+    };
+
+    const ast = renderToAst(deck);
+    const titleShape = ast.slides[0]!.shapes.find((shape) => shape.name === "card-title-alias.card.title");
+    expect(titleShape).toBeTruthy();
+    expect(JSON.stringify(titleShape)).toContain("Visible title");
+
+    const validation = validateSlide({ id: "card-title-alias", children: [card] } as never);
+    expect(validation.errors.map((item) => item.code)).not.toContain("UNKNOWN_NODE_TYPE");
+    expect(validation.warnings.map((item) => item.code)).not.toContain("CARD_TITLE_HEADER_CONFLICT");
+
+    const conflict = validateSlide({
+      id: "card-title-conflict",
+      children: [{
+        ...card,
+        id: "card-title-conflict.card",
+        title: "Title",
+        header: "Header",
+      }],
+    } as never);
+    expect(conflict.warnings.map((item) => item.code)).toContain("CARD_TITLE_HEADER_CONFLICT");
+  });
+
+  it("allows decorative surface primitives without children for editorial backgrounds", () => {
+    const surfaceOnlyTypes = ["panel", "card", "band", "frame", "inset"] as const;
+    const validation = validateSlide({
+      id: "surface-only",
+      children: [
+        ...surfaceOnlyTypes.map((type, index) => ({
+          id: `surface-only.${type}`,
+          type,
+          at: [1 + index * 0.3, 1 + index * 0.3, 6, 2],
+          fill: type === "frame" ? undefined : "surface",
+          line: "divider",
+          padding: type === "inset" ? 0.2 : undefined,
+        })),
+        { id: "surface-only.copy", type: "text", text: "Visible content can sit above the surface.", at: [1.4, 1.4, 10, 1] },
+      ],
+    } as never);
+
+    const codes = validation.errors.map((item) => item.code);
+    expect(codes).not.toContain("MISSING_CONTAINER_CHILDREN");
+    expect(codes).not.toContain("EMPTY_CONTAINER");
+
+    const stackValidation = validateSlide({
+      id: "empty-stack",
+      children: [{ id: "empty-stack.stack", type: "stack" }],
+    } as never);
+    expect(stackValidation.errors.map((item) => item.code)).toContain("MISSING_CONTAINER_CHILDREN");
+
+    const freeformValidation = validateSlide({
+      id: "empty-freeform",
+      children: [{ id: "empty-freeform.group", type: "freeform-group" }],
+    } as never);
+    expect(freeformValidation.errors.map((item) => item.code)).toContain("EMPTY_CONTAINER_COMPONENT");
+  });
+
+  it("preserves child at coordinates inside freeform-group", () => {
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "freeform-at",
+        children: [{
+          id: "freeform-at.group",
+          type: "freeform-group",
+          children: [
+            { id: "freeform-at.box", type: "shape", preset: "rect", text: "Placed shape", fill: "brand.primary", color: "text.inverse", at: [2, 3, 4, 1] },
+            { id: "freeform-at.label", type: "text", text: "Placed", at: [2.2, 3.2, 3, 0.5] },
+          ],
+        }],
+      }],
+    } as never));
+    const shape = ast.slides[0]!.shapes.find((item) => item.name === "freeform-at.box");
+    const text = ast.slides[0]!.shapes.find((item) => item.name === "freeform-at.label");
+    expect(shape?.xfrm).toMatchObject({ x: 720000, y: 1080000, cx: 1440000, cy: 360000 });
+    expect(shape && "paragraphs" in shape ? shape.paragraphs[0]?.runs[0]?.text : undefined).toBe("Placed shape");
+    expect(text?.xfrm).toMatchObject({ x: 792000, y: 1152000, cx: 1080000, cy: 180000 });
+  });
+
+  it("normalizes x/y/w/h aliases inside freeform-group to slide coordinates", () => {
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "freeform-xywh",
+        title: "Freeform aliases",
+        children: [{
+          id: "freeform-xywh.group",
+          type: "freeform-group",
+          children: [
+            { id: "freeform-xywh.box", type: "shape", preset: "rect", text: "Placed shape", fill: "brand.primary", color: "text.inverse", x: 2, y: 3, w: 4, h: 1 },
+            { id: "freeform-xywh.label", type: "text", text: "Placed", x: 2.2, y: 3.2, width: 3, height: 0.5 },
+          ],
+        }],
+      }],
+    } as never));
+    const shape = ast.slides[0]!.shapes.find((item) => item.name === "freeform-xywh.box");
+    const text = ast.slides[0]!.shapes.find((item) => item.name === "freeform-xywh.label");
+    expect(shape?.xfrm).toMatchObject({ x: 720000, y: 1080000, cx: 1440000, cy: 360000 });
+    expect(text?.xfrm).toMatchObject({ x: 792000, y: 1152000, cx: 1080000, cy: 180000 });
+    expect(getDiagnosticsByCode("TITLE_OCCLUDED")).toHaveLength(0);
+  });
+
+  it("renders raw shape fill/line object syntax with connector arrowheads", () => {
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "shape-line-object",
+        children: [{
+          id: "shape-line-object.connector",
+          type: "shape",
+          preset: "straightConnector",
+          at: { x: 2, y: 3, w: 4, h: 0.1 },
+          fill: { color: "FFFFFF" },
+          line: { color: "333333", width: 2, dash: "dash" },
+          tailEnd: { type: "triangle" },
+        }],
+      }],
+    } as never));
+    const connector = ast.slides[0]!.shapes.find((item) => item.name === "shape-line-object.connector");
+    expect(connector).toMatchObject({
+      type: "shape",
+      preset: "straightConnector",
+      line: { color: "333333", dash: "dash", tailEnd: { type: "triangle" } },
+    });
+  });
+
+  it("treats direct slide x/y/w/h fields as slide-relative absolute placement", () => {
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "direct-xywh",
+        title: "Direct absolute aliases",
+        children: [{
+          id: "direct-xywh.box",
+          type: "shape",
+          preset: "roundRect",
+          text: "Absolute",
+          x: 2,
+          y: 3,
+          width: 4,
+          height: 1,
+          fill: "brand.primary",
+          color: "text.inverse",
+        }],
+      }],
+    } as never));
+    const shape = ast.slides[0]!.shapes.find((item) => item.name === "direct-xywh.box");
+    expect(shape?.xfrm).toMatchObject({ x: 720000, y: 1080000, cx: 1440000, cy: 360000 });
+    expect(getDiagnosticsByCode("TITLE_OCCLUDED")).toHaveLength(0);
+  });
+
+  it("preserves rich links in cover-composition content runs", () => {
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "cover-rich-link",
+        children: [{
+          id: "cover-rich-link.cover",
+          type: "cover-composition",
+          title: "Launch readiness",
+          subtitle: "Decision memo",
+          content: { runs: [{ text: "Jump to appendix", link: "#slide2" }] },
+        }],
+      }, {
+        id: "slide2",
+        children: [{ id: "slide2.text", type: "text", text: "Appendix" }],
+      }],
+    } as never));
+    const content = ast.slides[0]!.shapes.find((item) => item.name === "cover-rich-link.cover.content");
+    const run = content && "paragraphs" in content ? content.paragraphs[0]?.runs[0] : undefined;
+    expect(run).toMatchObject({ text: "Jump to appendix", hyperlink: "#slide2" });
+  });
+
+  it("normalizes component examples with omitted child ids before tool validation", () => {
+    const raw = {
+      id: "example-normalize",
+      children: [{
+        id: "example-normalize.card",
+        type: "card",
+        children: [
+          { type: "label", text: "Literature 01" },
+          { type: "quote", text: "A quote can be copied from describe_schema without a node id." },
+          { type: "key-takeaway", headline: "The rendered deck still gets deterministic fallback ids." },
+        ],
+      }],
+    };
+
+    const strictValidation = validateSlide(raw as never);
+    expect(strictValidation.errors.map((item) => item.code)).toContain("MISSING_NODE_ID");
+
+    const normalized = normalizeSlide(raw as never);
+    expect(normalized.children[0]?.children?.map((child) => child.id)).toEqual([
+      "example-normalize.card.1",
+      "example-normalize.card.2",
+      "example-normalize.card.3",
+    ]);
+    expect(validateSlide(normalized).errors.map((item) => item.code)).not.toContain("MISSING_NODE_ID");
   });
 
   it("inspectLayout returns intrinsic specs and applied solver decisions", () => {

@@ -6,17 +6,19 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
-    "electron:dev": "node scripts/electron-dev.cjs",
-    "electron:start": "vite build && electron .",
-    "electron:build": "vite build && electron .",
-    "build": "tsc && vite build",
+    "electron:dev": "pnpm --dir slideml2 build && node scripts/electron-dev.cjs",
+    "electron:start": "pnpm --dir slideml2 build && vite build && electron .",
+    "electron:build": "pnpm --dir slideml2 build && vite build && electron .",
+    "build": "pnpm --dir slideml2 build && tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "tsc --noEmit && vitest run",
     "gen:skill": "npx tsx scripts/gen-catalog-entry.ts skill",
-    "gen:mcp": "npx tsx scripts/gen-catalog-entry.ts mcp"
+    "gen:mcp": "npx tsx scripts/gen-catalog-entry.ts mcp",
+    "sync:slideml2-skill": "npx tsx scripts/sync-slideml2-skill.ts",
+    "package:slideml2-skill": "npx tsx scripts/package-slideml2-skill.ts"
   },
   "dependencies": {
     "@tanstack/react-router": "^1.120.0",
@@ -46,6 +48,7 @@
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
     "electron": "^39.2.6",
+    "esbuild": "^0.27.7",
     "tailwindcss": "^4.1.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",

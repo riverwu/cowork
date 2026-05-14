@@ -109,6 +109,15 @@ describe("read_file skill", () => {
     expect(result.length).toBeGreaterThan(25000);
   });
 
+  it("returns full sibling skill markdown references such as business.md", async () => {
+    mockReadFileText.mockResolvedValue("business-style ".repeat(1600));
+    const result = await readFile.execute({ path: "/Users/river/.cowork/skills/slideml2/business.md" });
+    expect(result).toContain("truncated: false");
+    expect(result).toContain("next_offset: null");
+    expect(result).not.toContain("READ_FILE_TRUNCATED");
+    expect(result).toContain("business-style");
+  });
+
   it("handles empty files", async () => {
     mockReadFileText.mockResolvedValue("");
     const result = await readFile.execute({ path: "/test/empty.txt" });
@@ -123,6 +132,12 @@ describe("read_file skill", () => {
 });
 
 describe("write_file skill", () => {
+  it("documents that SlideML2 source edits should use deck tools", () => {
+    expect(writeFileSkill.definition.description).toContain("For SlideML2 deck authoring");
+    expect(writeFileSkill.definition.description).toContain("replace_slide");
+    expect(writeFileSkill.definition.description).toContain("validate_render");
+  });
+
   it("writes files successfully", async () => {
     mockWriteFile.mockResolvedValue();
     const result = await writeFileSkill.execute({ path: "/test/out.txt", content: "hello" });
@@ -202,6 +217,7 @@ describe("run_python skill", () => {
     expect(runPython.definition.description).toContain("python-docx");
     expect(runPython.definition.description).toContain("python-pptx");
     expect(runPython.definition.description).toContain("Pillow");
+    expect(runPython.definition.description).toContain("do not use python-pptx as a fallback after validate_render fails");
   });
 
   it("runs Python code and returns output", async () => {
@@ -262,6 +278,12 @@ describe("run_python skill", () => {
 });
 
 describe("run_node skill", () => {
+  it("does not advertise wrapping installed skill CLIs", () => {
+    const description = runNode.definition.description;
+    expect(description).toContain("Do not use `run_node` to wrap an installed skill CLI");
+    expect(description).toContain("runtime/bin/slideml2.js");
+  });
+
   it("installs comma-separated packages one by one", async () => {
     mockInitNodeEnv.mockResolvedValue("ready");
     mockInstallNodePackage.mockResolvedValue("Successfully installed");
@@ -277,6 +299,15 @@ describe("run_node skill", () => {
     expect(mockInstallNodePackage).toHaveBeenNthCalledWith(1, "pptxgenjs");
     expect(mockInstallNodePackage).toHaveBeenNthCalledWith(2, "react");
     expect(mockInstallNodePackage).toHaveBeenNthCalledWith(3, "react-dom");
+  });
+});
+
+describe("shell skill", () => {
+  it("allows documented installed skill CLIs while discouraging generated Node scripts", () => {
+    const description = shellExecSkill.definition.description;
+    expect(description).toContain("Do NOT use shell to run generated Node.js deliverable scripts");
+    expect(description).toContain("It is correct to use shell for installed skill CLI entrypoints");
+    expect(description).toContain("runtime/bin/slideml2.js");
   });
 });
 

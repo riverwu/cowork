@@ -1,6 +1,6 @@
 import type { Tool } from "./types";
 import { slideml2PatchDeck, slideml2ReadDeck, type Slideml2JsonPatchOp } from "@/lib/tauri";
-import { recordSlideWrite } from "./slideml2-authoring-state";
+import { recordSlideWrite, slideAuthoringCheckpointHint, slideSemanticLayoutHint } from "./slideml2-authoring-state";
 
 /**
  * Thin wrapper over patch_deck — equivalent to:
@@ -13,16 +13,16 @@ export const insertSlideTool: Tool = {
   definition: {
     name: "insert_slide",
     description:
-      `Insert a NEW slide at a specific position. Use when you need to add a slide between two existing slides — for splitting a combined slide, inserting a section break before a content slide, or adding a fresh page mid-deck.
+      `Insert a NEW slide at a specific position. This is a structural splice tool for exceptional mid-deck insertion. For normal deck authoring and appending new slides, use \`replace_slide\` with slideId equal to the current slide count because \`replace_slide\` performs per-slide render validation before committing.
 
 - \`index\` is the 0-based position where the new slide will appear. Subsequent slides shift down by one.
 - \`index\` may equal the current slide count (append at end).
 - \`index\` may be \`"end"\` as a shortcut for "append".
 - For replacing an EXISTING slide, use \`replace_slide\`. For deleting a slide, use \`delete_slide\`. For batch ops or arbitrary DOM edits, use \`patch_deck\`.
 
-The slide JSON has the same shape as \`replace_slide.slide\`: \`{id, title?, background?, children, notes?, metadata?}\`. The whole deck is re-validated after insertion; if the slide breaks schema invariants the deck file is left unchanged.
+The slide JSON has the same shape as \`replace_slide.slide\`: \`{id, title?, background?, children, notes?, metadata?}\`. Pass it as an object literal, never as a quoted/stringified JSON blob. The whole deck is schema-validated after insertion; if the slide breaks schema invariants the deck file is left unchanged. If a slide is mostly manually positioned \`text\`, the result includes a non-blocking semantic layout warning with better component candidates; redesign before continuing.
 
-Use \`validate_render({deckPath, render:true})\` periodically and before final delivery.`,
+After all slides are added, call \`validate_render({deckPath, render:true})\` once for full-deck PPTX export and final QA.`,
     parameters: {
       type: "object",
       properties: {
@@ -56,8 +56,9 @@ Use \`validate_render({deckPath, render:true})\` periodically and before final d
         return `Slide insert rejected (deck unchanged): ${result.error}\n${JSON.stringify(result.validation, null, 2)}`;
       }
       const writes = recordSlideWrite(deckPath);
-      const validateHint = "\nRecommended: run validate_render with render=true before treating the PPTX as final.";
-      return `Slide inserted at index ${targetIndex}. slideCount=${result.summary.slideCount}. unvalidatedSlideWrites=${writes}.${validateHint}`;
+      const semanticHint = slideSemanticLayoutHint(slide);
+      const validateHint = `\n${slideAuthoringCheckpointHint(deckPath, writes)}`;
+      return `Slide inserted at index ${targetIndex}. slideCount=${result.summary.slideCount}. slideWritesSinceFinalRender=${writes}.${semanticHint ? `\n${semanticHint}` : ""}${validateHint}`;
     } catch (err) {
       return `Error: insert_slide failed.\n${err instanceof Error ? err.message : String(err)}`;
     }

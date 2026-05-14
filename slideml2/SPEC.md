@@ -14,9 +14,9 @@ and layout, not by writing OOXML.
 Current contract:
 
 - Source deck version: `slideml2: 2`.
-- Authoring deck size: `deck.size: "16x9"` only. Lower-level emitter code has
-  helpers for `16x10`, `4x3`, and `wide`, but source validation currently
-  accepts only `16x9`.
+- Authoring deck size: `deck.size` accepts `"16x9"`, `"16x10"`, `"4x3"`,
+  and `"wide"`. The renderer applies the selected canvas dimensions to theme
+  layout before measuring and emitting PPTX.
 - JSON deck file is the source of truth. PPTX and render-tree outputs are
   generated artifacts.
 - Component names are part of the schema. Use the component name directly in
@@ -58,7 +58,7 @@ Minimal deck:
 Deck fields:
 
 - `slideml2`: MUST be `2`.
-- `deck.size`: MUST be `"16x9"` in current authoring flows.
+- `deck.size`: MUST be one of `"16x9"`, `"16x10"`, `"4x3"`, or `"wide"`.
 - `deck.theme`: base scaffold name, normally `"default"`.
 - `deck.brand`: `{name?, primary?, logo?}`. `primary` is a 6-char hex without
   `#` and seeds `brand.primary`, `brand.tint`, and `brand.shade`.
@@ -66,6 +66,21 @@ Deck fields:
   numbers or logos per slide.
 - `deck.themeOverride`: deep-merged over the base theme. This is where the
   deck's visual identity belongs.
+- `deck.validation`: optional validation profile. `mode:"standard"` is the
+  default, `mode:"strict"` requires image alt text and chart/table source
+  metadata, and `mode:"experimental"` downgrades unknown node/component types
+  to warnings while prototyping schema extensions. Optional overrides:
+  `allowUnknownComponents`, `maxTextLength`, `requireAlt`, `requireSources`.
+- `deck.dataSources`: optional deck-level data registry. M2 sources support
+  `{type:"inline-json", rows:[...]}`, `{type:"inline-csv", csv}`,
+  `{type:"file-csv", path:"data/file.csv"}`, and
+  `{type:"computed", source:"base", computed:{...}, view?}`. Relative
+  `file-csv` paths are resolved against the deck JSON directory by the deck
+  tools and renderer. `computed` uses controlled expression objects only; it
+  never executes arbitrary code.
+  Components and chart/table primitives can reference these rows with
+  `bind:{source, select?, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}` plus
+  `encoding`.
 - `deck.metadata`: arbitrary non-rendered metadata.
 
 Slide fields:
@@ -93,6 +108,51 @@ Source normalization:
 - `height`/`width` on non-media, non-anchored nodes are aliased to
   `fixedHeight`/`fixedWidth` for layout compatibility.
 - `article` children paginate into multiple slides before rendering.
+
+Data binding:
+
+- `bind.source` MUST reference a key in `deck.dataSources`.
+- `inline-json` rows MUST be an array of objects. `inline-csv` and `file-csv`
+  MUST include a header row.
+- Render-tree output preserves `dataLineage` and
+  `resolvedData:{rows,schema}` for bound nodes so chart/table/KPI values can
+  be audited back to the source. Data source metadata `sourceLabel`,
+  `citation`, and `accessedAt` is carried into lineage.
+- `computed` data sources derive rows from another source. Use
+  `computed`/`columns` for row-level derived fields before the optional
+  `view`, and `postComputed` for derived fields after the view. Supported
+  expression ops: `field`, `literal`, `add`/`sum`, `subtract`, `multiply`,
+  `divide`/`ratio`, `percent-change`, `negate`, `abs`, `round`, `concat`,
+  and `coalesce`. Example:
+  `computed:{marginPct:{op:"divide",left:"profit",right:"revenue"}}`.
+- `filter` supports exact matches and simple operators:
+  `{field:{eq|ne|gt|gte|lt|lte|contains|in:value}}`.
+- `groupBy` accepts one field or a field array.
+- `aggregate` accepts output fields mapped to an op string or `{op, field?}`.
+  Supported ops are `sum`, `avg`, `min`, `max`, `count`, `first`, and `last`.
+  Example: `aggregate:{Revenue:{op:"sum",field:"revenue"}, rows:"count"}`.
+- `pivot` transforms long-form rows into wide rows:
+  `pivot:{index, columns, values, aggregate?, fill?}`. `index` is one field
+  or a field array, `columns` supplies the output column names, `values` is
+  aggregated into those columns, and `aggregate` defaults to `sum`. Do not
+  combine `pivot` with `groupBy`/`aggregate` in the same bind view.
+- `sort` accepts `"field"`, `"-field"`, or `{by, direction:"asc"|"desc"}`.
+  Sorting happens after filter and aggregate.
+- `limit` keeps the first N rows after filter/sort.
+- `chart` / `chart-card` use
+  `encoding:{x,y,series?,seriesName?,seriesOptions?}`. `y` may be one field
+  or an array of fields. `seriesOptions` is keyed by output series/field name
+  and can set `{name,type:"bar"|"line",axis:"primary"|"secondary",
+  trendLine?,errorBars?}` for combo charts, secondary axes, linear/polynomial
+  trend lines, and simple native error bars.
+- `table` / `table-card` use
+  `encoding:{columns:[key|{key,label,type,format,align,width}]}` or
+  `bind.select` to select columns. Column `type` may be `text`, `number`,
+  `percent`, `currency`, or `date`; numeric/currency/percent columns default
+  to right alignment. When type is omitted for bound tables, SlideML2 infers
+  date/number/percent/currency from field names and values.
+- `metric-card` / `hero-stat` use `encoding:{value,label,delta?}`.
+- `stat-strip` uses `encoding:{value,label}`.
 
 ## 3. Identity, IDs, And Field Shape
 
@@ -131,7 +191,7 @@ numbers to one unit.
 | Domain | Fields | Unit |
 |---|---|---|
 | Layout geometry | `at`, `gap`, `padding`, `fixedWidth`, `fixedHeight`, `minHeight`, `width`, `height`, `offsetX`, `offsetY`, `length` | cm |
-| Text size | `fontSize` in `themeOverride.text` or node overrides | pt |
+| Text size | `fontSize` in `themeOverride.text` | pt |
 | Stroke thickness | `lineWidth`, `borderWidth`, `divider.thickness`, `accent-rule.thickness` | point-like numbers |
 | Legacy tiny strokes | stroke values `<= 0.3` | preserved as cm for backward compatibility |
 | Corner radius | `cornerRadius` | fraction of shorter side, usually `0..0.5` |
@@ -141,10 +201,12 @@ numbers to one unit.
 
 Rules:
 
-- `fontSize: 24` means 24pt, not px.
+- `fontSize: 24` in `themeOverride.text` means 24pt, not px.
 - `fixedHeight: 1` means a 1cm region.
 - `thickness: 1` means about a 1pt rule.
-- Use semantic text `size` (`xs`..`2xl`) before raw `fontSize` on nodes.
+- Authored primitives may use semantic text `size` (`xs`..`2xl`) for local
+  emphasis, but component implementations MUST NOT use `size` as a hidden
+  default. Components use typography tokens instead.
 - Use `lineHeight` in theme text styles for paragraph rhythm; use
   paragraph-level `lineSpacing` only for low-level rich paragraphs.
 
@@ -162,7 +224,11 @@ new deck task SHOULD install a subject-specific `themeOverride` in
   `color`, `fontFamily`, `letterSpacing`, `uppercase`, `italic`.
 - `component`: default component surfaces (`card`, `panel`, etc.).
 - `layout`: `pageMarginX`, `titleTop`, `titleHeight`, `contentTop`,
-  `contentBottom`, `defaultGap`, `columnGap`, `cardPadding`.
+  `contentBottom`, `defaultGap`, `columnGap`, `cardPadding`, `areas`.
+  `contentTop` and `contentBottom` are content-area y-coordinates; content
+  height is `contentBottom - contentTop`. `areas` defines named top-level
+  slide rectangles, e.g. `{leftRail:{x:1,y:2.4,w:4,h:9}}` or
+  `{main:{left:5.4,top:2.4,right:12.6,bottom:12.6}}`.
 - `fonts`: latin/cjk display and text chains plus `mono`.
 - `chart`: chart color cycles.
 - `chrome`: brand mark, page number, footer behavior.
@@ -173,11 +239,16 @@ Style precedence:
 
 1. Base theme.
 2. `themeOverride`.
-3. Component defaults.
-4. Concrete component or node instance fields (`fontSize`, `fontFamily`,
+3. Central component typography derivations, e.g. `timeline-body` extends
+   `caption`. These are resolved in the theme layer, not inside components.
+4. Component defaults for non-font visual structure such as surfaces, spacing,
+   markers, and layout.
+5. Concrete authored primitive node instance fields (`fontSize`, `fontFamily`,
    `fontWeight`, `lineHeight`, `color`, `size`, `tracking`, `surface`, `fill`,
-   `line`, `cornerRadius`, etc.).
-5. Rich text run overrides for a single run.
+   `line`, `cornerRadius`, etc.). These are escape hatches for low-level
+   nodes; semantic component factories MUST NOT rely on them for default
+   typography.
+6. Rich text run overrides for a single run.
 
 Instance overrides are local. They do not mutate the theme for other nodes.
 
@@ -197,9 +268,10 @@ Surface override convention for composite components:
 }
 ```
 
-Top-level shortcuts are also accepted: `fill`, `border`, `borderColor`,
-`borderWidth`, `borderStyle`, `cornerRadius`, `padding`, `elevation`, `accent`,
-`accentColor`, `accentWidth`.
+Top-level shortcuts are also accepted: `fill`, `fillOpacity`, `line`,
+`lineOpacity`, `lineWidth`, `lineDash`, `border`, `borderColor`,
+`borderWidth`, `borderStyle`, `cornerRadius`, `padding`, `elevation`, `shadow`,
+`gradient`, `accent`, `accentColor`, `accentWidth`.
 
 ## 6. Color Contract
 
@@ -212,7 +284,11 @@ Core tokens:
 - `text.primary`, `text.secondary`, `text.muted`, `text.subtle`,
   `text.inverse`
 - `divider`, `border`
-- `success`, `success.tint`, `warning`, `warning.tint`, `danger`, `danger.tint`
+- semantic status tokens: `success`, `positive`, `warning`, `caution`,
+  `danger`, `error`, `negative`, `info`, each with `.tint` and `.accent`
+  when meaningful
+- neutral tone tokens: `neutral`, `neutral.tint`, `muted`, `muted.tint`,
+  `subtle`, `tinted`
 - palette names such as `red`, `lime`, `blue`, each with `.tint` and `.shade`
 
 Rules:
@@ -223,7 +299,12 @@ Rules:
   are preferred.
 - One emphasis system per slide: choose brand emphasis OR one semantic/palette
   accent. Do not spray many accent colors.
-- Use `success`, `warning`, and `danger` only for meaning, not decoration.
+- Component `tone` values are centralized in the theme. Prefer
+  `tone:"positive"` for good outcomes, `tone:"warning"`/`"caution"` for
+  attention, `tone:"danger"`/`"error"`/`"negative"` for failure, and
+  `tone:"neutral"`/`"muted"` for supporting material. Do not define new
+  tone words inside component implementations.
+- Use semantic tones only for meaning, not decoration.
 - On dark color fields, use `text.inverse` or components that support
   `tone:"inverse"`.
 - Renderer performs contrast checks. Unfixed `LOW_CONTRAST` is blocking;
@@ -232,6 +313,47 @@ Rules:
   blocking; `SHAPE_INVISIBLE_FIXED` is non-blocking.
 
 ## 7. Typography And Rich Text
+
+Typography is centralized like color. The deck's visible type system is
+controlled by a finite set of theme text tokens, not by per-component font
+constants.
+
+Base text tokens:
+
+- `deck-title`, `slide-title`, `section-title`, `card-title`
+- `lead`, `paragraph`, `article`, `caption`, `figure-caption`, `footnote`
+- `label`, `badge`, `tag`
+- `bullet`, `bullet-compact`
+- `metric-value`, `metric-label`
+- `table-header`, `table-cell`
+- `axis-label`, `legend-label`
+- `callout`, `quote`, `quote-source`
+- `code`, `code-caption`, `hero`, `title`, `body`
+
+Component text tokens:
+
+- Components MUST reference semantic typography tokens such as
+  `timeline-time`, `timeline-title`, and `timeline-body`.
+- Component text tokens MUST be declared in the centralized theme derivation
+  registry (`COMPONENT_TEXT_STYLE_DERIVATIONS` in `theme.ts`).
+- Each component token MUST derive from a base token with optional overrides
+  for color, weight, line-height, font role, or features. It MUST NOT invent a
+  new default font size inside the component implementation.
+- Deck authors MAY override a component token in `themeOverride.text` when a
+  component needs special treatment across the whole deck.
+
+Component implementation rules:
+
+- Component factories MUST NOT set `fontSize`, `lineHeight`, `fontFamily`, or
+  semantic `size` (`xs`..`2xl`) as local font defaults.
+- Component factories SHOULD NOT set `weight` for text whose weight is already
+  part of the style token. If a component needs a different default weight,
+  create or update a derived component token.
+- Component factories MAY set `color` for semantic state or tone when color is
+  data/meaning, but typography scale and rhythm still come from text tokens.
+- Raw primitive authoring MAY still use node-level typography overrides as an
+  escape hatch for poster layouts, annotations, or rich text runs. This does
+  not relax the component factory rule.
 
 Text node fields:
 
@@ -269,7 +391,9 @@ Coordinate system:
 
 - Origin is top-left.
 - Units are cm.
-- Standard 16:9 slide is 25.4cm x 14.288cm.
+- Supported canvas sizes are 16:9 (25.4cm x 14.288cm), 16:10
+  (25.4cm x 15.875cm), 4:3 (25.4cm x 19.05cm), and wide
+  (33.865cm x 19.05cm).
 - The theme defines a title rect and a content rect.
 
 Top-level placement:
@@ -278,11 +402,14 @@ Top-level placement:
 - Main content should normally be one `stack`, `grid`, or `split` in
   `area:"content"`. If omitted, source normalization wraps flow children into
   `${slideId}.content`.
+- `area:"full"` fills the canvas. Any other `area` string resolves against
+  `deck.themeOverride.layout.areas` and gives agents reusable named regions
+  such as `leftRail`, `chart`, `evidence`, or `appendixGrid`.
 - Slide-level `anchor`, `anchorTo`, and `at` nodes bypass flow and render as
   overlays.
-- Top-level children without `area:"content"` or overlay positioning fill the
-  full slide; use this intentionally only for color fields, covers, or
-  full-slide bands.
+- Top-level children without `area`, `area:"content"`, or overlay positioning
+  fill the full slide; use this intentionally only for color fields, covers,
+  or full-slide bands.
 
 Containers:
 
@@ -299,7 +426,8 @@ Containers:
 Layering and absolute composition:
 
 - `at:[x,y,w,h]`: slide-relative absolute rect. Use for covers, section
-  dividers, hero-number compositions, and deliberate poster layouts.
+  dividers, hero-number compositions, and deliberate poster layouts. Do not
+  use it for ordinary corner labels; use `brand-mark` or `anchor`.
 - `anchor`: slide-relative overlay anchored to one of nine anchor points.
 - `anchorTo`: slide-level overlay whose reference frame is another node id.
 - `layer:"behind"|"above"` inside stack/grid: child fills parent rect and does
@@ -436,12 +564,17 @@ Routing rules:
 - Facts plus sources: `fact-list`.
 - Options/tradeoffs: `comparison-list`, `comparison-card`,
   `comparison-table`, `pros-cons`.
-- Sequence/causality: `process-flow`, `timeline`, `numbered-grid`,
-  `numbered-list`, `step-card`, `flow-arrow`.
+- Sequence/causality: `process-flow`, `roadmap-plan`, `gantt-chart`,
+  `cycle-diagram`, `value-chain`, `calendar-plan`, `timeline`,
+  `numbered-grid`, `numbered-list`, `step-card`, `flow-arrow`.
 - Evidence: `image-card`, `chart-card`, `table-card`, `quote`, `source-note`,
   `evidence-layout`.
 - Metrics: `hero-stat`, `kpi-grid`, `metric-card`, `stat-strip`,
-  `stat-comparison`, `scorecard`, `bar-list`, `gauge`, `progress-bar`.
+  `stat-comparison`, `scorecard`, `bar-list`, `gauge`, `progress-bar`,
+  `sankey`, `geo-region-map`.
+- Office structure/planning: `org-chart`, `hierarchy-tree`, `decision-tree`,
+  `stakeholder-map`, `raci-matrix`, `kanban-board`, `architecture-map`,
+  `pyramid`, `venn-diagram`.
 - Product/identity: `feature-card`, `logo-strip`, `profile-card`, `tag-list`,
   `badge`, `icon-text`.
 
@@ -468,7 +601,7 @@ both primitives and semantic components. Detailed field descriptions are in
 | `spacer` | - | fixedWidth, fixedHeight, minWidth, minHeight, layoutWeight |
 | `divider` | - | orientation, thickness, line, dash, fixedWidth, fixedHeight |
 | `bullets` | items | size, density, numbered, align, title, indentLevel, marker, markerColor, markerSize |
-| `image` | src | alt, caption, captionPosition, fit, position, width, height, fixedHeight, minHeight, clip, cornerRadius, border |
+| `image` | src | alt, caption, captionPosition, fit, anchor, width, height, fixedHeight, minHeight, clip, cornerRadius, border |
 | `table` | rows | headers, caption, align, firstRowHeader, colWidths, rowHeights, borderColor, borderWidth, fixedHeight |
 | `chart` | chartType, labels, series | title, yFormat, axis, legend, caption, showValues, showLegend, colors, annotations, fixedHeight |
 | `shape` | - | preset, role, marker, shape, tone, variant, size, fill, line, fillOpacity, lineOpacity, opacity |
@@ -492,20 +625,20 @@ both primitives and semantic components. Detailed field descriptions are in
 | `comparison-card` | title | subtitle, body, content, badge, points, items, metrics, pros, cons, score, winner, footer |
 | `step-card` | title | step, number, body, description, steps, content, bullets, icon, marker, status, owner, time |
 | `definition-card` | term, definition | - |
-| `numbered-list` | items | density |
+| `numbered-list` | items (string or `{title/body}` objects) | density |
 | `quote` | text | source |
 | `icon-text` | icon, text | iconColor, iconBackground, tone |
-| `timeline` | items | direction, orientation |
+| `timeline` | items | direction, orientation, gap, per-item: shape, icon, iconSrc, tone |
 | `profile-card` | image, name | role, bio |
 | `kpi-grid` | metrics | items, columns |
 | `section-break` | title | subtitle, accent, tone |
 | `swot-matrix` | strengths, weaknesses, opportunities, threats | - |
 | `cta` | text | tone, link |
-| `feature-card` | title | icon, body, content, marker, badge, tags, metric, proof, ctaText, iconColor, iconBackground, tone |
+| `feature-card` | title | icon, iconSrc, body, content, marker, badge, tags, metric, proof, ctaText, iconColor, iconBackground, tone |
 | `checklist` | items | - |
 | `progress-bar` | label, value | max, valueLabel, tone |
 | `pros-cons` | pros, cons | prosTitle, consTitle |
-| `process-flow` | steps | items, direction, variant, density, surface |
+| `process-flow` | steps | items, direction, variant, density, marker, showNumbers, connector, connectorDash, connectorColor, placement, spread, stepAccent, stepSurface, surface |
 | `logo-strip` | logos | items, images, columns, caption |
 | `pricing-card` | plan, price, features | period, tone, ctaText |
 | `hero-stat` | value, label | caption, tone |
@@ -526,7 +659,25 @@ both primitives and semantic components. Detailed field descriptions are in
 | `stat-comparison` | beforeLabel, beforeValue, afterLabel, afterValue | trend, deltaLabel |
 | `image-card` | src | alt, title, badge, insight, annotations, callouts, caption, fit, imageWidth, tone, variant, surface |
 | `chart-card` | chartType, labels, series | chart, data, title, badge, insight, caption, showLegend, showValues, yFormat, tone, variant, surface |
-| `table-card` | rows | title, headers, columns, data, badge, insight, caption, tone, variant, surface |
+| `table-card` | rows | title, headers, columns, data, badge, insight, caption, tone, variant, density, surface |
+| `analytic-table` | columns, rows | data, bind, encoding, columnGroups, renderMode, badge, insight, caption, density, tone, variant, cellPadding, borders, bandRows, tableStyleId, surface |
+| `org-chart` | nodes | links, title, density, detail, people/members/personnel on nodes, maxChildrenPerParent, treeMaxWidth, treeMaxHeight, spread, tone, variant, surface |
+| `roadmap-plan` | lanes | periods, title, density, tone, variant, surface |
+| `gantt-chart` | tasks | periods, milestones, title, density, tone, variant, surface |
+| `cycle-diagram` | steps | center, direction, title, density, tone, variant, surface |
+| `hub-spoke` | center, items | title, density, tone, variant, surface |
+| `decision-tree` | nodes | links, title, density, tone, variant, surface |
+| `stakeholder-map` | items | xAxis, yAxis, quadrantLabels, title, density, tone, variant, surface |
+| `raci-matrix` | roles, tasks | assignments, title, density, variant, surface |
+| `kanban-board` | columns | title, density, tone, variant, surface |
+| `pyramid` | levels | orientation, title, density, tone, variant, surface |
+| `venn-diagram` | sets | intersections, title, density, tone, variant, surface |
+| `value-chain` | stages | direction, title, density, tone, variant, surface |
+| `hierarchy-tree` | nodes | links, title, density, tone, variant, surface |
+| `architecture-map` | layers | integrations, title, density, tone, variant, surface |
+| `geo-region-map` | regions | legend, title, density, tone, variant, surface |
+| `calendar-plan` | events | month, weekdays, title, density, tone, variant, surface |
+| `sankey` | nodes, links | stages, title, density, tone, variant, surface |
 | `insight-card` | headline | badge, title, detail, body, bullets, items, points, tone, density |
 | `explanation-block` | - | title, headline, body, detail, description, content, bullets, items, example, note, variant, tone |
 | `comparison-list` | items | title, basis, columns, variant, density |
@@ -550,13 +701,14 @@ both primitives and semantic components. Detailed field descriptions are in
 | `range-plot` | items | tone |
 | `callout-marker` | text | anchor, tone, width, height |
 | `decoration-grid` | - | pattern, density, tone, rows, columns, asBackground |
-| `decorative-shapes` | - | motif, position, tone, count, width, height, asBackground |
+| `decorative-shapes` | - | motif, anchor, tone, count, width, height, asBackground |
 | `corner-mark` | text | corner, tone, style |
+| `brand-mark` | text | corner, tone, width, height, offsetX, offsetY |
 | `bracket` | - | direction, label, tone |
 | `arrow-link` | - | fromLabel, toLabel, label, direction, tone |
 | `pointer-arrow` | - | label, direction, anchor, offsetX, offsetY, width, height, tone, style |
 | `watermark` | text | rotation, tone |
-| `big-page-number` | current | total, position, tone |
+| `big-page-number` | current | total, corner, tone |
 | `timeline-axis-bar` | sections, current | tone |
 | `scale-bar` | max | min, unit, ticks, tone |
 | `freeform-group` | - | mode |
@@ -606,7 +758,6 @@ FALLBACK_FAILED
 COLLISION
 TINY_RECT
 SQUASHED
-DROP
 LOW_CONTRAST
 SHAPE_INVISIBLE
 UNKNOWN_COLOR
@@ -636,10 +787,12 @@ Authoring tools in Cowork enforce this workflow:
 
 1. Create a fresh source deck with `create_deck`.
 2. Install subject-specific `themeOverride` at creation time whenever possible.
-3. Add or replace slides with `replace_slide`.
+3. Add or replace slides one at a time with `replace_slide`; pass the slide as
+   an object literal, not a stringified JSON blob. The call commits only after
+   that candidate slide passes per-slide validation.
 4. Use `patch_deck` for theme/chrome/ordering/path edits.
-5. Run `validate_render({render:true})` after every 1-2 successful slide
-   writes.
+5. Run `validate_render({render:true})` after all slides have passed
+   `replace_slide` to render/export the full PPTX and run final deck QA.
 6. If `validate_render` returns `ok:false`, call `read_deck` for the affected
    slide before repairing. Repair from current source JSON, not memory.
 7. Do not replace the same existing slide twice in one unvalidated edit window.

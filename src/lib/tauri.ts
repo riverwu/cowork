@@ -434,12 +434,15 @@ export interface Slideml2BrandSpec {
 
 export interface Slideml2CreateDeckResult {
   deckPath: string;
+  ok?: boolean;
+  error?: string;
+  validation?: Slideml2ValidationReport;
   [key: string]: unknown;
 }
 
 export interface Slideml2ValidationReport {
   ok: boolean;
-  errors?: { path?: string; message: string }[];
+  errors?: { code?: string; severity?: string; path?: string; message: string; suggestedFix?: string; [key: string]: unknown }[];
 }
 
 export interface Slideml2Diagnostic {
@@ -464,7 +467,16 @@ export interface Slideml2ReplaceSlideResult {
   ok: boolean;
   error?: string;
   validation?: Slideml2ValidationReport;
+  diagnostics?: {
+    count: number;
+    summary: Record<string, number>;
+    blockingCount: number;
+    blocking: Slideml2Diagnostic[];
+    qualityCount?: number;
+    quality?: Slideml2Diagnostic[];
+  };
   insertedAt?: number;
+  replacedAt?: number;
   slideCount?: number;
   [key: string]: unknown;
 }
@@ -482,11 +494,14 @@ export interface Slideml2ValidateRenderResult {
   validation: Slideml2ValidationReport;
   outputPath?: string;
   domPath?: string;
+  diagnosticsPath?: string;
   diagnostics?: {
     count: number;
     summary: Record<string, number>;
     blockingCount: number;
     blocking: Slideml2Diagnostic[];
+    qualityCount?: number;
+    quality?: Slideml2Diagnostic[];
   };
 }
 
@@ -505,14 +520,20 @@ export async function slideml2DescribeSchema(components?: string[]): Promise<Sli
 /** Create a fresh SlideML2 source deck JSON file. */
 export async function slideml2CreateDeck(
   deckPath: string,
-  options: { title?: string; theme?: string; brand?: Slideml2BrandSpec; themeOverride?: unknown },
+  options: { title?: string; size?: "16x9" | "16x10" | "4x3" | "wide"; theme?: string; brand?: Slideml2BrandSpec; themeOverride?: unknown; validation?: unknown; master?: unknown; dataSources?: unknown; references?: unknown; footnotes?: unknown },
 ): Promise<Slideml2CreateDeckResult> {
   return invokeDesktop<Slideml2CreateDeckResult>("slideml2_create_deck", {
     deckPath,
     title: options.title,
+    size: options.size,
     theme: options.theme,
     brand: options.brand,
     themeOverride: options.themeOverride,
+    validation: options.validation,
+    master: options.master,
+    dataSources: options.dataSources,
+    references: options.references,
+    footnotes: options.footnotes,
   });
 }
 

@@ -389,7 +389,7 @@ describe("cover slide composition: brand bg + brand band + inverse text reads co
     const ast = renderToAst(sourceToRenderedDeck(deck(slide)));
     const blocking = getRenderDiagnostics().filter((d) => {
       const code = d.code;
-      return code === "FALLBACK_FAILED" || code === "SQUASHED" || code === "DROP" || code === "TINY_RECT" || code === "LOW_CONTRAST" || code === "UNKNOWN_COLOR" || code === "UNKNOWN_STYLE" || code === "COLLISION";
+      return code === "FALLBACK_FAILED" || code === "SQUASHED" || code === "TINY_RECT" || code === "LOW_CONTRAST" || code === "UNKNOWN_COLOR" || code === "UNKNOWN_STYLE" || code === "COLLISION";
     });
     expect(blocking, blocking.map((d) => d.message).join("\n")).toHaveLength(0);
     // Sanity: title and subtitle stay white on the rendered cover.

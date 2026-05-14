@@ -15,6 +15,7 @@ const FAILURE_PATTERNS = [
   /\bPython execution error\b/i,
   /\bTool execution error\b/i,
   /\bProcess exited with code\s+([1-9]\d*)\b/i,
+  /\[Exit code:\s*([1-9]\d*)\]/i,
   // SlideML / structured-validation failures
   /\bSLOT_REQUIRED\b/,
   /\bSLOT_TYPE_MISMATCH\b/,
@@ -66,19 +67,28 @@ export function extractFailureSnippet(result: string): string | null {
 function parseStructuredFailure(result: string): string | null {
   const trimmed = result.trim();
   if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const record = parsed as Record<string, unknown>;
-      if (record.ok === false) {
-        const message = typeof record.error === "string" && record.error.trim()
-          ? record.error.trim()
-          : "Structured tool result returned ok:false";
-        return message.slice(0, 240);
+  const candidates = [trimmed];
+  if (trimmed.startsWith("{")) {
+    const lastBrace = trimmed.lastIndexOf("}");
+    if (lastBrace > 0) candidates.push(trimmed.slice(0, lastBrace + 1));
+  }
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const record = parsed as Record<string, unknown>;
+        if (record.ok === false) {
+          const message = typeof record.error === "string" && record.error.trim()
+            ? record.error.trim()
+            : typeof record.status === "string" && record.status.trim()
+              ? `Structured tool result returned ok:false (${record.status.trim()})`
+              : "Structured tool result returned ok:false";
+          return message.slice(0, 240);
+        }
       }
+    } catch {
+      continue;
     }
-  } catch {
-    return null;
   }
   return null;
 }

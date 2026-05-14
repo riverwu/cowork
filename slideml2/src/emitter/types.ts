@@ -44,7 +44,16 @@ export interface LineSpec {
   /** Line width in EMU. */
   width: number;
   dash?: "solid" | "dash" | "dashDot" | "dot";
+  compound?: "single" | "double" | "thickThin" | "thinThick" | "triple";
   alpha?: number;
+  headEnd?: LineEndSpec;
+  tailEnd?: LineEndSpec;
+}
+
+export interface LineEndSpec {
+  type?: "none" | "triangle" | "stealth" | "diamond" | "oval" | "arrow";
+  width?: "sm" | "med" | "lg";
+  length?: "sm" | "med" | "lg";
 }
 
 /**
@@ -54,14 +63,26 @@ export interface LineSpec {
  */
 export interface TextRun {
   text: string;
+  /** Optional native Office math payload. When present, the text emitter
+   *  writes an `<a14:m><m:oMathPara>…</m:oMathPara></a14:m>` run instead of
+   *  plain DrawingML text. `text` remains a fallback/measurement label. */
+  mathOmml?: string;
+  mathLatex?: string;
   bold?: boolean;
   italic?: boolean;
   /** Font size in HALF-POINTS (PowerPoint convention: `<a:rPr sz="2400">` = 24pt). */
   sizeHalfPt?: number;
   color?: HexColor;
-  /** Single font face. SlideML resolves a multi-family stack to one face
-   *  before reaching the emitter — OOXML's `typeface` attr takes one name. */
+  /** Latin font face. SlideML resolves a multi-family stack to one face
+   *  before reaching the emitter — OOXML's `typeface` attr takes one name
+   *  for each script family. */
   fontFace?: string;
+  /** East Asian font face. When omitted and `cjk` is true, the emitter falls
+   *  back to `fontFace` for backward compatibility. */
+  eastAsianFontFace?: string;
+  /** Complex-script font face. When omitted and `mono` is true, the emitter
+   *  falls back to `fontFace`. */
+  complexScriptFontFace?: string;
   /** Mark this run as the East-Asian (`ea`) typeface as well as latin. Set
    *  when the text contains CJK so PowerPoint applies the CJK font. */
   cjk?: boolean;
@@ -81,9 +102,8 @@ export interface TextRun {
   letterSpacing?: number;
   /** Highlight (background) color. Maps to `<a:highlight>` inside `<a:rPr>`. */
   highlight?: HexColor;
-  /** Hyperlink target. HTTPS URL → external link. The slide emitter
-   *  registers a slide-level rel of type `/hyperlink` with
-   *  `TargetMode="External"` and stamps the rId onto `<a:hlinkClick>`. */
+  /** Hyperlink target. HTTPS URL → external link. `#slideN` / `slide:N`
+   *  creates an internal slide jump when the package emitter can resolve it. */
   hyperlink?: string;
   /** End the paragraph after this run (newline within the same shape). */
   breakLine?: boolean;
@@ -128,6 +148,8 @@ export interface TextShape {
   margin?: { l?: number; t?: number; r?: number; b?: number };
   /** Vertical alignment of text within the box. */
   valign?: "top" | "middle" | "bottom";
+  /** Text wrapping policy. Defaults to "square"; chips/badges can use "none". */
+  wrap?: "square" | "none";
   /** Optional shape fill behind the text. */
   fill?: FillSpec;
   /** Optional border around the text box. */
@@ -160,12 +182,39 @@ export type ShapePreset =
   | "rightTriangle"
   | "pentagon"
   | "diamond"
+  | "hexagon"
+  | "octagon"
+  | "plus"
+  | "trapezoid"
+  | "leftBracket"
+  | "rightBracket"
+  | "leftBrace"
+  | "rightBrace"
   | "arrow-right"
+  | "arrow-left"
+  | "arrow-up"
   | "arrow-down"
+  | "leftRightArrow"
+  | "upDownArrow"
+  | "bentArrow"
+  | "elbowConnector"
+  | "curvedConnector"
+  | "straightConnector"
   | "callout"
   | "chevron"
   | "star-5"
+  | "star-8"
   | "parallelogram"
+  | "flowChartProcess"
+  | "flowChartDecision"
+  | "flowChartData"
+  | "flowChartTerminator"
+  | "flowChartDocument"
+  | "cylinder"
+  | "cube"
+  | "gear6"
+  | "heart"
+  | "lightningBolt"
   | "cloud";
 
 export interface PresetShape {
@@ -176,6 +225,16 @@ export interface PresetShape {
   xfrm: Xfrm;
   fill?: FillSpec;
   line?: LineSpec;
+  /** Optional rich text embedded inside the auto-shape. */
+  paragraphs?: Paragraph[];
+  /** Internal padding for embedded text, in EMU. */
+  margin?: { l?: number; t?: number; r?: number; b?: number };
+  /** Vertical alignment for embedded text. */
+  valign?: "top" | "middle" | "bottom";
+  /** Text wrapping policy for embedded text. */
+  wrap?: "square" | "none";
+  /** Auto-fit policy for embedded text. */
+  autoFit?: "shrink" | "resize";
   /** For `roundRect`: corner radius as a fraction of the shorter side, 0..1. */
   cornerRadius?: number;
   /**
@@ -228,6 +287,8 @@ export interface ImageShape {
   border?: LineSpec;
   /** Translucent colored overlay drawn on top of the image. */
   overlay?: { color: HexColor; alpha?: number };
+  /** Overall image opacity, 0..1. */
+  opacity?: number;
   /**
    * Inset crop (fractions 0..1 of width/height). Maps to OOXML
    * `<a:srcRect l="..." r="..." t="..." b="..."/>` inside the blipFill.
@@ -286,6 +347,42 @@ export type ChartNumberFormat =
   | "wanyuan"    // 1.23 万元 (Chinese 10K-yuan)
   | "yi";        // 1.23 亿  (Chinese 100M)
 
+export interface ChartAxisSpec {
+  title?: string;
+  show?: boolean;
+  min?: number;
+  max?: number;
+  majorUnit?: number;
+  minorUnit?: number;
+  numberFormat?: ChartNumberFormat | string;
+  gridlines?: boolean | { major?: boolean; minor?: boolean; color?: HexColor; width?: number; dash?: LineSpec["dash"] };
+  tickLabelRotation?: number;
+  tickLabelPosition?: "nextTo" | "low" | "high" | "none";
+  majorTickMark?: "none" | "in" | "out" | "cross";
+  minorTickMark?: "none" | "in" | "out" | "cross";
+}
+
+export interface ChartLegendSpec {
+  show?: boolean;
+  position?: "bottom" | "top" | "left" | "right";
+  overlay?: boolean;
+}
+
+export interface ChartPlotAreaSpec {
+  /** Manual layout factors, 0..1, relative to the chart frame. */
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+}
+
+export interface ChartMarkerSpec {
+  symbol?: "none" | "circle" | "dash" | "diamond" | "dot" | "plus" | "square" | "star" | "triangle" | "x";
+  size?: number;
+  fill?: HexColor;
+  line?: HexColor;
+}
+
 export interface ChartSeries {
   name: string;
   /**
@@ -300,12 +397,44 @@ export interface ChartSeries {
    * ignores this field.
    */
   type?: "bar" | "line";
+  /** Draw this series against the primary left Y axis or secondary right Y axis. */
+  axis?: "primary" | "secondary";
+  /**
+   * Native chart trend line. Supported by line/bar/scatter OOXML series.
+   * Boolean true means a linear trend line.
+   */
+  trendLine?: true | { type?: "linear" | "exp" | "log" | "poly"; order?: number; label?: string };
+  /**
+   * Native symmetric error bars. This intentionally starts with the simple
+   * OOXML forms rather than custom per-point ranges.
+   */
+  errorBars?: { type?: "fixed" | "percent" | "stdDev" | "stdErr"; value?: number; direction?: "x" | "y" | "both" };
   /**
    * Per-series xy data — only consumed when parent `chartType` is
    * "scatter". When present, `values` is ignored. Each point is a
    * literal {x,y} pair; the emitter writes both into the OOXML.
    */
   points?: Array<{ x: number; y: number }>;
+  /** Per-series visual style. */
+  color?: HexColor;
+  lineWidth?: number;
+  lineDash?: LineSpec["dash"];
+  marker?: ChartMarkerSpec;
+  smooth?: boolean;
+  dataLabels?: ChartDataLabels;
+}
+
+export interface ChartDataLabels {
+  show?: boolean;
+  position?: "bestFit" | "center" | "insideEnd" | "insideBase" | "outsideEnd";
+  showValue?: boolean;
+  showCategoryName?: boolean;
+  showSeriesName?: boolean;
+  showPercent?: boolean;
+  showLegendKey?: boolean;
+  showLeaderLines?: boolean;
+  /** Hide pie/doughnut labels for slices below this share. 0.03 = 3%. */
+  minPercent?: number;
 }
 
 /**
@@ -344,7 +473,12 @@ export interface ChartShape {
   labels: string[];
   series: ChartSeries[];
   /** Y-axis number format. Default `int`. */
-  yFormat?: ChartNumberFormat;
+  yFormat?: ChartNumberFormat | string;
+  xAxis?: ChartAxisSpec;
+  yAxis?: ChartAxisSpec;
+  secondaryYAxis?: ChartAxisSpec;
+  legend?: ChartLegendSpec;
+  plotArea?: ChartPlotAreaSpec;
   /** Optional title rendered above the chart. */
   title?: string;
   /** Color cycle in hex (no `#`). The renderer cycles series through these. */
@@ -353,6 +487,14 @@ export interface ChartShape {
   showLegend?: boolean;
   /** Show data values on each point. Default false. */
   showValues?: boolean;
+  /** Bar-like chart orientation. `horizontal` renders OOXML barDir="bar"; default vertical. */
+  orientation?: "vertical" | "horizontal";
+  /** Data-label controls. Supersedes showValues when provided. */
+  dataLabels?: ChartDataLabels;
+  /** Optional color for positive bar points. Defaults to series color. */
+  positiveColor?: HexColor;
+  /** Optional color for negative bar points. Defaults to the theme danger color. */
+  negativeColor?: HexColor;
   /**
    * Annotations attached to this chart. Carried on the shape so layouts
    * can render them as overlay text shapes layered over the chart frame.
@@ -375,6 +517,12 @@ export interface TableCell {
   runs: TextRun[];
   /** Optional cell fill — used for header row or accent rows. */
   fill?: FillSpec;
+  /** Optional cell-level border override. */
+  border?: TableBorderSpec | Partial<Record<TableBorderSide, TableBorderLineSpec | "none">>;
+  /** Internal padding in EMU. */
+  padding?: Partial<Record<"l" | "t" | "r" | "b", number>>;
+  /** Text rotation in OOXML bodyPr units. */
+  textRotation?: 0 | 90 | 270 | "vertical";
   /** Vertical alignment within the cell. */
   valign?: "top" | "middle" | "bottom";
   /** Horizontal alignment. */
@@ -387,6 +535,20 @@ export interface TableCell {
   hMerge?: boolean;
   /** Covered cell placeholder for a vertical merge. */
   vMerge?: boolean;
+}
+
+export type TableBorderSide = "left" | "right" | "top" | "bottom";
+export interface TableBorderLineSpec {
+  color?: HexColor;
+  width?: number;
+  dash?: LineSpec["dash"];
+  alpha?: number;
+}
+export interface TableBorderSpec extends Partial<Record<TableBorderSide, TableBorderLineSpec | "none">> {
+  color?: HexColor;
+  width?: number;
+  dash?: LineSpec["dash"];
+  alpha?: number;
 }
 
 export interface TableShape {
@@ -402,10 +564,22 @@ export interface TableShape {
   cells: TableCell[][];
   /** If true, the first row is rendered as a header (different fill / bold). */
   firstRowHeader?: boolean;
+  /** Native table style GUID. */
+  tableStyleId?: string;
+  bandRows?: boolean;
+  bandCols?: boolean;
+  firstCol?: boolean;
+  lastCol?: boolean;
+  lastRow?: boolean;
+  /** Default cell padding in EMU. */
+  cellPadding?: Partial<Record<"l" | "t" | "r" | "b", number>>;
+  /** Default table borders, optionally per side. */
+  borders?: TableBorderSpec | Partial<Record<TableBorderSide, TableBorderLineSpec | "none">>;
   /** Hairline color between cells. */
   borderColor?: HexColor;
   /** Hairline width in EMU. */
   borderWidth?: number;
+  borderDash?: LineSpec["dash"];
 }
 
 export type Shape = TextShape | PresetShape | ImageShape | ChartShape | TableShape;
@@ -425,6 +599,8 @@ export type SlideBackground =
 export interface SlideAst {
   shapes: ShapeList;
   background?: SlideBackground;
+  transition?: { type?: "none" | "fade" | "push" | "wipe" | "split" | "cover" | "uncover"; durationMs?: number; direction?: "left" | "right" | "up" | "down" };
+  layout?: string;
   /** Speaker notes (markdown-inline). Renderer emits notesSlide if present. */
   notes?: string;
 }
@@ -435,5 +611,9 @@ export interface DeckAst {
   language?: string;
   title?: string;
   author?: string;
+  master?: {
+    layout?: string;
+    placeholders?: Record<string, { x: number; y: number; w: number; h: number; type?: "title" | "body" | "chart" | "table" | "image" | "footer" }>;
+  };
   slides: SlideAst[];
 }

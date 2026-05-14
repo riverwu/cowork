@@ -1,5 +1,5 @@
 import type { Tool } from "./types";
-import { httpPost, downloadUrl, readFileBase64 } from "@/lib/tauri";
+import { httpPost, downloadUrl, readFileBase64, getEnv } from "@/lib/tauri";
 import { getSettings } from "@/lib/db";
 
 const DEFAULT_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
@@ -77,6 +77,20 @@ the user to configure it.`,
         },
         size: {
           type: "string",
+          enum: [
+            "4096x4096",
+            "2048x2048",
+            "3840x2160",
+            "2560x1440",
+            "2160x3840",
+            "1440x2560",
+            "3072x2304",
+            "2304x1728",
+            "2304x3072",
+            "1728x2304",
+            "3840x1644",
+            "2560x1080",
+          ],
           description:
             "Output size as \"WIDTHxHEIGHT\". Default 4096x4096 (4K square). Pick a preset by aspect ratio: " +
             "1:1 → 4096x4096 or 2048x2048; 16:9 → 3840x2160 or 2560x1440; 9:16 → 2160x3840 or 1440x2560; " +
@@ -100,12 +114,13 @@ the user to configure it.`,
     if (!outputPath) return "Error: output_path is required (absolute path).";
 
     const settings = await getSettings();
-    const apiKey = settings.imageApiKey;
+    const envConfig = await readImageEnvConfig();
+    const apiKey = settings.imageApiKey || envConfig.apiKey;
     if (!apiKey) {
-      return "Error: image generation API key is not configured. Open Settings → Image generation and add a Doubao Ark API key.";
+      return "Error: image generation API key is not configured. Open Settings → Image generation or set ARK_API_KEY.";
     }
-    const baseUrl = (settings.imageBaseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
-    const model = settings.imageModel || DEFAULT_MODEL;
+    const baseUrl = normalizeImageBaseUrl(settings.imageBaseUrl || envConfig.baseUrl || DEFAULT_BASE_URL);
+    const model = settings.imageModel || envConfig.model || DEFAULT_MODEL;
 
     let referenceImages: string[] | undefined;
     if (refsInput.length > 0) {
@@ -222,4 +237,28 @@ function mimeFromExtension(filePath: string): string {
 function truncate(text: string, max: number): string {
   if (!text) return "";
   return text.length <= max ? text : `${text.slice(0, max)}…`;
+}
+
+async function readImageEnvConfig(): Promise<{ apiKey?: string; baseUrl?: string; model?: string }> {
+  try {
+    const [apiKey, baseUrl, model] = await Promise.all([
+      getEnv("ARK_API_KEY"),
+      getEnv("ARK_API"),
+      getEnv("ARK_MODEL"),
+    ]);
+    return {
+      apiKey: apiKey || undefined,
+      baseUrl: baseUrl || undefined,
+      model: model || undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
+function normalizeImageBaseUrl(value: string): string {
+  return value
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\/images\/generations$/i, "");
 }

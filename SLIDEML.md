@@ -18,9 +18,9 @@ exact numbers), and `update_task_progress` (to surface progress in the panel).
 
 ```
 read_file (source) ─► describe_schema ─► style brief
-        ─► create_deck (with themeOverride) ─► replace_slide × N (append by passing slideId == slideCount)
-        ─► validate_render ─► fix blocking diagnostics with replace_slide / patch_deck
-        ─► validate_render again ─► done when blocking == 0
+        ─► create_deck (with themeOverride) ─► replace_slide × N (one slide at a time; each call validates before commit)
+        ─► validate_render once after all slides pass ─► repair final blocking diagnostics with replace_slide / patch_deck
+        ─► validate_render again if repaired ─► done when blocking == 0
 ```
 
 The deck JSON file you write to (`<name>.json`) is the **source of truth**.
@@ -66,11 +66,13 @@ to edit the deck later, read and patch the JSON, never the .pptx.
 5. **Author slides.** For each slide, build the JSON object
    `{id, title?, children, ...}` and call
    `replace_slide({ deckPath, slideId, slide })` — pass `slideId` equal to
-   the current slide count to **append**. For decks > 5 slides, do not try
-   to write all slides in one giant tool call; author them one at a time
-   so each gets its own validation cycle.
-6. **Validate and render.** `validate_render({ deckPath, outputPath })`.
-   It validates schema, renders the `.pptx`, writes the
+   the current slide count to **append**. `slide` must be a structured
+   object literal, never a stringified JSON blob. `replace_slide` validates
+   that single candidate slide and does not modify the deck file when it
+   fails; repair the same slide before authoring the next one.
+6. **Validate and render final deck.** After all slides pass `replace_slide`,
+   call `validate_render({ deckPath, outputPath })`. It validates schema,
+   renders the `.pptx`, writes the
    `.render-tree.json`, and returns a diagnostics summary plus a
    **blocking** list.
 7. **Repair.** Blocking diagnostics are hard failures: `FALLBACK_FAILED`,
@@ -250,7 +252,9 @@ Component fitness guide:
 - Before/after numeric shift → `stat-comparison`.
 - Done / not-done audit → `checklist`. Trade-offs → `pros-cons`.
 - Pipeline / multi-stage process (3–5 stages) → `process-flow`.
-- Long dated sequence → `timeline`.
+- Long dated sequence → `timeline`; when generated milestone icons matter,
+  put returned icon paths on `timeline.items[].iconSrc` rather than placing
+  separate image nodes by coordinates.
 - Product / feature highlights → grid of `feature-card`.
 - Pricing tiers → grid of `pricing-card`; mark exactly one with `tone:"brand"`.
 - Partner / customer logos → `logo-strip`.
@@ -310,7 +314,16 @@ deck-title text) in the body.
 
 ## Three-axis text styling: `size` × `weight` × `tone`
 
-Every text node has three orthogonal levers:
+Deck typography is token-driven like color. Start by setting a small,
+coherent `themeOverride.text` scale (`slide-title`, `section-title`,
+`card-title`, `paragraph`, `caption`, `label`, `metric-value`,
+`metric-label`, `table-cell`). Components should inherit from that scale
+through semantic component tokens rather than inventing their own font
+defaults. For example, `timeline-time` derives from `label`,
+`timeline-title` derives from `card-title`, and `timeline-body` derives
+from `caption`.
+
+Primitive text nodes still have three orthogonal local levers:
 
 | Axis | Field | Values | Purpose |
 |---|---|---|---|
@@ -323,6 +336,11 @@ Plus shortcut booleans: `italic`, `underline`, `uppercase`, and
 
 **Rule**: prefer one axis at a time. Bold + brand-color + xl is design
 noise; bold + text.primary at md is enough emphasis for a headline.
+
+**Component rule**: do not use node-level `fontSize`, `lineHeight`,
+`fontFamily`, or `size` as routine component styling. Adjust the deck
+tokens, or a centralized component token, so related text moves together
+across the deck.
 
 ### Size dial — match font size to box width
 
@@ -347,8 +365,12 @@ unless the cards are unusually narrow.
 - Categorical color (palette) only when the slide has *categorical
   meaning* — process steps, SWOT quadrants, distinct product lines.
 - Per-tag color via `tag-list` items: `[{text:"AI",tone:"brand"}, {text:"Risk",tone:"warning"}]`.
-- Trend semantics: `success` / `danger` / `warning` / `muted` apply when
-  the value carries that meaning. Don't use them for decoration.
+- Component tones are theme-defined semantic bundles, not ad hoc component
+  defaults. Common values: `brand`, `tinted`, `neutral`, `muted`,
+  `positive`/`success`, `warning`/`caution`, `danger`/`error`/`negative`,
+  and `info`.
+- Trend/status semantics apply only when the value carries that meaning.
+  Don't use semantic tones for decoration.
 - `divider` — neutral separator between two regions of a stack.
 - `frame` — borderless wrapper with a clear outline, good for
   placeholder regions or dashed-border emphasis (`dash:"dash"`).
@@ -449,8 +471,10 @@ is itself a `grid` of `feature-card`s reads as one composed thought.
   layout, wrap them in an explicit `stack` / `grid` / `split`.
 - All distance fields are in cm (`gap`, `padding`, `fixedHeight`,
   `fixedWidth`).
-- Color tokens only. Never set `fontSize`, `fontFace`, or raw hex `color`
-  on text nodes. Semantic palette names (`red`, `lime`, `blue`, …) carry
+- Color tokens only. Never set routine `fontSize`, `fontFace`, or raw hex `color`
+  on text nodes. Use `themeOverride.text` tokens for deck-wide typography;
+  reserve node-level font overrides for deliberate low-level/freeform escape
+  hatches. Semantic palette names (`red`, `lime`, `blue`, …) carry
   *categorical* meaning; max ~4 per slide.
 - Mark nice-to-have children with `optional: true` so the renderer can
   drop them when space is tight.

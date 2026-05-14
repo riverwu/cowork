@@ -1,0 +1,9 @@
+{
+  "name": "slideml2",
+  "version": "0.0.0",
+  "description": "Experimental semantic Slide DOM MVP for agent-editable decks",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "license": "MIT"
+}

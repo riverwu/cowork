@@ -9,6 +9,7 @@ import type { Slideml2SourceDeck, SlideV2 } from "./types.js";
  */
 
 const EMU = 360000;
+const TINY_ICON = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5NiIgaGVpZ2h0PSI5NiI+PGNpcmNsZSBjeD0iNDgiIGN5PSI0OCIgcj0iMzIiIGZpbGw9IiMyNTYzZWIiLz48L3N2Zz4=";
 
 function deck(slide: SlideV2, themeOverride?: Record<string, unknown>): Slideml2SourceDeck {
   return {
@@ -25,6 +26,18 @@ function deck(slide: SlideV2, themeOverride?: Record<string, unknown>): Slideml2
 
 function shapes(slide: SlideV2, themeOverride?: Record<string, unknown>) {
   return renderToAst(sourceToRenderedDeck(deck(slide, themeOverride))).slides[0].shapes;
+}
+
+function shapes4x3(slide: SlideV2) {
+  return renderToAst(sourceToRenderedDeck({
+    slideml2: 2,
+    deck: {
+      size: "4x3",
+      theme: "default",
+      brand: { primary: "2563EB" },
+    },
+    slides: [slide],
+  })).slides[0].shapes;
 }
 
 function findEndingWith(shapeList: ReturnType<typeof shapes>, suffix: string) {
@@ -89,7 +102,7 @@ describe("timeline visual spine (slide 7 fix)", () => {
     expect(dotToTitleGap).toBeLessThan(0.7);
   });
 
-  it("horizontal timeline does NOT emit dot/line spines (cells flow horizontally)", () => {
+  it("horizontal timeline emits axis markers without vertical row spines", () => {
     const slide: SlideV2 = {
       id: "s",
       title: "x",
@@ -104,8 +117,147 @@ describe("timeline visual spine (slide 7 fix)", () => {
       } as never],
     };
     const list = shapes(slide);
-    expect(filterEndingWith(list, ".dot").length).toBe(0);
+    expect(filterEndingWith(list, ".dot").length).toBe(2);
+    expect(filterEndingWith(list, ".halo").length).toBe(2);
     expect(filterEndingWith(list, ".line").length).toBe(0);
+  });
+
+  it("horizontal timeline keeps the node on the axis and supports milestone shape/icon", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.tl",
+        type: "timeline",
+        direction: "horizontal",
+        items: [
+          { time: "2024", title: "A", body: "Body", shape: "diamond", icon: "cloud" },
+          { time: "2025", title: "B", body: "Body", shape: "star-5", icon: "triangle" },
+        ],
+      } as never],
+    };
+    const list = shapes(slide);
+    const halo = findEndingWith(list, ".0.halo") as { preset?: string; xfrm?: { x: number; cx: number } };
+    const icon = findEndingWith(list, ".0.icon") as { preset?: string };
+    const dot = findEndingWith(list, ".0.dot") as { xfrm?: { x: number; y: number; cx: number; cy: number } };
+    const railRight = findEndingWith(list, ".0.railRight") as { xfrm?: { y: number; cy: number } };
+    const time = findEndingWith(list, ".0.time") as { xfrm?: { y: number } };
+    const body = findEndingWith(list, ".0.body") as { paragraphs?: Array<{ runs: Array<{ sizeHalfPt?: number }> }> };
+
+    expect(halo.preset).toBe("diamond");
+    expect(icon.preset).toBe("cloud");
+    const haloCenterX = (halo.xfrm!.x + halo.xfrm!.cx / 2) / EMU;
+    const dotCenterX = (dot.xfrm!.x + dot.xfrm!.cx / 2) / EMU;
+    expect(Math.abs(haloCenterX - dotCenterX)).toBeLessThan(0.05);
+    const dotCenter = (dot.xfrm!.y + dot.xfrm!.cy / 2) / EMU;
+    const railCenter = (railRight.xfrm!.y + railRight.xfrm!.cy / 2) / EMU;
+    expect(Math.abs(dotCenter - railCenter)).toBeLessThan(0.05);
+    const dotBottom = (dot.xfrm!.y + dot.xfrm!.cy) / EMU;
+    const timeTop = time.xfrm!.y / EMU;
+    expect(timeTop - dotBottom).toBeGreaterThanOrEqual(0);
+    expect(timeTop - dotBottom).toBeLessThan(0.35);
+    expect(body.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt).toBe(17.6);
+  });
+
+  it("horizontal timeline in a tight 4x3 stack keeps copy below the axis, not beside it", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [
+        {
+          id: "s.tl",
+          type: "timeline",
+          direction: "horizontal",
+          items: [
+            { time: "第一代", body: "CD3ζ信号domain，无增殖信号", tone: "neutral" },
+            { time: "第二代", body: "CD3ζ + CD28/4-1BB共刺激信号", tone: "brand" },
+            { time: "第三代", body: "多个共刺激信号，更强增殖", tone: "brand" },
+            { time: "第四代", body: "分泌IL-12/IL-15或开关功能", tone: "positive" },
+          ],
+        } as never,
+        {
+          id: "s.list",
+          type: "warning-list",
+          title: "FDA已批准CAR-T",
+          items: [
+            { headline: "Kymriah", detail: "急性淋巴细胞白血病ALL" },
+            { headline: "Yescarta", detail: "弥漫大B细胞淋巴瘤DLBCL" },
+          ],
+        } as never,
+        {
+          id: "s.challenges",
+          type: "warning-list",
+          title: "核心挑战",
+          items: [
+            { headline: "CRS", detail: "CAR-T大量增殖可危及生命" },
+            { headline: "实体瘤疗效有限", detail: "肿瘤微环境免疫抑制" },
+          ],
+        } as never,
+      ],
+    };
+    const list = shapes4x3(slide);
+    const dot = findEndingWith(list, ".0.dot") as { xfrm?: { x: number; y: number; cx: number; cy: number } };
+    const time = findEndingWith(list, ".0.time") as { xfrm?: { x: number; y: number; cx: number; cy: number } };
+    const body = findEndingWith(list, ".0.body") as { xfrm?: { x: number; y: number; cx: number; cy: number } };
+
+    const dotCenterX = (dot.xfrm!.x + dot.xfrm!.cx / 2) / EMU;
+    const timeCenterX = (time.xfrm!.x + time.xfrm!.cx / 2) / EMU;
+    const dotBottom = (dot.xfrm!.y + dot.xfrm!.cy) / EMU;
+    const timeTop = time.xfrm!.y / EMU;
+    const timeBottom = (time.xfrm!.y + time.xfrm!.cy) / EMU;
+    const bodyTop = body.xfrm!.y / EMU;
+
+    expect(Math.abs(dotCenterX - timeCenterX)).toBeLessThan(0.65);
+    expect(timeTop).toBeGreaterThanOrEqual(dotBottom - 0.12);
+    expect(bodyTop).toBeGreaterThanOrEqual(timeBottom);
+  });
+
+  it("horizontal timeline renders generated iconSrc inside the milestone marker", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.tl",
+        type: "timeline",
+        direction: "horizontal",
+        items: [
+          { time: "2024", title: "A", body: "Body", shape: "ellipse", iconSrc: TINY_ICON },
+          { time: "2025", title: "B", body: "Body" },
+        ],
+      } as never],
+    };
+    const list = shapes(slide);
+    const icon = findEndingWith(list, ".0.icon") as { type?: string; fit?: string; xfrm?: { cx: number; cy: number } };
+    const halo = findEndingWith(list, ".0.halo") as { xfrm?: { cx: number; cy: number } };
+
+    expect(icon.type).toBe("image");
+    expect(icon.fit).toBe("contain");
+    expect(icon.xfrm!.cx).toBeLessThan(halo.xfrm!.cx);
+    expect(icon.xfrm!.cy).toBeLessThan(halo.xfrm!.cy);
+  });
+
+  it("wrapped horizontal timeline exposes row gap for spacing between axes", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.tl",
+        type: "timeline",
+        direction: "horizontal",
+        gap: 0.82,
+        items: Array.from({ length: 8 }, (_, index) => ({
+          time: `202${index}`,
+          body: `Milestone ${index + 1}`,
+        })),
+      } as never],
+    };
+    const list = shapes(slide);
+    const row0Dot = findEndingWith(list, ".3.dot") as { xfrm?: { y: number; cy: number } };
+    const row0Body = findEndingWith(list, ".3.body") as { xfrm?: { y: number; cy: number } };
+    const row1Dot = findEndingWith(list, ".4.dot") as { xfrm?: { y: number } };
+    const row0Bottom = Math.max(row0Dot.xfrm!.y + row0Dot.xfrm!.cy, row0Body.xfrm!.y + row0Body.xfrm!.cy) / EMU;
+    const rowGap = row1Dot.xfrm!.y / EMU - row0Bottom;
+    expect(rowGap).toBeGreaterThan(0.6);
   });
 });
 
@@ -601,6 +753,37 @@ describe("bar-list value width: short numbers no longer waste 1.6cm", () => {
     expect(value).toBeDefined();
     const cx = (value!.xfrm!.cx) / EMU;
     expect(cx).toBeLessThanOrEqual(1.0 + 0.01);
+  });
+
+  it("parses currency/unit display strings for comparable bar lengths", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.b",
+        type: "bar-list",
+        items: [
+          { label: "iOS", value: "¥274.7万" },
+          { label: "PC", value: "¥182.7万" },
+          { label: "Small", value: "¥10.2万" },
+        ],
+      } as never],
+    };
+    const list = shapes(slide);
+    const fillWidth = (suffix: string) => {
+      const fill = list.find((s) => typeof (s as { name?: string }).name === "string" && (s as { name: string }).name.endsWith(suffix)) as
+        | { xfrm?: { cx: number } } | undefined;
+      expect(fill, suffix).toBeDefined();
+      return fill!.xfrm!.cx / EMU;
+    };
+    const first = fillWidth(".0.fill");
+    const second = fillWidth(".1.fill");
+    const third = fillWidth(".2.fill");
+    expect(first).toBeGreaterThan(second);
+    expect(second).toBeGreaterThan(third);
+    expect(second / first).toBeGreaterThan(0.55);
+    expect(second / first).toBeLessThan(0.85);
+    expect(third / first).toBeLessThan(0.3);
   });
 });
 

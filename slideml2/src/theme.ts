@@ -1,9 +1,16 @@
 import { pushDiagnostic } from "./diagnostics.js";
-import type { BrandSpec, ThemeOverride } from "./types.js";
+import type { BrandSpec, SurfaceOverride, ThemeLayoutArea, ThemeOverride } from "./types.js";
 
 export interface SimpleTheme {
   name: string;
   colors: Record<string, string>;
+  /**
+   * Optional alpha channel for color tokens that were authored as CSS
+   * rgb/rgba/hsl/hsla expressions. Text rendering consumes only `colors`
+   * because OOXML text color is hex-only in our IR; fill rendering can consult
+   * this map to preserve the intended translucency.
+   */
+  colorAlpha?: Record<string, number>;
   text: Record<string, TextStyle>;
   /**
    * Semantic font-size dials. Agents pick a scale (`xs` … `2xl`) instead of
@@ -37,6 +44,7 @@ export interface SimpleTheme {
     defaultGap: number;
     columnGap: number;
     cardPadding: number;
+    areas: Record<string, ThemeLayoutArea>;
   };
   chart: {
     series: string[];
@@ -92,6 +100,7 @@ export interface TextStyle {
   fontWeight?: FontWeight;
   color: string;
   lineHeight: number;
+  lineSpacing?: number;
   margin?: { l?: number; r?: number; t?: number; b?: number };
   /** Letter spacing in 1/100 pt. Negative tightens, positive opens. */
   letterSpacing?: number;
@@ -106,21 +115,41 @@ export interface TextStyle {
    *  small-caps on eyebrows. Renderer support varies; PowerPoint honors
    *  `tnum` and `smcp` reliably on installed OpenType fonts. */
   fontFeatures?: string[];
+  /** Agent-friendly alias for weight:'bold' in themeOverride.text. */
+  bold?: boolean;
   /** Uppercase transform applied at render time (CSS text-transform). */
   uppercase?: boolean;
   /** Italic by default for this style (e.g. quote, citation). */
   italic?: boolean;
 }
 
-export interface ComponentStyle {
+export interface ComponentStyle extends Omit<SurfaceOverride, "accent"> {
   fill?: string;
   line?: string;
   accent?: string;
   padding?: number;
-  radius?: number;
   cornerRadius?: number;
   elevation?: "flat" | "raised" | "floating" | "outlined";
 }
+
+type TextStyleDerivation = {
+  extends: string;
+  overrides?: Partial<TextStyle>;
+};
+
+export const COMPONENT_TEXT_STYLE_DERIVATIONS: Record<string, TextStyleDerivation> = {
+  "timeline-time": {
+    extends: "label",
+    overrides: { color: "text.primary", weight: "bold" },
+  },
+  "timeline-title": {
+    extends: "card-title",
+  },
+  "timeline-body": {
+    extends: "caption",
+    overrides: { color: "text.primary" },
+  },
+};
 
 export type ThemeFactory = (brandPrimary: string) => SimpleTheme;
 
@@ -152,9 +181,10 @@ const colorWarnings = new Set<string>();
 export function buildTheme(brand: BrandSpec = {}, themeName = "default", themeOverride?: ThemeOverride): SimpleTheme {
   void themeName;
   const flatColors = flattenColorOverrides(themeOverride?.colors);
+  const flatColorAlphas = flattenColorOverrideAlphas(themeOverride?.colors);
   const brandPrimary = normalizeHex(brand.primary || flatColors["brand.primary"] || "2563EB");
   const base = defaultBase(brandPrimary);
-  return mergeTheme(base, brandPrimary, themeOverride, flatColors);
+  return mergeTheme(base, brandPrimary, themeOverride, flatColors, flatColorAlphas);
 }
 
 /**
@@ -171,7 +201,7 @@ export function flattenColorOverrides(input: unknown): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     if (typeof value === "string") {
-      out[key] = stripHexPrefix(value);
+      out[key] = normalizeColorOverrideValue(value);
       continue;
     }
     if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -182,6 +212,31 @@ export function flattenColorOverrides(input: unknown): Record<string, string> {
     }
   }
   return out;
+}
+
+export function flattenColorOverrideAlphas(input: unknown): Record<string, number> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value === "string") {
+      const parsed = parseCssColor(value);
+      if (parsed && parsed.alpha < 1) out[key] = parsed.alpha;
+      continue;
+    }
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const nested = flattenColorOverrideAlphas(value);
+      for (const [subKey, subValue] of Object.entries(nested)) {
+        out[`${key}.${subKey}`] = subValue;
+      }
+    }
+  }
+  return out;
+}
+
+function normalizeColorOverrideValue(value: string): string {
+  const parsed = parseCssColor(value);
+  if (parsed) return parsed.hex;
+  return stripHexPrefix(value);
 }
 
 function stripHexPrefix(value: string): string {
@@ -195,8 +250,9 @@ function stripHexPrefix(value: string): string {
   return trimmed;
 }
 
-function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOverride, prebuiltColors?: Record<string, string>): SimpleTheme {
+function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOverride, prebuiltColors?: Record<string, string>, prebuiltColorAlphas?: Record<string, number>): SimpleTheme {
   const flatColors = prebuiltColors ?? flattenColorOverrides(override?.colors);
+  const flatColorAlphas = prebuiltColorAlphas ?? flattenColorOverrideAlphas(override?.colors);
   const colors = { ...base.colors, ...derivedBrandPalette(brandPrimary), ...flatColors };
   if (flatColors["text.secondary"] && !flatColors["text.muted"]) {
     colors["text.muted"] = flatColors["text.secondary"];
@@ -211,13 +267,15 @@ function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOve
   // header text became invisible). Auto-derive a slight tone shift
   // from `surface` so the dependents stay consistent.
   applySurfaceConsistency(colors, flatColors);
+  applyToneColorAliases(colors, flatColors);
   const merged: SimpleTheme = {
     ...base,
     colors,
+    colorAlpha: flatColorAlphas,
     text: mergeTextStyles(base.text, override?.text),
     component: mergeComponentStyles(base.component, override?.component),
     tone: { ...base.tone, ...(override?.tone || {}) },
-    layout: { ...base.layout, ...(override?.layout || {}) },
+    layout: { ...base.layout, ...(override?.layout || {}), areas: { ...base.layout.areas, ...(override?.layout?.areas || {}) } },
     fonts: mergeFonts(base.fonts, override?.fonts),
     chart: { series: override?.chart?.series ?? base.chart.series },
     guidance: {
@@ -229,11 +287,116 @@ function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOve
       imageGuidance: override?.guidance?.imageGuidance ?? base.guidance.imageGuidance,
       avoid: override?.guidance?.avoid ?? base.guidance.avoid,
     },
-    chrome: { ...base.chrome, ...(override?.chrome || {}) },
+    chrome: mergeChrome(base.chrome, override?.chrome),
     imageGrowWeight: override?.imageGrowWeight ?? base.imageGrowWeight,
     sizeScale: { ...base.sizeScale, ...(override?.sizeScale || {}) },
   };
   return merged;
+}
+
+export type SemanticToneName =
+  | "brand"
+  | "tinted"
+  | "neutral"
+  | "muted"
+  | "subtle"
+  | "positive"
+  | "success"
+  | "good"
+  | "warning"
+  | "caution"
+  | "danger"
+  | "error"
+  | "negative"
+  | "info";
+
+const SEMANTIC_TONE_NAMES: SemanticToneName[] = [
+  "brand", "tinted", "neutral", "muted", "subtle",
+  "positive", "success", "good",
+  "warning", "caution",
+  "danger", "error", "negative",
+  "info",
+];
+
+export function listSemanticTones(): SemanticToneName[] {
+  return [...SEMANTIC_TONE_NAMES];
+}
+
+const SEMANTIC_TONE_ALIASES: Record<string, SemanticToneName> = {
+  brand: "brand",
+  accent: "brand",
+  primary: "brand",
+  tinted: "tinted",
+  tint: "tinted",
+  neutral: "neutral",
+  default: "neutral",
+  muted: "muted",
+  subtle: "subtle",
+  positive: "positive",
+  success: "success",
+  good: "good",
+  up: "positive",
+  warning: "warning",
+  caution: "caution",
+  warn: "caution",
+  danger: "danger",
+  error: "error",
+  negative: "negative",
+  bad: "danger",
+  down: "negative",
+  info: "info",
+};
+
+export interface SemanticToneStyle {
+  fg: string;
+  bg: string;
+  line: string;
+}
+
+export function normalizeSemanticToneName(value: unknown): SemanticToneName | undefined {
+  if (typeof value !== "string") return undefined;
+  const key = value.trim().toLowerCase();
+  const alias = SEMANTIC_TONE_ALIASES[key];
+  if (alias) return alias;
+  return (SEMANTIC_TONE_NAMES as readonly string[]).includes(key) ? key as SemanticToneName : undefined;
+}
+
+export function toneStyle(theme: SimpleTheme, value: unknown, fallback: SemanticToneName = "neutral"): SemanticToneStyle {
+  const key = normalizeSemanticToneName(value) || fallback;
+  return theme.tone[key] || theme.tone[fallback] || { fg: "text.primary", bg: "surface", line: "divider" };
+}
+
+function applyToneColorAliases(colors: Record<string, string>, flatOverrides: Record<string, string>): void {
+  const userSet = (key: string): boolean => Object.prototype.hasOwnProperty.call(flatOverrides, key);
+  const aliasGroups: Array<{ target: string; source: string }> = [
+    { target: "positive", source: "success" },
+    { target: "good", source: "success" },
+    { target: "caution", source: "warning" },
+    { target: "warn", source: "warning" },
+    { target: "error", source: "danger" },
+    { target: "negative", source: "danger" },
+    { target: "bad", source: "danger" },
+    { target: "subtle", source: "muted" },
+  ];
+  const suffixes = ["", ".accent", ".tint", ".shade"];
+  for (const { target, source } of aliasGroups) {
+    for (const suffix of suffixes) {
+      const targetKey = `${target}${suffix}`;
+      const sourceKey = `${source}${suffix}`;
+      if (!userSet(targetKey) && isHexColor(colors[sourceKey])) colors[targetKey] = colors[sourceKey]!;
+    }
+  }
+  if (!userSet("neutral")) colors.neutral = colors["text.primary"] || "0F172A";
+  if (!userSet("neutral.accent")) colors["neutral.accent"] = colors.divider || "DDE3EC";
+  if (!userSet("neutral.tint")) colors["neutral.tint"] = colors.surface || "FFFFFF";
+  if (!userSet("neutral.shade")) colors["neutral.shade"] = colors["text.muted"] || "5B6478";
+  if (!userSet("muted")) colors.muted = colors["text.muted"] || "5B6478";
+  if (!userSet("muted.accent")) colors["muted.accent"] = colors["text.muted"] || "5B6478";
+  if (!userSet("muted.tint")) colors["muted.tint"] = colors["surface.subtle"] || "F1F4FA";
+  if (!userSet("muted.shade")) colors["muted.shade"] = colors["text.primary"] || "0F172A";
+  if (!userSet("tinted")) colors.tinted = colors["brand.tint"] || "EEF2FF";
+  if (!userSet("tinted.accent")) colors["tinted.accent"] = colors["brand.primary"] || "2563EB";
+  if (!userSet("tinted.tint")) colors["tinted.tint"] = colors["brand.tint"] || "EEF2FF";
 }
 
 function applySemanticAccentAliases(colors: Record<string, string>, flatOverrides: Record<string, string>): void {
@@ -317,15 +480,19 @@ function shadedVariantForContrast(srcHex: string, bgHex: string, threshold: numb
 }
 
 function mergeTextStyles(base: Record<string, TextStyle>, override?: Record<string, Partial<TextStyle>>): Record<string, TextStyle> {
-  if (!override) return { ...base };
-  const out: Record<string, TextStyle> = { ...base };
+  const out: Record<string, TextStyle> = cloneTextStyles(base);
+  if (!override) return completeDerivedTextStyles(out, base, {});
   for (const [key, value] of Object.entries(override)) {
     const existing = out[key] || base.paragraph || { fontSize: 11, color: "text.primary", lineHeight: 1.4 };
     out[key] = {
       fontSize: typeof value.fontSize === "number" ? value.fontSize : existing.fontSize,
-      weight: value.weight ?? value.fontWeight ?? existing.weight,
+      weight: value.weight ?? value.fontWeight ?? (value.bold === true ? "bold" : undefined) ?? existing.weight,
       color: typeof value.color === "string" ? value.color : existing.color,
-      lineHeight: typeof value.lineHeight === "number" ? value.lineHeight : existing.lineHeight,
+      lineHeight: typeof value.lineHeight === "number"
+        ? value.lineHeight
+        : typeof value.lineSpacing === "number"
+          ? value.lineSpacing
+          : existing.lineHeight,
       margin: value.margin ?? existing.margin,
       letterSpacing: value.letterSpacing ?? existing.letterSpacing,
       fontFamily: value.fontFamily ?? existing.fontFamily,
@@ -334,15 +501,164 @@ function mergeTextStyles(base: Record<string, TextStyle>, override?: Record<stri
       italic: value.italic ?? existing.italic,
     };
   }
+  return completeDerivedTextStyles(out, base, override);
+}
+
+function cloneTextStyles(styles: Record<string, TextStyle>): Record<string, TextStyle> {
+  const out: Record<string, TextStyle> = {};
+  for (const [key, style] of Object.entries(styles)) {
+    out[key] = { ...style, ...(style.margin ? { margin: { ...style.margin } } : {}) };
+  }
   return out;
+}
+
+function completeDerivedTextStyles(
+  out: Record<string, TextStyle>,
+  base: Record<string, TextStyle>,
+  override: Record<string, Partial<TextStyle>>,
+): Record<string, TextStyle> {
+  const touched = (key: string): boolean => Object.prototype.hasOwnProperty.call(override, key);
+  const anyTouched = (...keys: string[]): boolean => keys.some(touched);
+  const style = (key: string): TextStyle => out[key] || out.paragraph || base.paragraph;
+  const baseStyle = (key: string): TextStyle => base[key] || base.paragraph;
+  const has = (key: string, prop: keyof TextStyle): boolean => {
+    const value = override[key];
+    if (!value) return false;
+    if (prop === "weight") {
+      return Object.prototype.hasOwnProperty.call(value, "weight")
+        || Object.prototype.hasOwnProperty.call(value, "fontWeight")
+        || Object.prototype.hasOwnProperty.call(value, "bold");
+    }
+    if (prop === "lineHeight") {
+      return Object.prototype.hasOwnProperty.call(value, "lineHeight")
+        || Object.prototype.hasOwnProperty.call(value, "lineSpacing");
+    }
+    return Object.prototype.hasOwnProperty.call(value, prop);
+  };
+  const ensure = (key: string): TextStyle => {
+    out[key] = out[key] || { ...baseStyle(key) };
+    return out[key]!;
+  };
+  const scaled = (source: string, target: string, prop: "fontSize" | "lineHeight"): number => {
+    const src = style(source)[prop];
+    const srcBase = baseStyle(source)[prop];
+    const targetBase = baseStyle(target)[prop];
+    if (!Number.isFinite(src) || !Number.isFinite(srcBase) || !Number.isFinite(targetBase) || srcBase === 0) {
+      return targetBase;
+    }
+    const precision = prop === "fontSize" ? 10 : 100;
+    return Math.round(src * (targetBase / srcBase) * precision) / precision;
+  };
+  const deriveMetrics = (target: string, source: string, condition: boolean): void => {
+    if (!condition) return;
+    const t = ensure(target);
+    if (!has(target, "fontSize")) t.fontSize = scaled(source, target, "fontSize");
+    if (!has(target, "lineHeight")) t.lineHeight = scaled(source, target, "lineHeight");
+  };
+  const inheritFontRole = (target: string, source: string, condition: boolean): void => {
+    if (!condition) return;
+    const sourceFamily = style(source).fontFamily;
+    if (sourceFamily && !has(target, "fontFamily")) ensure(target).fontFamily = sourceFamily;
+  };
+  const inheritWeight = (target: string, source: string, condition: boolean): void => {
+    if (!condition) return;
+    const sourceWeight = style(source).weight ?? style(source).fontWeight;
+    if (sourceWeight !== undefined && !has(target, "weight")) ensure(target).weight = sourceWeight;
+  };
+  const inheritFeatures = (target: string, source: string, condition: boolean): void => {
+    if (!condition) return;
+    const sourceFeatures = style(source).fontFeatures;
+    if (sourceFeatures && !has(target, "fontFeatures")) ensure(target).fontFeatures = [...sourceFeatures];
+  };
+
+  const titleTouched = anyTouched("slide-title");
+  const sectionTouched = anyTouched("section-title") || titleTouched;
+  const paragraphTouched = anyTouched("paragraph");
+  const captionTouched = anyTouched("caption") || paragraphTouched;
+  const metricTouched = anyTouched("metric-value");
+
+  deriveMetrics("deck-title", "slide-title", titleTouched);
+  inheritFontRole("deck-title", "slide-title", titleTouched);
+  inheritWeight("deck-title", "slide-title", titleTouched);
+
+  deriveMetrics("section-title", "slide-title", titleTouched);
+  inheritFontRole("section-title", "slide-title", titleTouched);
+  inheritWeight("section-title", "slide-title", titleTouched);
+
+  deriveMetrics("card-title", paragraphTouched ? "paragraph" : "section-title", paragraphTouched || sectionTouched);
+  inheritFontRole("card-title", sectionTouched ? "section-title" : "paragraph", paragraphTouched || sectionTouched);
+  inheritWeight("card-title", "section-title", sectionTouched);
+
+  for (const key of ["lead", "article", "body", "bullet", "bullet-compact", "table-cell"]) {
+    deriveMetrics(key, "paragraph", paragraphTouched);
+    inheritFontRole(key, "paragraph", paragraphTouched);
+    inheritFeatures(key, "paragraph", paragraphTouched);
+  }
+
+  deriveMetrics("caption", "paragraph", paragraphTouched);
+  inheritFontRole("caption", "paragraph", paragraphTouched);
+
+  for (const key of ["figure-caption", "footnote", "axis-label", "legend-label", "tag"]) {
+    deriveMetrics(key, "caption", captionTouched);
+    inheritFontRole(key, "caption", captionTouched);
+    inheritFeatures(key, "caption", captionTouched);
+  }
+
+  deriveMetrics("label", touched("caption") ? "caption" : "paragraph", captionTouched);
+  inheritFontRole("label", touched("caption") ? "caption" : "paragraph", captionTouched);
+
+  deriveMetrics("badge", "label", captionTouched);
+  inheritFontRole("badge", "label", captionTouched);
+
+  deriveMetrics("table-header", "table-cell", paragraphTouched || touched("table-cell"));
+  inheritFontRole("table-header", "table-cell", paragraphTouched || touched("table-cell"));
+  inheritWeight("table-header", "card-title", sectionTouched);
+  inheritFeatures("table-header", "table-cell", paragraphTouched || touched("table-cell"));
+
+  deriveMetrics("metric-label", metricTouched ? "metric-value" : "caption", metricTouched || captionTouched);
+  inheritFontRole("metric-label", captionTouched ? "caption" : "paragraph", captionTouched || paragraphTouched);
+
+  applyComponentTextStyleDerivations(out, base, override);
+
+  return out;
+}
+
+function applyComponentTextStyleDerivations(
+  out: Record<string, TextStyle>,
+  base: Record<string, TextStyle>,
+  override: Record<string, Partial<TextStyle>>,
+): void {
+  for (const [target, def] of Object.entries(COMPONENT_TEXT_STYLE_DERIVATIONS)) {
+    const source = out[def.extends] || base[def.extends] || out.paragraph || base.paragraph;
+    const explicit = override[target] || {};
+    const derived: TextStyle = {
+      ...source,
+      ...def.overrides,
+    };
+    out[target] = {
+      fontSize: typeof explicit.fontSize === "number" ? explicit.fontSize : derived.fontSize,
+      weight: explicit.weight ?? explicit.fontWeight ?? derived.weight,
+      color: typeof explicit.color === "string" ? explicit.color : derived.color,
+      lineHeight: typeof explicit.lineHeight === "number" ? explicit.lineHeight : derived.lineHeight,
+      margin: explicit.margin ?? derived.margin,
+      letterSpacing: explicit.letterSpacing ?? derived.letterSpacing,
+      fontFamily: explicit.fontFamily ?? derived.fontFamily,
+      fontFeatures: explicit.fontFeatures ?? derived.fontFeatures,
+      uppercase: explicit.uppercase ?? derived.uppercase,
+      italic: explicit.italic ?? derived.italic,
+    };
+  }
 }
 
 /** Accept either the legacy `string[]` form or the new `{ display, text }`
  *  shape for `latin` and `cjk`. The legacy array becomes both `text` and
  *  `display` so old themeOverrides still render identically. */
+type FontChainOverride = string | string[];
+type ScriptFontOverride = FontChainOverride | { display?: FontChainOverride; text?: FontChainOverride };
+
 function mergeFonts(
   base: SimpleTheme["fonts"],
-  override?: { latin?: string[] | { display?: string[]; text?: string[] }; cjk?: string[] | { display?: string[]; text?: string[] }; mono?: string[] },
+  override?: { latin?: ScriptFontOverride; cjk?: ScriptFontOverride; mono?: ScriptFontOverride },
 ): SimpleTheme["fonts"] {
   if (!override) {
     return { latin: { ...base.latin }, cjk: { ...base.cjk }, mono: [...base.mono] };
@@ -350,41 +666,96 @@ function mergeFonts(
   return {
     latin: mergeScriptFonts(base.latin, override.latin),
     cjk: mergeScriptFonts(base.cjk, override.cjk),
-    mono: override.mono ?? [...base.mono],
+    mono: mergeMonoFonts(base.mono, override.mono),
   };
 }
 
 function mergeScriptFonts(
   base: { display: string[]; text: string[] },
-  override?: string[] | { display?: string[]; text?: string[] },
+  override?: ScriptFontOverride,
 ): { display: string[]; text: string[] } {
   if (!override) return { display: [...base.display], text: [...base.text] };
-  if (Array.isArray(override)) {
+  if (typeof override === "string" || Array.isArray(override)) {
     // Legacy: a single chain doubles as text + display.
-    return { display: override, text: override };
+    const chain = normalizeFontChain(override) ?? [...base.text];
+    return { display: chain, text: chain };
   }
   return {
-    display: override.display ?? [...base.display],
-    text: override.text ?? [...base.text],
+    display: normalizeFontChain(override.display) ?? [...base.display],
+    text: normalizeFontChain(override.text) ?? [...base.text],
   };
+}
+
+function normalizeFontChain(value?: FontChainOverride): string[] | undefined {
+  if (typeof value === "string") return value.trim() ? [value.trim()] : undefined;
+  if (Array.isArray(value)) {
+    const chain = value.map((item) => typeof item === "string" ? item.trim() : "").filter(Boolean);
+    return chain.length > 0 ? chain : undefined;
+  }
+  return undefined;
+}
+
+function mergeMonoFonts(base: string[], override?: ScriptFontOverride): string[] {
+  if (!override) return [...base];
+  if (typeof override === "string" || Array.isArray(override)) {
+    return normalizeFontChain(override) ?? [...base];
+  }
+  return normalizeFontChain(override.text) ?? normalizeFontChain(override.display) ?? [...base];
+}
+
+function mergeChrome(base: SimpleTheme["chrome"], override?: ThemeOverride["chrome"]): SimpleTheme["chrome"] {
+  if (!override) return { ...base };
+  return {
+    ...base,
+    ...override,
+    pageNumber: normalizeBoolean(override.pageNumber, base.pageNumber),
+    footerLine: normalizeBoolean(override.footerLine, base.footerLine),
+    brandMark: normalizeBrandMark(override.brandMark, base.brandMark),
+  };
+}
+
+function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "yes", "y", "1", "on"].includes(normalized)) return true;
+    if (["false", "no", "n", "0", "off", "none"].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+function normalizeBrandMark(value: unknown, fallback: SimpleTheme["chrome"]["brandMark"]): SimpleTheme["chrome"]["brandMark"] {
+  if (value === "none" || value === "top-right" || value === "bottom-right") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "topright" || normalized === "top_right" || normalized === "top right") return "top-right";
+    if (normalized === "bottomright" || normalized === "bottom_right" || normalized === "bottom right") return "bottom-right";
+  }
+  return fallback;
 }
 
 function mergeComponentStyles(base: Record<string, ComponentStyle>, override?: Record<string, ComponentStyle>): Record<string, ComponentStyle> {
   if (!override) return { ...base };
   const out: Record<string, ComponentStyle> = { ...base };
   for (const [key, value] of Object.entries(override)) {
-    const { cornerRadius, radius: rawRadius, padding: rawPadding, ...rest } = value;
-    const radius = typeof value.cornerRadius === "number"
-      ? normalizeCornerRadius(value.cornerRadius)
-      : typeof value.radius === "number"
-        ? normalizeCornerRadius(value.radius)
-        : undefined;
+    const raw = value as ComponentStyle & { radius?: unknown; surface?: unknown };
+    const surface = raw.surface && typeof raw.surface === "object" && !Array.isArray(raw.surface)
+      ? raw.surface as Partial<ComponentStyle>
+      : {};
+    const mergedValue = { ...surface, ...raw };
+    delete (mergedValue as Record<string, unknown>).surface;
+    const { cornerRadius: rawCornerRadius, padding: rawPadding, ...restWithLegacy } = mergedValue as ComponentStyle & { radius?: unknown };
+    const rest = { ...restWithLegacy };
+    delete rest.radius;
+    const cornerRadius = typeof rawCornerRadius === "number"
+      ? normalizeCornerRadius(rawCornerRadius)
+      : undefined;
     const padding = typeof rawPadding === "number" ? normalizeComponentPadding(rawPadding) : undefined;
     out[key] = {
       ...(base[key] || {}),
       ...rest,
       ...(padding !== undefined ? { padding } : {}),
-      ...(radius !== undefined ? { radius, cornerRadius: radius } : {}),
+      ...(cornerRadius !== undefined ? { cornerRadius } : {}),
     };
   }
   return out;
@@ -421,7 +792,6 @@ const COLOR_ALIASES: Record<string, string> = {
   brand: "brand.primary",
   primary: "text.primary",
   inverse: "text.inverse",
-  muted: "text.muted",
   text: "text.primary",
   bg: "background",
   background: "background",
@@ -568,7 +938,7 @@ function hslToHex(h: number, s: number, l: number): string {
  * agent without a recoverable diagnostic.
  */
 export function color(theme: SimpleTheme, value: unknown, fallback = "text.primary"): string {
-  const fallbackHex = theme.colors[fallback] || "111827";
+  const fallbackHex = fallbackColorHex(theme, fallback);
   if (typeof value !== "string") {
     if (value !== undefined && value !== null) {
       colorWarnings.add(`<non-string:${typeof value}>`);
@@ -576,7 +946,7 @@ export function color(theme: SimpleTheme, value: unknown, fallback = "text.prima
         severity: "warn",
         code: "UNKNOWN_COLOR",
         message: `Color value must be a string token or hex; got ${typeof value}. Falling back to '${fallback}'.`,
-        suggestion: "Use a flat token (e.g. \"brand.primary\", \"text.inverse\") or a hex string. themeOverride.colors should be flat keys, not nested objects.",
+        suggestion: "Use a flat token (e.g. \"brand.primary\", \"text.inverse\") or a hex string. themeOverride.colors may be flat or nested, but node color references must use flat token names.",
       });
     }
     return fallbackHex;
@@ -617,6 +987,16 @@ export function color(theme: SimpleTheme, value: unknown, fallback = "text.prima
     });
   }
   return fallbackHex;
+}
+
+function fallbackColorHex(theme: SimpleTheme, fallback: string): string {
+  const raw = typeof fallback === "string" ? fallback.trim() : "";
+  const stripped = raw.startsWith("#") ? raw.slice(1) : raw;
+  if (/^[0-9A-Fa-f]{6}$/.test(stripped)) return stripped.toUpperCase();
+  if (/^[0-9A-Fa-f]{3}$/.test(stripped)) {
+    return (stripped[0]! + stripped[0]! + stripped[1]! + stripped[1]! + stripped[2]! + stripped[2]!).toUpperCase();
+  }
+  return theme.colors[raw] || "111827";
 }
 
 function commonText(): Record<string, TextStyle> {
@@ -761,12 +1141,12 @@ function defaultBase(brandPrimary: string): SimpleTheme {
     text: commonText(),
     sizeScale: { ...DEFAULT_SIZE_SCALE },
     component: {
-      "metric-card": { fill: "surface", line: "divider", padding: 0.4, radius: 0.06 },
-      callout: { fill: "brand.tint", line: "divider", accent: "brand.primary", padding: 0.55, radius: 0.06 },
-      "comparison-card": { fill: "surface", line: "divider", padding: 0.55, radius: 0.06 },
-      "step-card": { fill: "surface", line: "divider", padding: 0.55, radius: 0.06 },
-      "definition-card": { fill: "surface", line: "divider", padding: 0.6, radius: 0.08 },
-      quote: { fill: "surface.subtle", line: "divider", padding: 0.7, radius: 0.08 },
+      "metric-card": { fill: "surface", line: "divider", padding: 0.4, cornerRadius: 0.06 },
+      callout: { fill: "brand.tint", line: "divider", accent: "brand.primary", padding: 0.55, cornerRadius: 0.06 },
+      "comparison-card": { fill: "surface", line: "divider", padding: 0.55, cornerRadius: 0.06 },
+      "step-card": { fill: "surface", line: "divider", padding: 0.55, cornerRadius: 0.06 },
+      "definition-card": { fill: "surface", line: "divider", padding: 0.6, cornerRadius: 0.08 },
+      quote: { fill: "surface.subtle", line: "divider", padding: 0.7, cornerRadius: 0.08 },
       // timeline-step is a flow group, not a card. Earlier the entry declared
       // {fill:"surface", line:"divider", padding:0.5}, which made the stack
       // paint a card frame around every step (via containerBackgroundShape)
@@ -774,9 +1154,9 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       // ≥3 items collapsed under FALLBACK_FAILED. Strip chrome + padding so
       // the timeline reads as a connected sequence, not a column of cards.
       "timeline-step": { padding: 0 },
-      "profile-card": { fill: "surface", line: "divider", padding: 0.5, radius: 0.08 },
-      "swot-quadrant": { fill: "surface", line: "divider", padding: 0.55, radius: 0.06 },
-      cta: { fill: "brand.primary", padding: 0.4, radius: 0.3 },
+      "profile-card": { fill: "surface", line: "divider", padding: 0.5, cornerRadius: 0.08 },
+      "swot-quadrant": { fill: "surface", line: "divider", padding: 0.55, cornerRadius: 0.06 },
+      cta: { fill: "brand.primary", padding: 0.4, cornerRadius: 0.3 },
       "icon-text": { padding: 0 },
       "section-break": { padding: 0 },
       "kpi-grid": { padding: 0 },
@@ -792,18 +1172,27 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       legend: { padding: 0 },
       badge: { padding: 0 },
       "flow-arrow": { padding: 0 },
-      panel: { fill: "surface", line: "divider", padding: 0.55, radius: 0.12 },
-      card: { fill: "surface", line: "divider", padding: 0.6, radius: 0.12 },
-      band: { fill: "surface.subtle", padding: 0.7, radius: 0 },
-      frame: { line: "divider", padding: 0.5, radius: 0.12 },
-      inset: { padding: 0.4, radius: 0 },
+      panel: { fill: "surface", line: "divider", padding: 0.55, cornerRadius: 0.12 },
+      card: { fill: "surface", line: "divider", padding: 0.6, cornerRadius: 0.12 },
+      band: { fill: "surface.subtle", padding: 0.7, cornerRadius: 0 },
+      frame: { line: "divider", padding: 0.5, cornerRadius: 0.12 },
+      inset: { padding: 0.4, cornerRadius: 0 },
     },
     tone: {
       neutral: { fg: "text.primary", bg: "surface", line: "divider" },
-      positive: { fg: "success", bg: "success.tint", line: "success" },
-      warning: { fg: "warning", bg: "warning.tint", line: "warning" },
-      danger: { fg: "danger", bg: "danger.tint", line: "danger" },
+      muted: { fg: "text.muted", bg: "surface.subtle", line: "divider" },
+      subtle: { fg: "text.muted", bg: "surface.subtle", line: "divider" },
+      positive: { fg: "success", bg: "success.tint", line: "success.accent" },
+      success: { fg: "success", bg: "success.tint", line: "success.accent" },
+      good: { fg: "success", bg: "success.tint", line: "success.accent" },
+      warning: { fg: "warning", bg: "warning.tint", line: "warning.accent" },
+      caution: { fg: "warning", bg: "warning.tint", line: "warning.accent" },
+      danger: { fg: "danger", bg: "danger.tint", line: "danger.accent" },
+      error: { fg: "danger", bg: "danger.tint", line: "danger.accent" },
+      negative: { fg: "danger", bg: "danger.tint", line: "danger.accent" },
+      info: { fg: "info", bg: "info.tint", line: "info.accent" },
       brand: { fg: "brand.primary", bg: "brand.tint", line: "brand.primary" },
+      tinted: { fg: "brand.primary", bg: "brand.tint", line: "divider" },
     },
     fonts: {
       latin: {
@@ -827,10 +1216,11 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       titleTop: 0.85,
       titleHeight: 1.45,
       contentTop: 2.95,
-      contentBottom: 1.0,
+      contentBottom: 13.2875,
       defaultGap: 0.5,
       columnGap: 0.7,
       cardPadding: 0.55,
+      areas: {},
     },
     chart: {
       series: ["brand.primary", "brand.primary.shade", "brand.primary.tint", "success", "warning", "danger"],
@@ -860,7 +1250,7 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       brandMark: "none",
       pageNumber: false,
       footerLine: false,
-      footerHeight: 0.55,
+      footerHeight: 0.72,
       footerPadding: 0.5,
     },
     imageGrowWeight: 2,
@@ -1008,6 +1398,10 @@ export function resolveFill(theme: SimpleTheme, value: unknown, fallback = "back
     if (/^(rgba?|hsla?)\s*\(/i.test(trimmed)) {
       const parsed = parseCssColor(trimmed);
       if (parsed) return { type: "solid", color: parsed.hex, alpha: parsed.alpha };
+    }
+    const tokenAlpha = theme.colorAlpha?.[trimmed];
+    if (tokenAlpha !== undefined && typeof theme.colors[trimmed] === "string") {
+      return { type: "solid", color: theme.colors[trimmed]!, alpha: tokenAlpha };
     }
   }
   return { type: "solid", color: color(theme, value, fallback) };

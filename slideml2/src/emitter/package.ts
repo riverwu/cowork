@@ -11,6 +11,7 @@
 import JSZip from "jszip";
 import { Assets } from "../assets.js";
 import { chartXml } from "./chart.js";
+import { chartWorkbookXlsx } from "./chart-workbook.js";
 import {
   notesMasterRelsXml,
   notesMasterXml,
@@ -20,6 +21,7 @@ import {
 import { slideRelsXml, slideXml } from "./slide.js";
 import { SLIDE_SIZES } from "../units.js";
 import type { ChartShape, DeckAst, ImageShape } from "./types.js";
+import { STABLE_OOXML_TIMESTAMP, xmlEscape } from "./xml.js";
 
 /**
  * Wrap an asset.intern call so failures (404s, missing files,
@@ -129,9 +131,9 @@ export async function emitPackage(deck: DeckAst, themeOxml?: ResolvedThemeOxml):
   zip.file("ppt/theme/theme1.xml", themeXml(themeOxml));
 
   // --- Slide master + layout (single, fixed) ------------------------------
-  zip.file("ppt/slideMasters/slideMaster1.xml", slideMasterXml());
+  zip.file("ppt/slideMasters/slideMaster1.xml", slideMasterXml(deck.master));
   zip.file("ppt/slideMasters/_rels/slideMaster1.xml.rels", slideMasterRelsXml());
-  zip.file("ppt/slideLayouts/slideLayout1.xml", slideLayoutXml());
+  zip.file("ppt/slideLayouts/slideLayout1.xml", slideLayoutXml(deck.master));
   zip.file("ppt/slideLayouts/_rels/slideLayout1.xml.rels", slideLayoutRelsXml());
 
   // --- Notes master (only when at least one slide has notes) --------------
@@ -182,32 +184,30 @@ export async function emitPackage(deck: DeckAst, themeOxml?: ResolvedThemeOxml):
     for (const _chart of chartShapes) {
       const chartFilename = `chart${nextChartIndex++}.xml`;
       slideChartFilenames.push(chartFilename);
-      zip.file(`ppt/charts/${chartFilename}`, chartXml(_chart));
-      // Charts must have a (possibly empty) rels file or PowerPoint complains.
+      const workbookFilename = `Microsoft_Excel_Worksheet${nextChartIndex - 1}.xlsx`;
+      zip.file(`ppt/charts/${chartFilename}`, chartXml(_chart, { embeddedWorkbookRelId: "rId1" }));
+      zip.file(`ppt/embeddings/${workbookFilename}`, await chartWorkbookXlsx(_chart));
       zip.file(
         `ppt/charts/_rels/${chartFilename}.rels`,
         `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`,
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/package" Target="../embeddings/${workbookFilename}"/>
+</Relationships>`,
       );
     }
 
-    // Image rels appear in TWO orders inside built.rels.entries:
-    //   - background-image rel (added by the slide emitter, FIRST when present)
-    //   - shape-image rels (added by image shape emitters, in slide-order)
-    // We resolve them by which side they're on. Background uses src directly;
-    // shape rels consume image shapes in order.
     const bgImageSrc = slide.background?.type === "image" ? slide.background.src : undefined;
     let bgRelConsumed = false;
     built.rels.entries = built.rels.entries.map((rel) => {
       if (rel.type.endsWith("/image")) {
-        // First image rel is the background (when present), then shape rels.
-        if (bgImageSrc && !bgRelConsumed) {
+        const explicitSrc = rel.assetSrc;
+        const src = explicitSrc || (bgImageSrc && !bgRelConsumed ? bgImageSrc : imageShapes[imgRelIdx++]?.src);
+        if (rel.role === "background-image" || (src === bgImageSrc && !bgRelConsumed)) {
           bgRelConsumed = true;
-          const entry = assets.get(bgImageSrc)!;
-          return { ...rel, target: `../media/${entry.filename}` };
         }
-        const src = imageShapes[imgRelIdx++]!.src;
-        const entry = assets.get(src)!;
+        if (!src) throw new Error(`slides[${slideNum}] image relationship ${rel.id} has no source asset`);
+        const entry = assets.get(src);
+        if (!entry) throw new Error(`slides[${slideNum}] image relationship ${rel.id} references uninterned asset "${src}"`);
         return { ...rel, target: `../media/${entry.filename}` };
       }
       if (rel.type.endsWith("/chart")) {
@@ -280,6 +280,9 @@ function contentTypesXml(slideCount: number, imageExts: Set<string>, chartCount:
     overrides.push(
       `<Override PartName="/ppt/charts/chart${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`,
     );
+    overrides.push(
+      `<Override PartName="/ppt/embeddings/Microsoft_Excel_Worksheet${i}.xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>`,
+    );
   }
   if (notesIndices.length > 0) {
     overrides.push(
@@ -300,6 +303,9 @@ function contentTypesXml(slideCount: number, imageExts: Set<string>, chartCount:
     `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`,
     `<Default Extension="xml" ContentType="application/xml"/>`,
   ];
+  if (chartCount > 0) {
+    defaults.push(`<Default Extension="xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>`);
+  }
   // Always declare png/jpg defaults so a deck without an image still
   // validates if a layout decides to inject one later (charts hand-rolled
   // to PptxGenJS shape style sometimes carry inline png blips).
@@ -345,7 +351,7 @@ function appXml(slideCount: number): string {
 }
 
 function coreXml(title: string, author: string): string {
-  const now = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  const now = STABLE_OOXML_TIMESTAMP;
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 <dc:title>${escapeForXml(title)}</dc:title>
@@ -423,7 +429,8 @@ function themeXml(themeOxml?: ResolvedThemeOxml): string {
 </a:theme>`;
 }
 
-function slideMasterXml(): string {
+function slideMasterXml(master?: DeckAst["master"]): string {
+  const placeholders = placeholderShapesXml(master, 10);
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
 <p:cSld>
@@ -431,6 +438,7 @@ function slideMasterXml(): string {
 <p:spTree>
 <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
 <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+${placeholders}
 </p:spTree>
 </p:cSld>
 <p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>
@@ -451,17 +459,52 @@ function slideMasterRelsXml(): string {
 </Relationships>`;
 }
 
-function slideLayoutXml(): string {
+function slideLayoutXml(master?: DeckAst["master"]): string {
+  const placeholders = placeholderShapesXml(master, 100);
+  const layoutName = escapeForXml(master?.layout ?? "Blank");
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank" preserve="1">
-<p:cSld name="Blank">
+<p:cSld name="${layoutName}">
 <p:spTree>
 <p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
 <p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+${placeholders}
 </p:spTree>
 </p:cSld>
 <p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
 </p:sldLayout>`;
+}
+
+function placeholderShapesXml(master: DeckAst["master"] | undefined, startId: number): string {
+  const entries = Object.entries(master?.placeholders ?? {});
+  return entries.map(([name, ph], index) => {
+    const id = startId + index;
+    const type = placeholderType(ph.type);
+    const idxAttr = ` idx="${index + 1}"`;
+    const x = Math.round(ph.x);
+    const y = Math.round(ph.y);
+    const w = Math.round(ph.w);
+    const h = Math.round(ph.h);
+    return (
+      `<p:sp>` +
+      `<p:nvSpPr><p:cNvPr id="${id}" name="${escapeForXml(name)}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="${type}"${idxAttr}/></p:nvPr></p:nvSpPr>` +
+      `<p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr>` +
+      `<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody>` +
+      `</p:sp>`
+    );
+  }).join("");
+}
+
+function placeholderType(type: "title" | "body" | "chart" | "table" | "image" | "footer" | undefined): string {
+  switch (type) {
+    case "title": return "title";
+    case "footer": return "ftr";
+    case "image": return "pic";
+    case "chart":
+    case "table":
+    case "body":
+    default: return "body";
+  }
 }
 
 function slideLayoutRelsXml(): string {
@@ -577,5 +620,5 @@ function tableStylesXml(): string {
 // =============================================================================
 
 function escapeForXml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" }[c] ?? c));
+  return xmlEscape(s);
 }

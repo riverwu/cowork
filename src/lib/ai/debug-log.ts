@@ -22,6 +22,7 @@ export class DebugLogger {
   private requestDir: string | null = null;
   private seq = 0;
   private artifactSeq = 0;
+  private appendQueue: Promise<void> = Promise.resolve();
   /** Source paths we've already copied — avoids re-copying the same .pptx
    *  every time validate_render returns it across iterations. */
   private copied = new Set<string>();
@@ -105,8 +106,10 @@ export class DebugLogger {
     success: boolean;
     durationMs: number;
   }): Promise<void> {
-    const artifacts = await this.copyArtifactsFromResult(payload.name, payload.result);
-    await this.append("tool-done", { ...payload, artifacts });
+    await this.enqueue(async () => {
+      const artifacts = await this.copyArtifactsFromResult(payload.name, payload.result);
+      await this.writeLine("tool-done", { ...payload, artifacts });
+    });
   }
 
   async recordError(payload: { step: number; error: string; phase: string }): Promise<void> {
@@ -115,6 +118,10 @@ export class DebugLogger {
 
   async recordCompacted(payload: { summary: string; preservedUserMessages: number; estimatedTokens: number }): Promise<void> {
     await this.append("compacted", payload);
+  }
+
+  async recordContextManifest(payload: unknown): Promise<void> {
+    await this.append("context-manifest", payload);
   }
 
   async recordCompleted(payload: { totalSteps: number; hitStepLimit: boolean; finalText: string }): Promise<void> {
@@ -142,6 +149,16 @@ export class DebugLogger {
   }
 
   private async append(event: string, payload: unknown): Promise<void> {
+    await this.enqueue(async () => this.writeLine(event, payload));
+  }
+
+  private async enqueue(work: () => Promise<void>): Promise<void> {
+    const next = this.appendQueue.then(work, work);
+    this.appendQueue = next.catch(() => undefined);
+    await next.catch(() => undefined);
+  }
+
+  private async writeLine(event: string, payload: unknown): Promise<void> {
     if (!this.logPath) return;
     const line = JSON.stringify({
       seq: ++this.seq,

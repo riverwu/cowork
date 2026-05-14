@@ -158,7 +158,7 @@ async function dispatch(command, args, sender) {
     case "get_node_path": return getNodePath();
     case "run_node_script": return runNodeScript(args.script, args.cwd, args.timeoutSecs);
     case "slideml2_describe_schema": return slideml2DescribeSchema(args.components);
-    case "slideml2_create_deck": return slideml2CreateDeck(args.deckPath, args.title, args.theme, args.brand, args.themeOverride);
+    case "slideml2_create_deck": return slideml2CreateDeck(args.deckPath, args.title, args.size, args.theme, args.brand, args.themeOverride, args.validation, args.master, args.dataSources, args.references, args.footnotes);
     case "slideml2_read_deck": return slideml2ReadDeck(args.deckPath);
     case "slideml2_replace_slide": return slideml2ReplaceSlide(args.deckPath, args.slideId, args.slide);
     case "slideml2_patch_deck": return slideml2PatchDeck(args.deckPath, args.patch);
@@ -556,19 +556,21 @@ async function slideml2DescribeSchema(componentNames) {
   };
 }
 
-async function slideml2CreateDeck(deckPath, title, theme, brand, themeOverride) {
+async function slideml2CreateDeck(deckPath, title, size, theme, brand, themeOverride, validation, master, dataSources, references, footnotes) {
   if (!deckPath) throw new Error("slideml2_create_deck: deckPath is required");
   const m = await slideml2();
   const result = await m.createDeck(deckPath, {
     title: typeof title === "string" ? title : undefined,
+    size: typeof size === "string" ? size : undefined,
     theme: typeof theme === "string" ? theme : "default",
     brand: brand && typeof brand === "object" ? brand : undefined,
+    themeOverride: themeOverride && typeof themeOverride === "object" ? themeOverride : undefined,
+    validation: validation && typeof validation === "object" ? validation : undefined,
+    master: master && typeof master === "object" ? master : undefined,
+    dataSources: dataSources && typeof dataSources === "object" ? dataSources : undefined,
+    references: Array.isArray(references) ? references : undefined,
+    footnotes: Array.isArray(footnotes) ? footnotes : undefined,
   });
-  if (themeOverride && typeof themeOverride === "object") {
-    const deck = await m.readDeck(deckPath);
-    deck.deck.themeOverride = themeOverride;
-    await m.writeDeck(deckPath, deck);
-  }
   return { deckPath, ...result };
 }
 
@@ -583,17 +585,92 @@ async function slideml2ReplaceSlide(deckPath, slideId, slide) {
   if (slide == null || typeof slide !== "object") throw new Error("slideml2_replace_slide: slide must be an object");
   const m = await slideml2();
   const deck = await m.readDeck(deckPath);
-  const slideValidation = m.validateSlide(slide, deck);
+  const normalizedSlide = m.normalizeSlide(slide);
+  const slideValidation = m.validateSlide(normalizedSlide, deck);
   if (!slideValidation.ok) {
     return { ok: false, error: `Slide validation failed with ${slideValidation.errors.length} error(s).`, validation: slideValidation };
   }
   const id = normalizeSlideId(slideId);
-  if (typeof id === "number" && id === deck.slides.length) {
-    deck.slides.push(slide);
-    await m.writeDeck(deckPath, deck);
-    return { ok: true, insertedAt: deck.slides.length - 1, slideCount: deck.slides.length };
+  const candidate = JSON.parse(JSON.stringify(deck));
+  let targetIndex = -1;
+  let insertedAt;
+  let replacedAt;
+  if (typeof id === "number") {
+    if (id === candidate.slides.length) {
+      targetIndex = id;
+      insertedAt = id;
+      candidate.slides.push(normalizedSlide);
+    } else if (id >= 0 && id < candidate.slides.length) {
+      targetIndex = id;
+      replacedAt = id;
+      candidate.slides[id] = normalizedSlide;
+    }
+  } else {
+    targetIndex = candidate.slides.findIndex((item) => item.id === id);
+    if (targetIndex >= 0) {
+      replacedAt = targetIndex;
+      candidate.slides[targetIndex] = normalizedSlide;
+    }
   }
-  return m.replaceSlide(deckPath, id, slide);
+  if (targetIndex < 0) {
+    return { ok: false, error: `Slide not found: ${slideId}`, slideCount: deck.slides.length };
+  }
+
+  const deckValidation = m.validateDeck(candidate, { baseDir: path.dirname(deckPath) });
+  if (!deckValidation.ok) {
+    return {
+      ok: false,
+      error: `Candidate deck validation failed with ${deckValidation.errors.length} error(s).`,
+      validation: deckValidation,
+      slideCount: deck.slides.length,
+    };
+  }
+
+  const singleSlideDeck = { ...candidate, slides: [candidate.slides[targetIndex]] };
+  m.clearRenderDiagnostics();
+  try {
+    m.renderToAst(m.sourceToRenderedDeck(singleSlideDeck, { baseDir: path.dirname(deckPath) }));
+  } catch (err) {
+    m.clearRenderDiagnostics();
+    return {
+      ok: false,
+      error: `Slide render validation crashed: ${err instanceof Error ? err.message : String(err)}`,
+      validation: deckValidation,
+      slideCount: deck.slides.length,
+    };
+  }
+  const diagnostics = m.getRenderDiagnostics();
+  m.clearRenderDiagnostics();
+  const blocking = blockingSlideml2Diagnostics(diagnostics, m);
+  const quality = qualityGateSlideml2Diagnostics(diagnostics, m);
+  const diagnosticsSummary = summarizeSlideml2Diagnostics(diagnostics);
+  const renderCheck = {
+    count: diagnostics.length,
+    summary: diagnosticsSummary,
+    blockingCount: blocking.length,
+    blocking: blocking.slice(0, 60),
+    qualityCount: quality.length,
+    quality: quality.slice(0, 60),
+  };
+  if (blocking.length > 0) {
+    return {
+      ok: false,
+      error: `Slide render validation failed with ${blocking.length} blocking diagnostic(s). Deck file was not modified.`,
+      validation: deckValidation,
+      diagnostics: renderCheck,
+      slideCount: deck.slides.length,
+    };
+  }
+
+  await m.writeDeck(deckPath, candidate);
+  return {
+    ok: true,
+    insertedAt,
+    replacedAt,
+    slideCount: candidate.slides.length,
+    validation: deckValidation,
+    diagnostics: renderCheck,
+  };
 }
 
 async function slideml2PatchDeck(deckPath, patch) {
@@ -603,7 +680,10 @@ async function slideml2PatchDeck(deckPath, patch) {
   const original = await m.readDeck(deckPath);
   const deck = JSON.parse(JSON.stringify(original));
   applyJsonPatch(deck, patch);
-  const validation = m.validateDeck(deck);
+  if (Array.isArray(deck.slides)) {
+    deck.slides = deck.slides.map((slide) => m.normalizeSlide(slide));
+  }
+  const validation = m.validateDeck(deck, { baseDir: path.dirname(deckPath) });
   if (validation.ok) await m.writeDeck(deckPath, deck);
   return {
     ok: validation.ok,
@@ -618,7 +698,7 @@ async function slideml2ValidateRender(deckPath, outputPath, render) {
   const m = await slideml2();
   const shouldRender = render !== false;
   const deck = await m.readDeck(deckPath);
-  const validation = m.validateDeck(deck);
+  const validation = m.validateDeck(deck, { baseDir: path.dirname(deckPath) });
   if (!validation.ok || !shouldRender) {
     return {
       ok: validation.ok,
@@ -629,29 +709,196 @@ async function slideml2ValidateRender(deckPath, outputPath, render) {
   const out = (typeof outputPath === "string" && outputPath) || `${deckPath.replace(/\.json$/, "")}.pptx`;
   await fsp.mkdir(path.dirname(out), { recursive: true });
   m.clearRenderDiagnostics();
-  const result = await m.renderToPptx(m.sourceToRenderedDeck(deck), out);
+  const result = await m.renderToPptx(m.sourceToRenderedDeck(deck, { baseDir: path.dirname(deckPath) }), out);
   const diagnostics = m.getRenderDiagnostics();
-  const blocking = blockingSlideml2Diagnostics(diagnostics);
+  const authoringDiagnostics = await slideml2AuthoringDiagnostics(deckPath, deck);
+  const allDiagnostics = diagnostics.concat(authoringDiagnostics);
+  const blocking = blockingSlideml2Diagnostics(allDiagnostics, m);
+  const quality = qualityGateSlideml2Diagnostics(allDiagnostics, m);
+  const diagnosticsPath = `${result.outputPath}.diagnostics.json`;
+  await fsp.writeFile(diagnosticsPath, JSON.stringify(allDiagnostics, null, 2), "utf8");
   const counts = {};
-  for (const d of diagnostics) counts[d.code] = (counts[d.code] || 0) + 1;
+  for (const d of allDiagnostics) counts[d.code] = (counts[d.code] || 0) + 1;
   return {
     ok: blocking.length === 0,
     error: blocking.length ? `${blocking.length} blocking render diagnostic(s) remain.` : undefined,
     outputPath: result.outputPath,
     domPath: result.domPath,
+    diagnosticsPath,
     validation,
     diagnostics: {
-      count: diagnostics.length,
+      count: allDiagnostics.length,
       summary: counts,
       blockingCount: blocking.length,
       blocking: blocking.slice(0, 60),
+      qualityCount: quality.length,
+      quality: quality.slice(0, 60),
     },
   };
 }
 
-function blockingSlideml2Diagnostics(items) {
-  const codes = new Set(["DROP", "COLLISION", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "SQUASHED", "FALLBACK_FAILED", "LOW_CONTRAST", "SHAPE_INVISIBLE"]);
-  return items.filter((d) => d.severity === "error" || codes.has(d.code));
+async function slideml2AuthoringDiagnostics(deckPath, deck) {
+  const iconDiagnostic = await unusedGeneratedIconDiagnostic(deckPath, deck);
+  return [
+    ...sourceAuthoringDiagnostics(deck),
+    ...(iconDiagnostic ? [iconDiagnostic] : []),
+  ];
+}
+
+function sourceAuthoringDiagnostics(deck) {
+  const slides = Array.isArray(deck?.slides) ? deck.slides : [];
+  const diagnostics = [];
+  slides.forEach((slide, index) => {
+    if (!slide || typeof slide !== "object" || index === 0) return;
+    const children = Array.isArray(slide.children) ? slide.children : [];
+    if (children.length === 1) {
+      const only = children[0];
+      const type = nodeTypeOf(only);
+      const textChars = sourceTextLength(only);
+      if (["process-flow", "grid", "timeline", "axis-ruler"].includes(type) && textChars < 260) {
+        diagnostics.push({
+          code: "SPARSE_CONTENT_SLIDE",
+          severity: "warn",
+          slideId: slide.id,
+          nodeId: only?.id,
+          message: `Slide '${slide.id || index + 1}' has a single ${type} component with about ${textChars} text characters; it may render as visually sparse even when schema and layout checks pass.`,
+          measured: { available: 260, needed: textChars, childCount: children.length },
+          suggestion: "Add a supporting takeaway/evidence/chart/list, use a richer component variant, or split/reframe the page so the visual density matches the slide's promised information load.",
+        });
+      }
+    }
+    const plainFeatureGrid = findPlainFeatureCardGrid(children);
+    if (plainFeatureGrid) {
+      diagnostics.push({
+        code: "PLAIN_FEATURE_CARD_GRID",
+        severity: "warn",
+        slideId: slide.id,
+        nodeId: plainFeatureGrid.id,
+        message: `Slide '${slide.id || index + 1}' uses a plain feature-card grid without generated iconSrc assets or card surfaces; it can look empty despite containing text.`,
+        measured: { childCount: plainFeatureGrid.count },
+        suggestion: "Use feature-card variant:'card', place generated icons via iconSrc, add marker/metric/proof fields, or choose a denser semantic component such as comparison-list or explanation-block.",
+      });
+    }
+  });
+  return diagnostics;
+}
+
+function findPlainFeatureCardGrid(nodes) {
+  for (const node of nodes || []) {
+    if (!node || typeof node !== "object") continue;
+    const type = nodeTypeOf(node);
+    const children = Array.isArray(node.children) ? node.children : [];
+    if (type === "grid") {
+      const featureCards = children.filter((child) => nodeTypeOf(child) === "feature-card");
+      if (featureCards.length >= 3) {
+        const plain = featureCards.every((card) => {
+          const variant = typeof card.variant === "string" ? card.variant : "";
+          return variant !== "card" && !card.iconSrc && !card.marker && !card.metric && !card.proof && !card.badge && !card.tags;
+        });
+        if (plain) return { id: node.id, count: featureCards.length };
+      }
+    }
+    const nested = findPlainFeatureCardGrid(children);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
+function nodeTypeOf(node) {
+  if (!node || typeof node !== "object") return "";
+  return typeof node.type === "string" ? node.type : typeof node.component === "string" ? node.component : "";
+}
+
+function sourceTextLength(value) {
+  if (typeof value === "string") return value.trim().length;
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + sourceTextLength(item), 0);
+  if (!value || typeof value !== "object") return 0;
+  let total = 0;
+  for (const [key, item] of Object.entries(value)) {
+    if (key === "id" || key === "type" || key === "component" || key === "notes") continue;
+    total += sourceTextLength(item);
+  }
+  return total;
+}
+
+async function unusedGeneratedIconDiagnostic(deckPath, deck) {
+  try {
+    const manifestPath = path.join(path.dirname(deckPath), "assets", "icons", "manifest.json");
+    const manifestRaw = await fsp.readFile(manifestPath, "utf8").catch(() => "");
+    if (!manifestRaw) return undefined;
+    const manifest = JSON.parse(manifestRaw);
+    const icons = Array.isArray(manifest.icons)
+      ? manifest.icons
+        .map((icon) => ({
+          name: typeof icon?.name === "string" ? icon.name : "",
+          path: typeof icon?.path === "string" ? icon.path : "",
+        }))
+        .filter((icon) => icon.path)
+      : [];
+    const iconPaths = icons.map((icon) => icon.path);
+    if (!iconPaths.length) return undefined;
+    const iconPathSet = new Set(iconPaths);
+    const used = new Set();
+    collectStringValues(deck, (value) => {
+      if (iconPathSet.has(value)) used.add(value);
+    });
+    if (used.size >= iconPaths.length) return undefined;
+    const unused = icons.filter((icon) => !used.has(icon.path));
+    if (used.size > 0) {
+      return {
+        code: "PARTIAL_UNUSED_GENERATED_ICON_ASSETS",
+        severity: "warn",
+        message: `Generated icon manifest exists at ${manifestPath}; the deck references ${used.size} of ${iconPaths.length} returned icon path(s).`,
+        measured: {
+          available: used.size,
+          needed: iconPaths.length,
+          used: used.size,
+          unused: unused.slice(0, 12),
+          manifestPath,
+        },
+        suggestion: "Reference every planned generated icon path in the intended slide/component field, or remove unneeded icon requests from the asset plan.",
+      };
+    }
+    return {
+      code: "UNUSED_GENERATED_ICON_ASSETS",
+      severity: "warn",
+      message: `Generated icon manifest exists at ${manifestPath}, but the deck references none of its ${iconPaths.length} returned icon path(s).`,
+      measured: { available: 0, needed: iconPaths.length, used: 0, unused: unused.slice(0, 12), manifestPath },
+      suggestion: "Use manifest.icons[].path as feature-card.iconSrc or image/image-card src on slides that requested generated icons, or skip generate_icon_sheet when the final deck will not place the icons.",
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function collectStringValues(value, visit) {
+  if (typeof value === "string") {
+    visit(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectStringValues(item, visit);
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value)) collectStringValues(item, visit);
+  }
+}
+
+function blockingSlideml2Diagnostics(items, slideml2Module) {
+  const codes = slideml2Module?.BLOCKING_RENDER_DIAGNOSTIC_CODES || new Set(["COLLISION", "STRUCTURAL_OVERLAP", "SIBLING_INK_OVERLAP", "OVERLAY_OCCLUDES_FLOW", "UNKNOWN_COLOR", "UNKNOWN_STYLE", "TINY_RECT", "SQUASHED", "FALLBACK_FAILED", "CODE_BLOCK_OVERFLOW", "LOW_CONTRAST", "SHAPE_INVISIBLE", "TITLE_OCCLUDED", "PIE_LABELS_HIDDEN", "EMPTY_CHART_DATA", "EMPTY_TABLE_DATA", "OFF_SLIDE"]);
+  return items.filter((d) => typeof slideml2Module?.isBlockingRenderDiagnostic === "function" ? slideml2Module.isBlockingRenderDiagnostic(d.code, d.severity) : d.severity === "error" || codes.has(d.code));
+}
+
+function qualityGateSlideml2Diagnostics(items, slideml2Module) {
+  const localCodes = new Set(["UNUSED_GENERATED_ICON_ASSETS", "PARTIAL_UNUSED_GENERATED_ICON_ASSETS", "SPARSE_CONTENT_SLIDE", "PLAIN_FEATURE_CARD_GRID"]);
+  return items.filter((d) => localCodes.has(d.code) || (typeof slideml2Module?.isQualityRenderDiagnostic === "function" ? slideml2Module.isQualityRenderDiagnostic(d.code) : new Set(["TRUNCATED", "OVERFLOW", "DROP", "DEMOTED", "LOW_CONTRAST_FIXED", "SHAPE_INVISIBLE_FIXED", "DECORATIVE_OVERLAP", "EDGE_CLIPPED", "TIGHT_GAP"]).has(d.code)));
+}
+
+function summarizeSlideml2Diagnostics(items) {
+  const counts = {};
+  for (const d of items) counts[d.code] = (counts[d.code] || 0) + 1;
+  return counts;
 }
 
 function normalizeSlideId(value) {

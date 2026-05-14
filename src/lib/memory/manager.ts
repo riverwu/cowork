@@ -5,7 +5,7 @@ import {
   touchMemory,
 } from "@/lib/db";
 import { generateEmbedding } from "@/lib/knowledge/embeddings";
-import type { CoreFact } from "@/types";
+import type { CoreFact, MemoryType } from "@/types";
 
 interface MemoryContext {
   /** Core facts formatted for system prompt injection. */
@@ -20,6 +20,14 @@ interface RetrieveMemoryOptions {
   includeCore?: boolean;
   includeSemantic?: boolean;
   includeEpisodes?: boolean;
+  /**
+   * Optional allow-list for core fact categories. Fresh task/session
+   * assembly uses this to keep stable global preferences while excluding
+   * task-specific project/entity context from prior work.
+   */
+  coreCategories?: CoreFact["category"][];
+  /** Optional allow-list for vector memories when semantic retrieval is on. */
+  memoryTypes?: MemoryType[];
 }
 
 /**
@@ -34,7 +42,9 @@ export async function retrieveMemoryContext(query: string, options: RetrieveMemo
   // 1. Core facts — normally include all of them (small set). Fresh task
   // boundaries may opt out so task-specific memories cannot leak style or
   // artifact assumptions into the next run.
-  const facts = includeCore ? await getAllCoreFacts() : [];
+  const facts = includeCore
+    ? filterCoreFacts(await getAllCoreFacts(), options.coreCategories)
+    : [];
   const coreFacts = formatCoreFacts(facts);
 
   // 2. Semantic memories — vector similarity search
@@ -49,7 +59,9 @@ export async function retrieveMemoryContext(query: string, options: RetrieveMemo
     const queryEmbedding = await generateEmbedding(query);
 
     // Search semantic memories
-    const allMemories = includeSemantic ? await getAllMemoriesWithEmbeddings() : [];
+    const allMemories = includeSemantic
+      ? filterMemories(await getAllMemoriesWithEmbeddings(), options.memoryTypes)
+      : [];
     if (includeSemantic && allMemories.length > 0) {
       const scored = allMemories.map((m) => ({
         ...m,
@@ -91,6 +103,18 @@ export async function retrieveMemoryContext(query: string, options: RetrieveMemo
   }
 
   return { coreFacts, relevantMemories, relevantEpisodes };
+}
+
+function filterCoreFacts(facts: CoreFact[], categories?: CoreFact["category"][]): CoreFact[] {
+  if (!categories || categories.length === 0) return facts;
+  const allowed = new Set(categories);
+  return facts.filter((fact) => allowed.has(fact.category));
+}
+
+function filterMemories<T extends { memoryType: string }>(memories: T[], memoryTypes?: MemoryType[]): T[] {
+  if (!memoryTypes || memoryTypes.length === 0) return memories;
+  const allowed = new Set<string>(memoryTypes);
+  return memories.filter((memory) => allowed.has(memory.memoryType));
 }
 
 /**

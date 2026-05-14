@@ -22,19 +22,46 @@ const PRESET_TO_GEOM: Record<ShapePreset, string> = {
   rightTriangle: "rtTriangle",
   pentagon: "pentagon",
   diamond: "diamond",
+  hexagon: "hexagon",
+  octagon: "octagon",
+  plus: "plus",
+  trapezoid: "trapezoid",
+  leftBracket: "leftBracket",
+  rightBracket: "rightBracket",
+  leftBrace: "leftBrace",
+  rightBrace: "rightBrace",
   "arrow-right": "rightArrow",
+  "arrow-left": "leftArrow",
+  "arrow-up": "upArrow",
   "arrow-down": "downArrow",
+  leftRightArrow: "leftRightArrow",
+  upDownArrow: "upDownArrow",
+  bentArrow: "bentUpArrow",
+  elbowConnector: "bentConnector2",
+  curvedConnector: "curvedConnector3",
+  straightConnector: "straightConnector1",
   callout: "wedgeRectCallout",
   chevron: "chevron",
   "star-5": "star5",
+  "star-8": "star8",
   parallelogram: "parallelogram",
+  flowChartProcess: "flowChartProcess",
+  flowChartDecision: "flowChartDecision",
+  flowChartData: "flowChartData",
+  flowChartTerminator: "flowChartTerminator",
+  flowChartDocument: "flowChartDocument",
+  cylinder: "can",
+  cube: "cube",
+  gear6: "gear6",
+  heart: "heart",
+  lightningBolt: "lightningBolt",
   cloud: "cloud",
 };
 
 export function shapeXml(shape: Shape, slidePart: string, rels: SlideRels): string {
   switch (shape.type) {
     case "text":   return textShapeXml(shape, rels);
-    case "shape":  return presetShapeXml(shape);
+    case "shape":  return presetShapeXml(shape, rels);
     case "image":  return imageShapeXml(shape, slidePart, rels);
     case "chart":  return chartShapeXml(shape, rels);
     case "table":  return tableShapeXml(shape);
@@ -66,38 +93,58 @@ function textShapeXml(shape: TextShape, rels: SlideRels): string {
   const spPr = spPrXml(shape.xfrm, isRoundRect ? "roundRect" : "rect", adjustments, shape.fill, shape.line);
   // Adapter: text-emitter asks for hyperlink rIds via this RunRels, which
   // pushes a slide-level rel of type `/hyperlink` with TargetMode=External.
-  const runRels: RunRels = {
-    addHyperlink(target: string): string {
-      const rId = nextRelId(rels);
-      rels.entries.push({
-        id: rId,
-        type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
-        target,
-        targetMode: "External",
-      });
-      return rId;
-    },
-  };
+  const runRels = runRelsForSlide(rels);
   return `<p:sp>${nvSpPr}${spPr}${txBody(shape, runRels)}</p:sp>`;
 }
 
 // ---- Preset shapes --------------------------------------------------------
 
-function presetShapeXml(shape: PresetShape): string {
+function presetShapeXml(shape: PresetShape, rels: SlideRels): string {
   const nvSpPr = nvSpPrXml(shape.id, shape.name ?? `${shape.preset} ${shape.id}`);
   const geom = PRESET_TO_GEOM[shape.preset];
   const adjustments = shape.preset === "roundRect" && shape.cornerRadius !== undefined
     ? `<a:avLst><a:gd name="adj" fmla="val ${Math.round(Math.max(0, Math.min(0.5, shape.cornerRadius)) * 50000)}"/></a:avLst>`
     : `<a:avLst/>`;
   const spPr = spPrXml(shape.xfrm, geom, adjustments, shape.fill, shape.line, shape.shadow);
-  // PowerPoint requires a `<p:txBody>` even on shapes with no text — emit empty.
-  const emptyTxBody =
-    `<p:txBody>` +
-    `<a:bodyPr wrap="square" rtlCol="0" anchor="ctr"/>` +
-    `<a:lstStyle/>` +
-    `<a:p><a:endParaRPr lang="en-US"/></a:p>` +
-    `</p:txBody>`;
-  return `<p:sp>${nvSpPr}${spPr}${emptyTxBody}</p:sp>`;
+  const body = shape.paragraphs
+    ? txBody({
+        type: "text",
+        id: shape.id,
+        name: shape.name,
+        xfrm: shape.xfrm,
+        paragraphs: shape.paragraphs,
+        margin: shape.margin,
+        valign: shape.valign,
+        wrap: shape.wrap,
+        autoFit: shape.autoFit,
+      }, runRelsForSlide(rels))
+    // PowerPoint requires a `<p:txBody>` even on shapes with no text — emit empty.
+    : `<p:txBody><a:bodyPr wrap="square" rtlCol="0" anchor="ctr"/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody>`;
+  return `<p:sp>${nvSpPr}${spPr}${body}</p:sp>`;
+}
+
+function runRelsForSlide(rels: SlideRels): RunRels {
+  return {
+    addHyperlink(target: string): string {
+      const rId = nextRelId(rels);
+      const slideTarget = internalSlideTarget(target);
+      if (slideTarget) {
+        rels.entries.push({
+          id: rId,
+          type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide",
+          target: slideTarget,
+        });
+      } else {
+        rels.entries.push({
+          id: rId,
+          type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+          target,
+          targetMode: "External",
+        });
+      }
+      return rId;
+    },
+  };
 }
 
 // ---- Image shapes ---------------------------------------------------------
@@ -105,7 +152,14 @@ function presetShapeXml(shape: PresetShape): string {
 export interface SlideRels {
   /** Map of relationship ID → target path within the .pptx package.
    *  `targetMode === "External"` is required for hyperlinks; omit otherwise. */
-  entries: Array<{ id: string; type: string; target: string; targetMode?: "External" }>;
+  entries: Array<{
+    id: string;
+    type: string;
+    target: string;
+    targetMode?: "External";
+    role?: "background-image" | "shape-image";
+    assetSrc?: string;
+  }>;
 }
 
 /**
@@ -114,6 +168,14 @@ export interface SlideRels {
  */
 function nextRelId(rels: SlideRels): string {
   return `rId${rels.entries.length + 2}`;
+}
+
+function internalSlideTarget(target: string): string | undefined {
+  const trimmed = target.trim();
+  const match = /^(?:#?slide|slide:)(\d+)$/i.exec(trimmed);
+  if (!match) return undefined;
+  const index = Math.max(1, Math.floor(Number(match[1])));
+  return `../slides/slide${index}.xml`;
 }
 
 // ---- Chart shapes ---------------------------------------------------------
@@ -158,6 +220,8 @@ function imageShapeXml(shape: ImageShape, _slidePart: string, rels: SlideRels): 
     id: rId,
     type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
     target: `../media/${shape.name ?? `image${shape.id}`}.png`, // package emitter rewrites filename
+    role: "shape-image",
+    assetSrc: shape.src,
   });
 
   const nvPicPr =
@@ -173,6 +237,9 @@ function imageShapeXml(shape: ImageShape, _slidePart: string, rels: SlideRels): 
   //   fillOverlay → grayscl → hsl → lum → tint → extLst.
   // We support: blur, duotone, grayscl, lum.
   const blipInner: string[] = [];
+  if (shape.opacity !== undefined && shape.opacity < 1) {
+    blipInner.push(`<a:alphaModFix amt="${Math.round(Math.max(0, Math.min(1, shape.opacity)) * 100000)}"/>`);
+  }
   if (shape.blur !== undefined && shape.blur > 0) {
     blipInner.push(`<a:blur rad="${Math.round(shape.blur)}" grow="0"/>`);
   }
@@ -440,13 +507,38 @@ function lineXmlOf(line: LineSpec | undefined): string {
   const dashXml = line.dash && line.dash !== "solid"
     ? `<a:prstDash val="${line.dash}"/>`
     : "";
+  const compound = lineCompoundXml(line.compound);
+  const compoundXml = compound ? ` cmpd="${compound}"` : "";
   const alphaXml = line.alpha !== undefined && line.alpha < 1
     ? `<a:alpha val="${Math.round(line.alpha * 100000)}"/>`
     : "";
+  const headEnd = lineEndXml("headEnd", line.headEnd);
+  const tailEnd = lineEndXml("tailEnd", line.tailEnd);
   return (
-    `<a:ln w="${Math.round(line.width)}">` +
+    `<a:ln w="${Math.round(line.width)}"${compoundXml}>` +
     `<a:solidFill><a:srgbClr val="${line.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:solidFill>` +
     dashXml +
+    headEnd +
+    tailEnd +
     `</a:ln>`
   );
+}
+
+function lineCompoundXml(value: LineSpec["compound"]): string | undefined {
+  switch (value) {
+    case "double": return "dbl";
+    case "thickThin": return "thickThin";
+    case "thinThick": return "thinThick";
+    case "triple": return "tri";
+    case "single":
+    default: return undefined;
+  }
+}
+
+function lineEndXml(tag: "headEnd" | "tailEnd", end: LineSpec["headEnd"] | undefined): string {
+  if (!end) return "";
+  const type = end.type === "arrow" ? "triangle" : end.type ?? "none";
+  const width = end.width ?? "med";
+  const length = end.length ?? "med";
+  return `<a:${tag} type="${type}" w="${width}" len="${length}"/>`;
 }

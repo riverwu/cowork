@@ -48,10 +48,13 @@ const mocks = vi.hoisted(() => {
 
       if (firstUser.includes("skill read retention")) {
         if (streamCalls.length === 1) {
+          const path = firstUser.includes("business reference")
+            ? "/Users/river/.cowork/skills/slideml2/business.md"
+            : "/Users/river/.cowork/skills/slideml2/SKILL.md";
           yield {
             type: "message-done",
             content: "",
-            toolCalls: [{ id: "call-skill", name: "read_file", input: { path: "/Users/river/.cowork/skills/slideml2/SKILL.md" } }],
+            toolCalls: [{ id: "call-skill", name: "read_file", input: { path } }],
             stopReason: "tool_use",
           };
           return;
@@ -189,6 +192,30 @@ describe("runAgent skill read retention", () => {
     expect(secondCallToolResult?.content).not.toContain("result truncated for the LLM");
     delete mocks.tools.read_file;
   });
+
+  it("keeps sibling skill reference markdown intact for the current task run", async () => {
+    mocks.streamCalls.length = 0;
+    const largeBusinessStyle = "Business research deck style\n" + "light-first component-route ".repeat(1200);
+    mocks.tools.read_file = {
+      definition: { name: "read_file", description: "Read a file", parameters: { type: "object", properties: {}, required: ["path"] } },
+      execute: vi.fn().mockResolvedValue(largeBusinessStyle),
+    };
+
+    for await (const _event of runAgent({
+      sessionId: "session-1",
+      workingDirectory: "/Users/river/Documents/Workspace",
+      messages: [{ role: "user", content: "skill read retention business reference" }],
+    })) {
+      // drain
+    }
+
+    expect(mocks.streamCalls).toHaveLength(2);
+    const secondCallToolResult = mocks.streamCalls[1].messages.find((message) => message.role === "tool");
+    expect(secondCallToolResult?.content).toContain("Business research deck style");
+    expect(secondCallToolResult?.content).toContain("light-first component-route");
+    expect(secondCallToolResult?.content).not.toContain("result truncated for the LLM");
+    delete mocks.tools.read_file;
+  });
 });
 
 vi.mock("./providers", () => ({
@@ -233,6 +260,7 @@ vi.mock("@/lib/db", () => ({
 }));
 
 import { runAgent } from "./agent";
+import { retrieveMemoryContext } from "@/lib/memory";
 
 describe("runAgent truncation recovery", () => {
   it("continues long tasks after a max_tokens response instead of failing immediately", async () => {
@@ -326,6 +354,53 @@ Attached files:
     expect(mocks.streamCalls[1].tools).toEqual([]);
   });
 
+  it("uses global-preferences-only memory for fresh task runs", async () => {
+    mocks.streamCalls.length = 0;
+    vi.mocked(retrieveMemoryContext).mockClear();
+
+    for await (const _event of runAgent({
+      sessionId: "session-fresh",
+      taskId: "task-fresh",
+      taskMode: "fresh",
+      memoryPolicy: "global-preferences-only",
+      workingDirectory: "/Users/river/Documents/Workspace",
+      messages: [{ role: "user", content: "生成一个新的 PPT" }],
+    })) {
+      // drain
+    }
+
+    expect(retrieveMemoryContext).toHaveBeenCalledWith("生成一个新的 PPT", {
+      includeCore: true,
+      coreCategories: ["preference", "general"],
+      includeSemantic: false,
+      includeEpisodes: false,
+    });
+  });
+
+  it("includes a context manifest in dump output", async () => {
+    mocks.streamCalls.length = 0;
+
+    const events = [];
+    for await (const event of runAgent({
+      sessionId: "session-dump",
+      taskId: "task-dump",
+      taskMode: "fresh",
+      memoryPolicy: "global-preferences-only",
+      workingDirectory: "/Users/river/Documents/Workspace",
+      messages: [{ role: "user", content: "fresh task dump" }],
+      dumpOnly: true,
+    })) {
+      events.push(event);
+    }
+
+    const dump = events.find((event): event is { type: "context-dump"; content: string } => event.type === "context-dump");
+    expect(dump?.content).toContain("## Context Manifest");
+    expect(dump?.content).toContain('"taskMode": "fresh"');
+    expect(dump?.content).toContain('"sessionId": "session-dump"');
+    expect(dump?.content).toContain('"taskId": "task-dump"');
+    expect(dump?.content).toContain('"memoryPolicy": "global-preferences-only"');
+  });
+
   it("adds a non-blocking notice when a SlideML2 deck is still unvalidated", async () => {
     mocks.streamCalls.length = 0;
     mocks.tools.validate_render = {
@@ -364,7 +439,8 @@ Attached files:
       .join("");
     expect(streamedText).toContain("PPT已成功生成。");
     expect(streamedText).toContain("[SlideML2 validation notice]");
-    expect(streamedText).toContain("does not block other tools");
+    expect(streamedText).toContain("does not block generic tools");
+    expect(streamedText).toContain("unverified fallback");
     expect(events.some((event) => event.type === "error")).toBe(false);
 
     delete mocks.tools.validate_render;

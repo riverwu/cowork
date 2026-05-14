@@ -18,6 +18,7 @@ Default timeout: 30 seconds (configurable up to 120s).
 IMPORTANT:
 - Do NOT run "npm install" in the user's working directory. Use the install_package parameter instead, which installs to an isolated environment (~/.cowork/node/).
 - Do NOT use shell to run generated Node.js deliverable scripts such as pptxgenjs deck builders. Use run_node instead.
+- It is correct to use shell for installed skill CLI entrypoints explicitly documented as CLI commands, such as \`node .../runtime/bin/slideml2.js ...\`; this keeps each toolchain result visible.
 - Be careful with destructive commands. Prefer reading/checking before writing/deleting.`,
     parameters: {
       type: "object",

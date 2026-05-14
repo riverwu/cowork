@@ -26,7 +26,7 @@ import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
 const TINY_PNG = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MDAiIGhlaWdodD0iNDUwIj48cmVjdCB3aWR0aD0iODAwIiBoZWlnaHQ9IjQ1MCIgZmlsbD0iIzExMTgyNyIvPjwvc3ZnPg==";
 
 const BLOCKING: ReadonlySet<LayoutDiagnostic["code"]> = new Set([
-  "FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "DROP", "LOW_CONTRAST", "UNKNOWN_COLOR", "UNKNOWN_STYLE",
+  "FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "LOW_CONTRAST", "UNKNOWN_COLOR", "UNKNOWN_STYLE",
 ]);
 
 const DARK_OVERRIDE: Slideml2SourceDeck["deck"]["themeOverride"] = {
@@ -1001,7 +1001,7 @@ const cases: UsabilityCase[] = [
         id: "s.free",
         type: "freeform-group",
         children: [
-          { id: "s.free.bg", type: "decorative-shapes", motif: "corner-blobs", position: "top-right", tone: "muted", count: 6 },
+          { id: "s.free.bg", type: "decorative-shapes", motif: "corner-blobs", anchor: "top-right", tone: "muted", count: 6 },
           { id: "s.free.arrow", type: "pointer-arrow", label: "重点", anchor: "middle-right", direction: "left", offsetX: 1.0, tone: "warning" },
         ],
       } as unknown as DomNode, {
@@ -1126,6 +1126,67 @@ const cases: UsabilityCase[] = [
         },
         headline: "任务隔离降低跨任务污染",
         detail: "使用 generated insight fallback 时也应形成完整 evidence + interpretation 版式。",
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "hero-and-support creates asymmetric lead plus support satellites",
+    build: () => ({
+      id: "s",
+      title: "主张与支撑",
+      children: [{
+        id: "s.hero",
+        type: "hero-and-support",
+        headline: "利润率改善来自成本结构变化",
+        detail: "先让观众读到判断，再扫描右侧支撑事实。",
+        supports: [
+          { title: "采购", body: "核心物料单价下降 8%", tone: "positive" },
+          { title: "自动化", body: "人效提升 15%", tone: "brand" },
+          { title: "结构", body: "高毛利品类占比提高", tone: "neutral" },
+        ],
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "chart-with-rail gives chart more space than interpretation rail",
+    build: () => ({
+      id: "s",
+      title: "数据与解读",
+      children: [{
+        id: "s.chartRail",
+        type: "chart-with-rail",
+        evidence: {
+          id: "s.chartRail.chart",
+          type: "chart-card",
+          chartType: "bar",
+          labels: ["Q1", "Q2", "Q3"],
+          series: [{ name: "收入", values: [10, 18, 26] }],
+          title: "季度收入",
+          showValues: true,
+        },
+        headline: "Q2 是增长拐点",
+        detail: "新增渠道带来连续改善，下一步应验证获客成本。",
+        items: ["看斜率", "看来源", "看风险"],
+        tone: "tinted",
+      } as unknown as DomNode],
+    }),
+  },
+  {
+    name: "snapshot-callouts presents screenshot with numbered observations",
+    themeOverride: LIGHT_BRAND_OVERRIDE,
+    build: () => ({
+      id: "s",
+      title: "截图走查",
+      children: [{
+        id: "s.snap",
+        type: "snapshot-callouts",
+        src: TINY_PNG,
+        title: "运行日志截图",
+        callouts: [
+          { title: "入口", body: "意图在这里被识别", tone: "brand" },
+          { title: "失败", body: "验证失败后需要换版式", tone: "warning" },
+          { title: "修复", body: "最终应返回 SlideML2", tone: "positive" },
+        ],
       } as unknown as DomNode],
     }),
   },

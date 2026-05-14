@@ -23,7 +23,7 @@ import {
   estimateToolDefTokens,
   fitMessagesToBudget,
 } from "./context-budget";
-import { runInlineCompaction } from "./compact";
+import { isSummaryMessage, runInlineCompaction } from "./compact";
 import type { DebugLogger } from "./debug-log";
 
 // Slide-deck builds easily run many tool calls (list_themes → describe_theme
@@ -41,6 +41,18 @@ const POST_FAILURE_COMPACTION_SYSTEM =
 export interface AgentParams {
   messages: LLMMessage[];
   sessionId: string;
+  /** Task identity used for context auditing. For hard-isolated /new runs,
+   *  this is normally the same as sessionId. */
+  taskId?: string;
+  /** How this request relates to the active task. */
+  taskMode?: ContextManifest["taskMode"];
+  /** Memory policy selected by the session/context assembler. */
+  memoryPolicy?: ContextManifest["memoryPolicy"];
+  /** Source counts computed before provider-specific message fitting. */
+  contextSource?: {
+    includedSummaries?: number;
+    activeSkills?: ActiveSkill[];
+  };
   planMode?: boolean;
   /** Working directory — tools use this as default cwd. */
   workingDirectory?: string;
@@ -61,6 +73,26 @@ export interface AgentParams {
   /** Set when the UI/runtime intentionally started this request after a
    *  task boundary, so the model should not inherit prior task specifics. */
   taskIsolationReason?: string;
+}
+
+export interface ActiveSkill {
+  name: string;
+  version?: string;
+  loadedAt: "current-task" | "current-request";
+}
+
+export interface ContextManifest {
+  taskMode: "fresh" | "continuation" | "handoff";
+  sessionId: string;
+  taskId: string;
+  includedMessages: number;
+  includedSummaries: number;
+  includedToolResults: number;
+  activeSkills: ActiveSkill[];
+  memoryPolicy: "full" | "global-preferences-only" | "none";
+  taskIsolationReason?: string;
+  droppedMessages: number;
+  droppedMemory: boolean;
 }
 
 /**
@@ -107,13 +139,24 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   const lastUserMsg = [...params.messages].reverse().find((m) => m.role === "user");
   const query = lastUserMsg?.content || "";
   const taskIsolationReason = params.taskIsolationReason;
+  const taskMode: ContextManifest["taskMode"] = params.taskMode
+    ?? (taskIsolationReason ? "fresh" : "continuation");
+  const memoryPolicy: ContextManifest["memoryPolicy"] = params.memoryPolicy
+    ?? (taskMode === "fresh" ? "global-preferences-only" : "full");
 
   // 1. Retrieve memory context
   let memoryContext = "";
   try {
-    const memCtx = await retrieveMemoryContext(query, taskIsolationReason
+    const memCtx = await retrieveMemoryContext(query, memoryPolicy === "none"
       ? { includeCore: false, includeSemantic: false, includeEpisodes: false }
-      : undefined);
+      : memoryPolicy === "global-preferences-only"
+        ? {
+            includeCore: true,
+            coreCategories: ["preference", "general"],
+            includeSemantic: false,
+            includeEpisodes: false,
+          }
+        : undefined);
     memoryContext = buildMemoryPrompt(memCtx);
   } catch {
     // Memory retrieval failed — continue without
@@ -227,7 +270,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       console.log(
         `[Agent] Compacted history: ${params.messages.length} → ${workingMessages.length} messages, ~${compacted.estimatedTokens} tokens.`,
       );
-      params.debugLog?.recordCompacted({
+      await params.debugLog?.recordCompacted({
         summary: compacted.summary,
         preservedUserMessages: workingMessages.length - 1,
         estimatedTokens: compacted.estimatedTokens,
@@ -262,6 +305,21 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     console.log(`[Agent] Context budget: model=${settings.modelId || "default"}, window=${budget.contextTokens}, input_budget=${budget.inputBudget}, max_output=${budget.maxOutputTokens}. Estimated input ~${fit.estimatedInputTokens}.`);
   }
 
+  const contextManifest = buildContextManifest({
+    taskMode,
+    sessionId: params.sessionId,
+    taskId: params.taskId || params.sessionId,
+    messages: fit.messages,
+    includedSummaries: params.contextSource?.includedSummaries ?? countSummaryMessages(fit.messages),
+    activeSkills: params.contextSource?.activeSkills ?? [],
+    memoryPolicy,
+    taskIsolationReason,
+    droppedMessages: fit.droppedMessages,
+    droppedMemory,
+  });
+  await params.debugLog?.recordContextManifest(contextManifest);
+  console.log(`[Agent] Context manifest: ${JSON.stringify(contextManifest)}`);
+
   const currentMessages: LLMMessage[] = [...fit.messages];
 
   if (params.dumpOnly) {
@@ -277,6 +335,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         droppedMessages: fit.droppedMessages,
         builtinToolCount: Object.keys(builtinTools).length,
         mcpToolCount: Object.keys(mcpTools).length,
+        contextManifest,
         toolDefs,
         system,
         messages: currentMessages,
@@ -300,7 +359,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     // Signal LLM is thinking (waiting for response)
     yield { type: "thinking", active: true };
 
-    params.debugLog?.recordSend({
+    await params.debugLog?.recordSend({
       step,
       system,
       tools: toolDefs,
@@ -325,7 +384,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     } catch (err) {
       yield { type: "thinking", active: false };
       const message = `LLM request failed: ${err instanceof Error ? err.message : String(err)}`;
-      params.debugLog?.recordError({ step, error: message, phase: "llm-request" });
+      await params.debugLog?.recordError({ step, error: message, phase: "llm-request" });
       const compacted = await compactAfterLlmRequestFailure({
         provider,
         messages: currentMessages,
@@ -340,7 +399,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
           estimatedTokens: compacted.estimatedTokens,
           reason: "llm-request-failed",
         };
-        params.debugLog?.recordCompacted({
+        await params.debugLog?.recordCompacted({
           summary: compacted.summary,
           preservedUserMessages: compacted.messages.filter((m) => m.role === "user").length - 1,
           estimatedTokens: compacted.estimatedTokens,
@@ -354,7 +413,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
     yield { type: "thinking", active: false };
 
     if (doneEvent && doneEvent.type === "message-done") {
-      params.debugLog?.recordResponse({
+      await params.debugLog?.recordResponse({
         step,
         text: turnText || doneEvent.content || "",
         toolCalls: doneEvent.toolCalls,
@@ -448,7 +507,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
       // so tools appear one at a time in UI, not all at once.
       yield { type: "skill-start", skill: toolCall.name, input: toolCall.input, toolCallId: toolCall.id };
 
-      params.debugLog?.recordToolStart({
+      await params.debugLog?.recordToolStart({
         step,
         name: toolCall.name,
         input: toolCall.input,
@@ -519,7 +578,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
         const durationMs = Date.now() - startTime;
         const errResult = `Tool execution error in ${toolCall.name}: ${err instanceof Error ? err.message : String(err)}`;
         currentMessages.push({ role: "tool", toolCallId: toolCall.id, content: formatToolResultForLlm(toolCall.name, errResult, false, toolCall.input) });
-        params.debugLog?.recordToolDone({
+        await params.debugLog?.recordToolDone({
           step,
           name: toolCall.name,
           toolCallId: toolCall.id,
@@ -550,7 +609,7 @@ export async function* runAgent(params: AgentParams): AsyncGenerator<AgentEvent>
   }
   } finally {
     setCurrentLongTask(null);
-    params.debugLog?.recordCompleted({
+    await params.debugLog?.recordCompleted({
       totalSteps: 0,
       hitStepLimit,
       finalText: fullAssistantText,
@@ -635,6 +694,37 @@ function buildEmergencyCompaction(messages: LLMMessage[], error: string) {
   };
 }
 
+function buildContextManifest(input: {
+  taskMode: ContextManifest["taskMode"];
+  sessionId: string;
+  taskId: string;
+  messages: LLMMessage[];
+  includedSummaries: number;
+  activeSkills: ActiveSkill[];
+  memoryPolicy: ContextManifest["memoryPolicy"];
+  taskIsolationReason?: string;
+  droppedMessages: number;
+  droppedMemory: boolean;
+}): ContextManifest {
+  return {
+    taskMode: input.taskMode,
+    sessionId: input.sessionId,
+    taskId: input.taskId,
+    includedMessages: input.messages.length,
+    includedSummaries: input.includedSummaries,
+    includedToolResults: input.messages.filter((message) => message.role === "tool").length,
+    activeSkills: input.activeSkills,
+    memoryPolicy: input.memoryPolicy,
+    ...(input.taskIsolationReason ? { taskIsolationReason: input.taskIsolationReason } : {}),
+    droppedMessages: input.droppedMessages,
+    droppedMemory: input.droppedMemory,
+  };
+}
+
+function countSummaryMessages(messages: LLMMessage[]): number {
+  return messages.filter((message) => message.role === "user" && isSummaryMessage(message.content)).length;
+}
+
 function buildTruncationRecoveryMessage(workspaceDir: string, attempt: number): string {
   return `Your previous response was truncated by the model output token limit. Do not repeat or continue the truncated prose/code in assistant text.
 
@@ -645,8 +735,9 @@ Required recovery behavior:
 2. Keep each write_file content payload under 12,000 characters.
 3. Use write_file mode "overwrite" for the first chunk and mode "append" for later chunks.
 4. Keep the next tool call small enough to fit comfortably; write only the next coherent chunk.
-5. For PPTX generation, do not use shell for node. After the script is complete, run it with run_node using a short loader: require("/absolute/path/to/script.js").
-6. Do not claim completion until a tool confirms the final output file exists or was created.
+5. For PPTX generation, keep using the active deck skill/toolchain if one is active. For SlideML2, continue with its direct CLI/tool calls and inspect each validation result; do not wrap the CLI loop in run_node.
+6. If no deck skill/toolchain is active and you are using a generated Node script, do not use shell for node. After the script is complete, run it with run_node using a short loader: require("/absolute/path/to/script.js").
+7. Do not claim completion until a tool confirms the final output file exists or was created.
 
 Recovery attempt: ${attempt}/${MAX_TRUNCATION_RECOVERIES}.`;
 }
@@ -713,7 +804,17 @@ function formatFullToolResult(toolName: string, result: string, notes: string[])
 function isSkillMarkdownRead(toolName: string, input: unknown): boolean {
   if (toolName !== "read_file" || !input || typeof input !== "object") return false;
   const path = (input as { path?: unknown }).path;
-  return typeof path === "string" && /(^|\/)SKILL\.md$/i.test(path);
+  return typeof path === "string" && isSkillInstructionMarkdownPath(path);
+}
+
+function isSkillInstructionMarkdownPath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  if (!/\.md$/i.test(normalized)) return false;
+  if (/(^|\/)SKILL\.md$/i.test(normalized)) return true;
+  return (
+    /(^|\/)(?:\.cowork|\.codex)\/skills\/[^/]+\/[^/]+\.md$/i.test(normalized) ||
+    /(^|\/)src\/catalog\/skills\/[^/]+\/[^/]+\.md$/i.test(normalized)
+  );
 }
 
 function truncateToolResultForLlm(toolName: string, result: string, success: boolean): string {
@@ -828,7 +929,7 @@ function slideValidationNotice(blocked: string): string {
   return [
     "[SlideML2 validation notice]",
     blocked,
-    "This does not block other tools. It only means this SlideML2 deck should not be treated as a verified final PPTX until validate_render({render:true}) passes.",
+    "This does not block generic tools, but it does mean the SlideML2 deck is not a verified final PPTX. If another PPTX was produced by a generic script, treat it as an unverified fallback, not as a successful SlideML2 delivery. Repair the SlideML2 source with replace_slide/patch_deck and pass validate_render({render:true}) before claiming SlideML2 completion.",
   ].join("\n\n");
 }
 
@@ -864,6 +965,7 @@ function formatContextDump(input: {
   droppedMessages: number;
   builtinToolCount: number;
   mcpToolCount: number;
+  contextManifest: ContextManifest;
   toolDefs: ToolDefinition[];
   system: string;
   messages: LLMMessage[];
@@ -871,6 +973,11 @@ function formatContextDump(input: {
   const lines: string[] = [];
   lines.push(`# Agent Context Dump`);
   lines.push(`generated: ${new Date().toISOString()}`);
+  lines.push(``);
+  lines.push(`## Context Manifest`);
+  lines.push("```json");
+  lines.push(JSON.stringify(input.contextManifest, null, 2));
+  lines.push("```");
   lines.push(``);
   lines.push(`## Model & Budget`);
   lines.push(`- model: ${input.modelId || "(default)"}`);

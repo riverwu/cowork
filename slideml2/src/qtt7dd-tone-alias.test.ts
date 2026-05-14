@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { normalizeToneAlias } from "./component-registry.js";
 import { renderToAst } from "./render.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
+import { validateDeck } from "./validate.js";
 import type { Slideml2SourceDeck, SlideV2 } from "./types.js";
 
 /**
@@ -119,5 +120,49 @@ describe("takeaway-list also accepts theme-token tone aliases", () => {
     const bar = ast.slides[0].shapes.find((s) => typeof s.name === "string" && s.name.endsWith("s.t.0.bar")) as
       | { fill?: { color?: string } } | undefined;
     expect(bar?.fill?.color?.toUpperCase()).toBe("0E7C3A");
+  });
+});
+
+describe("component schema accepts tone aliases agents naturally use", () => {
+  it("feature-card tone='success' validates and renders as positive", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.feature",
+        type: "feature-card",
+        title: "AI 硬件",
+        body: "收入恢复增长",
+        tone: "success",
+      } as never],
+    };
+    const report = validateDeck(deck(slide));
+    expect(report.errors, report.errors.map((e) => e.message).join("\n")).toHaveLength(0);
+    const ast = renderToAst(sourceToRenderedDeck(deck(slide)));
+    const title = ast.slides[0].shapes.find((s) => s.name === "s.feature.title") as
+      | { paragraphs?: Array<{ runs: Array<{ color?: string }> }> } | undefined;
+    expect(title?.paragraphs?.[0]?.runs[0]?.color?.toUpperCase()).toBe("0E7C3A");
+    const icon = ast.slides[0].shapes.find((s) => s.name === "s.feature.icon") as
+      | { fill?: { color?: string }; line?: { color?: string } } | undefined;
+    expect(icon?.fill?.color?.toUpperCase()).toBe("E2EFE7");
+    expect(icon?.line?.color?.toUpperCase()).toBe("0E7C3A");
+  });
+
+  it("callout tone='info' and variant='panel' validate and render as a card callout", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.callout",
+        type: "callout",
+        text: "关键提示",
+        tone: "info",
+        variant: "panel",
+      } as never],
+    };
+    const report = validateDeck(deck(slide));
+    expect(report.errors, report.errors.map((e) => e.message).join("\n")).toHaveLength(0);
+    const ast = renderToAst(sourceToRenderedDeck(deck(slide)));
+    expect(ast.slides[0].shapes.some((s) => s.name === "s.callout-background")).toBe(true);
   });
 });

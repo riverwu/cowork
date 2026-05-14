@@ -9,6 +9,7 @@ describe("isToolResultFailure", () => {
 
   it("detects non-zero process exits", () => {
     expect(isToolResultFailure("stderr:\nSyntaxError\n\nProcess exited with code 1")).toBe(true);
+    expect(isToolResultFailure("{\"ok\":true}\n\n[Exit code: 20]")).toBe(true);
   });
 
   it("does not mark normal output as failure", () => {
@@ -22,6 +23,11 @@ describe("isToolResultFailure", () => {
       error: "21 blocking render diagnostic(s) remain.",
       outputPath: "/tmp/deck.pptx",
     }))).toBe(true);
+    expect(isToolResultFailure(`${JSON.stringify({
+      ok: false,
+      status: "schema-error",
+      deckPath: "/tmp/deck.json",
+    }, null, 2)}\n\n[Exit code: 10]`)).toBe(true);
   });
 
   it("does not mark instructional SKILL.md prose as failure just because it says failed", () => {

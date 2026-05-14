@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.font-cache/
 *.log
 
 # Stray demo output (regeneratable)

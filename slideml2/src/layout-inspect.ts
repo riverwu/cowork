@@ -10,6 +10,12 @@ export interface InspectedLayoutNode {
   id: string;
   type: string;
   rect: { x: number; y: number; w: number; h: number };
+  inkRect?: { x: number; y: number; w: number; h: number };
+  visualRect?: { x: number; y: number; w: number; h: number };
+  visualRole?: string;
+  relation?: string;
+  relatedTo?: string;
+  parentId?: string;
   intrinsic?: { mainAxis: "vertical" | "horizontal"; basis: number; min: number; max: number; weight: number };
   applied?: "fit" | "shrink" | "demote" | "drop" | "truncate";
   notes?: string[];
@@ -34,6 +40,12 @@ export function inspectLayout(deck: RenderedDeck, slideId?: string): InspectedSl
           type: node.type,
           rect: { x: round(node.rect.x), y: round(node.rect.y), w: round(node.rect.w), h: round(node.rect.h) },
         };
+        if (node.inkRect) out.inkRect = { x: round(node.inkRect.x), y: round(node.inkRect.y), w: round(node.inkRect.w), h: round(node.inkRect.h) };
+        if (node.visualRect) out.visualRect = { x: round(node.visualRect.x), y: round(node.visualRect.y), w: round(node.visualRect.w), h: round(node.visualRect.h) };
+        if (node.visualRole) out.visualRole = node.visualRole;
+        if (node.relation) out.relation = node.relation;
+        if (node.relatedTo) out.relatedTo = node.relatedTo;
+        if (node.parentId) out.parentId = node.parentId;
         if (decision) {
           if (decision.intrinsic) out.intrinsic = decision.intrinsic;
           if (decision.applied) out.applied = decision.applied;

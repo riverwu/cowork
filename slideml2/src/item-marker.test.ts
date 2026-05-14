@@ -10,7 +10,7 @@ type AnyShape = {
   type: string;
   name?: string;
   preset?: string;
-  xfrm?: { x: number; cx: number; cy: number };
+  xfrm?: { x: number; y: number; cx: number; cy: number };
   fill?: { type: string; color?: string; alpha?: number };
   line?: { color: string; width: number; alpha?: number };
 };
@@ -90,6 +90,24 @@ describe("item-marker rendering", () => {
     expect(shapes.some((s) => s.name === "s.feature.icon")).toBe(false);
   });
 
+  it("feature-card decoration marker accepts short glyph strings", () => {
+    const shapes = renderShapes({
+      id: "s.feature",
+      type: "feature-card",
+      title: "DOJ antitrust",
+      body: "Potential structural remedies remain the largest risk.",
+      decoration: { kind: "marker", marker: "!", tone: "danger" },
+      density: "compact",
+    } as unknown as DomNode);
+
+    const marker = byName(shapes, "s.feature.decoration");
+    expect(marker?.preset).toBe("roundRect");
+    expect(JSON.stringify(marker)).toContain("!");
+    expect(cm(marker?.xfrm?.cx)).toBeGreaterThanOrEqual(0.4);
+    expect(shapes.some((s) => s.name === "s.feature.icon")).toBe(false);
+    expect(getRenderDiagnostics().filter((d) => d.code === "DROP" && String(d.nodeId).includes("marker"))).toHaveLength(0);
+  });
+
   it("takeaway-list marker replaces the default accent bar per item", () => {
     const shapes = renderShapes({
       id: "s.takeaways",
@@ -126,6 +144,25 @@ describe("item-marker rendering", () => {
     expect(cm(marker?.xfrm?.cx)).toBeLessThan(0.12);
     expect(gap).toBeGreaterThanOrEqual(0.15);
     expect(gap).toBeLessThan(0.45);
+  });
+
+  it("takeaway-list markers stay attached to the headline in detailed grids", () => {
+    const shapes = renderShapes({
+      id: "s.takeaways",
+      type: "takeaway-list",
+      marker: { shape: "diamond", variant: "tint", tone: "warning", size: "sm" },
+      items: [
+        { headline: "Paid intent", detail: "Long validation question that makes the first row tall." },
+        { headline: "Search volume", detail: "Long validation question that makes the first row tall." },
+        { headline: "Index investment", detail: "Long validation question that makes the second row tall." },
+        { headline: "Platform entry", detail: "Long validation question that makes the second row tall." },
+      ],
+    } as unknown as DomNode);
+
+    const marker = byName(shapes, "s.takeaways.0.marker");
+    const headline = byName(shapes, "s.takeaways.0.headline");
+    expect(marker?.preset).toBe("diamond");
+    expect(cm(marker?.xfrm?.y)).toBeCloseTo(cm(headline?.xfrm?.y), 1);
   });
 
   it("numbered-grid can add item title markers without changing number chips", () => {

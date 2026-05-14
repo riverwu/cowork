@@ -87,6 +87,26 @@ describe("insert_slide (9gusb7)", () => {
     const callArgs = mockPatch.mock.calls[0]![1];
     expect(callArgs[0].value).toEqual({ id: "x", children: [] });
   });
+
+  it("returns a semantic layout warning for text-heavy manual slides", async () => {
+    mockRead.mockResolvedValue({ slides: [] });
+    mockPatch.mockResolvedValue({ ok: true, summary: { slideCount: 1 } });
+    const result = await insertSlideTool.execute({
+      deckPath: `/tmp/${Math.random().toString(36).slice(2)}.json`,
+      slide: {
+        id: "manual",
+        children: [
+          { type: "text", text: "风险概率", at: [1, 2, 5, 1] },
+          { type: "text", text: "影响等级", at: [1, 3, 5, 1] },
+          { type: "text", text: "缓解措施", at: [1, 4, 5, 1] },
+          { type: "text", text: "预警信号", at: [1, 5, 5, 1] },
+        ],
+      },
+    });
+
+    expect(String(result)).toContain("Semantic layout warning");
+    expect(String(result)).toContain("failure-taxonomy");
+  });
 });
 
 describe("delete_slide (9gusb7)", () => {

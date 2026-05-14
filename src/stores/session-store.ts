@@ -5,7 +5,6 @@ import { useAppStore } from "@/stores/app-store";
 import { skillRegistry } from "@/lib/ai/skill-registry";
 import { getTool } from "@/lib/ai/tools/registry";
 import { resetAllSlideMl2AuthoringState } from "@/lib/ai/tools/slideml2-authoring-state";
-import { detectTaskBoundary } from "@/lib/ai/task-isolation";
 import type { LLMMessage, ToolCall } from "@/lib/ai/providers/types";
 import type { AgentEvent, Artifact, Message } from "@/types";
 import {
@@ -70,6 +69,8 @@ interface LongTaskState {
 
 interface SessionState {
   sessionId: string | null;
+  /** Current task identity. Hard /new creates a new session and task id. */
+  taskId: string | null;
   messages: Message[];
   isStreaming: boolean;
   streamingText: string;
@@ -103,6 +104,7 @@ interface SessionState {
 
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessionId: null,
+  taskId: null,
   messages: [],
   isStreaming: false,
   streamingText: "",
@@ -138,6 +140,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     set({
       sessionId,
+      taskId: sessionId,
       messages,
       initialized: true,
       workingDirectory,
@@ -183,26 +186,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (!sessionId) {
       const session = await createSession("Cowork");
       sessionId = session.id;
-      set({ sessionId });
+      set({ sessionId, taskId: session.id });
     }
 
     const explicitNew = parseNewSessionCommand(content);
+    const explicitCompact = parseCompactCommand(content);
     const existingMessages = get().messages;
     const lastDividerIndexBefore = findLastDividerIndex(existingMessages);
-    const activeMessages = existingMessages.slice(lastDividerIndexBefore);
+    const activeMessages = activeContextMessages(existingMessages);
     let taskIsolationReason: string | undefined = lastDividerIndexBefore > 0 && activeMessages.length === 0
-      ? "manual context clear"
+      ? lastContextDividerReason(existingMessages) || "manual context clear"
       : undefined;
     if (explicitNew.isNewSession) {
-      resetAllSlideMl2AuthoringState();
-      set({ steps: [], artifacts: [], knowledgeRefs: [], error: null, longTask: null, streamingText: "" });
-      const boundaryMessages = await createTaskBoundaryMessages(sessionId, activeMessages, "manual new session", {
+      sessionId = await startFreshTaskSession(set, sessionId, activeMessages, "manual new session", {
         automatic: false,
         command: "/new",
+        reason: "manual new session",
       });
-      if (boundaryMessages.length > 0) {
-        set((s) => ({ messages: [...s.messages, ...boundaryMessages] }));
-      }
       taskIsolationReason = "manual new session";
       content = explicitNew.remainingContent;
       if (!content.trim()) {
@@ -210,20 +210,26 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       }
     }
 
-    const boundary = explicitNew.isNewSession
-      ? { shouldIsolate: false, confidence: 0, reason: "manual new session already applied" }
-      : detectTaskBoundary(activeMessages, content);
-    if (boundary.shouldIsolate) {
+    let taskMode: "fresh" | "continuation" | "handoff" = taskIsolationReason ? "fresh" : "continuation";
+    if (!explicitNew.isNewSession && explicitCompact.isCompact) {
       resetAllSlideMl2AuthoringState();
-      set({ steps: [], artifacts: [], knowledgeRefs: [], error: null, longTask: null, streamingText: "" });
-      const boundaryMessages = await createTaskBoundaryMessages(sessionId, activeMessages, boundary.reason, {
-        automatic: true,
-        reason: boundary.reason,
-        confidence: boundary.confidence,
+      const handoff = buildTaskHandoffSummary(activeMessages, "manual compact");
+      const compactMessages = await createTaskHandoffMessages(sessionId, handoff, {
+        automatic: false,
+        command: "/compact",
       });
-      taskIsolationReason = boundary.reason;
-      if (boundaryMessages.length > 0) {
-        set((s) => ({ messages: [...s.messages, ...boundaryMessages] }));
+      set((s) => ({
+        messages: [...s.messages, ...compactMessages],
+        steps: [],
+        knowledgeRefs: [],
+        error: null,
+        longTask: null,
+        streamingText: "",
+      }));
+      content = explicitCompact.remainingContent;
+      taskMode = "handoff";
+      if (!content.trim()) {
+        return;
       }
     }
 
@@ -235,10 +241,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // we don't truncate twice and we keep semantic shape (tool_use/tool_result
     // pairing) intact.
     const allMessages = get().messages;
-    const lastDividerIndex = findLastDividerIndex(allMessages);
-    const contextMessages = allMessages.slice(lastDividerIndex);
+    const contextMessages = activeContextMessages(allMessages);
 
     const llmMessages: LLMMessage[] = assembleLlmMessages(contextMessages);
+    const contextSource = buildContextSource(contextMessages);
 
     set({ isStreaming: true, streamingText: "", steps: [], error: null, knowledgeRefs: [], longTask: null });
 
@@ -272,7 +278,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         });
       }
 
-      for await (const event of runAgent({ messages: llmMessages, sessionId, planMode, workingDirectory, onProgress, debugLog, taskIsolationReason })) {
+      for await (const event of runAgent({
+        messages: llmMessages,
+        sessionId,
+        taskId: get().taskId || sessionId,
+        taskMode,
+        memoryPolicy: taskMode === "fresh" ? "global-preferences-only" : "full",
+        contextSource,
+        planMode,
+        workingDirectory,
+        onProgress,
+        debugLog,
+        taskIsolationReason,
+      })) {
         handleEvent(event, set);
         if (event.type === "text-delta") {
           fullText += event.text;
@@ -367,32 +385,21 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   clearContext: () => {
     resetAllSlideMl2AuthoringState();
     const sessionId = get().sessionId || "";
-    const activeMessages = get().messages.slice(findLastDividerIndex(get().messages));
-    // Insert an archive + divider marker — messages before it won't be sent to LLM.
-    // Persist when a session exists so the boundary survives app restart.
-    const localDivider = (): Message => ({
-      id: newId(),
-      sessionId,
-      role: CONTEXT_DIVIDER_ROLE,
-      content: CONTEXT_DIVIDER_CONTENT,
-      metadata: { automatic: false },
-      createdAt: dbNow(),
-    });
-    const dividerPromise = sessionId
-      ? createTaskBoundaryMessages(sessionId, activeMessages, "manual context clear", { automatic: false })
-        .then((messages) => messages.length ? messages : [localDivider()])
-        .catch(() => [localDivider()])
-      : Promise.resolve([localDivider()]);
+    const activeMessages = activeContextMessages(get().messages);
+    const nextSessionPromise = sessionId
+      ? startFreshTaskSession(set, sessionId, activeMessages, "manual context clear", { automatic: false })
+      : createSession("Cowork").then((session) => {
+          set({ sessionId: session.id, taskId: session.id, messages: [] });
+          return session.id;
+        });
 
-    dividerPromise.then((messages) => {
-      set((s) => ({
-        messages: [...s.messages, ...messages],
+    nextSessionPromise.then(() => {
+      set({
         steps: [],
-        artifacts: [],
         knowledgeRefs: [],
         error: null,
         longTask: null,
-      }));
+      });
     });
   },
 
@@ -411,15 +418,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (!sessionId) {
       const session = await createSession("Cowork");
       sessionId = session.id;
-      set({ sessionId });
+      set({ sessionId, taskId: session.id });
     }
 
     // Build llmMessages exactly the way sendMessage would, so the dump reflects
     // what the next LLM call would actually receive.
     const allMessages = get().messages;
-    const lastDividerIndex = findLastDividerIndex(allMessages);
-    const contextMessages = allMessages.slice(lastDividerIndex);
+    const contextMessages = activeContextMessages(allMessages);
     const llmMessages: LLMMessage[] = assembleLlmMessages(contextMessages);
+    const contextSource = buildContextSource(contextMessages);
+    const hasHandoff = contextMessages.some(isContextSummary);
 
     const { planMode, workingDirectory } = get();
     let dump = "";
@@ -427,6 +435,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       for await (const event of runAgent({
         messages: llmMessages,
         sessionId,
+        taskId: get().taskId || sessionId,
+        taskMode: hasHandoff ? "handoff" : "continuation",
+        memoryPolicy: "full",
+        contextSource,
         planMode,
         workingDirectory,
         dumpOnly: true,
@@ -452,6 +464,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const session = await createSession("Cowork");
     set({
       sessionId: session.id,
+      taskId: session.id,
       messages: [],
       isStreaming: false,
       streamingText: "",
@@ -485,11 +498,64 @@ function findLastDividerIndex(messages: Message[]): number {
   return 0;
 }
 
+export function activeContextMessages(messages: Message[]): Message[] {
+  return messages.slice(findLastDividerIndex(messages));
+}
+
+function lastContextDividerReason(messages: Message[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (!message || !isContextDivider(message)) continue;
+    const metadata = message.metadata && typeof message.metadata === "object"
+      ? message.metadata as Record<string, unknown>
+      : {};
+    const reason = metadata.reason;
+    return typeof reason === "string" && reason.trim() ? reason.trim() : undefined;
+  }
+  return undefined;
+}
+
 export function parseNewSessionCommand(content: string): { isNewSession: boolean; remainingContent: string } {
   const trimmed = content.trim();
   const match = trimmed.match(/^\/(?:new|new-session)(?:\s+([\s\S]*))?$/i);
   if (!match) return { isNewSession: false, remainingContent: content };
   return { isNewSession: true, remainingContent: (match[1] ?? "").trim() };
+}
+
+export function parseCompactCommand(content: string): { isCompact: boolean; remainingContent: string } {
+  const trimmed = content.trim();
+  const match = trimmed.match(/^\/compact(?:\s+([\s\S]*))?$/i);
+  if (!match) return { isCompact: false, remainingContent: content };
+  return { isCompact: true, remainingContent: (match[1] ?? "").trim() };
+}
+
+type StoreSet = (partial: Partial<SessionState> | ((s: SessionState) => Partial<SessionState>)) => void;
+
+async function startFreshTaskSession(
+  set: StoreSet,
+  previousSessionId: string,
+  activeMessages: Message[],
+  reason: string,
+  dividerMetadata: Record<string, unknown>,
+): Promise<string> {
+  resetAllSlideMl2AuthoringState();
+  let boundaryMessages: Message[] = [];
+  if (previousSessionId) {
+    boundaryMessages = await createTaskBoundaryMessages(previousSessionId, activeMessages, reason, dividerMetadata).catch(() => []);
+  }
+  const session = await createSession("Cowork");
+  set((s) => ({
+    sessionId: session.id,
+    taskId: session.id,
+    messages: [...s.messages, ...boundaryMessages],
+    steps: [],
+    knowledgeRefs: [],
+    error: null,
+    longTask: null,
+    streamingText: "",
+    contextDump: null,
+  }));
+  return session.id;
 }
 
 async function createTaskBoundaryMessages(
@@ -518,6 +584,63 @@ async function createTaskBoundaryMessages(
     metadata: dividerMetadata,
   }));
   return messages;
+}
+
+async function createTaskHandoffMessages(
+  sessionId: string,
+  summary: string,
+  dividerMetadata: Record<string, unknown>,
+): Promise<Message[]> {
+  const divider = await createMessage({
+    sessionId,
+    role: CONTEXT_DIVIDER_ROLE,
+    content: CONTEXT_DIVIDER_CONTENT,
+    metadata: dividerMetadata,
+  });
+  const summaryMsg = await createMessage({
+    sessionId,
+    role: CONTEXT_DIVIDER_ROLE,
+    content: `${CONTEXT_SUMMARY_PREFIX}${summary}`,
+    metadata: {
+      kind: "context-summary",
+      reason: "manual compact",
+      memoryPolicy: "handoff-current-task",
+    },
+  });
+  return [divider, summaryMsg];
+}
+
+function buildTaskHandoffSummary(messages: Message[], reason: string): string {
+  const conversational = messages.filter((m) =>
+    (m.role === "user" || m.role === "assistant" || isContextSummary(m)) &&
+    !isContextDivider(m) &&
+    !isSessionArchive(m)
+  );
+  const steps = conversational.flatMap((m) => ((m.metadata as { steps?: AgentStepRecord[] } | null)?.steps ?? []));
+  const userMessages = conversational.filter((m) => m.role === "user").slice(-5);
+  const assistantMessages = conversational.filter((m) => m.role === "assistant").slice(-3);
+  const artifacts = extractArtifactPaths(conversational, steps).slice(0, 12);
+  const recentTools = steps
+    .filter((step) => step.skill !== "__thinking__" && step.skill !== "__compact__")
+    .slice(-10)
+    .map((step) => `${step.skill}${step.success === false ? " failed" : " ok"}`);
+
+  return [
+    "HANDOFF SUMMARY FOR THE CURRENT TASK",
+    `Reason: ${reason}. This summary continues the current task; it is not permission to reuse any older task before this handoff.`,
+    "",
+    "Recent user requests:",
+    ...(userMessages.length ? userMessages.map((m, i) => `${i + 1}. ${compactText(m.content, 700)}`) : ["- (none)"]),
+    "",
+    "Recent assistant state:",
+    ...(assistantMessages.length ? assistantMessages.map((m, i) => `${i + 1}. ${compactText(m.content, 700)}`) : ["- (none)"]),
+    artifacts.length ? `\nKnown artifacts/files:\n${artifacts.map((p) => `- ${p}`).join("\n")}` : "",
+    recentTools.length ? `\nRecent tool outcomes:\n${recentTools.map((t) => `- ${t}`).join("\n")}` : "",
+    "",
+    "Context hygiene:",
+    "- Prior full tool result bodies and loaded SKILL.md contents were intentionally dropped.",
+    "- Re-read any needed SKILL.md in this task before relying on its instructions.",
+  ].filter(Boolean).join("\n");
 }
 
 function buildSessionArchive(messages: Message[], reason: string): string | null {
@@ -563,7 +686,28 @@ function buildSessionArchive(messages: Message[], reason: string): string | null
 
 function isSkillReadStep(step: AgentStepRecord): boolean {
   if (step.skill !== "read_file") return false;
-  return stringifyCompact(step.input, 1200).includes("SKILL.md");
+  return isSkillInstructionReadInput(step.input);
+}
+
+function isSkillInstructionReadInput(input: unknown): boolean {
+  let path = "";
+  if (input && typeof input === "object" && "path" in input) {
+    const candidate = (input as { path?: unknown }).path;
+    if (typeof candidate === "string") path = candidate;
+  } else if (typeof input === "string") {
+    path = input;
+  } else {
+    path = stringifyCompact(input, 1200);
+  }
+  const normalized = path.replace(/\\/g, "/");
+  if (/(^|\/)SKILL\.md$/i.test(normalized)) return true;
+  return (
+    /\.md$/i.test(normalized) &&
+    (
+      /(^|\/)(?:\.cowork|\.codex)\/skills\/[^/]+\/[^/]+\.md$/i.test(normalized) ||
+      /(^|\/)src\/catalog\/skills\/[^/]+\/[^/]+\.md$/i.test(normalized)
+    )
+  );
 }
 
 function hasLargeResult(step: AgentStepRecord): boolean {
@@ -796,7 +940,12 @@ export function assembleLlmMessages(messages: Message[]): LLMMessage[] {
     // assistant — extract paired tool steps from metadata
     const steps = (m.metadata as { steps?: AgentStepRecord[] } | null)?.steps ?? [];
     const completed = steps.filter(
-      (s) => s.skill !== "__thinking__" && s.skill !== "__compact__" && s.status === "done" && s.toolCallId,
+      (s) =>
+        s.skill !== "__thinking__" &&
+        s.skill !== "__compact__" &&
+        s.status === "done" &&
+        s.toolCallId &&
+        !isSkillReadStep(s),
     );
     const toolCalls: ToolCall[] = completed.map((s) => ({
       id: s.toolCallId!,
@@ -817,6 +966,19 @@ export function assembleLlmMessages(messages: Message[]): LLMMessage[] {
     }
   }
   return sanitizeMessageSequence(out);
+}
+
+function buildContextSource(messages: Message[]): {
+  includedSummaries: number;
+  activeSkills: { name: string; version?: string; loadedAt: "current-task" | "current-request" }[];
+} {
+  return {
+    includedSummaries: messages.filter(isContextSummary).length,
+    // Skill activation is deliberately per request. Prior SKILL.md reads are
+    // not carried through tool history, so the next run starts with no active
+    // skills and must read the relevant SKILL.md again before using it.
+    activeSkills: [],
+  };
 }
 
 /**

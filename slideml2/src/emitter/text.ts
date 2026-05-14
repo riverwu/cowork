@@ -52,7 +52,7 @@ export function txBody(shape: TextShape, rels?: RunRels): string {
     shape.autoFit === "shrink" ? `<a:normAutofit/>` :
     shape.autoFit === "resize" ? `<a:spAutoFit/>` : "";
   const bodyPrAttrs =
-    attr("wrap", "square") +
+    attr("wrap", shape.wrap ?? "square") +
     attr("lIns", lIns) +
     attr("tIns", tIns) +
     attr("rIns", rIns) +
@@ -134,6 +134,13 @@ function paragraphPropsXml(p: Paragraph): string {
 
 /** `<a:r>` — one styled text run. */
 function runXml(run: TextRun, isLast: boolean, rels?: RunRels): string {
+  if (run.mathOmml) {
+    if (run.color) assertHex(run.color, "TextRun.color");
+    const mathOmml = run.color ? mathOmmlWithRunColor(run.mathOmml, run.color) : run.mathOmml;
+    const softBreak = run.breakLine && !isLast ? `<a:br><a:rPr lang="en-US"/></a:br>` : "";
+    return `<a14:m xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${mathOmml}</a14:m>${softBreak}`;
+  }
+
   if (run.color) assertHex(run.color, "TextRun.color");
 
   // `sz` attribute is in HUNDREDTHS of a point per OOXML spec
@@ -173,8 +180,8 @@ function runXml(run: TextRun, isLast: boolean, rels?: RunRels): string {
   let fontsXml = "";
   if (run.fontFace || run.cjk || run.mono) {
     const latinFace = xmlEscape(run.fontFace ?? "Calibri");
-    const eaFace = run.cjk ? xmlEscape(run.fontFace ?? "PingFang SC") : undefined;
-    const csFace = run.mono ? xmlEscape(run.fontFace ?? "Menlo") : undefined;
+    const eaFace = run.cjk ? xmlEscape(run.eastAsianFontFace ?? run.fontFace ?? "PingFang SC") : undefined;
+    const csFace = run.mono ? xmlEscape(run.complexScriptFontFace ?? run.fontFace ?? "Menlo") : undefined;
     // Order per CT_TextCharacterProperties:
     //   ln → fill → effects → highlight → underline → latin → ea → cs → sym → hlinkClick → hlinkMouseOver → ...
     fontsXml += `<a:latin typeface="${latinFace}"/>`;
@@ -187,7 +194,8 @@ function runXml(run: TextRun, isLast: boolean, rels?: RunRels): string {
   let hlinkXml = "";
   if (run.hyperlink && rels) {
     const rId = rels.addHyperlink(run.hyperlink);
-    hlinkXml = `<a:hlinkClick xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${rId}"/>`;
+    const action = isInternalSlideLink(run.hyperlink) ? ` action="ppaction://hlinksldjump"` : "";
+    hlinkXml = `<a:hlinkClick xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${rId}"${action}/>`;
   }
 
   // OOXML CT_TextCharacterProperties order:
@@ -203,4 +211,19 @@ function runXml(run: TextRun, isLast: boolean, rels?: RunRels): string {
   const text = `<a:t xml:space="preserve">${escapeText(run.text)}</a:t>`;
 
   return `<a:r>${rPr}${text}</a:r>${softBreak}`;
+}
+
+function mathOmmlWithRunColor(omml: string, hex: string): string {
+  const colorPr = `<w:rPr><w:color w:val="${hex.toUpperCase()}"/></w:rPr>`;
+  return omml.replace(/<m:r>(<m:rPr>[\s\S]*?<\/m:rPr>)?(<w:rPr>[\s\S]*?<\/w:rPr>)?/g, (_match, mathPr = "", wordPr = "") => {
+    if (!wordPr) return `<m:r>${mathPr}${colorPr}`;
+    const patchedWordPr = /<w:color\b/.test(wordPr)
+      ? wordPr.replace(/<w:color\b[^>]*\/>/, `<w:color w:val="${hex.toUpperCase()}"/>`)
+      : wordPr.replace("</w:rPr>", `<w:color w:val="${hex.toUpperCase()}"/></w:rPr>`);
+    return `<m:r>${mathPr}${patchedWordPr}`;
+  });
+}
+
+function isInternalSlideLink(target: string): boolean {
+  return /^#?slide\d+$/i.test(target.trim()) || /^slide:\d+$/i.test(target.trim());
 }

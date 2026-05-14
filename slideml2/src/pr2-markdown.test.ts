@@ -37,6 +37,8 @@ describe("PR2: hasMarkdownMarkers detection", () => {
     ["{{key:重点}}", true],
     ["[link](https://example.com)", true],
     ["price: $100", false],
+    ["根据 $F=ma$ 可知", true],
+    ["公式 $$\\vec{I}=\\Delta\\vec{p}$$", true],
     ["5*3=15", false], // word-internal asterisk should not trigger
   ])("hasMarkdownMarkers(%s) → %s", (input, expected) => {
     expect(hasMarkdownMarkers(input)).toBe(expected);
@@ -116,6 +118,28 @@ describe("PR2: parseMarkdownInline core", () => {
     expect(link?.text).toBe("docs");
   });
 
+  it("$...$ produces a math rich run", () => {
+    const r = parseMarkdownInline("根据 $\\vec{I}=\\Delta\\vec{p}$ 可知");
+    expect(r.matched).toBe(true);
+    expect(r.runs).toEqual([
+      { text: "根据 " },
+      { kind: "math", latex: "\\vec{I}=\\Delta\\vec{p}", display: false },
+      { text: " 可知" },
+    ]);
+  });
+
+  it("$$...$$ produces a display math rich run", () => {
+    const r = parseMarkdownInline("公式 $$\\boxed{F=ma}$$");
+    expect(r.matched).toBe(true);
+    expect(r.runs[1]).toMatchObject({ kind: "math", latex: "\\boxed{F=ma}", display: true });
+  });
+
+  it("does not treat currency or unclosed dollars as math", () => {
+    expect(parseMarkdownInline("price: $100").matched).toBe(false);
+    expect(parseMarkdownInline("unclosed $F=ma").matched).toBe(false);
+    expect(parseMarkdownInline("\\$F=ma$").matched).toBe(false);
+  });
+
   it("backslash escapes the next marker", () => {
     const r = parseMarkdownInline("\\*not italic\\*");
     expect(r.matched).toBe(false);
@@ -189,6 +213,18 @@ describe("PR2: render-time markdown expansion", () => {
     expect(codeRun).toBeDefined();
   });
 
+  it("text node with $math$ in the text field renders native Office Math", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{ id: "s.t", type: "text", text: "根据 $\\boxed{\\vec{I}=\\Delta\\vec{p}}$ 可知" }],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(deck([slide])));
+    const mathRun = findRun(ast.slides[0].shapes, "I⃗ = Δp⃗") as { mathOmml?: string } | undefined;
+    expect(mathRun?.mathOmml).toContain("<m:oMathPara>");
+    expect(mathRun?.mathOmml).toContain("<m:borderBox>");
+  });
+
   it("markdown:false on the node disables expansion (literal text)", () => {
     const slide: SlideV2 = {
       id: "s",
@@ -236,6 +272,25 @@ describe("PR2: render-time markdown expansion", () => {
     const ast = renderToAst(sourceToRenderedDeck(deck([slide])));
     const boldRun = findRun(ast.slides[0].shapes, "关键指标");
     expect(boldRun?.bold).toBe(true);
+  });
+
+  it("table cell text with $math$ expands to native Office Math", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "x",
+      children: [{
+        id: "s.table",
+        type: "table",
+        headers: ["Metric", "Value"],
+        rows: [["impulse", "$\\vec{I}=\\Delta\\vec{p}$"]],
+      }],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(deck([slide])));
+    const table = ast.slides[0].shapes.find((shape) => shape.type === "table");
+    expect(table?.type).toBe("table");
+    const run = table?.type === "table" ? table.cells[1]?.[1]?.runs[0] as { text?: string; mathOmml?: string } | undefined : undefined;
+    expect(run?.text).toBe("I⃗ = Δp⃗");
+    expect(run?.mathOmml).toContain("<m:oMathPara>");
   });
 
   it("bullet item text with **bold** also expands", () => {

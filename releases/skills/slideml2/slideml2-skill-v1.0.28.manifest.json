@@ -1,0 +1,49 @@
+{
+  "name": "slideml2",
+  "version": "1.0.28",
+  "description": "Use this skill whenever the user asks to create, edit, render, review, or export slide decks, presentations, PPT, PPTX, or SlideML2 decks. This skill is the component reference for Cowork's SlideML2 deck tools.",
+  "generatedAt": "2026-05-12T04:17:42.611Z",
+  "sourceCommit": "1fcad72890c3",
+  "files": [
+    "slideml2/",
+    "slideml2/business.md",
+    "slideml2/runtime/",
+    "slideml2/runtime/bin/",
+    "slideml2/runtime/bin/slideml2.js",
+    "slideml2/runtime/dist/",
+    "slideml2/runtime/dist/index.js",
+    "slideml2/runtime/package.json",
+    "slideml2/runtime/RUNTIME.md",
+    "slideml2/README.md",
+    "slideml2/SKILL.md",
+    "slideml2/manifest.json",
+    "slideml2/LICENSE.txt"
+  ],
+  "install": {
+    "zipRoot": "slideml2",
+    "targetDirectory": "$CODEX_HOME/skills/slideml2",
+    "notes": [
+      "Unzip preserving the slideml2 directory.",
+      "Runtime dependencies are bundled into runtime/dist/index.js; basic runtime/bin/slideml2.js commands run with Node.js immediately after unzip.",
+      "Run CLI commands from the deck workspace; omitted deckPath defaults to ./deck.json.",
+      "The runtime package is executable-only and intentionally omits TypeScript source, tests, examples, development scripts, and node_modules.",
+      "The agent-facing interface is the CLI only; do not expose TypeScript handlers or npm scripts as separate command interfaces.",
+      "Generated PPT outputs and dependency caches are intentionally excluded."
+    ]
+  },
+  "runtime": {
+    "directory": "slideml2/runtime",
+    "cli": "node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js",
+    "defaultDeckPath": "./deck.json",
+    "commands": {
+      "createDeck": "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js create-deck create-deck.json",
+      "readDeck": "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js read-deck read-deck.json",
+      "replaceSlide": "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js replace-slide replace-slide-01.json",
+      "validateRender": "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js validate-render validate-render.json"
+    },
+    "devInstallCommand": "not supported in the skill package; rebuild from the upstream SlideML2 repository",
+    "devBuildCommand": "not supported in the skill package; rebuild from the upstream SlideML2 repository"
+  },
+  "packageFile": "slideml2-skill-v1.0.28.zip",
+  "sha256": "b3f93462a12491b9269f783aec7faef903cadf1b34c063e4aa438c70d1d79147"
+}

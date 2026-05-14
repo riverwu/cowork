@@ -1,0 +1,15 @@
+Copyright (c) Cowork contributors.
+
+This SlideML2 skill package is distributed for use with Cowork-compatible
+agents and local agent environments. Redistribution is allowed inside teams or
+agent installations that have access to the Cowork repository or an authorized
+release artifact.
+
+The package contains prompt instructions, reference material, and the SlideML2
+runtime source/build artifacts needed to run the standalone renderer and
+authoring tools. It does not include third-party dependency caches or generated
+deck outputs.
+
+A target agent can use the included runtime directly, or wrap its APIs/CLI in
+agent-native tools such as create_deck, replace_slide, read_deck, patch_deck,
+generate_icon_sheet, and validate_render.

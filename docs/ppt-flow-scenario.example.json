@@ -1,0 +1,16 @@
+{
+  "id": "nqueens-mini",
+  "userPrompt": "生成一个 4 页 C++ 八皇后教学 PPT。必须使用 SlideML2，先保存 deck_plan.md，再 create_deck，然后逐页 replace_slide，最后 validate_render。输出到 /Users/river/Documents/Workspace/nqueens-mini.pptx。",
+  "workingDirectory": "/Users/river/Documents/Workspace",
+  "desktopDebugLog": true,
+  "expected": {
+    "requiredTools": ["read_file", "write_file", "create_deck", "replace_slide", "validate_render"],
+    "forbiddenTools": ["run_node"],
+    "minReplaceSlideCalls": 4,
+    "requireFinalValidateRender": true,
+    "requireProgressDone": true,
+    "requirePptxOutput": true,
+    "outputPath": "/Users/river/Documents/Workspace/nqueens-mini.pptx",
+    "maxBlockingDiagnostics": 0
+  }
+}

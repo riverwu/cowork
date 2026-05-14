@@ -11,12 +11,14 @@ Use this for:
 - Data analysis and computation (pandas, numpy)
 - Reading/writing Excel files (openpyxl)
 - Generating/reading Word documents (python-docx)
-- Generating/reading PowerPoint files (python-pptx)
+- Generating/reading PowerPoint files (python-pptx) when the user explicitly wants a raw python-pptx workflow or no domain deck tool is active
 - Inspecting structured Office/PDF files when hierarchy, tables, formatting, pages/slides/sheets, or metadata matter. Prefer this over read_file for DOCX/XLSX/PPTX/PDF analysis.
 - Data charts plotted from real numbers (matplotlib, seaborn). For freeform illustrations/covers, \`image_gen\` is usually the better tool.
 - Image processing (Pillow)
 - PDF processing (PyPDF2)
 - Any computation that benefits from Python
+
+For SlideML2 deck authoring or repair, do not use python-pptx as a fallback after validate_render fails. Repair the SlideML2 source with replace_slide / patch_deck and re-run validate_render unless the user explicitly asks to abandon SlideML2.
 
 The script runs with a 30-second timeout by default. Print results to stdout.
 If you need a package that's not pre-installed (e.g. plotly, scikit-learn), first call with install_package parameter.`,

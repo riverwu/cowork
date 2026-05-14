@@ -100,7 +100,7 @@ describe("dark-theme surface dependents auto-derive", () => {
       },
     );
     expect(theme.text.paragraph.weight).toBe(700);
-    expect(theme.component.card.radius).toBe(0.32);
+    expect(theme.component.card.cornerRadius).toBe(0.32);
     expect(theme.component.card.elevation).toBe("raised");
   });
 });

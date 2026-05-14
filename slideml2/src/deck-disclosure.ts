@@ -1,4 +1,5 @@
-import { buildTheme, listPaletteColors, listThemes } from "./theme.js";
+import { buildTheme, listPaletteColors, listSemanticTones, listThemes } from "./theme.js";
+import { DECK_SIZE_VALUES, VALIDATION_MODE_VALUES } from "./schema.js";
 
 export interface DeckFieldDescription {
   type: "string" | "number" | "boolean" | "enum" | "object";
@@ -9,7 +10,7 @@ export interface DeckFieldDescription {
 }
 
 export interface DeckDescription {
-  size: { value: "16x9"; slideWidthCm: number; slideHeightCm: number };
+  size: { value: string; supported: string[]; slideWidthCm: number; slideHeightCm: number; description: string };
   contentArea: {
     marginX: number;
     titleTop: number;
@@ -22,7 +23,8 @@ export interface DeckDescription {
   themes: { available: string[]; default: string; description: string };
   brand: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
   chrome: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
-  colorTokens: { description: string; tokens: string[]; palette: { description: string; names: string[] } };
+  validation: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
+  colorTokens: { description: string; tokens: string[]; tones: { description: string; names: string[] }; palette: { description: string; names: string[] } };
   textStyles: { description: string; styles: string[] };
   themeGuidance: {
     description: string;
@@ -57,11 +59,17 @@ export interface DeckDescription {
 export function describeDeck(): DeckDescription {
   const sample = buildTheme();
   const layout = sample.layout;
-  const contentHeight = sample.layout.slideHeightCm - layout.contentTop - layout.contentBottom;
+  const contentHeight = layout.contentBottom - layout.contentTop;
   const colorTokens = Object.keys(sample.colors).sort();
   const textStyles = Object.keys(sample.text).sort();
   return {
-    size: { value: "16x9", slideWidthCm: layout.slideWidthCm, slideHeightCm: layout.slideHeightCm },
+    size: {
+      value: "16x9",
+      supported: [...DECK_SIZE_VALUES],
+      slideWidthCm: layout.slideWidthCm,
+      slideHeightCm: layout.slideHeightCm,
+      description: "Set deck.size to 16x9, 16x10, 4x3, or wide. The renderer applies the selected canvas before layout measurement.",
+    },
     contentArea: {
       marginX: layout.pageMarginX,
       titleTop: layout.titleTop,
@@ -69,7 +77,7 @@ export function describeDeck(): DeckDescription {
       contentTop: layout.contentTop,
       contentBottom: layout.contentBottom,
       contentHeight,
-      description: `Title sits at y=${layout.titleTop}cm with height ${layout.titleHeight}cm. The content rect (area:'content') spans x=${layout.pageMarginX}..${(layout.slideWidthCm - layout.pageMarginX).toFixed(2)}, y=${layout.contentTop}..${(layout.slideHeightCm - layout.contentBottom).toFixed(2)} (height ${contentHeight.toFixed(2)}cm). All cm.`,
+      description: `Title sits at y=${layout.titleTop}cm with height ${layout.titleHeight}cm. contentTop and contentBottom are y-coordinates for the content rect. The content rect (area:'content') spans x=${layout.pageMarginX}..${(layout.slideWidthCm - layout.pageMarginX).toFixed(2)}, y=${layout.contentTop}..${layout.contentBottom.toFixed(2)} (height ${contentHeight.toFixed(2)}cm). All cm.`,
     },
     themes: {
       available: listThemes(),
@@ -94,16 +102,31 @@ export function describeDeck(): DeckDescription {
       },
       example: { brandMark: "bottom-right", pageNumber: true, footerText: "Internal use" },
     },
+    validation: {
+      description: "Optional deck-level validation policy. strict is for publication/research decks, experimental is for prototyping new schema without blocking unknown nodes.",
+      fields: {
+        mode: { type: "enum", enum: [...VALIDATION_MODE_VALUES], description: "Validation profile.", default: "standard" },
+        allowUnknownComponents: { type: "boolean", description: "Downgrade unknown node/component types to warnings.", default: false },
+        maxTextLength: { type: "number", description: "Maximum characters for raw text nodes." },
+        requireAlt: { type: "boolean", description: "Require image alt text.", default: false },
+        requireSources: { type: "boolean", description: "Require source/caption/citation metadata for chart/table evidence.", default: false },
+      },
+      example: { mode: "strict", maxTextLength: 260, requireAlt: true, requireSources: true },
+    },
     colorTokens: {
       description: "Use these tokens anywhere a color is expected (fill, line, color). Avoid raw hex except for one-off accents. Tokens auto-update when theme or brand.primary changes.",
       tokens: colorTokens,
+      tones: {
+        description: "Semantic component tones. Components should use `tone` with these names; the theme owns each tone's foreground/background/line colors. Tone color tokens also expose base/.tint/.accent where applicable.",
+        names: listSemanticTones(),
+      },
       palette: {
         description: "Semantic palette names. Each resolves to a theme-defined hex; agents express intent ('red', 'lime') and the theme picks the exact value. Palette colors also expose .tint and .shade variants.",
         names: listPaletteColors(),
       },
     },
     textStyles: {
-      description: "Each text node has an inferred or explicit `style`. These names map to font sizes, weights, and colors managed by the theme — do NOT set fontSize on text nodes.",
+      description: "Each text node has an inferred or explicit `style`. These names map to font sizes, weights, and colors managed by the theme. Component text styles (for example timeline-body) are centrally derived from base tokens such as caption/label — do NOT set fontSize on component text nodes.",
       styles: textStyles,
     },
     themeGuidance: {
@@ -176,10 +199,10 @@ export function describeDeck(): DeckDescription {
           "Keep body copy compact but not tiny; assume fast executive scanning.",
         ],
         layout: [
-          "Prefer thesis + evidence, decision tables, KPI strips, comparison grids, and risk/action matrices.",
+          "Prefer thesis + evidence, chart-with-rail/table-with-rail, decision tables, KPI strips, comparison grids, and risk/action matrices.",
           "Make every slide answer: what changed, why it matters, what decision is needed.",
         ],
-        componentBias: ["key-takeaway", "table-card", "chart-card", "stat-strip", "comparison-card", "insight-card"],
+        componentBias: ["key-takeaway", "chart-with-rail", "table-card", "chart-card", "stat-strip", "comparison-card", "hero-and-support", "insight-card"],
         avoid: ["Avoid decorative illustration, playful color, and museum/poster compositions."],
       },
       {
@@ -288,6 +311,8 @@ export function describeDeck(): DeckDescription {
       "Leave breathing room. A grid with > 4 columns or a stack with > 6 vertical children almost always feels cramped.",
       "Use spacer for intentional asymmetry; do not pad with empty text nodes.",
       "Align: visually heavy elements (image, chart, big metric) deserve at least 40% of the content rect to read confidently.",
+      "Choose a page archetype before choosing individual components: claim+proof, hero+satellites, data+rail, screenshot walkthrough, peer comparison, process/time, or executive synthesis.",
+      "Use `split` for primary/secondary compositions. Use `hero-and-support`, `chart-with-rail`, and `snapshot-callouts` when those named archetypes match; they are safer than hand-built equal card grids.",
       "Every non-appendix slide needs a visible design move: color field, side-rail, axis/ruler, hero metric, oversized quote, image crop, diagram, or strong accent rule. A plain title plus equal cards is not enough.",
       "Use small visual primitives (`eyebrow`, `accent-rule`, `annotation`, `side-rail`, `axis-ruler`) to build style and hierarchy; do not wait for a full-page composite to make the slide designed.",
       "Cover slides need a poster-scale title lockup: use `title-lockup` with deck-title scale inside a full-slide color field, large quiet whitespace, or a dominant evidence/image region. A small centered title inside a mid-page rectangle fails.",
@@ -316,6 +341,9 @@ export function describeDeck(): DeckDescription {
       "Concept / mechanism / cause / implication explanation → `explanation-block`, especially when the content is paragraph + support points.",
       "Lightweight before/after/options/trade-off comparison → `comparison-list`; full feature matrix → `comparison-table`; one peer object → `comparison-card`.",
       "Facts, observations, source snippets, or evidence rows → `fact-list`; use `evidence-layout` when a visual proof object must dominate.",
+      "One dominant claim/object plus 2-4 supporting modules → `hero-and-support`.",
+      "Dominant chart/table/image plus interpretation rail → `chart-with-rail`.",
+      "Screenshot/image walkthrough with numbered observations → `snapshot-callouts`.",
       "Many KPIs → `kpi-grid` or `grid` with 3-4 `metric-card` children. Use `unit` and `trend` fields for delta semantics.",
       "Stage / process / roadmap → `timeline` or a `grid` of `step-card`.",
       "Compare 2-4 things → `grid` of `comparison-card` with parallel `points` arrays of equal length.",
@@ -348,7 +376,7 @@ export function describeDeck(): DeckDescription {
       "Before/after KPI shift → `stat-comparison` (NOT two side-by-side metric-cards).",
     ],
     doNot: [
-      "Do not set fontSize, fontFace, or rgb-hex `color` on text nodes; use `style` and theme tokens.",
+      "Do not set fontSize, fontFace, or rgb-hex `color` on component text nodes; use `style` and theme tokens. If a component needs a default, add a centralized component typography token derived from caption/label/card-title/etc.",
       "Do not nest `type:'component'` + `component:'X'`; write `type:'X'` directly.",
       "Do not wrap node fields under `props` — fields are flat.",
       "Do not use pixel coordinates. Layout distances are cm; text fontSize is pt; stroke fields (`lineWidth`, `borderWidth`, rule/divider `thickness`) are point-like, so `thickness:1` is a 1pt line while `fixedHeight:1` is a 1cm region.",
@@ -413,13 +441,16 @@ export function describeDeck(): DeckDescription {
         "2. demote density — bullets density 'comfortable' → 'compact'; text style 'paragraph' → 'caption' when overflow remains.",
         "3. drop optional — children with `optional: true` are removed (use this on captions, source-notes, secondary callouts).",
         "4. truncate — text/bullets get autoFit:'shrink' so OOXML tightens line-spacing/font to fit.",
-        "5. hard fail — FALLBACK_FAILED diagnostic is emitted; the slide is rendered but the container cannot honor all children.",
+        "5. hard fail — FALLBACK_FAILED or CODE_BLOCK_OVERFLOW diagnostic is emitted; the slide is rendered but the container cannot honor all children.",
       ],
       diagnostics: [
-        "After render, call getRenderDiagnostics() to read structured warnings; OVERFLOW/DEMOTED/DROP/TRUNCATED/FALLBACK_FAILED/COLLISION/TINY_RECT/UNKNOWN_COLOR/UNKNOWN_STYLE codes are stable.",
+        "After render, call getRenderDiagnostics() to read structured warnings; OVERFLOW/DEMOTED/DROP/TRUNCATED/FALLBACK_FAILED/CODE_BLOCK_OVERFLOW/COLLISION/TITLE_OCCLUDED/PIE_LABELS_HIDDEN/TINY_RECT/UNKNOWN_COLOR/UNKNOWN_STYLE codes are stable.",
         "Each diagnostic has `suggestion`; agents should re-author the slide following the suggestion rather than adjusting raw cm sizes.",
         "If FALLBACK_FAILED appears, split content into a new slide instead of fighting the layout.",
-        "If SQUASHED appears, treat it as a layout failure even if the slide technically renders; reduce columns, change the component, or split the content.",
+        "If CODE_BLOCK_OVERFLOW appears, paginate the code across multiple slides or multiple code-block components; do not hide required code with maxLines unless the user asked for an excerpt.",
+        "If TITLE_OCCLUDED appears, fix deck.themeOverride.layout.contentTop or move the covering decoration behind the title.",
+        "If PIE_LABELS_HIDDEN appears, keep pie/doughnut slice labels visible with dataLabels:{show:true,position:'bestFit',showCategoryName:true,showPercent:true}; do not hide them behind a legend-only design.",
+        "If SQUASHED appears, treat it as a layout failure even if the slide technically renders; first preserve the current component semantics by increasing its region, changing layout ratio, reducing rows/items/labels, or splitting supporting content. Change component only when the alternative is semantically more accurate.",
         "Use `optional: true` on nice-to-have decoration so the renderer can drop it cleanly when space is tight.",
       ],
     },

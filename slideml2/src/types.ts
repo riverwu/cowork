@@ -1,4 +1,216 @@
-export type SlideSize = "16x9";
+import type { DeckSize } from "./units.js";
+import type { ValidationMode } from "./schema.js";
+
+export type SlideSize = DeckSize;
+
+export interface DeckValidationSpec {
+  mode?: ValidationMode;
+  allowUnknownComponents?: boolean;
+  maxTextLength?: number;
+  requireAlt?: boolean;
+  requireSources?: boolean;
+}
+
+export type DataSourceKind = "inline-json" | "inline-csv" | "file-csv" | "computed";
+
+export interface DataSourceSpec {
+  type?: DataSourceKind;
+  data?: unknown;
+  json?: unknown;
+  rows?: Array<Record<string, unknown>>;
+  csv?: string;
+  text?: string;
+  path?: string;
+  file?: string;
+  delimiter?: "," | ";" | "\t";
+  source?: string;
+  view?: DataViewSpec;
+  computed?: Record<string, DataComputedExpressionSpec>;
+  columns?: Record<string, DataComputedExpressionSpec>;
+  postComputed?: Record<string, DataComputedExpressionSpec>;
+  sourceLabel?: string;
+  citation?: string;
+  accessedAt?: string;
+}
+
+export type DataAggregateOp = "sum" | "avg" | "min" | "max" | "count" | "first" | "last";
+
+export type DataAggregateSpec = Record<string, DataAggregateOp | { op: DataAggregateOp; field?: string }>;
+
+export interface DataPivotSpec {
+  index: string | string[];
+  columns: string;
+  values: string;
+  aggregate?: DataAggregateOp;
+  fill?: string | number;
+}
+
+export type DataComputedOperand =
+  | string
+  | number
+  | boolean
+  | null
+  | { field: string }
+  | { value: unknown };
+
+export type DataComputedExpressionSpec =
+  | DataComputedOperand
+  | {
+      op:
+        | "field"
+        | "literal"
+        | "add"
+        | "sum"
+        | "subtract"
+        | "sub"
+        | "multiply"
+        | "mul"
+        | "divide"
+        | "div"
+        | "ratio"
+        | "percent-change"
+        | "percentChange"
+        | "negate"
+        | "abs"
+        | "round"
+        | "concat"
+        | "coalesce";
+      field?: string;
+      value?: unknown;
+      left?: DataComputedOperand;
+      right?: DataComputedOperand;
+      current?: DataComputedOperand;
+      previous?: DataComputedOperand;
+      values?: DataComputedOperand[];
+      digits?: number;
+      separator?: string;
+      empty?: unknown;
+    };
+
+export type DataColumnType = "text" | "number" | "percent" | "currency" | "date";
+
+export interface DataColumnEncodingSpec {
+  key: string;
+  label?: string;
+  type?: DataColumnType;
+  format?: "int" | "decimal" | "compact" | "percent" | "currency" | string;
+  align?: "left" | "center" | "right";
+  width?: number;
+  visual?: unknown;
+  cellVisual?: unknown;
+  visualType?: unknown;
+  tone?: string;
+}
+
+export interface DataStatItemEncodingSpec {
+  value: string;
+  key?: string;
+  field?: string;
+  label?: string;
+  labelField?: string;
+  valueLabel?: string;
+  tone?: string;
+  type?: DataColumnType;
+  format?: "int" | "decimal" | "compact" | "percent" | "currency" | string;
+}
+
+export interface DataBindSpec {
+  source: string;
+  select?: string[] | Record<string, string>;
+  filter?: Record<string, unknown>;
+  groupBy?: string | string[];
+  aggregate?: DataAggregateSpec;
+  pivot?: DataPivotSpec;
+  sort?: string | { by: string; direction?: "asc" | "desc" };
+  limit?: number;
+}
+
+export type DataViewSpec = Omit<DataBindSpec, "source">;
+
+export interface DataEncodingSpec {
+  x?: string;
+  y?: string | string[];
+  /** Optional orientation for bar-like bound charts. When omitted, SlideML2 can infer horizontal bars from x=numeric and y=categorical. */
+  orientation?: "vertical" | "horizontal";
+  series?: string;
+  label?: string;
+  value?: string;
+  delta?: string;
+  items?: DataStatItemEncodingSpec[];
+  columns?: Array<string | DataColumnEncodingSpec>;
+  seriesName?: string;
+  seriesOptions?: Record<string, {
+    name?: string;
+    type?: "bar" | "line";
+    axis?: "primary" | "secondary";
+    color?: string;
+    lineWidth?: number;
+    lineDash?: "solid" | "dash" | "dashDot" | "dot";
+    smooth?: boolean;
+    marker?: unknown;
+    dataLabels?: unknown;
+    trendLine?: { type?: "linear" | "exp" | "log" | "poly"; order?: number; label?: string } | boolean;
+    errorBars?: { type?: "fixed" | "percent" | "stdDev" | "stdErr"; value?: number; direction?: "x" | "y" | "both" };
+  }>;
+}
+
+export type ThemeLayoutArea =
+  | { x: number; y: number; w: number; h: number }
+  | { left: number; top: number; right: number; bottom: number };
+
+export type ThemeTextWeight =
+  | "thin" | "hairline"
+  | "extralight" | "ultralight"
+  | "light"
+  | "normal" | "regular" | "book"
+  | "medium"
+  | "semibold" | "demibold"
+  | "bold"
+  | "extrabold" | "ultrabold" | "heavy"
+  | "black" | "super"
+  | number;
+
+export type ThemeFontChain = string | string[];
+
+export interface SurfaceShadowOverride {
+  color?: string;
+  alpha?: number;
+  blur?: number;
+  dx?: number;
+  dy?: number;
+}
+
+export interface SurfaceGradientStopOverride {
+  color: string;
+  position?: number;
+  alpha?: number;
+}
+
+export interface SurfaceGradientOverride {
+  kind?: "linear" | "radial";
+  angle?: number;
+  stops: SurfaceGradientStopOverride[];
+}
+
+export interface SurfaceOverride {
+  fill?: string;
+  fillOpacity?: number;
+  line?: string;
+  lineOpacity?: number;
+  lineWidth?: number;
+  lineDash?: "solid" | "dash" | "dashDot" | "dot";
+  borderColor?: string;
+  borderWidth?: number;
+  borderStyle?: "solid" | "dash" | "dashDot" | "dot";
+  cornerRadius?: number;
+  padding?: number;
+  elevation?: "flat" | "raised" | "floating" | "outlined";
+  shadow?: SurfaceShadowOverride;
+  gradient?: SurfaceGradientOverride;
+  accent?: "none" | "left" | "top";
+  accentColor?: string;
+  accentWidth?: number;
+}
 
 export interface Slideml2Deck {
   slideml2: 1;
@@ -19,6 +231,14 @@ export interface DeckSpec {
   themeOverride?: ThemeOverride;
   brand?: BrandSpec;
   chrome?: ChromeSpec;
+  validation?: DeckValidationSpec;
+  dataSources?: Record<string, DataSourceSpec>;
+  master?: {
+    layout?: string;
+    placeholders?: Record<string, { x: number; y: number; w: number; h: number; type?: "title" | "body" | "chart" | "table" | "image" | "footer" }>;
+  };
+  references?: ReferenceSpec[];
+  footnotes?: FootnoteSpec[];
   metadata?: Record<string, unknown>;
 }
 
@@ -33,33 +253,38 @@ export interface ThemeOverride {
   colors?: Record<string, ColorOverrideValue>;
   text?: Record<string, {
     fontSize?: number;
-    /** "normal" | "bold" | numeric 100..900. Numeric weights resolve to
-     *  typeface-name suffixes ("Inter Light", "Inter SemiBold") and emit
+    /** Named CSS weight or numeric 100..900. Numeric/named weights resolve
+     *  to typeface-name suffixes ("Inter Light", "Inter SemiBold") and emit
      *  b="1" for >=600. */
-    weight?: "normal" | "bold" | number;
+    weight?: ThemeTextWeight;
     /** Agent-friendly alias for weight. */
-    fontWeight?: "normal" | "bold" | number;
+    fontWeight?: ThemeTextWeight;
     color?: string;
     lineHeight?: number;
+    /** Agent-friendly alias for lineHeight. */
+    lineSpacing?: number;
     margin?: { l?: number; r?: number; t?: number; b?: number };
     letterSpacing?: number;
     /** Pull from the theme's display, text, or mono font role. */
     fontFamily?: "display" | "text" | "mono";
     /** OpenType feature flags ('tnum', 'smcp', ...) emitted on every run. */
     fontFeatures?: string[];
+    /** Agent-friendly alias for weight:'bold'. */
+    bold?: boolean;
     uppercase?: boolean;
     italic?: boolean;
   }>;
-  component?: Record<string, { fill?: string; line?: string; accent?: string; padding?: number; radius?: number; cornerRadius?: number; elevation?: "flat" | "raised" | "floating" | "outlined" }>;
+  component?: Record<string, Omit<SurfaceOverride, "accent"> & { accent?: string | SurfaceOverride["accent"]; surface?: SurfaceOverride }>;
   tone?: Record<string, { fg: string; bg: string; line: string }>;
-  layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number }>;
+  layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number; areas: Record<string, ThemeLayoutArea> }>;
   /** Per-script font chains. `latin` and `cjk` accept either a single
-   *  string[] (legacy: doubles as text + display) or `{ display?, text? }`
-   *  for separate display + text faces. `mono` is always a single chain. */
+   *  font face, a string[] chain (doubles as text + display), or
+   *  `{ display?, text? }` for separate display + text faces. `mono`
+   *  accepts the same object and uses text/display as the mono chain. */
   fonts?: {
-    latin?: string[] | { display?: string[]; text?: string[] };
-    cjk?: string[] | { display?: string[]; text?: string[] };
-    mono?: string[];
+    latin?: ThemeFontChain | { display?: ThemeFontChain; text?: ThemeFontChain };
+    cjk?: ThemeFontChain | { display?: ThemeFontChain; text?: ThemeFontChain };
+    mono?: ThemeFontChain | { display?: ThemeFontChain; text?: ThemeFontChain };
   };
   chart?: { series?: string[] };
   chrome?: { brandMark?: "none" | "top-right" | "bottom-right"; pageNumber?: boolean; footerText?: string; footerLine?: boolean; footerHeight?: number; footerPadding?: number };
@@ -103,6 +328,13 @@ export interface SlideV2 {
   id: string;
   title?: string;
   background?: string;
+  transition?: {
+    type?: "none" | "fade" | "push" | "wipe" | "split" | "cover" | "uncover" | "slideIn" | "slide-in" | "slide_in" | "slide";
+    effect?: "none" | "fade" | "push" | "wipe" | "split" | "cover" | "uncover";
+    direction?: "left" | "right" | "up" | "down" | "fromLeft" | "fromRight" | "fromTop" | "fromBottom" | "toLeft" | "toRight" | "toTop" | "toBottom" | "fade" | "push" | "wipe" | "split" | "cover" | "uncover";
+    durationMs?: number;
+    duration?: number;
+  };
   children: DomNode[];
   notes?: string;
   metadata?: Record<string, unknown>;
@@ -124,8 +356,39 @@ export type NodeType = "slide" | "stack" | "grid" | "split" | "spacer" | "divide
 
 export type TextContent = string | RichTextRun[];
 
-export interface RichTextRun {
+export interface ReferenceSpec {
+  id: string;
+  title?: string;
+  authors?: string[] | string;
+  year?: string | number;
+  venue?: string;
+  doi?: string;
+  url?: string;
+  citation?: string;
+}
+
+export interface FootnoteSpec {
+  id: string;
   text: string;
+}
+
+export interface RichTextRun {
+  /**
+   * RichInline discriminant. Omitted means legacy text run and remains
+   * backwards-compatible with older decks.
+   */
+  kind?: "text" | "math" | "cite" | "footnoteRef" | "icon" | "token";
+  text?: string;
+  latex?: string;
+  refId?: string;
+  footnoteId?: string;
+  style?: "numeric" | "author-year" | "short";
+  src?: string;
+  marker?: string;
+  alt?: string;
+  value?: unknown;
+  tone?: "neutral" | "brand" | "positive" | "warning" | "danger" | "info";
+  format?: "plain" | "int" | "number" | "decimal" | "percent" | "currency";
   /** Inline marks. `code` swaps to the mono font role; `emphasis` is a
    *  semantic alias for italic; `strikethrough` / `superscript` /
    *  `subscript` map to `<a:rPr strike|baseline>`. `highlight` requires
@@ -138,6 +401,10 @@ export interface RichTextRun {
    *  paragraph mix a hero number with normal copy without splitting into
    *  multiple text nodes. */
   size?: "xs" | "sm" | "md" | "lg" | "xl" | "2xl";
+  /** Explicit per-run font size in points. Prefer semantic `size` for prose;
+   *  code/table components use this when dense monospace listings need a
+   *  precise fit. */
+  fontSize?: number;
   /** Per-run weight override. Accepts named CSS weights (light/regular/
    *  medium/semibold/bold/extrabold/black) or numeric 100..900. */
   weight?:
@@ -192,6 +459,7 @@ export type AnchorPoint =
 export interface CellSpec {
   text?: string;
   runs?: RichTextRun[];
+  footnoteRefs?: string[];
   align?: "left" | "center" | "right";
   valign?: "top" | "middle" | "bottom";
   fill?: string;
@@ -222,7 +490,7 @@ export interface RenderedSlide {
 }
 
 export interface RenderedDeck {
-  deck: Required<Pick<DeckSpec, "size" | "theme">> & { brand: BrandSpec; themeOverride?: ThemeOverride };
+  deck: Required<Pick<DeckSpec, "size" | "theme">> & { brand: BrandSpec; themeOverride?: ThemeOverride; master?: DeckSpec["master"] };
   slides: RenderedSlide[];
 }
 
