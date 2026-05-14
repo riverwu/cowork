@@ -31,6 +31,7 @@ export const RENDER_DIAGNOSTIC_CODES = [
   "DONUT_SUMMARY_OVER_CAPACITY",
   "PAGE_OVER_CAPACITY",
   "REGION_OVER_CAPACITY",
+  "ORG_OVERFLOW",
   "LOW_CONTRAST",
   "LOW_CONTRAST_FIXED",
   "SHAPE_INVISIBLE",
@@ -101,6 +102,7 @@ export const QUALITY_RENDER_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
   "DONUT_SUMMARY_OVER_CAPACITY",
   "PAGE_OVER_CAPACITY",
   "REGION_OVER_CAPACITY",
+  "ORG_OVERFLOW",
 ]);
 
 export function isBlockingRenderDiagnostic(code: unknown, severity?: unknown): boolean {

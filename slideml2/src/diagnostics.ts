@@ -29,6 +29,7 @@ import type { RenderDiagnosticCode } from "./diagnostic-codes.js";
  *   MISSING_DATA_BINDING_SOURCE bound chart/table references a source that did not resolve
  *   PAGE_OVER_CAPACITY multiple large components together exceed a single readable page budget
  *   REGION_OVER_CAPACITY a split/rail/local region has more direct content blocks than its readable budget
+ *   ORG_OVERFLOW     an org/tree layout needs more readable space than the assigned region
  */
 export interface LayoutDiagnostic {
   severity: "info" | "warn" | "error";

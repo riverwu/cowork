@@ -96,6 +96,10 @@ export interface DataColumnEncodingSpec {
   format?: "int" | "decimal" | "compact" | "percent" | "currency" | string;
   align?: "left" | "center" | "right";
   width?: number;
+  visual?: unknown;
+  cellVisual?: unknown;
+  visualType?: unknown;
+  tone?: string;
 }
 
 export interface DataStatItemEncodingSpec {

@@ -279,6 +279,21 @@ function bindNodeData(node: DomNode, bind: DataBindSpec, encoding: DataEncodingS
       resolvedData,
     };
   }
+  if (kind === "analytic-table") {
+    const tableData = tableDataFromRows(rows, bind, encoding);
+    return {
+      ...node,
+      data: {
+        ...tableData,
+        rows,
+        columns: node.columns ?? encoding.columns ?? tableData.columns,
+      },
+      rows: node.rows ?? rows,
+      columns: node.columns ?? encoding.columns ?? tableData.columns,
+      dataLineage: lineage,
+      resolvedData,
+    };
+  }
   if (kind === "metric-card" || kind === "hero-stat") {
     const first = rows[0] || {};
     const valueKey = firstString(encoding.value, singleString(encoding.y), "value");
@@ -384,6 +399,10 @@ function dataEncoding(value: unknown): DataEncodingSpec {
             format: typeof column.format === "string" ? column.format : undefined,
             align: isColumnAlign(column.align) ? column.align : undefined,
             width: typeof column.width === "number" && Number.isFinite(column.width) && column.width > 0 ? column.width : undefined,
+            ...(column.visual !== undefined ? { visual: column.visual } : {}),
+            ...(column.cellVisual !== undefined ? { cellVisual: column.cellVisual } : {}),
+            ...(column.visualType !== undefined ? { visualType: column.visualType } : {}),
+            ...(typeof column.tone === "string" && column.tone.trim() ? { tone: column.tone.trim() } : {}),
           };
         }
         return "";

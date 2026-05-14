@@ -183,7 +183,7 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
   themeAccentHexesForContrast = collectThemeAccentHexes(theme);
   themeMutedHexesForContrast = collectThemeMutedHexes(theme);
   const slides: SlideAst[] = deck.slides.map((slide, index) => {
-    const dom = materializeAndCompactify(slide.dom, slide.id);
+    const dom = materializeAndCompactify(slide.dom, slide.id, theme);
     const ids = { nextId: 2 };
     const shapes = renderSlide(theme, dom, ids, slide.id);
     const resolvedBackground = resolveSlideBackground(theme, dom.background);
@@ -1043,7 +1043,7 @@ export function measureDeck(deck: RenderedDeck): Array<{ slideId: string; nodes:
   const { theme } = buildThemeForDeck(deck);
   layoutDecisionsBySlide.clear();
   return deck.slides.map((slide) => {
-    const dom = materializeAndCompactify(slide.dom, slide.id);
+    const dom = materializeAndCompactify(slide.dom, slide.id, theme);
     const layout = layoutSlide(theme, dom);
     detectCollisionsForSlide(slide.id, layout.measured, dom);
     detectComponentLayoutQuality(theme, slide.id, layout.measured, dom);
@@ -1867,8 +1867,8 @@ function findCollisionConstrainingAncestor(
   return undefined;
 }
 
-function materializeAndCompactify(slideDom: DomNode, slideId: string): DomNode {
-  const materialized = materializeNode(slideDom, slideId);
+function materializeAndCompactify(slideDom: DomNode, slideId: string, theme: SimpleTheme): DomNode {
+  const materialized = materializeNode(slideDom, slideId, theme);
   const compactedChildren = (materialized.children || [])
     .flatMap((child) => child.type === "fragment" ? (child.children || []) : [child])
     .map(compactifyNode)
@@ -2194,6 +2194,13 @@ function measureSubtree(theme: SimpleTheme, node: DomNode, rect: Rect, output: M
     });
     return;
   }
+  if (node.type === "positioned-group") {
+    pushPositionedGroupFitDiagnostic(node, rect);
+    withAncestor(node, () => {
+      layoutPositionedGroupChildren(node, rect).forEach(({ node: child, rect: childRect }) => measureSubtree(theme, child, childRect, output, rectsById, node.id));
+    });
+    return;
+  }
   if (node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset") {
     const inner = decorativeInnerRect(theme, node, rect);
     const child = decorativeChild(node);
@@ -2254,7 +2261,7 @@ function estimateVisualRect(theme: SimpleTheme, node: DomNode, rect: Rect, inkRe
   if (node.type === "text") return hasPaintedTextSurface(node) ? rect : inkRect;
   if (node.type === "bullets") return inkRect;
   if (node.type === "spacer") return undefined;
-  if (node.type === "stack" || node.type === "grid" || node.type === "fragment") return paintedContainerRect(theme, node, rect);
+  if (node.type === "stack" || node.type === "grid" || node.type === "fragment" || node.type === "positioned-group") return paintedContainerRect(theme, node, rect);
   if (node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset") return paintedContainerRect(theme, node, rect);
   return inkRect || rect;
 }
@@ -2497,6 +2504,7 @@ function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   pushSquashedDiagnostic(theme, node, rect, slideId);
   if (node.type === "stack") return renderStack(theme, node, rect, rectsById, ids, slideId);
   if (node.type === "grid") return renderGrid(theme, node, rect, rectsById, ids, slideId);
+  if (node.type === "positioned-group") return renderPositionedGroup(theme, node, rect, rectsById, ids, slideId);
   if (node.type === "fragment") return (node.children || []).flatMap((child) => {
     const childRect = rectsById.get(child.id) || rect;
     return renderNode(theme, child, childRect, rectsById, ids, slideId);
@@ -3169,6 +3177,17 @@ function renderGrid(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const oriented = autoOrientFlow(node, rect);
   if (oriented.type === "stack") return renderStack(theme, oriented, rect, rectsById, ids, slideId);
   return assembleLayeredContainer(theme, oriented, rect, rectsById, ids, slideId, layoutGridChildren);
+}
+
+function renderPositionedGroup(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
+  const placements = layoutPositionedGroupChildren(node, rect);
+  const sorted = [...placements].sort((a, b) => numberProp(a.node, "zIndex", 0) - numberProp(b.node, "zIndex", 0));
+  const shapes: ShapeList = [];
+  for (const { node: child, rect: childRect } of sorted) {
+    rectsById.set(child.id, childRect);
+    shapes.push(...renderNode(theme, child, childRect, rectsById, ids, slideId));
+  }
+  return shapes;
 }
 
 /**
@@ -5084,7 +5103,7 @@ function textRuns(theme: SimpleTheme, node: DomNode, style: ReturnType<typeof te
   }];
 }
 
-function materializeNode(node: DomNode, slideId: string, fallbackPath = ""): DomNode {
+function materializeNode(node: DomNode, slideId: string, theme: SimpleTheme, fallbackPath = ""): DomNode {
   // Defensive: agents (or programmatic callers) may submit nodes without an
   // id. Synthesize a deterministic fallback so layout/measurement stays
   // crash-free; validators still surface MISSING_NODE_ID separately.
@@ -5097,13 +5116,13 @@ function materializeNode(node: DomNode, slideId: string, fallbackPath = ""): Dom
   // on those siblings BEFORE component expansion so calloutNode emits a
   // tighter surface that actually fits.
   const densified = densifyCalloutSiblings(withId);
-  const expanded = isComponentTypedNode(densified) ? expandComponent(slideId, densified) : densified;
+  const expanded = isComponentTypedNode(densified) ? expandComponent(slideId, densified, theme) : densified;
   // `split` is sugar over `stack` with explicit layoutWeights. Lower it after
   // component expansion as well, since semantic components such as two-column
   // can expand to split.
   const lowered = expanded.type === "split" ? splitToStack(expanded) : expanded;
   const children = lowered.children
-    ?.map((child, index) => materializeNode(child, slideId, `${fallbackPath ? fallbackPath + "." : ""}${index}`))
+    ?.map((child, index) => materializeNode(child, slideId, theme, `${fallbackPath ? fallbackPath + "." : ""}${index}`))
     .flatMap((child) => child.type === "fragment" ? (child.children || []) : [child]);
   return {
     ...lowered,
@@ -5186,7 +5205,7 @@ function bulletsItemsFromNode(node: DomNode): unknown[] {
 function materializeDeck(deck: RenderedDeck): RenderedDeck {
   const { theme } = buildThemeForDeck(deck);
   const slides = deck.slides.map((slide) => {
-    const dom = materializeAndCompactify(slide.dom, slide.id);
+    const dom = materializeAndCompactify(slide.dom, slide.id, theme);
     return { slide, dom, layout: layoutSlide(theme, dom), decisions: layoutDecisionsBySlide.get(slide.id) || new Map() };
   });
   const diagnostics = getRenderDiagnostics();
@@ -5616,6 +5635,59 @@ function childCrossRect(theme: SimpleTheme, child: DomNode, parentCrossStart: nu
   return { start: parentCrossStart, size };
 }
 
+function layoutPositionedGroupChildren(node: DomNode, rect: Rect): Array<{ node: DomNode; rect: Rect }> {
+  const children = node.children || [];
+  if (children.length === 0) return [];
+  const contentWidth = Math.max(0.001, numberProp(node, "contentWidth", rect.w));
+  const contentHeight = Math.max(0.001, numberProp(node, "contentHeight", rect.h));
+  const fit = stringProp(node, "fit", "contain");
+  const scale = fit === "none" ? 1 : Math.min(1, rect.w / contentWidth, rect.h / contentHeight);
+  const scaledWidth = contentWidth * scale;
+  const scaledHeight = contentHeight * scale;
+  const align = stringProp(node, "align", "center");
+  const valign = stringProp(node, "valign", "top");
+  const offsetX = align === "left" ? 0 : align === "right" ? rect.w - scaledWidth : (rect.w - scaledWidth) / 2;
+  const offsetY = valign === "middle" ? (rect.h - scaledHeight) / 2 : valign === "bottom" ? rect.h - scaledHeight : 0;
+  return children.map((child) => {
+    const local = rectFromNodePlacement(child) || { x: 0, y: 0, w: contentWidth, h: contentHeight };
+    return {
+      node: child,
+      rect: {
+        x: rect.x + offsetX + local.x * scale,
+        y: rect.y + offsetY + local.y * scale,
+        w: Math.max(0.01, local.w * scale),
+        h: Math.max(0.01, local.h * scale),
+      },
+    };
+  });
+}
+
+function pushPositionedGroupFitDiagnostic(node: DomNode, rect: Rect): void {
+  const contentWidth = Math.max(0.001, numberProp(node, "contentWidth", rect.w));
+  const contentHeight = Math.max(0.001, numberProp(node, "contentHeight", rect.h));
+  const fit = stringProp(node, "fit", "contain");
+  if (fit === "none") return;
+  const scale = Math.min(1, rect.w / contentWidth, rect.h / contentHeight);
+  const minScale = numberProp(node, "minScale", 0.84);
+  const precomputedOverflow = node.overflow === true;
+  if (!precomputedOverflow && scale >= minScale) return;
+  pushDiagnostic({
+    severity: scale < minScale ? "warn" : "info",
+    code: "ORG_OVERFLOW",
+    slideId: currentSlideId || undefined,
+    nodeId: node.id,
+    message: `Org/tree layout '${node.id}' needs ${contentWidth.toFixed(2)}x${contentHeight.toFixed(2)}cm inside ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm.`,
+    suggestion: "Split the org chart by function, reduce node detail, lower maxChildrenPerParent, or move department subtrees to follow-up slides.",
+    measured: {
+      available: rect.w,
+      needed: contentWidth,
+      heightAvailable: rect.h,
+      heightNeeded: contentHeight,
+      scaleSuggestion: scale < minScale ? "split" : undefined,
+    },
+  });
+}
+
 interface GridPlacement {
   child: DomNode;
   row: number;
@@ -5934,6 +6006,7 @@ function intrinsicMainSize(theme: SimpleTheme, node: DomNode, direction: "horizo
     if (node.type === "text") return textIntrinsicWidth(theme, node);
     if (node.type === "divider") return normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.02;
     if (node.type === "stack") return node.direction === "horizontal" ? horizontalStackIntrinsicWidth(theme, node, crossSize) : verticalStackIntrinsicWidth(theme, node, crossSize);
+    if (node.type === "positioned-group") return numberProp(node, "contentWidth", crossSize);
     return 3.2;
   }
   if (node.type === "text") return textIntrinsicHeight(theme, node, crossSize);
@@ -5944,6 +6017,7 @@ function intrinsicMainSize(theme: SimpleTheme, node: DomNode, direction: "horizo
   if (node.type === "table") return tableIntrinsicHeight(theme, node, crossSize);
   if (node.type === "stack") return stackIntrinsicHeight(theme, node, crossSize) + contentHugSafetySlack(node);
   if (node.type === "grid") return gridIntrinsicHeight(theme, node, crossSize);
+  if (node.type === "positioned-group") return numberProp(node, "contentHeight", 2);
   return 2;
 }
 
@@ -6309,7 +6383,7 @@ function canGrow(node: DomNode): boolean {
   if (node.fill === true) return true;
   if (node.type === "stack" && typeof node.role === "string" && CONTENT_HUG_STACK_ROLES.has(node.role)) return false;
   if (node.type === "grid" && (node.role === "timeline-marker-row" || node.role === "timeline-item-row")) return false;
-  return node.type === "image" || node.type === "grid" || node.type === "stack" || node.type === "table" || node.type === "chart" || node.type === "spacer" || node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset";
+  return node.type === "image" || node.type === "grid" || node.type === "stack" || node.type === "positioned-group" || node.type === "table" || node.type === "chart" || node.type === "spacer" || node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset";
 }
 
 function stackIntrinsicHeight(theme: SimpleTheme, node: DomNode, crossSize: number): number {

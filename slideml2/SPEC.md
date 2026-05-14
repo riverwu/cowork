@@ -564,12 +564,17 @@ Routing rules:
 - Facts plus sources: `fact-list`.
 - Options/tradeoffs: `comparison-list`, `comparison-card`,
   `comparison-table`, `pros-cons`.
-- Sequence/causality: `process-flow`, `timeline`, `numbered-grid`,
-  `numbered-list`, `step-card`, `flow-arrow`.
+- Sequence/causality: `process-flow`, `roadmap-plan`, `gantt-chart`,
+  `cycle-diagram`, `value-chain`, `calendar-plan`, `timeline`,
+  `numbered-grid`, `numbered-list`, `step-card`, `flow-arrow`.
 - Evidence: `image-card`, `chart-card`, `table-card`, `quote`, `source-note`,
   `evidence-layout`.
 - Metrics: `hero-stat`, `kpi-grid`, `metric-card`, `stat-strip`,
-  `stat-comparison`, `scorecard`, `bar-list`, `gauge`, `progress-bar`.
+  `stat-comparison`, `scorecard`, `bar-list`, `gauge`, `progress-bar`,
+  `sankey`, `geo-region-map`.
+- Office structure/planning: `org-chart`, `hierarchy-tree`, `decision-tree`,
+  `stakeholder-map`, `raci-matrix`, `kanban-board`, `architecture-map`,
+  `pyramid`, `venn-diagram`.
 - Product/identity: `feature-card`, `logo-strip`, `profile-card`, `tag-list`,
   `badge`, `icon-text`.
 
@@ -655,6 +660,24 @@ both primitives and semantic components. Detailed field descriptions are in
 | `image-card` | src | alt, title, badge, insight, annotations, callouts, caption, fit, imageWidth, tone, variant, surface |
 | `chart-card` | chartType, labels, series | chart, data, title, badge, insight, caption, showLegend, showValues, yFormat, tone, variant, surface |
 | `table-card` | rows | title, headers, columns, data, badge, insight, caption, tone, variant, density, surface |
+| `analytic-table` | columns, rows | data, bind, encoding, columnGroups, renderMode, badge, insight, caption, density, tone, variant, cellPadding, borders, bandRows, tableStyleId, surface |
+| `org-chart` | nodes | links, title, density, detail, people/members/personnel on nodes, maxChildrenPerParent, treeMaxWidth, treeMaxHeight, spread, tone, variant, surface |
+| `roadmap-plan` | lanes | periods, title, density, tone, variant, surface |
+| `gantt-chart` | tasks | periods, milestones, title, density, tone, variant, surface |
+| `cycle-diagram` | steps | center, direction, title, density, tone, variant, surface |
+| `hub-spoke` | center, items | title, density, tone, variant, surface |
+| `decision-tree` | nodes | links, title, density, tone, variant, surface |
+| `stakeholder-map` | items | xAxis, yAxis, quadrantLabels, title, density, tone, variant, surface |
+| `raci-matrix` | roles, tasks | assignments, title, density, variant, surface |
+| `kanban-board` | columns | title, density, tone, variant, surface |
+| `pyramid` | levels | orientation, title, density, tone, variant, surface |
+| `venn-diagram` | sets | intersections, title, density, tone, variant, surface |
+| `value-chain` | stages | direction, title, density, tone, variant, surface |
+| `hierarchy-tree` | nodes | links, title, density, tone, variant, surface |
+| `architecture-map` | layers | integrations, title, density, tone, variant, surface |
+| `geo-region-map` | regions | legend, title, density, tone, variant, surface |
+| `calendar-plan` | events | month, weekdays, title, density, tone, variant, surface |
+| `sankey` | nodes, links | stages, title, density, tone, variant, surface |
 | `insight-card` | headline | badge, title, detail, body, bullets, items, points, tone, density |
 | `explanation-block` | - | title, headline, body, detail, description, content, bullets, items, example, note, variant, tone |
 | `comparison-list` | items | title, basis, columns, variant, density |
