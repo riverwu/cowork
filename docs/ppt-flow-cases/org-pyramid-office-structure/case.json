@@ -1,0 +1,27 @@
+{
+  "id": "org-pyramid-office-structure",
+  "desktopDebugLog": true,
+  "expected": {
+    "requiredTools": ["read_file", "write_file", "shell", "init_deck", "validate_slide", "validate_manifest", "compose"],
+    "forbiddenTools": ["create_deck", "replace_slide", "insert_slide", "delete_slide", "patch_deck", "validate_render", "run_node"],
+    "minValidateSlideCalls": 4,
+    "requireSlideml2SkillRead": true,
+    "requireFinalValidateRender": true,
+    "requireProgressDone": true,
+    "requirePptxOutput": true,
+    "outputPath": "outputs/org-pyramid-office-structure.pptx",
+    "maxBlockingDiagnostics": 0,
+    "requiredDeckJsonSubstrings": [
+      "\"type\": \"org-chart\"",
+      "\"type\": \"pyramid\"",
+      "\"id\": \"org-pyramid-org.diagram\"",
+      "\"id\": \"org-pyramid-pyramid.diagram\""
+    ],
+    "requiredPptxXmlSubstrings": [
+      "org-pyramid-org.diagram.level.0.0",
+      "org-pyramid-pyramid.diagram.level.0.shape",
+      "prst=\"trapezoid\"",
+      "<p:cxnSp>"
+    ]
+  }
+}

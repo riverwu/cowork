@@ -1,0 +1,314 @@
+{
+  "slideml2": 2,
+  "deck": {
+    "size": "16x9",
+    "theme": "default",
+    "brand": {
+      "name": "客户运营事业部",
+      "primary": "2563EB"
+    },
+    "themeOverride": {
+      "colors": {
+        "background": "F8FAFC",
+        "surface": "FFFFFF",
+        "surface.subtle": "EEF2F7",
+        "divider": "CBD5E1",
+        "text": {
+          "primary": "111827",
+          "secondary": "475569",
+          "muted": "64748B",
+          "inverse": "FFFFFF"
+        },
+        "success": "146C36",
+        "warning": "9A4608",
+        "danger": "B91C1C"
+      },
+      "fonts": {
+        "latin": {
+          "display": ["Arial"],
+          "text": ["Arial"]
+        },
+        "cjk": {
+          "display": ["Heiti SC", "PingFang SC", "Microsoft YaHei"],
+          "text": ["Heiti SC", "PingFang SC", "Microsoft YaHei"]
+        }
+      },
+      "text": {
+        "office-node-title": {
+          "fontSize": 10.6,
+          "weight": "semibold"
+        },
+        "office-node-body": {
+          "fontSize": 8.2,
+          "weight": "regular"
+        },
+        "pyramid-tier-title": {
+          "fontSize": 11,
+          "weight": "semibold"
+        },
+        "pyramid-tier-body": {
+          "fontSize": 8.4,
+          "weight": "regular"
+        }
+      }
+    }
+  },
+  "slides": [
+    {
+      "id": "org-pyramid-org",
+      "title": "客户运营组织与经营看板",
+      "children": [
+        {
+          "id": "org-pyramid-org.diagram",
+          "type": "org-chart",
+          "variant": "frameless",
+          "detail": "full",
+          "spread": true,
+          "treeMaxWidth": 18.4,
+          "treeMaxHeight": 7.5,
+          "titleStyle": "office-node-title",
+          "bodyStyle": "office-node-body",
+          "nodeSurface": {
+            "fill": "surface",
+            "line": "divider",
+            "lineOpacity": 0.74
+          },
+          "connectorLine": "divider",
+          "connectorLineWidth": 0.025,
+          "nodes": [
+            {
+              "id": "coo",
+              "name": "运营委员会",
+              "role": "续费率94% / NRR108%",
+              "people": ["林晨", "周予"],
+              "badge": "经营",
+              "icon": "diamond",
+              "tone": "brand"
+            },
+            {
+              "id": "success",
+              "name": "客户成功部",
+              "role": "续约金额8420万",
+              "people": ["陈晓", "王曼", "刘一"],
+              "parent": "coo",
+              "badge": "32人",
+              "icon": "roundRect",
+              "tone": "positive"
+            },
+            {
+              "id": "delivery",
+              "name": "交付服务部",
+              "role": "上线周期18天",
+              "people": ["赵雷", "何静"],
+              "parent": "coo",
+              "badge": "SLA",
+              "icon": "triangle",
+              "tone": "warning"
+            },
+            {
+              "id": "product-ops",
+              "name": "产品运营部",
+              "role": "活跃率71%",
+              "people": ["孙可", "杜航"],
+              "parent": "coo",
+              "badge": "月报",
+              "icon": "hexagon",
+              "tone": "neutral",
+              "surface": {
+                "fill": "surface.subtle",
+                "line": "divider"
+              }
+            },
+            {
+              "id": "enterprise",
+              "name": "重点客户组",
+              "role": "Top50客户 / NPS62",
+              "people": ["韩立", "顾宁"],
+              "parent": "success",
+              "icon": "ellipse",
+              "tone": "positive"
+            },
+            {
+              "id": "smb",
+              "name": "中小客户组",
+              "role": "低触达运营 / 流失预警",
+              "people": ["许倩"],
+              "parent": "success",
+              "icon": "roundRect",
+              "tone": "neutral"
+            },
+            {
+              "id": "pmo",
+              "name": "实施PMO",
+              "role": "回款前置 / 里程碑",
+              "people": ["马越"],
+              "parent": "delivery",
+              "icon": "trapezoid",
+              "tone": "warning"
+            },
+            {
+              "id": "analytics",
+              "name": "数据分析组",
+              "role": "客户健康分76",
+              "people": ["唐宁"],
+              "parent": "product-ops",
+              "icon": "diamond",
+              "tone": "brand"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "org-pyramid-pyramid",
+      "title": "经营成熟度金字塔",
+      "children": [
+        {
+          "id": "org-pyramid-pyramid.diagram",
+          "type": "pyramid",
+          "variant": "frameless",
+          "shape": "trapezoid",
+          "topWidthRatio": 0.35,
+          "bottomWidthRatio": 0.9,
+          "gap": 0.05,
+          "titleStyle": "pyramid-tier-title",
+          "bodyStyle": "pyramid-tier-body",
+          "titleAlign": "left",
+          "bodyAlign": "left",
+          "levelSurface": {
+            "fill": "surface.subtle",
+            "line": "none"
+          },
+          "levels": [
+            {
+              "label": "北极星指标",
+              "body": "净收入留存108% / 续费率94%",
+              "icon": "diamond",
+              "badge": "目标94%",
+              "tone": "brand",
+              "height": 1.12,
+              "widthRatio": 0.38
+            },
+            {
+              "label": "增长抓手",
+              "body": "三类增长动作并行推进",
+              "contents": [
+                {
+                  "title": "重点客户扩容",
+                  "content": "NRR 108%",
+                  "tone": "brand"
+                },
+                {
+                  "title": "风险客户挽回",
+                  "content": "闭环率91%",
+                  "tone": "warning"
+                },
+                {
+                  "title": "低触达运营",
+                  "content": "覆盖320家",
+                  "tone": "positive"
+                }
+              ],
+              "icon": "hexagon",
+              "badges": ["策略"],
+              "tone": "positive",
+              "heightWeight": 1.55
+            },
+            {
+              "label": "运营机制",
+              "body": "周会 / 预警 / 闭环",
+              "icon": "trapezoid",
+              "badge": "机制",
+              "tone": "warning",
+              "widthRatio": 0.72,
+              "fill": "surface.subtle"
+            },
+            {
+              "label": "执行底座",
+              "items": ["健康分76", "闭环率91%", "准时率92%"],
+              "icon": "roundRect",
+              "badge": "数据底座",
+              "tone": "neutral",
+              "widthRatio": 0.9
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "org-pyramid-funnel",
+      "title": "客户转化漏斗",
+      "children": [
+        {
+          "id": "org-pyramid-funnel.diagram",
+          "type": "funnel",
+          "variant": "frameless",
+          "shape": "trapezoid",
+          "titleStyle": "pyramid-tier-title",
+          "bodyStyle": "pyramid-tier-body",
+          "titleAlign": "left",
+          "bodyAlign": "left",
+          "topWidthRatio": 0.94,
+          "bottomWidthRatio": 0.30,
+          "gap": 0.06,
+          "showDrop": true,
+          "levelSurface": {
+            "fill": "surface.subtle",
+            "line": "none"
+          },
+          "stages": [
+            {
+              "label": "目标账户触达",
+              "value": 3200,
+              "valueLabel": "3200家",
+              "body": "行业活动 / 内容触达",
+              "icon": "diamond",
+              "badge": "触达",
+              "tone": "brand"
+            },
+            {
+              "label": "销售线索确认",
+              "value": 1180,
+              "valueLabel": "1180条",
+              "body": "MQL→SQL 37%",
+              "contents": [
+                {
+                  "title": "高意向",
+                  "content": "420条",
+                  "tone": "positive"
+                },
+                {
+                  "title": "需培育",
+                  "content": "760条",
+                  "tone": "warning"
+                }
+              ],
+              "icon": "hexagon",
+              "badge": "SQL",
+              "tone": "positive"
+            },
+            {
+              "label": "方案评估",
+              "value": 520,
+              "valueLabel": "520个商机",
+              "body": "演示完成率82% / 试点168个 / 报价312个",
+              "icon": "trapezoid",
+              "badge": "评估",
+              "tone": "warning"
+            },
+            {
+              "label": "签约与扩容",
+              "value": 216,
+              "valueLabel": "ARR 4260万",
+              "body": "216单 / 回款21天",
+              "widthRatio": 0.48,
+              "icon": "roundRect",
+              "badge": "成交",
+              "tone": "positive"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

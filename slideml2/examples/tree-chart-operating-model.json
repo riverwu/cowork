@@ -1,0 +1,149 @@
+{
+  "slideml2": 2,
+  "deck": {
+    "size": "16x9",
+    "theme": "default",
+    "brand": {
+      "name": "Operations Design",
+      "primary": "2563EB"
+    },
+    "themeOverride": {
+      "colors": {
+        "background": "F8FAFC",
+        "surface": "FFFFFF",
+        "surface.subtle": "EEF2FF",
+        "divider": "CBD5E1",
+        "text": {
+          "primary": "111827",
+          "secondary": "475569",
+          "muted": "64748B",
+          "inverse": "FFFFFF"
+        },
+        "brand": {
+          "primary": "2563EB",
+          "secondary": "0F766E"
+        },
+        "success": "15803D",
+        "warning": "B45309",
+        "danger": "B91C1C"
+      },
+      "text": {
+        "slide-title": {
+          "fontSize": 25,
+          "lineHeight": 1.08,
+          "weight": 700
+        },
+        "card-title": {
+          "fontSize": 13,
+          "lineHeight": 1.12,
+          "weight": 700
+        },
+        "label": {
+          "fontSize": 8.6,
+          "lineHeight": 1.1,
+          "weight": 700
+        },
+        "caption": {
+          "fontSize": 8.2,
+          "lineHeight": 1.18
+        }
+      },
+      "component": {
+        "card": {
+          "cornerRadius": 0.16,
+          "line": "divider",
+          "lineOpacity": 0.76
+        }
+      }
+    }
+  },
+  "slides": [
+    {
+      "id": "tree-use-case",
+      "title": "Customer operations capability map",
+      "children": [
+        {
+          "id": "tree-use-case.diagram",
+          "type": "tree-chart",
+          "variant": "frameless",
+          "detail": "full",
+          "treeMaxWidth": 19.2,
+          "treeMaxHeight": 7.1,
+          "spread": true,
+          "nodes": [
+            {
+              "id": "platform",
+              "label": "Customer ops platform",
+              "body": "Assisted service model",
+              "tone": "brand",
+              "size": "lg"
+            },
+            {
+              "id": "data",
+              "label": "Data layer",
+              "body": "Signals",
+              "parent": "platform",
+              "tone": "brand"
+            },
+            {
+              "id": "workflow",
+              "label": "Workflow automation",
+              "body": "Route work and next action",
+              "parent": "platform",
+              "tone": "positive"
+            },
+            {
+              "id": "governance",
+              "label": "Governance",
+              "body": "Risk audit loop",
+              "parent": "platform",
+              "tone": "warning"
+            },
+            {
+              "id": "knowledge",
+              "label": "Knowledge graph",
+              "value": "Policy context",
+              "parent": "data",
+              "tone": "neutral"
+            },
+            {
+              "id": "quality",
+              "label": "QA",
+              "value": "Freshness",
+              "parent": "data",
+              "tone": "neutral"
+            },
+            {
+              "id": "routing",
+              "label": "Case routing",
+              "value": "Skill-based",
+              "parent": "workflow",
+              "tone": "positive"
+            },
+            {
+              "id": "assist",
+              "label": "Assist",
+              "value": "Draft reply",
+              "parent": "workflow",
+              "tone": "positive"
+            },
+            {
+              "id": "policy",
+              "label": "Policy catalog",
+              "value": "Approved playbooks",
+              "parent": "governance",
+              "tone": "warning"
+            },
+            {
+              "id": "audit",
+              "label": "Risk audit",
+              "value": "Sampling review",
+              "parent": "governance",
+              "tone": "danger"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

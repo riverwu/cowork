@@ -38,7 +38,20 @@ function renderShapes(child: DomNode): AnyShape[] {
   const ast = renderToAst(sourceToRenderedDeck(deck([{
     id: "s", title: "x", children: [child],
   } as SlideV2])));
-  return ast.slides[0].shapes as AnyShape[];
+  return flattenShapes(ast.slides[0].shapes as AnyShape[]);
+}
+
+function flattenShapes(shapes: AnyShape[]): AnyShape[] {
+  const out: AnyShape[] = [];
+  const visit = (items: AnyShape[]) => {
+    for (const item of items) {
+      out.push(item);
+      const children = (item as AnyShape & { children?: AnyShape[] }).children;
+      if (Array.isArray(children)) visit(children);
+    }
+  };
+  visit(shapes);
+  return out;
 }
 
 function findByNameSuffix(shapes: AnyShape[], suffix: string): AnyShape | undefined {
@@ -98,7 +111,7 @@ describe("scorecard visual structure", () => {
 /* ============================================================ funnel */
 
 describe("funnel visual structure", () => {
-  it("emits one chevron shape per stage with width proportional to value", () => {
+  it("emits one inverted trapezoid shape per stage with width proportional to value", () => {
     const shapes = renderShapes({
       id: "s.f", type: "funnel", stages: [
         { label: "A", value: 1000 },
@@ -106,10 +119,11 @@ describe("funnel visual structure", () => {
         { label: "C", value: 100 },
       ],
     } as unknown as DomNode);
-    const chevrons = shapes.filter((s) => s.preset === "chevron");
-    expect(chevrons.length).toBe(3);
-    // First stage's chevron should be widest (value=max), last narrowest
-    expect(chevrons[0]!.xfrm!.cx).toBeGreaterThan(chevrons[2]!.xfrm!.cx);
+    const trapezoids = shapes.filter((s) => s.preset === "trapezoid" && s.name?.includes(".stage."));
+    expect(trapezoids.length).toBe(3);
+    expect(trapezoids.every((s) => s.xfrm?.flipV === true)).toBe(true);
+    // First stage should be widest (value=max), last narrowest.
+    expect(trapezoids[0]!.xfrm!.cx).toBeGreaterThan(trapezoids[2]!.xfrm!.cx);
   });
 
   it("drop% text appears for stages 2..N (not stage 0)", () => {
@@ -119,7 +133,7 @@ describe("funnel visual structure", () => {
         { label: "B", value: 500 },
       ],
     } as unknown as DomNode);
-    const valueTexts = shapes.filter((s) => s.name?.endsWith(".value"))
+    const valueTexts = shapes.filter((s) => s.name?.endsWith(".body"))
       .map((s) => (s.paragraphs?.[0]?.runs || []).map((r) => r.text).join(""));
     expect(valueTexts.some((t) => t.includes("drop"))).toBe(true);
     // First stage's value should NOT contain "drop"

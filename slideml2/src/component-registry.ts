@@ -1,7 +1,7 @@
 import {
   applyAgentSurface, arrowLink, badge, barList, bigPageNumber, brandMark, bracket, bulletList, calloutMarker, checklist,
   comparisonCard, comparisonTable, cornerMark, ctaButton, decorationGrid, decorativeShapes, donutSummary,
-  featureCard, flowArrow, funnel, gauge, glossary, heatmap, heroStat, iconText, insightCallout,
+  featureCard, flowArrow, gauge, glossary, heatmap, heroStat, iconText, insightCallout,
   keyTakeaway, kpiGrid, legend, logoStrip, matrix2x2, metricCard, numberedGrid, numberedList,
   outline, pricingCard, processFlow, profileCard, prosCons, progressBar, qAndA, quizCard,
   pointerArrow, quoteBlock, rangePlot, scaleBar, scorecard, sectionBreak, statComparison, statFlow, statStrip,
@@ -132,7 +132,7 @@ export type ComponentName =
   | "pyramid"
   | "venn-diagram"
   | "value-chain"
-  | "hierarchy-tree"
+  | "tree-chart"
   | "architecture-map"
   | "geo-region-map"
   | "calendar-plan"
@@ -786,10 +786,10 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     items: { type: "array", required: true, description: "Array of {label:string, value:string, status?:enum[good|warning|danger|neutral], delta?:string, trend?:enum[up|down|flat]}." },
     columns: { type: "number", description: "Optional column count (default auto)." },
   }, "grid of status-accented metric cards", "stack"),
-  component("funnel", "Conversion funnel — sales pipeline, signup → activation → paid funnel, traffic stages. Each stage is a chevron sized by value; drop% vs previous stage shown.", {
-    stages: { type: "array", required: true, description: "Array of {label:string, value:number, valueLabel?:string, tone?:enum[brand|positive|warning|danger]} (max 6)." },
+  component("funnel", "Conversion funnel — sales pipeline, signup → activation → paid funnel, traffic stages. Renders as an inverted pyramid made from editable PowerPoint trapezoid stages; each stage width reflects value and can carry title/body/items/contents/icon/badge/surface styling.", {
+    stages: { type: "array", required: true, description: "Array of {label:string, value:number, valueLabel?:string, body?:string, items?:string[], contents?:Array<{title,content,tone}>, icon?, badge?, tone?, surface?} (max 6)." },
     showDrop: { type: "boolean", description: "Show drop% between consecutive stages (default true)." },
-  }, "stack of chevron stages with labels", "stack"),
+  }, "inverted trapezoid stages with boundary-aware labels and content blocks", "stack"),
   component("gauge", "Single-value progress dial with threshold-banded track. Use for NPS, CSAT, target completion. Different from progress-bar (no threshold zones) and metric-card (no progress visualization).", {
     value: { type: "number", required: true, description: "Current value." },
     label: { type: "string", required: true, description: "Metric label (e.g. \"NPS\")." },
@@ -978,7 +978,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   }, "stat-comparison + insight panel", "stack"),
   component("org-chart", "Organization chart for reporting lines, teams, and accountable roles. Use for office decks that need a readable people hierarchy, not a generic card grid.", {
     title: { type: "string", description: "Optional chart title." },
-    nodes: { type: "array", required: true, description: "People/roles as {id?, name|label|title, role|position?, team?, body|description?, people|members|personnel?, parent|reportsTo?, level?, tone?, size?|width?|height?}. If level is absent, parent/reportsTo infers levels." },
+    nodes: { type: "array", required: true, description: "People/roles as {id?, name|label|title, role|position?, team?, body|description?, people|members|personnel?, parent|reportsTo?, level?, tone?, size?|width?|height?, icon?|iconSrc?|avatarSrc?, badge?|badges?, fill?|line?|surface?}. If level is absent, parent/reportsTo infers levels." },
     links: { type: "array", description: "Optional explicit reporting links {source|from, target|to}. Used when nodes do not carry parent/reportsTo." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Compact reduces row/card height for larger orgs." },
     detail: { type: "enum", enum: ["auto", "compact", "full"], description: "auto decides what secondary text to show by level and density; compact keeps lower levels title-only; full preserves more node detail when there is room." },
@@ -986,6 +986,13 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     treeMaxWidth: { type: "number", description: "Optional internal tree layout target width in cm; gaps tighten or spread to use this width before the tree is scaled." },
     treeMaxHeight: { type: "number", description: "Optional internal tree layout target height in cm; level gaps tighten or spread to use this height before overflow is reported." },
     spread: { type: "boolean", description: "Default true. When true, expands sibling and level gaps inside the available tree area so a full-page org feels spacious while a smaller region still fits tightly." },
+    titleStyle: { type: "string", description: "Theme text style key for person/role titles. Defaults to label; no hardcoded font family is set by the component." },
+    bodyStyle: { type: "string", description: "Theme text style key for role/team/member detail. Defaults to footnote; no hardcoded font family is set by the component." },
+    nodeSurface: { type: "object", description: "Default person card surface override, e.g. {fill:'surface.subtle', line:'none'}; per-node surface/fill/line overrides win." },
+    connectorLine: { type: "string", description: "Reporting-line color token or 'none'. Defaults to divider." },
+    connectorLineWidth: { type: "number", description: "Reporting-line width in cm." },
+    connectorLineDash: { type: "enum", enum: ["solid", "dash", "dashDot", "dot"], description: "Reporting-line dash style." },
+    connectorLineOpacity: { type: "number", description: "Reporting-line opacity." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Default node accent tone." },
     variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
     surface: { type: "object", description: "Optional surface override." },
@@ -1067,13 +1074,22 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   }, "card(grid of status columns and ticket cards)", "stack"),
   component("pyramid", "Pyramid or tiered hierarchy. Use for strategic levels, capability maturity, Maslow-like frameworks, or layered value propositions.", {
     title: { type: "string", description: "Optional pyramid title." },
-    levels: { type: "array", required: true, description: "Levels from top to bottom as {label|title|name, body|description?, value?, tone?}." },
+    levels: { type: "array", required: true, description: "Levels from top to bottom as {label|title|name, body|description?, items?, contents?, badge?|badges?, icon?|iconSrc?, tone?, width?|widthRatio?, height?|heightWeight?, titleAlign?, bodyAlign?, fill?|line?|surface?}. String items render as text; contents or object items render as horizontal blocks inside the tier, each block using {title|label|name, content|body|description?, tone?, fill?|line?|surface?}. Put any numbers or KPIs in body/items/contents instead of a separate metric field." },
     orientation: { type: "enum", enum: ["top-down", "bottom-up"], description: "Whether the first level is the top or bottom of the pyramid." },
+    shape: { type: "enum", enum: ["trapezoid", "stepped", "band"], description: "Visual geometry. trapezoid uses OOXML pyramid-like segments; stepped/band use rectangular tiers." },
+    topWidthRatio: { type: "number", description: "Top visual width as a ratio of pyramid width. Default 0.34." },
+    bottomWidthRatio: { type: "number", description: "Bottom visual width as a ratio of pyramid width. Default 0.92." },
+    titleStyle: { type: "string", description: "Theme text style key for level titles. Defaults to label." },
+    bodyStyle: { type: "string", description: "Theme text style key for level details. Defaults to caption." },
+    titleAlign: { type: "enum", enum: ["left", "center", "right"], description: "Horizontal alignment for level titles. Defaults to left." },
+    bodyAlign: { type: "enum", enum: ["left", "center", "right"], description: "Horizontal alignment for level body/items. Defaults to titleAlign, then left." },
+    levelSurface: { type: "object", description: "Default tier surface override, e.g. {fill:'surface.subtle', line:'none'}; per-level surface/fill/line overrides win." },
+    gap: { type: "number", description: "Gap between levels in cm. Defaults by density." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Compact reduces level height." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Default level tone." },
     variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
     surface: { type: "object", description: "Optional surface override." },
-  }, "card(stack of centered tier bands)", "stack"),
+  }, "card(positioned variable-width pyramid tiers)", "stack"),
   component("venn-diagram", "Venn-style overlap diagram. Use for 2-3 sets and their intersections; keep labels short and move long explanations to notes.", {
     title: { type: "string", description: "Optional diagram title." },
     sets: { type: "array", required: true, description: "Sets as {label|name|title, body?, tone?}. Use 2 or 3." },
@@ -1092,15 +1108,26 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
     surface: { type: "object", description: "Optional surface override." },
   }, "card(stack/horizontal chain of activity cards)", "stack"),
-  component("hierarchy-tree", "Generic hierarchy tree for categories, capabilities, products, systems, or issues. Use when the nodes are not people; use org-chart for people/roles.", {
+  component("tree-chart", "Generic tree chart for categories, capabilities, products, systems, metrics, or issues. Use when the nodes are not people; use org-chart for people/roles and decision-tree for conditional branches.", {
     title: { type: "string", description: "Optional tree title." },
-    nodes: { type: "array", required: true, description: "Nodes as {id?, label|title|name, body?, parent?, level?, tone?}. parent/level controls levels." },
+    nodes: { type: "array", required: true, description: "Nodes as {id?, label|title|name, body|description|value?, parent?, level?, tone?, size?|width?|height?, icon?|iconSrc?, badge?|badges?, fill?|line?|surface?}. Prefer parent links; level is only a fallback when parent is absent." },
     links: { type: "array", description: "Optional explicit parent links {source|from, target|to}." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Compact reduces node height." },
+    detail: { type: "enum", enum: ["auto", "compact", "full"], description: "auto decides which secondary text to keep by level and density; compact favors labels; full preserves more node detail when there is room." },
+    treeMaxWidth: { type: "number", description: "Optional internal tree layout target width in cm; gaps tighten or spread to use this width before the tree is scaled." },
+    treeMaxHeight: { type: "number", description: "Optional internal tree layout target height in cm; level gaps tighten or spread to use this height before overflow is reported." },
+    spread: { type: "boolean", description: "Default true. When true, expands sibling and level gaps inside the available tree area so a full-page tree feels spacious while a smaller region still fits tightly." },
+    titleStyle: { type: "string", description: "Theme text style key for node titles. Defaults to label; no hardcoded font family is set by the component." },
+    bodyStyle: { type: "string", description: "Theme text style key for node secondary lines. Defaults to caption; no hardcoded font family is set by the component." },
+    nodeSurface: { type: "object", description: "Default node card surface override, e.g. {fill:'surface.subtle', line:'none'}; per-node surface/fill/line overrides win." },
+    connectorLine: { type: "string", description: "Connector color token or 'none'. Defaults to divider." },
+    connectorLineWidth: { type: "number", description: "Connector width in cm." },
+    connectorLineDash: { type: "enum", enum: ["solid", "dash", "dashDot", "dot"], description: "Connector dash style." },
+    connectorLineOpacity: { type: "number", description: "Connector opacity." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Default node tone." },
     variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
     surface: { type: "object", description: "Optional surface override." },
-  }, "card(stack(title?, leveled hierarchy cards))", "stack"),
+  }, "card(stack(title?, positioned variable-size tree cards))", "stack"),
   component("architecture-map", "Layered architecture map for systems, platforms, or operating architecture. Use for business/technical architecture when layers and services must stay readable.", {
     title: { type: "string", description: "Optional architecture title." },
     layers: { type: "array", required: true, description: "Layers as {label|name|title, items|services:[string|{label|title, tone?}], tone?}." },
@@ -1250,11 +1277,11 @@ function componentUsabilityGuidance(name: string): string[] {
         "Keep 2-5 levels per slide, use maxChildrenPerParent for wide manager spans, and split very large orgs by function when ORG_OVERFLOW appears.",
         "Use node size/width/height only for intentional emphasis; otherwise let level, content length, and sibling count drive adaptive card sizes.",
       ];
-    case "hierarchy-tree":
+    case "tree-chart":
     case "decision-tree":
       return [
         "Keep each node label short and prefer 2-4 readable levels per slide; split very wide hierarchies by department, branch, or decision path.",
-        "Use parent/reportsTo or explicit level consistently so the component can place levels deterministically instead of guessing order.",
+        "Use parent links or links consistently so child subtrees stay under their parent; use level only as fallback shorthand when parent relationships are unavailable.",
       ];
     case "roadmap-plan":
     case "gantt-chart":
@@ -1835,19 +1862,7 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
     return withComponentRoot(node, scorecard(slideId, name, { items, columns: cols }));
   }
   if (componentName === "funnel") {
-    type FunnelTone = "brand" | "positive" | "warning" | "danger";
-    const stages: Array<{ label: string; value: number; valueLabel?: string; tone?: FunnelTone }> = Array.isArray(node.stages) ? node.stages.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-      const tRaw = rec.tone;
-      const tone: FunnelTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : undefined;
-      return {
-        label: stringValue(rec.label, stringValue(rec.name, "")),
-        value: typeof rec.value === "number" ? rec.value : Number(rec.value) || 0,
-        valueLabel: stringValue(rec.valueLabel, "") || undefined,
-        tone,
-      };
-    }).filter((s) => s.label) : [];
-    return withComponentRoot(node, funnel(slideId, name, { stages, showDrop: node.showDrop !== false }));
+    return withComponentRoot(node, funnelNode(slideId, name, node, componentExpansionTheme(theme)));
   }
   if (componentName === "gauge") {
     type GaugeTone = "danger" | "warning" | "positive" | "brand";
@@ -4914,7 +4929,7 @@ type OfficeFoundationName =
   | "pyramid"
   | "venn-diagram"
   | "value-chain"
-  | "hierarchy-tree"
+  | "tree-chart"
   | "architecture-map"
   | "geo-region-map"
   | "calendar-plan"
@@ -4933,7 +4948,7 @@ const OFFICE_FOUNDATION_NAMES = new Set<string>([
   "pyramid",
   "venn-diagram",
   "value-chain",
-  "hierarchy-tree",
+  "tree-chart",
   "architecture-map",
   "geo-region-map",
   "calendar-plan",
@@ -4945,8 +4960,8 @@ function officeFoundationNode(slideId: string, name: string, node: DomNode, comp
   switch (componentName as OfficeFoundationName) {
     case "org-chart":
       return orgChartNode(slideId, name, node, theme);
-    case "hierarchy-tree":
-      return officeHierarchyNode(slideId, name, node, "hierarchy-tree");
+    case "tree-chart":
+      return treeChartNode(slideId, name, node, theme);
     case "decision-tree":
       return officeHierarchyNode(slideId, name, node, "decision-tree");
     case "roadmap-plan":
@@ -4964,7 +4979,7 @@ function officeFoundationNode(slideId: string, name: string, node: DomNode, comp
     case "kanban-board":
       return kanbanBoardNode(slideId, name, node);
     case "pyramid":
-      return pyramidNode(slideId, name, node);
+      return pyramidNode(slideId, name, node, theme);
     case "venn-diagram":
       return vennDiagramNode(slideId, name, node);
     case "value-chain":
@@ -4982,7 +4997,7 @@ function officeFoundationNode(slideId: string, name: string, node: DomNode, comp
   }
 }
 
-function officeFrameNode(slideId: string, name: string, node: DomNode, role: OfficeFoundationName, children: DomNode[]): DomNode {
+function officeFrameNode(slideId: string, name: string, node: DomNode, role: OfficeFoundationName | "funnel", children: DomNode[]): DomNode {
   const compact = officeCompact(node);
   const title = stringValue(node.title, "");
   const frameless = node.variant === "frameless";
@@ -5147,7 +5162,9 @@ function orgChartNode(slideId: string, name: string, node: DomNode, theme: Simpl
   const childCounts = orgChartChildCounts(items);
   const siblingCounts = orgChartSiblingCounts(items);
   const layoutData = new Map<string, OrgChartLayoutData>();
+  const style = orgChartStyleOptions(node);
   const treeInput = items.map((item, index) => {
+    const tone = officeToneOf(item.rec, node.tone || officeToneAt(index, node.tone));
     const layout = orgChartPersonLayout(
       item.rec,
       item.depth,
@@ -5157,8 +5174,8 @@ function orgChartNode(slideId: string, name: string, node: DomNode, theme: Simpl
       dense,
       detail,
       theme,
+      style,
     );
-    const tone = officeToneOf(item.rec, node.tone || officeToneAt(index, node.tone));
     layoutData.set(item.id, { item, layout, tone });
     return {
       id: item.id,
@@ -5184,11 +5201,11 @@ function orgChartNode(slideId: string, name: string, node: DomNode, theme: Simpl
   });
   const renderIds = orgChartRenderIds(slideId, name, tree.nodes);
   const positionedChildren: DomNode[] = [
-    ...tree.edges.flatMap((edge, index) => orgChartEdgeNodes(`${slideId}.${name}.edge.${index}`, edge)),
+    ...tree.edges.map((edge, index) => hierarchyConnectorNode(`${slideId}.${name}.edge.${index}`, edge, renderIds, style, "org-chart-edge")),
     ...tree.nodes.map((treeNode) => {
       const data = layoutData.get(treeNode.id)!;
       return {
-        ...orgChartPersonNode(renderIds.get(treeNode.id) || `${slideId}.${name}.node.${treeNode.id}`, data.item.rec, data.tone, data.layout),
+        ...orgChartPersonNode(renderIds.get(treeNode.id) || `${slideId}.${name}.node.${treeNode.id}`, data.item.rec, data.tone, data.layout, style),
         at: [treeNode.x, treeNode.y, treeNode.w, treeNode.h],
         zIndex: 10,
       } as DomNode;
@@ -5214,15 +5231,28 @@ type OrgChartDetailMode = "auto" | "compact" | "full";
 interface OrgChartPersonLayout {
   width: number;
   height: number;
+  cardHeight: number;
+  topPortGap: number;
+  bottomPortGap: number;
+  accentHeight: number;
+  padding: number;
+  headerGap: number;
+  headerHeight: number;
   avatarSize: number;
   titleHeight: number;
   bodyHeight: number;
+  badgeHeight: number;
   showBody: boolean;
   showAvatar: boolean;
   titleText: string;
   bodyLines: string[];
+  badges: TreeChartBadgeLayout[];
   dense: boolean;
   emphasis: "root" | "branch" | "leaf";
+  titleStyle: string;
+  bodyStyle: string;
+  titleWeight?: FontWeight;
+  bodyWeight?: FontWeight;
 }
 
 interface OrgChartItem {
@@ -5237,6 +5267,15 @@ interface OrgChartLayoutData {
   item: OrgChartItem;
   layout: OrgChartPersonLayout;
   tone: ComponentTone;
+}
+
+function orgChartStyleOptions(node: DomNode): TreeChartStyleOptions {
+  const base = treeChartStyleOptions(node);
+  return {
+    ...base,
+    titleStyle: treeChartStyleKey(node.nodeTitleStyle) ?? treeChartStyleKey(node.titleStyle) ?? "label",
+    bodyStyle: treeChartStyleKey(node.nodeBodyStyle) ?? treeChartStyleKey(node.bodyStyle) ?? "footnote",
+  };
 }
 
 function orgChartTreeWidthTarget(node: DomNode, dense: boolean, compact: boolean): number {
@@ -5266,98 +5305,237 @@ function orgChartPlacementSize(node: DomNode, index: 2 | 3): number | undefined 
   return Array.isArray(node.at) ? numberValue(node.at[index], undefined) : undefined;
 }
 
-function orgChartPersonNode(id: string, rec: Record<string, unknown>, tone: ComponentTone, layout: OrgChartPersonLayout): DomNode {
+function orgChartPersonNode(id: string, rec: Record<string, unknown>, tone: ComponentTone, layout: OrgChartPersonLayout, style: TreeChartStyleOptions): DomNode {
   const colors = toneToColors(tone);
   const title = layout.titleText;
   const compact = layout.dense;
+  const cardY = layout.topPortGap;
+  const cardHeight = layout.cardHeight;
+  const rowY = cardY + layout.accentHeight + layout.padding;
+  const titleX = layout.padding + (layout.showAvatar ? layout.avatarSize + layout.headerGap : 0);
+  const titleY = rowY + Math.max(0, (layout.headerHeight - layout.titleHeight) / 2);
+  const titleW = Math.max(0.08, layout.width - titleX - layout.padding);
+  const bodyY = rowY + layout.headerHeight + (layout.showBody ? compact ? 0.04 : 0.06 : 0);
+  const bodyW = Math.max(0.08, layout.width - layout.padding * 2);
+  const badgeY = layout.showBody
+    ? bodyY + layout.bodyHeight + (compact ? 0.04 : 0.06)
+    : rowY + layout.headerHeight + (compact ? 0.04 : 0.06);
+  const centerX = layout.width / 2;
+  const stubWidth = treeChartConnectorWidth(style);
+  const portSize = 0.06;
+  const connectorSurface = treeChartConnectorStubSurface(style);
+  const showAccent = style.accent && rec.accent !== "none" && rec.accent !== false && rec.stripe !== false && layout.accentHeight > 0;
   return {
     id,
-    type: "stack",
+    type: "pptx-group",
     role: "org-chart-person",
-    direction: "vertical",
-    gap: 0,
-    padding: 0,
-    fill: "surface",
-    line: colors.line || "divider",
-    lineOpacity: 0.82,
-    cornerRadius: layout.emphasis === "root" ? 0.12 : 0.10,
     fixedWidth: layout.width,
     basisWidth: layout.width,
     minWidth: layout.width,
     maxWidth: layout.width,
     fixedHeight: layout.height,
+    contentWidth: layout.width,
+    contentHeight: layout.height,
+    fit: "contain",
+    align: "left",
+    valign: "top",
     children: [
-      {
-        id: `${id}.accent`,
-        type: "shape",
+      ...(layout.topPortGap > 0 ? [{
+        id: `${id}.in-stub`,
+        type: "shape" as const,
+        role: "org-chart-person-connector-stub",
         preset: "rect",
-        fill: colors.line || "brand.primary",
-        line: colors.line || "brand.primary",
-        fixedHeight: layout.emphasis === "root" ? compact ? 0.07 : 0.09 : compact ? 0.05 : 0.07,
-      },
+        ...connectorSurface,
+        at: [centerX - stubWidth / 2, 0, stubWidth, layout.topPortGap],
+        zIndex: 0,
+      }, {
+        id: `${id}.in-port`,
+        type: "shape" as const,
+        role: "org-chart-person-connector-port",
+        preset: "rect",
+        fill: "none",
+        line: "none",
+        at: [centerX - portSize / 2, 0, portSize, portSize],
+        zIndex: 0,
+      }] : []),
+      ...(layout.bottomPortGap > 0 ? [{
+        id: `${id}.out-stub`,
+        type: "shape" as const,
+        role: "org-chart-person-connector-stub",
+        preset: "rect",
+        ...connectorSurface,
+        at: [centerX - stubWidth / 2, cardY + cardHeight, stubWidth, layout.bottomPortGap],
+        zIndex: 0,
+      }, {
+        id: `${id}.out-port`,
+        type: "shape" as const,
+        role: "org-chart-person-connector-port",
+        preset: "rect",
+        fill: "none",
+        line: "none",
+        at: [centerX - portSize / 2, layout.height - portSize, portSize, portSize],
+        zIndex: 0,
+      }] : []),
+      applyAgentSurface({
+        id: `${id}.bg`,
+        type: "shape",
+        role: "org-chart-person-bg",
+        preset: "roundRect",
+        fill: "surface",
+        line: colors.line || "divider",
+        lineOpacity: 0.82,
+        cornerRadius: layout.emphasis === "root" ? 0.12 : 0.10,
+        at: [0, cardY, layout.width, cardHeight],
+        zIndex: 1,
+      }, orgChartNodeSurface(style, rec, tone, layout)),
+      ...(showAccent ? [{
+        id: `${id}.accent`,
+        type: "shape" as const,
+        preset: "rect",
+        fill: stringValue(rec.accentColor, colors.line || "brand.primary"),
+        line: stringValue(rec.accentColor, colors.line || "brand.primary"),
+        at: [0, cardY, layout.width, layout.accentHeight],
+        zIndex: 2,
+      }] : []),
+      ...(layout.showAvatar ? [orgChartAvatarNode(`${id}.avatar`, rec, tone, title, layout.avatarSize, layout.padding, rowY + Math.max(0, (layout.headerHeight - layout.avatarSize) / 2), 3)] : []),
       {
-        id: `${id}.content`,
-        type: "stack",
-        direction: "vertical",
-        gap: compact ? 0.04 : 0.06,
-        padding: compact ? 0.08 : 0.10,
-        layoutWeight: 1,
-        children: [
-          {
-            id: `${id}.row`,
-            type: "stack",
-            direction: "horizontal",
-            gap: layout.showAvatar ? compact ? 0.08 : 0.12 : 0,
-            fixedHeight: Math.max(layout.avatarSize, layout.titleHeight),
-            children: [
-              ...(layout.showAvatar ? [{
-                id: `${id}.avatar`,
-                type: "text",
-                text: orgChartInitials(title),
-                style: "caption",
-                color: "text.primary",
-                fill: colors.bg || "surface.subtle",
-                line: colors.line || "divider",
-                lineOpacity: 0.76,
-                cornerRadius: 0.28,
-                fixedWidth: layout.avatarSize,
-                fixedHeight: layout.avatarSize,
-                align: "center",
-                valign: "middle",
-                noWrap: true,
-              } as DomNode] : []),
-              {
-                id: `${id}.title`,
-                type: "text",
-                text: title,
-                style: "label",
-                color: "text.primary",
-                weight: "semibold",
-                fixedHeight: layout.titleHeight,
-                layoutWeight: 1,
-                noWrap: true,
-                valign: "middle",
-              },
-            ],
-          },
-          ...(layout.showBody ? [{
-            id: `${id}.body`,
-            type: "text" as const,
-            paragraphs: layout.bodyLines.map((line, index) => ({
-              text: line,
-              style: "footnote",
-              spaceAfter: index < layout.bodyLines.length - 1 ? compact ? 0.3 : 0.5 : 0,
-            })),
-            style: "footnote",
-            color: "text.secondary",
-            fixedHeight: layout.bodyHeight,
-            wrapMinHeight: true,
-            noWrap: true,
-          }] : []),
-        ],
+        id: `${id}.title`,
+        type: "text",
+        text: title,
+        style: layout.titleStyle,
+        color: "text.primary",
+        ...(layout.titleWeight !== undefined ? { weight: layout.titleWeight } : {}),
+        noWrap: true,
+        valign: "middle",
+        at: [titleX, titleY, titleW, layout.titleHeight],
+        zIndex: 3,
       },
+      ...(layout.showBody ? [{
+        id: `${id}.body`,
+        type: "text" as const,
+        paragraphs: layout.bodyLines.map((line, index) => ({
+          style: layout.bodyStyle,
+          runs: [{
+            text: line,
+            color: "text.secondary",
+            ...(layout.bodyWeight !== undefined ? { weight: layout.bodyWeight } : {}),
+          }],
+          spaceAfter: index < layout.bodyLines.length - 1 ? compact ? 0.3 : 0.5 : 0,
+        })),
+        style: layout.bodyStyle,
+        color: "text.secondary",
+        at: [layout.padding, bodyY, bodyW, layout.bodyHeight],
+        wrapMinHeight: true,
+        noWrap: true,
+        zIndex: 3,
+      }] : []),
+      ...orgChartBadgeNodes(id, layout, tone, layout.padding, badgeY, bodyW),
     ],
   };
+}
+
+function orgChartNodeSurface(style: TreeChartStyleOptions, rec: Record<string, unknown>, tone: ComponentTone, layout: OrgChartPersonLayout): AgentSurface {
+  const colors = toneToColors(tone);
+  return {
+    fill: "surface",
+    line: colors.line || "divider",
+    lineOpacity: 0.82,
+    cornerRadius: layout.emphasis === "root" ? 0.12 : 0.10,
+    ...style.nodeSurface,
+    ...(surfaceOptions({ id: "org-chart.node.surface", type: "shape", ...rec } as DomNode) as AgentSurface),
+  };
+}
+
+function orgChartAvatarNode(id: string, rec: Record<string, unknown>, tone: ComponentTone, title: string, size: number, x: number, y: number, zIndex: number): DomNode {
+  const colors = toneToColors(tone);
+  const imageSrc = stringValue(rec.avatarSrc, stringValue(rec.photoSrc, stringValue(rec.imageSrc, stringValue(rec.iconSrc, ""))));
+  if (imageSrc) {
+    return {
+      id,
+      type: "image",
+      role: "org-chart-person-avatar",
+      src: imageSrc,
+      alt: stringValue(rec.avatarAlt, title || "avatar"),
+      fit: "cover",
+      at: [x, y, size, size],
+      zIndex,
+    };
+  }
+  const icon = stringValue(rec.icon, stringValue(rec.iconShape, ""));
+  if (icon) {
+    return {
+      id,
+      type: "shape",
+      role: "org-chart-person-icon",
+      preset: icon,
+      fill: stringValue(rec.iconFill, stringValue(rec.iconColor, colors.line || "brand.primary")),
+      fillOpacity: numberValue(rec.iconOpacity, 0.12),
+      line: stringValue(rec.iconLine, stringValue(rec.iconColor, colors.line || "brand.primary")),
+      lineOpacity: numberValue(rec.iconLineOpacity, 0.84),
+      at: [x, y, size, size],
+      zIndex,
+    };
+  }
+  return {
+    id,
+    type: "text",
+    role: "org-chart-person-avatar",
+    text: orgChartInitials(title),
+    style: "caption",
+    color: "text.primary",
+    fill: colors.bg || "surface.subtle",
+    line: colors.line || "divider",
+    lineOpacity: 0.76,
+    cornerRadius: 0.28,
+    align: "center",
+    valign: "middle",
+    noWrap: true,
+    at: [x, y, size, size],
+    zIndex,
+  };
+}
+
+function orgChartBadgeNodes(
+  id: string,
+  layout: OrgChartPersonLayout,
+  tone: ComponentTone,
+  x: number,
+  y: number,
+  contentW: number,
+): DomNode[] {
+  if (layout.badges.length === 0) return [];
+  const colors = toneToColors(tone);
+  const badgeTextColor = hierarchyBadgeTextColor(tone, colors);
+  const gap = layout.dense ? 0.05 : 0.06;
+  let cursor = x;
+  const nodes: DomNode[] = [];
+  for (let index = 0; index < layout.badges.length; index += 1) {
+    const badge = layout.badges[index]!;
+    if (cursor + badge.width > x + contentW + 0.001) break;
+    nodes.push({
+      id: `${id}.badge.${index}`,
+      type: "text",
+      role: "org-chart-person-badge",
+      text: badge.text,
+      style: "badge",
+      color: badgeTextColor,
+      fill: "surface.subtle",
+      line: colors.line || "divider",
+      lineOpacity: 0.32,
+      cornerRadius: layout.badgeHeight / 2,
+      align: "center",
+      valign: "middle",
+      noWrap: true,
+      at: [cursor, y, badge.width, layout.badgeHeight],
+      zIndex: 3,
+    });
+    cursor += badge.width + gap;
+  }
+  return nodes;
+}
+
+function hierarchyBadgeTextColor(tone: ComponentTone, colors: { line?: string }): string {
+  return tone === "neutral" ? "text.secondary" : colors.line || "brand.primary";
 }
 
 function orgChartDense(node: DomNode, levels: Record<string, unknown>[][], compact: boolean): boolean {
@@ -5507,6 +5685,10 @@ function orgChartRenderIds(slideId: string, name: string, nodes: Array<TreeLayou
 }
 
 function orgChartEdgeNodes(id: string, edge: TreeLayoutEdge): DomNode[] {
+  return treeDiagramEdgeNodes(id, edge, "org-chart-edge");
+}
+
+function treeDiagramEdgeNodes(id: string, edge: TreeLayoutEdge, role: string): DomNode[] {
   const thickness = 0.025;
   const nodes: DomNode[] = [];
   for (let index = 0; index < edge.points.length - 1; index++) {
@@ -5521,7 +5703,7 @@ function orgChartEdgeNodes(id: string, edge: TreeLayoutEdge): DomNode[] {
     nodes.push({
       id: `${id}.decor.${index}`,
       type: "shape",
-      role: "org-chart-edge",
+      role,
       preset: "rect",
       fill: "divider",
       line: "divider",
@@ -5534,6 +5716,42 @@ function orgChartEdgeNodes(id: string, edge: TreeLayoutEdge): DomNode[] {
   return nodes;
 }
 
+function hierarchyConnectorNode(id: string, edge: TreeLayoutEdge, renderIds: Map<string, string>, style: TreeChartStyleOptions, role: string): DomNode {
+  const start = edge.points[0] || { x: 0, y: 0 };
+  const end = edge.points[edge.points.length - 1] || start;
+  const dx = Math.abs(end.x - start.x);
+  const dy = Math.abs(end.y - start.y);
+  const sourceNode = renderIds.get(edge.source);
+  const targetNode = renderIds.get(edge.target);
+  return applyAgentSurface({
+    id,
+    type: "shape",
+    role,
+    preset: dx < 0.03 || dy < 0.03 ? "straightConnector" : "orthogonalConnector",
+    line: "divider",
+    lineOpacity: 0.78,
+    lineWidth: 0.025,
+    at: [
+      Math.min(start.x, end.x),
+      Math.min(start.y, end.y),
+      Math.max(0.03, dx),
+      Math.max(0.03, dy),
+    ],
+    connectionStart: sourceNode ? `${sourceNode}.out-port` : undefined,
+    connectionEnd: targetNode ? `${targetNode}.in-port` : undefined,
+    startConnectionIdx: 2,
+    endConnectionIdx: 0,
+    flipH: end.x < start.x,
+    flipV: end.y < start.y,
+    layer: "behind",
+    zIndex: 0,
+  }, style.connectorSurface);
+}
+
+function treeChartConnectorNode(id: string, edge: TreeLayoutEdge, renderIds: Map<string, string>, style: TreeChartStyleOptions): DomNode {
+  return hierarchyConnectorNode(id, edge, renderIds, style, "tree-chart-edge");
+}
+
 function orgChartPersonLayout(
   rec: Record<string, unknown>,
   levelIndex: number,
@@ -5543,6 +5761,7 @@ function orgChartPersonLayout(
   dense: boolean,
   detail: OrgChartDetailMode,
   theme: SimpleTheme,
+  style: TreeChartStyleOptions,
 ): OrgChartPersonLayout {
   const title = officeTitleOf(rec, "Role");
   const contentLines = orgChartPersonContentLines(rec);
@@ -5553,6 +5772,13 @@ function orgChartPersonLayout(
   const showAvatar = isRoot || !dense || (levelIndex <= 1 && siblingCount <= 4);
   const rowPadding = dense ? 0.08 : 0.10;
   const headerGap = showAvatar ? dense ? 0.08 : 0.12 : 0;
+  const titleStyle = treeChartStyleKey(rec.titleStyle) ?? style.titleStyle;
+  const bodyStyle = treeChartStyleKey(rec.bodyStyle) ?? style.bodyStyle;
+  const titleWeight = treeChartFontWeight(rec.titleWeight) ?? style.titleWeight;
+  const bodyWeight = treeChartFontWeight(rec.bodyWeight) ?? style.bodyWeight;
+  const badges = treeChartBadgeLayouts(rec, dense);
+  const badgeGap = badges.length > 0 ? dense ? 0.04 : 0.06 : 0;
+  const badgeHeight = badges.length > 0 ? Math.max(dense ? 0.48 : 0.52, treeChartSingleLineHeight(theme, "badge", badges[0]?.text || "TAG")) : 0;
   const titleLength = Array.from(title).length;
   const contentText = contentLines.join(" ");
   const bodyLength = Array.from(contentText).length;
@@ -5570,7 +5796,11 @@ function orgChartPersonLayout(
       + Math.min(longestLineLength, 46) * 0.024
       + Math.max(0, contentLines.length - 1) * 0.08,
   );
-  width = Math.max(width, orgChartMeasuredTitleCardWidth(theme, title, showAvatar ? avatarSize : 0, headerGap, rowPadding));
+  width = Math.max(width, orgChartMeasuredTitleCardWidth(theme, title, showAvatar ? avatarSize : 0, headerGap, rowPadding, titleStyle, titleWeight));
+  if (badges.length > 0) {
+    const badgeWidth = badges.reduce((sum, badge) => sum + badge.width, 0) + Math.max(0, badges.length - 1) * (dense ? 0.05 : 0.06);
+    width = Math.max(width, badgeWidth + rowPadding * 2 + ORG_CHART_TEXT_MARGIN_CM);
+  }
   if (authoredSize === "sm" || authoredSize === "small") width -= 0.22;
   if (authoredSize === "lg" || authoredSize === "large") width += 0.34;
   if (authoredSize === "xl") width += 0.55;
@@ -5596,7 +5826,7 @@ function orgChartPersonLayout(
   if (siblingCount >= 6 || levelIndex >= 5) showBody = false;
   const rawBodyLines = showBody ? contentLines.slice(0, maxBodyLines) : [];
   if (rawBodyLines.length > 0) {
-    width = Math.max(width, orgChartMeasuredBodyCardWidth(theme, rawBodyLines, rowPadding));
+    width = Math.max(width, orgChartMeasuredBodyCardWidth(theme, rawBodyLines, rowPadding, bodyStyle, bodyWeight));
   }
   if (typeof authoredWidth === "number") width = authoredWidth;
   width = Math.max(minByRole, Math.min(maxBySiblings, width));
@@ -5605,60 +5835,78 @@ function orgChartPersonLayout(
     theme,
     title,
     orgChartTitleAvailableWidth(width, showAvatar ? avatarSize : 0, headerGap, rowPadding),
-    "label",
-    "semibold",
+    titleStyle,
+    titleWeight,
   );
   const bodyLines = rawBodyLines.map((line) => orgChartTrimToWidth(
     theme,
     line,
     orgChartBodyAvailableWidth(width, rowPadding),
-    "footnote",
+    bodyStyle,
+    bodyWeight,
   ));
 
-  const titleHeight = isRoot ? 0.40 : dense ? 0.38 : 0.34;
+  const titleHeight = Math.max(isRoot ? 0.40 : dense ? 0.38 : 0.34, treeChartSingleLineHeight(theme, titleStyle, title));
   const bodyHeight = bodyLines.length > 0
     ? bodyLines.length * (dense ? 0.39 : 0.42) + 0.16
     : 0;
   const accentHeight = isRoot ? dense ? 0.07 : 0.09 : dense ? 0.05 : 0.07;
   const contentGap = bodyLines.length > 0 ? dense ? 0.04 : 0.06 : 0;
   const headerHeight = Math.max(showAvatar ? avatarSize : 0, titleHeight);
-  let height = accentHeight + rowPadding * 2 + headerHeight + contentGap + bodyHeight;
-  if (bodyLines.length > 0) height += 0.18;
-  height = Math.max(height, isRoot ? dense ? 1.22 : 1.26 : bodyLines.length > 0 ? dense ? 1.02 : 1.06 : dense ? 0.82 : 0.78);
+  let cardHeight = accentHeight + rowPadding * 2 + headerHeight + contentGap + bodyHeight + badgeGap + badgeHeight;
+  if (bodyLines.length > 0) cardHeight += 0.18;
+  cardHeight = Math.max(cardHeight, isRoot ? dense ? 1.22 : 1.26 : bodyLines.length > 0 ? dense ? 1.02 : 1.06 : dense ? 0.82 : 0.78);
   const authoredHeight = numberValue(rec.height, undefined);
-  if (typeof authoredHeight === "number") height = authoredHeight;
+  if (typeof authoredHeight === "number") cardHeight = authoredHeight;
   const minHeight = bodyLines.length > 0 ? dense ? 0.98 : 0.96 : dense ? 0.80 : 0.72;
-  const maxHeight = isRoot ? 2.65 : bodyLines.length >= 4 ? 2.85 : bodyLines.length >= 3 ? 2.48 : bodyLines.length >= 2 ? 2.08 : 1.58;
-  height = Math.max(minHeight, Math.min(maxHeight, height));
+  const maxHeight = isRoot ? 2.80 : bodyLines.length >= 4 ? 2.96 : bodyLines.length >= 3 ? 2.60 : bodyLines.length >= 2 ? 2.18 : badges.length > 0 ? 1.82 : 1.58;
+  cardHeight = Math.max(minHeight, Math.min(maxHeight, cardHeight));
+  const portGap = dense ? 0.03 : 0.04;
+  const topPortGap = levelIndex > 0 ? portGap : 0;
+  const bottomPortGap = hasChildren ? portGap : 0;
+  const height = cardHeight + topPortGap + bottomPortGap;
 
   return {
     width,
     height,
+    cardHeight,
+    topPortGap,
+    bottomPortGap,
+    accentHeight,
+    padding: rowPadding,
+    headerGap,
+    headerHeight,
     avatarSize,
     titleHeight,
     bodyHeight,
+    badgeHeight,
     showBody,
     showAvatar,
     titleText,
     bodyLines,
+    badges,
     dense,
     emphasis,
+    titleStyle,
+    bodyStyle,
+    titleWeight,
+    bodyWeight,
   };
 }
 
 const ORG_CHART_TEXT_MARGIN_CM = 0.26;
 const ORG_CHART_TEXT_FIT_RATIO = 0.95;
 
-function orgChartMeasuredTitleCardWidth(theme: SimpleTheme, title: string, avatarWidth: number, headerGap: number, padding: number): number {
-  return orgChartMeasuredLineWidth(theme, title, "label", "semibold") / ORG_CHART_TEXT_FIT_RATIO
+function orgChartMeasuredTitleCardWidth(theme: SimpleTheme, title: string, avatarWidth: number, headerGap: number, padding: number, styleKey = "label", weightOverride?: FontWeight): number {
+  return orgChartMeasuredLineWidth(theme, title, styleKey, weightOverride) / ORG_CHART_TEXT_FIT_RATIO
     + avatarWidth
     + headerGap
     + padding * 2
     + ORG_CHART_TEXT_MARGIN_CM;
 }
 
-function orgChartMeasuredBodyCardWidth(theme: SimpleTheme, lines: string[], padding: number): number {
-  const widest = Math.max(0, ...lines.map((line) => orgChartMeasuredLineWidth(theme, line, "footnote")));
+function orgChartMeasuredBodyCardWidth(theme: SimpleTheme, lines: string[], padding: number, styleKey = "footnote", weightOverride?: FontWeight): number {
+  const widest = Math.max(0, ...lines.map((line) => orgChartMeasuredLineWidth(theme, line, styleKey, weightOverride)));
   return widest / ORG_CHART_TEXT_FIT_RATIO + padding * 2 + ORG_CHART_TEXT_MARGIN_CM;
 }
 
@@ -5709,13 +5957,18 @@ function orgChartPersonContentLines(rec: Record<string, unknown>): string[] {
   const people = orgChartPeopleEntries(rec.people ?? rec.members ?? rec.personnel ?? rec.staff ?? rec.reports);
   const role = stringValue(rec.role, stringValue(rec.position, ""));
   const team = stringValue(rec.team, stringValue(rec.department, ""));
-  const peopleCount = people.length > 0 ? `${people.length} ${people.length === 1 ? "person" : "people"}` : "";
+  const cjk = orgChartLooksCjk(rec, role, team, people);
+  const peopleCount = people.length > 0 ? cjk ? `${people.length}人` : `${people.length} ${people.length === 1 ? "person" : "people"}` : "";
   const meta = (peopleCount ? [role, peopleCount] : [role, team]).filter(Boolean).join(" | ");
   if (meta) lines.push(meta);
   const explicit = orgChartStringLines(rec.body, rec.description, rec.detail, rec.summary);
   lines.push(...explicit);
-  lines.push(...orgChartPeopleLines(people));
+  lines.push(...orgChartPeopleLines(people, cjk));
   return lines.filter(Boolean).slice(0, 5);
+}
+
+function orgChartLooksCjk(rec: Record<string, unknown>, role: string, team: string, people: string[]): boolean {
+  return [officeTitleOf(rec, ""), role, team, ...people].some((text) => /[\u3400-\u9FFF\uF900-\uFAFF]/u.test(text));
 }
 
 function orgChartStringLines(...values: unknown[]): string[] {
@@ -5727,12 +5980,13 @@ function orgChartStringLines(...values: unknown[]): string[] {
   return [];
 }
 
-function orgChartPeopleLines(people: string[]): string[] {
+function orgChartPeopleLines(people: string[], cjk = false): string[] {
   if (people.length === 0) return [];
-  const first = people.slice(0, 2).join(", ");
+  const separator = cjk ? "、" : ", ";
+  const first = people.slice(0, 2).join(separator);
   const lines = [first];
   if (people.length > 2) {
-    const second = people.slice(2, 4).join(", ");
+    const second = people.slice(2, 4).join(separator);
     const more = people.length > 4 ? ` +${people.length - 4}` : "";
     lines.push(`${second}${more}`);
   }
@@ -5857,11 +6111,636 @@ function orgChartInitials(value: string): string {
   return Array.from(value.replace(/\s+/g, "")).slice(0, 2).join("");
 }
 
-function officeHierarchyNode(slideId: string, name: string, node: DomNode, role: "org-chart" | "hierarchy-tree" | "decision-tree"): DomNode {
+interface TreeChartCardLayout {
+  width: number;
+  height: number;
+  cardHeight: number;
+  topPortGap: number;
+  bottomPortGap: number;
+  stripeWidth: number;
+  titleHeight: number;
+  bodyHeight: number;
+  badgeHeight: number;
+  titleText: string;
+  bodyLines: string[];
+  badges: TreeChartBadgeLayout[];
+  icon?: TreeChartIconLayout;
+  showBody: boolean;
+  dense: boolean;
+  emphasis: "root" | "branch" | "leaf";
+  titleStyle: string;
+  bodyStyle: string;
+  titleWeight?: FontWeight;
+  bodyWeight?: FontWeight;
+}
+
+interface TreeChartLayoutData {
+  item: OrgChartItem;
+  layout: TreeChartCardLayout;
+  tone: ComponentTone;
+}
+
+interface TreeChartStyleOptions {
+  titleStyle: string;
+  bodyStyle: string;
+  titleWeight?: FontWeight;
+  bodyWeight?: FontWeight;
+  nodeSurface: AgentSurface;
+  connectorSurface: AgentSurface;
+  accent: boolean;
+}
+
+interface TreeChartIconLayout {
+  kind: "shape" | "image";
+  preset: string;
+  src?: string;
+  size: number;
+}
+
+interface TreeChartBadgeLayout {
+  text: string;
+  width: number;
+}
+
+function treeChartStyleOptions(node: DomNode): TreeChartStyleOptions {
+  const connector = objectRecord(node.connector);
+  const connectorLine = treeChartTokenString(node.connectorLine)
+    ?? treeChartTokenString(node.connectorColor)
+    ?? treeChartTokenString(connector?.line)
+    ?? treeChartTokenString(connector?.color)
+    ?? "divider";
+  const connectorSurface: AgentSurface = {
+    line: connectorLine,
+    lineOpacity: numberValue(node.connectorLineOpacity, numberValue(connector?.lineOpacity, numberValue(connector?.opacity, 0.78))),
+    lineWidth: Math.max(0.01, Math.min(0.08, numberValue(node.connectorLineWidth, numberValue(connector?.lineWidth, numberValue(connector?.width, 0.025))))),
+    lineDash: treeChartLineDash(node.connectorLineDash ?? connector?.lineDash ?? connector?.dash),
+  };
+  return {
+    titleStyle: treeChartStyleKey(node.nodeTitleStyle) ?? treeChartStyleKey(node.titleStyle) ?? "label",
+    bodyStyle: treeChartStyleKey(node.nodeBodyStyle) ?? treeChartStyleKey(node.bodyStyle) ?? "caption",
+    titleWeight: treeChartFontWeight(node.nodeTitleWeight ?? node.titleWeight),
+    bodyWeight: treeChartFontWeight(node.nodeBodyWeight ?? node.bodyWeight),
+    nodeSurface: treeChartAgentSurface(node.nodeSurface ?? node.cardSurface),
+    connectorSurface: {
+      ...connectorSurface,
+      ...treeChartAgentSurface(node.connectorSurface ?? node.connector),
+      line: treeChartTokenString(
+        (node.connectorSurface as Record<string, unknown> | undefined)?.line,
+      ) ?? treeChartTokenString((node.connector as Record<string, unknown> | undefined)?.line) ?? connectorSurface.line,
+    },
+    accent: node.accent !== "none" && node.accent !== false && node.stripe !== false,
+  };
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  return undefined;
+}
+
+function treeChartAgentSurface(value: unknown): AgentSurface {
+  const record = objectRecord(value);
+  if (!record) return {};
+  return surfaceOptions({ id: "tree-chart.surface", type: "shape", ...record } as DomNode) as AgentSurface;
+}
+
+function treeChartLineDash(value: unknown): AgentSurface["lineDash"] | undefined {
+  return value === "solid" || value === "dash" || value === "dashDot" || value === "dot" ? value : undefined;
+}
+
+function treeChartStyleKey(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const key = value.trim();
+  return /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(key) ? key : undefined;
+}
+
+function treeChartTokenString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const token = value.trim();
+  if (!token) return undefined;
+  if (token === "none" || /^#?[0-9A-Fa-f]{6}$/.test(token) || /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(token)) return token;
+  return undefined;
+}
+
+function treeChartFontWeight(value: unknown): FontWeight | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) return value.trim() as FontWeight;
+  return undefined;
+}
+
+function treeChartNode(slideId: string, name: string, node: DomNode, theme: SimpleTheme): DomNode {
   const compact = officeCompact(node);
   const records = officeRecords(node.nodes || node.items);
   const fallbackRecords = records.length ? records : [
-    { id: "root", title: role === "org-chart" ? "CEO" : role === "decision-tree" ? "Start" : "Root", role: "Owner", level: 0, tone: "brand" },
+    { id: "root", title: "Capability taxonomy", body: "Top-level domain", level: 0, tone: "brand" },
+    { id: "a", title: "Branch A", body: "Key capability", parent: "root", level: 1, tone: "positive" },
+    { id: "b", title: "Branch B", body: "Supporting capability", parent: "root", level: 1, tone: "warning" },
+  ];
+  const items = orgChartRecordItems(fallbackRecords, officeRecords(node.links));
+  const levels = orgChartItemLevels(items);
+  const dense = treeChartDense(node, levels, compact);
+  const detail = orgChartDetailMode(node.detail);
+  const maxDepth = Math.max(...items.map((item) => item.depth), 0);
+  const childCounts = orgChartChildCounts(items);
+  const siblingCounts = orgChartSiblingCounts(items);
+  const layoutData = new Map<string, TreeChartLayoutData>();
+  const style = treeChartStyleOptions(node);
+  const treeInput = items.map((item, index) => {
+    const tone = officeToneOf(item.rec, node.tone || officeToneAt(index, node.tone));
+    const layout = treeChartCardLayout(
+      item.rec,
+      item.depth,
+      maxDepth + 1,
+      siblingCounts.get(item.parentId || "__root__") || levels[item.depth]?.length || 1,
+      childCounts.get(item.id)! > 0,
+      dense,
+      detail,
+      theme,
+      style,
+    );
+    layoutData.set(item.id, { item, layout, tone });
+    return {
+      id: item.id,
+      parentId: item.parentId,
+      width: layout.width,
+      height: layout.height,
+      data: item.id,
+    };
+  });
+  const maxWidth = treeChartTreeWidthTarget(node, dense, compact);
+  const maxHeight = treeChartTreeHeightTarget(node, dense, compact);
+  const tree = layoutTree(treeInput, {
+    siblingGap: dense ? 0.20 : 0.38,
+    rootGap: dense ? 0.42 : 0.62,
+    levelGap: dense ? 0.24 : detail === "full" ? 0.22 : 0.42,
+    levelGapDecay: detail === "full" ? 0.78 : 0.88,
+    minSiblingGap: 0.08,
+    minRootGap: 0.14,
+    minLevelGap: detail === "full" ? 0.10 : 0.14,
+    maxWidth,
+    maxHeight,
+    spread: node.spread !== false,
+  });
+  const renderIds = orgChartRenderIds(slideId, name, tree.nodes);
+  const positionedChildren: DomNode[] = [
+    ...tree.edges.map((edge, index) => treeChartConnectorNode(`${slideId}.${name}.edge.${index}`, edge, renderIds, style)),
+    ...tree.nodes.map((treeNode) => {
+      const data = layoutData.get(treeNode.id)!;
+      return {
+        ...treeChartCardNode(renderIds.get(treeNode.id) || `${slideId}.${name}.node.${treeNode.id}`, data.item.rec, data.tone, data.layout, style),
+        at: [treeNode.x, treeNode.y, treeNode.w, treeNode.h],
+        zIndex: 10,
+      } as DomNode;
+    }),
+  ];
+  return officeFrameNode(slideId, name, node, "tree-chart", [{
+    id: `${slideId}.${name}.tree`,
+    type: "positioned-group",
+    role: "tree-chart-tree",
+    contentWidth: Math.max(0.1, tree.width),
+    contentHeight: Math.max(0.1, tree.height),
+    fixedHeight: Math.max(1.1, Math.min(tree.height, maxHeight)),
+    fit: "contain",
+    minScale: 0.82,
+    overflow: tree.overflow,
+    children: positionedChildren,
+  }]);
+}
+
+function treeChartTreeWidthTarget(node: DomNode, dense: boolean, compact: boolean): number {
+  const defaultWidth = dense ? 17.4 : 20.0;
+  const authoredTreeWidth = numberValue(node.treeMaxWidth, undefined);
+  if (authoredTreeWidth !== undefined) return Math.max(dense ? 6.0 : 7.4, authoredTreeWidth);
+  const regionWidth = numberValue(node.fixedWidth, undefined) ?? orgChartPlacementSize(node, 2) ?? numberValue(node.width, undefined);
+  const cardPadding = node.variant === "frameless" ? 0 : compact ? 0.52 : 0.76;
+  const regionTreeWidth = regionWidth === undefined ? undefined : Math.max(0.8, regionWidth - cardPadding);
+  const explicit = numberValue(node.layoutWidth, undefined) ?? regionTreeWidth;
+  return explicit === undefined ? defaultWidth : Math.max(0.8, explicit);
+}
+
+function treeChartTreeHeightTarget(node: DomNode, dense: boolean, compact: boolean): number {
+  const defaultHeight = dense ? 6.2 : 7.0;
+  const authoredTreeHeight = numberValue(node.treeMaxHeight, undefined);
+  if (authoredTreeHeight !== undefined) return Math.max(dense ? 2.8 : 3.4, authoredTreeHeight);
+  const regionHeight = numberValue(node.fixedHeight, undefined) ?? orgChartPlacementSize(node, 3) ?? numberValue(node.height, undefined);
+  const titleReserve = stringValue(node.title, "") ? (compact ? 0.44 + 0.12 : 0.54 + 0.18) : 0;
+  const cardPadding = node.variant === "frameless" ? 0 : compact ? 0.52 : 0.76;
+  const regionTreeHeight = regionHeight === undefined ? undefined : Math.max(0.8, regionHeight - titleReserve - cardPadding);
+  const explicit = numberValue(node.layoutHeight, undefined) ?? regionTreeHeight;
+  return explicit === undefined ? defaultHeight : Math.max(0.8, explicit);
+}
+
+function treeChartDense(node: DomNode, levels: OrgChartItem[][], compact: boolean): boolean {
+  const nodeCount = levels.reduce((sum, level) => sum + level.length, 0);
+  const widestLevel = Math.max(...levels.map((level) => level.length), 0);
+  return compact || levels.length >= 5 || widestLevel >= 5 || nodeCount >= 12;
+}
+
+function treeChartCardNode(id: string, rec: Record<string, unknown>, tone: ComponentTone, layout: TreeChartCardLayout, style: TreeChartStyleOptions): DomNode {
+  const colors = toneToColors(tone);
+  const compact = layout.dense;
+  const padding = compact ? 0.08 : 0.11;
+  const cardY = layout.topPortGap;
+  const cardHeight = layout.cardHeight;
+  const titleY = cardY + padding;
+  const bodyY = titleY + layout.titleHeight + (layout.showBody ? compact ? 0.04 : 0.06 : 0);
+  const contentX = layout.stripeWidth + padding;
+  const contentW = Math.max(0.08, layout.width - layout.stripeWidth - padding * 2);
+  const iconGap = layout.icon ? compact ? 0.06 : 0.08 : 0;
+  const iconReserve = layout.icon ? layout.icon.size + iconGap : 0;
+  const titleX = contentX + iconReserve;
+  const titleW = Math.max(0.08, contentW - iconReserve);
+  const centerX = layout.width / 2;
+  const stubWidth = treeChartConnectorWidth(style);
+  const portSize = 0.06;
+  const connectorSurface = treeChartConnectorStubSurface(style);
+  const showAccent = style.accent && rec.accent !== "none" && rec.accent !== false && rec.stripe !== false && layout.stripeWidth > 0;
+  return {
+    id,
+    type: "pptx-group",
+    role: "tree-chart-node",
+    fixedWidth: layout.width,
+    basisWidth: layout.width,
+    minWidth: layout.width,
+    maxWidth: layout.width,
+    fixedHeight: layout.height,
+    contentWidth: layout.width,
+    contentHeight: layout.height,
+    fit: "contain",
+    align: "left",
+    valign: "top",
+    children: [
+      ...(layout.topPortGap > 0 ? [{
+        id: `${id}.in-stub`,
+        type: "shape" as const,
+        role: "tree-chart-node-connector-stub",
+        preset: "rect",
+        ...connectorSurface,
+        at: [centerX - stubWidth / 2, 0, stubWidth, layout.topPortGap],
+        zIndex: 0,
+      }, {
+        id: `${id}.in-port`,
+        type: "shape" as const,
+        role: "tree-chart-node-connector-port",
+        preset: "rect",
+        fill: "none",
+        line: "none",
+        at: [centerX - portSize / 2, 0, portSize, portSize],
+        zIndex: 0,
+      }] : []),
+      ...(layout.bottomPortGap > 0 ? [{
+        id: `${id}.out-stub`,
+        type: "shape" as const,
+        role: "tree-chart-node-connector-stub",
+        preset: "rect",
+        ...connectorSurface,
+        at: [centerX - stubWidth / 2, cardY + cardHeight, stubWidth, layout.bottomPortGap],
+        zIndex: 0,
+      }, {
+        id: `${id}.out-port`,
+        type: "shape" as const,
+        role: "tree-chart-node-connector-port",
+        preset: "rect",
+        fill: "none",
+        line: "none",
+        at: [centerX - portSize / 2, layout.height - portSize, portSize, portSize],
+        zIndex: 0,
+      }] : []),
+      applyAgentSurface({
+        id: `${id}.bg`,
+        type: "shape",
+        role: "tree-chart-node-bg",
+        preset: "roundRect",
+        fill: "surface",
+        line: colors.line || "divider",
+        lineOpacity: layout.emphasis === "leaf" ? 0.62 : 0.82,
+        cornerRadius: layout.emphasis === "root" ? 0.12 : 0.08,
+        at: [0, cardY, layout.width, cardHeight],
+        zIndex: 1,
+      }, treeChartNodeSurface(style, rec, tone, layout)),
+      ...(showAccent ? [{
+        id: `${id}.stripe`,
+        type: "shape" as const,
+        preset: "rect",
+        fill: stringValue(rec.accentColor, colors.line || "brand.primary"),
+        line: stringValue(rec.accentColor, colors.line || "brand.primary"),
+        at: [0, cardY, layout.stripeWidth, cardHeight],
+        zIndex: 2,
+      }] : []),
+      ...(layout.icon ? [treeChartIconNode(`${id}.icon`, rec, tone, layout.icon, contentX, titleY + Math.max(0, (layout.titleHeight - layout.icon.size) / 2), 3)] : []),
+      {
+        id: `${id}.title`,
+        type: "text",
+        text: layout.titleText,
+        style: layout.titleStyle,
+        color: "text.primary",
+        ...(layout.titleWeight !== undefined ? { weight: layout.titleWeight } : {}),
+        noWrap: true,
+        valign: "middle",
+        at: [titleX, titleY, titleW, layout.titleHeight],
+        zIndex: 3,
+      },
+      ...(layout.showBody ? [{
+        id: `${id}.body`,
+        type: "text" as const,
+        paragraphs: layout.bodyLines.map((line, index) => ({
+          style: layout.bodyStyle,
+          runs: [{
+            text: line,
+            color: "text.secondary",
+            ...(layout.bodyWeight !== undefined ? { weight: layout.bodyWeight } : {}),
+          }],
+          spaceAfter: index < layout.bodyLines.length - 1 ? compact ? 0.2 : 0.32 : 0,
+        })),
+        style: layout.bodyStyle,
+        color: "text.secondary",
+        noWrap: true,
+        at: [contentX, bodyY, contentW, layout.bodyHeight],
+        zIndex: 3,
+      }] : []),
+      ...treeChartBadgeNodes(id, layout, tone, contentX, treeChartBadgeY(layout, titleY, bodyY), contentW),
+    ],
+  };
+}
+
+function treeChartNodeSurface(style: TreeChartStyleOptions, rec: Record<string, unknown>, tone: ComponentTone, layout: TreeChartCardLayout): AgentSurface {
+  const colors = toneToColors(tone);
+  return {
+    fill: "surface",
+    line: colors.line || "divider",
+    lineOpacity: layout.emphasis === "leaf" ? 0.62 : 0.82,
+    cornerRadius: layout.emphasis === "root" ? 0.12 : 0.08,
+    ...style.nodeSurface,
+    ...(surfaceOptions({ id: "tree-chart.node.surface", type: "shape", ...rec } as DomNode) as AgentSurface),
+  };
+}
+
+function treeChartConnectorWidth(style: TreeChartStyleOptions): number {
+  return Math.max(0.018, Math.min(0.08, numberValue(style.connectorSurface.lineWidth, 0.025)));
+}
+
+function treeChartConnectorLine(style: TreeChartStyleOptions): string {
+  const surface = objectRecord((style.connectorSurface as Record<string, unknown>).surface);
+  return stringValue(style.connectorSurface.line, stringValue(surface?.line, "divider"));
+}
+
+function treeChartConnectorStubSurface(style: TreeChartStyleOptions): AgentSurface {
+  const line = treeChartConnectorLine(style);
+  const opacity = numberValue(style.connectorSurface.lineOpacity, 0.78);
+  return {
+    fill: line === "none" ? "none" : line,
+    line,
+    fillOpacity: opacity,
+    lineOpacity: opacity,
+    lineWidth: 0,
+  };
+}
+
+function treeChartIconNode(id: string, rec: Record<string, unknown>, tone: ComponentTone, icon: TreeChartIconLayout, x: number, y: number, zIndex: number): DomNode {
+  if (icon.kind === "image" && icon.src) {
+    return {
+      id,
+      type: "image",
+      role: "tree-chart-node-icon",
+      src: icon.src,
+      alt: stringValue(rec.iconAlt, stringValue(rec.title, stringValue(rec.label, "node icon"))),
+      fit: "contain",
+      at: [x, y, icon.size, icon.size],
+      zIndex,
+    };
+  }
+  const colors = toneToColors(tone);
+  const iconFill = stringValue(rec.iconFill, stringValue(rec.iconColor, colors.line || "brand.primary"));
+  return {
+    id,
+    type: "shape",
+    role: "tree-chart-node-icon",
+    preset: icon.preset,
+    fill: iconFill,
+    fillOpacity: numberValue(rec.iconOpacity, 0.12),
+    line: stringValue(rec.iconLine, iconFill),
+    lineOpacity: numberValue(rec.iconLineOpacity, 0.84),
+    at: [x, y, icon.size, icon.size],
+    zIndex,
+  };
+}
+
+function treeChartBadgeY(layout: TreeChartCardLayout, titleY: number, bodyY: number): number {
+  const gap = layout.dense ? 0.04 : 0.06;
+  if (layout.showBody) return bodyY + layout.bodyHeight + gap;
+  return titleY + layout.titleHeight + gap;
+}
+
+function treeChartBadgeNodes(
+  id: string,
+  layout: TreeChartCardLayout,
+  tone: ComponentTone,
+  x: number,
+  y: number,
+  contentW: number,
+): DomNode[] {
+  if (layout.badges.length === 0) return [];
+  const colors = toneToColors(tone);
+  const badgeTextColor = hierarchyBadgeTextColor(tone, colors);
+  const gap = layout.dense ? 0.05 : 0.06;
+  let cursor = x;
+  const nodes: DomNode[] = [];
+  for (let index = 0; index < layout.badges.length; index += 1) {
+    const badge = layout.badges[index]!;
+    if (cursor + badge.width > x + contentW + 0.001) break;
+    nodes.push({
+      id: `${id}.badge.${index}`,
+      type: "text",
+      role: "tree-chart-node-badge",
+      text: badge.text,
+      style: "badge",
+      color: badgeTextColor,
+      fill: "surface.subtle",
+      line: colors.line || "divider",
+      lineOpacity: 0.32,
+      cornerRadius: layout.badgeHeight / 2,
+      align: "center",
+      valign: "middle",
+      noWrap: true,
+      at: [cursor, y, badge.width, layout.badgeHeight],
+      zIndex: 3,
+    });
+    cursor += badge.width + gap;
+  }
+  return nodes;
+}
+
+function treeChartCardLayout(
+  rec: Record<string, unknown>,
+  levelIndex: number,
+  levelCount: number,
+  siblingCount: number,
+  hasChildren: boolean,
+  dense: boolean,
+  detail: OrgChartDetailMode,
+  theme: SimpleTheme,
+  style: TreeChartStyleOptions,
+): TreeChartCardLayout {
+  const title = officeTitleOf(rec, "Node");
+  const contentLines = treeChartContentLines(rec);
+  const isRoot = levelIndex === 0;
+  const isLeaf = !hasChildren || levelIndex >= levelCount - 1;
+  const emphasis: TreeChartCardLayout["emphasis"] = isRoot ? "root" : isLeaf ? "leaf" : "branch";
+  const stripeWidth = isRoot ? dense ? 0.08 : 0.10 : dense ? 0.055 : 0.065;
+  const padding = dense ? 0.08 : 0.11;
+  const titleStyle = treeChartStyleKey(rec.titleStyle) ?? style.titleStyle;
+  const bodyStyle = treeChartStyleKey(rec.bodyStyle) ?? style.bodyStyle;
+  const titleWeight = treeChartFontWeight(rec.titleWeight) ?? style.titleWeight;
+  const bodyWeight = treeChartFontWeight(rec.bodyWeight) ?? style.bodyWeight;
+  const icon = treeChartIconLayout(rec, dense);
+  const iconReserve = icon ? icon.size + (dense ? 0.06 : 0.08) : 0;
+  const badges = treeChartBadgeLayouts(rec, dense);
+  const badgeGap = badges.length > 0 ? dense ? 0.04 : 0.06 : 0;
+  const badgeHeight = badges.length > 0 ? Math.max(dense ? 0.48 : 0.52, treeChartSingleLineHeight(theme, "badge", badges[0]?.text || "TAG")) : 0;
+  const titleLength = Array.from(title).length;
+  const longestLineLength = Math.max(0, ...contentLines.map((line) => Array.from(line).length));
+  const authoredSize = stringValue(rec.size, stringValue(rec.scale, ""));
+  const maxBySiblings = siblingCount >= 7 ? 1.62
+    : siblingCount >= 5 ? 2.05
+      : siblingCount >= 4 ? 2.48
+        : isRoot ? 4.85 : isLeaf ? 3.75 : 4.35;
+  const minByRole = isRoot ? 2.25 : isLeaf ? 1.22 : 1.58;
+  let width = isRoot ? 3.05 : isLeaf ? 1.68 : 2.24;
+  width += Math.min(
+    isRoot ? 1.25 : 1.08,
+    Math.max(0, titleLength - 10) * 0.045
+      + Math.min(longestLineLength, 48) * 0.021
+      + Math.max(0, contentLines.length - 1) * 0.06,
+  );
+  width = Math.max(width, orgChartMeasuredLineWidth(theme, title, titleStyle, titleWeight) / ORG_CHART_TEXT_FIT_RATIO + stripeWidth + padding * 2 + iconReserve + ORG_CHART_TEXT_MARGIN_CM);
+  if (badges.length > 0) {
+    const badgeWidth = badges.reduce((sum, badge) => sum + badge.width, 0) + Math.max(0, badges.length - 1) * (dense ? 0.05 : 0.06);
+    width = Math.max(width, badgeWidth + stripeWidth + padding * 2 + ORG_CHART_TEXT_MARGIN_CM);
+  }
+  if (authoredSize === "sm" || authoredSize === "small") width -= 0.18;
+  if (authoredSize === "lg" || authoredSize === "large") width += 0.30;
+  if (authoredSize === "xl") width += 0.48;
+  const authoredWidth = numberValue(rec.width, undefined);
+  if (typeof authoredWidth === "number") width = authoredWidth;
+  width = Math.max(minByRole, Math.min(maxBySiblings, width));
+
+  let showBody = contentLines.length > 0;
+  let maxBodyLines = isRoot ? 3 : isLeaf ? 1 : 2;
+  if (detail === "compact") {
+    showBody = contentLines.length > 0 && isRoot && !dense;
+    maxBodyLines = 1;
+  } else if (detail === "auto") {
+    showBody = contentLines.length > 0 && (
+      (isRoot && siblingCount <= 4)
+      || (!dense && levelIndex <= 2 && siblingCount <= 4)
+    );
+    maxBodyLines = isRoot ? 2 : 1;
+  } else {
+    showBody = contentLines.length > 0 && siblingCount <= 5 && levelIndex <= 4;
+    maxBodyLines = isRoot ? 3 : isLeaf ? 2 : 3;
+  }
+  if (siblingCount >= 7 || levelIndex >= 5) showBody = false;
+  const rawBodyLines = showBody ? contentLines.slice(0, maxBodyLines) : [];
+  if (rawBodyLines.length > 0) {
+    const widest = Math.max(0, ...rawBodyLines.map((line) => orgChartMeasuredLineWidth(theme, line, bodyStyle, bodyWeight)));
+    width = Math.max(width, widest / ORG_CHART_TEXT_FIT_RATIO + stripeWidth + padding * 2 + ORG_CHART_TEXT_MARGIN_CM);
+  }
+  if (typeof authoredWidth === "number") width = authoredWidth;
+  width = Math.max(minByRole, Math.min(maxBySiblings, width));
+
+  const availableWidth = Math.max(0.16, width - stripeWidth - padding * 2 - ORG_CHART_TEXT_MARGIN_CM);
+  const titleAvailableWidth = Math.max(0.16, availableWidth - iconReserve);
+  const titleText = orgChartTrimToWidth(theme, title, titleAvailableWidth, titleStyle, titleWeight);
+  const bodyLines = rawBodyLines.map((line) => orgChartTrimToWidth(theme, line, availableWidth, bodyStyle, bodyWeight));
+  const titleHeight = Math.max(
+    icon ? icon.size : 0,
+    isRoot ? dense ? 0.36 : 0.40 : dense ? 0.30 : 0.34,
+    treeChartSingleLineHeight(theme, titleStyle, title),
+  );
+  const bodyHeight = bodyLines.length > 0
+    ? bodyLines.length * (dense ? 0.48 : 0.54) + 0.10
+    : 0;
+  const contentGap = bodyLines.length > 0 ? dense ? 0.04 : 0.06 : 0;
+  let cardHeight = padding * 2 + titleHeight + contentGap + bodyHeight + badgeGap + badgeHeight;
+  cardHeight = Math.max(cardHeight, isRoot ? dense ? 0.92 : 1.02 : bodyLines.length > 0 ? dense ? 0.82 : 0.90 : dense ? 0.60 : 0.68);
+  const authoredHeight = numberValue(rec.height, undefined);
+  if (typeof authoredHeight === "number") cardHeight = authoredHeight;
+  const maxHeight = isRoot ? 2.72 : bodyLines.length >= 3 ? 2.56 : bodyLines.length >= 2 ? 2.08 : badges.length > 0 ? 1.68 : 1.48;
+  cardHeight = Math.max(bodyLines.length > 0 ? 0.82 : 0.58, Math.min(maxHeight, cardHeight));
+  const portGap = dense ? 0.10 : 0.12;
+  const topPortGap = levelIndex > 0 ? portGap : 0;
+  const bottomPortGap = hasChildren ? portGap : 0;
+  const height = cardHeight + topPortGap + bottomPortGap;
+
+  return {
+    width,
+    height,
+    cardHeight,
+    topPortGap,
+    bottomPortGap,
+    stripeWidth,
+    titleHeight,
+    bodyHeight,
+    badgeHeight,
+    titleText,
+    bodyLines,
+    badges,
+    icon,
+    showBody: bodyLines.length > 0,
+    dense,
+    emphasis,
+    titleStyle,
+    bodyStyle,
+    titleWeight,
+    bodyWeight,
+  };
+}
+
+function treeChartContentLines(rec: Record<string, unknown>): string[] {
+  const lines = orgChartStringLines(rec.body, rec.description, rec.detail, rec.summary);
+  const value = stringValue(rec.value, stringValue(rec.metric, ""));
+  if (value && !lines.includes(value)) lines.unshift(value);
+  return lines.filter(Boolean).slice(0, 4);
+}
+
+function treeChartIconLayout(rec: Record<string, unknown>, dense: boolean): TreeChartIconLayout | undefined {
+  const src = stringValue(rec.iconSrc, stringValue(rec.iconImage, ""));
+  const icon = stringValue(rec.icon, stringValue(rec.iconShape, ""));
+  if (!src && !icon) return undefined;
+  return {
+    kind: src ? "image" : "shape",
+    src: src || undefined,
+    preset: icon || "ellipse",
+    size: Math.max(0.18, Math.min(0.52, numberValue(rec.iconSize, dense ? 0.30 : 0.34))),
+  };
+}
+
+function treeChartBadgeLayouts(rec: Record<string, unknown>, dense: boolean): TreeChartBadgeLayout[] {
+  const badge = stringValue(rec.badge, stringValue(rec.status, ""));
+  const tags = stringArray(rec.badges).concat(stringArray(rec.tags));
+  const texts: string[] = [];
+  for (const value of [badge, ...tags]) {
+    const text = value.trim();
+    if (text && !texts.includes(text)) texts.push(text);
+    if (texts.length >= 2) break;
+  }
+  return texts.map((text) => ({
+    text,
+    width: textChipWidthCm(text, { min: dense ? 0.72 : 0.84, max: dense ? 1.50 : 1.80, padding: dense ? 0.52 : 0.64 }),
+  }));
+}
+
+function treeChartSingleLineHeight(theme: SimpleTheme, styleKey: string, text: string): number {
+  const style = textStyle(theme, styleKey, styleKey);
+  const lineHeight = Math.max(1, style.lineHeight || 1.18);
+  const cjkReserve = /[\u3400-\u9FFF]/.test(text) ? 0.03 : 0;
+  return style.fontSize * lineHeight * 0.0352778 + 0.18 + cjkReserve;
+}
+
+function officeHierarchyNode(slideId: string, name: string, node: DomNode, role: "decision-tree"): DomNode {
+  const compact = officeCompact(node);
+  const records = officeRecords(node.nodes || node.items);
+  const fallbackRecords = records.length ? records : [
+    { id: "root", title: "Start", role: "Owner", level: 0, tone: "brand" },
     { id: "a", title: "Branch A", parent: "root", level: 1, tone: "positive" },
     { id: "b", title: "Branch B", parent: "root", level: 1, tone: "warning" },
   ];
@@ -5895,11 +6774,7 @@ function officeHierarchyNode(slideId: string, name: string, node: DomNode, role:
       fixedHeight: compact ? 0.72 : 0.88,
       children: level.map((rec, itemIndex) => {
         const title = officeTitleOf(rec, `${role} ${itemIndex + 1}`);
-        const body = role === "org-chart"
-          ? [stringValue(rec.role, stringValue(rec.position, "")), stringValue(rec.team, "")].filter(Boolean).join(" | ")
-          : role === "decision-tree"
-            ? officeBodyOf(rec, "condition", "outcome", "body", "description")
-            : officeBodyOf(rec, "body", "description", "value");
+        const body = officeBodyOf(rec, "condition", "outcome", "body", "description");
         return officeCardNode(`${slideId}.${name}.level.${levelIndex}.${itemIndex}`, title, body, officeToneOf(rec, node.tone || officeToneAt(itemIndex, node.tone)), {
           compact,
           fixedHeight: compact ? 0.68 : 0.84,
@@ -6304,40 +7179,896 @@ function kanbanBoardNode(slideId: string, name: string, node: DomNode): DomNode 
   }]);
 }
 
-function pyramidNode(slideId: string, name: string, node: DomNode): DomNode {
+interface PyramidStyleOptions {
+  kind: "pyramid" | "funnel";
+  direction: PyramidShapeDirection;
+  titleStyle: string;
+  bodyStyle: string;
+  titleAlign: PyramidTextAlign;
+  bodyAlign: PyramidTextAlign;
+  titleWeight?: FontWeight;
+  bodyWeight?: FontWeight;
+  levelSurface: AgentSurface;
+  accent: boolean;
+  shape: "trapezoid" | "stepped" | "band";
+}
+
+type PyramidShapeDirection = "upright" | "inverted";
+type PyramidTextAlign = "left" | "center" | "right";
+
+interface PyramidLevelLayout {
+  rec: Record<string, unknown>;
+  index: number;
+  width: number;
+  height: number;
+  contentMinHeight: number;
+  bodyHeight: number;
+  contentRowHeight: number;
+  badgeHeight: number;
+  x: number;
+  y: number;
+  contentX: number;
+  contentY: number;
+  contentW: number;
+  contentH: number;
+  headerX: number;
+  headerW: number;
+  titleText: string;
+  titleHeight: number;
+  bodyLines: string[];
+  contentItems: PyramidContentItemLayout[];
+  badges: TreeChartBadgeLayout[];
+  badgeInline: boolean;
+  icon?: TreeChartIconLayout;
+  titleStyle: string;
+  bodyStyle: string;
+  titleAlign: PyramidTextAlign;
+  bodyAlign: PyramidTextAlign;
+  titleWeight?: FontWeight;
+  bodyWeight?: FontWeight;
+}
+
+interface PyramidContentItemLayout {
+  rec: Record<string, unknown>;
+  titleLines: string[];
+  bodyLines: string[];
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  titleHeight: number;
+  bodyHeight: number;
+  tone: ComponentTone;
+}
+
+interface PyramidContentRawItem {
+  rec: Record<string, unknown>;
+  title: string;
+  body: string;
+  naturalWidth: number;
+  weight: number;
+  tone: ComponentTone;
+}
+
+function pyramidNode(slideId: string, name: string, node: DomNode, theme: SimpleTheme): DomNode {
   const compact = officeCompact(node);
   const levels = officeRecords(node.levels || node.items);
   const safeLevels = levels.length ? levels : [{ label: "North Star" }, { label: "Capabilities" }, { label: "Execution" }];
   const ordered = node.orientation === "bottom-up" ? [...safeLevels].reverse() : safeLevels;
-  const count = Math.max(1, ordered.length);
-  const rows = ordered.map((level, index) => {
-    const width = 0.42 + (index / Math.max(1, count - 1)) * 0.44;
-    const side = Math.max(0.03, (1 - width) / 2);
-    return {
-      id: `${slideId}.${name}.level.${index}`,
-      type: "stack",
-      direction: "horizontal",
-      gap: 0.08,
-      fixedHeight: compact ? 0.56 : 0.68,
-      children: [
-        { id: `${slideId}.${name}.level.${index}.left`, type: "spacer", layoutWeight: side },
-        officeCardNode(`${slideId}.${name}.level.${index}.band`, officeTitleOf(level, `Level ${index + 1}`), officeBodyOf(level, "value", "body", "description"), officeToneOf(level, officeToneAt(index, node.tone)), {
-          compact,
-          fixedHeight: compact ? 0.54 : 0.66,
-          align: "center",
-          role: "pyramid-level",
-        }),
-        { id: `${slideId}.${name}.level.${index}.right`, type: "spacer", layoutWeight: side },
-      ],
-    } as DomNode;
-  });
+  const style = pyramidStyleOptions(node, "pyramid");
+  const layout = layoutPyramidLevels(ordered, node, compact, theme, style);
   return officeFrameNode(slideId, name, node, "pyramid", [{
     id: `${slideId}.${name}.levels`,
-    type: "stack",
-    direction: "vertical",
-    gap: compact ? 0.07 : 0.10,
-    children: rows,
+    type: "positioned-group",
+    role: "pyramid-levels",
+    contentWidth: layout.width,
+    contentHeight: layout.height,
+    fixedHeight: layout.fixedHeight,
+    fit: "contain",
+    minScale: 0.86,
+    children: layout.levels.map((level) => pyramidLevelNode(`${slideId}.${name}.level.${level.index}`, level, node, style)),
   }]);
+}
+
+function funnelNode(slideId: string, name: string, node: DomNode, theme: SimpleTheme): DomNode {
+  const compact = officeCompact(node);
+  const stages = funnelStageRecords(node);
+  const safeStages = stages.length ? stages : [
+    { label: "Visitors", value: 1000, widthRatio: 0.92, tone: "brand" },
+    { label: "Qualified", value: 420, widthRatio: 0.56, tone: "positive" },
+    { label: "Paid", value: 120, widthRatio: 0.34, tone: "warning" },
+  ];
+  const style = pyramidStyleOptions({ ...node, shape: node.shape ?? "trapezoid" } as DomNode, "funnel");
+  const layout = layoutPyramidLevels(safeStages, {
+    ...node,
+    topWidthRatio: numberValue(node.topWidthRatio, 0.94),
+    bottomWidthRatio: numberValue(node.bottomWidthRatio, 0.30),
+  } as DomNode, compact, theme, style);
+  return officeFrameNode(slideId, name, node, "funnel", [{
+    id: `${slideId}.${name}.stages`,
+    type: "positioned-group",
+    role: "funnel-stages",
+    contentWidth: layout.width,
+    contentHeight: layout.height,
+    fixedHeight: layout.fixedHeight,
+    fit: "contain",
+    minScale: 0.86,
+    children: layout.levels.map((level) => pyramidLevelNode(`${slideId}.${name}.stage.${level.index}`, level, node, style)),
+  }]);
+}
+
+function pyramidStyleOptions(node: DomNode, kind: "pyramid" | "funnel" = "pyramid"): PyramidStyleOptions {
+  const shape = node.shape === "stepped" || node.shape === "band" ? node.shape : "trapezoid";
+  return {
+    kind,
+    direction: kind === "funnel" ? "inverted" : "upright",
+    titleStyle: treeChartStyleKey(node.levelTitleStyle) ?? treeChartStyleKey(node.titleStyle) ?? "label",
+    bodyStyle: treeChartStyleKey(node.levelBodyStyle) ?? treeChartStyleKey(node.bodyStyle) ?? "caption",
+    titleAlign: pyramidTextAlign(node.titleAlign ?? node.align, "left"),
+    bodyAlign: pyramidTextAlign(node.bodyAlign ?? node.align, pyramidTextAlign(node.titleAlign ?? node.align, "left")),
+    titleWeight: treeChartFontWeight(node.levelTitleWeight ?? node.titleWeight),
+    bodyWeight: treeChartFontWeight(node.levelBodyWeight ?? node.bodyWeight),
+    levelSurface: treeChartAgentSurface(node.levelSurface ?? node.nodeSurface ?? node.cardSurface),
+    accent: node.accent !== "none" && node.accent !== false,
+    shape,
+  };
+}
+
+function funnelStageRecords(node: DomNode): Record<string, unknown>[] {
+  const stages = officeRecords(node.stages || node.items).slice(0, 6);
+  if (stages.length === 0) return [];
+  const numericValues = stages.map((rec) => numberValue(rec.value, undefined));
+  const maxValue = Math.max(0, ...numericValues.map((value) => value ?? 0));
+  const minRatio = Math.max(0.18, Math.min(0.72, numberValue(node.minWidthRatio, 0.28)));
+  const maxRatio = Math.max(minRatio + 0.08, Math.min(1, numberValue(node.maxWidthRatio, 0.94)));
+  const showDrop = node.showDrop !== false;
+  return stages.map((rec, index) => {
+    const value = numericValues[index];
+    const previous = index > 0 ? numericValues[index - 1] : undefined;
+    const fallbackProgress = stages.length <= 1 ? 1 : 1 - index / (stages.length - 1);
+    const valueProgress = maxValue > 0 && value !== undefined ? Math.max(0, Math.min(1, value / maxValue)) : fallbackProgress;
+    const widthRatio = numberValue(rec.widthRatio, undefined) ?? numberValue(rec.ratio, undefined) ?? (minRatio + (maxRatio - minRatio) * valueProgress);
+    const authoredBody = officeBodyOf(rec, "body", "description", "detail", "summary");
+    const valueLabel = stringValue(rec.valueLabel, stringValue(rec.metric, value !== undefined ? `${value}` : ""));
+    const dropLabel = showDrop && index > 0 && previous !== undefined && previous > 0 && value !== undefined
+      ? funnelDropLabel(previous, value)
+      : "";
+    const valueLine = [dropLabel, valueLabel].filter(Boolean).join(" · ");
+    return {
+      ...rec,
+      label: officeTitleOf(rec, `Stage ${index + 1}`),
+      body: [valueLine, authoredBody].filter(Boolean).join(" | "),
+      widthRatio,
+      tone: rec.tone ?? officeToneAt(index, node.tone),
+    };
+  });
+}
+
+function funnelDropLabel(previous: number, current: number): string {
+  const delta = (previous - current) / previous;
+  const pct = Math.round(Math.abs(delta) * 100);
+  return delta >= 0 ? `${pct}% drop` : `${pct}% gain`;
+}
+
+function pyramidTextAlign(value: unknown, fallback: PyramidTextAlign): PyramidTextAlign {
+  return value === "center" || value === "right" || value === "left" ? value : fallback;
+}
+
+function layoutPyramidLevels(
+  levels: Record<string, unknown>[],
+  node: DomNode,
+  compact: boolean,
+  theme: SimpleTheme,
+  style: PyramidStyleOptions,
+): { width: number; height: number; fixedHeight: number; levels: PyramidLevelLayout[] } {
+  const count = Math.max(1, levels.length);
+  const regionWidth = numberValue(node.fixedWidth, undefined) ?? orgChartPlacementSize(node, 2) ?? numberValue(node.width, undefined);
+  const width = Math.max(6.4, Math.min(18.0, numberValue(node.pyramidWidth, numberValue(node.layoutWidth, regionWidth === undefined ? compact ? 10.6 : 12.6 : Math.max(6.4, regionWidth - 0.7)))));
+  const fallbackHeight = numberValue(node.fixedHeight, undefined) ?? orgChartPlacementSize(node, 3);
+  const layoutHeight = numberValue(node.layoutHeight, undefined) ?? fallbackHeight;
+  const authoredHeight = numberValue(node.pyramidHeight, undefined) ?? layoutHeight;
+  const gap = Math.max(0, Math.min(0.34, numberValue(node.gap, compact ? 0.06 : 0.09)));
+  const defaultTopRatio = style.direction === "inverted" ? 0.92 : 0.34;
+  const defaultBottomRatio = style.direction === "inverted" ? 0.30 : 0.92;
+  let topRatio = Math.max(0.16, Math.min(1, numberValue(node.topWidthRatio, defaultTopRatio)));
+  let bottomRatio = Math.max(0.16, Math.min(1, numberValue(node.bottomWidthRatio, defaultBottomRatio)));
+  if (style.direction === "upright" && bottomRatio < topRatio + 0.06) {
+    bottomRatio = Math.min(1, topRatio + 0.06);
+  } else if (style.direction === "inverted" && topRatio < bottomRatio + 0.06) {
+    topRatio = Math.min(1, bottomRatio + 0.06);
+  }
+  const rawLayouts = levels.map((rec, index) => pyramidLevelIntrinsicLayout(rec, index, count, width, topRatio, bottomRatio, compact, theme, style));
+  const naturalHeight = rawLayouts.reduce((sum, level) => sum + level.height, 0) + gap * Math.max(0, count - 1);
+  const defaultMaxHeight = compact ? 6.2 : 8.8;
+  const maxHeight = authoredHeight === undefined ? Math.min(defaultMaxHeight, naturalHeight) : Math.max(1.8, authoredHeight);
+  const scale = naturalHeight > maxHeight ? Math.max(0.74, (maxHeight - gap * Math.max(0, count - 1)) / Math.max(0.1, naturalHeight - gap * Math.max(0, count - 1))) : 1;
+  let y = 0;
+  const laidOut = rawLayouts.map((level) => {
+    const height = Math.max(compact ? 0.54 : 0.66, level.contentMinHeight, level.height * scale);
+    const out = pyramidLevelWithHeight(level, height, theme);
+    out.y = y;
+    y += height + gap;
+    return out;
+  });
+  const totalHeight = Math.max(0.1, y - (laidOut.length > 0 ? gap : 0));
+  return { width, height: totalHeight, fixedHeight: Math.min(totalHeight, maxHeight), levels: laidOut };
+}
+
+function pyramidLevelIntrinsicLayout(
+  rec: Record<string, unknown>,
+  index: number,
+  count: number,
+  pyramidWidth: number,
+  topRatio: number,
+  bottomRatio: number,
+  compact: boolean,
+  theme: SimpleTheme,
+  style: PyramidStyleOptions,
+): PyramidLevelLayout {
+  const progress = count <= 1 ? 1 : index / (count - 1);
+  const authoredRatio = numberValue(rec.widthRatio, undefined) ?? numberValue(rec.ratio, undefined);
+  const ratio = authoredRatio === undefined
+    ? topRatio + (bottomRatio - topRatio) * progress
+    : Math.max(0.16, Math.min(1, authoredRatio));
+  const width = Math.max(compact ? 2.0 : 2.4, Math.min(pyramidWidth, numberValue(rec.width, pyramidWidth * ratio)));
+  const x = (pyramidWidth - width) / 2;
+  const titleStyle = treeChartStyleKey(rec.titleStyle) ?? style.titleStyle;
+  const bodyStyle = treeChartStyleKey(rec.bodyStyle) ?? style.bodyStyle;
+  const titleAlign = pyramidTextAlign(rec.titleAlign ?? rec.align, style.titleAlign);
+  const bodyAlign = pyramidTextAlign(rec.bodyAlign ?? rec.align, style.bodyAlign);
+  const titleWeight = treeChartFontWeight(rec.titleWeight) ?? style.titleWeight;
+  const bodyWeight = treeChartFontWeight(rec.bodyWeight) ?? style.bodyWeight;
+  const icon = treeChartIconLayout(rec, compact);
+  const badges = treeChartBadgeLayouts(rec, compact);
+  const padding = compact ? 0.12 : 0.16;
+  const sideInset = pyramidLevelSafeInsetForRatioBand(style, width, 0.38, 0.96, compact ? 0.08 : 0.11);
+  const contentX = Math.max(padding, sideInset);
+  const contentW = Math.max(0.3, width - contentX * 2);
+  const headerInset = pyramidLevelSafeInsetForRatioBand(style, width, 0.03, 0.34, compact ? 0.08 : 0.11);
+  const headerX = Math.max(padding, headerInset);
+  const headerW = Math.max(0.3, width - headerX * 2);
+  const titleReserve = icon ? icon.size + (compact ? 0.06 : 0.08) : 0;
+  const titleText = orgChartTrimToWidth(theme, officeTitleOf(rec, `Level ${index + 1}`), Math.max(0.2, headerW - titleReserve), titleStyle, titleWeight);
+  const bodyLines = pyramidBodyLines(theme, rec, contentW, bodyStyle, bodyWeight, compact)
+    .map((line) => orgChartTrimToWidth(theme, line, contentW, bodyStyle, bodyWeight))
+    .filter(Boolean);
+  const contentItems = pyramidContentItemLayouts(theme, rec, contentW, bodyStyle, bodyWeight, compact);
+  const badgeTotalWidth = badges.reduce((sum, badge) => sum + badge.width, 0) + Math.max(0, badges.length - 1) * (compact ? 0.05 : 0.06);
+  const badgeInline = badges.length > 0 && titleAlign === "left" && headerW - titleReserve - badgeTotalWidth > (compact ? 0.72 : 0.92);
+  const titleHeight = Math.max(icon ? icon.size : 0, compact ? 0.36 : 0.42);
+  const bodyLineHeight = pyramidBodyLineHeight(theme, bodyStyle, bodyLines.join(""));
+  const bodyHeight = bodyLines.length > 0 ? bodyLines.length * bodyLineHeight + Math.max(0, bodyLines.length - 1) * (compact ? 0.01 : 0.02) + 0.04 : 0;
+  const contentRowHeight = contentItems.length > 0 ? Math.max(...contentItems.map((item) => item.y + item.height)) : 0;
+  const badgeHeight = badges.length > 0 ? compact ? 0.44 : 0.50 : 0;
+  const explicitHeight = numberValue(rec.height, undefined);
+  const weightHeight = numberValue(rec.heightWeight, undefined) ?? numberValue(rec.weight, undefined);
+  const contentMinHeight = (compact ? 0.24 : 0.32)
+    + titleHeight
+    + (bodyHeight > 0 ? (compact ? 0.04 : 0.06) + bodyHeight : 0)
+    + (contentRowHeight > 0 ? (compact ? 0.06 : 0.08) + contentRowHeight : 0)
+    + (badgeHeight > 0 && !badgeInline ? (compact ? 0.04 : 0.06) + badgeHeight : 0);
+  let height = explicitHeight ?? (
+    (compact ? 0.28 : 0.34)
+    + titleHeight
+    + bodyHeight
+    + (contentRowHeight > 0 ? (compact ? 0.06 : 0.08) + contentRowHeight : 0)
+    + (badges.length > 0 && !badgeInline ? (compact ? 0.04 : 0.06) + badgeHeight : 0)
+    + (weightHeight !== undefined ? Math.max(0, weightHeight - 1) * 0.16 : 0)
+  );
+  height = Math.max(height, contentMinHeight);
+  const authoredMaxHeight = explicitHeight === undefined ? (compact ? 1.54 : 1.86) : 3.2;
+  const maxReadableHeight = Math.max(contentMinHeight, authoredMaxHeight);
+  height = Math.max(compact ? 0.62 : 0.74, Math.min(maxReadableHeight, height));
+  return pyramidLevelWithHeight({
+    rec,
+    index,
+    width,
+    height,
+    contentMinHeight,
+    bodyHeight,
+    contentRowHeight,
+    badgeHeight,
+    x,
+    y: 0,
+    contentX,
+    contentY: 0,
+    contentW,
+    contentH: 0,
+    headerX,
+    headerW,
+    titleText,
+    titleHeight,
+    bodyLines,
+    contentItems,
+    badges,
+    badgeInline,
+    icon,
+    titleStyle,
+    bodyStyle,
+    titleAlign,
+    bodyAlign,
+    titleWeight,
+    bodyWeight,
+  }, height, theme);
+}
+
+function pyramidLevelWithHeight(level: PyramidLevelLayout, height: number, _theme: SimpleTheme): PyramidLevelLayout {
+  const paddingY = height < 0.82 ? 0.12 : height < 1.45 ? 0.16 : 0.20;
+  return {
+    ...level,
+    height,
+    contentY: paddingY,
+    contentH: Math.max(0.2, height - paddingY * 2),
+  };
+}
+
+function pyramidLevelSafeInsetForRatioBand(
+  style: PyramidStyleOptions,
+  width: number,
+  startRatio: number,
+  endRatio: number,
+  padding: number,
+): number {
+  if (style.shape !== "trapezoid") return 0.06 + padding;
+  const start = pyramidLevelBoundaryInsetAtRatio(style, width, startRatio);
+  const end = pyramidLevelBoundaryInsetAtRatio(style, width, endRatio);
+  return Math.min(Math.max(0.06, width / 2 - 0.18), Math.max(start, end) + padding);
+}
+
+function pyramidLevelBandBox(
+  layout: PyramidLevelLayout,
+  style: PyramidStyleOptions,
+  y: number,
+  height: number,
+  padding: number,
+): { x: number; w: number } {
+  const safeHeight = Math.max(0.01, layout.height);
+  const startRatio = Math.max(0, Math.min(1, y / safeHeight));
+  const endRatio = Math.max(0, Math.min(1, (y + Math.max(0, height)) / safeHeight));
+  const inset = pyramidLevelSafeInsetForRatioBand(style, layout.width, startRatio, endRatio, padding);
+  return { x: inset, w: Math.max(0.25, layout.width - inset * 2) };
+}
+
+function pyramidLevelBoundaryInsetAtRatio(style: PyramidStyleOptions, width: number, ratio: number): number {
+  if (style.shape !== "trapezoid") return 0;
+  const t = Math.max(0, Math.min(1, ratio));
+  const maxInset = pyramidLevelMaxBoundaryInset(width);
+  return style.direction === "inverted" ? maxInset * t : maxInset * (1 - t);
+}
+
+function pyramidLevelMaxBoundaryInset(width: number): number {
+  return Math.min(width * 0.27, Math.max(0.18, width * 0.21));
+}
+
+function pyramidLevelNode(id: string, layout: PyramidLevelLayout, node: DomNode, style: PyramidStyleOptions): DomNode {
+  const tone = officeToneOf(layout.rec, node.tone || officeToneAt(layout.index, node.tone));
+  const colors = toneToColors(tone);
+  const shapePreset = style.shape === "trapezoid" ? "trapezoid" : "roundRect";
+  const titleY = layout.contentY;
+  const iconGap = layout.icon ? 0.08 : 0;
+  const iconReserve = layout.icon ? layout.icon.size + iconGap : 0;
+  const titleBoxH = Math.max(layout.titleHeight, layout.icon?.size ?? 0.34);
+  const titleBox = pyramidLevelBandBox(layout, style, titleY, titleBoxH, 0.08);
+  const inlineBadgeWidth = layout.badgeInline
+    ? layout.badges.reduce((sum, badge) => sum + badge.width, 0) + Math.max(0, layout.badges.length - 1) * 0.06 + 0.10
+    : 0;
+  const titleW = Math.max(0.2, titleBox.w - iconReserve - inlineBadgeWidth);
+  const bodyY = titleY + Math.max(layout.icon?.size ?? 0, 0.34) + 0.06;
+  const hasBlockBadge = layout.badges.length > 0 && !layout.badgeInline;
+  const badgeY = layout.badgeInline
+    ? titleY + Math.max(0, (titleBoxH - layout.badgeHeight) / 2)
+    : layout.height - layout.contentY - layout.badgeHeight;
+  const flowBottomY = layout.badgeInline ? layout.height - layout.contentY : badgeY;
+  const bodyBoxH = Math.max(0.2, Math.min(layout.bodyHeight + 0.04, flowBottomY - bodyY - (hasBlockBadge ? 0.06 : 0)));
+  const contentRowGap = layout.bodyLines.length > 0 ? 0.08 : 0;
+  const contentRowY = bodyY + (layout.bodyLines.length > 0 ? bodyBoxH : 0) + contentRowGap;
+  const contentRowH = Math.max(0, Math.min(layout.contentRowHeight, flowBottomY - contentRowY - (hasBlockBadge ? 0.06 : 0)));
+  const bodyBox = pyramidLevelBandBox(layout, style, bodyY, bodyBoxH, 0.10);
+  const contentBox = pyramidLevelBandBox(layout, style, contentRowY, contentRowH, 0.09);
+  const badgeBand = pyramidLevelBandBox(layout, style, badgeY, layout.badgeHeight, 0.09);
+  const badgeBox = layout.badgeInline
+    ? { x: Math.max(badgeBand.x, titleBox.x + titleBox.w - Math.max(0.1, inlineBadgeWidth - 0.10)), w: Math.max(0.1, inlineBadgeWidth - 0.10) }
+    : badgeBand;
+  const levelRole = style.kind === "funnel" ? "funnel-stage" : "pyramid-level";
+  return {
+    id,
+    type: "pptx-group",
+    role: levelRole,
+    fixedWidth: layout.width,
+    fixedHeight: layout.height,
+    contentWidth: layout.width,
+    contentHeight: layout.height,
+    fit: "contain",
+    align: "left",
+    valign: "top",
+    at: [layout.x, layout.y, layout.width, layout.height],
+    children: [
+      applyAgentSurface({
+        id: `${id}.shape`,
+        type: "shape",
+        role: style.kind === "funnel" ? "funnel-stage-shape" : "pyramid-level-shape",
+        preset: shapePreset,
+        ...(shapePreset === "trapezoid" && style.direction === "inverted" ? { flipV: true } : {}),
+        fill: colors.bg || "surface.subtle",
+        line: colors.line || "divider",
+        lineOpacity: 0.82,
+        cornerRadius: style.shape === "trapezoid" ? 0 : 0.08,
+        at: [0, 0, layout.width, layout.height],
+        zIndex: 1,
+      }, pyramidLevelSurface(style, layout.rec, tone)),
+      ...(style.accent ? [{
+        id: `${id}.accent`,
+        type: "shape" as const,
+        role: style.kind === "funnel" ? "funnel-stage-accent" : "pyramid-level-accent",
+        preset: "rect",
+        fill: stringValue(layout.rec.accentColor, colors.line || "brand.primary"),
+        line: stringValue(layout.rec.accentColor, colors.line || "brand.primary"),
+        at: [titleBox.x, Math.max(0.08, layout.contentY - 0.08), Math.max(0.34, titleBox.w * 0.18), 0.035],
+        zIndex: 2,
+      }] : []),
+      ...(layout.icon ? [treeChartIconNode(`${id}.icon`, layout.rec, tone, layout.icon, titleBox.x, titleY + Math.max(0, (0.36 - layout.icon.size) / 2), 3)] : []),
+      {
+        id: `${id}.title`,
+        type: "text",
+        text: layout.titleText,
+        style: layout.titleStyle,
+        color: "text.primary",
+        ...(layout.titleWeight !== undefined ? { weight: layout.titleWeight } : {}),
+        noWrap: true,
+        align: layout.titleAlign,
+        valign: "middle",
+        at: [titleBox.x + iconReserve, titleY, titleW, titleBoxH],
+        zIndex: 3,
+      },
+      ...(layout.bodyLines.length > 0 ? [{
+        id: `${id}.body`,
+        type: "text" as const,
+        paragraphs: layout.bodyLines.map((line, index) => ({
+          style: layout.bodyStyle,
+          align: layout.bodyAlign,
+          runs: [{
+            text: line,
+            color: "text.secondary",
+            ...(layout.bodyWeight !== undefined ? { weight: layout.bodyWeight } : {}),
+          }],
+          spaceAfter: index < layout.bodyLines.length - 1 ? 0.24 : 0,
+          })),
+          style: layout.bodyStyle,
+          color: "text.secondary",
+          noWrap: true,
+          align: layout.bodyAlign,
+          at: [bodyBox.x, bodyY, bodyBox.w, bodyBoxH],
+          zIndex: 3,
+        }] : []),
+      ...pyramidContentNodes(id, layout, tone, contentBox.x, contentRowY, contentBox.w, contentRowH, style),
+      ...pyramidBadgeNodes(id, layout, tone, badgeBox.x, badgeY, badgeBox.w, style),
+    ],
+  };
+}
+
+function pyramidLevelSurface(style: PyramidStyleOptions, rec: Record<string, unknown>, tone: ComponentTone): AgentSurface {
+  const colors = toneToColors(tone);
+  return {
+    fill: colors.bg || "surface.subtle",
+    line: colors.line || "divider",
+    lineOpacity: 0.82,
+    ...style.levelSurface,
+    ...(surfaceOptions({ id: "pyramid.level.surface", type: "shape", ...rec } as DomNode) as AgentSurface),
+  };
+}
+
+function pyramidAccentTextColor(tone: ComponentTone, colors: { line?: string }): string {
+  return tone === "neutral" ? "text.secondary" : colors.line || "brand.primary";
+}
+
+function pyramidBodyLines(
+  theme: SimpleTheme,
+  rec: Record<string, unknown>,
+  contentW: number,
+  bodyStyle: string,
+  bodyWeight: FontWeight | undefined,
+  compact: boolean,
+): string[] {
+  const lines = orgChartStringLines(rec.body, rec.description, rec.detail, rec.summary);
+  const items = pyramidPackedItemLines(theme, pyramidStringItems(rec.items), contentW, bodyStyle, bodyWeight);
+  const raw = [...lines, ...items].map((line) => line.trim()).filter(Boolean);
+  const limit = pyramidBodyLineLimit(rec, raw.length, contentW, compact);
+  const visible: string[] = [];
+  let hidden = 0;
+  for (const line of raw) {
+    if (visible.length >= limit) {
+      hidden += 1;
+      continue;
+    }
+    const remaining = Math.max(1, limit - visible.length);
+    const wrapped = pyramidWrapTextLines(theme, line, contentW, bodyStyle, bodyWeight, remaining);
+    visible.push(...wrapped);
+    if (wrapped.length >= remaining && orgChartMeasuredLineWidth(theme, line, bodyStyle, bodyWeight) > contentW * ORG_CHART_TEXT_FIT_RATIO) {
+      hidden += 1;
+    }
+  }
+  if (hidden > 0 && visible.length > 0) {
+    const lastIndex = visible.length - 1;
+    const marker = `+${hidden} more`;
+    const candidate = `${visible[lastIndex]} ${marker}`;
+    visible[lastIndex] = orgChartMeasuredLineWidth(theme, candidate, bodyStyle, bodyWeight) <= contentW * ORG_CHART_TEXT_FIT_RATIO
+      ? candidate
+      : marker;
+  }
+  return visible;
+}
+
+function pyramidStringItems(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => !(item && typeof item === "object" && !Array.isArray(item)))
+    .map(String)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function pyramidContentRecords(rec: Record<string, unknown>): Record<string, unknown>[] {
+  const explicit = arrayValue(rec.contents, rec.contentItems, rec.blocks);
+  const raw = explicit.length > 0
+    ? explicit
+    : (Array.isArray(rec.items) && rec.items.some((item) => item && typeof item === "object" && !Array.isArray(item)) ? rec.items : []);
+  return raw.map((item) => {
+    if (item && typeof item === "object" && !Array.isArray(item)) return item as Record<string, unknown>;
+    return { title: String(item ?? "") };
+  }).filter((item) => officeTitleOf(item, "") || officeBodyOf(item, "content", "body", "description", "detail", "summary"));
+}
+
+function pyramidContentItemLayouts(
+  theme: SimpleTheme,
+  rec: Record<string, unknown>,
+  contentW: number,
+  bodyStyle: string,
+  bodyWeight: FontWeight | undefined,
+  compact: boolean,
+): PyramidContentItemLayout[] {
+  const records = pyramidContentRecords(rec);
+  if (records.length === 0) return [];
+  const gap = compact ? 0.06 : 0.08;
+  const minBlockW = Math.min(contentW, compact ? 1.42 : 1.76);
+  const maxNaturalW = Math.max(minBlockW, contentW * 0.48);
+  const rawItems = records.map((item, index) => pyramidContentRawItem(theme, rec, item, index, bodyStyle, bodyWeight, minBlockW, maxNaturalW));
+  const rows: PyramidContentRawItem[][] = [];
+  let row: PyramidContentRawItem[] = [];
+  let rowWidth = 0;
+  let rowMinWidth = 0;
+  for (const item of rawItems) {
+    const natural = Math.max(minBlockW, Math.min(maxNaturalW, item.naturalWidth));
+    const nextWidth = row.length === 0 ? natural : rowWidth + gap + natural;
+    const nextMinWidth = row.length === 0 ? minBlockW : rowMinWidth + gap + minBlockW;
+    if (row.length > 0 && nextWidth > contentW && nextMinWidth > contentW) {
+      rows.push(row);
+      row = [item];
+      rowWidth = natural;
+      rowMinWidth = minBlockW;
+    } else {
+      row.push(item);
+      rowWidth = nextWidth;
+      rowMinWidth = nextMinWidth;
+    }
+  }
+  if (row.length > 0) rows.push(row);
+
+  const layouts: PyramidContentItemLayout[] = [];
+  const rowGap = compact ? 0.06 : 0.08;
+  const padX = compact ? 0.10 : 0.12;
+  const padY = compact ? 0.08 : 0.10;
+  const titleBodyGap = compact ? 0.03 : 0.04;
+  const lineHeight = pyramidBodyLineHeight(theme, bodyStyle, rawItems.map((item) => `${item.title} ${item.body}`).join(" "));
+  let y = 0;
+  for (const rowItems of rows) {
+    const widths = pyramidWeightedWidths(rowItems, contentW, gap, minBlockW);
+    const rowLayouts = rowItems.map((item, index) => {
+      const width = widths[index] ?? minBlockW;
+      const textW = Math.max(0.2, width - padX * 2);
+      const titleLines = pyramidWrapTextLines(theme, item.title || item.body, textW, bodyStyle, "semibold");
+      const bodyLines = item.title ? pyramidWrapTextLines(theme, item.body, textW, bodyStyle, bodyWeight) : [];
+      const titleHeight = titleLines.length * lineHeight;
+      const bodyHeight = bodyLines.length > 0
+        ? bodyLines.length * lineHeight * 0.92 + Math.max(0, bodyLines.length - 1) * 0.02
+        : 0;
+      const height = Math.max(
+        compact ? 0.52 : 0.60,
+        padY * 2 + titleHeight + (bodyHeight > 0 ? titleBodyGap + bodyHeight : 0),
+      );
+      return {
+        rec: item.rec,
+        titleLines,
+        bodyLines,
+        x: 0,
+        y,
+        width,
+        height,
+        titleHeight,
+        bodyHeight,
+        tone: item.tone,
+      };
+    });
+    const rowH = Math.max(...rowLayouts.map((item) => item.height));
+    let x = 0;
+    for (const item of rowLayouts) {
+      layouts.push({ ...item, x, height: rowH });
+      x += item.width + gap;
+    }
+    y += rowH + rowGap;
+  }
+  return layouts;
+}
+
+function pyramidContentRawItem(
+  theme: SimpleTheme,
+  level: Record<string, unknown>,
+  item: Record<string, unknown>,
+  index: number,
+  bodyStyle: string,
+  bodyWeight: FontWeight | undefined,
+  minWidth: number,
+  maxWidth: number,
+): PyramidContentRawItem {
+  const rawTitle = officeTitleOf(item, "");
+  const rawBody = officeBodyOf(item, "content", "body", "description", "detail", "summary");
+  const title = rawTitle || rawBody;
+  const body = rawTitle ? rawBody : "";
+  const titleWidth = orgChartMeasuredLineWidth(theme, title, bodyStyle, "semibold");
+  const bodyWidth = orgChartMeasuredLineWidth(theme, body, bodyStyle, bodyWeight);
+  const longest = Math.max(titleWidth, bodyWidth);
+  const amount = Array.from(`${title} ${body}`.trim()).length;
+  const naturalWidth = Math.max(minWidth, Math.min(maxWidth, longest + 0.28 + Math.min(0.72, amount * 0.006)));
+  const weight = Math.max(1, Math.min(4.5, naturalWidth / Math.max(0.01, minWidth) + Math.log2(amount + 2) * 0.18));
+  return {
+    rec: item,
+    title,
+    body,
+    naturalWidth,
+    weight,
+    tone: officeToneOf(item, level.tone || officeToneAt(index, level.tone)),
+  };
+}
+
+function pyramidWeightedWidths(items: PyramidContentRawItem[], contentW: number, gap: number, minWidth: number): number[] {
+  const count = Math.max(1, items.length);
+  const available = Math.max(0.1, contentW - gap * (count - 1));
+  const safeMin = Math.min(minWidth, available / count);
+  const weights = items.map((item) => Math.max(0.1, item.weight));
+  const totalWeight = weights.reduce((sum, value) => sum + value, 0) || 1;
+  const initial = weights.map((weight) => Math.max(safeMin, available * weight / totalWeight));
+  const total = initial.reduce((sum, width) => sum + width, 0);
+  if (total <= available + 0.001) {
+    const leftover = available - total;
+    const growTotal = weights.reduce((sum, value) => sum + value, 0) || 1;
+    return initial.map((width, index) => width + leftover * (weights[index]! / growTotal));
+  }
+  const overflow = total - available;
+  const shrinkables = initial.map((width) => Math.max(0, width - safeMin));
+  const shrinkTotal = shrinkables.reduce((sum, value) => sum + value, 0);
+  if (shrinkTotal <= 0.001) return initial.map(() => available / count);
+  return initial.map((width, index) => width - overflow * (shrinkables[index]! / shrinkTotal));
+}
+
+function pyramidPackedItemLines(
+  theme: SimpleTheme,
+  items: string[],
+  contentW: number,
+  bodyStyle: string,
+  bodyWeight: FontWeight | undefined,
+): string[] {
+  const rows: string[] = [];
+  const separator = " · ";
+  const maxWidth = Math.max(0.2, contentW * ORG_CHART_TEXT_FIT_RATIO);
+  let row = "";
+  for (const item of items.map((value) => value.trim()).filter(Boolean)) {
+    const candidate = row ? `${row}${separator}${item}` : item;
+    if (row && orgChartMeasuredLineWidth(theme, candidate, bodyStyle, bodyWeight) > maxWidth) {
+      rows.push(row);
+      row = item;
+    } else {
+      row = candidate;
+    }
+  }
+  if (row) rows.push(row);
+  return rows;
+}
+
+function pyramidWrapTextLines(
+  theme: SimpleTheme,
+  text: string,
+  maxWidthCm: number,
+  styleKey: string,
+  weightOverride: FontWeight | undefined,
+  maxLines = Number.POSITIVE_INFINITY,
+): string[] {
+  const clean = String(text || "").trim();
+  if (!clean || maxLines <= 0) return [];
+  const style = textStyle(theme, styleKey, styleKey);
+  const weight = weightOverride ?? style.weight ?? style.fontWeight;
+  const measurer = createTextMeasurer(theme);
+  const limit = Math.max(0.08, maxWidthCm * ORG_CHART_TEXT_FIT_RATIO);
+  if (measurer.textWidth(clean, style.fontSize, weight) <= limit) return [clean];
+  const tokens = clean.includes(" ") ? clean.match(/\S+\s*/g) || [clean] : Array.from(clean);
+  const lines: string[] = [];
+  let line = "";
+  for (const token of tokens) {
+    const candidate = `${line}${token}`;
+    if (line && measurer.textWidth(candidate.trimEnd(), style.fontSize, weight) > limit) {
+      lines.push(line.trimEnd());
+      line = token.trimStart();
+      if (lines.length >= maxLines) break;
+    } else {
+      line = candidate;
+    }
+  }
+  if (lines.length < maxLines && line.trim()) lines.push(line.trimEnd());
+  if (lines.length <= maxLines) return lines;
+  const visible = lines.slice(0, maxLines);
+  const lastIndex = visible.length - 1;
+  visible[lastIndex] = orgChartTrimToWidth(theme, visible[lastIndex] || clean, maxWidthCm, styleKey, weightOverride);
+  return visible;
+}
+
+function pyramidBodyLineLimit(rec: Record<string, unknown>, rawCount: number, contentW: number, compact: boolean): number {
+  const explicit = numberValue(rec.maxBodyLines, undefined) ?? numberValue(rec.bodyLineLimit, undefined);
+  if (explicit !== undefined) return Math.max(0, Math.min(8, Math.floor(explicit)));
+  if (rawCount <= 0) return 0;
+  if (compact) return contentW >= 4.0 ? 2 : 1;
+  if (contentW >= 5.2) return 4;
+  if (contentW >= 2.8) return 3;
+  return 2;
+}
+
+function pyramidBodyLineHeight(theme: SimpleTheme, styleKey: string, sample: string): number {
+  const measured = treeChartSingleLineHeight(theme, styleKey, sample || "Text");
+  return Math.max(0.52, Math.min(0.56, measured - 0.04));
+}
+
+function pyramidContentNodes(
+  id: string,
+  layout: PyramidLevelLayout,
+  levelTone: ComponentTone,
+  x: number,
+  y: number,
+  contentW: number,
+  rowH: number,
+  style: PyramidStyleOptions,
+): DomNode[] {
+  if (layout.contentItems.length === 0 || rowH <= 0.24) return [];
+  const nodes: DomNode[] = [];
+  for (let index = 0; index < layout.contentItems.length; index += 1) {
+    const item = layout.contentItems[index]!;
+    const width = Math.min(item.width, Math.max(0.5, contentW - item.x));
+    if (width <= 0.48) break;
+    const colors = toneToColors(item.tone || levelTone);
+    const padX = 0.10;
+    const padY = 0.08;
+    const titleOnly = item.bodyLines.length === 0;
+    const titleH = titleOnly ? Math.max(0.26, item.height - padY * 2) : Math.max(0.26, item.titleHeight);
+    const bodyY = padY + titleH + (titleOnly ? 0 : 0.04);
+    nodes.push({
+      id: `${id}.content.${index}`,
+	      type: "pptx-group",
+	      role: style.kind === "funnel" ? "funnel-stage-content" : "pyramid-level-content",
+	      fixedWidth: width,
+	      fixedHeight: item.height,
+      contentWidth: width,
+	      contentHeight: item.height,
+	      fit: "contain",
+	      at: [x + item.x, y + item.y, width, item.height],
+	      zIndex: 4,
+	      children: [
+        applyAgentSurface({
+          id: `${id}.content.${index}.bg`,
+          type: "shape",
+          role: style.kind === "funnel" ? "funnel-stage-content-bg" : "pyramid-level-content-bg",
+          preset: "roundRect",
+          fill: "surface",
+          fillOpacity: 0.78,
+          line: colors.line || "divider",
+          lineOpacity: 0.18,
+          cornerRadius: 0.06,
+          at: [0, 0, width, item.height],
+          zIndex: 4,
+        }, pyramidContentSurface(item, colors, style.kind)),
+        {
+          id: `${id}.content.${index}.title`,
+          type: "text",
+          paragraphs: item.titleLines.map((line, lineIndex) => ({
+            style: layout.bodyStyle,
+            align: layout.bodyAlign,
+            runs: [{
+              text: line,
+              color: "text.primary",
+              weight: "semibold",
+            }],
+            spaceAfter: lineIndex < item.titleLines.length - 1 ? 0.08 : 0,
+          })),
+          style: layout.bodyStyle,
+          color: "text.primary",
+          weight: "semibold",
+          noWrap: true,
+          align: layout.bodyAlign,
+          valign: titleOnly ? "middle" : "bottom",
+          at: [padX, padY, Math.max(0.1, width - padX * 2), titleH],
+          zIndex: 5,
+        },
+        ...(item.bodyLines.length > 0 ? [{
+          id: `${id}.content.${index}.body`,
+          type: "text" as const,
+          paragraphs: item.bodyLines.map((line, lineIndex) => ({
+            style: layout.bodyStyle,
+            align: layout.bodyAlign,
+            runs: [{
+              text: line,
+              color: "text.secondary",
+              ...(layout.bodyWeight !== undefined ? { weight: layout.bodyWeight } : {}),
+            }],
+            spaceAfter: lineIndex < item.bodyLines.length - 1 ? 0.12 : 0,
+          })),
+          style: layout.bodyStyle,
+          color: "text.secondary",
+          ...(layout.bodyWeight !== undefined ? { weight: layout.bodyWeight } : {}),
+          noWrap: true,
+          align: layout.bodyAlign,
+          valign: "top" as const,
+          at: [padX, bodyY, Math.max(0.1, width - padX * 2), Math.max(0.18, item.height - padY - bodyY)],
+          zIndex: 5,
+        }] : []),
+      ],
+    });
+  }
+  return nodes;
+}
+
+function pyramidContentSurface(item: PyramidContentItemLayout, colors: { line?: string }, kind: "pyramid" | "funnel"): AgentSurface {
+  return {
+    fill: "surface",
+    fillOpacity: 0.78,
+    line: colors.line || "divider",
+    lineOpacity: 0.18,
+    ...(surfaceOptions({ id: `${kind}.level.content.surface`, type: "shape", ...item.rec } as DomNode) as AgentSurface),
+  };
+}
+
+function pyramidBadgeNodes(
+  id: string,
+  layout: PyramidLevelLayout,
+  tone: ComponentTone,
+  x: number,
+  y: number,
+  contentW: number,
+  style: PyramidStyleOptions,
+): DomNode[] {
+  if (layout.badges.length === 0) return [];
+  const colors = toneToColors(tone);
+  const accentText = pyramidAccentTextColor(tone, colors);
+  const gap = 0.06;
+  let cursor = x;
+  const nodes: DomNode[] = [];
+  for (let index = 0; index < layout.badges.length; index += 1) {
+    const badge = layout.badges[index]!;
+    if (cursor + badge.width > x + contentW + 0.001) break;
+    nodes.push({
+      id: `${id}.badge.${index}`,
+      type: "text",
+      role: style.kind === "funnel" ? "funnel-stage-badge" : "pyramid-level-badge",
+      text: badge.text,
+      style: "badge",
+      color: accentText,
+      fill: "surface",
+      line: colors.line || "divider",
+      lineOpacity: 0.32,
+      cornerRadius: layout.badgeHeight / 2,
+      align: "center",
+      valign: "middle",
+      noWrap: true,
+      at: [cursor, y, badge.width, layout.badgeHeight],
+      zIndex: 3,
+    });
+    cursor += badge.width + gap;
+  }
+  return nodes;
 }
 
 function vennDiagramNode(slideId: string, name: string, node: DomNode): DomNode {
@@ -7312,14 +9043,14 @@ function exampleValueForField(name: ComponentName, key: string, prop: PropDefini
 function exampleArrayValue(name: ComponentName, key: string): unknown[] {
   if (key === "labels" || key === "sections" || key === "features" || key === "xLabels" || key === "yLabels") return ["A", "B", "C"];
   if (key === "series") return [{ name: "Series", values: [10, 20, 30] }];
-  if ((name === "org-chart" || name === "hierarchy-tree" || name === "decision-tree") && key === "nodes") {
+  if ((name === "org-chart" || name === "tree-chart" || name === "decision-tree") && key === "nodes") {
     return [
       { id: "root", title: name === "org-chart" ? "CEO" : "Root", role: "Owner", level: 0, tone: "brand" },
       { id: "ops", title: "Operations", parent: "root", level: 1, tone: "positive" },
       { id: "growth", title: "Growth", parent: "root", level: 1, tone: "warning" },
     ];
   }
-  if ((name === "org-chart" || name === "hierarchy-tree" || name === "decision-tree") && key === "links") return [{ source: "root", target: "ops" }];
+  if ((name === "org-chart" || name === "tree-chart" || name === "decision-tree") && key === "links") return [{ source: "root", target: "ops" }];
   if ((name === "roadmap-plan" || name === "gantt-chart") && key === "periods") return ["Q1", "Q2", "Q3", "Q4"];
   if (name === "roadmap-plan" && key === "lanes") return [{ label: "Product", items: [{ title: "Pilot", start: "Q1", end: "Q2" }, { title: "Launch", period: "Q3", tone: "positive" }] }];
   if (name === "gantt-chart" && key === "tasks") return [{ title: "Discovery", start: "Q1", end: "Q2", owner: "PM" }, { title: "Rollout", start: "Q3", end: "Q4", tone: "positive" }];

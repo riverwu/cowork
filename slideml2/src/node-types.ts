@@ -289,7 +289,7 @@ const SHAPE_DETAILED: Record<string, NodeFieldInfo> = {
       "leftBracket", "rightBracket", "leftBrace", "rightBrace",
       "arrow-right", "arrow-left", "arrow-up", "arrow-down",
       "leftRightArrow", "upDownArrow", "bentArrow",
-      "straightConnector", "elbowConnector", "curvedConnector",
+      "straightConnector", "elbowConnector", "orthogonalConnector", "curvedConnector",
       "callout", "chevron", "star-5", "star-8", "parallelogram",
       "flowChartProcess", "flowChartDecision", "flowChartData", "flowChartTerminator", "flowChartDocument",
       "cylinder", "cube", "gear6", "heart", "lightningBolt", "cloud",

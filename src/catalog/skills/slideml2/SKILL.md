@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.44
+version: 1.0.45
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -729,11 +729,20 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.8.
 - `swot-matrix` — Strengths / weaknesses / opportunities / threats. Use only for true SWOT. type='swot-matrix' required={strengths, weaknesses, opportunities, threats}
 - `pricing-card` — One pricing tier; mark recommended semantically. type='pricing-card' required={plan, price, features} optional={period, tone:neutral|brand, ctaText}
 - `table-card` — Structured comparison or lookup table. Hand-authored rows may be arrays, `{cells:[...]}`, or objects; for varied display labels use `encoding.columns:[{key,label}]`. Cells may be plain strings or objects with `{text,value,runs,footnoteRefs,fill,color,tone,bold,align,valign,colspan,rowspan,padding,border,textRotation}`. type='table-card' required={rows | data.rows | bind+encoding:{columns?}} optional={title, badge, insight, headers, columns:[{key|field,header|label,width?}], colWidths, rowHeights, density, cellPadding, borders:{color,width,dash,left?,right?,top?,bottom?}, borderDash, bandRows, bandCols, tableStyleId, caption, tone, variant, surface, bind, encoding} capacity="compact 6-8 row business table ~4.5-6cm body; paginate before dropping rows/columns"
+- `analytic-table` — Business analysis table for KPI, variance, status, ranking, interval, and composition views where exact row values and in-cell visuals must coexist. It displays finalized data; calculate formulas upstream. Use `renderMode:'native'` for one editable PPT table and `renderMode:'composed'` when cell visuals must be real inspectable shapes. Column `visual` supports `bar|progress|delta|badge|heat|sparkline|traffic-light|rank|range|stack`. For interval/range cells, set column `visual:{type:'range',domainMin,domainMax}` and row value `{low,high,value?,target?,display?}`: `low/high` draw the interval band, `value` draws the current marker, and `target` draws the goal marker. type='analytic-table' required={columns:[{key|field|id,label|header,width?,format?,align?,visual?}], rows | data.rows | bind+encoding:{columns?}} optional={title, columnGroups, renderMode:native|composed, badge, insight, caption, density, tone, variant, cellPadding, borders, bandRows, tableStyleId, surface} capacity="compact 6-8 row business analysis table ~4.5-6cm body; use composed mode plus visual QA for dense cell visuals"
 - `comparison-table` — Multi-option matrix; features rows, options columns. type='comparison-table' required={features, options:[{name, values, recommended?}]} optional={title}
+- `stakeholder-map` — Influence × interest stakeholder map. type='stakeholder-map' required={items:[{label|name|title, influence|y:low|high, interest|x:low|high, role?, tone?}]} optional={title, xAxis, yAxis, quadrantLabels, density, tone, variant, surface}
+- `raci-matrix` — Responsibility matrix for decision rights. type='raci-matrix' required={roles, tasks:[string|{title|label, assignments?}]} optional={title, assignments:[[R|A|C|I|-]], density, variant, surface}
+- `decision-tree` — Branching decision/qualification tree. type='decision-tree' required={nodes:[{id?,title|label|name, condition?, outcome?, parent?, level?, tone?}]} optional={links, title, density, tone, variant, surface}
 
 ### 3.5 Sequence & Causality
 
 - `process-flow` — Connected workflow. Horizontal works for 2–3 stages; rich 4+ may auto-wrap. type='process-flow' required={steps:[{title|label, body|description, status?, owner?, time?, icon?, iconSrc?:image-ref, number?, marker?, accentColor?, bullets?}]} optional={items (alias), direction, variant:plain|cards, density, marker, showNumbers, connector:arrow|chevron|line|none, connectorDash, connectorColor, placement:top|center, spread:compact|balanced|fill, stepAccent:top|none, stepSurface, surface} capacity="horizontal: 2-3 stages; 4+ rich → vertical or split"
+- `roadmap-plan` — Multi-lane plan by period. type='roadmap-plan' required={lanes:[{label|name|title, items:[{title|label, period?|start?, end?, span?, status?, tone?, owner?}]}]} optional={title, periods, density, tone, variant, surface}
+- `gantt-chart` — Task schedule by period columns. type='gantt-chart' required={tasks:[{title|label|name, start?, end?, period?, owner?, status?, progress?, tone?}]} optional={title, periods, milestones, density, tone, variant, surface}
+- `cycle-diagram` — Closed-loop process/cadence. type='cycle-diagram' required={steps:[{title|label|name, body?, tone?}]} optional={title, center, direction:clockwise|counterclockwise, density, tone, variant, surface}
+- `value-chain` — Transformation chain across activities. type='value-chain' required={stages:[{title|label|name, input?, output?, owner?, body?, tone?}]} optional={title, direction:horizontal|vertical, density, tone, variant, surface}
+- `calendar-plan` — Calendar-style campaign/operating plan. type='calendar-plan' required={events:[{day, title|label|name, body?, tone?}]} optional={title, month, weekdays, density, tone, variant, surface}
 - `timeline` — Dated milestones; sequence-organized meaning. Items: `{time|date|year, title?, body?, tone?, shape?, icon?, iconSrc?, content?}`. Horizontal rich content >5 auto-flips vertical; horizontal simple >6 wraps to 4-column rows. type='timeline' required={items} optional={direction, orientation (alias), gap}
 - `outline` — TOC/agenda. Numbers are never auto-generated. type='outline' required={items:[{title, number?, body?, page?, tone?}]} optional={showPages, density:comfortable|compact|auto, tone:brand|neutral}
 - `numbered-grid` — Designed ordered priorities/principles, each a peer module. type='numbered-grid' required={items:[{title|label|name, body|description|text, marker?, tone?}]} optional={columns, tone, marker, numberStyle:chip|plain}
@@ -773,18 +782,86 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.8.
 ### 3.8 Data Visualization
 
 - `scorecard` — Status-coded health grid. type='scorecard' required={items:[{label, value, status?:good|warning|danger|neutral, delta?, trend?}]} optional={columns}
-- `funnel` — Conversion funnel; chevrons sized by value. type='funnel' required={stages:[{label, value, valueLabel?, tone?}] (max 6)} optional={showDrop}
+- `funnel` — Conversion/pipeline narrowing as an editable inverted pyramid made from PowerPoint trapezoid stages. Not a native chart and not a chevron chain. type='funnel' required={stages:[{label|title|name, value, valueLabel?, body?, items?:string[], contents?:[{title|label|name, content|body?, tone?, fill?, line?, surface?}], icon?|iconSrc?, badge?|badges?, tone?, widthRatio?|ratio?, height?|heightWeight?, fill?|line?|surface?}] (max 6)} optional={showDrop=true, titleStyle, bodyStyle, titleAlign:left|center|right, bodyAlign:left|center|right, topWidthRatio, bottomWidthRatio, minWidthRatio, maxWidthRatio, gap, levelSurface, density, tone, variant, surface} capacity="3-5 stages; bottom stages are narrow, so keep final-stage body short or set widthRatio; put multiple content blocks on wide upper/middle stages; valueLabel preserves the visible KPI and showDrop adds drop/gain text"
 - `gauge` — Single-value progress dial with threshold bands. Different from `progress-bar` (no zones). type='gauge' required={value, label} optional={max, unit, thresholds:[{upTo, tone:danger|warning|positive|brand, label?}]}
 - `heatmap` — N×M colored value matrix, max 12×12. type='heatmap' required={xLabels, yLabels, values:[[number]]} optional={palette:warm|cool|diverging, showValues}
 - `matrix-2x2` — 2-axis quadrant matrix. Two authoring modes: `items:[{label,x,y,tone?}]` and/or `quadrantLabels:{tl,tr,bl,br}`; pass at least one. type='matrix-2x2' required={xAxis:{low,high}, yAxis:{low,high}} optional={items, quadrantLabels, quadrantTones}
+- `sankey` — Stage-to-stage flow split/recombination. type='sankey' required={nodes:[{id?,label|name|title, stage?, value?, tone?}], links:[{source|from,target|to,value,label?,tone?}]} optional={title, stages, density, tone, variant, surface} capacity="2-4 stages; merge minor flows into Other before the diagram becomes dense"
 - `trend-line` — Mini sparkline (decoration next to a metric or heading). type='trend-line' required={values (max 24)} optional={tone, height}
 - `stat-flow` — Stat blocks connected by operator text for formulas/KPI cause-effect. type='stat-flow' required={steps:[{value,label,tone?} | {connector: string}] (max 10)}
 - `donut-summary` — Primary share + remainder legend. Different from `chart-card` pie. type='donut-summary' required={primary:{label,value}} optional={others, unit, tone}
 - `range-plot` — Horizontal min..max range bars (salary bands, CI, ranges). type='range-plot' required={items:[{label,min,max,point?,unit?}]} optional={tone}
+- `org-chart` — People/role reporting hierarchy with variable-size tree layout, grouped editable node cards, adaptive card sizes, personnel-list detail, auto-spreading gaps inside the available region, and editable PowerPoint connector lines. type='org-chart' required={nodes:[{id?, name|label|title, role|position?, team?, body|description?, people|members|personnel?:string[], parent|reportsTo?, level?, tone?, size?|width?|height?, icon?|iconSrc?|avatarSrc?, badge?|badges?, fill?|line?|surface?}]} optional={links, title, density, detail:auto|compact|full, treeMaxWidth, treeMaxHeight, spread=true, titleStyle, bodyStyle, nodeSurface, connectorLine, connectorLineWidth, connectorLineDash, connectorLineOpacity, tone, variant, surface} capacity="2-5 readable levels; prefer parent/reportsTo links over level; pass treeMaxWidth/treeMaxHeight or fixedWidth/fixedHeight when placing the tree in a smaller region; pass detail only where useful because dense lower levels become title-only; split by function when ORG_OVERFLOW appears"
+- `tree-chart` — Generic non-people tree for categories, capabilities, products, systems, metrics, issues, or taxonomy maps. Uses the same variable-size tree layout as org-chart, grouped editable node cards, adaptive spacing, and editable PowerPoint connector lines. type='tree-chart' required={nodes:[{id?, label|title|name, body|description|value?, parent?, level?, tone?, size?|width?|height?, icon?|iconSrc?, badge?|badges?, fill?|line?|surface?}]} optional={links, title, density, detail:auto|compact|full, treeMaxWidth, treeMaxHeight, spread=true, titleStyle, bodyStyle, nodeSurface, connectorLine, connectorLineWidth, connectorLineDash, connectorLineOpacity, tone, variant, surface} capacity="2-5 readable levels; prefer parent links over level; connector labels can cover light decision-tree needs; pass treeMaxWidth/treeMaxHeight or fixedWidth/fixedHeight when placing the tree in a smaller region; split very wide taxonomies by branch"
+- `architecture-map` — Layered system/business architecture. type='architecture-map' required={layers:[{label|name|title, services|items:[string|{label|title,tone?}], tone?}]} optional={title, integrations, density, tone, variant, surface}
+- `geo-region-map` — Region performance map/list without GIS asset dependency. type='geo-region-map' required={regions:[{label|name|title,value?,status?,body?,tone?}]} optional={title, legend, density, tone, variant, surface}
+- `kanban-board` — Status columns and work cards. type='kanban-board' required={columns:[{title|label|name, items:[string|{title|label, body?, owner?, due?, tone?}], tone?}]} optional={title, density, tone, variant, surface}
+- `pyramid` — Tiered hierarchy, maturity model, strategy stack, priority ladder, or value hierarchy as editable PowerPoint trapezoid/band levels. Each level can hold text plus multiple horizontal content blocks with width estimated from content volume. type='pyramid' required={levels:[{label|title|name, body?, items?:string[], contents?:[{title|label|name, content|body?, tone?, fill?, line?, surface?}], icon?|iconSrc?, badge?|badges?, tone?, widthRatio?|ratio?, height?|heightWeight?, titleAlign?, bodyAlign?, fill?|line?|surface?}]} optional={title, orientation:top-down|bottom-up, shape:trapezoid|stepped|band, topWidthRatio, bottomWidthRatio, gap, titleStyle, bodyStyle, titleAlign:left|center|right, bodyAlign:left|center|right, levelSurface, density, tone, variant, surface} capacity="3-5 levels; use contents for horizontal blocks inside a wide level; lower/wider levels can carry more blocks; avoid separate metric fields because visible KPIs belong in body, items, badges, or content blocks"
+- `venn-diagram` — 2-3 set overlap diagram. type='venn-diagram' required={sets:[{label|name|title, body?, tone?}]} optional={title, intersections, density, tone, variant, surface}
 - `factorial-matrix` — Labeled 2D matrix; rows + columns both carry meaning. type='factorial-matrix' required={rows, columns, cells:[[string | {text,tone}]]} optional={title}
 - `probe-flow` — Experiment/probe walkthrough: input → step(s) → observation. type='probe-flow' required={steps:[{title, body?}]} optional={items (alias), direction}
 - `failure-taxonomy` — Failure/risk categories with rate chips and examples. type='failure-taxonomy' required={items:[{title|name, rate|value?, examples?|bullets?, body?}]} optional={columns, tone:brand|warning|danger|neutral}
 - `main-effect-comparison` — Main-effect before/after with interpretation. type='main-effect-comparison' required={beforeLabel, beforeValue, afterLabel, afterValue} optional={title, insight, trend, deltaLabel}
+
+Office structure quick patterns:
+
+- Prefer component-level `tone`, `surface`, `nodeSurface`, `levelSurface`, `titleStyle`, and `bodyStyle` over raw shapes. These components inherit deck/theme typography; only override font size, weight, or color when the slide needs explicit emphasis, and do not set a font family unless the user asks.
+- Use `surface:{line:"none"}` or per-node/per-level `line:"none"` for borderless cards/levels. Use `fill`, `line`, and `surface` on individual nodes/stages/levels when the business meaning needs local emphasis.
+- For `org-chart` and `tree-chart`, use `parent`/`reportsTo` links as the primary hierarchy. `level` is only a fallback when parent links are unavailable.
+
+```json
+{
+  "type": "org-chart",
+  "detail": "full",
+  "spread": true,
+  "connectorLine": "muted",
+  "nodes": [
+    { "id": "coo", "name": "COO Office", "role": "Operating cadence", "people": ["Nina", "Mei", "Alex"], "badge": "3 people", "tone": "brand" },
+    { "id": "people", "name": "People Operations", "role": "Hiring, comp, benefits", "parent": "coo", "icon": "diamond", "badge": "5 people", "tone": "positive" }
+  ]
+}
+```
+
+```json
+{
+  "type": "tree-chart",
+  "title": "Customer operations capability map",
+  "nodes": [
+    { "id": "root", "label": "Customer ops platform", "body": "Assisted service model", "tone": "brand" },
+    { "id": "data", "label": "Data layer", "body": "Signals and policy context", "parent": "root", "badge": "Foundation" }
+  ]
+}
+```
+
+```json
+{
+  "type": "pyramid",
+  "title": "Operating maturity pyramid",
+  "shape": "trapezoid",
+  "levels": [
+    { "title": "North-star metrics", "body": "Retention 108% / renewal 94%", "badge": "Target 94%", "tone": "brand" },
+    { "title": "Growth levers", "body": "Expansion, win-back, low-touch operations", "contents": [
+      { "title": "Expansion", "content": "NRR 108%", "tone": "brand" },
+      { "title": "Win-back", "content": "Closed loop 91%", "tone": "warning" }
+    ], "tone": "positive" }
+  ]
+}
+```
+
+```json
+{
+  "type": "funnel",
+  "title": "Revenue conversion funnel",
+  "showDrop": true,
+  "stages": [
+    { "label": "Qualified demand", "value": 4200, "valueLabel": "4,200 leads", "body": "Inbound and partner sourced", "tone": "brand" },
+    { "label": "Sales accepted", "value": 1680, "valueLabel": "1,680 SAL", "contents": [
+      { "title": "Enterprise", "content": "640" },
+      { "title": "Mid-market", "content": "1,040" }
+    ], "tone": "positive" }
+  ]
+}
+```
 
 ### 3.9 Identity, Markers, Action
 
@@ -886,9 +963,17 @@ components.
 | Ranking / market share / distribution   | `bar-list`                     | `donut-summary`, `range-plot`, `heatmap`        |
 | KPI / status snapshot                   | `kpi-grid`                     | `scorecard`, `stat-strip`, `hero-stat`          |
 | Options / competitors / before-after    | `comparison-table`             | `comparison-list`, `matrix-2x2`, `pros-cons`    |
-| Process / value chain / workflow        | `process-flow`                 | `stat-flow`, `funnel`, `arrow-link`             |
-| Roadmap / dated milestones              | `timeline`                     | `process-flow`, `side-rail`                     |
+| Process / value chain / workflow        | `process-flow`                 | `value-chain`, `cycle-diagram`, `stat-flow`, `arrow-link` |
+| Roadmap / dated milestones              | `roadmap-plan`                 | `gantt-chart`, `calendar-plan`, `timeline`, `side-rail` |
 | Roadmap / conceptual stages             | `axis-ruler`                   | `process-flow`, `side-rail`                     |
+| Org / reporting hierarchy               | `org-chart`                    | `tree-chart`, `raci-matrix`                     |
+| Generic hierarchy / capability tree     | `tree-chart`                   | `org-chart`, `decision-tree`, `architecture-map` |
+| Strategy / maturity / tiered hierarchy  | `pyramid`                      | `axis-ruler`, `scorecard`, `tree-chart`         |
+| Stakeholder / governance / work status  | `stakeholder-map`              | `raci-matrix`, `kanban-board`, `checklist`      |
+| Architecture / layered system map       | `architecture-map`             | `value-chain`, `tree-chart`, `legend`           |
+| Regional performance                    | `geo-region-map`               | `analytic-table`, `legend`, `scorecard`         |
+| Conversion funnel / pipeline narrowing  | `funnel`                       | `stat-flow`, `bar-list`, `sankey`               |
+| Flow split / conversion transfer        | `sankey`                       | `funnel`, `stat-flow`, `bar-list`               |
 | Risk / issue taxonomy                   | `failure-taxonomy`             | `matrix-2x2`, `scorecard`, `checklist`          |
 | Screenshot / visual walkthrough         | `snapshot-callouts`            | `annotation`, `pointer-arrow`, `callout-marker` |
 | One idea plus satellites                | `hero-and-support`             | `feature-card`, `metric-card`                   |

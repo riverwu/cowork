@@ -198,6 +198,7 @@ export type ShapePreset =
   | "upDownArrow"
   | "bentArrow"
   | "elbowConnector"
+  | "orthogonalConnector"
   | "curvedConnector"
   | "straightConnector"
   | "callout"
@@ -237,6 +238,18 @@ export interface PresetShape {
   autoFit?: "shrink" | "resize";
   /** For `roundRect`: corner radius as a fraction of the shorter side, 0..1. */
   cornerRadius?: number;
+  /** Optional native PowerPoint connector bindings. When present on a
+   * connector preset, the slide emitter writes `<p:cxnSp>` with `stCxn` /
+   * `endCxn` references to the target shapes so connectors can follow moved
+   * nodes in PowerPoint. Names are resolved slide-wide just before XML emit. */
+  connection?: {
+    startShapeName?: string;
+    endShapeName?: string;
+    startShapeId?: number;
+    endShapeId?: number;
+    startIdx?: number;
+    endIdx?: number;
+  };
   /**
    * Drop shadow under the shape. Maps to `<a:outerShdw>` inside
    * `<a:effectLst>`. `blur`, `dx`, `dy` are in EMU. Used by elevation
@@ -244,6 +257,14 @@ export interface PresetShape {
    * rather than constructing the shadow object directly.
    */
   shadow?: { color: HexColor; alpha?: number; blur?: number; dx?: number; dy?: number };
+}
+
+export interface GroupShape {
+  type: "group";
+  id: number;
+  name?: string;
+  xfrm: Xfrm;
+  children: ShapeList;
 }
 
 export interface ImageShape {
@@ -582,7 +603,7 @@ export interface TableShape {
   borderDash?: LineSpec["dash"];
 }
 
-export type Shape = TextShape | PresetShape | ImageShape | ChartShape | TableShape;
+export type Shape = TextShape | PresetShape | ImageShape | ChartShape | TableShape | GroupShape;
 export type ShapeList = Shape[];
 
 /** Per-slide background — set by chrome compositor in Stage 3. */

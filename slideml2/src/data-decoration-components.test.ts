@@ -22,10 +22,16 @@ function render(slide: SlideV2) {
 
 function findRunByText(shapes: Array<{ type: string }>, needle: string) {
   for (const sh of shapes) {
-    if (sh.type !== "text") continue;
-    const t = sh as { paragraphs?: Array<{ runs: Array<{ text: string }> }> };
-    for (const p of t.paragraphs || []) for (const r of p.runs || []) {
-      if (r.text === needle || r.text.includes(needle)) return r;
+    if (sh.type === "text") {
+      const t = sh as { paragraphs?: Array<{ runs: Array<{ text: string }> }> };
+      for (const p of t.paragraphs || []) for (const r of p.runs || []) {
+        if (r.text === needle || r.text.includes(needle)) return r;
+      }
+    }
+    const children = (sh as { children?: Array<{ type: string }> }).children;
+    if (Array.isArray(children)) {
+      const found = findRunByText(children, needle);
+      if (found) return found;
     }
   }
   return undefined;

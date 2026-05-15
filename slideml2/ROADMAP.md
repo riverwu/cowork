@@ -266,7 +266,7 @@ Scope:
     `nodes` / `edges` grammar, automatic placement, connector routing,
     grouping, labels, and collision avoidance. First modes: flowchart, tree,
     network, and system architecture.
-  - `org-chart` / `hierarchy-tree`: automatic multi-level tree layout,
+  - `org-chart` / `tree-chart`: automatic multi-level tree layout,
     reporting-line connectors, compact mode, and support for person/role cards.
   - `swimlane-flow` / `service-blueprint`: lanes, phases, cross-lane arrows,
     handoff labels, and support for customer/system/backstage process views.

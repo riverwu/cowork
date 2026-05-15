@@ -49,7 +49,8 @@ export function slideXml(slide: SlideAst, slidePart: string): SlideXml {
     `</a:xfrm>` +
     `</p:grpSpPr>`;
 
-  const shapesXml = slide.shapes.map((s) => shapeXml(s, slidePart, rels)).join("");
+  const shapeIdByName = collectShapeIds(slide.shapes);
+  const shapesXml = slide.shapes.map((s) => shapeXml(s, slidePart, rels, { shapeIdByName })).join("");
 
   const spTree = `<p:spTree>${groupHeader}${shapesXml}</p:spTree>`;
 
@@ -61,6 +62,14 @@ export function slideXml(slide: SlideAst, slidePart: string): SlideXml {
 <p:sld${SLIDE_NS}>${cSld}${clrMapOvr}${transition}</p:sld>`;
 
   return { body, rels };
+}
+
+function collectShapeIds(shapes: SlideAst["shapes"], out = new Map<string, number>()): Map<string, number> {
+  for (const shape of shapes) {
+    if (typeof shape.name === "string" && shape.name && !out.has(shape.name)) out.set(shape.name, shape.id);
+    if (shape.type === "group") collectShapeIds(shape.children, out);
+  }
+  return out;
 }
 
 function transitionXml(slide: SlideAst): string {

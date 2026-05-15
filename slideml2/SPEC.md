@@ -572,7 +572,7 @@ Routing rules:
 - Metrics: `hero-stat`, `kpi-grid`, `metric-card`, `stat-strip`,
   `stat-comparison`, `scorecard`, `bar-list`, `gauge`, `progress-bar`,
   `sankey`, `geo-region-map`.
-- Office structure/planning: `org-chart`, `hierarchy-tree`, `decision-tree`,
+- Office structure/planning: `org-chart`, `tree-chart`, `decision-tree`,
   `stakeholder-map`, `raci-matrix`, `kanban-board`, `architecture-map`,
   `pyramid`, `venn-diagram`.
 - Product/identity: `feature-card`, `logo-strip`, `profile-card`, `tag-list`,
@@ -673,7 +673,7 @@ both primitives and semantic components. Detailed field descriptions are in
 | `pyramid` | levels | orientation, title, density, tone, variant, surface |
 | `venn-diagram` | sets | intersections, title, density, tone, variant, surface |
 | `value-chain` | stages | direction, title, density, tone, variant, surface |
-| `hierarchy-tree` | nodes | links, title, density, tone, variant, surface |
+| `tree-chart` | nodes | links, title, density, detail, treeMaxWidth, treeMaxHeight, spread, tone, variant, surface |
 | `architecture-map` | layers | integrations, title, density, tone, variant, surface |
 | `geo-region-map` | regions | legend, title, density, tone, variant, surface |
 | `calendar-plan` | events | month, weekdays, title, density, tone, variant, surface |

@@ -158,7 +158,7 @@ function arrayValueFor(componentName: string, fieldName: string, count: number):
   const titleAt = (i: number) => `条目 ${i + 1}`;
   const bodyAt = (i: number) => `条目 ${i + 1} 的简短说明文字。`;
   const dateAt = (i: number) => `2026-${String(i + 1).padStart(2, "0")}`;
-  if ((componentName === "org-chart" || componentName === "hierarchy-tree" || componentName === "decision-tree") && fieldName === "nodes") {
+  if ((componentName === "org-chart" || componentName === "tree-chart" || componentName === "decision-tree") && fieldName === "nodes") {
     const root = componentName === "org-chart" ? "总经理" : componentName === "decision-tree" ? "入口判断" : "一级分类";
     return [
       { id: "root", title: root, role: "Owner", level: 0, tone: "brand" },
@@ -167,7 +167,7 @@ function arrayValueFor(componentName: string, fieldName: string, count: number):
       ...Array.from({ length: Math.max(0, count - 3) }, (_, i) => ({ id: `extra${i}`, title: `子项 ${i + 1}`, parent: i % 2 === 0 ? "left" : "right", level: 2, tone: i % 2 === 0 ? "neutral" : "danger" })),
     ];
   }
-  if ((componentName === "org-chart" || componentName === "hierarchy-tree" || componentName === "decision-tree") && fieldName === "links") return [{ source: "root", target: "left" }, { source: "root", target: "right" }];
+  if ((componentName === "org-chart" || componentName === "tree-chart" || componentName === "decision-tree") && fieldName === "links") return [{ source: "root", target: "left" }, { source: "root", target: "right" }];
   if ((componentName === "roadmap-plan" || componentName === "gantt-chart") && fieldName === "periods") return ["Q1", "Q2", "Q3", "Q4"];
   if (componentName === "roadmap-plan" && fieldName === "lanes") {
     return Array.from({ length: Math.min(count, 4) }, (_, i) => ({ label: `工作流 ${i + 1}`, items: [{ title: `里程碑 ${i + 1}`, start: "Q1", end: i % 2 === 0 ? "Q2" : "Q3", tone: i % 2 === 0 ? "brand" : "positive" }] }));
@@ -183,6 +183,15 @@ function arrayValueFor(componentName: string, fieldName: string, count: number):
   if (componentName === "raci-matrix" && fieldName === "assignments") return Array.from({ length: Math.min(count, 5) }, () => ["A", "R", "C", "I"]);
   if (componentName === "kanban-board" && fieldName === "columns") return ["待办", "进行中", "完成"].map((title, i) => ({ title, items: [{ title: `卡片 ${i + 1}`, owner: "团队" }] }));
   if (componentName === "pyramid" && fieldName === "levels") return Array.from({ length: Math.min(count, 5) }, (_, i) => ({ label: `层级 ${i + 1}`, body: bodyAt(i) }));
+  if (componentName === "funnel" && fieldName === "stages") {
+    return Array.from({ length: Math.min(count, 5) }, (_, i) => ({
+      label: `阶段 ${i + 1}`,
+      value: Math.max(120, 1200 - i * 220),
+      valueLabel: `${Math.max(120, 1200 - i * 220)}`,
+      body: bodyAt(i),
+      tone: i % 2 === 0 ? "brand" : "positive",
+    }));
+  }
   if (componentName === "venn-diagram" && fieldName === "sets") return Array.from({ length: Math.min(count, 3) }, (_, i) => ({ label: `集合 ${i + 1}`, body: bodyAt(i) }));
   if (componentName === "venn-diagram" && fieldName === "intersections") return [{ label: "共同机会" }, { label: "重叠能力" }];
   if (componentName === "value-chain" && fieldName === "stages") return Array.from({ length: Math.min(count, 5) }, (_, i) => ({ title: `环节 ${i + 1}`, body: bodyAt(i) }));

@@ -129,7 +129,7 @@ const SHAPE_PRESETS: Set<string> = new Set([
   "leftBracket", "rightBracket", "leftBrace", "rightBrace",
   "arrow-right", "arrow-left", "arrow-up", "arrow-down",
   "leftRightArrow", "upDownArrow", "bentArrow",
-  "straightConnector", "elbowConnector", "curvedConnector",
+  "straightConnector", "elbowConnector", "orthogonalConnector", "curvedConnector",
   "callout", "chevron", "star-5", "star-8", "parallelogram",
   "flowChartProcess", "flowChartDecision", "flowChartData", "flowChartTerminator", "flowChartDocument",
   "cylinder", "cube", "gear6", "heart", "lightningBolt", "cloud",
@@ -196,9 +196,10 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
       layout: typeof dom.layout === "string" ? dom.layout : undefined,
       notes: typeof dom.notes === "string" ? dom.notes : undefined,
     };
-    runTitleOcclusionCheck(slide.id, dom, slideAst);
-    runContrastCheck(slide.id, slideAst, theme);
-    runShapeVisibilityCheck(slide.id, slideAst, theme);
+    const flatSlideAst = { ...slideAst, shapes: flattenShapeList(slideAst.shapes) };
+    runTitleOcclusionCheck(slide.id, dom, flatSlideAst);
+    runContrastCheck(slide.id, flatSlideAst, theme);
+    runShapeVisibilityCheck(slide.id, flatSlideAst, theme);
     return slideAst;
   });
   themeAccentHexesForContrast = null;
@@ -211,6 +212,22 @@ export function renderToAst(deck: RenderedDeck): DeckAst {
     master: normalizeDeckMaster(deck.deck.master),
     slides,
   };
+}
+
+function flattenShapeList(shapes: ShapeList, offsetX = 0, offsetY = 0): ShapeList {
+  const out: ShapeList = [];
+  for (const shape of shapes) {
+    if (shape.type === "group") {
+      out.push(...flattenShapeList(shape.children, offsetX + shape.xfrm.x, offsetY + shape.xfrm.y));
+      continue;
+    }
+    if (offsetX === 0 && offsetY === 0) {
+      out.push(shape);
+    } else {
+      out.push({ ...shape, xfrm: { ...shape.xfrm, x: shape.xfrm.x + offsetX, y: shape.xfrm.y + offsetY } } as ShapeList[number]);
+    }
+  }
+  return out;
 }
 
 function normalizeDeckMaster(master: RenderedDeck["deck"]["master"]): DeckAst["master"] | undefined {
@@ -2201,6 +2218,12 @@ function measureSubtree(theme: SimpleTheme, node: DomNode, rect: Rect, output: M
     });
     return;
   }
+  if (node.type === "pptx-group") {
+    withAncestor(node, () => {
+      layoutPositionedGroupChildren(node, rect).forEach(({ node: child, rect: childRect }) => measureSubtree(theme, child, childRect, output, rectsById, node.id));
+    });
+    return;
+  }
   if (node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset") {
     const inner = decorativeInnerRect(theme, node, rect);
     const child = decorativeChild(node);
@@ -2505,6 +2528,7 @@ function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   if (node.type === "stack") return renderStack(theme, node, rect, rectsById, ids, slideId);
   if (node.type === "grid") return renderGrid(theme, node, rect, rectsById, ids, slideId);
   if (node.type === "positioned-group") return renderPositionedGroup(theme, node, rect, rectsById, ids, slideId);
+  if (node.type === "pptx-group") return renderPptxGroup(theme, node, rect, rectsById, ids, slideId);
   if (node.type === "fragment") return (node.children || []).flatMap((child) => {
     const childRect = rectsById.get(child.id) || rect;
     return renderNode(theme, child, childRect, rectsById, ids, slideId);
@@ -3190,6 +3214,24 @@ function renderPositionedGroup(theme: SimpleTheme, node: DomNode, rect: Rect, re
   return shapes;
 }
 
+function renderPptxGroup(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
+  const groupId = ids.nextId++;
+  const placements = layoutPositionedGroupChildren(node, { x: 0, y: 0, w: rect.w, h: rect.h });
+  const sorted = [...placements].sort((a, b) => numberProp(a.node, "zIndex", 0) - numberProp(b.node, "zIndex", 0));
+  const children: ShapeList = [];
+  for (const { node: child, rect: childRect } of sorted) {
+    rectsById.set(child.id, { ...childRect, x: rect.x + childRect.x, y: rect.y + childRect.y });
+    children.push(...renderNode(theme, child, childRect, rectsById, ids, slideId));
+  }
+  return [{
+    type: "group",
+    id: groupId,
+    name: nodeLabel(node),
+    xfrm: xfrm(rect, node),
+    children,
+  }];
+}
+
 /**
  * Render a stack/grid container with layered children: backing → behind
  * children → flow children → above children. Layered children fill the
@@ -3637,6 +3679,7 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
     : node;
   const headEnd = lineEndSpec(node.headEnd ?? lineRecord?.headEnd);
   const tailEnd = lineEndSpec(node.tailEnd ?? lineRecord?.tailEnd);
+  const connection = connectorConnectionSpec(node);
   const shape: Extract<ShapeList[number], { type: "shape" }> = {
     type: "shape",
     id: ids.nextId++,
@@ -3645,6 +3688,7 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
     xfrm: xfrm(shapeRect, shapeNode),
     fill: fillToken || hasSurfaceGradient(node) ? surfaceFill(theme, node, fillToken, "background", fillAlpha) : { type: "none" },
     line: lineSpecCm(theme, lineToken, lineWidthCm, { dash: lineDash, alpha: lineAlpha, headEnd, tailEnd }),
+    ...(connection ? { connection } : {}),
     ...(typeof node.cornerRadius === "number" ? { cornerRadius: normalizeCornerRadius(node.cornerRadius) } : marker?.cornerRadius !== undefined ? { cornerRadius: marker.cornerRadius } : {}),
   };
   if (hasTextContent(node)) {
@@ -3671,6 +3715,42 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
   const shadow = surfaceShadow(theme, node);
   if (shadow) shape.shadow = shadow;
   return shape;
+}
+
+function connectorConnectionSpec(node: DomNode): Extract<ShapeList[number], { type: "shape" }>["connection"] | undefined {
+  const startShapeName = firstStringProp(node, "connectionStart", "startShapeName", "startConnectTo", "connectStartTo");
+  const endShapeName = firstStringProp(node, "connectionEnd", "endShapeName", "endConnectTo", "connectEndTo");
+  const startShapeId = firstNumberProp(node, "startShapeId", "connectionStartId");
+  const endShapeId = firstNumberProp(node, "endShapeId", "connectionEndId");
+  if (!startShapeName && !endShapeName && startShapeId === undefined && endShapeId === undefined) return undefined;
+  return {
+    ...(startShapeName ? { startShapeName } : {}),
+    ...(endShapeName ? { endShapeName } : {}),
+    ...(startShapeId !== undefined ? { startShapeId } : {}),
+    ...(endShapeId !== undefined ? { endShapeId } : {}),
+    ...(firstNumberProp(node, "startConnectionIdx", "connectionStartIdx", "startIdx") !== undefined
+      ? { startIdx: firstNumberProp(node, "startConnectionIdx", "connectionStartIdx", "startIdx") }
+      : {}),
+    ...(firstNumberProp(node, "endConnectionIdx", "connectionEndIdx", "endIdx") !== undefined
+      ? { endIdx: firstNumberProp(node, "endConnectionIdx", "connectionEndIdx", "endIdx") }
+      : {}),
+  };
+}
+
+function firstStringProp(node: DomNode, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = node[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function firstNumberProp(node: DomNode, ...keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = node[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
 }
 
 function hasTextContent(node: DomNode): boolean {

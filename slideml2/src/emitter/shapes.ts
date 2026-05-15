@@ -10,7 +10,7 @@
 import { txBody, type RunRels } from "./text.js";
 import { tableGraphicFrameXml } from "./table.js";
 import { assertHex, attr } from "./xml.js";
-import type { ChartShape, FillSpec, ImageShape, LineSpec, PresetShape, Shape, ShapePreset, TableShape, TextShape, Xfrm } from "./types.js";
+import type { ChartShape, FillSpec, GroupShape, ImageShape, LineSpec, PresetShape, Shape, ShapePreset, TableShape, TextShape, Xfrm } from "./types.js";
 
 /** Map our `ShapePreset` to OOXML `prstGeom` names. */
 const PRESET_TO_GEOM: Record<ShapePreset, string> = {
@@ -38,6 +38,7 @@ const PRESET_TO_GEOM: Record<ShapePreset, string> = {
   upDownArrow: "upDownArrow",
   bentArrow: "bentUpArrow",
   elbowConnector: "bentConnector2",
+  orthogonalConnector: "bentConnector3",
   curvedConnector: "curvedConnector3",
   straightConnector: "straightConnector1",
   callout: "wedgeRectCallout",
@@ -58,13 +59,18 @@ const PRESET_TO_GEOM: Record<ShapePreset, string> = {
   cloud: "cloud",
 };
 
-export function shapeXml(shape: Shape, slidePart: string, rels: SlideRels): string {
+export interface ShapeXmlContext {
+  shapeIdByName?: Map<string, number>;
+}
+
+export function shapeXml(shape: Shape, slidePart: string, rels: SlideRels, context: ShapeXmlContext = {}): string {
   switch (shape.type) {
     case "text":   return textShapeXml(shape, rels);
-    case "shape":  return presetShapeXml(shape, rels);
+    case "shape":  return presetShapeXml(shape, rels, context);
     case "image":  return imageShapeXml(shape, slidePart, rels);
     case "chart":  return chartShapeXml(shape, rels);
     case "table":  return tableShapeXml(shape);
+    case "group":  return groupShapeXml(shape, slidePart, rels, context);
   }
 }
 
@@ -99,7 +105,8 @@ function textShapeXml(shape: TextShape, rels: SlideRels): string {
 
 // ---- Preset shapes --------------------------------------------------------
 
-function presetShapeXml(shape: PresetShape, rels: SlideRels): string {
+function presetShapeXml(shape: PresetShape, rels: SlideRels, context: ShapeXmlContext): string {
+  if (isConnectorShape(shape)) return connectorShapeXml(shape, context);
   const nvSpPr = nvSpPrXml(shape.id, shape.name ?? `${shape.preset} ${shape.id}`);
   const geom = PRESET_TO_GEOM[shape.preset];
   const adjustments = shape.preset === "roundRect" && shape.cornerRadius !== undefined
@@ -121,6 +128,54 @@ function presetShapeXml(shape: PresetShape, rels: SlideRels): string {
     // PowerPoint requires a `<p:txBody>` even on shapes with no text — emit empty.
     : `<p:txBody><a:bodyPr wrap="square" rtlCol="0" anchor="ctr"/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody>`;
   return `<p:sp>${nvSpPr}${spPr}${body}</p:sp>`;
+}
+
+function isConnectorShape(shape: PresetShape): boolean {
+  return Boolean(shape.connection)
+    && (shape.preset === "straightConnector" || shape.preset === "elbowConnector" || shape.preset === "orthogonalConnector" || shape.preset === "curvedConnector" || shape.preset === "line");
+}
+
+function connectorShapeXml(shape: PresetShape, context: ShapeXmlContext): string {
+  const connection = resolveConnectorBinding(shape.connection, context);
+  const nvCxnSpPr =
+    `<p:nvCxnSpPr>` +
+    `<p:cNvPr id="${shape.id}" name="${shape.name ?? `${shape.preset} ${shape.id}`}"/>` +
+    `<p:cNvCxnSpPr>${connection}</p:cNvCxnSpPr>` +
+    `<p:nvPr/>` +
+    `</p:nvCxnSpPr>`;
+  const geom = PRESET_TO_GEOM[shape.preset];
+  const spPr = spPrXml(shape.xfrm, geom, `<a:avLst/>`, { type: "none" }, shape.line, shape.shadow);
+  const emptyStyle = `<p:style><a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef><a:fillRef idx="0"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="tx1"/></a:fontRef></p:style>`;
+  return `<p:cxnSp>${nvCxnSpPr}${spPr}${emptyStyle}</p:cxnSp>`;
+}
+
+function resolveConnectorBinding(connection: PresetShape["connection"], context: ShapeXmlContext): string {
+  if (!connection) return "";
+  const startId = connection.startShapeId ?? (connection.startShapeName ? context.shapeIdByName?.get(connection.startShapeName) : undefined);
+  const endId = connection.endShapeId ?? (connection.endShapeName ? context.shapeIdByName?.get(connection.endShapeName) : undefined);
+  const start = startId !== undefined ? `<a:stCxn id="${Math.round(startId)}" idx="${Math.max(0, Math.round(connection.startIdx ?? 2))}"/>` : "";
+  const end = endId !== undefined ? `<a:endCxn id="${Math.round(endId)}" idx="${Math.max(0, Math.round(connection.endIdx ?? 0))}"/>` : "";
+  return `${start}${end}`;
+}
+
+function groupShapeXml(shape: GroupShape, slidePart: string, rels: SlideRels, context: ShapeXmlContext): string {
+  const nvGrpSpPr =
+    `<p:nvGrpSpPr>` +
+    `<p:cNvPr id="${shape.id}" name="${shape.name ?? `Group ${shape.id}`}"/>` +
+    `<p:cNvGrpSpPr/>` +
+    `<p:nvPr/>` +
+    `</p:nvGrpSpPr>`;
+  const grpSpPr =
+    `<p:grpSpPr>` +
+    `<a:xfrm>` +
+    `<a:off x="${Math.round(shape.xfrm.x)}" y="${Math.round(shape.xfrm.y)}"/>` +
+    `<a:ext cx="${Math.round(shape.xfrm.cx)}" cy="${Math.round(shape.xfrm.cy)}"/>` +
+    `<a:chOff x="0" y="0"/>` +
+    `<a:chExt cx="${Math.round(shape.xfrm.cx)}" cy="${Math.round(shape.xfrm.cy)}"/>` +
+    `</a:xfrm>` +
+    `</p:grpSpPr>`;
+  const children = shape.children.map((child) => shapeXml(child, slidePart, rels, context)).join("");
+  return `<p:grpSp>${nvGrpSpPr}${grpSpPr}${children}</p:grpSp>`;
 }
 
 function runRelsForSlide(rels: SlideRels): RunRels {
