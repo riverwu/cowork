@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import * as nodePath from "node:path";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi } from "vitest";
@@ -130,7 +131,7 @@ const mocks = vi.hoisted(() => {
           type: "message-done",
           content: "",
           toolCalls: [toolCall("shell", {
-            command: ["node", "/Users/river/.cowork/skills/slideml2/runtime/bin/slideml2.js", "compose", "manifest.json", "--write-source", "build/deck.json", "--out", state.outputPath],
+            command: ["node", "/Users/river/.cowork/skills/slideml2/runtime/bin/slideml2.js", "compose", "manifest.json", "--out", state.outputPath],
             cwd: state.workingDirectory,
           })],
           stopReason: "tool_use",
@@ -315,9 +316,8 @@ describe("ppt generation flow runner", () => {
   it("recognizes SlideML2 runtime CLI shell calls as deck authoring tools", async () => {
     const dir = join(tmpdir(), `cowork-ppt-flow-cli-${Date.now()}`);
     await mkdir(dir, { recursive: true });
-    const deckPath = join(dir, "build/deck.json");
     const outputPath = join(dir, "deck.pptx");
-    await mkdir(join(dir, "build"), { recursive: true });
+    const deckPath = `${outputPath}.deck.json`;
     await writeFile(deckPath, JSON.stringify({ deck: {}, slides: [] }));
     await writeFile(outputPath, "fake pptx");
 
@@ -332,7 +332,7 @@ describe("ppt generation flow runner", () => {
         sourcePath: deckPath,
         outputPath,
         diagnostics: { blockingCount: 0, summary: {} },
-      }, ["--write-source", deckPath, "--out", outputPath], dir),
+      }, ["--out", outputPath], dir),
     ];
     const summary = summarizePptGenerationFlow([], toolRecords);
     const result: PptGenerationFlowResult = {
@@ -409,7 +409,7 @@ describe("ppt generation flow runner", () => {
     const dir = join(tmpdir(), `cowork-ppt-flow-cli-truncated-${Date.now()}`);
     await mkdir(dir, { recursive: true });
     const outputPath = join(dir, "deck.pptx");
-    const sourcePath = join(dir, "build/deck.json");
+    const sourcePath = `${outputPath}.deck.json`;
     await mkdir(join(dir, "build"), { recursive: true });
     await writeFile(outputPath, "fake pptx");
     await writeFile(sourcePath, JSON.stringify({ deck: {}, slides: [] }));
@@ -420,7 +420,7 @@ describe("ppt generation flow runner", () => {
     const toolRecords = [
       shellCliRecord(1, "validate-slide", join(dir, "slides/01-cover.json"), { ok: true, stage: "validate", status: "ok", deckModified: false }),
       {
-        ...shellCliRecord(2, "compose", join(dir, "manifest.json"), { ok: true, stage: "render", status: "ok", sourcePath, outputPath, diagnostics: { blockingCount: 0 } }, ["--write-source", sourcePath, "--out", outputPath], dir),
+        ...shellCliRecord(2, "compose", join(dir, "manifest.json"), { ok: true, stage: "render", status: "ok", sourcePath, outputPath, diagnostics: { blockingCount: 0 } }, ["--out", outputPath], dir),
         result: `{\n  "ok": true,\n  "stage": "render",\n  "status": "ok",\n  "sourcePath": ${JSON.stringify(sourcePath)},\n  "outputPath": ${JSON.stringify(outputPath)},\n  "diagnosticsPath": ${JSON.stringify(`${outputPath}.diagnostics.json`)},\n  "diagnostics": {\n    "count": 99,\n    "quality": [`,
       },
     ];
@@ -1449,13 +1449,13 @@ function installMockTools(): void {
       const subcommand = command.find((item) => ["init-deck", "validate-slide", "validate-manifest", "compose"].includes(item));
       if (subcommand === "compose") {
         const outIndex = command.indexOf("--out");
-        const sourceIndex = command.indexOf("--write-source");
         const outputPath = outIndex >= 0 && command[outIndex + 1] ? command[outIndex + 1]! : mocks.state.outputPath;
-        const sourcePath = sourceIndex >= 0 && command[sourceIndex + 1] ? join(cwd, command[sourceIndex + 1]!) : join(cwd, "build/deck.json");
+        const resolvedOutputPath = nodePath.isAbsolute(outputPath) ? outputPath : join(cwd, outputPath);
+        const sourcePath = `${resolvedOutputPath}.deck.json`;
         await mkdir(dirname(sourcePath), { recursive: true });
         await writeFile(sourcePath, JSON.stringify({ deck: {}, slides: [{ id: "s1" }, { id: "s2" }] }));
-        await mkdir(dirname(outputPath), { recursive: true });
-        await writeFile(outputPath, "fake pptx");
+        await mkdir(dirname(resolvedOutputPath), { recursive: true });
+        await writeFile(resolvedOutputPath, "fake pptx");
         return JSON.stringify({
           ok: true,
           stage: "render",

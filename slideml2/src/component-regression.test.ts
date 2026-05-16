@@ -1102,6 +1102,84 @@ describe("component regressions", () => {
     expect(firstTextShapeContaining(ast, "弹性势能")).toBeDefined();
   });
 
+  it("comparison-table reads natural row objects keyed by option names", () => {
+    const slide: SlideV2 = {
+      id: "reg-cmp-rows",
+      children: [{
+        id: "reg-cmp-rows.table",
+        type: "comparison-table",
+        features: ["成立", "ARR", "AI定位"],
+        options: ["Gamma", "Beautiful.ai", "Canva"],
+        rows: [
+          { feature: "成立", Gamma: "2020", "Beautiful.ai": "2018", Canva: "2013" },
+          { feature: "ARR", Gamma: "$1.02亿", "Beautiful.ai": "~$2,000万", Canva: "$35亿" },
+          { feature: "AI定位", Gamma: "AI原生全格式", "Beautiful.ai": "模板AI", Canva: "设计驱动+AI" },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    for (const value of ["2020", "$1.02亿", "$35亿", "AI原生全格式", "设计驱动+AI"]) {
+      expect(firstTextShapeContaining(ast, value), `missing ${value}`).toBeDefined();
+    }
+  });
+
+  it("comparison-table can infer features and options from natural row records", () => {
+    const slide: SlideV2 = {
+      id: "reg-cmp-infer",
+      children: [{
+        id: "reg-cmp-infer.table",
+        type: "comparison-table",
+        rows: [
+          { feature: "ARR", Gamma: "$1.02亿", Canva: "$35亿" },
+          { feature: "团队", Gamma: "52人", Canva: "4,500人" },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    const report = validateSlide(slide, baseDeck);
+    expect(report.errors).toEqual([]);
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    for (const value of ["ARR", "Gamma", "Canva", "$35亿", "52人"]) {
+      expect(firstTextShapeContaining(ast, value), `missing ${value}`).toBeDefined();
+    }
+  });
+
+  it("chart-with-rail accepts flat chart/rail fields without dropping the chart or rail details", () => {
+    const slide: SlideV2 = {
+      id: "reg-flat-rail",
+      children: [{
+        id: "reg-flat-rail.crisis",
+        type: "chart-with-rail",
+        chartType: "bar",
+        chartTitle: "平台玩家 vs Gamma 规模对比",
+        chartData: {
+          labels: ["Microsoft AI", "Canva", "Gamma"],
+          series: [{ name: "ARR", values: ["500", "35", "1.02"] }],
+        },
+        chartTone: "danger",
+        showValues: true,
+        railTitle: "威胁：Microsoft & Canva",
+        railBody: "平台玩家拥有更大的渠道和用户基础。",
+        evidence: {
+          type: "text",
+          source: "公开财报及公司披露",
+          text: "Office 15亿月活用户，Canva 4,500人团队",
+        },
+        keyTakeaway: {
+          headline: "这不是同一位面的竞争",
+          detail: "渠道、数据、用户习惯全是平台的优势。",
+          tone: "danger",
+        },
+      } as unknown as SlideV2["children"][number]],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const chart = ast.slides[0].shapes.find((shape) => shape.type === "chart") as { labels?: string[]; series?: Array<{ values: number[] }> } | undefined;
+    expect(chart?.labels).toEqual(["Microsoft AI", "Canva", "Gamma"]);
+    expect(chart?.series?.[0]?.values).toEqual([500, 35, 1.02]);
+    for (const text of ["平台玩家 vs Gamma 规模对比", "Microsoft & Canva", "平台玩家拥有更大的渠道", "这不是同一位面的竞争", "公开财报及公司披露"]) {
+      expect(firstTextShapeContaining(ast, text), `missing ${text}`).toBeDefined();
+    }
+  });
+
   it("org-chart normalizes oversized node styles so labels and role text stay readable", () => {
     const slide: SlideV2 = {
       id: "reg-org-style",

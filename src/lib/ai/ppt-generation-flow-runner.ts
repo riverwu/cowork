@@ -2381,7 +2381,10 @@ function finalValidateDeckPath(toolRecords: PptGenerationFlowToolRecord[]): stri
     if (typeof input.sourcePath === "string") return nodePath.isAbsolute(input.sourcePath) ? input.sourcePath : nodePath.resolve(slideml2CliCwd(record) || ".", input.sourcePath);
     if (typeof input.deckPath === "string") return nodePath.isAbsolute(input.deckPath) ? input.deckPath : nodePath.resolve(slideml2CliCwd(record) || ".", input.deckPath);
     const alias = slideml2CliToolAlias(record);
-    if (alias === "compose") return nodePath.join(slideml2CliCwd(record) || ".", "build/deck.json");
+    if (alias === "compose" && typeof input.outputPath === "string") {
+      const outputPath = nodePath.isAbsolute(input.outputPath) ? input.outputPath : nodePath.resolve(slideml2CliCwd(record) || ".", input.outputPath);
+      return `${outputPath}.deck.json`;
+    }
     return undefined;
   }
   return undefined;
@@ -2437,13 +2440,12 @@ function validateRenderInput(record: PptGenerationFlowToolRecord): Record<string
   if (alias === "compose") {
     const deckPath = slideml2CliFlagValue(record, "--deck");
     const outputPath = slideml2CliFlagValue(record, "--out");
-    const sourcePath = slideml2CliFlagValue(record, "--write-source");
     return {
       ...direct,
       render: true,
       ...(deckPath ? { deckPath } : {}),
       ...(outputPath ? { outputPath } : {}),
-      ...(sourcePath ? { sourcePath } : {}),
+      ...(typeof direct.sourcePath === "string" ? {} : outputPath ? { sourcePath: `${outputPath}.deck.json` } : {}),
     };
   }
   const argPath = slideml2CliArgsPath(record);

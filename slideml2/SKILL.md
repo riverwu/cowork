@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.52
+version: 1.0.54
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -98,8 +98,8 @@ validation, `30` target conflict/missing, `1` unexpected runtime error.
 | `deck-config.json` | agent via `init-deck` / `set-deck` | Deck metadata, theme, data, refs, chrome; no slides. |
 | `slides/*.json` | agent by direct file write/edit | One standalone slide object per file. |
 | `manifest.json` | agent | Slide order as `slides:[{id,file}]`. |
-| `build/deck.json` | CLI via `compose --write-source` | Full composed deck source; do not hand-edit. |
 | `build/deck.pptx` | CLI via `compose --out` | Final PowerPoint file. |
+| `build/deck.pptx.deck.json` | CLI sidecar emitted automatically by `compose --out` | Full composed deck source; do not hand-edit. |
 
 Filename prefixes such as `slides/01-cover.json` are an agent convenience only.
 The CLI reads only `manifest.slides[].file`; it never infers order from
@@ -116,15 +116,14 @@ Before `set-deck` replaces `references`, `footnotes`, or `dataSources`, read the
 | `set-deck <deck-props.json>` | Patch theme/config/data/references in the deck config. |
 | `validate-slide <slide.json>` | Validate one standalone slide file with no side effects. |
 | `validate-manifest <manifest.json>` | Validate manifest entries, referenced slides, and full composed layout with no writes. |
-| `compose <manifest.json>` | Atomically compose ordered slide files into final deck source and/or PPTX. |
+| `compose <manifest.json>` | Atomically compose ordered slide files into final PPTX and sidecars. |
 | `slice-icons <sheet-image>` | Slice an AI-generated PNG/JPEG icon sheet into individual PNG icons and `assets/icons/manifest.json`. |
 | `help [command]` | Print command-specific help and argument examples. |
 
 Common flags:
 
 - `--deck <path>` targets a config file other than `./deck-config.json`.
-- `--out <path>` sets PPTX output for `compose`.
-- `--write-source <path>` sets the composed full deck JSON output path.
+- `--out <path.pptx>` sets the PPTX output for `compose`; the source sidecar is always emitted as `<path.pptx>.deck.json`.
 - `--icons <path>`, `--out-dir <path>`, `--grid 2x2`, and `--output-size 768`
   are for `slice-icons`.
 - `--dry-run` validates `init-deck`, `set-deck`, or `compose` without writing; prefer `validate-manifest` over `compose --dry-run` unless CI needs the same line.
@@ -177,7 +176,7 @@ so deck-level token, color, or data errors can surface during the next single-sl
 
 - `validate-slide` checks one slide with `deck-config.json` context and per-slide render diagnostics; it does not prove manifest order.
 - `validate-manifest` checks manifest shape, file refs, duplicate ids, slide id matches, all referenced slides, and composed layout; it writes nothing.
-- `compose` runs the same gates, then writes `build/deck.json` and/or `build/deck.pptx` only after validation succeeds.
+- `compose` runs the same gates, then writes `build/deck.pptx` and automatic sidecars such as `build/deck.pptx.deck.json` only after validation succeeds.
 
 `validate-manifest` and `compose` return `manifestValidation`,
 `sourceValidation` / `validation`, `renderValidation`, `diagnostics`,
@@ -202,7 +201,7 @@ node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" init-deck deck-init.json
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-slide slides/01-cover.json
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-slide slides/02-market.json
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-manifest manifest.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" compose manifest.json --write-source build/deck.json --out build/deck.pptx
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" compose manifest.json --out build/deck.pptx
 ```
 
 ### Serial Slide Gate
@@ -229,7 +228,7 @@ Pre-validate self-check before each `validate-slide`:
 - Do not batch `validate-slide` with loops, generated scripts, `find`, `xargs`,
   `parallel`, Node, or Python.
 - Do not create `slides/03-fixed.json` after a failed slide; repair the same file.
-- Do not hand-edit `build/deck.json`. Do not write the deck with `python-pptx` or similar; always go through `compose`.
+- Do not hand-edit `build/deck.pptx.deck.json`. Do not write the deck with `python-pptx` or similar; always go through `compose`.
 
 Forbidden batch example:
 
@@ -819,7 +818,7 @@ Children are required unless noted. Containers may carry `fixedHeight` /
 - `cover-composition` — Editorial cover with optional full-bleed visual, dominant title lockup, hero stat. type='cover-composition' required={title} optional={subtitle, eyebrow, content:[runs]|{runs:[...]}, visual:{src:image-ref|'decorative',fit,anchor?,width?,height?,opacity?}, heroStat:{value,label,caption}, ctaText, ctaLink|link, tone:neutral|inverse|brand, decor:none|grid|shapes, titleSize:deck-title|slide-title|section-title, lockupWidth, lockupHeight}
 - `chapter-divider` — High-impact top-level section opener. type='chapter-divider' required={title} optional={subtitle, chapter/number, showNumber=false, eyebrow, sections, current, tone:brand|neutral|inverse}. It renders no top-right number unless `chapter`/`number` is provided or `showNumber:true`; use only as a direct slide child.
 - `hero-and-support` — One dominant claim plus 2–4 satellites. Use instead of a flat 2×2 grid when one idea leads. type='hero-and-support' required={headline, supports} optional={hero, detail, items (alias), layout:left|top, ratio, gap, tone}
-- `chart-with-rail` — Dominant chart/table/evidence plus a narrow rail. type='chart-with-rail' required={evidence} optional={rail, headline, detail, items, layout:rail-right|rail-left|stacked, ratio default [0.72,0.28] or stacked [0.68,0.32], gap, tone} capacity="chart body >=4.8x3.0cm; rail <=30% width; stack when rail text is long"
+- `chart-with-rail` — Dominant chart/table/evidence plus a narrow rail. Use either nested `evidence:{type:"chart-card"|...}` or flat chart aliases `chartType + chartData:{labels,series}`. A text-like `evidence` beside flat chart data becomes a rail proof/source note, not the main evidence. type='chart-with-rail' required={evidence OR chartType+chartData} optional={rail, headline/detail, railTitle/railBody, keyTakeaway:{headline,detail,tone}, items, chartTitle, chartTone, showLegend, showValues, yFormat, layout:rail-right|rail-left|stacked, ratio default [0.72,0.28] or stacked [0.68,0.32], gap, tone} capacity="chart body >=4.8x3.0cm; rail <=30% width; stack when rail text is long"
 - `snapshot-callouts` — Screenshot + numbered callouts. Use `freeform-group` only when markers must point at exact coordinates. type='snapshot-callouts' required={src:image-ref, callouts} optional={title, caption, items (alias), fit:cover|contain|fill, layout:rail-right|rail-left|below, ratio, gap, tone}
 - `evidence-layout` — Evidence + interpretation page. type='evidence-layout' required={evidence} optional={insight, headline, detail, annotations, layout:sidecar|stacked, ratio default [0.68,0.32]} example={"type":"evidence-layout","evidence":{"type":"image-card","src":"/abs/screenshot.png"},"headline":"What changed","annotations":[{"type":"annotation","label":"1","text":"New control"}]}
 
@@ -844,7 +843,7 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.8.
 - `pricing-card` — One pricing tier; mark recommended semantically. type='pricing-card' required={plan, price, features} optional={period, tone:neutral|brand, ctaText}
 - `table-card` — Structured comparison or lookup table. Hand-authored rows may be arrays, `{cells:[...]}`, or objects; for varied display labels use `encoding.columns:[{key,label}]`. Cells may be plain strings or objects with `{text,value,runs,footnoteRefs,fill,color,tone,bold,align,valign,colspan,rowspan,padding,border,textRotation}`. Numeric `cellPadding`/cell `padding` values like 6 or 8 are treated as points; decimal values such as 0.18 are cm. type='table-card' required={rows | data.rows | bind+encoding:{columns?}} optional={title, badge, insight, headers, columns:[{key|field,header|label,width?}], colWidths, rowHeights, density, cellPadding, borders:{color,width,dash,left?,right?,top?,bottom?}, borderDash, bandRows, bandCols, tableStyleId, caption, tone, variant, surface, bind, encoding} capacity="compact 6-8 row business table ~4.5-6cm body; paginate before dropping rows/columns"
 - `analytic-table` — Business analysis table for KPI, variance, status, ranking, interval, and composition views where exact row values and in-cell visuals must coexist. It displays finalized data; calculate formulas upstream. Use `renderMode:'native'` for one editable PPT table and `renderMode:'composed'` when cell visuals must be real inspectable shapes. Column `visual` supports `bar|progress|delta|badge|heat|sparkline|traffic-light|rank|range|stack`. For interval/range cells, set column `visual:{type:'range',domainMin,domainMax}` and row value `{low,high,value?,target?,display?}`. type='analytic-table' required={columns:[{key|field|id,label|header,width?,format?,align?,visual?}], rows | data.rows | bind+encoding:{columns?}} optional={title, columnGroups, renderMode:native|composed, badge, insight, caption, density, tone, variant, cellPadding, borders, bandRows, tableStyleId, surface} capacity="compact 6-8 row business analysis table ~4.5-6cm body; use composed mode plus visual QA for dense cell visuals" example={"type":"analytic-table","columns":[{"key":"metric","label":"Metric"},{"key":"progress","label":"Progress","visual":"progress"}],"rows":[{"metric":"Launch","progress":0.72}]}
-- `comparison-table` — Multi-option matrix; features rows, options columns. type='comparison-table' required={features, options:[{name, values, recommended?}]} optional={title} capacity="3-8 features x 2-4 options; split when cells need sentences"
+- `comparison-table` — Multi-option matrix; features rows, options columns. Accepts canonical `features + options:[{name,values,recommended?}]` and natural row records `options:["A","B"], rows:[{feature:"ARR", A:"$1m", B:"$2m"}]`; if rows carry feature labels and option-name keys, `features/options` can be inferred. type='comparison-table' required={features+options OR rows with feature+option columns} optional={rows, title} capacity="3-8 features x 2-4 options; split when cells need sentences"
 
 ### 3.5 Sequence & Causality
 

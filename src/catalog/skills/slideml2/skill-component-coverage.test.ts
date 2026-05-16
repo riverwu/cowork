@@ -86,7 +86,7 @@ describe("slideml2 SKILL golden copy", () => {
     expect(skill).toContain("The CLI reads only `manifest.slides[].file`");
     expect(skill).toContain("### File Roles");
     expect(skill).toContain("`deck-config.json`");
-    expect(skill).toContain("`build/deck.json`");
+    expect(skill).toContain("`build/deck.pptx.deck.json`");
     expect(skill).toContain("### Validation Scope");
     expect(skill).toContain("### Serial Slide Gate");
     expect(skill).toContain("### Never Do This");
@@ -96,7 +96,7 @@ describe("slideml2 SKILL golden copy", () => {
     expect(skill).toContain("node validate-all-slides.js");
     expect(skill).toContain("### Planning Archive");
     expect(skill).toContain("fill `plan.md` from `planning-template.md` before");
-    expect(skill).toContain("Do not hand-edit `build/deck.json`");
+    expect(skill).toContain("Do not hand-edit `build/deck.pptx.deck.json`");
     expect(skill).toContain("Do not write the deck with `python-pptx`");
     const planningTemplate = readFileSync(planningTemplatePath, "utf8");
     expect(planningTemplate).toContain("This file must exist before `init-deck`");
@@ -181,19 +181,26 @@ describe("slideml2 SKILL golden copy", () => {
     run(["validate-slide", "slides/01-cover.json"]);
     run(["validate-slide", "slides/02-body.json"]);
     run(["validate-manifest", "manifest.json"]);
-    const composed = run(["compose", "manifest.json", "--write-source", "build/deck.json", "--out", "build/deck.pptx"]);
+    const composed = run(["compose", "manifest.json", "--out", "build/deck.pptx"]);
     expect(composed.ok).toBe(true);
-    const source = JSON.parse(readFileSync(join(dir, "build/deck.json"), "utf8")) as { slides: Array<{ id: string }> };
+    const source = JSON.parse(readFileSync(join(dir, "build/deck.pptx.deck.json"), "utf8")) as { slides: Array<{ id: string }> };
     expect(source.slides.map((slide) => slide.id)).toEqual(["cover", "body"]);
     expect(existsSync(join(dir, "build/deck.pptx"))).toBe(true);
+
+    const removedWriteSource = run(["compose", "manifest.json", "--write-source", "build/deck.json", "--out", "build/bad.pptx"], 2);
+    expect(String(removedWriteSource.error)).toContain("--write-source was removed");
+    const missingOutValue = run(["compose", "manifest.json", "--out", "--deck", "deck-config.json"], 2);
+    expect(String(missingOutValue.error)).toContain("Missing value for --out");
+    const extraPositional = run(["compose", "manifest.json", "build/extra.pptx", "--out", "build/deck-extra.pptx"], 2);
+    expect(String(extraPositional.error)).toContain("accepts exactly one positional argument");
 
     writeJson("manifest-alias.json", { slides: [{ id: "cover", file: "slides/01-cover.json" }, { id: "slide2", file: "slides/02-body.json" }] });
     const aliasValidation = run(["validate-manifest", "manifest-alias.json"]);
     expect(aliasValidation.ok).toBe(true);
     expect(JSON.stringify(aliasValidation)).toContain("MANIFEST_SLIDE_ID_ALIAS");
-    const aliasComposed = run(["compose", "manifest-alias.json", "--write-source", "build/deck-alias.json", "--out", "build/deck-alias.pptx"]);
+    const aliasComposed = run(["compose", "manifest-alias.json", "--out", "build/deck-alias.pptx"]);
     expect(aliasComposed.ok).toBe(true);
-    const aliasSource = JSON.parse(readFileSync(join(dir, "build/deck-alias.json"), "utf8")) as { slides: Array<{ id: string }> };
+    const aliasSource = JSON.parse(readFileSync(join(dir, "build/deck-alias.pptx.deck.json"), "utf8")) as { slides: Array<{ id: string }> };
     expect(aliasSource.slides.map((slide) => slide.id)).toEqual(["cover", "body"]);
   });
 

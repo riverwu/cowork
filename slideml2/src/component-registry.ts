@@ -752,9 +752,21 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Default accent tone." },
   }, "grid/span layout: dominant hero + support satellites", "stack"),
   component("chart-with-rail", "Page archetype: one chart/table/evidence object plus a narrow interpretation rail. Use when a data object must dominate and the rail explains what to notice, why it matters, and what action follows.", {
-    evidence: { type: "object", required: true, description: "DomNode for chart-card, table-card, image-card, chart, table, image, or diagram." },
+    evidence: { type: "object", description: "DomNode for chart-card, table-card, image-card, chart, table, image, or diagram. When chartType/chartData are supplied on chart-with-rail itself, a text-like evidence object is treated as a rail proof/source note." },
+    chartType: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], description: "Flat chart authoring alias. Builds the evidence chart-card when evidence is omitted or text-like." },
+    chart: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], description: "Alias for chartType." },
+    chartTitle: { type: "string", description: "Flat chart title alias for the generated chart-card." },
+    chartData: { type: "object", description: "Flat chart data alias {labels, series}; equivalent to chart-card.data." },
+    chartTone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger", "tinted"], description: "Flat chart accent/surface tone." },
+    showLegend: { type: "boolean", description: "Forwarded to the generated chart-card in flat chart mode." },
+    showValues: { type: "boolean", description: "Forwarded to the generated chart-card in flat chart mode." },
+    yFormat: { type: "enum", enum: ["int", "decimal", "percent", "wanyuan", "yi"], description: "Forwarded to the generated chart-card in flat chart mode." },
     headline: { type: "string", description: "Rail headline when rail node is omitted." },
     detail: { type: "string", description: "Rail body / interpretation when rail node is omitted." },
+    railTitle: { type: "string", description: "Alias for rail headline." },
+    railBody: { type: "string", description: "Alias for rail body." },
+    railTone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger", "tinted"], description: "Alias for rail tone." },
+    keyTakeaway: { type: "object", description: "Optional {headline,title,detail,body,tone} rendered in the rail." },
     items: { type: "array", description: "Optional short rail bullets or proof points." },
     rail: { type: "object", description: "Optional DomNode for the rail, usually side-rail, key-takeaway, fact-list, or callout. Overrides headline/detail/items." },
     layout: { type: "enum", enum: ["rail-right", "rail-left", "stacked"], description: "rail-right default; stacked puts evidence above interpretation for wide/short evidence." },
@@ -824,8 +836,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Force a density; default auto by item count." },
   }, "stack(items:Array<row(Q chip, q-text), row(A chip, a-text)>)", "stack"),
   component("comparison-table", "Multi-option comparison matrix: features as rows, options as columns, with one option highlighted as RECOMMENDED. Distinct from table-card (no per-column emphasis) and comparison-card (single-option card). Cell values that look like ✓/✗/yes/no auto-render in success/danger color.", {
-    features: { type: "array", required: true, description: "Array of row labels, either strings or objects with label|name|title|feature|term (max 8). Object fields beyond the label are ignored unless represented in options.values." },
-    options: { type: "array", required: true, description: "Array of {name:string, values:string[], recommended?:boolean} (max 4 options). values length should match features length." },
+    features: { type: "array", description: "Array of row labels, either strings or objects with label|name|title|feature|term (max 8). If rows are object records, feature labels may also come from rows[].feature/label/title/name." },
+    options: { type: "array", description: "Array of option names or {name:string, values?:string[], key?:string, recommended?:boolean} (max 4 options). values length should match features length. When values are omitted, rows[] may provide cells keyed by each option name/key." },
+    rows: { type: "array", description: "Optional row records for natural matrix authoring, e.g. {feature:'ARR', Gamma:'$1.02亿', Canva:'$35亿'}." },
     title: { type: "string", description: "Optional heading rendered above the table." },
   }, "grid(headerRow + featureRows)", "stack"),
   // ---------- DATA components ----------
@@ -2374,18 +2387,19 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
     return withComponentRoot(node, qAndA(slideId, name, { items, density }));
   }
   if (componentName === "comparison-table") {
-    const features = Array.isArray(node.features) ? node.features.map(comparisonTableFeatureLabel).filter(Boolean) : [];
-    const opts = Array.isArray(node.options) ? node.options.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { name: String(raw ?? "") };
-      const values = Array.isArray(rec.values) ? rec.values.map((v) => v === undefined || v === null ? "" : String(v))
-        : Array.isArray(rec.row) ? rec.row.map((v) => v === undefined || v === null ? "" : String(v))
-        : [];
+    const rows = Array.isArray(node.rows) ? node.rows : [];
+    const features = comparisonTableFeatures(node.features, rows);
+    const opts = comparisonTableOptions(node.options, rows).map((option) => {
+      const values = option.values.length ? option.values : features.map((feature, featureIndex) => {
+        const row = comparisonTableRowForFeature(rows, feature, featureIndex);
+        return comparisonTableCellValue(row, option);
+      });
       return {
-        name: stringValue(rec.name, stringValue(rec.label, stringValue(rec.title, ""))),
+        name: option.name,
         values,
-        recommended: rec.recommended === true,
+        recommended: option.recommended,
       };
-    }).filter((opt) => opt.name) : [];
+    }).filter((opt) => opt.name);
     return withComponentRoot(node, comparisonTable(slideId, name, {
       features,
       options: opts,
@@ -3016,8 +3030,12 @@ function heroAndSupportNode(slideId: string, name: string, node: DomNode): DomNo
 }
 
 function chartWithRailNode(slideId: string, name: string, node: DomNode): DomNode {
-  const evidence = domNodeValue(node.evidence, `${slideId}.${name}.evidence`) || { id: `${slideId}.${name}.evidence.empty`, type: "spacer" };
-  const rail = domNodeValue(node.rail, `${slideId}.${name}.rail`) || interpretationRailNode(slideId, `${name}.rail`, node);
+  const authoredEvidence = domNodeValue(node.evidence, `${slideId}.${name}.evidence`);
+  const flatChart = chartWithRailFlatChartNode(slideId, name, node, authoredEvidence);
+  const evidence = flatChart || authoredEvidence || { id: `${slideId}.${name}.evidence.empty`, type: "spacer" };
+  const rail = domNodeValue(node.rail, `${slideId}.${name}.rail`) || interpretationRailNode(slideId, `${name}.rail`, node, {
+    includeEvidenceProof: Boolean(flatChart && authoredEvidence && isTextLikeEvidenceNode(authoredEvidence)),
+  });
   const layout = node.layout === "rail-left" ? "rail-left" : node.layout === "stacked" ? "stacked" : "rail-right";
   const direction = layout === "stacked" ? "vertical" : "horizontal";
   const ratio = Array.isArray(node.ratio) ? node.ratio : (layout === "stacked" ? [0.68, 0.32] : [0.72, 0.28]);
@@ -3031,6 +3049,59 @@ function chartWithRailNode(slideId: string, name: string, node: DomNode): DomNod
     role: "chart-with-rail",
     children,
   };
+}
+
+function chartWithRailFlatChartNode(slideId: string, name: string, node: DomNode, authoredEvidence: DomNode | null): DomNode | null {
+  if (!hasFlatChartWithRailData(node)) return null;
+  if (authoredEvidence && !isTextLikeEvidenceNode(authoredEvidence)) return null;
+  const chartData = chartWithRailDataObject(node);
+  const chartTone = componentTone(node.chartTone) || componentTone(node.tone);
+  const colors = Array.isArray(node.colors)
+    ? node.colors
+    : chartTone
+      ? [toneAccent(chartTone)]
+      : undefined;
+  return {
+    id: `${slideId}.${name}.chart`,
+    type: "chart-card",
+    chartType: node.chartType || node.chart,
+    title: stringValue(node.chartTitle, ""),
+    data: chartData,
+    labels: arrayValue(node.labels, chartData.labels),
+    series: arrayValue(node.series, chartData.series),
+    showLegend: typeof node.showLegend === "boolean" ? node.showLegend : undefined,
+    showValues: typeof node.showValues === "boolean" ? node.showValues : undefined,
+    yFormat: node.yFormat,
+    dataLabels: node.dataLabels,
+    orientation: node.orientation,
+    xAxis: node.xAxis,
+    yAxis: node.yAxis,
+    secondaryYAxis: node.secondaryYAxis ?? node.secondaryAxis,
+    legend: node.legend,
+    plotArea: node.plotArea,
+    colors,
+    tone: chartTone === "brand" ? "brand" : node.chartTone === "tinted" || node.tone === "tinted" ? "tinted" : "neutral",
+    variant: node.chartVariant === "frameless" || node.chartVariant === "compact" ? node.chartVariant : undefined,
+  };
+}
+
+function hasFlatChartWithRailData(node: DomNode): boolean {
+  const chartData = chartWithRailDataObject(node);
+  const hasChartType = typeof node.chartType === "string" || typeof node.chart === "string";
+  const hasLabels = Array.isArray(node.labels) || Array.isArray(chartData.labels);
+  const hasSeries = Array.isArray(node.series) || Array.isArray(chartData.series);
+  return hasChartType && hasLabels && hasSeries;
+}
+
+function chartWithRailDataObject(node: DomNode): Record<string, unknown> {
+  if (node.chartData && typeof node.chartData === "object" && !Array.isArray(node.chartData)) return node.chartData as Record<string, unknown>;
+  if (node.data && typeof node.data === "object" && !Array.isArray(node.data)) return node.data as Record<string, unknown>;
+  return {};
+}
+
+function isTextLikeEvidenceNode(node: DomNode): boolean {
+  const type = typeof node.type === "string" ? node.type : "";
+  return type === "text" || type === "source-note" || type === "callout" || type === "key-takeaway" || type === "quote";
 }
 
 function snapshotCalloutsNode(slideId: string, name: string, node: DomNode): DomNode {
@@ -3130,19 +3201,78 @@ function supportModuleNode(slideId: string, name: string, raw: unknown, defaultT
   };
 }
 
-function interpretationRailNode(slideId: string, name: string, node: DomNode): DomNode {
-  const tone = node.tone === "tinted" ? "tinted" : componentTone(node.tone) || "brand";
-  const headline = stringValue(node.headline, stringValue(node.title, "Interpretation"));
-  const detail = stringValue(node.detail, stringValue(node.body, ""));
+function interpretationRailNode(slideId: string, name: string, node: DomNode, options: { includeEvidenceProof?: boolean } = {}): DomNode {
+  const tone = node.railTone === "tinted" || node.tone === "tinted" ? "tinted" : componentTone(node.railTone) || componentTone(node.tone) || "brand";
+  const headline = stringValue(node.railTitle, stringValue(node.headline, stringValue(node.title, "Interpretation")));
+  const detail = stringValue(node.railBody, stringValue(node.detail, stringValue(node.body, "")));
   const items = stringArray(node.items);
+  const children = [
+    ...chartWithRailKeyTakeawayNodes(slideId, name, node),
+    ...(options.includeEvidenceProof ? chartWithRailEvidenceProofNodes(slideId, name, node.evidence) : []),
+    ...(items.length ? [{ ...bulletList(slideId, `${name}.items`, items.slice(0, 5), "compact"), optional: true } as DomNode] : []),
+  ];
   return {
     id: `${slideId}.${name}`,
     type: "side-rail",
     title: headline,
     body: detail,
     tone,
-    children: items.length ? [{ ...bulletList(slideId, `${name}.items`, items.slice(0, 5), "compact"), optional: true } as DomNode] : [],
+    children,
   };
+}
+
+function chartWithRailKeyTakeawayNodes(slideId: string, name: string, node: DomNode): DomNode[] {
+  const raw = node.keyTakeaway ?? node.takeaway;
+  if (!raw) return [];
+  if (typeof raw === "string" && raw.trim()) {
+    return [{ id: `${slideId}.${name}.keyTakeaway`, type: "key-takeaway", headline: raw.trim(), variant: "minimal", density: "compact", tone: componentTone(node.railTone) || componentTone(node.tone) || "brand", optional: true }];
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const rec = raw as Record<string, unknown>;
+  const authored = domNodeValue(raw, `${slideId}.${name}.keyTakeaway`);
+  if (authored) return [{ ...authored, optional: true }];
+  const headline = semanticTextValue(rec, "headline", "title", "text", "label", "name");
+  const detail = semanticTextValue(rec, "detail", "body", "description", "summary");
+  if (!headline && !detail) return [];
+  return [{
+    id: `${slideId}.${name}.keyTakeaway`,
+    type: "key-takeaway",
+    headline: headline || detail,
+    detail: headline ? detail : "",
+    tone: componentTone(rec.tone) || componentTone(node.railTone) || componentTone(node.tone) || "brand",
+    variant: "minimal",
+    density: "compact",
+    optional: true,
+  }];
+}
+
+function chartWithRailEvidenceProofNodes(slideId: string, name: string, raw: unknown): DomNode[] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  const rec = raw as Record<string, unknown>;
+  const text = semanticTextValue(rec, "text", "body", "detail", "description", "summary");
+  const source = semanticTextValue(rec, "source", "caption", "citation");
+  const out: DomNode[] = [];
+  if (text) {
+    out.push({
+      id: `${slideId}.${name}.evidence.text`,
+      type: "text",
+      text,
+      style: "caption",
+      color: "text.primary",
+      minHeight: 0.45,
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  if (source) {
+    out.push({
+      id: `${slideId}.${name}.evidence.source`,
+      type: "source-note",
+      text: source,
+      optional: true,
+    });
+  }
+  return out;
 }
 
 function calloutRowNode(slideId: string, name: string, raw: unknown, index: number, defaultTone: string): DomNode {
@@ -10331,6 +10461,86 @@ function comparisonTableFeatureLabel(value: unknown): string {
     );
   }
   return String(value ?? "").trim();
+}
+
+type ComparisonTableOptionInput = {
+  name: string;
+  key: string;
+  values: string[];
+  recommended: boolean;
+  index: number;
+};
+
+function comparisonTableFeatures(featuresRaw: unknown, rowsRaw: unknown[]): string[] {
+  const explicit = Array.isArray(featuresRaw) ? featuresRaw.map(comparisonTableFeatureLabel).filter(Boolean) : [];
+  if (explicit.length) return explicit;
+  return rowsRaw
+    .map((row) => row && typeof row === "object" && !Array.isArray(row)
+      ? comparisonTableFeatureLabel(row)
+      : "")
+    .filter(Boolean);
+}
+
+function comparisonTableOptions(optionsRaw: unknown, rowsRaw: unknown[]): ComparisonTableOptionInput[] {
+  if (Array.isArray(optionsRaw) && optionsRaw.length) {
+    return optionsRaw.map((raw, index) => {
+      const rec: Record<string, unknown> = raw && typeof raw === "object" && !Array.isArray(raw)
+        ? raw as Record<string, unknown>
+        : { name: raw };
+      const name = semanticTextValue(rec, "name", "label", "title", "option", "key", "field", "id");
+      const key = semanticTextValue(rec, "key", "field", "id") || name;
+      const values = Array.isArray(rec.values) ? rec.values.map(comparisonTableStringCell)
+        : Array.isArray(rec.row) ? rec.row.map(comparisonTableStringCell)
+        : Array.isArray(rec.cells) ? rec.cells.map(comparisonTableStringCell)
+        : [];
+      return {
+        name,
+        key,
+        values,
+        recommended: rec.recommended === true || rec.isRecommended === true,
+        index,
+      };
+    }).filter((opt) => opt.name);
+  }
+  const firstRow = rowsRaw.find((row) => row && typeof row === "object" && !Array.isArray(row)) as Record<string, unknown> | undefined;
+  if (!firstRow) return [];
+  const excluded = new Set(["feature", "label", "name", "title", "term", "criteria", "criterion", "values", "row", "cells"]);
+  return Object.keys(firstRow)
+    .filter((key) => !excluded.has(key))
+    .map((key, index) => ({ name: key, key, values: [], recommended: false, index }));
+}
+
+function comparisonTableRowForFeature(rowsRaw: unknown[], feature: string, index: number): unknown {
+  const byFeature = rowsRaw.find((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+    return comparisonTableFeatureLabel(row) === feature;
+  });
+  return byFeature ?? rowsRaw[index];
+}
+
+function comparisonTableCellValue(rowRaw: unknown, option: ComparisonTableOptionInput): string {
+  if (!rowRaw || typeof rowRaw !== "object" || Array.isArray(rowRaw)) return "";
+  const row = rowRaw as Record<string, unknown>;
+  const values = Array.isArray(row.values) ? row.values : Array.isArray(row.row) ? row.row : Array.isArray(row.cells) ? row.cells : null;
+  if (values && option.index < values.length) return comparisonTableStringCell(values[option.index]);
+  return lookupComparisonTableCell(row, [option.key, option.name]);
+}
+
+function lookupComparisonTableCell(row: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    if (!key) continue;
+    if (Object.prototype.hasOwnProperty.call(row, key)) return comparisonTableStringCell(row[key]);
+  }
+  const normalized = new Map(Object.keys(row).map((key) => [key.trim().toLowerCase(), key]));
+  for (const key of keys) {
+    const actual = normalized.get(key.trim().toLowerCase());
+    if (actual) return comparisonTableStringCell(row[actual]);
+  }
+  return "";
+}
+
+function comparisonTableStringCell(value: unknown): string {
+  return semanticScalarText(value);
 }
 
 function semanticRecordItems(...values: unknown[]): Array<Record<string, unknown>> {

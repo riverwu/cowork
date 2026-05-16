@@ -2829,6 +2829,32 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
     for (const key of ["evidence", "rail"] as const) {
       validateComponentSlotNode(node, key, path, slideId, issues, options);
     }
+    if (!hasChartWithRailEvidence(node)) {
+      issues.push(issue("error", "MISSING_REQUIRED_FIELD", "chart-with-rail requires evidence, or flat chartType plus labels/series/chartData.", {
+        slideId,
+        path,
+        nodeName: node.id,
+        suggestedFix: "Provide evidence:{type:'chart-card'|...} or use flat chart authoring: chartType, chartTitle, chartData:{labels,series}, plus railTitle/railBody.",
+      }));
+    }
+  }
+  if (name === "comparison-table") {
+    if (!hasComparisonTableFeatures(node)) {
+      issues.push(issue("error", "MISSING_REQUIRED_FIELD", "comparison-table requires features, or rows with feature/label/title/name fields.", {
+        slideId,
+        path,
+        nodeName: node.id,
+        suggestedFix: "Provide features:[...] or use row records such as rows:[{feature:'ARR', Gamma:'$1.02亿', Canva:'$35亿'}].",
+      }));
+    }
+    if (!hasComparisonTableOptions(node)) {
+      issues.push(issue("error", "MISSING_REQUIRED_FIELD", "comparison-table requires options, or rows with option-name columns.", {
+        slideId,
+        path,
+        nodeName: node.id,
+        suggestedFix: "Provide options:['Gamma','Canva'] or include option columns in each row record.",
+      }));
+    }
   }
   if (options.requireSources && (name === "chart-card" || name === "table-card") && !hasSourceMetadata(node)) {
     issues.push(issue("error", "MISSING_DATA_SOURCE", `${definition.name} requires source metadata by deck.validation.requireSources/strict mode.`, {
@@ -2851,6 +2877,38 @@ function hasKeyTakeawayContent(node: DomNode): boolean {
   }
   return Array.isArray(node.bullets) && node.bullets.length > 0
     || Array.isArray(node.points) && node.points.length > 0;
+}
+
+function hasChartWithRailEvidence(node: DomNode): boolean {
+  const evidence = node.evidence;
+  if (evidence && typeof evidence === "object" && !Array.isArray(evidence)) return true;
+  const data = node.chartData && typeof node.chartData === "object" && !Array.isArray(node.chartData)
+    ? node.chartData as Record<string, unknown>
+    : node.data && typeof node.data === "object" && !Array.isArray(node.data)
+      ? node.data as Record<string, unknown>
+      : {};
+  const hasChartType = typeof node.chartType === "string" || typeof node.chart === "string";
+  const hasLabelsAndSeries = (Array.isArray(node.labels) || Array.isArray(data.labels)) && (Array.isArray(node.series) || Array.isArray(data.series));
+  return hasChartType && (hasLabelsAndSeries || hasDataBindSource(node.bind));
+}
+
+function hasComparisonTableFeatures(node: DomNode): boolean {
+  if (Array.isArray(node.features) && node.features.length > 0) return true;
+  return comparisonTableRows(node).some((row) => ["feature", "label", "title", "name", "term", "criteria", "criterion"].some((key) => typeof row[key] === "string" && String(row[key]).trim()));
+}
+
+function hasComparisonTableOptions(node: DomNode): boolean {
+  if (Array.isArray(node.options) && node.options.length > 0) return true;
+  const first = comparisonTableRows(node)[0];
+  if (!first) return false;
+  const excluded = new Set(["feature", "label", "name", "title", "term", "criteria", "criterion", "values", "row", "cells"]);
+  return Object.keys(first).some((key) => !excluded.has(key));
+}
+
+function comparisonTableRows(node: DomNode): Array<Record<string, unknown>> {
+  return Array.isArray(node.rows)
+    ? node.rows.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object" && !Array.isArray(row)))
+    : [];
 }
 
 function validateChapterDividerUsage(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], parent?: DomNode): void {

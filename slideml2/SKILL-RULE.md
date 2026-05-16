@@ -350,7 +350,7 @@ node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" <command> [args] [--deck deck
 
 Only content objects belong in JSON files (`deck-init.json`,
 `manifest.json`, `slides/01-cover.json`). Paths belong in flags or command
-positions (`--deck`, `--out`, `--write-source`, `compose manifest.json`).
+positions (`--deck`, `--out`, `compose manifest.json`).
 
 ### 7.2 Never call the JSON contents "CLI arguments"
 
@@ -400,7 +400,7 @@ validator cannot enforce:
   `parallel`, Node, or Python.
 - Do not create a second "fixed" slide file after failure; repair the same file.
 - Do not rely on filename order, creation order, or command order.
-- Do not hand-edit `build/deck.json` or create PPTX through another tool.
+- Do not hand-edit `build/deck.pptx.deck.json` or create PPTX through another tool.
 
 Everything else is a layout rule, file-shape rule, or component rule, not a
 tool-safety prohibition.

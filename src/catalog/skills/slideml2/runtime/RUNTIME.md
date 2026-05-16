@@ -15,7 +15,7 @@ node /path/to/slideml2/runtime/bin/slideml2.js init-deck deck-init.json
 node /path/to/slideml2/runtime/bin/slideml2.js set-deck deck-theme.json
 node /path/to/slideml2/runtime/bin/slideml2.js validate-slide slides/01-cover.json
 node /path/to/slideml2/runtime/bin/slideml2.js validate-manifest manifest.json
-node /path/to/slideml2/runtime/bin/slideml2.js compose manifest.json --write-source build/deck.json --out deck.pptx
+node /path/to/slideml2/runtime/bin/slideml2.js compose manifest.json --out deck.pptx
 node /path/to/slideml2/runtime/bin/slideml2.js slice-icons assets/icons/icon-sheet.png --icons assets/icons/icons.json --out-dir assets/icons --grid 2x2
 ```
 
