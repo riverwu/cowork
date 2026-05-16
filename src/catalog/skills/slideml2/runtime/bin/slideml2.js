@@ -184,13 +184,44 @@ function usage(message) {
 }
 
 async function readJson(path, label = "input") {
-  const text = path === "-" ? await readStdin() : await readFile(abs(path), "utf8");
   const file = path === "-" ? "stdin" : abs(path);
+  let text;
+  try {
+    text = path === "-" ? await readStdin() : await readFile(file, "utf8");
+  } catch (error) {
+    if (error && error.code === "ENOENT") throw missingJsonInputPayload(file, label);
+    throw error;
+  }
   try {
     return JSON.parse(text);
   } catch (error) {
     throw jsonParseErrorPayload(file, text, label, error);
   }
+}
+
+function missingJsonInputPayload(filePath, label) {
+  const diagnostic = {
+    code: "INPUT_FILE_MISSING",
+    severity: "error",
+    file: filePath,
+    message: `Could not read ${label} JSON from ${filePath}: file does not exist.`,
+    suggestion: "Create this JSON input file first, then rerun the same slideml2 command. For init-deck, write deck-init.json with title/theme/brand options before running init-deck; do not point at a not-yet-created path.",
+  };
+  const payload = {
+    ok: false,
+    command: undefined,
+    stage: "input",
+    status: "input-error",
+    deckModified: false,
+    error: "Input JSON file missing",
+    diagnostic,
+    diagnostics: { count: 1, summary: { INPUT_FILE_MISSING: 1 }, blockingCount: 1, blocking: [diagnostic] },
+    nextAction: "Create the referenced JSON file and rerun this exact command. If the deck config already exists, use set-deck for deck-level changes instead of rerunning init-deck.",
+  };
+  const out = new Error(diagnostic.message);
+  out.slideml2JsonParse = true;
+  out.payload = payload;
+  return out;
 }
 
 async function readStdin() {
@@ -387,7 +418,7 @@ function blockingDiagnostics(items) {
 }
 
 function qualityDiagnostics(items) {
-  return items.filter((item) => isQualityRenderDiagnostic(item.code));
+  return items.filter((item) => !isBlockingRenderDiagnostic(item.code, item.severity) && isQualityRenderDiagnostic(item.code));
 }
 
 function diagnosticsSummary(items) {
@@ -504,7 +535,7 @@ async function runInitDeck(command, inputPath, flags) {
       status: "target-exists",
       deckModified: false,
       deckPath,
-      nextAction: "Choose a new --deck path or intentionally edit the existing config with set-deck. Do not overwrite a deck in place.",
+      nextAction: "This deck config already exists. Continue with set-deck for deck-level changes, or choose a fresh --deck path inside the current run directory. Do not rerun init-deck against an existing target.",
     }), EXIT.target);
   }
   const input = await readJson(inputPath, "deck args");
@@ -753,7 +784,14 @@ async function composeDeckFromManifest(deckPath, manifestPath) {
       }));
       continue;
     }
-    if (id && slide.id !== id) {
+    if (id && slide.id !== id && isPositionalSlideAlias(id, index)) {
+      issues.push(issue("warning", "MANIFEST_SLIDE_ID_ALIAS", `Manifest id '${id}' is treated as a positional alias for slide.id '${slide.id}'.`, {
+        path,
+        slideId: slide.id,
+        details: { file: filePath, manifestId: id, actualSlideId: slide.id },
+        suggestedFix: "Prefer matching manifest id and slide.id for deterministic repairs, but slideN aliases are accepted for internal links like #slide5.",
+      }));
+    } else if (id && slide.id !== id) {
       issues.push(issue("error", "MANIFEST_SLIDE_ID_MISMATCH", `Manifest id '${id}' does not match slide.id '${slide.id}'.`, {
         path,
         slideId: id,
@@ -778,6 +816,12 @@ async function composeDeckFromManifest(deckPath, manifestPath) {
   candidate.slides = slides;
   const manifestValidation = report(issues);
   return { manifest, manifestPath: manifestAbs, manifestValidation, entries, deck: candidate };
+}
+
+function isPositionalSlideAlias(id, index) {
+  const match = /^slide(\d+)$/i.exec(id.trim());
+  if (!match) return false;
+  return Number(match[1]) === index + 1;
 }
 
 async function validateComposedDeck(deckPath, composed) {

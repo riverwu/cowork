@@ -25,8 +25,11 @@ describe("validation geometry and diagnostic contracts", () => {
   });
 
   it("keeps blocking and quality diagnostic classification centralized", () => {
-    expect(isBlockingRenderDiagnostic("SIBLING_INK_OVERLAP", "warn")).toBe(true);
-    expect(isBlockingRenderDiagnostic("FALLBACK_FAILED", "warn")).toBe(true);
+    expect(isBlockingRenderDiagnostic("SIBLING_INK_OVERLAP", "error")).toBe(true);
+    expect(isBlockingRenderDiagnostic("FALLBACK_FAILED", "warn")).toBe(false);
+    expect(isBlockingRenderDiagnostic("FALLBACK_FAILED")).toBe(true);
+    expect(isBlockingRenderDiagnostic("LOW_CONTRAST", "error")).toBe(true);
+    expect(isBlockingRenderDiagnostic("LOW_CONTRAST", "warn")).toBe(false);
     expect(isBlockingRenderDiagnostic("OVERFLOW", "warn")).toBe(false);
     expect(isBlockingRenderDiagnostic("CUSTOM_ERROR", "error")).toBe(true);
     expect(isQualityRenderDiagnostic("TIGHT_GAP")).toBe(true);
@@ -50,9 +53,82 @@ describe("validation geometry and diagnostic contracts", () => {
       }],
     });
     const hit = getRenderDiagnostics().find((item) => item.code === "COLLISION" && item.nodeId === "collision.a");
+    expect(hit?.severity).toBe("error");
     expect(hit?.measured?.overlapAreaCm2).toBeGreaterThan(0.05);
     expect(hit?.measured?.relationship).toBe("leaf-ink-overlap");
     expect(hit?.measured?.other?.nodeId).toBe("collision.b");
+  });
+
+  it("keeps mildly compressed h2 headings out of blocking diagnostics", () => {
+    clearRenderDiagnostics();
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "mild-h2-squash",
+        layout: "freeform",
+        dom: {
+          id: "mild-h2-squash.root",
+          type: "slide",
+          children: [
+            { id: "mild-h2-squash.heading", type: "text", text: "数据假设", style: "h2", at: [1, 1, 10, 0.38] },
+          ],
+        },
+      }],
+    });
+    expect(getRenderDiagnostics().some((item) => item.code === "SQUASHED" && item.severity === "error")).toBe(false);
+  });
+
+  it("infers positioned callout text so renderer-side shrink can absorb mixed CJK and Latin wrapping", () => {
+    clearRenderDiagnostics();
+    measureDeck(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        themeOverride: {
+          fonts: {
+            latin: { text: ["Arial"], display: ["Arial"] },
+            cjk: { text: ["system-ui"], display: ["system-ui"] },
+          },
+        },
+      },
+      slides: [{
+        id: "positioned-callout-text",
+        title: "Callout text",
+        children: [{
+          type: "freeform-group",
+          children: [{
+            id: "calloutText",
+            type: "text",
+            text: "关键约束：质量检查失败（虚线）→ 回到数据完善阶段；GA 判定需 Release Controls readiness ≥ 85 且 P95 延迟 < 500ms 且可靠性 ≥ 99.5%",
+            fontSize: 10,
+            fontWeight: "bold",
+            at: [0.6, 11.5, 12.1, 1.1],
+          }],
+        }],
+      }],
+    }));
+
+    expect(getRenderDiagnostics().some((item) => item.code === "FALLBACK_FAILED" && item.nodeId === "calloutText")).toBe(false);
+  });
+
+  it("reports positioned overlays that visually cover flow text", () => {
+    clearRenderDiagnostics();
+    measureDeck(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "overlay-text",
+        title: "Overlay text",
+        children: [
+          { id: "overlay-text.body", type: "text", text: "Quality gate explanation should stay readable when a freeform diagram is present.", style: "paragraph" },
+          { id: "overlay-text.box", type: "shape", preset: "rect", fill: "brand.primary", at: [1.2, 2.55, 3.2, 1.2] },
+        ],
+      }],
+    }));
+    const hit = getRenderDiagnostics().find((item) => item.code === "OVERLAY_OCCLUDES_FLOW" && item.nodeId === "overlay-text.box");
+    expect(hit?.severity).toBe("error");
+    expect(hit?.measured?.other?.nodeId).toBe("overlay-text.body");
   });
 
   it("clears render diagnostics at the start of each renderToAst run", () => {
@@ -444,6 +520,261 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(bullets?.measured?.minWidthCm).toBe(1.4);
   });
 
+  it("downgrades mild readable text squash to warning instead of blocking", () => {
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck({
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "2563EB" },
+        themeOverride: {
+          text: { "slide-title": { fontSize: 24, fontWeight: "bold", color: "1E293B" } },
+          layout: { pageMarginX: 0.8, titleTop: 0.5, titleHeight: 0.7, contentTop: 1.4, contentBottom: 13 },
+        },
+      },
+      slides: [{
+        id: "mild-title-squash",
+        title: "核心发现摘要",
+        children: [{ type: "text", text: "正文", area: "content" }],
+      }],
+    }));
+
+    const hit = getRenderDiagnostics().find((item) => item.code === "SQUASHED" && item.nodeId === "mild-title-squash.title");
+    expect(hit?.severity).toBe("warn");
+    expect(isBlockingRenderDiagnostic(hit?.code, hit?.severity)).toBe(false);
+  });
+
+  it("does not block when slide-level title chrome is intentionally zero-height", () => {
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck({
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "2563EB" },
+        themeOverride: {
+          layout: { titleTop: 0.5, titleHeight: 0, contentTop: 0.9, contentBottom: 13.0 },
+        },
+      },
+      slides: [{
+        id: "metadata-title",
+        title: "各职能人力占比",
+        children: [{
+          type: "split",
+          ratio: [0.55, 0.45],
+          direction: "horizontal",
+          children: [
+            { type: "chart-card", chartType: "doughnut", title: "各职能人力占比", data: { labels: ["销售", "研发"], series: [{ name: "value", values: [150, 55] }] } },
+            { type: "key-takeaway", headline: "销售占HC的54%", detail: "外包比例较高，建议复核渠道产出。", tone: "warning", variant: "panel" },
+          ],
+        }],
+      }],
+    }));
+
+    const titleTiny = getRenderDiagnostics().find((item) => item.code === "TINY_RECT" && item.nodeId === "metadata-title.title");
+    expect(titleTiny?.severity).toBe("warn");
+    expect(isBlockingRenderDiagnostic(titleTiny?.code, titleTiny?.severity)).toBe(false);
+  });
+
+  it("treats mild readable-height pressure in auto-oriented process cards as a warning", () => {
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck({
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "2563EB" },
+        themeOverride: {
+          layout: { pageMarginX: 0.9, titleTop: 0.5, titleHeight: 1, contentTop: 1.7, contentBottom: 13.2, defaultGap: 0.3, columnGap: 0.4 },
+        },
+      },
+      slides: [{
+        id: "pipeline",
+        title: "AI Diagnostics Pipeline",
+        children: [
+          {
+            type: "process-flow",
+            direction: "horizontal",
+            connector: "arrow",
+            variant: "cards",
+            density: "comfortable",
+            steps: [
+              { title: "Data Ingest", body: "Structured intake from EHR, imaging, and lab feeds", status: "done", icon: "cloud" },
+              { title: "Validation", body: "Completeness & plausibility checks against clinical rules", status: "done", icon: "check" },
+              { title: "Model Scoring", body: "Multi-task transformer scores probability and urgency", status: "active", icon: "star-5" },
+              { title: "Reviewer Feedback", body: "Clinician review with structured evidence panel", status: "pending", icon: "callout" },
+            ],
+          },
+          {
+            type: "stat-flow",
+            steps: [
+              { value: "42 min", label: "Baseline Triage" },
+              { connector: "->" },
+              { value: "18 min", label: "With SignalLab", tone: "positive" },
+              { connector: "=" },
+              { value: "57%", label: "Time Saved" },
+            ],
+          },
+          { type: "source-note", text: "Internal benchmark: median triage time across 120 cases, Q1 2025." },
+        ],
+      }],
+    }));
+
+    const diagnostics = getRenderDiagnostics();
+    expect(diagnostics.some((item) => item.code === "FALLBACK_FAILED" && item.severity === "error" && String(item.nodeId).startsWith("pipeline.node-1.step"))).toBe(false);
+    expect(diagnostics.some((item) => item.code === "OVERFLOW" && String(item.nodeId).startsWith("pipeline.node-1.step"))).toBe(true);
+  });
+
+  it("treats readable source notes capacity drift as warnings, not blocking failures", () => {
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "sources",
+        title: "数据来源说明",
+        children: [
+          {
+            type: "explanation-block",
+            title: "数据来源",
+            variant: "panel",
+            bullets: [
+              "Excel 文件：25年上半年人力数据分析-V1.xlsx",
+              "Sheet「底表」：A1:S71，月度销售/成本/HC/人效（2024.01–2025.06）",
+              "Sheet「主要发现」：职能人力占比、半年度同比、渠道分析、整体发现",
+            ],
+          },
+          {
+            type: "fact-list",
+            title: "数据引用索引",
+            items: [
+              { label: "第2页 KPI总览", value: "主要发现 B19:F23" },
+              { label: "第3页 职能占比", value: "主要发现 B4:B10" },
+              { label: "第4页 H1同比", value: "主要发现 B19:F23" },
+              { label: "第5页 渠道分析", value: "主要发现 B29:V34" },
+              { label: "第6页 管理建议", value: "主要发现 B40:B48" },
+            ],
+          },
+          {
+            type: "source-note",
+            text: "Excel 路径：inputs/25年上半年人力数据分析-V1.xlsx；数据截至 2025 年 6 月",
+            align: "left",
+          },
+        ],
+      }],
+    }));
+
+    const diagnostics = getRenderDiagnostics();
+    const blocking = diagnostics.filter((item) => isBlockingRenderDiagnostic(item.code, item.severity));
+    expect(blocking).toHaveLength(0);
+    expect(diagnostics.some((item) => item.code === "SQUASHED" && item.nodeId === "sources.node-1.title" && item.severity === "error")).toBe(false);
+    expect(diagnostics.some((item) => item.code === "FALLBACK_FAILED" && item.nodeId === "sources.node-1.bullets")).toBe(false);
+  });
+
+  it("downgrades very small single-line title height drift to warning", () => {
+    clearRenderDiagnostics();
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "short-title-drift",
+        layout: "freeform",
+        dom: {
+          id: "short-title-drift.root",
+          type: "slide",
+          children: [{
+            id: "short-title-drift.title",
+            type: "text",
+            text: "数据来源",
+            style: "card-title",
+            at: [2.38, 3.53, 20.64, 0.44],
+          }],
+        },
+      }],
+    });
+
+    const hit = getRenderDiagnostics().find((item) => item.code === "SQUASHED" && item.nodeId === "short-title-drift.title");
+    expect(hit?.severity).toBe("warn");
+    expect(isBlockingRenderDiagnostic(hit?.code, hit?.severity)).toBe(false);
+  });
+
+  it("downgrades readable bullet overflow drift to warning", () => {
+    clearRenderDiagnostics();
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "bullet-fit-drift",
+        layout: "freeform",
+        dom: {
+          id: "bullet-fit-drift.root",
+          type: "slide",
+          children: [{
+            id: "bullet-fit-drift.bullets",
+            type: "bullets",
+            at: [2.38, 4.13, 20.64, 2.1],
+            items: [
+              "Excel 文件：25年上半年人力数据分析-V1.xlsx",
+              "Sheet「底表」：A1:S71，月度销售/成本/HC/人效（2024.01–2025.06）",
+              "Sheet「主要发现」：职能人力占比、半年度同比、渠道分析、整体发现",
+            ],
+          }],
+        },
+      }],
+    });
+
+    const hit = getRenderDiagnostics().find((item) => item.code === "OVERFLOW" && item.nodeId === "bullet-fit-drift.bullets");
+    expect(hit?.severity).toBe("warn");
+    expect(isBlockingRenderDiagnostic(hit?.code, hit?.severity)).toBe(false);
+  });
+
+  it("preserves optional metric labels and reports capacity failure to the agent", () => {
+    clearRenderDiagnostics();
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "metric-label-drop",
+        layout: "freeform",
+        dom: {
+          id: "metric-label-drop.root",
+          type: "slide",
+          children: [{
+            id: "metric-label-drop.metric",
+            type: "stack",
+            role: "metric-card",
+            direction: "vertical",
+            gap: 0.1,
+            at: [1, 1, 3, 0.8],
+            children: [
+              {
+                id: "metric-label-drop.metric.value-wrap",
+                type: "stack",
+                direction: "vertical",
+                fixedHeight: 1.15,
+                children: [{
+                  id: "metric-label-drop.metric.value",
+                  type: "text",
+                  text: "276",
+                  style: "metric-value",
+                  autoFit: "shrink",
+                }],
+              },
+              {
+                id: "metric-label-drop.metric.label",
+                type: "text",
+                text: "总人数",
+                style: "metric-label",
+                fixedHeight: 0.72,
+                optional: true,
+              },
+            ],
+          }],
+        },
+      }],
+    });
+
+    const diagnostics = getRenderDiagnostics();
+    expect(diagnostics.some((item) => item.code === "DROP" && item.nodeId === "metric-label-drop.metric.label")).toBe(false);
+    const hit = diagnostics.find((item) => item.code === "FALLBACK_FAILED" && item.nodeId === "metric-label-drop.metric");
+    expect(hit?.severity).toBe("error");
+    expect(isBlockingRenderDiagnostic(hit?.code, hit?.severity)).toBe(true);
+  });
+
   it("uses the widest paragraph instead of concatenating paragraphs for ink width", () => {
     const measured = measureDeck({
       deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
@@ -633,6 +964,77 @@ describe("validation geometry and diagnostic contracts", () => {
       }],
     });
     expect(getRenderDiagnostics().some((item) => item.code === "OVERLAY_OCCLUDES_FLOW" && item.nodeId === "negative-z-overlay.backdrop")).toBe(false);
+  });
+
+  it("keeps auto-fixed low contrast quality-only", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "contrast-severity",
+        layout: "title-and-content",
+        dom: {
+          id: "contrast-severity.root",
+          type: "slide",
+          background: "background",
+          children: [{
+            id: "contrast-severity.panel",
+            type: "panel",
+            area: "content",
+            fill: "EEF2FF",
+            children: [{
+              id: "contrast-severity.body",
+              type: "text",
+              text: "This text is still present but not readable enough.",
+              style: "paragraph",
+              color: "FFFFFF",
+            }],
+          }],
+        },
+      }],
+    });
+    const hit = getRenderDiagnostics().find((item) =>
+      (item.code === "LOW_CONTRAST" || item.code === "LOW_CONTRAST_FIXED") && item.nodeId === "contrast-severity.body"
+    );
+    expect(hit?.code).toBe("LOW_CONTRAST_FIXED");
+    expect(hit?.severity).toBe("warn");
+    expect(isBlockingRenderDiagnostic(hit?.code, hit?.severity)).toBe(false);
+  });
+
+  it("keeps unresolved invisible shapes blocking and fixed invisible shapes as warnings", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "shape-visibility-severity",
+        layout: "freeform",
+        dom: {
+          id: "shape-visibility-severity.root",
+          type: "slide",
+          children: [
+            {
+              id: "shape-visibility-severity.unfixed",
+              type: "shape",
+              at: [1, 1, 3, 2],
+              fill: "FFFFFF",
+              line: { color: "FFFFFF", width: 0, dash: "dash" },
+            },
+            {
+              id: "shape-visibility-severity.fixed",
+              type: "shape",
+              at: [5, 1, 0.3, 0.3],
+              fill: "FFFFFF",
+              line: { color: "FFFFFF", width: 0 },
+            },
+          ],
+        },
+      }],
+    });
+    const diagnostics = getRenderDiagnostics();
+    const unfixed = diagnostics.find((item) => item.code === "SHAPE_INVISIBLE" && item.nodeId === "shape-visibility-severity.unfixed");
+    const fixed = diagnostics.find((item) => item.code === "SHAPE_INVISIBLE_FIXED" && item.nodeId === "shape-visibility-severity.fixed");
+    expect(unfixed?.severity).toBe("error");
+    expect(isBlockingRenderDiagnostic(unfixed?.code, unfixed?.severity)).toBe(true);
+    expect(fixed?.severity).toBe("warn");
+    expect(isBlockingRenderDiagnostic(fixed?.code, fixed?.severity)).toBe(false);
   });
 
   it("downgrades low-alpha foreground overlays to decorative overlap", () => {

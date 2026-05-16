@@ -4,7 +4,7 @@ import { dirname, extname } from "node:path";
 import { emitPackage } from "./emitter/package.js";
 import type { ChartAnnotation, ChartAxisSpec, ChartDataLabels, ChartLegendSpec, ChartMarkerSpec, ChartNumberFormat, ChartPlotAreaSpec, ChartSeries, ChartType, DeckAst, FillSpec, ImageShape, LineSpec, Paragraph, ShapeList, SlideAst, TableBorderLineSpec, TableBorderSide, TableCell, TextRun, ShapePreset } from "./emitter/types.js";
 import { expandComponent, isComponentTypedNode } from "./component-registry.js";
-import { clearRenderDiagnostics, contrastRatio, contrastThreshold, getRenderDiagnostics, pushDiagnostic, relativeLuminance } from "./diagnostics.js";
+import { clearRenderDiagnostics, contrastRatio, contrastThreshold, getRenderDiagnostics, pushDiagnostic, relativeLuminance, type LayoutDiagnostic } from "./diagnostics.js";
 import { coverageRatio, meaningfulOverlap, meaningfulOverlayOcclusion, meaningfulStructuralOverlap, meaningfulTitleOcclusion, rectFromNodePlacement, type OverlapMetrics } from "./layout/geometry.js";
 import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
@@ -15,7 +15,7 @@ import { buildTheme, color, normalizeCornerRadius, preferredFont, resolveEmphasi
 import { parseMarkdownInline, splitNumericRun } from "./markdown-inline.js";
 import { formatRichToken, latexToMathText, richInlinePlainText, richRunsPlainText } from "./m3-rich-inline.js";
 import { latexToOmml } from "./latex-omml.js";
-import { emuToCm, normalizeStrokeCm, SLIDE_SIZES } from "./units.js";
+import { emuToCm, normalizeStrokeCm, parseLayoutDimensionCm, SLIDE_SIZES } from "./units.js";
 import { isDeckSize } from "./schema.js";
 import { createTextMeasurer, PT_TO_CM } from "./text-measure.js";
 import { probeImageDimensions } from "./emitter/image-dim.js";
@@ -133,6 +133,9 @@ const SHAPE_PRESETS: Set<string> = new Set([
   "callout", "chevron", "star-5", "star-8", "parallelogram",
   "flowChartProcess", "flowChartDecision", "flowChartData", "flowChartTerminator", "flowChartDocument",
   "cylinder", "cube", "gear6", "heart", "lightningBolt", "cloud",
+]);
+const CONNECTOR_SHAPE_PRESETS: Set<string> = new Set([
+  "straightConnector", "elbowConnector", "orthogonalConnector", "curvedConnector", "line",
 ]);
 
 interface Rect {
@@ -791,7 +794,7 @@ function runContrastCheck(slideId: string, slide: { shapes: ShapeList; backgroun
     const uniqueNodeIds = new Set(group.map((h) => h.nodeId));
     const fullyFixed = repairs.length >= uniqueNodeIds.size;
     pushDiagnostic({
-      severity: "warn",
+      severity: fullyFixed ? "warn" : "error",
       code: fullyFixed ? "LOW_CONTRAST_FIXED" : "LOW_CONTRAST",
       slideId,
       nodeId: head.nodeId,
@@ -972,7 +975,7 @@ function runShapeVisibilityCheck(slideId: string, slide: { shapes: ShapeList; ba
     }
     const fixed = repaired || borderAdded;
     pushDiagnostic({
-      severity: "warn",
+      severity: fixed ? "warn" : "error",
       code: fixed ? "SHAPE_INVISIBLE_FIXED" : "SHAPE_INVISIBLE",
       slideId,
       nodeId: shape.name,
@@ -1161,7 +1164,8 @@ function detectOverlayOcclusions(
     for (const target of flow) {
       const targetRect = collisionRect(target);
       if (!targetRect) continue;
-      const overlap = meaningfulOverlayOcclusion(overlayRect, targetRect);
+      const overlap = meaningfulOverlayOcclusion(overlayRect, targetRect)
+        || textClearanceOverlap(overlayRect, target, targetRect);
       if (!overlap) continue;
       pushCollisionDiagnostic(
         slideId,
@@ -1176,6 +1180,21 @@ function detectOverlayOcclusions(
   }
 }
 
+function textClearanceOverlap(overlayRect: Rect, target: MeasuredNode, targetRect: Rect): OverlapMetrics | undefined {
+  if (target.visualRole !== "text") return undefined;
+  const padded = padRect(targetRect, 0.04, 0.14);
+  return meaningfulOverlap(overlayRect, padded, { minAreaCm2: 0.05 });
+}
+
+function padRect(rect: Rect, dx: number, dy: number): Rect {
+  return {
+    x: rect.x - dx,
+    y: rect.y - dy,
+    w: Math.max(0.001, rect.w + dx * 2),
+    h: Math.max(0.001, rect.h + dy * 2),
+  };
+}
+
 function pushCollisionDiagnostic(
   slideId: string,
   code: "COLLISION" | "SIBLING_INK_OVERLAP" | "STRUCTURAL_OVERLAP" | "DECORATIVE_OVERLAP" | "OVERLAY_OCCLUDES_FLOW",
@@ -1186,8 +1205,9 @@ function pushCollisionDiagnostic(
   slideDom?: DomNode,
 ): void {
   const constrainedBy = slideDom ? findCollisionConstrainingAncestor(slideDom, a, b, overlap) : undefined;
+  const severity = collisionSeverity(code, a, b, overlap);
   pushDiagnostic({
-    severity: code === "STRUCTURAL_OVERLAP" ? "error" : code === "DECORATIVE_OVERLAP" ? "info" : "warn",
+    severity,
     code,
     slideId,
     nodeId: a.id,
@@ -1216,6 +1236,25 @@ function pushCollisionDiagnostic(
     },
     ...(constrainedBy ? { constrainedBy } : {}),
   });
+}
+
+function collisionSeverity(
+  code: "COLLISION" | "SIBLING_INK_OVERLAP" | "STRUCTURAL_OVERLAP" | "DECORATIVE_OVERLAP" | "OVERLAY_OCCLUDES_FLOW",
+  a: MeasuredNode,
+  b: MeasuredNode,
+  overlap: OverlapMetrics,
+): "info" | "warn" | "error" {
+  if (code === "DECORATIVE_OVERLAP") return "info";
+  if (code === "SIBLING_INK_OVERLAP" && isTinySiblingTextOverlap(a, b, overlap)) return "warn";
+  return "error";
+}
+
+function isTinySiblingTextOverlap(a: MeasuredNode, b: MeasuredNode, overlap: OverlapMetrics): boolean {
+  const involvesText = a.visualRole === "text" || b.visualRole === "text";
+  if (!involvesText) return false;
+  return overlap.rect.h <= 0.08
+    && overlap.areaCm2 <= 0.12
+    && overlap.ratioOfSmaller <= 0.08;
 }
 
 function collisionRect(node: MeasuredNode): Rect | undefined {
@@ -2261,15 +2300,17 @@ function estimateInkRect(theme: SimpleTheme, node: DomNode, rect: Rect): Rect | 
     return placeInkRect({ ...node, align: "left", valign: "top" }, rect, { w: rect.w, h: neededH });
   }
   if (node.type === "shape") {
+    const shapeRect = authoredShapeRect(rect, node);
     const preset = typeof node.preset === "string" ? node.preset : "";
     if (preset === "line") {
       const thickness = normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.04;
-      return rect.w >= rect.h
-        ? { x: rect.x, y: rect.y + Math.max(0, (rect.h - thickness) / 2), w: rect.w, h: Math.min(rect.h, thickness) }
-        : { x: rect.x + Math.max(0, (rect.w - thickness) / 2), y: rect.y, w: Math.min(rect.w, thickness), h: rect.h };
+      return shapeRect.w >= shapeRect.h
+        ? { x: shapeRect.x, y: shapeRect.y + Math.max(0, (shapeRect.h - thickness) / 2), w: shapeRect.w, h: Math.min(shapeRect.h, thickness) }
+        : { x: shapeRect.x + Math.max(0, (shapeRect.w - thickness) / 2), y: shapeRect.y, w: Math.min(shapeRect.w, thickness), h: shapeRect.h };
     }
-    if (preset === "ellipse") return insetRect(rect, 0.08, 0.08);
-    if (preset === "diamond" || preset === "triangle" || preset === "rightTriangle") return insetRect(rect, 0.14, 0.12);
+    if (preset === "ellipse") return insetRect(shapeRect, 0.08, 0.08);
+    if (preset === "diamond" || preset === "triangle" || preset === "rightTriangle") return insetRect(shapeRect, 0.14, 0.12);
+    return shapeRect;
   }
   if (node.type === "divider") {
     const thickness = normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.04;
@@ -2547,13 +2588,16 @@ function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const tinyThreshold = node.type === "divider" || node.type === "spacer" || node.type === "shape" || isDividerLikeBand ? 0.02 : 0.18;
   if (rect.h < tinyThreshold || rect.w < tinyThreshold) {
     layoutDropWarnings.add(`${slideId}/${node.id}:${rect.w.toFixed(2)}x${rect.h.toFixed(2)}`);
+    const tinySeverity = node.type === "text" && textStyleKey(node) === "slide-title" ? "warn" : "error";
     pushDiagnostic({
-      severity: "error",
+      severity: tinySeverity,
       code: "TINY_RECT",
       slideId,
       nodeId: node.id,
       message: `Node assigned an unrenderable rect ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm; rendering skipped.`,
-      suggestion: "Reduce sibling fixed sizes, drop optional siblings, or split this slide.",
+      suggestion: tinySeverity === "warn"
+        ? "Slide-level title chrome is too small; keep the content title inside the primary component or increase theme.layout.titleHeight if a page title must render."
+        : "Reduce sibling fixed sizes, drop optional siblings, or split this slide.",
       measured: { rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h } },
     });
     recordDecision(slideId, node.id, { applied: "drop", notes: [`tiny rect ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}`] });
@@ -2564,7 +2608,7 @@ function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   if (node.type === "bullets") return [bulletsShape(theme, node, rect, ids)];
   if (node.type === "image") return captionedShapes(theme, node, rect, ids, (bodyRect) => imageShape(theme, node, bodyRect, ids));
   if (node.type === "table") return captionedShapes(theme, node, rect, ids, (bodyRect) => [tableShape(theme, node, bodyRect, ids, rectsById)]);
-  if (node.type === "chart") return captionedShapes(theme, node, rect, ids, (bodyRect) => [chartShape(theme, node, bodyRect, ids, rectsById)]);
+  if (node.type === "chart") return captionedShapes(theme, node, rect, ids, (bodyRect) => chartShapes(theme, node, bodyRect, ids, rectsById));
   if (node.type === "shape") return [presetShape(theme, node, rect, ids)];
   if (node.type === "panel") return renderPanel(theme, node, rect, rectsById, ids, slideId);
   if (node.type === "card") return renderCard(theme, node, rect, rectsById, ids, slideId);
@@ -2576,6 +2620,10 @@ function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
 
 const squashedWarnings = new Set<string>();
 const SQUASHED_HEIGHT_TOLERANCE_CM = 0.04;
+const MILD_TEXT_SQUASH_DELTA_CM = 0.16;
+const VERY_MILD_TEXT_SQUASH_DELTA_CM = 0.06;
+const MIN_READABLE_TEXT_BOX_HEIGHT_CM = 0.6;
+const MIN_READABLE_SHORT_TEXT_BOX_HEIGHT_CM = 0.38;
 
 function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, slideId: string): void {
   if (node.optional === true) return;
@@ -2605,8 +2653,11 @@ function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, s
   const narrowContent = node.type === "bullets" && rect.w < 1.4;
   if (!shortContent && !narrowContent) return;
   squashedWarnings.add(key);
+  const severity = node.type === "text" && textStyleKey(node) === "slide-title"
+    ? "warn"
+    : mildTextSquash(node, rect, minHeight) ? "warn" : "error";
   pushDiagnostic({
-    severity: "error",
+    severity,
     code: "SQUASHED",
     slideId,
     nodeId: node.id,
@@ -2618,6 +2669,19 @@ function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, s
       ...(node.type === "bullets" ? { minWidthCm: 1.4 } : {}),
     },
   });
+}
+
+function mildTextSquash(node: DomNode, rect: Rect, minHeight: number): boolean {
+  if (node.type !== "text") return false;
+  const delta = minHeight - rect.h;
+  if (delta <= 0) return true;
+  if (isHeadingTextStyle(textStyleKey(node)) && rect.h >= 0.34 && delta <= 0.18) return true;
+  if (rect.h >= MIN_READABLE_TEXT_BOX_HEIGHT_CM && delta <= MILD_TEXT_SQUASH_DELTA_CM) return true;
+  return rect.h >= MIN_READABLE_SHORT_TEXT_BOX_HEIGHT_CM && delta <= VERY_MILD_TEXT_SQUASH_DELTA_CM;
+}
+
+function isHeadingTextStyle(styleKey: string): boolean {
+  return styleKey === "section-title" || styleKey === "card-title" || styleKey === "h1" || styleKey === "h2";
 }
 
 function nearestSemanticRole(node?: DomNode): string | undefined {
@@ -3673,7 +3737,7 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
   const lineToken = isSurfaceLineDisabled(rawLineToken) ? undefined : surfaceLineToken(rawLineToken) ?? marker?.line;
   const fillAlpha = alphaProp(node.fillOpacity ?? fillRecord?.opacity ?? fillRecord?.alpha ?? node.opacity ?? marker?.fillOpacity);
   const lineAlpha = alphaProp(node.lineOpacity ?? lineRecord?.opacity ?? lineRecord?.alpha ?? node.opacity ?? marker?.lineOpacity);
-  const shapeRect = marker ? markerRect(rect, marker, node) : rect;
+  const shapeRect = marker ? markerRect(rect, marker, node) : authoredShapeRect(rect, node);
   const shapeNode = marker && typeof node.rotation !== "number" && typeof marker.rotation === "number"
     ? { ...node, rotation: marker.rotation }
     : node;
@@ -3691,12 +3755,13 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
     ...(connection ? { connection } : {}),
     ...(typeof node.cornerRadius === "number" ? { cornerRadius: normalizeCornerRadius(node.cornerRadius) } : marker?.cornerRadius !== undefined ? { cornerRadius: marker.cornerRadius } : {}),
   };
-  if (hasTextContent(node)) {
+  const textSourceNode = shapeTextSourceNode(node);
+  if (hasTextContent(textSourceNode)) {
     const shapeTextNode: DomNode = {
-      ...node,
-      style: typeof node.style === "string" && node.style.trim() ? node.style : "label",
-      align: node.align ?? "center",
-      autoFit: node.autoFit ?? "shrink",
+      ...textSourceNode,
+      style: typeof textSourceNode.style === "string" && textSourceNode.style.trim() ? textSourceNode.style : "label",
+      align: textSourceNode.align ?? "center",
+      autoFit: textSourceNode.autoFit ?? "shrink",
     };
     const styleKey = textStyleKey(shapeTextNode);
     const baseStyle = effectiveTextStyle(theme, shapeTextNode, "label");
@@ -3715,6 +3780,38 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
   const shadow = surfaceShadow(theme, node);
   if (shadow) shape.shadow = shadow;
   return shape;
+}
+
+function shapeTextSourceNode(node: DomNode): DomNode {
+  const textObject = shapeTextObjectSourceNode(node);
+  if (textObject) return textObject;
+  if (hasDirectTextContent(node)) return node;
+  const paragraphs = shapeTextParagraphsFromChildren(node);
+  return paragraphs.length ? { ...node, paragraphs, children: undefined } : node;
+}
+
+function shapeTextObjectSourceNode(node: DomNode): DomNode | null {
+  if (!node.text || typeof node.text !== "object" || Array.isArray(node.text)) return null;
+  const rec = node.text as Record<string, unknown>;
+  const text = typeof rec.text === "string"
+    ? rec.text
+    : typeof rec.content === "string"
+      ? rec.content
+      : "";
+  const content = Array.isArray(rec.content)
+    ? rec.content
+    : Array.isArray(rec.runs)
+      ? rec.runs
+      : undefined;
+  const paragraphs = Array.isArray(rec.paragraphs) ? rec.paragraphs : undefined;
+  if (!text && !content && !paragraphs) return null;
+  return {
+    ...node,
+    ...rec,
+    ...(text ? { text } : { text: undefined }),
+    ...(content ? { content } : {}),
+    ...(paragraphs ? { paragraphs } : {}),
+  } as DomNode;
 }
 
 function connectorConnectionSpec(node: DomNode): Extract<ShapeList[number], { type: "shape" }>["connection"] | undefined {
@@ -3754,11 +3851,42 @@ function firstNumberProp(node: DomNode, ...keys: string[]): number | undefined {
 }
 
 function hasTextContent(node: DomNode): boolean {
+  if (hasDirectTextContent(node)) return true;
+  return shapeTextParagraphsFromChildren(node).length > 0;
+}
+
+function hasDirectTextContent(node: DomNode): boolean {
   if (typeof node.text === "string" && node.text.length > 0) return true;
+  if (shapeTextObjectSourceNode(node)) return true;
   if (typeof node.content === "string" && node.content.length > 0) return true;
   if (Array.isArray(node.content) && node.content.length > 0) return true;
   if (Array.isArray(node.paragraphs) && node.paragraphs.length > 0) return true;
   return false;
+}
+
+function shapeTextParagraphsFromChildren(node: DomNode): Array<Record<string, unknown>> {
+  if (!Array.isArray(node.children)) return [];
+  return node.children.flatMap((child) => {
+    if (!child || typeof child !== "object" || Array.isArray(child) || child.type !== "text") return [];
+    const text = typeof child.text === "string"
+      ? child.text
+      : typeof child.content === "string"
+        ? child.content
+        : "";
+    const runs = Array.isArray(child.content)
+      ? child.content
+      : Array.isArray(child.runs)
+        ? child.runs
+        : undefined;
+    if (!text && !runs) return [];
+    return [{
+      ...(text ? { text } : {}),
+      ...(runs ? { runs } : {}),
+      ...(typeof child.style === "string" ? { style: child.style } : {}),
+      ...(typeof child.align === "string" ? { align: child.align } : {}),
+      ...(typeof child.color === "string" ? { color: child.color } : {}),
+    }];
+  });
 }
 
 type MarkerVisualSpec = {
@@ -3891,6 +4019,19 @@ function markerToneTokens(theme: SimpleTheme, toneValue: unknown): { fill: strin
   return { fill: tone.fill || "brand.tint", accent: tone.accent || tone.line || "brand.primary" };
 }
 
+function authoredShapeRect(rect: Rect, node: DomNode): Rect {
+  const requestedW = optionalNumberProp(node, "fixedWidth");
+  const requestedH = optionalNumberProp(node, "fixedHeight");
+  if (requestedW === undefined && requestedH === undefined) return rect;
+  const w = requestedW === undefined ? rect.w : Math.min(rect.w, Math.max(0.02, requestedW));
+  const h = requestedH === undefined ? rect.h : Math.min(rect.h, Math.max(0.02, requestedH));
+  const align = node.align === "left" || node.align === "start" ? "start" : node.align === "right" || node.align === "end" ? "end" : "center";
+  const valign = node.valign === "top" || node.valign === "start" ? "start" : node.valign === "bottom" || node.valign === "end" ? "end" : "center";
+  const x = align === "start" ? rect.x : align === "end" ? rect.x + rect.w - w : rect.x + (rect.w - w) / 2;
+  const y = valign === "start" ? rect.y : valign === "end" ? rect.y + rect.h - h : rect.y + (rect.h - h) / 2;
+  return { x, y, w, h };
+}
+
 function markerRect(rect: Rect, marker: MarkerVisualSpec, node: DomNode): Rect {
   const w = Math.min(marker.w, rect.w);
   const h = Math.min(marker.h, rect.h);
@@ -3940,11 +4081,12 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   const colCount = Math.max(1, ...allRows.map((row) => row.length));
   const rowCount = Math.max(1, allRows.length);
   const cellAlign = node.align === "center" || node.align === "right" || node.align === "left" ? node.align : "left";
-  const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0;
+  const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0 || tableFirstRowLooksHeader(rawRows);
   const widthsInput = Array.isArray(node.colWidths) ? node.colWidths : (widthsFromColumns && widthsFromColumns.some((w) => w > 0) ? widthsFromColumns : undefined);
-  const colWidths = resolveTableColWidths(widthsInput, colCount, rect.w);
   const density = tableDensity(node.density);
-  const fontScale = typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0 ? node.fontScale : 1;
+  const colWidths = resolveTableColWidths(widthsInput, colCount, rect.w, { theme, rows: allRows, firstRowHeader, density });
+  const authoredFontScale = typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0 ? node.fontScale : 1;
+  const fontScale = effectiveTableFontScale(theme, node, rect, allRows, colWidths, firstRowHeader, density, authoredFontScale);
   const rowHeightsCm = resolveTableRowHeights(node.rowHeights, rowCount, rect.h, {
     theme,
     rows: allRows,
@@ -3960,7 +4102,7 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     fontScale,
   });
   pushEmptyTableDataDiagnostic(node, rect, sourceRows, rawRows, firstRowHeader);
-  pushTableFitDiagnostics(theme, node, rect, allRows, colWidths, rowHeightsCm, firstRowHeader, semanticOuterRectForBody(node.id, "table", rectsById));
+  pushTableFitDiagnostics(theme, node, rect, allRows, colWidths, rowHeightsCm, firstRowHeader, semanticOuterRectForBody(node.id, "table", rectsById), fontScale);
   const tablePadding = tablePaddingSpec(node.cellPadding ?? node.padding);
   const tableBorders = tableBorderSpec(theme, node.borders ?? node.border) ?? tableBorderSpec(theme, node.line) ?? tableBorderSpec(theme, node.borderColor);
   const tableBorderDash = dashValue(node.borderDash) ?? dashValue(node.lineDash);
@@ -4080,7 +4222,7 @@ function tableRowsFromNode(rowsValue: unknown, columnDefs: TableColumnDef[] | nu
     if (row && typeof row === "object" && Array.isArray((row as { cells?: unknown }).cells)) return (row as { cells: unknown[] }).cells;
     if (row && typeof row === "object" && columnDefs?.length) {
       const rec = row as Record<string, unknown>;
-      const mapped = columnDefs.map((column) => tableObjectCell(rec, column));
+      const mapped = columnDefs.map((column) => tableObjectCellWithOverrides(rec, column));
       if (mapped.some((item) => item.matched)) return mapped.map((item) => item.value);
       const ordered = tableOrderedObjectKeys(rec).map((key) => rec[key]);
       if (ordered.length >= columnDefs.length) return ordered.slice(0, columnDefs.length);
@@ -4088,6 +4230,54 @@ function tableRowsFromNode(rowsValue: unknown, columnDefs: TableColumnDef[] | nu
     }
     return [];
   }) : [];
+}
+
+function tableFirstRowLooksHeader(rows: unknown[][]): boolean {
+  if (rows.length < 2) return false;
+  const first = rows[0] || [];
+  if (first.length === 0) return false;
+  const nonEmpty = first.filter((cell) => tableCellText(cell).trim()).length;
+  if (nonEmpty < Math.max(1, first.length - 1)) return false;
+  return first.some((cell) => {
+    const rec = cell && typeof cell === "object" && !Array.isArray(cell) ? cell as Record<string, unknown> : {};
+    return rec.bold === true
+      || typeof rec.fill === "string"
+      || typeof rec.color === "string"
+      || rec.align === "center";
+  });
+}
+
+function tableObjectCellWithOverrides(row: Record<string, unknown>, column: TableColumnDef): { matched: boolean; value: unknown } {
+  const base = tableObjectCell(row, column);
+  const cells = row.cells && typeof row.cells === "object" && !Array.isArray(row.cells)
+    ? row.cells as Record<string, unknown>
+    : undefined;
+  if (!cells) return base;
+  const override = tableObjectCell(cells, column);
+  if (!override.matched) return base;
+  return {
+    matched: true,
+    value: mergeTableCellOverride(base.value, override.value),
+  };
+}
+
+function mergeTableCellOverride(base: unknown, override: unknown): unknown {
+  if (!override || typeof override !== "object" || Array.isArray(override)) return override;
+  const out = {
+    ...(base && typeof base === "object" && !Array.isArray(base) ? base as Record<string, unknown> : {}),
+    ...(override as Record<string, unknown>),
+  };
+  if (!tableCellHasAuthoredText(out) && base !== undefined && base !== null) out.text = tableCellText(base);
+  return out;
+}
+
+function tableCellHasAuthoredText(cell: Record<string, unknown>): boolean {
+  return typeof cell.text === "string"
+    || typeof cell.value === "string"
+    || typeof cell.value === "number"
+    || typeof cell.label === "string"
+    || typeof cell.title === "string"
+    || Array.isArray(cell.runs);
 }
 
 function tableObjectCell(row: Record<string, unknown>, column: TableColumnDef): { matched: boolean; value: unknown } {
@@ -4135,7 +4325,7 @@ function tableOrderedObjectKeys(row: Record<string, unknown>): string[] {
   return Object.keys(row).filter((key) => !TABLE_ROW_METADATA_KEYS.has(key));
 }
 
-const TABLE_ROW_METADATA_KEYS = new Set(["tone", "status", "color", "fill", "bold", "align", "valign", "style", "metadata", "className"]);
+const TABLE_ROW_METADATA_KEYS = new Set(["cells", "tone", "status", "color", "fill", "bold", "align", "valign", "style", "metadata", "className"]);
 const TABLE_KEY_SYNONYM_GROUPS = [
   ["metric", "label", "name", "title", "category", "item"],
   ["amount", "value", "val"],
@@ -4215,7 +4405,12 @@ function coveredTableCell(hMerge: boolean, vMerge: boolean): TableCell {
   };
 }
 
-function resolveTableColWidths(raw: unknown, colCount: number, totalCm: number): number[] {
+function resolveTableColWidths(
+  raw: unknown,
+  colCount: number,
+  totalCm: number,
+  context?: { theme: SimpleTheme; rows: unknown[][]; firstRowHeader: boolean; density: TableDensity },
+): number[] {
   if (Array.isArray(raw) && raw.length === colCount) {
     const nums = raw.map((v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
     const sum = nums.reduce((a, b) => a + b, 0);
@@ -4231,13 +4426,46 @@ function resolveTableColWidths(raw: unknown, colCount: number, totalCm: number):
         const weightSum = weights.reduce((a, b) => a + b, 0);
         return weights.map((n) => (n / weightSum) * totalCm);
       }
-      // Treat as widths if total is close to totalCm; otherwise as weights.
+      // Tables should fill the assigned table frame. Agents often provide
+      // readable cm-like weights such as [3,2,1.4,1.4,7]; leaving those as
+      // absolute widths creates a half-empty native table and forces ugly
+      // header wrapping. Preserve the proportions, then fit them to totalCm.
       const looksAbsolute = Math.abs(sum - totalCm) < totalCm * 0.5 && nums.every((n) => n >= 0.3);
-      if (looksAbsolute) return nums;
+      if (looksAbsolute && Math.abs(sum - totalCm) < totalCm * 0.04) return nums;
       return nums.map((n) => (n / sum) * totalCm);
     }
   }
+  if (context && context.rows.length > 0) return autoTableColWidths(context.theme, context.rows, colCount, totalCm, context.firstRowHeader, context.density);
   return Array.from({ length: colCount }, () => totalCm / colCount);
+}
+
+function autoTableColWidths(
+  theme: SimpleTheme,
+  rows: unknown[][],
+  colCount: number,
+  totalCm: number,
+  firstRowHeader: boolean,
+  density: TableDensity,
+): number[] {
+  const measurer = createTextMeasurer(theme);
+  const preferred = Array.from({ length: colCount }, (_, col) => {
+    let width = 0;
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      const raw = rows[rowIndex]?.[col] ?? "";
+      const text = tableCellText(raw).trim();
+      if (!text) continue;
+      const isHeader = rowIndex === 0 && firstRowHeader;
+      const style = tableTextStyle(theme, isHeader, density, 1);
+      const fontPt = tableCellEffectiveFontPt(raw, style.fontSize);
+      const measured = measurer.textWidth(text, fontPt, style.weight);
+      const contentPadding = density === "compact" ? 0.55 : 0.82;
+      width = Math.max(width, Math.min(8.5, measured + contentPadding));
+    }
+    return Math.max(1.25, width || 1.25);
+  });
+  const sum = preferred.reduce((a, b) => a + b, 0);
+  if (sum <= 0 || !Number.isFinite(sum)) return Array.from({ length: colCount }, () => totalCm / colCount);
+  return preferred.map((w) => (w / sum) * totalCm);
 }
 
 function resolveTableRowHeights(
@@ -4331,8 +4559,15 @@ function tableCellFill(theme: SimpleTheme, token: unknown): FillSpec | undefined
 
 function tablePaddingSpec(value: unknown): Partial<Record<"l" | "t" | "r" | "b", number>> | undefined {
   if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    const emu = cm(value);
+    const emu = cm(tablePaddingNumberToCm(value));
     return { l: emu, r: emu, t: emu, b: emu };
+  }
+  if (typeof value === "string") {
+    const parsed = parseLayoutDimensionCm(value);
+    if (parsed !== undefined && parsed >= 0) {
+      const emu = cm(parsed);
+      return { l: emu, r: emu, t: emu, b: emu };
+    }
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const rec = value as Record<string, unknown>;
@@ -4346,10 +4581,20 @@ function tablePaddingSpec(value: unknown): Partial<Record<"l" | "t" | "r" | "b",
   for (const [key, names] of aliases) {
     for (const name of names) {
       const v = rec[name];
-      if (typeof v === "number" && Number.isFinite(v) && v >= 0) out[key] = cm(v);
+      if (typeof v === "number" && Number.isFinite(v) && v >= 0) out[key] = cm(tablePaddingNumberToCm(v));
+      else if (typeof v === "string") {
+        const parsed = parseLayoutDimensionCm(v);
+        if (parsed !== undefined && parsed >= 0) out[key] = cm(parsed);
+      }
     }
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function tablePaddingNumberToCm(value: number): number {
+  // Agents commonly author table padding as PowerPoint/CSS-like points
+  // (`6`, `8`). Small decimals remain centimeter values for compatibility.
+  return value > 1.6 ? value * 0.0352777778 : value;
 }
 
 function tableBorderSpec(theme: SimpleTheme, value: unknown): TableCell["border"] | undefined {
@@ -4581,6 +4826,181 @@ function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   };
 }
 
+function chartShapes(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }, rectsById?: Map<string, Rect>): ShapeList {
+  const chart = chartShape(theme, node, rect, ids, rectsById);
+  if (chart.type !== "chart" || chart.chartType !== "doughnut" || chart.dataLabels?.show === false) return [chart];
+  const overlay = doughnutExternalLabelOverlay(theme, chart, rect, ids);
+  if (!overlay) return [chart];
+  chart.xfrm = xfrm(overlay.plotRect);
+  chart.showLegend = false;
+  return [chart, ...overlay.shapes];
+}
+
+interface DoughnutExternalLabelItem {
+  index: number;
+  label: string;
+  value: number;
+  percent: number;
+  angle: number;
+  side: "left" | "right";
+  targetY: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: string;
+}
+
+function doughnutExternalLabelOverlay(
+  theme: SimpleTheme,
+  chart: Extract<ShapeList[number], { type: "chart" }>,
+  rect: Rect,
+  ids: { nextId: number },
+): { plotRect: Rect; shapes: ShapeList } | undefined {
+  const series = chart.series[0];
+  if (!series || chart.labels.length === 0) return undefined;
+  const values = series.values.map((value) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (total <= 0) return undefined;
+
+  const labelW = clamp(rect.w * 0.24, 1.45, 2.55);
+  const sideGap = clamp(rect.w * 0.035, 0.18, 0.38);
+  const plotSize = Math.min(rect.h - 0.25, rect.w - labelW * 2 - sideGap * 2 - 0.2);
+  if (!Number.isFinite(plotSize) || plotSize < 1.8) return undefined;
+  const plotRect = {
+    x: rect.x + (rect.w - plotSize) / 2,
+    y: rect.y + (rect.h - plotSize) / 2,
+    w: plotSize,
+    h: plotSize,
+  };
+  const cx = plotRect.x + plotRect.w / 2;
+  const cy = plotRect.y + plotRect.h / 2;
+  const radius = plotSize * 0.43;
+  const minPercent = chart.dataLabels?.minPercent ?? 0.03;
+  const items: DoughnutExternalLabelItem[] = [];
+  let cursor = 0;
+  values.forEach((value, index) => {
+    const percent = value / total;
+    const angle = -Math.PI / 2 + (cursor + value / 2) / total * Math.PI * 2;
+    cursor += value;
+    if (value <= 0 || percent < minPercent) return;
+    const side = Math.cos(angle) >= 0 ? "right" : "left";
+    const label = doughnutExternalLabelText(chart, index, value, percent);
+    if (!label) return;
+    const h = label.includes("\n") ? 0.92 : 0.56;
+    items.push({
+      index,
+      label,
+      value,
+      percent,
+      angle,
+      side,
+      targetY: cy + Math.sin(angle) * radius,
+      x: side === "right"
+        ? Math.min(rect.x + rect.w - labelW, plotRect.x + plotRect.w + sideGap)
+        : Math.max(rect.x, plotRect.x - labelW - sideGap),
+      y: 0,
+      w: labelW,
+      h,
+      color: chart.colors?.[index % (chart.colors.length || 1)] || color(theme, "divider"),
+    });
+  });
+  if (items.length === 0) return undefined;
+  distributeDoughnutLabels(items.filter((item) => item.side === "left"), rect);
+  distributeDoughnutLabels(items.filter((item) => item.side === "right"), rect);
+
+  const shapes: ShapeList = [];
+  for (const item of items) {
+    const edge = { x: cx + Math.cos(item.angle) * radius, y: cy + Math.sin(item.angle) * radius };
+    const elbow = {
+      x: item.side === "right" ? item.x - 0.08 : item.x + item.w + 0.08,
+      y: item.y + item.h / 2,
+    };
+    shapes.push(doughnutLeaderLineShape(theme, item, edge, elbow, ids));
+    shapes.push(textShape(theme, {
+      id: `doughnut.label.${chart.id}.${item.index}`,
+      type: "text",
+      text: item.label,
+      style: "legend-label",
+      align: item.side === "right" ? "left" : "right",
+      valign: "middle",
+      autoFit: "shrink",
+    }, { x: item.x, y: item.y, w: item.w, h: item.h }, ids));
+  }
+  return { plotRect, shapes };
+}
+
+function distributeDoughnutLabels(items: DoughnutExternalLabelItem[], rect: Rect): void {
+  if (items.length === 0) return;
+  const gap = 0.08;
+  const minY = rect.y + 0.05;
+  const maxY = rect.y + rect.h - 0.05;
+  items.sort((a, b) => a.targetY - b.targetY);
+  let cursor = minY;
+  for (const item of items) {
+    item.y = clamp(item.targetY - item.h / 2, cursor, maxY - item.h);
+    cursor = item.y + item.h + gap;
+  }
+  const overflow = cursor - gap - maxY;
+  if (overflow > 0) {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const nextY = i === items.length - 1 ? maxY - items[i]!.h : items[i + 1]!.y - gap - items[i]!.h;
+      items[i]!.y = Math.max(minY, Math.min(items[i]!.y - overflow, nextY));
+    }
+  }
+}
+
+function doughnutExternalLabelText(chart: Extract<ShapeList[number], { type: "chart" }>, index: number, value: number, percent: number): string {
+  const labels = chart.dataLabels;
+  const parts: string[] = [];
+  if (labels?.showCategoryName ?? true) parts.push(chart.labels[index] ?? "");
+  const metrics: string[] = [];
+  if (labels?.showValue === true) metrics.push(formatDoughnutValue(value));
+  if (labels?.showPercent ?? true) metrics.push(formatDoughnutPercent(percent));
+  if (metrics.length > 0) parts.push(metrics.join(" · "));
+  return parts.filter(Boolean).join("\n");
+}
+
+function formatDoughnutValue(value: number): string {
+  if (Math.abs(value) >= 1000) return Math.round(value).toLocaleString("en-US");
+  if (Math.abs(value - Math.round(value)) < 0.05) return String(Math.round(value));
+  return value.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatDoughnutPercent(percent: number): string {
+  const pct = percent * 100;
+  return `${pct >= 10 || Math.abs(pct - Math.round(pct)) < 0.05 ? Math.round(pct).toString() : pct.toFixed(1).replace(/\.0$/, "")}%`;
+}
+
+function doughnutLeaderLineShape(
+  theme: SimpleTheme,
+  item: DoughnutExternalLabelItem,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  ids: { nextId: number },
+): ShapeList[number] {
+  const x = Math.min(start.x, end.x);
+  const y = Math.min(start.y, end.y);
+  const w = Math.max(0.01, Math.abs(end.x - start.x));
+  const h = Math.max(0.01, Math.abs(end.y - start.y));
+  return {
+    type: "shape",
+    id: ids.nextId++,
+    name: `doughnut.leader.${item.index}`,
+    preset: "line",
+    xfrm: {
+      x: cm(x),
+      y: cm(y),
+      cx: cm(w),
+      cy: cm(h),
+      ...(end.x < start.x ? { flipH: true } : {}),
+      ...(end.y < start.y ? { flipV: true } : {}),
+    },
+    fill: { type: "none" },
+    line: { color: item.color || color(theme, "divider"), width: cm(0.012), alpha: 0.78 },
+  };
+}
+
 function chartHasRenderableData(chartTypeValue: ChartType, labels: string[], series: ChartSeries[]): boolean {
   if (chartTypeValue === "scatter") return series.some((item) => (item.points?.length || 0) > 0 || item.values.length > 0);
   return labels.length > 0 && series.some((item) => item.values.length > 0);
@@ -4635,7 +5055,18 @@ function normalizeChartDataLabels(
 ): ChartDataLabels | undefined {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const rec = value as Record<string, unknown>;
-    const out: ChartDataLabels = {};
+    const out: ChartDataLabels = defaults.pieLike
+      ? {
+        show: defaults.showValues,
+        position: "outsideEnd",
+        showCategoryName: true,
+        showPercent: true,
+        showLeaderLines: true,
+        minPercent: 0.03,
+      }
+      : defaults.showValues
+        ? { show: true, position: "outsideEnd", showValue: true }
+        : { show: true };
     if (typeof rec.show === "boolean") out.show = rec.show;
     if (rec.position === "bestFit" || rec.position === "center" || rec.position === "insideEnd" || rec.position === "insideBase" || rec.position === "outsideEnd") out.position = rec.position;
     if (typeof rec.showValue === "boolean") out.showValue = rec.showValue;
@@ -4650,7 +5081,7 @@ function normalizeChartDataLabels(
   if (defaults.pieLike) {
     return {
       show: defaults.showValues,
-      position: "bestFit",
+      position: "outsideEnd",
       showCategoryName: true,
       showPercent: true,
       showLeaderLines: true,
@@ -4673,7 +5104,7 @@ function pushChartLabelDiagnostics(node: DomNode, rect: Rect, resolvedChartType:
     slideId: currentSlideId || undefined,
     nodeId: nodeLabel(node),
     message: `Pie chart '${nodeLabel(node)}' hides slice labels; readers must infer values from the legend or surrounding text.`,
-    suggestion: "For pie/doughnut charts, omit showValues:false or set dataLabels:{show:true, position:'bestFit', showCategoryName:true, showPercent:true}.",
+    suggestion: "For pie/doughnut charts, omit showValues:false or set dataLabels:{show:true, showCategoryName:true, showPercent:true}. Pie may use position:'outsideEnd'; doughnut labels are rendered as repair-safe external PPT text labels instead of native dLblPos.",
     measured: { rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h } },
   });
 }
@@ -4869,6 +5300,8 @@ function normalizeChartAxis(theme: SimpleTheme, value: unknown): ChartAxisSpec |
   const rec = value as Record<string, unknown>;
   const axis: ChartAxisSpec = {};
   if (typeof rec.title === "string") axis.title = rec.title;
+  else if (typeof rec.label === "string") axis.title = rec.label;
+  else if (typeof rec.name === "string") axis.title = rec.name;
   if (typeof rec.show === "boolean") axis.show = rec.show;
   for (const key of ["min", "max", "majorUnit", "minorUnit"] as const) {
     const v = rec[key];
@@ -5384,7 +5817,7 @@ function contentRect(theme: SimpleTheme, node: DomNode, rect: Rect): Rect {
  *
  *   1. shrink           (handled by solveSizes/shrinkSizes — flex children -> min)
  *   2. demote density   (bullets comfortable->compact, paragraph->caption)
- *   3. drop optional    (children with `optional: true` are removed)
+ *   3. explicit drop    (only children with an explicit drop fallback are removed)
  *   4. truncate         (apply autoFit:"shrink" to text/bullets so OOXML
  *                        tightens to fit)
  *   5. hard fail        (FALLBACK_FAILED diagnostic with measured deltaCm)
@@ -5440,18 +5873,20 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
   }
   if (demoted > 0 && sumMin() <= availableMain + 0.001) return;
 
-  // Stage 3: drop optional.
+  // Stage 3: optional no longer means "silently delete this child". It marks
+  // the child as an agent-editable pressure valve, but the renderer only drops
+  // it when the author explicitly opts in with autoDrop/dropWhenTight/fallback.
   const before = children().length;
   const remaining = children().filter((child) => {
-    if (child.optional === true) {
+    if (child.optional === true && shouldAutoDropOptionalChild(parent, child)) {
       if (parentRole === "feature-card" && isFeatureCardSemanticChild(child)) return true;
       pushDiagnostic({
         severity: "warn",
         code: "DROP",
         slideId: currentSlideId || undefined,
         nodeId: child.id,
-        message: `Optional child '${child.id}' dropped to fit available space.`,
-        suggestion: capacitySuggestion(child, "If this content is critical, mark it non-optional and move other content out."),
+        message: `Optional child '${child.id}' auto-dropped because it explicitly allowed drop fallback.`,
+        suggestion: capacitySuggestion(child, "If this content is critical, remove autoDrop/dropWhenTight/fallback:'drop' and move other content out instead."),
       });
       return false;
     }
@@ -5495,18 +5930,19 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
   // and inter-line slack absorb the difference; emitting a blocking
   // FALLBACK_FAILED for what the eye reads as "fits fine" forces agents
   // into wasteful retry loops on no-op deltas (see qzwkqg/inmuai logs).
-  const needed = sumIntrinsic();
-  const delta = needed - availableMain;
-  const tolerance = Math.max(0.1, availableMain * 0.05);
+  const readableNeeded = sumIntrinsic();
+  const hardNeeded = sumMin();
+  const delta = hardNeeded - availableMain;
+  const tolerance = Math.max(0.18, availableMain * 0.15);
   if (delta < tolerance) {
     pushDiagnostic({
       severity: "warn",
       code: "OVERFLOW",
       slideId: currentSlideId || undefined,
       nodeId: parent.id,
-      message: `Container '${parent.id}' is ${delta.toFixed(2)}cm over its available height (${availableMain.toFixed(2)}cm); within tolerance, autoFit will absorb it.`,
-      suggestion: "No fix required unless the rendered output looks crowded; the small delta is absorbed by autoFit shrink.",
-      measured: { available: availableMain, needed, deltaCm: delta },
+      message: `Container '${parent.id}' is ${Math.max(0, readableNeeded - availableMain).toFixed(2)}cm over its readable height (${availableMain.toFixed(2)}cm), but remains within the hard fit tolerance; autoFit will absorb it.`,
+      suggestion: "No fix required unless the rendered output looks crowded; the readable-height delta is absorbed by autoFit shrink.",
+      measured: { available: availableMain, needed: readableNeeded, hardNeeded, deltaCm: Math.max(0, readableNeeded - availableMain), hardDeltaCm: Math.max(0, delta) },
     });
     return;
   }
@@ -5520,11 +5956,11 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
     code: "FALLBACK_FAILED",
     slideId: currentSlideId || undefined,
     nodeId: parent.id,
-    message: `Container '${parent.id}' cannot fit its children even after demote/drop/truncate (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm).${constraintHint}`,
+    message: `Container '${parent.id}' cannot fit its children even after demote/drop/truncate (needed ${hardNeeded.toFixed(2)}cm hard minimum, ${readableNeeded.toFixed(2)}cm readable; available ${availableMain.toFixed(2)}cm).${constraintHint}`,
     suggestion: constraint
-      ? `Drop or raise ${constraint.ancestorId}.${constraint.prop} (currently ${constraint.value}cm) so the children have ≥${needed.toFixed(2)}cm.${scaleHint ? ` If the component semantics must stay in this slot, ${scaleHint}` : ""} Alternatively, split content across slides or remove a child.`
+      ? `Drop or raise ${constraint.ancestorId}.${constraint.prop} (currently ${constraint.value}cm) so the children have ≥${hardNeeded.toFixed(2)}cm.${scaleHint ? ` If the component semantics must stay in this slot, ${scaleHint}` : ""} Alternatively, split content across slides or remove a child.`
       : `${capacitySuggestion(parent, "Split content across slides, remove a child, or increase the parent's allotted height.")}${scaleHint ? ` ${scaleHint}` : ""}`,
-    measured: { available: availableMain, needed, deltaCm: delta, ...(scaleHint ? { scaleSuggestion: "sm" } : {}) },
+    measured: { available: availableMain, needed: hardNeeded, readableNeeded, deltaCm: delta, readableDeltaCm: Math.max(0, readableNeeded - availableMain), ...(scaleHint ? { scaleSuggestion: "sm" } : {}) },
     ...(constraint ? { constrainedBy: constraint } : {}),
   });
 }
@@ -5535,6 +5971,14 @@ function scaleHintForOverflow(delta: number, available: number): string {
   if (ratio <= 0.09) return "try component scale:'sm' first; it shrinks the component typography/chrome consistently without changing the semantic component.";
   if (ratio <= 0.16) return "try scale:'sm' or density:'compact' before deleting content; if it still fails, increase the region or split the component across slides.";
   return "";
+}
+
+function shouldAutoDropOptionalChild(parent: DomNode, child: DomNode): boolean {
+  if (parent.role === "feature-card" && isFeatureCardSemanticChild(child)) return false;
+  const rec = child as Record<string, unknown>;
+  if (rec.autoDrop === true || rec.dropWhenTight === true || rec.allowAutoDrop === true) return true;
+  const fallback = rec.fallback ?? rec.overflowFallback ?? rec.capacityFallback;
+  return fallback === "drop" || fallback === "autoDrop" || fallback === "auto-drop";
 }
 
 function isFeatureCardSemanticChild(child: DomNode): boolean {
@@ -5831,7 +6275,7 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
     return layered.map((c) => ({ node: c, rect }));
   }
   const columns = Math.max(1, numberProp(node, "columns", 2));
-  const gap = gapCm(theme, node);
+  const gap = gridGapCm(theme, node, flowOnly, columns);
   const availableWidth = Math.max(0, rect.w - gap * (columns - 1));
   const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
   const children = prepareGridChildrenForLayout(theme, node, flowOnly, columns, colWidths, gap);
@@ -5859,7 +6303,9 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
 }
 
 function prepareGridChildrenForLayout(theme: SimpleTheme, node: DomNode, children: DomNode[], columns: number, colWidths: number[], gap: number): DomNode[] {
-  if (node.role !== "kpi-grid" || children.length === 0) return children;
+  const flowChildren = normalizeSingleColumnShapeFlowChildren(children, columns, colWidths[0] || 6);
+  if (node.role !== "kpi-grid" || flowChildren.length === 0) return flowChildren;
+  children = flowChildren;
   const placements = computeGridPlacements(children, columns);
   let valueBandHeight = 0;
   const valueMinById = new Map<string, number>();
@@ -6156,14 +6602,14 @@ function intrinsicMinSize(theme: SimpleTheme, node: DomNode, direction: "horizon
 }
 
 function tableIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number): number {
-  const { allRows, colCount, firstRowHeader, colWidths } = tableLayoutInfo(node, widthCm);
+  const { allRows, colCount, firstRowHeader, colWidths } = tableLayoutInfo(theme, node, widthCm);
   if (allRows.length === 0) return 0.9;
   const fontScale = typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0 ? node.fontScale : 1;
   const rowHeights = estimateTableRowHeights(theme, allRows, colWidths, firstRowHeader, tableDensity(node.density), fontScale);
   return Math.min(10, Math.max(0.9, rowHeights.reduce((sum, h) => sum + h, 0)));
 }
 
-function tableLayoutInfo(node: DomNode, widthCm: number): {
+function tableLayoutInfo(theme: SimpleTheme, node: DomNode, widthCm: number): {
   allRows: unknown[][];
   colCount: number;
   firstRowHeader: boolean;
@@ -6177,9 +6623,10 @@ function tableLayoutInfo(node: DomNode, widthCm: number): {
   const headerRow: unknown[] = headers.length > 0 ? headers : [];
   const allRows: unknown[][] = headerRow.length > 0 ? [headerRow, ...rawRows] : rawRows;
   const colCount = Math.max(1, ...allRows.map((row) => row.length));
-  const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0;
+  const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0 || tableFirstRowLooksHeader(rawRows);
   const widthsInput = Array.isArray(node.colWidths) ? node.colWidths : (widthsFromColumns && widthsFromColumns.some((w) => w > 0) ? widthsFromColumns : undefined);
-  const colWidths = resolveTableColWidths(widthsInput, colCount, widthCm);
+  const density = tableDensity(node.density);
+  const colWidths = resolveTableColWidths(widthsInput, colCount, widthCm, { theme, rows: allRows, firstRowHeader, density });
   return { allRows, colCount, firstRowHeader, colWidths };
 }
 
@@ -6278,8 +6725,92 @@ function tableCellText(raw: unknown): string {
   return String(raw ?? "");
 }
 
-function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, rows: unknown[][], colWidths: number[], rowHeights: number[], firstRowHeader: boolean, outerRect?: Rect): void {
-  const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, tableDensity(node.density));
+function effectiveTableFontScale(
+  theme: SimpleTheme,
+  node: DomNode,
+  rect: Rect,
+  rows: unknown[][],
+  colWidths: number[],
+  firstRowHeader: boolean,
+  density: TableDensity,
+  authoredFontScale: number,
+): number {
+  if (authoredFontScale !== 1) return authoredFontScale;
+  const baseNeeded = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density, 1).reduce((sum, h) => sum + h, 0);
+  if (baseNeeded <= rect.h + 0.08) {
+    if (density === "comfortable" && node.role !== "code-block-table" && rows.length <= 7 && rect.w >= 9 && rect.h >= baseNeeded + 0.75) {
+      for (const scale of [1.16, 1.12, 1.08]) {
+        if (!tableWrapsRemainStable(theme, rows, colWidths, firstRowHeader, density, scale)) continue;
+        const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density, scale).reduce((sum, h) => sum + h, 0);
+        if (needed <= rect.h - 0.08) return scale;
+      }
+    }
+    return 1;
+  }
+  for (const scale of [0.94, 0.9, 0.86, 0.82, 0.78]) {
+    const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density, scale).reduce((sum, h) => sum + h, 0);
+    if (needed <= rect.h + 0.08) {
+      pushDiagnostic({
+        severity: "warn",
+        code: "TRUNCATED",
+        slideId: currentSlideId || undefined,
+        nodeId: node.id,
+        message: `Table '${nodeLabel(node)}' font scaled to ${(scale * 100).toFixed(0)}% to fit its assigned body height.`,
+        suggestion: "This was repaired inside the rendered table. For a more comfortable read, give the table more height, use density:'compact', widen text-heavy columns, or split dense rows across slides.",
+        measured: { available: rect.h, needed: baseNeeded, rect, fontScale: scale },
+      });
+      return scale;
+    }
+  }
+  return 1;
+}
+
+function tableWrapsRemainStable(
+  theme: SimpleTheme,
+  rows: unknown[][],
+  colWidths: number[],
+  firstRowHeader: boolean,
+  density: TableDensity,
+  targetScale: number,
+): boolean {
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex] || [];
+    const isHeader = rowIndex === 0 && firstRowHeader;
+    for (let col = 0; col < Math.max(row.length, colWidths.length); col++) {
+      const raw = row[col] ?? "";
+      const width = colWidths[col] || colWidths[0] || 1;
+      const baseLines = tableCellWrapLineCount(theme, raw, width, isHeader, density, 1);
+      const scaledLines = tableCellWrapLineCount(theme, raw, width, isHeader, density, targetScale);
+      if (baseLines <= 1 && scaledLines > 1) return false;
+      if (baseLines <= 1 && !tableCellHasSingleLineHeadroom(theme, raw, width, isHeader, density, targetScale)) return false;
+      if (scaledLines > baseLines + 1) return false;
+    }
+  }
+  return true;
+}
+
+function tableCellWrapLineCount(theme: SimpleTheme, raw: unknown, widthCm: number, isHeader: boolean, density: TableDensity, fontScale: number): number {
+  const style = tableTextStyle(theme, isHeader, density, fontScale);
+  const text = tableCellText(raw);
+  const isCode = density === "code" || density === "code-dense" || density === "code-tiny";
+  const contentWidth = Math.max(0.8, widthCm - (isCode ? 0.18 : density === "compact" ? 0.38 : 0.52));
+  const fontPt = tableCellEffectiveFontPt(raw, style.fontSize);
+  return createTextMeasurer(theme).wrapLines(text, fontPt, style.weight, contentWidth).lines;
+}
+
+function tableCellHasSingleLineHeadroom(theme: SimpleTheme, raw: unknown, widthCm: number, isHeader: boolean, density: TableDensity, fontScale: number): boolean {
+  const style = tableTextStyle(theme, isHeader, density, fontScale);
+  const text = tableCellText(raw);
+  if (!text.trim()) return true;
+  const isCode = density === "code" || density === "code-dense" || density === "code-tiny";
+  const contentWidth = Math.max(0.8, widthCm - (isCode ? 0.18 : density === "compact" ? 0.38 : 0.52));
+  const fontPt = tableCellEffectiveFontPt(raw, style.fontSize);
+  const measuredWidth = createTextMeasurer(theme).textWidth(text, fontPt, style.weight);
+  return measuredWidth <= contentWidth * 0.94;
+}
+
+function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, rows: unknown[][], colWidths: number[], rowHeights: number[], firstRowHeader: boolean, outerRect?: Rect, fontScale = 1): void {
+  const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, tableDensity(node.density), fontScale);
   const totalNeeded = needed.reduce((sum, h) => sum + h, 0);
   const shortRows = needed
     .map((height, index) => ({ index, needed: height, available: rowHeights[index] || 0 }))
@@ -6295,6 +6826,8 @@ function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, 
     );
     return;
   }
+  const compactBusinessTable = compactBusinessTableDiagnostic(node, rect, rows, colWidths, firstRowHeader);
+  if (compactBusinessTable) pushDiagnostic(compactBusinessTable);
   if (shortRows.length === 0) return;
   if (node.role === "code-block-table") {
     pushCodeBlockOverflowDiagnostic(node, rect, rows, needed, rowHeights, shortRows);
@@ -6311,7 +6844,7 @@ function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, 
     code: "FALLBACK_FAILED",
     slideId: currentSlideId,
     nodeId: node.id,
-    message: `Table '${nodeLabel(node)}' has ${shortRows.length} row(s) whose text needs more height than assigned; row ${worst.index + 1} needs ${worst.needed.toFixed(2)}cm, available ${worst.available.toFixed(2)}cm.`,
+    message: `Table '${nodeLabel(node)}' has ${shortRows.length} row(s) whose text still needs more height after supported density/font fitting; row ${worst.index + 1} needs ${worst.needed.toFixed(2)}cm, available ${worst.available.toFixed(2)}cm.`,
     suggestion: tableCapacitySuggestion(node, {
       dataRowCount,
       visibleRowsFit,
@@ -6339,6 +6872,34 @@ function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, 
       },
     },
   });
+}
+
+function compactBusinessTableDiagnostic(
+  node: DomNode,
+  rect: Rect,
+  rows: unknown[][],
+  colWidths: number[],
+  firstRowHeader: boolean,
+): LayoutDiagnostic | undefined {
+  if (node.role === "code-block-table" || tableDensity(node.density) !== "comfortable") return undefined;
+  const dataRowCount = firstRowHeader ? rows.length - 1 : rows.length;
+  if (dataRowCount < 5 || colWidths.length < 4 || rect.w < 12) return undefined;
+  const minReadable = (firstRowHeader ? 0.72 : 0) + dataRowCount * 0.68;
+  if (rect.h + 0.08 >= minReadable) return undefined;
+  return {
+    severity: "warn",
+    code: "SQUASHED",
+    slideId: currentSlideId,
+    nodeId: node.id,
+    message: `Table '${nodeLabel(node)}' is visually compressed: ${dataRowCount} data row(s) in ${rect.h.toFixed(2)}cm; needs about ${minReadable.toFixed(2)}cm for readable business rows.`,
+    suggestion: "Keep the table semantics and give the table more vertical space. Remove or shorten secondary callouts, move interpretation to a side rail/follow-up slide, or split the table across slides instead of compressing row height.",
+    measured: {
+      rect,
+      minHeightCm: minReadable,
+      dataRowCount,
+      columnCount: colWidths.length,
+    },
+  };
 }
 
 function tableCapacitySuggestion(
@@ -6503,7 +7064,7 @@ function gridIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number)
   const rawChildren = node.children || [];
   if (rawChildren.length === 0) return 0;
   const columns = Math.max(1, numberProp(node, "columns", 2));
-  const gap = gapCm(theme, node);
+  const gap = gridGapCm(theme, node, rawChildren, columns);
   const contentWidth = contentRect(theme, node, { x: 0, y: 0, w: widthCm, h: 10 }).w;
   const availableWidth = Math.max(0, contentWidth - gap * (columns - 1));
   const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
@@ -6532,6 +7093,7 @@ function gridIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number)
 
 function resolveGridRowHeights(theme: SimpleTheme, placements: GridPlacement[], columns: number, rows: number, availableHeight: number, colWidths: number[], gap: number, rowWeightsValue: unknown): number[] {
   const rowWeights = weightsFromProp(rowWeightsValue, rows);
+  const explicitRowWeights = Array.isArray(rowWeightsValue) && rowWeightsValue.length === rows;
   const specs: SizeSpec[] = [];
   // For each row, intrinsic basis is driven by the children that *start* in
   // that row, scaled by their rowSpan (so a rowSpan:2 child contributes half
@@ -6554,9 +7116,74 @@ function resolveGridRowHeights(theme: SimpleTheme, placements: GridPlacement[], 
       basis = Math.max(basis, perRowBasis);
       min = Math.max(min, perRowMin);
     }
-    specs.push({ basis, min, max: Number.POSITIVE_INFINITY, weight: rowWeights[row] || 1, grow: true, fixed: false });
+    specs.push({ basis, min, max: Number.POSITIVE_INFINITY, weight: explicitRowWeights ? rowWeights[row] || 1 : gridRowWeightHint(childByCell, row, columns) ?? rowWeights[row] ?? 1, grow: true, fixed: false });
   }
   return solveSizes(specs, availableHeight);
+}
+
+function gridGapCm(theme: SimpleTheme, node: DomNode, children: DomNode[], columns: number): number {
+  const gap = gapCm(theme, node);
+  return isSingleColumnShapeFlow(children, columns) ? Math.min(gap, 0.14) : gap;
+}
+
+function normalizeSingleColumnShapeFlowChildren(children: DomNode[], columns: number, colWidth: number): DomNode[] {
+  if (!isSingleColumnShapeFlow(children, columns)) return children;
+  const nodeWidth = Math.max(4.8, Math.min(8.2, colWidth * 0.46));
+  return children.map((child) => {
+    if (isConnectorShapeNode(child)) {
+      const preset = shapePresetName(child);
+      const connectorWidth = preset === "elbowConnector" || preset === "orthogonalConnector" || preset === "curvedConnector" ? Math.max(0.9, Math.min(1.8, colWidth * 0.12)) : 0.12;
+      return {
+        ...child,
+        fixedWidth: optionalNumberProp(child, "fixedWidth") ?? connectorWidth,
+        fixedHeight: optionalNumberProp(child, "fixedHeight") ?? 0.46,
+        minHeight: optionalNumberProp(child, "minHeight") ?? 0.30,
+        maxHeight: optionalNumberProp(child, "maxHeight") ?? 0.58,
+        align: child.align ?? "center",
+        valign: child.valign ?? "middle",
+        layoutWeight: optionalNumberProp(child, "layoutWeight") ?? 0.22,
+      };
+    }
+    return {
+      ...child,
+      fixedWidth: optionalNumberProp(child, "fixedWidth") ?? nodeWidth,
+      minHeight: optionalNumberProp(child, "minHeight") ?? 0.92,
+      basisHeight: optionalNumberProp(child, "basisHeight") ?? 1.18,
+      maxHeight: optionalNumberProp(child, "maxHeight") ?? 1.55,
+      align: child.align ?? "center",
+      valign: child.valign ?? "middle",
+      layoutWeight: optionalNumberProp(child, "layoutWeight") ?? 1.4,
+    };
+  });
+}
+
+function isSingleColumnShapeFlow(children: DomNode[], columns: number): boolean {
+  if (columns !== 1 || children.length < 3) return false;
+  const shapeChildren = children.filter((child) => child.type === "shape");
+  if (shapeChildren.length !== children.length) return false;
+  const connectorCount = shapeChildren.filter(isConnectorShapeNode).length;
+  const nodeCount = shapeChildren.length - connectorCount;
+  return connectorCount >= 1 && nodeCount >= 2;
+}
+
+function gridRowWeightHint(childByCell: Map<string, GridPlacement>, row: number, columns: number): number | undefined {
+  for (let col = 0; col < columns; col++) {
+    const child = childByCell.get(`${row}:${col}`)?.child;
+    if (!child) continue;
+    const explicit = optionalNumberProp(child, "layoutWeight");
+    if (explicit !== undefined) return Math.max(0.0001, explicit);
+    if (isConnectorShapeNode(child)) return 0.22;
+    if (child.type === "shape") return 1.4;
+  }
+  return undefined;
+}
+
+function isConnectorShapeNode(node: DomNode): boolean {
+  return node.type === "shape" && CONNECTOR_SHAPE_PRESETS.has(shapePresetName(node));
+}
+
+function shapePresetName(node: DomNode): string {
+  return typeof node.preset === "string" ? node.preset : "";
 }
 
 function textIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number): number {
@@ -6817,9 +7444,31 @@ function pushTextFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, s
   });
 }
 
+const MILD_BULLET_OVERFLOW_ABSOLUTE_CM = 0.24;
+const MILD_BULLET_OVERFLOW_RATIO = 0.14;
+const MIN_READABLE_BULLET_LIST_HEIGHT_CM = 1.2;
+
+function mildBulletFitOverflow(needed: number, rect: Rect): boolean {
+  if (rect.h < MIN_READABLE_BULLET_LIST_HEIGHT_CM) return false;
+  const delta = needed - rect.h;
+  return delta <= Math.max(MILD_BULLET_OVERFLOW_ABSOLUTE_CM, rect.h * MILD_BULLET_OVERFLOW_RATIO);
+}
+
 function pushBulletsFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect): void {
   const needed = bulletsIntrinsicHeight(theme, node, rect.w);
   if (needed <= rect.h + 0.08) return;
+  if (mildBulletFitOverflow(needed, rect)) {
+    pushDiagnostic({
+      severity: "warn",
+      code: "OVERFLOW",
+      slideId: currentSlideId,
+      nodeId: node.id,
+      message: `Bullets '${nodeLabel(node)}' are tight: estimated ${needed.toFixed(2)}cm into ${rect.h.toFixed(2)}cm, but remain within the readable overflow tolerance.`,
+      suggestion: "If the rendered page looks crowded, shorten one bullet or give the bullet list slightly more height. Do not treat this as content loss by itself.",
+      measured: { available: rect.h, needed, deltaCm: needed - rect.h, rect },
+    });
+    return;
+  }
   pushDiagnostic({
     severity: "error",
     code: "FALLBACK_FAILED",
@@ -6869,8 +7518,18 @@ function textMinHeight(theme: SimpleTheme, node: DomNode, crossSize: number): nu
 }
 
 function textStyleKey(node: DomNode): string {
-  if (typeof node.style === "string" && node.style.trim()) return node.style;
+  if (typeof node.style === "string" && node.style.trim()) return normalizeTextStyleAlias(node.style);
   return inferTextKind(node).kind;
+}
+
+function normalizeTextStyleAlias(style: string): string {
+  const key = style.trim();
+  const normalized = key.toLowerCase();
+  if (normalized === "h1" || normalized === "heading" || normalized === "header") return "section-title";
+  if (normalized === "h2" || normalized === "subheading" || normalized === "subhead") return "card-title";
+  if (normalized === "body") return "paragraph";
+  if (normalized === "small" || normalized === "small-body") return "body-small";
+  return key;
 }
 
 /**
@@ -6985,10 +7644,10 @@ function autoShrinkStyle(
 function isSevereTextShrink(node: DomNode, styleKey: string, originalPt: number, fittedPt: number): boolean {
   if (node.optional === true) return false;
   if (styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") return false;
-  if (styleKey === "caption" || styleKey === "figure-caption") return fittedPt < 8 || fittedPt <= originalPt * 0.72;
+  if (styleKey === "caption" || styleKey === "figure-caption") return fittedPt < 7.5 || fittedPt <= originalPt * 0.62;
   const bodyLike = styleKey === "paragraph" || styleKey === "article" || styleKey === "lead";
   if (!bodyLike) return false;
-  return fittedPt < 9 || fittedPt <= originalPt * 0.72;
+  return fittedPt < 8 || fittedPt <= originalPt * 0.62;
 }
 
 /**
@@ -7117,12 +7776,13 @@ function stringProp(node: DomNode, key: string, fallback: string): string {
 
 function numberProp(node: DomNode, key: string, fallback: number): number {
   const value = node[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  const parsed = parseLayoutDimensionCm(value);
+  return parsed !== undefined ? parsed : fallback;
 }
 
 function optionalNumberProp(node: DomNode, key: string): number | undefined {
   const value = node[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return parseLayoutDimensionCm(value);
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
@@ -7136,7 +7796,7 @@ function stringFromRecord(record: Record<string, unknown> | undefined, key: stri
 
 function optionalNumberFromRecord(record: Record<string, unknown> | undefined, key: string): number | undefined {
   const value = record?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return parseLayoutDimensionCm(value);
 }
 
 function dashValue(value: unknown): LineSpec["dash"] | undefined {

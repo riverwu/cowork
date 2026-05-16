@@ -2365,8 +2365,8 @@ describe("slideml2 MVP", () => {
     expect(bodyShape.paragraphs[0]!.runs[0]!.color).toBe("FF6B6B");
   });
 
-  it("validateSlide flags DUPLICATE_HERO_TITLE for conflicting body hero titles but allows matching metadata titles", () => {
-    const withSectionBreak = validateSlide({
+  it("validateSlide warns for mismatched metadata hero titles but errors on competing text hero titles", () => {
+    const sectionBreakSlide = {
       id: "cover",
       title: "智能竞争雷达 v2",
       children: [{
@@ -2376,8 +2376,16 @@ describe("slideml2 MVP", () => {
         title: "智能竞争雷达",
         subtitle: "多源竞争情报系统",
       }],
+    } as const;
+    const withSectionBreak = validateSlide(sectionBreakSlide as never);
+    expect(withSectionBreak.errors.map((e) => e.code)).not.toContain("DUPLICATE_HERO_TITLE");
+    expect(withSectionBreak.warnings.map((e) => e.code)).toContain("DUPLICATE_HERO_TITLE");
+    const renderedSectionBreak = sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [sectionBreakSlide as never],
     });
-    expect(withSectionBreak.errors.map((e) => e.code)).toContain("DUPLICATE_HERO_TITLE");
+    expect(findNodeForTest(renderedSectionBreak.slides[0]!.dom, "cover.title")).toBeNull();
 
     const matchingDeckTitleSlide = {
       id: "cover2",
@@ -2726,6 +2734,34 @@ describe("slideml2 MVP", () => {
       preset: "straightConnector",
       line: { color: "333333", dash: "dash", tailEnd: { type: "triangle" } },
     });
+  });
+
+  it("auto-fits one-column raw shape flow grids instead of stretching every shape full-width", () => {
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "shape-flow-grid",
+        children: [{
+          id: "shape-flow-grid.grid",
+          type: "grid",
+          columns: 1,
+          gap: 0.55,
+          children: [
+            { id: "shape-flow-grid.n1", type: "shape", preset: "flowChartProcess", fill: "0F766E", text: { text: "Telemetry Ingest", color: "FFFFFF" } },
+            { id: "shape-flow-grid.c1", type: "shape", preset: "straightConnector", fill: "none", line: { color: "0F766E", width: 1.5 }, tailEnd: { type: "triangle" } },
+            { id: "shape-flow-grid.n2", type: "shape", preset: "flowChartDecision", fill: "FEF9C3", text: { text: "Schema Check?", color: "92400E" } },
+          ],
+        }],
+      }],
+    } as never));
+    const node = ast.slides[0]!.shapes.find((item) => item.name === "shape-flow-grid.n1");
+    const connector = ast.slides[0]!.shapes.find((item) => item.name === "shape-flow-grid.c1");
+    const cm = (emu: number | undefined) => (emu ?? 0) / 360000;
+    expect(cm(node?.xfrm.cx)).toBeLessThan(9);
+    expect(cm(node?.xfrm.cy)).toBeGreaterThan(0.9);
+    expect(cm(connector?.xfrm.cx)).toBeLessThan(0.4);
+    expect(cm(connector?.xfrm.cy)).toBeGreaterThan(0.28);
   });
 
   it("treats direct slide x/y/w/h fields as slide-relative absolute placement", () => {

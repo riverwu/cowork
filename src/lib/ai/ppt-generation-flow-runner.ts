@@ -52,6 +52,7 @@ export interface PptGenerationFlowCaseRun {
   failureAnalysisPath: string;
   improvementCandidatesPath: string;
   improvementAnalysis: PptGenerationFlowImprovementAnalysis;
+  validationFailureScenes: PptGenerationFlowValidationFailureScene[];
 }
 
 export interface PptGenerationFlowSuiteCaseResult {
@@ -99,6 +100,7 @@ export interface PptGenerationFlowExpectations {
   maxBlockingDiagnostics?: number;
   requiredDeckJsonSubstrings?: string[];
   requiredPptxXmlSubstrings?: string[];
+  requiredPptxContentSubstrings?: string[];
 }
 
 export interface PptGenerationFlowToolRecord {
@@ -109,6 +111,16 @@ export interface PptGenerationFlowToolRecord {
   result?: string;
   success?: boolean;
   durationMs?: number;
+  validationFailureSnapshot?: PptGenerationFlowValidationFailureSnapshot;
+}
+
+export interface PptGenerationFlowValidationFailureSnapshot {
+  capturedAt: number;
+  slidePath?: string;
+  deckPath?: string;
+  slide?: Record<string, unknown>;
+  deck?: Record<string, unknown>;
+  errors?: string[];
 }
 
 export interface PptGenerationFlowSummary {
@@ -146,6 +158,51 @@ export interface PptGenerationFlowResult {
   }>;
   debugLogDirectory: string | null;
   summary: PptGenerationFlowSummary;
+  validationFailureScenes?: PptGenerationFlowValidationFailureScene[];
+}
+
+export interface PptGenerationFlowValidationFailureScene {
+  step: number;
+  toolName: string;
+  slideId?: string;
+  slidePath?: string;
+  deckPath?: string;
+  sceneDirectory: string;
+  sceneJsonPath: string;
+  slideJsonPath?: string;
+  deckJsonPath?: string;
+  validationResultPath?: string;
+  renderedPptxPath?: string;
+  renderTreePath?: string;
+  renderDiagnosticsPath?: string;
+  judgmentPath?: string;
+  judgment: PptGenerationFlowValidationFailureJudgment;
+}
+
+export interface PptGenerationFlowValidationFailureJudgment {
+  ok: boolean;
+  reason: string;
+  diagnosticCodes: string[];
+  evidence: Array<{
+    code: string;
+    slideId?: string;
+    nodeId?: string;
+    measured?: unknown;
+    pptxShapeFound: boolean;
+    pptxShapeName?: string;
+    pptxShapeMatch?: "name" | "descendant" | "geometry";
+    pptxShapeRectMatchesMeasured?: boolean;
+    pptxShapeHeightCm?: number;
+    otherNodeId?: string;
+    otherPptxShapeFound?: boolean;
+    otherPptxShapeName?: string;
+    otherPptxShapeMatch?: "name" | "descendant" | "geometry";
+    otherPptxShapeRectMatchesMeasured?: boolean;
+    renderedOverlapAreaCm2?: number;
+    confirmsCapacityFailure: boolean;
+    confirmsVisualOverlap?: boolean;
+    confirmsFailure?: boolean;
+  }>;
 }
 
 export interface PptGenerationFlowVerification {
@@ -351,6 +408,29 @@ export async function verifyPptGenerationFlow(
     }
   }
 
+  if (expectations.requiredPptxContentSubstrings?.length) {
+    const outputPath = expectedOutputPath || finalOutputPath || summary.outputPaths.find((path) => /\.pptx$/i.test(path));
+    const renderTreePath = finalValidateDomPath(summary.finalValidateRender);
+    if (!outputPath) {
+      failures.push("No PPTX output path was captured for PPTX content substring checks.");
+    } else if (!renderTreePath) {
+      failures.push("No final render-tree domPath was captured for PPTX content substring checks.");
+    } else {
+      try {
+        const [pptxText, renderTreeText] = await Promise.all([
+          pptxTextCorpus(outputPath),
+          renderTreeTextCorpus(renderTreePath),
+        ]);
+        for (const needle of expectations.requiredPptxContentSubstrings) {
+          if (!pptxText.includes(needle)) failures.push(`PPTX text is missing required content substring: ${needle}`);
+          if (!renderTreeText.includes(needle)) failures.push(`Render tree is missing required content substring: ${needle}`);
+        }
+      } catch (err) {
+        failures.push(`Could not inspect PPTX/render-tree content: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
   if (summary.errors.length > 0) {
     failures.push(...summary.errors.map((error) => `Agent error event: ${error}`));
   }
@@ -443,13 +523,20 @@ export async function runPptGenerationFlowCaseDirectory(caseDirectory: string): 
   const markdownReportPath = path.join(reportDirectory, "report.md");
   const failureAnalysisPath = path.join(reportDirectory, "failure-analysis.json");
   const improvementCandidatesPath = path.join(reportDirectory, "improvement-candidates.md");
-  const improvementAnalysis = analyzePptGenerationFlowImprovements(result, verification, caseDefinition);
-  await writePptGenerationFlowReport(jsonReportPath, result, verification, caseDefinition);
-  await writePptGenerationFlowMarkdownReport(markdownReportPath, caseDefinition, result, verification);
+  const validationFailureScenes = await writePptGenerationFlowValidationFailureScenes(
+    path.join(reportDirectory, "validation-failure-scenes"),
+    result,
+  );
+  const resultWithScenes = validationFailureScenes.length > 0
+    ? { ...result, validationFailureScenes }
+    : result;
+  const improvementAnalysis = analyzePptGenerationFlowImprovements(resultWithScenes, verification, caseDefinition);
+  await writePptGenerationFlowReport(jsonReportPath, resultWithScenes, verification, caseDefinition);
+  await writePptGenerationFlowMarkdownReport(markdownReportPath, caseDefinition, resultWithScenes, verification);
   await writePptGenerationFlowImprovementReports(failureAnalysisPath, improvementCandidatesPath, improvementAnalysis);
   return {
     caseDefinition,
-    result,
+    result: resultWithScenes,
     verification,
     reportDirectory,
     jsonReportPath,
@@ -457,6 +544,7 @@ export async function runPptGenerationFlowCaseDirectory(caseDirectory: string): 
     failureAnalysisPath,
     improvementCandidatesPath,
     improvementAnalysis,
+    validationFailureScenes,
   };
 }
 
@@ -807,6 +895,7 @@ function flowReportPayload(
     debugLogDirectory: result.debugLogDirectory,
     debugLogHealth,
     summary: result.summary,
+    validationFailureScenes: result.validationFailureScenes || [],
     verification,
     agentEvents: result.events,
     toolRecords: result.toolRecords,
@@ -882,6 +971,507 @@ export async function writePptGenerationFlowImprovementReports(
   await fs.mkdir(nodePath.dirname(failureAnalysisPath), { recursive: true });
   await fs.writeFile(failureAnalysisPath, JSON.stringify(analysis, null, 2), "utf8");
   await fs.writeFile(improvementCandidatesPath, markdownImprovementCandidates(analysis), "utf8");
+}
+
+export async function writePptGenerationFlowValidationFailureScenes(
+  scenesDirectory: string,
+  result: PptGenerationFlowResult,
+): Promise<PptGenerationFlowValidationFailureScene[]> {
+  const fs = await import("node:fs/promises");
+  const scenes: PptGenerationFlowValidationFailureScene[] = [];
+  const failedRecords = result.toolRecords
+    .map(normalizeToolRecordForReports)
+    .filter((record) => isValidationFailureSceneRecord(record));
+  if (failedRecords.length === 0) return scenes;
+  await fs.mkdir(scenesDirectory, { recursive: true });
+  for (const record of failedRecords) {
+    const parsed = parseJsonObject(record.result || "") || parseFirstJsonObject(record.result || "");
+    const input = validateRenderInput(record);
+    const snapshot = record.validationFailureSnapshot;
+    const slidePath = snapshot?.slidePath
+      || slideml2CliArgsPath(record)
+      || (typeof input.slidePath === "string" ? input.slidePath : undefined);
+    const deckPath = snapshot?.deckPath
+      || slideml2CliFlagValue(record, "--deck")
+      || (typeof parsed?.deckPath === "string" ? parsed.deckPath : undefined)
+      || (typeof input.deckPath === "string" ? input.deckPath : undefined)
+      || nodePath.join(slideml2CliCwd(record) || result.scenario.workingDirectory, "deck-config.json");
+    const slide = snapshot?.slide || await readJsonObject(slidePath);
+    const deck = snapshot?.deck;
+    const slideId = stringRecordValue(slide, "id") || stringRecordValue(parsed?.slide, "id");
+    const safeName = `${String(record.step).padStart(3, "0")}-${slugKey(slideId || nodePath.basename(slidePath || "slide"))}`;
+    const sceneDirectory = nodePath.join(scenesDirectory, safeName);
+    await fs.mkdir(sceneDirectory, { recursive: true });
+
+    const slideJsonPath = slide ? nodePath.join(sceneDirectory, "slide.json") : undefined;
+    if (slideJsonPath) await fs.writeFile(slideJsonPath, JSON.stringify(slide, null, 2), "utf8");
+    const deckJsonPath = deck ? nodePath.join(sceneDirectory, "deck.json") : undefined;
+    if (deckJsonPath) await fs.writeFile(deckJsonPath, JSON.stringify(deck, null, 2), "utf8");
+    const validationResultPath = nodePath.join(sceneDirectory, "validate-result.json");
+    await fs.writeFile(validationResultPath, JSON.stringify(parsed || { raw: record.result || "" }, null, 2), "utf8");
+
+    const validationDiagnostics = diagnosticsFromParsedValidation(parsed);
+    const renderCapture = slide && deckPath
+      ? await renderValidationFailureScene(sceneDirectory, slide, deckPath, deck)
+      : { diagnostics: diagnosticsFromParsedValidation(parsed), renderedPptxPath: undefined, renderTreePath: undefined, renderDiagnosticsPath: undefined };
+    const diagnostics = validationDiagnostics.length > 0
+      ? validationDiagnostics
+      : renderCapture.diagnostics;
+    const judgment = await judgeValidationFailureScene(renderCapture.renderedPptxPath, diagnostics);
+    const judgmentPath = nodePath.join(sceneDirectory, "validation-judgment.json");
+    await fs.writeFile(judgmentPath, JSON.stringify(judgment, null, 2), "utf8");
+
+    const scene: PptGenerationFlowValidationFailureScene = {
+      step: record.step,
+      toolName: record.name,
+      slideId,
+      slidePath,
+      deckPath,
+      sceneDirectory,
+      sceneJsonPath: nodePath.join(sceneDirectory, "scene.json"),
+      slideJsonPath,
+      deckJsonPath,
+      validationResultPath,
+      renderedPptxPath: renderCapture.renderedPptxPath,
+      renderTreePath: renderCapture.renderTreePath,
+      renderDiagnosticsPath: renderCapture.renderDiagnosticsPath,
+      judgmentPath,
+      judgment,
+    };
+    await fs.writeFile(scene.sceneJsonPath, JSON.stringify(scene, null, 2), "utf8");
+    scenes.push(scene);
+  }
+  return scenes;
+}
+
+function isValidationFailureSceneRecord(record: PptGenerationFlowToolRecord): boolean {
+  if (record.success !== false) return false;
+  if (slideml2CliToolAlias(record) !== "validate_slide") return false;
+  const parsed = parseJsonObject(record.result || "") || parseFirstJsonObject(record.result || "");
+  const status = typeof parsed?.status === "string" ? parsed.status : "";
+  if (status && status !== "render-error") return false;
+  const diagnostics = diagnosticsFromParsedValidation(parsed);
+  return diagnostics.some((diagnostic) => isSceneDiagnosticCode(String(diagnostic.code || "")));
+}
+
+async function captureValidationFailureSnapshot(record: PptGenerationFlowToolRecord): Promise<PptGenerationFlowValidationFailureSnapshot | undefined> {
+  if (!isValidationFailureSceneRecord(record)) return undefined;
+  const parsed = parseJsonObject(record.result || "") || parseFirstJsonObject(record.result || "");
+  const cwd = slideml2CliCwd(record) || ".";
+  const input = record.input && typeof record.input === "object" && !Array.isArray(record.input)
+    ? record.input as Record<string, unknown>
+    : {};
+  const slidePath = slideml2CliArgsPath(record)
+    || resolveMaybeRelativePath(typeof input.slidePath === "string" ? input.slidePath : undefined, cwd);
+  const deckPath = slideml2CliFlagValue(record, "--deck")
+    || resolveMaybeRelativePath(typeof parsed?.deckPath === "string" ? parsed.deckPath : undefined, cwd)
+    || resolveMaybeRelativePath(typeof input.deckPath === "string" ? input.deckPath : undefined, cwd)
+    || nodePath.join(cwd, "deck-config.json");
+  const errors: string[] = [];
+  const [slide, deck] = await Promise.all([
+    readJsonObjectWithError(slidePath, errors, "slide"),
+    readJsonObjectWithError(deckPath, errors, "deck"),
+  ]);
+  return {
+    capturedAt: Date.now(),
+    slidePath,
+    deckPath,
+    ...(slide ? { slide } : {}),
+    ...(deck ? { deck } : {}),
+    ...(errors.length ? { errors } : {}),
+  };
+}
+
+async function readJsonObjectWithError(
+  pathValue: string | undefined,
+  errors: string[],
+  label: string,
+): Promise<Record<string, unknown> | undefined> {
+  if (!pathValue) {
+    errors.push(`Missing ${label} path.`);
+    return undefined;
+  }
+  try {
+    const fs = await import("node:fs/promises");
+    const parsed = JSON.parse(await fs.readFile(pathValue, "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+    errors.push(`${label} JSON is not an object: ${pathValue}`);
+    return undefined;
+  } catch (err) {
+    errors.push(`Could not read ${label} JSON at ${pathValue}: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
+}
+
+async function readJsonObject(pathValue: string | undefined): Promise<Record<string, unknown> | undefined> {
+  if (!pathValue) return undefined;
+  try {
+    const fs = await import("node:fs/promises");
+    const parsed = JSON.parse(await fs.readFile(pathValue, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function renderValidationFailureScene(
+  sceneDirectory: string,
+  slide: Record<string, unknown>,
+  deckPath: string,
+  deckSnapshot?: Record<string, unknown>,
+): Promise<{
+  diagnostics: Array<Record<string, unknown>>;
+  renderedPptxPath?: string;
+  renderTreePath?: string;
+  renderDiagnosticsPath?: string;
+}> {
+  const fs = await import("node:fs/promises");
+  try {
+    const runtime = await import("slideml2") as unknown as {
+      clearRenderDiagnostics: () => void;
+      getRenderDiagnostics: () => Array<Record<string, unknown>>;
+      renderToPptx: (deck: unknown, outputPath: string) => Promise<{ outputPath: string; domPath: string }>;
+      sourceToRenderedDeck: (source: unknown, options?: unknown) => unknown;
+    };
+    const deckSource = deckSnapshot || await readJsonObject(deckPath);
+    const source = {
+      ...(deckSource || { slideml2: 2, deck: { size: "16x9", theme: "default" } }),
+      slides: [slide],
+    };
+    const renderedPptxPath = nodePath.join(sceneDirectory, "rendered-slide.pptx");
+    runtime.clearRenderDiagnostics();
+    const renderResult = await runtime.renderToPptx(
+      runtime.sourceToRenderedDeck(source, { baseDir: nodePath.dirname(deckPath) }),
+      renderedPptxPath,
+    );
+    const diagnostics = runtime.getRenderDiagnostics();
+    runtime.clearRenderDiagnostics();
+    const renderDiagnosticsPath = nodePath.join(sceneDirectory, "render-diagnostics.json");
+    await fs.writeFile(renderDiagnosticsPath, JSON.stringify(diagnostics, null, 2), "utf8");
+    return {
+      diagnostics,
+      renderedPptxPath: renderResult.outputPath,
+      renderTreePath: renderResult.domPath,
+      renderDiagnosticsPath,
+    };
+  } catch (err) {
+    const renderDiagnosticsPath = nodePath.join(sceneDirectory, "render-error.json");
+    await fs.writeFile(renderDiagnosticsPath, JSON.stringify({
+      error: err instanceof Error ? err.message : String(err),
+    }, null, 2), "utf8");
+    return { diagnostics: [], renderDiagnosticsPath };
+  }
+}
+
+async function judgeValidationFailureScene(
+  renderedPptxPath: string | undefined,
+  diagnostics: Array<Record<string, unknown>>,
+): Promise<PptGenerationFlowValidationFailureJudgment> {
+  const sceneDiagnostics = diagnostics.filter((diagnostic) => isSceneDiagnosticCode(String(diagnostic.code || "")));
+  const diagnosticCodes = unique(sceneDiagnostics.map((diagnostic) => String(diagnostic.code || "")).filter(Boolean));
+  const xml = renderedPptxPath ? await pptxXmlCorpus(renderedPptxPath).catch(() => "") : "";
+  const evidence = sceneDiagnostics.slice(0, 20).map((diagnostic) => {
+    const code = String(diagnostic.code || "");
+    const slideId = stringRecordValue(diagnostic, "slideId");
+    const nodeId = stringRecordValue(diagnostic, "nodeId");
+    const measured = diagnostic.measured;
+    const shape = xml ? pptxShapeMatch(xml, nodeId, measured) : undefined;
+    const otherMeasured = measuredOtherRect(measured);
+    const otherNodeId = stringRecordValue(otherMeasured, "nodeId");
+    const otherShape = isVisualOverlapDiagnosticCode(code) && xml
+      ? pptxShapeMatch(xml, otherNodeId, otherMeasured)
+      : undefined;
+    const pptxShapeFound = !!shape;
+    const confirmsCapacityFailure = capacityDiagnosticMatchesRenderedShape(code, measured, shape)
+      || (!shape && capacityDiagnosticConfirmsSkippedRender(code, measured));
+    const renderedOverlapAreaCm2 = renderedShapeOverlapAreaCm2(shape, otherShape);
+    const confirmsVisualOverlap = visualOverlapDiagnosticMatchesRenderedShapes(code, measured, shape, otherMeasured, otherShape);
+    const confirmsFailure = confirmsCapacityFailure || confirmsVisualOverlap;
+    return {
+      code,
+      slideId,
+      nodeId,
+      measured,
+      pptxShapeFound,
+      pptxShapeName: shape?.name,
+      pptxShapeMatch: shape?.matchKind,
+      pptxShapeRectMatchesMeasured: shape ? shapeMatchesMeasuredRect(shape, measured) : undefined,
+      pptxShapeHeightCm: shape?.h,
+      otherNodeId,
+      otherPptxShapeFound: otherShape ? true : undefined,
+      otherPptxShapeName: otherShape?.name,
+      otherPptxShapeMatch: otherShape?.matchKind,
+      otherPptxShapeRectMatchesMeasured: otherShape ? shapeMatchesMeasuredRect(otherShape, otherMeasured) : undefined,
+      renderedOverlapAreaCm2,
+      confirmsCapacityFailure,
+      confirmsVisualOverlap,
+      confirmsFailure,
+    };
+  });
+  const confirmed = evidence.some((item) => item.confirmsFailure || item.confirmsCapacityFailure || item.confirmsVisualOverlap);
+  return {
+    ok: confirmed,
+    reason: confirmed
+      ? "At least one validation diagnostic is confirmed by emitted PPTX geometry or by a skipped render caused by TINY_RECT."
+      : "No scene diagnostic could be confirmed against emitted PPTX shape geometry.",
+    diagnosticCodes,
+    evidence,
+  };
+}
+
+function capacityDiagnosticConfirmsSkippedRender(code: string, measured: unknown): boolean {
+  const record = measured && typeof measured === "object" && !Array.isArray(measured) ? measured as Record<string, unknown> : {};
+  const rect = record.rect && typeof record.rect === "object" && !Array.isArray(record.rect) ? record.rect as Record<string, unknown> : {};
+  const rectHeight = numericValue(rect.h);
+  const rectWidth = numericValue(rect.w);
+  const tiny = (rectHeight !== undefined && rectHeight < 0.18) || (rectWidth !== undefined && rectWidth < 0.18);
+  if (code === "TINY_RECT") return tiny;
+  const minHeight = numericValue(record.minHeightCm);
+  return code === "SQUASHED" && tiny && minHeight !== undefined && rectHeight !== undefined && rectHeight + 0.08 < minHeight;
+}
+
+function capacityDiagnosticMatchesRenderedShape(code: string, measured: unknown, shape: PptxShapeMatch | undefined): boolean {
+  if (shape?.h === undefined) return false;
+  const record = measured && typeof measured === "object" && !Array.isArray(measured) ? measured as Record<string, unknown> : {};
+  const heightNeeded = numericValue(record.heightNeeded);
+  const heightAvailable = numericValue(record.heightAvailable);
+  const heightOverflow = heightNeeded !== undefined && heightAvailable !== undefined && heightNeeded > heightAvailable + 0.01;
+  const needed = numericValue(record.needed);
+  const available = numericValue(record.available);
+  const widthOverflow = needed !== undefined && available !== undefined && needed > available + 0.01;
+  if (code === "TRUNCATED" && (heightOverflow || widthOverflow)) {
+    return shape.matchKind === "geometry" || shapeMatchesMeasuredRect(shape, measured);
+  }
+  if (heightNeeded !== undefined && heightAvailable !== undefined && heightNeeded > heightAvailable + 0.01) {
+    return shape.h <= heightAvailable + 0.08;
+  }
+  if (needed !== undefined && available !== undefined && needed > available + 0.01) {
+    return shape.h <= available + 0.08;
+  }
+  const minHeight = numericValue(record.minHeightCm);
+  if (minHeight !== undefined && code === "SQUASHED") return shape.h + 0.08 < minHeight;
+  const rect = record.rect && typeof record.rect === "object" && !Array.isArray(record.rect) ? record.rect as Record<string, unknown> : {};
+  const rectHeight = numericValue(rect.h);
+  if (rectHeight !== undefined && (code === "TINY_RECT" || code === "SQUASHED")) return shape.h <= rectHeight + 0.08;
+  return false;
+}
+
+function diagnosticsFromParsedValidation(parsed: Record<string, unknown> | undefined): Array<Record<string, unknown>> {
+  const candidates = [
+    parsed?.diagnostics,
+    (parsed?.renderValidation && typeof parsed.renderValidation === "object" && !Array.isArray(parsed.renderValidation)
+      ? (parsed.renderValidation as Record<string, unknown>).diagnostics
+      : undefined),
+  ];
+  for (const candidate of candidates) {
+    const diagnostics = diagnosticsFromContainer(candidate);
+    if (diagnostics.length > 0) return diagnostics;
+  }
+  return [];
+}
+
+function diagnosticsFromContainer(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value.filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item));
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const record = value as Record<string, unknown>;
+  return [
+    ...(Array.isArray(record.blocking) ? record.blocking : []),
+    ...(Array.isArray(record.quality) ? record.quality : []),
+  ].filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item));
+}
+
+function isCapacityDiagnosticCode(code: string): boolean {
+  return [
+    "FALLBACK_FAILED",
+    "CODE_BLOCK_OVERFLOW",
+    "OVERFLOW",
+    "TRUNCATED",
+    "SQUASHED",
+    "TINY_RECT",
+    "SLIDEML_COMPONENT_CAPACITY",
+    "SLIDEML_TEXT_FIT",
+  ].includes(code);
+}
+
+function isVisualOverlapDiagnosticCode(code: string): boolean {
+  return [
+    "COLLISION",
+    "STRUCTURAL_OVERLAP",
+    "SIBLING_INK_OVERLAP",
+    "OVERLAY_OCCLUDES_FLOW",
+    "TITLE_OCCLUDED",
+  ].includes(code);
+}
+
+function isSceneDiagnosticCode(code: string): boolean {
+  return isCapacityDiagnosticCode(code) || isVisualOverlapDiagnosticCode(code);
+}
+
+interface PptxShapeBox {
+  name: string;
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+}
+
+interface PptxShapeMatch extends PptxShapeBox {
+  matchKind: "name" | "descendant" | "geometry";
+}
+
+function pptxShapeMatch(xml: string, shapeName: string | undefined, measured: unknown): PptxShapeMatch | undefined {
+  const shapes = pptxShapeBoxes(xml);
+  if (shapeName) {
+    for (const name of pptxShapeNameCandidates(shapeName)) {
+      const exact = shapes.find((shape) => shape.name === name && shape.h !== undefined);
+      if (exact) return { ...exact, matchKind: "name" };
+    }
+    const descendant = shapes
+      .filter((shape) => shape.h !== undefined && pptxShapeNameCandidates(shapeName).some((name) => shape.name.startsWith(`${name}.`) || shape.name.startsWith(`${name}-`)))
+      .sort((a, b) => (a.h ?? Number.POSITIVE_INFINITY) - (b.h ?? Number.POSITIVE_INFINITY))[0];
+    if (descendant) return { ...descendant, matchKind: "descendant" };
+  }
+
+  const rect = measuredRectCm(measured);
+  if (!rect) return undefined;
+  const scored = shapes
+    .filter((shape) => shape.h !== undefined && shape.x !== undefined && shape.y !== undefined && shape.w !== undefined)
+    .map((shape) => {
+      const dx = Math.abs(shape.x! - rect.x);
+      const dy = Math.abs(shape.y! - rect.y);
+      const dw = Math.abs(shape.w! - rect.w);
+      const dh = Math.abs(shape.h! - rect.h);
+      return {
+        shape,
+        dx,
+        dy,
+        dw,
+        dh,
+        score: dx * 3 + dy * 3 + dw + dh,
+      };
+    })
+    .filter((item) =>
+      item.dx <= 0.18
+      && item.dy <= 0.18
+      && item.dw <= Math.max(0.22, rect.w * 0.04)
+      && item.dh <= Math.max(0.45, rect.h * 0.6)
+    )
+    .sort((a, b) => a.score - b.score);
+  const match = scored[0]?.shape;
+  return match ? { ...match, matchKind: "geometry" } : undefined;
+}
+
+function pptxShapeNameCandidates(shapeName: string): string[] {
+  return unique([
+    shapeName,
+    shapeName.replace(/\.value-wrap$/, ".value"),
+    shapeName.replace(/-wrap$/, ""),
+  ]);
+}
+
+function pptxShapeBoxes(xml: string): PptxShapeBox[] {
+  const shapes: PptxShapeBox[] = [];
+  const shapeRegex = /<p:(sp|cxnSp|graphicFrame)\b[\s\S]*?<\/p:\1>/g;
+  for (const match of xml.matchAll(shapeRegex)) {
+    const block = match[0];
+    const name = block.match(/<p:cNvPr\b[^>]*\bname="([^"]+)"/)?.[1];
+    if (!name) continue;
+    const off = block.match(/<a:off x="(-?\d+)" y="(-?\d+)"\/>/);
+    const ext = block.match(/<a:ext cx="(\d+)" cy="(\d+)"\/>/);
+    shapes.push({
+      name: decodeXmlAttribute(name),
+      x: off?.[1] ? Number(off[1]) / 360000 : undefined,
+      y: off?.[2] ? Number(off[2]) / 360000 : undefined,
+      w: ext?.[1] ? Number(ext[1]) / 360000 : undefined,
+      h: ext?.[2] ? Number(ext[2]) / 360000 : undefined,
+    });
+  }
+  return shapes;
+}
+
+function measuredRectCm(measured: unknown): { x: number; y: number; w: number; h: number } | undefined {
+  const record = measured && typeof measured === "object" && !Array.isArray(measured) ? measured as Record<string, unknown> : {};
+  const rect = record.rect && typeof record.rect === "object" && !Array.isArray(record.rect) ? record.rect as Record<string, unknown> : record;
+  const x = numericCmValue(rect.x);
+  const y = numericCmValue(rect.y);
+  const w = numericCmValue(rect.w);
+  const h = numericCmValue(rect.h);
+  return x !== undefined && y !== undefined && w !== undefined && h !== undefined ? { x, y, w, h } : undefined;
+}
+
+function measuredOtherRect(measured: unknown): unknown | undefined {
+  const record = measured && typeof measured === "object" && !Array.isArray(measured) ? measured as Record<string, unknown> : {};
+  if (record.other && typeof record.other === "object" && !Array.isArray(record.other)) return record.other;
+  if (record.otherRect && typeof record.otherRect === "object" && !Array.isArray(record.otherRect)) return record.otherRect;
+  return undefined;
+}
+
+function visualOverlapDiagnosticMatchesRenderedShapes(
+  code: string,
+  measured: unknown,
+  shape: PptxShapeMatch | undefined,
+  otherMeasured: unknown | undefined,
+  otherShape: PptxShapeMatch | undefined,
+): boolean {
+  if (!isVisualOverlapDiagnosticCode(code) || !shape || !otherShape) return false;
+  const renderedOverlapAreaCm2 = renderedShapeOverlapAreaCm2(shape, otherShape);
+  if (renderedOverlapAreaCm2 !== undefined && renderedOverlapAreaCm2 >= 0.03) return true;
+  return shapeMatchesMeasuredRect(shape, measured)
+    && !!otherMeasured
+    && shapeMatchesMeasuredRect(otherShape, otherMeasured);
+}
+
+function renderedShapeOverlapAreaCm2(a: PptxShapeBox | undefined, b: PptxShapeBox | undefined): number | undefined {
+  const rectA = pptxShapeRect(a);
+  const rectB = pptxShapeRect(b);
+  if (!rectA || !rectB) return undefined;
+  const w = Math.min(rectA.x + rectA.w, rectB.x + rectB.w) - Math.max(rectA.x, rectB.x);
+  const h = Math.min(rectA.y + rectA.h, rectB.y + rectB.h) - Math.max(rectA.y, rectB.y);
+  return w > 0 && h > 0 ? Number((w * h).toFixed(4)) : 0;
+}
+
+function pptxShapeRect(shape: PptxShapeBox | undefined): { x: number; y: number; w: number; h: number } | undefined {
+  if (
+    shape?.x === undefined
+    || shape.y === undefined
+    || shape.w === undefined
+    || shape.h === undefined
+  ) return undefined;
+  return { x: shape.x, y: shape.y, w: shape.w, h: shape.h };
+}
+
+function shapeMatchesMeasuredRect(shape: PptxShapeBox, measured: unknown): boolean {
+  const rect = measuredRectCm(measured);
+  if (!rect || shape.x === undefined || shape.y === undefined || shape.w === undefined || shape.h === undefined) return false;
+  return Math.abs(shape.x - rect.x) <= 0.18
+    && Math.abs(shape.y - rect.y) <= 0.18
+    && Math.abs(shape.w - rect.w) <= Math.max(0.22, rect.w * 0.04)
+    && Math.abs(shape.h - rect.h) <= Math.max(0.22, rect.h * 0.2);
+}
+
+function numericCmValue(value: unknown): number | undefined {
+  const n = numericValue(value);
+  if (n === undefined) return undefined;
+  return Math.abs(n) > 10000 ? n / 360000 : n;
+}
+
+function decodeXmlAttribute(value: string): string {
+  return value
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function numericValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function stringRecordValue(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const child = (value as Record<string, unknown>)[key];
+  return typeof child === "string" && child ? child : undefined;
 }
 
 function signalFromToolRecord(
@@ -1588,6 +2178,9 @@ function markdownFlowReport(
   const outputs = result.summary.outputPaths.length
     ? result.summary.outputPaths.map((output) => `- ${output}`).join("\n")
     : "- None captured";
+  const validationScenes = result.validationFailureScenes?.length
+    ? result.validationFailureScenes.map((scene) => `- step ${scene.step} slide ${scene.slideId || "(unknown)"}: ${scene.judgment.ok ? "confirmed" : "unconfirmed"} — ${scene.sceneDirectory}`).join("\n")
+    : "- None";
   return [
     `# PPT Generation Flow Report: ${status}`,
     "",
@@ -1612,6 +2205,10 @@ function markdownFlowReport(
     "```json",
     JSON.stringify(result.summary.finalValidateRender || null, null, 2),
     "```",
+    "",
+    "## Validation Failure Scenes",
+    "",
+    validationScenes,
     "",
     "## Tool Timeline",
     "",
@@ -1771,6 +2368,10 @@ function finalValidateOutputPath(value: Record<string, unknown> | undefined): st
   return typeof value?.outputPath === "string" ? value.outputPath : undefined;
 }
 
+function finalValidateDomPath(value: Record<string, unknown> | undefined): string | undefined {
+  return typeof value?.domPath === "string" ? value.domPath : undefined;
+}
+
 function finalValidateDeckPath(toolRecords: PptGenerationFlowToolRecord[]): string | undefined {
   for (let index = toolRecords.length - 1; index >= 0; index--) {
     const record = toolRecords[index]!;
@@ -1892,6 +2493,44 @@ async function pptxXmlCorpus(outputPath: string): Promise<string> {
     .join("\n");
 }
 
+async function pptxTextCorpus(outputPath: string): Promise<string> {
+  const xml = await pptxXmlCorpus(outputPath);
+  const textNodes: string[] = [];
+  for (const match of xml.matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g)) {
+    textNodes.push(decodeXmlText(match[1] || ""));
+  }
+  return `${textNodes.join("\n")}\n${decodeXmlText(xml)}`;
+}
+
+async function renderTreeTextCorpus(renderTreePath: string): Promise<string> {
+  const parsed = JSON.parse(await nodeFs.promises.readFile(renderTreePath, "utf8"));
+  const strings: string[] = [];
+  collectStringLeaves(parsed, strings);
+  return strings.join("\n");
+}
+
+function collectStringLeaves(value: unknown, out: string[]): void {
+  if (typeof value === "string") {
+    out.push(value);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const item of value) collectStringLeaves(item, out);
+    return;
+  }
+  for (const child of Object.values(value as Record<string, unknown>)) collectStringLeaves(child, out);
+}
+
+function decodeXmlText(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
 function zipTextEntries(buffer: Buffer): Array<{ name: string; text: string }> {
   const eocdOffset = findZipEndOfCentralDirectory(buffer);
   if (eocdOffset < 0) throw new Error("not a ZIP/PPTX file: end of central directory was not found");
@@ -1940,6 +2579,37 @@ function parseJsonObject(raw: string): Record<string, unknown> | undefined {
   } catch {
     return undefined;
   }
+}
+
+function parseFirstJsonObject(raw: string): Record<string, unknown> | undefined {
+  const start = raw.indexOf("{");
+  if (start < 0) return undefined;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < raw.length; index++) {
+    const char = raw[index]!;
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return parseJsonObject(raw.slice(start, index + 1));
+    }
+  }
+  return undefined;
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -2134,7 +2804,7 @@ class PptGenerationFlowMonitor extends DebugLogger {
     const normalized = normalizeToolDonePayload(payload);
     this.events.push({ event: "tool-done", payload: normalized });
     const existing = this.byToolCallId.get(normalized.toolCallId);
-    this.byToolCallId.set(payload.toolCallId, {
+    const record: PptGenerationFlowToolRecord = {
       step: normalized.step,
       name: normalized.name,
       toolCallId: normalized.toolCallId,
@@ -2142,7 +2812,10 @@ class PptGenerationFlowMonitor extends DebugLogger {
       result: normalized.result,
       success: normalized.success,
       durationMs: normalized.durationMs,
-    });
+    };
+    const snapshot = await captureValidationFailureSnapshot(record);
+    if (snapshot) record.validationFailureSnapshot = snapshot;
+    this.byToolCallId.set(payload.toolCallId, record);
     await this.forward?.recordToolDone(normalized);
   }
 

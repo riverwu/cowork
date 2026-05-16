@@ -1,10 +1,13 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   clearRenderDiagnostics,
   getRenderDiagnostics,
   type LayoutDiagnostic,
 } from "./diagnostics.js";
-import { renderToAst, measureDeck } from "./render.js";
+import { renderToAst, measureDeck, renderToPptx } from "./render.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
 import { validateDeck, validateSlide } from "./validate.js";
 import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
@@ -1357,6 +1360,31 @@ describe("component regressions", () => {
     expect(scrim?.fill?.alpha).toBeCloseTo(0.42, 2);
   });
 
+  it("cover-composition treats decorative visual placeholders as motif hints, not image paths", async () => {
+    const slide: SlideV2 = {
+      id: "cover-decorative-visual",
+      children: [{
+        id: "cover-decorative-visual.cv",
+        type: "cover-composition",
+        title: "Decorative cover",
+        tone: "inverse",
+        decor: "shapes",
+        visual: {
+          src: "decorative",
+          fit: "fill",
+        },
+      } as unknown as SlideV2["children"][number]],
+    };
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide(slide));
+    const ast = renderToAst(rendered);
+    expect(findRenderedByName(ast, "cover-decorative-visual.cv.visual")).toBeUndefined();
+    expect(findRenderedByName(ast, "cover-decorative-visual.cv.decor.0.mark")).toBeTruthy();
+    const outDir = mkdtempSync(join(tmpdir(), "slideml2-cover-decorative-"));
+    await expect(renderToPptx(rendered, join(outDir, "deck.pptx"))).resolves.toMatchObject({
+      outputPath: join(outDir, "deck.pptx"),
+    });
+  });
+
   it("callout preserves text as body when a title is provided", () => {
     const slide: SlideV2 = {
       id: "callout-body",
@@ -1713,7 +1741,7 @@ describe("component regressions", () => {
     expect(failures.map((d) => d.message).join("\n")).toContain("row");
   });
 
-  it("reports dense one-line comparison tables whose rows are below the readable floor", () => {
+  it("auto-fits dense one-line comparison tables before escalating to hard failure", () => {
     const slide: SlideV2 = {
       id: "dense-table",
       children: [{
@@ -1734,7 +1762,9 @@ describe("component regressions", () => {
     clearRenderDiagnostics();
     renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
     const failures = getRenderDiagnostics().filter((d) => d.code === "FALLBACK_FAILED" && d.nodeId === "dense-table.table");
-    expect(failures.map((d) => d.message).join("\n")).toContain("row");
+    const repaired = getRenderDiagnostics().filter((d) => d.code === "TRUNCATED" && d.nodeId === "dense-table.table");
+    expect(failures).toHaveLength(0);
+    expect(repaired.map((d) => d.message).join("\n")).toContain("font scaled");
   });
 
   it("numbered-grid keeps 3-up long body text readable instead of shrinking to caption size", () => {

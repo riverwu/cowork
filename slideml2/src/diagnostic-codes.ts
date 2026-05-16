@@ -107,6 +107,7 @@ export const QUALITY_RENDER_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
 
 export function isBlockingRenderDiagnostic(code: unknown, severity?: unknown): boolean {
   if (severity === "error") return true;
+  if (severity === "warn" || severity === "warning" || severity === "info") return false;
   return typeof code === "string" && BLOCKING_RENDER_DIAGNOSTIC_CODES.has(code);
 }
 

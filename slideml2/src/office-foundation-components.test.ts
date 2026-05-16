@@ -612,8 +612,6 @@ describe("office foundation components: P0-P2 plus sankey", () => {
           titleAlign: "center",
           bodyAlign: "center",
           levelSurface: { fill: "surface.subtle", line: "none" },
-          topWidthRatio: 0.34,
-          bottomWidthRatio: 0.88,
           levels: [
             { label: "North Star", body: "Gross retention 94%", icon: "diamond", badge: "GOAL", tone: "brand", height: 1.12, widthRatio: 0.38 },
             {
@@ -699,6 +697,52 @@ describe("office foundation components: P0-P2 plus sankey", () => {
     expect(bodyXml).not.toContain("normAutofit");
     const bottomBodyXml = shapeXmlByName(slideXml, "pyramid-style.diagram.level.2.body");
     expect(bottomBodyXml).toContain('algn="r"');
+  });
+
+  it("wraps narrow pyramid titles and avoids misleading more labels for one body line", () => {
+    const source: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "pyramid-narrow-text",
+        layout: "blank",
+        children: [{
+          id: "pyramid-narrow-text.diagram",
+          type: "pyramid",
+          variant: "frameless",
+          // Legacy overall shape fields are ignored so stale decks cannot create unreadably sharp tiers.
+          topWidthRatio: 0.10,
+          bottomWidthRatio: 1,
+          levels: [
+            { label: "直接访问 (40%)", body: "日均PV 2K-6K，回访为主", tone: "brand" },
+            { label: "dict 词典笔 (30%)", body: "峰值PV近2万，增长杠杆", tone: "positive" },
+            { label: "搜索 & 官网 (20%)", body: "baidu + 官网分支 + ynote 导流", tone: "warning" },
+            { label: "长尾渠道 (10%)", body: "senchuang1、liantongyun1 等", tone: "neutral" },
+          ],
+        } as DomNode],
+      }],
+    };
+
+    const expanded = expandComponent("pyramid-narrow-text", source.slides[0]!.children![0]! as DomNode);
+    const topLevel = requireNode(expanded, "pyramid-narrow-text.diagram.level.0");
+    const topTitle = requireNode(expanded, "pyramid-narrow-text.diagram.level.0.title");
+    const topBody = requireNode(expanded, "pyramid-narrow-text.diagram.level.0.body");
+    const titleText = nodeText(topTitle);
+    const bodyText = nodeText(topBody);
+
+    expect(titleText).toContain("直接访问");
+    expect(titleText).toContain("(40%)");
+    expect(titleText).not.toContain("...");
+    expect(numberNodeProp(topLevel, "fixedWidth")).toBeGreaterThan(4.0);
+    expect(topTitle.align).toBe("center");
+    expect(bodyText).toContain("日均PV");
+    expect(bodyText).toContain("2K-6K");
+    expect(bodyText).toContain("回访为主");
+    expect(bodyText).not.toContain("+1 more");
+    expect(topBody.align).toBe("center");
+    expect(topBody.valign).toBe("middle");
+    expect(Number(topBody.at?.[0])).toBeCloseTo(Number(topTitle.at?.[0]), 4);
+    expect(Number(topBody.at?.[2])).toBeCloseTo(Number(topTitle.at?.[2]), 4);
   });
 });
 
@@ -958,6 +1002,22 @@ function nodeX(node: DomNode): number {
 function nodeCenterX(node: DomNode): number {
   if (!Array.isArray(node.at) || node.at.length < 4) throw new Error(`Expected positioned node ${node.id}`);
   return Number(node.at[0]) + Number(node.at[2]) / 2;
+}
+
+function nodeText(node: DomNode): string {
+  const parts: string[] = [];
+  if (typeof node.text === "string") parts.push(node.text);
+  const paragraphs = Array.isArray(node.paragraphs) ? node.paragraphs : [];
+  for (const paragraph of paragraphs) {
+    if (!paragraph || typeof paragraph !== "object") continue;
+    const runs = Array.isArray((paragraph as { runs?: unknown }).runs) ? (paragraph as { runs: unknown[] }).runs : [];
+    for (const run of runs) {
+      if (run && typeof run === "object" && typeof (run as { text?: unknown }).text === "string") {
+        parts.push((run as { text: string }).text);
+      }
+    }
+  }
+  return parts.join("\n");
 }
 
 function shapeXmlByName(slideXml: string, name: string): string {

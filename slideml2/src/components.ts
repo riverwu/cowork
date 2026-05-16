@@ -386,8 +386,8 @@ export function metricCard(
   // value text inside still autoFit-shrinks to fit short strings.
   const valueSize = metricValueSize(value, dense);
   const peerAligned = options.peerAligned === true;
-  const valueBandHeight = peerAligned ? (dense ? 1.15 : 1.65) : undefined;
-  const labelBandHeight = peerAligned ? (dense ? 0.72 : 1.05) : undefined;
+  const valueBandHeight = peerAligned ? (dense ? 0.74 : 1.65) : undefined;
+  const labelBandHeight = peerAligned ? (dense ? 0.34 : 1.05) : undefined;
   const deltaBandHeight = peerAligned ? (dense ? 0.3 : 0.36) : undefined;
   const valueNode: DomNode = {
     id: `${slideId}.${id}.value`,
@@ -400,6 +400,7 @@ export function metricCard(
     autoFit: "shrink",
     noWrap: true,
     ...(valueSize ? { size: valueSize } : {}),
+    ...(dense && peerAligned ? { fontScale: 0.82 } : {}),
     ...(content.length > 0 ? { content } : {}),
   };
   // maxHeight on the wrap stack flexes downward — tight rows (timeline
@@ -2406,17 +2407,18 @@ export function keyTakeaway(
     detail?: string;
     content?: unknown;
     bullets?: string[];
-    tone?: "brand" | "positive" | "warning" | "danger";
+    tone?: "brand" | "positive" | "warning" | "danger" | "neutral";
     variant?: "panel" | "banner" | "minimal";
     density?: "comfortable" | "compact";
   } & { surface?: AgentSurface } & AgentSurface,
 ): DomNode {
   const tone = options.tone || "brand";
-  const fillToken = tone === "brand" ? "brand.tint" : tone === "positive" ? "success.tint" : tone === "warning" ? "warning.tint" : "danger.tint";
-  const accentToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const fillToken = tone === "brand" ? "brand.tint" : tone === "positive" ? "success.tint" : tone === "warning" ? "warning.tint" : tone === "neutral" ? "surface.subtle" : "danger.tint";
+  const accentToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "neutral" ? "divider" : "danger";
+  const headline = options.headline.trim();
   const detail = textWithRichContent(options.detail?.trim() || "", options.content);
   const detailPlain = detail.text || richTextPlain(detail.content);
-  const denseHeadline = options.density === "compact" || weightedTextLength(options.headline) > 46;
+  const denseHeadline = options.density === "compact" || weightedTextLength(headline) > 46;
   const denseDetail = weightedTextLength(detailPlain) > 44 || (options.bullets || []).length >= 4;
   const compact = options.density === "compact" || denseHeadline || denseDetail;
   // Thicker accent bar (0.18cm vs the previous 0.12) + a longer rule
@@ -2431,18 +2433,20 @@ export function keyTakeaway(
       fixedWidth: 3.2,
       align: "start",
     },
-    {
+  ];
+  if (headline) {
+    children.push({
       id: `${slideId}.${id}.headline`,
       type: "text",
-      text: options.headline,
+      text: headline,
       style: denseHeadline ? "lead" : "section-title",
       size: denseHeadline ? "md" : "lg",
       color: "text.primary",
       align: "left",
       autoFit: "shrink",
       minHeight: denseHeadline ? 0.55 : undefined,
-    },
-  ];
+    });
+  }
   if (detail.text || detail.content) {
     children.push({
       id: `${slideId}.${id}.detail`,

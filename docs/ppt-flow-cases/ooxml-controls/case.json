@@ -2,7 +2,7 @@
   "id": "ooxml-controls",
   "desktopDebugLog": true,
   "expected": {
-    "requiredTools": ["read_file", "write_file", "shell", "init_deck", "set_deck", "validate_slide", "validate_manifest", "compose"],
+    "requiredTools": ["read_file", "write_file", "shell", "init_deck", "validate_slide", "validate_manifest", "compose"],
     "forbiddenTools": ["create_deck", "replace_slide", "insert_slide", "delete_slide", "patch_deck", "validate_render"],
     "minValidateSlideCalls": 5,
     "requireSlideml2SkillRead": true,
@@ -37,6 +37,12 @@
       "c:legendPos val=\"r\"",
       "c:majorGridlines",
       "c:manualLayout"
+    ],
+    "requiredPptxContentSubstrings": [
+      "指标",
+      "准备度",
+      "质量",
+      "附录"
     ]
   }
 }

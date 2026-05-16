@@ -449,7 +449,7 @@ export function describeDeck(): DeckDescription {
         "If FALLBACK_FAILED appears, split content into a new slide instead of fighting the layout.",
         "If CODE_BLOCK_OVERFLOW appears, paginate the code across multiple slides or multiple code-block components; do not hide required code with maxLines unless the user asked for an excerpt.",
         "If TITLE_OCCLUDED appears, fix deck.themeOverride.layout.contentTop or move the covering decoration behind the title.",
-        "If PIE_LABELS_HIDDEN appears, keep pie/doughnut slice labels visible with dataLabels:{show:true,position:'bestFit',showCategoryName:true,showPercent:true}; do not hide them behind a legend-only design.",
+        "If PIE_LABELS_HIDDEN appears, keep pie/doughnut slice labels visible with dataLabels:{show:true,showCategoryName:true,showPercent:true}; pie may use native position:'outsideEnd', while doughnut uses repair-safe external PPT labels instead of native dLblPos. Do not hide slices behind a legend-only design.",
         "If SQUASHED appears, treat it as a layout failure even if the slide technically renders; first preserve the current component semantics by increasing its region, changing layout ratio, reducing rows/items/labels, or splitting supporting content. Change component only when the alternative is semantically more accurate.",
         "Use `optional: true` on nice-to-have decoration so the renderer can drop it cleanly when space is tight.",
       ],

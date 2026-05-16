@@ -529,14 +529,14 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     direction: { type: "enum", enum: ["right", "down"], description: "Arrow direction." },
   }, "arrow shape + optional label", "stack"),
   component("key-takeaway", "The slide's central conclusion or 'so what'. Use when the viewer should leave with one decision, implication, or verdict; one per slide.", {
-    headline: { type: "string", required: true, semantic: "section-title", description: "The conclusion in one short sentence." },
+    headline: { type: "string", semantic: "section-title", description: "The conclusion in one short sentence. Optional when bullets/points carry the takeaway list." },
     title: { type: "string", semantic: "section-title", description: "Alias for headline." },
     detail: { type: "string", semantic: "lead", description: "Optional supporting **sentence**. For multiple implications, pass `bullets`/`points` instead — a `detail` that crams '1. … 2. … 3. …' or '；'-separated runs into one string is rendered as a single paragraph." },
     body: { type: "string", semantic: "lead", description: "Alias for detail." },
     content: { type: "array", description: "Optional rich text runs for detail copy." },
     bullets: { type: "array", semantic: "bullet", description: "Optional supporting implications." },
     points: { type: "array", semantic: "bullet", description: "Alias for bullets — short list of supporting points." },
-    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Tone color (default brand)." },
+    tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Tone color (default brand)." },
     variant: { type: "enum", enum: ["panel", "banner", "minimal"], description: "Visual emphasis level." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
     surface: { type: "object", description: "Optional surface override." },
@@ -582,7 +582,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     series: { type: "array", required: true, description: "Chart series. Series may set type:'bar'|'line' for combo, axis:'primary'|'secondary', trendLine, errorBars, color, lineWidth, lineDash, marker, or dataLabels." },
     data: { type: "object", description: "Optional { labels, series } alias bundle." },
     bind: { type: "object", description: "Optional deck data binding {source, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; resolves labels/series from deck.dataSources." },
-    encoding: { type: "object", description: "Binding encoding: {x, y, orientation?, series?, seriesName?, seriesOptions?}. y may be a string or string[]; seriesOptions can set name, color, lineWidth, lineDash, marker, dataLabels, bar/line type, secondary axis, trendLine, and errorBars per output series. For horizontal bars, use orientation:'horizontal' or x=numeric/y=categorical." },
+    encoding: { type: "object", description: "Binding encoding: {x, y, orientation?, series?, seriesName?, seriesOptions?}. y may be a string or string[]; label/value are accepted aliases for x/y, especially for pie and doughnut charts. seriesOptions can set y/field, name/seriesName, color, lineWidth, lineDash, marker, dataLabels, type/chartType, secondary axis, trendLine, and errorBars per output series. For horizontal bars, use orientation:'horizontal' or x=numeric/y=categorical." },
     title: { type: "string", description: "Optional card/chart title." },
     badge: { type: "string", description: "Optional status/category badge." },
     insight: { type: "string", description: "Optional conclusion sentence." },
@@ -590,12 +590,12 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     showLegend: { type: "boolean", description: "Show chart legend." },
     showValues: { type: "boolean", description: "Show values on chart marks." },
     orientation: { type: "enum", enum: ["vertical", "horizontal"], description: "Bar-like chart orientation. Horizontal bars are useful for ranked categories with long labels." },
-    dataLabels: { type: "object", description: "Optional data-label controls {show, position:'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue, showCategoryName, showSeriesName, showPercent, showLegendKey, showLeaderLines, minPercent}. Pie/doughnut default to category+percent labels and suppress labels for slices below 3% unless minPercent is set." },
+    dataLabels: { type: "object", description: "Optional data-label controls {show, position:'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue, showCategoryName, showSeriesName, showPercent, showLegendKey, showLeaderLines, minPercent}. Pie defaults to native PowerPoint outsideEnd category+percent labels with leader lines. Doughnut uses repair-safe external PPT text labels and leader lines instead of native dLblPos. Slices below 3% are suppressed unless minPercent is set." },
     xAxis: { type: "object", description: "Optional x/category axis controls {title, show, min, max, majorUnit, numberFormat, gridlines, tickLabelRotation, tickLabelPosition}." },
     yAxis: { type: "object", description: "Optional primary value axis controls {title, show, min, max, majorUnit, numberFormat, gridlines, tickLabelRotation, tickLabelPosition}." },
     secondaryYAxis: { type: "object", description: "Optional secondary value axis controls for series using axis:'secondary'." },
     legend: { type: "object", description: "Optional legend controls {show, position:'bottom'|'top'|'left'|'right', overlay}." },
-    plotArea: { type: "object", description: "Manual plot-area layout factors {x,y,w,h} in 0..1." },
+    plotArea: { type: "object", description: "Manual plot-area layout {x,y,w,h}. Prefer 0..1 factors; cm-like values are accepted and converted to chart-frame factors." },
     positiveColor: { type: "color-ref", description: "Optional color for positive bar/stacked-bar/combo points." },
     negativeColor: { type: "color-ref", description: "Optional color for negative bar/stacked-bar/combo points. Defaults to theme danger." },
     yFormat: { type: "enum", enum: ["int", "decimal", "percent", "wanyuan", "yi"], description: "Y-axis number format." },
@@ -617,7 +617,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     tone: { type: "enum", enum: ["neutral", "brand", "tinted"], description: "Card surface tone." },
     variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Table text density. Compact is suitable for 6-8 row business tables." },
-    cellPadding: { type: "object", description: "Default cell padding in cm: number or {left/right/top/bottom}." },
+    cellPadding: { type: "object", description: "Default cell padding as a cm object or numeric shorthand. Decimal values <=1.6 are cm; common integer values like 6/8 are treated as points." },
     borders: { type: "object", description: "Default table borders {color,width,dash,alpha,left?,right?,top?,bottom?}; each side may be 'none' or a border object." },
     borderDash: { type: "enum", enum: ["solid", "dash", "dashDot", "dot"], description: "Default table border dash style." },
     bandRows: { type: "boolean", description: "Enable/disable native banded rows." },
@@ -640,7 +640,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Compact is the default for analytic tables." },
     tone: { type: "enum", enum: ["neutral", "brand", "tinted"], description: "Card surface tone." },
     variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
-    cellPadding: { type: "object", description: "Default cell padding in cm: number or {left/right/top/bottom}." },
+    cellPadding: { type: "object", description: "Default cell padding as a cm object or numeric shorthand. Decimal values <=1.6 are cm; common integer values like 6/8 are treated as points." },
     borders: { type: "object", description: "Default table borders {color,width,dash,alpha,left?,right?,top?,bottom?}; each side may be 'none' or a border object." },
     bandRows: { type: "boolean", description: "Enable/disable native banded rows." },
     tableStyleId: { type: "string", description: "Native OOXML table style GUID." },
@@ -925,6 +925,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     visual: { type: "object", description: "Optional {src, fit:'cover'|'contain', anchor?, width?, height?, offsetX?, offsetY?, opacity?, scrimOpacity?} background or hero image. Omitting geometry makes it full-bleed." },
     heroStat: { type: "object", description: "Optional {value,label,caption,tone} hero stat." },
     content: { type: "array", description: "Optional rich runs or {runs:[...]} supporting cover copy; links are preserved." },
+    ctaText: { type: "string", description: "Optional cover CTA label rendered as a button." },
+    ctaLink: { type: "string", description: "Optional cover CTA hyperlink target, including internal links like #slide5." },
+    link: { type: "string", description: "Alias for ctaLink." },
     tone: { type: "enum", enum: ["neutral", "inverse", "brand"], description: "Text tone. Use inverse on dark/image backgrounds." },
     decor: { type: "enum", enum: ["none", "grid", "shapes"], description: "Optional background decoration." },
     titleSize: { type: "enum", enum: ["deck-title", "slide-title", "section-title"], description: "Optional title scale override. Long cover titles auto-downgrade to slide-title." },
@@ -1077,8 +1080,6 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     levels: { type: "array", required: true, description: "Levels from top to bottom as {label|title|name, body|description?, items?, contents?, badge?|badges?, icon?|iconSrc?, tone?, width?|widthRatio?, height?|heightWeight?, titleAlign?, bodyAlign?, fill?|line?|surface?}. String items render as text; contents or object items render as horizontal blocks inside the tier, each block using {title|label|name, content|body|description?, tone?, fill?|line?|surface?}. Put any numbers or KPIs in body/items/contents instead of a separate metric field." },
     orientation: { type: "enum", enum: ["top-down", "bottom-up"], description: "Whether the first level is the top or bottom of the pyramid." },
     shape: { type: "enum", enum: ["trapezoid", "stepped", "band"], description: "Visual geometry. trapezoid uses OOXML pyramid-like segments; stepped/band use rectangular tiers." },
-    topWidthRatio: { type: "number", description: "Top visual width as a ratio of pyramid width. Default 0.34." },
-    bottomWidthRatio: { type: "number", description: "Bottom visual width as a ratio of pyramid width. Default 0.92." },
     titleStyle: { type: "string", description: "Theme text style key for level titles. Defaults to label." },
     bodyStyle: { type: "string", description: "Theme text style key for level details. Defaults to caption." },
     titleAlign: { type: "enum", enum: ["left", "center", "right"], description: "Horizontal alignment for level titles. Defaults to left." },
@@ -2681,6 +2682,8 @@ function coverCompositionNode(slideId: string, name: string, node: DomNode): Dom
   const title = stringValue(node.title, "");
   const body = stringValue(node.body, stringValue(node.text, ""));
   const richContent = richTextRuns(node.content);
+  const ctaText = stringValue(node.ctaText, "");
+  const ctaLink = stringValue(node.ctaLink, stringValue(node.link, ""));
   const titleWeight = weightedTextLengthForComponent(title);
   const titleStyle = node.titleSize === "slide-title" || node.titleSize === "section-title" || node.titleSize === "deck-title"
     ? node.titleSize
@@ -2692,7 +2695,7 @@ function coverCompositionNode(slideId: string, name: string, node: DomNode): Dom
   const lockupWidth = Math.max(hasHero ? 13.5 : 16.5, Math.min(20.8, requestedLockupWidth));
   const lockupHeight = Math.max(titleStyle === "deck-title" ? 4.8 : 3.6, Math.min(8.4, requestedLockupHeight));
   const children: DomNode[] = [];
-  if (typeof visual.src === "string" && visual.src) {
+  if (typeof visual.src === "string" && visual.src && !isDecorativeVisualPlaceholder(visual.src)) {
     const anchorVals = ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"];
     const visualAnchor = typeof visual.anchor === "string" && anchorVals.includes(visual.anchor) ? visual.anchor : "top-left";
     const visualHasBox = visual.fillSlide === false
@@ -2747,6 +2750,22 @@ function coverCompositionNode(slideId: string, name: string, node: DomNode): Dom
         minHeight: richContent ? 1.15 : 0.75,
         autoFit: "shrink" as const,
       }] : []),
+      ...(ctaText ? [{
+        id: `${slideId}.${name}.cta`,
+        type: "text" as const,
+        text: ctaText,
+        ...(ctaLink ? { content: [{ text: ctaText, link: ctaLink }] } : {}),
+        style: "label" as const,
+        color: "text.inverse",
+        fill: "brand.primary",
+        cornerRadius: 0.18,
+        fixedHeight: 0.5,
+        fixedWidth: textChipWidthCm(ctaText, { min: 2.1, max: 5.4, padding: 0.9 }),
+        align: "center" as const,
+        valign: "middle" as const,
+        autoFit: "shrink" as const,
+        optional: true,
+      }] : []),
     ],
   });
   if (hasHero) {
@@ -2771,6 +2790,10 @@ function coverCompositionNode(slideId: string, name: string, node: DomNode): Dom
     } as DomNode);
   }
   return { id: `${slideId}.${name}`, type: "fragment", children };
+}
+
+function isDecorativeVisualPlaceholder(src: string): boolean {
+  return /^(decorative|decoration|decor|shapes|shape|abstract|none)$/i.test(src.trim());
 }
 
 function chapterDividerNode(slideId: string, name: string, node: DomNode): DomNode {
@@ -7213,7 +7236,8 @@ interface PyramidLevelLayout {
   contentH: number;
   headerX: number;
   headerW: number;
-  titleText: string;
+  titleLines: string[];
+  titleLineHeight: number;
   titleHeight: number;
   bodyLines: string[];
   contentItems: PyramidContentItemLayout[];
@@ -7279,11 +7303,7 @@ function funnelNode(slideId: string, name: string, node: DomNode, theme: SimpleT
     { label: "Paid", value: 120, widthRatio: 0.34, tone: "warning" },
   ];
   const style = pyramidStyleOptions({ ...node, shape: node.shape ?? "trapezoid" } as DomNode, "funnel");
-  const layout = layoutPyramidLevels(safeStages, {
-    ...node,
-    topWidthRatio: numberValue(node.topWidthRatio, 0.94),
-    bottomWidthRatio: numberValue(node.bottomWidthRatio, 0.30),
-  } as DomNode, compact, theme, style);
+  const layout = layoutPyramidLevels(safeStages, node, compact, theme, style);
   return officeFrameNode(slideId, name, node, "funnel", [{
     id: `${slideId}.${name}.stages`,
     type: "positioned-group",
@@ -7354,6 +7374,21 @@ function pyramidTextAlign(value: unknown, fallback: PyramidTextAlign): PyramidTe
   return value === "center" || value === "right" || value === "left" ? value : fallback;
 }
 
+function pyramidTitleLineLimit(rec: Record<string, unknown>, title: string, widthCm: number, compact: boolean): number {
+  const explicit = numberValue(rec.maxTitleLines, undefined) ?? numberValue(rec.titleLineLimit, undefined);
+  if (explicit !== undefined) return Math.max(1, Math.min(3, Math.floor(explicit)));
+  const length = Array.from(title).length;
+  const narrow = widthCm < (compact ? 2.15 : 2.55);
+  const hasParenValue = /[（(][^)）]+[）)]/.test(title);
+  if (narrow && (hasParenValue || length >= 8)) return 2;
+  return 1;
+}
+
+function pyramidTitleLineHeight(theme: SimpleTheme, styleKey: string, sample: string, compact: boolean): number {
+  const measured = treeChartSingleLineHeight(theme, styleKey, sample || "Title");
+  return Math.max(compact ? 0.34 : 0.38, Math.min(compact ? 0.42 : 0.48, measured - 0.08));
+}
+
 function layoutPyramidLevels(
   levels: Record<string, unknown>[],
   node: DomNode,
@@ -7370,8 +7405,8 @@ function layoutPyramidLevels(
   const gap = Math.max(0, Math.min(0.34, numberValue(node.gap, compact ? 0.06 : 0.09)));
   const defaultTopRatio = style.direction === "inverted" ? 0.92 : 0.34;
   const defaultBottomRatio = style.direction === "inverted" ? 0.30 : 0.92;
-  let topRatio = Math.max(0.16, Math.min(1, numberValue(node.topWidthRatio, defaultTopRatio)));
-  let bottomRatio = Math.max(0.16, Math.min(1, numberValue(node.bottomWidthRatio, defaultBottomRatio)));
+  let topRatio = defaultTopRatio;
+  let bottomRatio = defaultBottomRatio;
   if (style.direction === "upright" && bottomRatio < topRatio + 0.06) {
     bottomRatio = Math.min(1, topRatio + 0.06);
   } else if (style.direction === "inverted" && topRatio < bottomRatio + 0.06) {
@@ -7428,14 +7463,28 @@ function pyramidLevelIntrinsicLayout(
   const headerX = Math.max(padding, headerInset);
   const headerW = Math.max(0.3, width - headerX * 2);
   const titleReserve = icon ? icon.size + (compact ? 0.06 : 0.08) : 0;
-  const titleText = orgChartTrimToWidth(theme, officeTitleOf(rec, `Level ${index + 1}`), Math.max(0.2, headerW - titleReserve), titleStyle, titleWeight);
+  const rawTitle = officeTitleOf(rec, `Level ${index + 1}`);
+  const titleMaxWidth = Math.max(0.2, headerW - titleReserve);
+  const titleLines = pyramidWrapTextLines(
+    theme,
+    rawTitle,
+    titleMaxWidth,
+    titleStyle,
+    titleWeight,
+    pyramidTitleLineLimit(rec, rawTitle, titleMaxWidth, compact),
+  ).map((line) => orgChartTrimToWidth(theme, line, titleMaxWidth, titleStyle, titleWeight)).filter(Boolean);
   const bodyLines = pyramidBodyLines(theme, rec, contentW, bodyStyle, bodyWeight, compact)
     .map((line) => orgChartTrimToWidth(theme, line, contentW, bodyStyle, bodyWeight))
     .filter(Boolean);
   const contentItems = pyramidContentItemLayouts(theme, rec, contentW, bodyStyle, bodyWeight, compact);
   const badgeTotalWidth = badges.reduce((sum, badge) => sum + badge.width, 0) + Math.max(0, badges.length - 1) * (compact ? 0.05 : 0.06);
   const badgeInline = badges.length > 0 && titleAlign === "left" && headerW - titleReserve - badgeTotalWidth > (compact ? 0.72 : 0.92);
-  const titleHeight = Math.max(icon ? icon.size : 0, compact ? 0.36 : 0.42);
+  const titleLineHeight = pyramidTitleLineHeight(theme, titleStyle, rawTitle, compact);
+  const titleHeight = Math.max(
+    icon ? icon.size : 0,
+    compact ? 0.36 : 0.42,
+    Math.max(1, titleLines.length) * titleLineHeight + Math.max(0, titleLines.length - 1) * (compact ? 0.00 : 0.02),
+  );
   const bodyLineHeight = pyramidBodyLineHeight(theme, bodyStyle, bodyLines.join(""));
   const bodyHeight = bodyLines.length > 0 ? bodyLines.length * bodyLineHeight + Math.max(0, bodyLines.length - 1) * (compact ? 0.01 : 0.02) + 0.04 : 0;
   const contentRowHeight = contentItems.length > 0 ? Math.max(...contentItems.map((item) => item.y + item.height)) : 0;
@@ -7476,7 +7525,8 @@ function pyramidLevelIntrinsicLayout(
     contentH: 0,
     headerX,
     headerW,
-    titleText,
+    titleLines: titleLines.length > 0 ? titleLines : [rawTitle],
+    titleLineHeight,
     titleHeight,
     bodyLines,
     contentItems,
@@ -7544,16 +7594,27 @@ function pyramidLevelNode(id: string, layout: PyramidLevelLayout, node: DomNode,
   const tone = officeToneOf(layout.rec, node.tone || officeToneAt(layout.index, node.tone));
   const colors = toneToColors(tone);
   const shapePreset = style.shape === "trapezoid" ? "trapezoid" : "roundRect";
-  const titleY = layout.contentY;
+  const simpleTextOnly = !layout.icon && layout.badges.length === 0 && layout.contentItems.length === 0;
   const iconGap = layout.icon ? 0.08 : 0;
   const iconReserve = layout.icon ? layout.icon.size + iconGap : 0;
   const titleBoxH = Math.max(layout.titleHeight, layout.icon?.size ?? 0.34);
-  const titleBox = pyramidLevelBandBox(layout, style, titleY, titleBoxH, 0.08);
+  const textGap = layout.bodyLines.length > 0 ? layout.height < 1.0 ? 0.04 : 0.06 : 0;
+  const desiredBodyH = layout.bodyLines.length > 0 ? layout.bodyHeight + 0.04 : 0;
+  const textBlockH = titleBoxH + textGap + desiredBodyH;
+  const titleY = simpleTextOnly
+    ? Math.max(layout.contentY, Math.min(Math.max(layout.contentY, layout.height - layout.contentY - textBlockH), (layout.height - textBlockH) / 2))
+    : layout.contentY;
+  const simpleTextBox = simpleTextOnly
+    ? pyramidLevelBandBox(layout, style, titleY, textBlockH, 0.10)
+    : undefined;
+  const titleBox = simpleTextBox ?? pyramidLevelBandBox(layout, style, titleY, titleBoxH, 0.08);
   const inlineBadgeWidth = layout.badgeInline
     ? layout.badges.reduce((sum, badge) => sum + badge.width, 0) + Math.max(0, layout.badges.length - 1) * 0.06 + 0.10
     : 0;
   const titleW = Math.max(0.2, titleBox.w - iconReserve - inlineBadgeWidth);
-  const bodyY = titleY + Math.max(layout.icon?.size ?? 0, 0.34) + 0.06;
+  const titleAlign = simpleTextOnly && !pyramidHasExplicitTitleAlign(layout.rec, node) ? "center" : layout.titleAlign;
+  const bodyAlign = simpleTextOnly && !pyramidHasExplicitBodyAlign(layout.rec, node) ? "center" : layout.bodyAlign;
+  const bodyY = titleY + titleBoxH + textGap;
   const hasBlockBadge = layout.badges.length > 0 && !layout.badgeInline;
   const badgeY = layout.badgeInline
     ? titleY + Math.max(0, (titleBoxH - layout.badgeHeight) / 2)
@@ -7563,7 +7624,7 @@ function pyramidLevelNode(id: string, layout: PyramidLevelLayout, node: DomNode,
   const contentRowGap = layout.bodyLines.length > 0 ? 0.08 : 0;
   const contentRowY = bodyY + (layout.bodyLines.length > 0 ? bodyBoxH : 0) + contentRowGap;
   const contentRowH = Math.max(0, Math.min(layout.contentRowHeight, flowBottomY - contentRowY - (hasBlockBadge ? 0.06 : 0)));
-  const bodyBox = pyramidLevelBandBox(layout, style, bodyY, bodyBoxH, 0.10);
+  const bodyBox = simpleTextBox ?? pyramidLevelBandBox(layout, style, bodyY, bodyBoxH, 0.10);
   const contentBox = pyramidLevelBandBox(layout, style, contentRowY, contentRowH, 0.09);
   const badgeBand = pyramidLevelBandBox(layout, style, badgeY, layout.badgeHeight, 0.09);
   const badgeBox = layout.badgeInline
@@ -7603,19 +7664,33 @@ function pyramidLevelNode(id: string, layout: PyramidLevelLayout, node: DomNode,
         preset: "rect",
         fill: stringValue(layout.rec.accentColor, colors.line || "brand.primary"),
         line: stringValue(layout.rec.accentColor, colors.line || "brand.primary"),
-        at: [titleBox.x, Math.max(0.08, layout.contentY - 0.08), Math.max(0.34, titleBox.w * 0.18), 0.035],
+        at: [
+          titleAlign === "center" ? titleBox.x + Math.max(0, (titleBox.w - Math.max(0.34, titleBox.w * 0.18)) / 2) : titleBox.x,
+          Math.max(0.08, titleY - 0.08),
+          Math.max(0.34, titleBox.w * 0.18),
+          0.035,
+        ],
         zIndex: 2,
       }] : []),
-      ...(layout.icon ? [treeChartIconNode(`${id}.icon`, layout.rec, tone, layout.icon, titleBox.x, titleY + Math.max(0, (0.36 - layout.icon.size) / 2), 3)] : []),
+      ...(layout.icon ? [treeChartIconNode(`${id}.icon`, layout.rec, tone, layout.icon, titleBox.x, titleY + Math.max(0, (titleBoxH - layout.icon.size) / 2), 3)] : []),
       {
         id: `${id}.title`,
         type: "text",
-        text: layout.titleText,
+        paragraphs: layout.titleLines.map((line, index) => ({
+          style: layout.titleStyle,
+          align: titleAlign,
+          runs: [{
+            text: line,
+            color: "text.primary",
+            ...(layout.titleWeight !== undefined ? { weight: layout.titleWeight } : {}),
+          }],
+          spaceAfter: index < layout.titleLines.length - 1 ? 0.08 : 0,
+        })),
         style: layout.titleStyle,
         color: "text.primary",
         ...(layout.titleWeight !== undefined ? { weight: layout.titleWeight } : {}),
         noWrap: true,
-        align: layout.titleAlign,
+        align: titleAlign,
         valign: "middle",
         at: [titleBox.x + iconReserve, titleY, titleW, titleBoxH],
         zIndex: 3,
@@ -7625,25 +7700,34 @@ function pyramidLevelNode(id: string, layout: PyramidLevelLayout, node: DomNode,
         type: "text" as const,
         paragraphs: layout.bodyLines.map((line, index) => ({
           style: layout.bodyStyle,
-          align: layout.bodyAlign,
+          align: bodyAlign,
           runs: [{
             text: line,
             color: "text.secondary",
             ...(layout.bodyWeight !== undefined ? { weight: layout.bodyWeight } : {}),
           }],
           spaceAfter: index < layout.bodyLines.length - 1 ? 0.24 : 0,
-          })),
-          style: layout.bodyStyle,
-          color: "text.secondary",
-          noWrap: true,
-          align: layout.bodyAlign,
-          at: [bodyBox.x, bodyY, bodyBox.w, bodyBoxH],
-          zIndex: 3,
-        }] : []),
+        })),
+        style: layout.bodyStyle,
+        color: "text.secondary",
+        noWrap: true,
+        align: bodyAlign,
+        valign: simpleTextOnly ? "middle" : "top",
+        at: [bodyBox.x, bodyY, bodyBox.w, bodyBoxH],
+        zIndex: 3,
+      }] : []),
       ...pyramidContentNodes(id, layout, tone, contentBox.x, contentRowY, contentBox.w, contentRowH, style),
       ...pyramidBadgeNodes(id, layout, tone, badgeBox.x, badgeY, badgeBox.w, style),
     ],
   };
+}
+
+function pyramidHasExplicitTitleAlign(rec: Record<string, unknown>, node: DomNode): boolean {
+  return rec.titleAlign !== undefined || rec.align !== undefined || node.titleAlign !== undefined || node.align !== undefined;
+}
+
+function pyramidHasExplicitBodyAlign(rec: Record<string, unknown>, node: DomNode): boolean {
+  return rec.bodyAlign !== undefined || rec.align !== undefined || node.bodyAlign !== undefined || node.align !== undefined;
 }
 
 function pyramidLevelSurface(style: PyramidStyleOptions, rec: Record<string, unknown>, tone: ComponentTone): AgentSurface {
@@ -7675,16 +7759,18 @@ function pyramidBodyLines(
   const limit = pyramidBodyLineLimit(rec, raw.length, contentW, compact);
   const visible: string[] = [];
   let hidden = 0;
-  for (const line of raw) {
+  for (let rawIndex = 0; rawIndex < raw.length; rawIndex++) {
+    const line = raw[rawIndex]!;
     if (visible.length >= limit) {
-      hidden += 1;
-      continue;
+      hidden += raw.length - rawIndex;
+      break;
     }
     const remaining = Math.max(1, limit - visible.length);
     const wrapped = pyramidWrapTextLines(theme, line, contentW, bodyStyle, bodyWeight, remaining);
     visible.push(...wrapped);
-    if (wrapped.length >= remaining && orgChartMeasuredLineWidth(theme, line, bodyStyle, bodyWeight) > contentW * ORG_CHART_TEXT_FIT_RATIO) {
-      hidden += 1;
+    if (visible.length >= limit && rawIndex < raw.length - 1) {
+      hidden += raw.length - rawIndex - 1;
+      break;
     }
   }
   if (hidden > 0 && visible.length > 0) {
@@ -7888,25 +7974,109 @@ function pyramidWrapTextLines(
   const measurer = createTextMeasurer(theme);
   const limit = Math.max(0.08, maxWidthCm * ORG_CHART_TEXT_FIT_RATIO);
   if (measurer.textWidth(clean, style.fontSize, weight) <= limit) return [clean];
-  const tokens = clean.includes(" ") ? clean.match(/\S+\s*/g) || [clean] : Array.from(clean);
+  const tokens = pyramidWrapTokens(clean);
   const lines: string[] = [];
   let line = "";
-  for (const token of tokens) {
+  let truncated = false;
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index]!;
     const candidate = `${line}${token}`;
     if (line && measurer.textWidth(candidate.trimEnd(), style.fontSize, weight) > limit) {
       lines.push(line.trimEnd());
       line = token.trimStart();
-      if (lines.length >= maxLines) break;
+      if (lines.length >= maxLines) {
+        truncated = true;
+        break;
+      }
     } else {
       line = candidate;
     }
   }
-  if (lines.length < maxLines && line.trim()) lines.push(line.trimEnd());
-  if (lines.length <= maxLines) return lines;
+  if (!truncated && lines.length < maxLines && line.trim()) lines.push(line.trimEnd());
   const visible = lines.slice(0, maxLines);
-  const lastIndex = visible.length - 1;
-  visible[lastIndex] = orgChartTrimToWidth(theme, visible[lastIndex] || clean, maxWidthCm, styleKey, weightOverride);
-  return visible;
+  if (truncated && visible.length > 0) {
+    const lastIndex = visible.length - 1;
+    visible[lastIndex] = pyramidEllipsizeToWidth(theme, visible[lastIndex] || clean, maxWidthCm, styleKey, weightOverride);
+  }
+  return pyramidBalanceCjkWrappedLines(visible, measurer, style.fontSize, weight, limit);
+}
+
+function pyramidBalanceCjkWrappedLines(
+  lines: string[],
+  measurer: { textWidth(text: string, fontPt: number, weight?: FontWeight): number },
+  fontSize: number,
+  weight: FontWeight | undefined,
+  limit: number,
+): string[] {
+  const out = [...lines];
+  for (let index = 0; index < out.length - 1; index += 1) {
+    const current = out[index] || "";
+    const next = out[index + 1] || "";
+    const dangling = current.match(/([，、,;；:：]\s*)([\u3400-\u9FFF]{1,2})$/);
+    if (!dangling || !/^[\u3400-\u9FFF]/.test(next)) continue;
+    const carry = dangling[2] || "";
+    const balancedNext = `${carry}${next}`;
+    const balancedCurrent = current.slice(0, current.length - carry.length).trimEnd();
+    if (balancedCurrent && measurer.textWidth(balancedNext, fontSize, weight) <= limit) {
+      out[index] = balancedCurrent;
+      out[index + 1] = balancedNext;
+    }
+  }
+  return out;
+}
+
+function pyramidWrapTokens(text: string): string[] {
+  if (!/[\u3400-\u9FFF]/.test(text)) return text.includes(" ") ? text.match(/\S+\s*/g) || [text] : Array.from(text);
+  const tokens: string[] = [];
+  let ascii = "";
+  const flushAscii = () => {
+    const token = ascii.trim();
+    if (token) tokens.push(token);
+    ascii = "";
+  };
+  for (const char of Array.from(text)) {
+    if (/[\w.%+\-()[\]/]+/.test(char)) {
+      ascii += char;
+      continue;
+    }
+    if (/\s/.test(char)) {
+      if (ascii) ascii += char;
+      continue;
+    }
+    flushAscii();
+    tokens.push(char);
+  }
+  flushAscii();
+  return tokens;
+}
+
+function pyramidEllipsizeToWidth(theme: SimpleTheme, value: string, maxWidthCm: number, styleKey: string, weightOverride?: FontWeight): string {
+  const text = String(value || "").trimEnd();
+  if (!text) return "";
+  const style = textStyle(theme, styleKey, styleKey);
+  const weight = weightOverride ?? style.weight ?? style.fontWeight;
+  const measurer = createTextMeasurer(theme);
+  const limit = Math.max(0.04, maxWidthCm * ORG_CHART_TEXT_FIT_RATIO);
+  const ellipsis = "...";
+  const ellipsisWidth = measurer.textWidth(ellipsis, style.fontSize, weight);
+  if (ellipsisWidth > limit) return "";
+  const candidate = `${text}${ellipsis}`;
+  if (measurer.textWidth(candidate, style.fontSize, weight) <= limit) return candidate;
+  const chars = Array.from(text);
+  let low = 0;
+  let high = chars.length;
+  let best = 0;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const next = `${chars.slice(0, mid).join("").trimEnd()}${ellipsis}`;
+    if (measurer.textWidth(next, style.fontSize, weight) <= limit) {
+      best = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return `${chars.slice(0, best).join("").trimEnd()}${ellipsis}`;
 }
 
 function pyramidBodyLineLimit(rec: Record<string, unknown>, rawCount: number, contentW: number, compact: boolean): number {
@@ -8124,7 +8294,7 @@ function valueChainNode(slideId: string, name: string, node: DomNode): DomNode {
   const chainChildren = safeStages.flatMap((stage, index) => {
     const card = officeCardNode(`${slideId}.${name}.stage.${index}`, officeTitleOf(stage, `Stage ${index + 1}`), officeBodyOf(stage, "input", "output", "owner", "body", "description"), officeToneOf(stage, officeToneAt(index, node.tone)), {
       compact,
-      fixedHeight: compact ? 0.78 : 0.96,
+      fixedHeight: compact ? 1.0 : 1.18,
       role: "value-chain-stage",
       accent: true,
     });
@@ -8138,7 +8308,7 @@ function valueChainNode(slideId: string, name: string, node: DomNode): DomNode {
       align: "center",
       valign: "middle",
       fixedWidth: vertical ? undefined : 0.28,
-      fixedHeight: vertical ? 0.20 : compact ? 0.78 : 0.96,
+      fixedHeight: vertical ? 0.20 : compact ? 1.0 : 1.18,
       autoFit: "shrink",
     };
     return [card, connector];
@@ -9004,6 +9174,7 @@ function componentExample(name: ComponentName, fields: Record<string, PropDefini
 function minimumExampleField(name: ComponentName, key: string): boolean {
   if (name === "article" && key === "text") return true;
   if (name === "callout" && key === "text") return true;
+  if (name === "key-takeaway" && key === "headline") return true;
   if (name === "matrix-2x2" && key === "items") return true;
   return false;
 }

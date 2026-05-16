@@ -214,6 +214,7 @@ import {
   verifyPptGenerationFlow,
   writePptGenerationFlowImprovementReports,
   writePptGenerationFlowSuiteReports,
+  writePptGenerationFlowValidationFailureScenes,
   type PptGenerationFlowResult,
   type PptGenerationFlowSuiteResult,
 } from "./ppt-generation-flow-runner";
@@ -260,13 +261,15 @@ describe("ppt generation flow runner", () => {
     await mkdir(dir, { recursive: true });
     const deckPath = join(dir, "deck.json");
     const outputPath = join(dir, "deck.pptx");
+    const renderTreePath = join(dir, "deck.pptx.render-tree.json");
     await writeFile(deckPath, JSON.stringify({
       deck: { master: { placeholders: [{ type: "title", x: 1, y: 1, w: 10, h: 1 }] } },
       slides: [{ transition: { type: "fade" }, children: [{ type: "shape", preset: "straightConnector", tailEnd: { type: "triangle" } }] }],
     }));
+    await writeFile(renderTreePath, JSON.stringify({ slides: [{ dom: { children: [{ text: "Quality checkpoint" }] } }] }));
     await writeFile(outputPath, makeStoredZip({
       "[Content_Types].xml": "<Types/>",
-      "ppt/slides/slide1.xml": '<p:sld><p:transition/><a:tailEnd type="triangle"/></p:sld>',
+      "ppt/slides/slide1.xml": '<p:sld><p:transition/><a:tailEnd type="triangle"/><a:t>Quality checkpoint</a:t></p:sld>',
       "ppt/slideMasters/slideMaster1.xml": '<p:ph type="title"/>',
     }));
 
@@ -283,7 +286,7 @@ describe("ppt generation flow runner", () => {
         toolCallId: "call-validate",
         input: { deckPath, outputPath, render: true },
         success: true,
-        result: JSON.stringify({ ok: true, outputPath, diagnostics: { blockingCount: 0 } }),
+        result: JSON.stringify({ ok: true, outputPath, domPath: renderTreePath, diagnostics: { blockingCount: 0 } }),
       }],
       llmSends: [],
       llmResponses: [],
@@ -292,7 +295,7 @@ describe("ppt generation flow runner", () => {
         toolNames: ["validate_render"],
         replaceSlideCount: 0,
         outputPaths: [outputPath],
-        finalValidateRender: { ok: true, outputPath, diagnostics: { blockingCount: 0 } },
+        finalValidateRender: { ok: true, outputPath, domPath: renderTreePath, diagnostics: { blockingCount: 0 } },
         finalText: "",
         errors: [],
         progressEvents: [],
@@ -303,6 +306,7 @@ describe("ppt generation flow runner", () => {
       requireFinalValidateRender: true,
       requiredDeckJsonSubstrings: ["\"master\"", "\"transition\"", "\"straightConnector\""],
       requiredPptxXmlSubstrings: ["p:transition", "tailEnd type=\"triangle\"", "p:ph type=\"title\""],
+      requiredPptxContentSubstrings: ["Quality checkpoint"],
     });
 
     expect(verification.ok, verification.failures.join("\n")).toBe(true);
@@ -448,6 +452,610 @@ describe("ppt generation flow runner", () => {
     });
 
     expect(verification.ok, verification.failures.join("\n")).toBe(true);
+  });
+
+  it("records validate-slide failure scenes and judges capacity diagnostics against emitted PPTX geometry", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-failure-scene-${Date.now()}`);
+    const slidesDir = join(dir, "slides");
+    await mkdir(slidesDir, { recursive: true });
+    const deckPath = join(dir, "deck-config.json");
+    const slidePath = join(slidesDir, "01-overflow.json");
+    const longText = "This sentence is intentionally long enough to overflow a tiny text box in the rendered slide. ".repeat(8);
+    const slide = {
+      id: "overflow_scene",
+      title: "Overflow Scene",
+      children: [{
+        id: "overflow_scene.note",
+        type: "text",
+        text: longText,
+        at: [1, 2, 4, 0.35],
+        fontSize: 18,
+      }],
+    };
+    await writeFile(deckPath, JSON.stringify({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [],
+    }, null, 2), "utf8");
+    await writeFile(slidePath, JSON.stringify(slide, null, 2), "utf8");
+
+    const runtime = await import("slideml2") as unknown as {
+      clearRenderDiagnostics: () => void;
+      getRenderDiagnostics: () => Array<Record<string, unknown>>;
+      renderToAst: (deck: unknown) => unknown;
+      sourceToRenderedDeck: (source: unknown, options?: unknown) => unknown;
+    };
+    runtime.clearRenderDiagnostics();
+    runtime.renderToAst(runtime.sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [slide],
+    }, { baseDir: dir }));
+    const diagnostics = runtime.getRenderDiagnostics();
+    runtime.clearRenderDiagnostics();
+    const blocking = diagnostics.filter((item) => item.severity === "error");
+    const quality = diagnostics.filter((item) => item.severity !== "error");
+    const diagnosticSummary = diagnostics.reduce<Record<string, number>>((acc, item) => {
+      const code = typeof item.code === "string" ? item.code : "UNKNOWN";
+      acc[code] = (acc[code] || 0) + 1;
+      return acc;
+    }, {});
+    expect(diagnosticSummary.FALLBACK_FAILED).toBeGreaterThan(0);
+
+    const validatePayload = {
+      ok: false,
+      command: "validate-slide",
+      stage: "validate",
+      status: "render-error",
+      deckModified: false,
+      deckPath,
+      slidePath,
+      slide: { id: slide.id, title: slide.title },
+      sourceValidation: { ok: true, errors: [], warnings: [], info: [] },
+      validation: { ok: true, errors: [], warnings: [], info: [] },
+      renderValidation: {
+        ok: false,
+        diagnostics: {
+          count: diagnostics.length,
+          summary: diagnosticSummary,
+          blockingCount: blocking.length,
+          blocking,
+          qualityCount: quality.length,
+          quality,
+        },
+      },
+      diagnostics: {
+        count: diagnostics.length,
+        summary: diagnosticSummary,
+        blockingCount: blocking.length,
+        blocking,
+        qualityCount: quality.length,
+        quality,
+      },
+    };
+    const toolRecords = [{
+      ...shellCliRecord(1, "validate-slide", slidePath, validatePayload, ["--deck", deckPath], dir),
+      success: false,
+    }];
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "failure-scene-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords,
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary: summarizePptGenerationFlow([], toolRecords),
+    };
+
+    const scenes = await writePptGenerationFlowValidationFailureScenes(join(dir, "reports", "validation-failure-scenes"), result);
+
+    expect(scenes).toHaveLength(1);
+    expect(scenes[0]?.slideId).toBe("overflow_scene");
+    expect(scenes[0]?.renderedPptxPath).toMatch(/rendered-slide\.pptx$/);
+    expect(scenes[0]?.judgment.ok).toBe(true);
+    expect(scenes[0]?.judgment.diagnosticCodes).toContain("FALLBACK_FAILED");
+    expect(scenes[0]?.judgment.evidence.some((item) =>
+      item.code === "FALLBACK_FAILED"
+      && item.nodeId === "overflow_scene.note"
+      && item.pptxShapeFound
+      && item.confirmsCapacityFailure,
+    )).toBe(true);
+    const sceneJson = JSON.parse(await readFile(scenes[0]!.sceneJsonPath, "utf8")) as { judgment?: { ok?: boolean } };
+    const capturedSlide = JSON.parse(await readFile(scenes[0]!.slideJsonPath!, "utf8")) as { id?: string };
+    expect(sceneJson.judgment?.ok).toBe(true);
+    expect(capturedSlide.id).toBe("overflow_scene");
+  });
+
+  it("records validate-slide overlap scenes and judges them against emitted PPTX geometry", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-failure-scene-overlap-${Date.now()}`);
+    const slidesDir = join(dir, "slides");
+    await mkdir(slidesDir, { recursive: true });
+    const deckPath = join(dir, "deck-config.json");
+    const slidePath = join(slidesDir, "01-overlap.json");
+    const deck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [],
+    };
+    const slide = {
+      id: "overlay_scene",
+      layout: "freeform",
+      children: [
+        {
+          id: "overlay_scene.body",
+          type: "text",
+          area: "content",
+          text: "Readable flow text should not be covered by a foreground block.",
+          style: "paragraph",
+        },
+        {
+          id: "overlay_scene.blocker",
+          type: "shape",
+          at: [1.6, 2.4, 8, 1.6],
+          fill: "FFFFFF",
+          line: { color: "FFFFFF", width: 0 },
+        },
+      ],
+    };
+    await writeFile(deckPath, JSON.stringify(deck, null, 2), "utf8");
+    await writeFile(slidePath, JSON.stringify(slide, null, 2), "utf8");
+
+    const runtime = await import("slideml2") as unknown as {
+      clearRenderDiagnostics: () => void;
+      getRenderDiagnostics: () => Array<Record<string, unknown>>;
+      renderToAst: (deck: unknown) => unknown;
+      sourceToRenderedDeck: (source: unknown, options?: unknown) => unknown;
+    };
+    runtime.clearRenderDiagnostics();
+    runtime.renderToAst(runtime.sourceToRenderedDeck({
+      ...deck,
+      slides: [slide],
+    }, { baseDir: dir }));
+    const diagnostics = runtime.getRenderDiagnostics();
+    runtime.clearRenderDiagnostics();
+    const blocking = diagnostics.filter((item) => item.severity === "error");
+    const quality = diagnostics.filter((item) => item.severity !== "error");
+    const diagnosticSummary = diagnostics.reduce<Record<string, number>>((acc, item) => {
+      const code = typeof item.code === "string" ? item.code : "UNKNOWN";
+      acc[code] = (acc[code] || 0) + 1;
+      return acc;
+    }, {});
+    expect(diagnosticSummary.OVERLAY_OCCLUDES_FLOW).toBeGreaterThan(0);
+
+    const validatePayload = {
+      ok: false,
+      command: "validate-slide",
+      stage: "validate",
+      status: "render-error",
+      deckModified: false,
+      deckPath,
+      slidePath,
+      slide: { id: slide.id },
+      diagnostics: {
+        count: diagnostics.length,
+        summary: diagnosticSummary,
+        blockingCount: blocking.length,
+        blocking,
+        qualityCount: quality.length,
+        quality,
+      },
+    };
+    const toolRecords = [{
+      ...shellCliRecord(1, "validate-slide", slidePath, validatePayload, ["--deck", deckPath], dir),
+      success: false,
+    }];
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "failure-scene-overlap-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords,
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary: summarizePptGenerationFlow([], toolRecords),
+    };
+
+    const scenes = await writePptGenerationFlowValidationFailureScenes(join(dir, "reports", "validation-failure-scenes"), result);
+
+    expect(scenes).toHaveLength(1);
+    expect(scenes[0]?.slideId).toBe("overlay_scene");
+    expect(scenes[0]?.judgment.ok).toBe(true);
+    expect(scenes[0]?.judgment.diagnosticCodes).toContain("OVERLAY_OCCLUDES_FLOW");
+    expect(scenes[0]?.judgment.evidence.some((item) =>
+      item.code === "OVERLAY_OCCLUDES_FLOW"
+      && item.nodeId === "overlay_scene.blocker"
+      && item.pptxShapeFound
+      && item.otherPptxShapeFound
+      && item.confirmsVisualOverlap,
+    )).toBe(true);
+  });
+
+  it("confirms TINY_RECT scenes when the failing node was skipped from the PPTX", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-failure-scene-tiny-${Date.now()}`);
+    const slidesDir = join(dir, "slides");
+    await mkdir(slidesDir, { recursive: true });
+    const deckPath = join(dir, "deck-config.json");
+    const slidePath = join(slidesDir, "01-tiny.json");
+    const deck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        themeOverride: { layout: { titleTop: 0.5, titleHeight: 0, contentTop: 1.0, contentBottom: 13.0 } },
+      },
+      slides: [],
+    };
+    const slide = {
+      id: "tiny_scene",
+      title: "Metadata Title",
+      children: [{ type: "text", text: "Rendered body stays visible.", area: "content" }],
+    };
+    await writeFile(deckPath, JSON.stringify(deck, null, 2), "utf8");
+    await writeFile(slidePath, JSON.stringify(slide, null, 2), "utf8");
+    const tinyDiagnostic = {
+      severity: "error",
+      code: "TINY_RECT",
+      slideId: "tiny_scene",
+      nodeId: "tiny_scene.title",
+      message: "Node assigned an unrenderable rect 23.8x0.00cm; rendering skipped.",
+      measured: { rect: { x: 1, y: 0.5, w: 23.8, h: 0 } },
+    };
+    const validatePayload = {
+      ok: false,
+      command: "validate-slide",
+      stage: "validate",
+      status: "render-error",
+      deckModified: false,
+      deckPath,
+      slidePath,
+      slide: { id: slide.id, title: slide.title },
+      diagnostics: {
+        count: 1,
+        summary: { TINY_RECT: 1 },
+        blockingCount: 1,
+        blocking: [tinyDiagnostic],
+        qualityCount: 0,
+        quality: [],
+      },
+    };
+    const toolRecords = [{
+      ...shellCliRecord(1, "validate-slide", slidePath, validatePayload, ["--deck", deckPath], dir),
+      success: false,
+    }];
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "failure-scene-tiny-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords,
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary: summarizePptGenerationFlow([], toolRecords),
+    };
+
+    const scenes = await writePptGenerationFlowValidationFailureScenes(join(dir, "reports", "validation-failure-scenes"), result);
+
+    expect(scenes).toHaveLength(1);
+    expect(scenes[0]?.judgment.ok).toBe(true);
+    expect(scenes[0]?.judgment.evidence.some((item) =>
+      item.code === "TINY_RECT"
+      && item.nodeId === "tiny_scene.title"
+      && !item.pptxShapeFound
+      && item.confirmsCapacityFailure,
+    )).toBe(true);
+  });
+
+  it("matches descendant PPTX shapes for parent container capacity diagnostics", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-failure-scene-descendant-${Date.now()}`);
+    const slidesDir = join(dir, "slides");
+    await mkdir(slidesDir, { recursive: true });
+    const deckPath = join(dir, "deck-config.json");
+    const slidePath = join(slidesDir, "01-parent.json");
+    const deck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [],
+    };
+    const slide = {
+      id: "parent_scene",
+      children: [{
+        id: "parent_scene.box",
+        type: "stack",
+        at: [1, 1, 5, 0.8],
+        children: [{ id: "parent_scene.box.child", type: "text", text: "Container child", style: "paragraph" }],
+      }],
+    };
+    await writeFile(deckPath, JSON.stringify(deck, null, 2), "utf8");
+    await writeFile(slidePath, JSON.stringify(slide, null, 2), "utf8");
+    const diagnostic = {
+      severity: "error",
+      code: "FALLBACK_FAILED",
+      slideId: "parent_scene",
+      nodeId: "parent_scene.box",
+      message: "Container parent_scene.box cannot fit its children.",
+      measured: { available: 0.8, needed: 1.3, deltaCm: 0.5 },
+    };
+    const validatePayload = {
+      ok: false,
+      command: "validate-slide",
+      stage: "validate",
+      status: "render-error",
+      deckModified: false,
+      deckPath,
+      slidePath,
+      slide: { id: slide.id },
+      diagnostics: {
+        count: 1,
+        summary: { FALLBACK_FAILED: 1 },
+        blockingCount: 1,
+        blocking: [diagnostic],
+        qualityCount: 0,
+        quality: [],
+      },
+    };
+    const toolRecords = [{
+      ...shellCliRecord(1, "validate-slide", slidePath, validatePayload, ["--deck", deckPath], dir),
+      success: false,
+    }];
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "failure-scene-descendant-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords,
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary: summarizePptGenerationFlow([], toolRecords),
+    };
+
+    const scenes = await writePptGenerationFlowValidationFailureScenes(join(dir, "reports", "validation-failure-scenes"), result);
+
+    expect(scenes).toHaveLength(1);
+    expect(scenes[0]?.judgment.ok).toBe(true);
+    expect(scenes[0]?.judgment.evidence.some((item) =>
+      item.code === "FALLBACK_FAILED"
+      && item.nodeId === "parent_scene.box"
+      && item.pptxShapeMatch === "descendant"
+      && item.pptxShapeFound
+      && item.confirmsCapacityFailure,
+    )).toBe(true);
+  });
+
+  it("uses captured validate-slide snapshots instead of rereading repaired slide files", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-failure-scene-snapshot-${Date.now()}`);
+    const slidesDir = join(dir, "slides");
+    await mkdir(slidesDir, { recursive: true });
+    const deckPath = join(dir, "deck-config.json");
+    const slidePath = join(slidesDir, "01-snapshot.json");
+    const deck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [],
+    };
+    const failingSlide = {
+      id: "snapshot_scene",
+      title: "Snapshot Scene",
+      children: [{
+        id: "snapshot_scene.note",
+        type: "text",
+        text: "This failing version should be captured before the slide file is repaired. ".repeat(8),
+        at: [1, 2, 4, 0.35],
+        fontSize: 18,
+      }],
+    };
+    const repairedSlide = {
+      id: "snapshot_scene",
+      title: "Snapshot Scene",
+      children: [{
+        id: "snapshot_scene.note",
+        type: "text",
+        text: "Repaired version.",
+        at: [1, 2, 4, 1.5],
+        fontSize: 18,
+      }],
+    };
+    await writeFile(deckPath, JSON.stringify(deck, null, 2), "utf8");
+    await writeFile(slidePath, JSON.stringify(failingSlide, null, 2), "utf8");
+
+    const runtime = await import("slideml2") as unknown as {
+      clearRenderDiagnostics: () => void;
+      getRenderDiagnostics: () => Array<Record<string, unknown>>;
+      renderToAst: (deck: unknown) => unknown;
+      sourceToRenderedDeck: (source: unknown, options?: unknown) => unknown;
+    };
+    runtime.clearRenderDiagnostics();
+    runtime.renderToAst(runtime.sourceToRenderedDeck({
+      ...deck,
+      slides: [failingSlide],
+    }, { baseDir: dir }));
+    const diagnostics = runtime.getRenderDiagnostics();
+    runtime.clearRenderDiagnostics();
+    const blocking = diagnostics.filter((item) => item.severity === "error");
+    const quality = diagnostics.filter((item) => item.severity !== "error");
+    const diagnosticSummary = diagnostics.reduce<Record<string, number>>((acc, item) => {
+      const code = typeof item.code === "string" ? item.code : "UNKNOWN";
+      acc[code] = (acc[code] || 0) + 1;
+      return acc;
+    }, {});
+    expect(diagnosticSummary.FALLBACK_FAILED).toBeGreaterThan(0);
+
+    const validatePayload = {
+      ok: false,
+      command: "validate-slide",
+      stage: "validate",
+      status: "render-error",
+      deckModified: false,
+      deckPath,
+      slidePath,
+      slide: { id: failingSlide.id, title: failingSlide.title },
+      sourceValidation: { ok: true, errors: [], warnings: [], info: [] },
+      validation: { ok: true, errors: [], warnings: [], info: [] },
+      renderValidation: {
+        ok: false,
+        diagnostics: {
+          count: diagnostics.length,
+          summary: diagnosticSummary,
+          blockingCount: blocking.length,
+          blocking,
+          qualityCount: quality.length,
+          quality,
+        },
+      },
+      diagnostics: {
+        count: diagnostics.length,
+        summary: diagnosticSummary,
+        blockingCount: blocking.length,
+        blocking,
+        qualityCount: quality.length,
+        quality,
+      },
+    };
+    await writeFile(slidePath, JSON.stringify(repairedSlide, null, 2), "utf8");
+    const toolRecords = [{
+      ...shellCliRecord(1, "validate-slide", slidePath, validatePayload, ["--deck", deckPath], dir),
+      success: false,
+      validationFailureSnapshot: {
+        capturedAt: 1,
+        slidePath,
+        deckPath,
+        slide: failingSlide,
+        deck,
+      },
+    }];
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "failure-scene-snapshot-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords,
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary: summarizePptGenerationFlow([], toolRecords),
+    };
+
+    const scenes = await writePptGenerationFlowValidationFailureScenes(join(dir, "reports", "validation-failure-scenes"), result);
+
+    expect(scenes).toHaveLength(1);
+    expect(scenes[0]?.deckJsonPath).toMatch(/deck\.json$/);
+    expect(scenes[0]?.judgment.ok).toBe(true);
+    const capturedSlide = JSON.parse(await readFile(scenes[0]!.slideJsonPath!, "utf8")) as typeof failingSlide;
+    expect(capturedSlide.children[0]?.text).toBe(failingSlide.children[0]!.text);
+    expect(capturedSlide.children[0]?.text).not.toBe(repairedSlide.children[0]!.text);
+  });
+
+  it("judges validate-slide capacity diagnostics even when render capture emits unrelated warnings", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-failure-scene-merge-${Date.now()}`);
+    const slidesDir = join(dir, "slides");
+    await mkdir(slidesDir, { recursive: true });
+    const deckPath = join(dir, "deck-config.json");
+    const slidePath = join(slidesDir, "01-squashed.json");
+    const slide = {
+      id: "diag_scene",
+      title: "Diag Scene",
+      children: [{
+        id: "diag_scene.note",
+        type: "text",
+        text: "low contrast warning text",
+        at: [1, 2, 5, 1.5],
+        fontSize: 12,
+        color: "#F59E0B",
+      }],
+    };
+    await writeFile(deckPath, JSON.stringify({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [],
+    }, null, 2), "utf8");
+    await writeFile(slidePath, JSON.stringify(slide, null, 2), "utf8");
+
+    const squashedDiagnostic = {
+      severity: "error",
+      code: "SQUASHED",
+      slideId: "diag_scene",
+      nodeId: "diag_scene.note.wrap",
+      measured: {
+        rect: { x: 1, y: 2, w: 5, h: 1.5 },
+        minHeightCm: 1.8,
+      },
+    };
+    const validatePayload = {
+      ok: false,
+      command: "validate-slide",
+      stage: "validate",
+      status: "render-error",
+      deckModified: false,
+      deckPath,
+      slidePath,
+      slide: { id: slide.id, title: slide.title },
+      sourceValidation: { ok: true, errors: [], warnings: [], info: [] },
+      validation: { ok: true, errors: [], warnings: [], info: [] },
+      renderValidation: {
+        ok: false,
+        diagnostics: {
+          count: 1,
+          summary: { SQUASHED: 1 },
+          blockingCount: 1,
+          blocking: [squashedDiagnostic],
+          qualityCount: 1,
+          quality: [squashedDiagnostic],
+        },
+      },
+      diagnostics: {
+        count: 1,
+        summary: { SQUASHED: 1 },
+        blockingCount: 1,
+        blocking: [squashedDiagnostic],
+        qualityCount: 1,
+        quality: [squashedDiagnostic],
+      },
+    };
+    const toolRecords = [{
+      ...shellCliRecord(1, "validate-slide", slidePath, validatePayload, ["--deck", deckPath], dir),
+      success: false,
+    }];
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "failure-scene-merge-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords,
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary: summarizePptGenerationFlow([], toolRecords),
+    };
+
+    const scenes = await writePptGenerationFlowValidationFailureScenes(join(dir, "reports", "validation-failure-scenes"), result);
+
+    expect(scenes).toHaveLength(1);
+    expect(scenes[0]?.judgment.ok).toBe(true);
+    expect(scenes[0]?.judgment.diagnosticCodes).toContain("SQUASHED");
+    expect(scenes[0]?.judgment.evidence.some((item) =>
+      item.code === "SQUASHED"
+      && item.nodeId === "diag_scene.note.wrap"
+      && item.pptxShapeName === "diag_scene.note"
+      && item.pptxShapeMatch === "geometry"
+      && item.pptxShapeFound
+      && item.confirmsCapacityFailure,
+    )).toBe(true);
   });
 
   it("loads a directory case, runs it, and writes complete reports under reports/", async () => {

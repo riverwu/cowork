@@ -22,6 +22,10 @@ const TABLE_STYLE_ALIASES: Record<string, string> = {
   lightgridaccent1: "{5940675A-B579-460E-94D1-54222C63F5DA}",
   mediumgridaccent1: DEFAULT_TABLE_STYLE_ID,
 };
+const KNOWN_TABLE_STYLE_IDS = new Set<string>([
+  DEFAULT_TABLE_STYLE_ID,
+  ...Object.values(TABLE_STYLE_ALIASES),
+]);
 
 /** Build the entire `<p:graphicFrame>` for a table shape. */
 export function tableGraphicFrameXml(shape: TableShape): string {
@@ -74,7 +78,8 @@ function normalizeTableStyleId(value: string | undefined): string {
   if (!value) return DEFAULT_TABLE_STYLE_ID;
   const trimmed = value.trim();
   if (/^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$/.test(trimmed)) {
-    return trimmed.toUpperCase();
+    const upper = trimmed.toUpperCase();
+    return KNOWN_TABLE_STYLE_IDS.has(upper) ? upper : DEFAULT_TABLE_STYLE_ID;
   }
   return TABLE_STYLE_ALIASES[trimmed.replace(/[\s_-]+/g, "").toLowerCase()] ?? DEFAULT_TABLE_STYLE_ID;
 }

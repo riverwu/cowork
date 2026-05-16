@@ -168,8 +168,6 @@
           "type": "pyramid",
           "variant": "frameless",
           "shape": "trapezoid",
-          "topWidthRatio": 0.35,
-          "bottomWidthRatio": 0.9,
           "gap": 0.05,
           "titleStyle": "pyramid-tier-title",
           "bodyStyle": "pyramid-tier-body",
@@ -248,8 +246,6 @@
           "bodyStyle": "pyramid-tier-body",
           "titleAlign": "left",
           "bodyAlign": "left",
-          "topWidthRatio": 0.94,
-          "bottomWidthRatio": 0.30,
           "gap": 0.06,
           "showDrop": true,
           "levelSurface": {

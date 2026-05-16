@@ -159,7 +159,7 @@ class MetricPackTextMeasurer implements TextMeasurer {
   private faceKeyForFamily(family: string, weight: "regular" | "bold"): string | undefined {
     const normalized = normalizeFontAlias(family);
     const mapped = fontMetricAliases[normalized]
-      || (normalized.includes("cjk") || normalized.includes("pingfang") || normalized.includes("yahei") || normalized.includes("hiragino")
+      || (normalized.includes("cjk") || normalized.includes("pingfang") || normalized.includes("yahei") || normalized.includes("hiragino") || normalized === "system-ui" || normalized === "apple-system"
         ? fontMetricAliases["noto-sans-cjk-sc"]
         : fontMetricAliases.arial);
     return mapped?.[weight] || mapped?.regular;
@@ -206,7 +206,7 @@ function measureWrappedText(
   maxWidthCm: number,
   measurer: Pick<TextMeasurer, "textWidth">,
 ): TextWrapMetrics {
-  const usable = Math.max(0.25, maxWidthCm);
+  const usable = Math.max(0.25, maxWidthCm * wrapSafetyFactor(text, weight));
   const hardLines = String(text || "").split(/\r?\n/);
   let lineCount = 0;
   let widthCm = 0;
@@ -227,6 +227,13 @@ function measureWrappedText(
     lineCount += greedyLineCount(segmentWidths, usable);
   }
   return { lines: lineCount, widthCm, unbreakableCm };
+}
+
+function wrapSafetyFactor(text: string, weight: FontWeight | undefined): number {
+  const hasCjk = /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(text);
+  const hasLatin = /[A-Za-z0-9]/.test(text);
+  if (hasCjk && hasLatin) return resolveFontWeight(weight).bold ? 0.94 : 0.96;
+  return 1;
 }
 
 function unbreakableSegmentWidth(
@@ -250,11 +257,20 @@ function greedyLineCount(segments: Array<BreakSegment & { width: number }>, usab
   for (const segment of segments) {
     if (segment.whitespace && lineWidth === 0) continue;
     if (segment.whitespace && lineWidth + segment.width > usable) {
+      lines++;
       lineWidth = 0;
       continue;
     }
     if (lineWidth === 0) {
-      lineWidth = segment.whitespace ? 0 : segment.width;
+      if (segment.whitespace) {
+        lineWidth = 0;
+      } else if (segment.width > usable && segmentCanWrapInternally(segment.text)) {
+        const forcedLines = Math.max(1, Math.ceil(segment.width / usable));
+        lines += forcedLines - 1;
+        lineWidth = residualWrappedWidth(segment.width, usable, forcedLines);
+      } else {
+        lineWidth = segment.width;
+      }
       continue;
     }
     if (lineWidth + segment.width <= usable + 0.001) {
@@ -262,9 +278,26 @@ function greedyLineCount(segments: Array<BreakSegment & { width: number }>, usab
       continue;
     }
     lines++;
-    lineWidth = segment.whitespace ? 0 : segment.width;
+    if (segment.whitespace) {
+      lineWidth = 0;
+    } else if (segment.width > usable && segmentCanWrapInternally(segment.text)) {
+      const forcedLines = Math.max(1, Math.ceil(segment.width / usable));
+      lines += forcedLines - 1;
+      lineWidth = residualWrappedWidth(segment.width, usable, forcedLines);
+    } else {
+      lineWidth = segment.width;
+    }
   }
   return lines;
+}
+
+function segmentCanWrapInternally(text: string): boolean {
+  return /[\s\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(text);
+}
+
+function residualWrappedWidth(width: number, usable: number, lines: number): number {
+  const residual = width - usable * Math.max(0, lines - 1);
+  return residual <= 0.001 ? usable : Math.min(usable, residual);
 }
 
 function breakSegments(text: string): BreakSegment[] {

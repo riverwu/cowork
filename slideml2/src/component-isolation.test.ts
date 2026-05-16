@@ -322,6 +322,7 @@ function isMinimumOneOf(componentName: string, fieldName: string): boolean {
   if (componentName === "article" && fieldName === "text") return true;
   if (componentName === "label" && fieldName === "text") return true;
   if (componentName === "callout" && fieldName === "text") return true;
+  if (componentName === "key-takeaway" && fieldName === "headline") return true;
   // matrix-2x2 needs items OR quadrantLabels — exercise items in the
   // minimum fixture so the validator's "either-or" rule passes.
   if (componentName === "matrix-2x2" && fieldName === "items") return true;

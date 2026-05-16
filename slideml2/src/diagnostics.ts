@@ -5,8 +5,9 @@ import type { RenderDiagnosticCode } from "./diagnostic-codes.js";
  * Render diagnostics: structured, agent-readable feedback from the layout solver
  * and renderer. Replaces the legacy Set<string> warning channels.
  *
- * Severity: "warn" still produces a slide; "error" means content was dropped or
- * cannot be reliably positioned.
+ * Severity: "warn" still produces a slide with a quality concern; "error"
+ * means content is lost, unreadable, occluded, overflowing, or cannot be
+ * reliably positioned.
  *
  * Codes (stable; agents may match on them):
  *   OVERFLOW         children exceed available size; solver shrank/dropped to fit
@@ -41,10 +42,14 @@ export interface LayoutDiagnostic {
   measured?: {
     available?: number;
     needed?: number;
+    hardNeeded?: number;
+    readableNeeded?: number;
     heightAvailable?: number;
     heightNeeded?: number;
     unbreakableNeeded?: number;
     deltaCm?: number;
+    hardDeltaCm?: number;
+    readableDeltaCm?: number;
     rect?: { x: number; y: number; w: number; h: number };
     other?: { x: number; y: number; w: number; h: number; nodeId?: string };
     overlap?: { x: number; y: number; w: number; h: number };
@@ -102,6 +107,7 @@ export interface LayoutDiagnostic {
     worstRow?: { index: number; neededCm: number; availableCm: number };
     density?: string;
     fontSize?: number;
+    fontScale?: number;
     componentCount?: number;
     largeComponentCount?: number;
     capacityRatio?: number;

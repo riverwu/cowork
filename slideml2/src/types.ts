@@ -127,9 +127,29 @@ export interface DataBindSpec {
 
 export type DataViewSpec = Omit<DataBindSpec, "source">;
 
+export interface DataSeriesEncodingOptionSpec {
+  name?: string;
+  seriesName?: string;
+  y?: string;
+  field?: string;
+  key?: string;
+  value?: string;
+  type?: "bar" | "line";
+  chartType?: "bar" | "line";
+  axis?: "primary" | "secondary";
+  color?: string;
+  lineWidth?: number;
+  lineDash?: "solid" | "dash" | "dashDot" | "dot";
+  smooth?: boolean;
+  marker?: unknown;
+  dataLabels?: unknown;
+  trendLine?: { type?: "linear" | "exp" | "log" | "poly"; order?: number; label?: string } | boolean;
+  errorBars?: { type?: "fixed" | "percent" | "stdDev" | "stdErr"; value?: number; direction?: "x" | "y" | "both" };
+}
+
 export interface DataEncodingSpec {
   x?: string;
-  y?: string | string[];
+  y?: string | string[] | Record<string, string | DataSeriesEncodingOptionSpec>;
   /** Optional orientation for bar-like bound charts. When omitted, SlideML2 can infer horizontal bars from x=numeric and y=categorical. */
   orientation?: "vertical" | "horizontal";
   series?: string;
@@ -139,19 +159,7 @@ export interface DataEncodingSpec {
   items?: DataStatItemEncodingSpec[];
   columns?: Array<string | DataColumnEncodingSpec>;
   seriesName?: string;
-  seriesOptions?: Record<string, {
-    name?: string;
-    type?: "bar" | "line";
-    axis?: "primary" | "secondary";
-    color?: string;
-    lineWidth?: number;
-    lineDash?: "solid" | "dash" | "dashDot" | "dot";
-    smooth?: boolean;
-    marker?: unknown;
-    dataLabels?: unknown;
-    trendLine?: { type?: "linear" | "exp" | "log" | "poly"; order?: number; label?: string } | boolean;
-    errorBars?: { type?: "fixed" | "percent" | "stdDev" | "stdErr"; value?: number; direction?: "x" | "y" | "both" };
-  }>;
+  seriesOptions?: Record<string, DataSeriesEncodingOptionSpec>;
 }
 
 export type ThemeLayoutArea =

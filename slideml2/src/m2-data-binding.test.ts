@@ -17,6 +17,102 @@ function findNode(node: DomNode, id: string): DomNode | undefined {
 }
 
 describe("M2 data binding", () => {
+  it("accepts common bind/encoding aliases and semantic field names", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          sales: {
+            type: "inline-json",
+            rows: [
+              { Month: "Jan", Region: "US", Revenue: 10 },
+              { Month: "Feb", Region: "US", Revenue: 14 },
+              { Month: "Jan", Region: "EU", Revenue: 7 },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "alias-bind",
+        children: [{
+          id: "alias-bind.chart",
+          type: "chart-card",
+          chartType: "bar",
+          bind: {
+            dataset: "sales",
+            where: { region: "US" },
+            group: "month",
+            measures: { amount: { op: "sum", field: "revenue" } },
+            orderBy: "month",
+            top: 2,
+          },
+          encoding: { category: "month", measure: "amount", legendLabel: "Revenue" },
+        } as unknown as DomNode],
+      }],
+    };
+
+    const report = validateDeck(deck);
+    expect(report.errors).toEqual([]);
+    const rendered = sourceToRenderedDeck(deck);
+    const chart = findNode(rendered.slides[0]!.dom, "alias-bind.chart")!;
+    expect(chart.labels).toEqual(["Jan", "Feb"]);
+    expect(chart.series?.[0]?.values).toEqual([10, 14]);
+  });
+
+  it("binds chart-card series from object-form encoding.y and display-keyed seriesOptions", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          releaseMetrics: {
+            type: "inline-json",
+            rows: [
+              { phase: "Alpha", clients: 18, nps: 21, latency: 920 },
+              { phase: "Beta", clients: 54, nps: 34, latency: 640 },
+              { phase: "RC", clients: 91, nps: 41, latency: 510 },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "object-y",
+        children: [{
+          id: "object-y.chart",
+          type: "chart-card",
+          chartType: "combo",
+          bind: { source: "releaseMetrics", groupBy: "phase" },
+          encoding: {
+            x: "phase",
+            y: {
+              clients: { seriesName: "活跃客户数", axis: "primary" },
+              nps: { seriesName: "NPS", axis: "secondary" },
+              latency: { seriesName: "P95 延迟 ms", axis: "primary" },
+            },
+            seriesOptions: {
+              "活跃客户数": { chartType: "bar", color: "0F766E" },
+              "P95 延迟 ms": { chartType: "line", color: "D97706", lineDash: "dash" },
+            },
+          },
+        } as unknown as DomNode],
+      }],
+    };
+
+    const report = validateDeck(deck);
+    expect(report.errors).toEqual([]);
+    const rendered = sourceToRenderedDeck(deck);
+    const chart = findNode(rendered.slides[0]!.dom, "object-y.chart")!;
+    expect(chart.labels).toEqual(["Alpha", "Beta", "RC"]);
+    expect(chart.series?.map((series) => series.name)).toEqual(["活跃客户数", "NPS", "P95 延迟 ms"]);
+    expect(chart.series?.[0]?.values).toEqual([18, 54, 91]);
+    expect(chart.series?.[0]?.type).toBe("bar");
+    expect(chart.series?.[2]?.type).toBe("line");
+    expect(chart.series?.[2]?.lineDash).toBe("dash");
+  });
+
   it("resolves one inline-json source into chart, table, stat strip, and metric components", () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,
@@ -98,6 +194,44 @@ describe("M2 data binding", () => {
     expect(metric).toMatchObject({ value: "20", label: "Plus" });
 
     expect(() => renderToAst(rendered)).not.toThrow();
+  });
+
+  it("binds pie-like charts from label/value encoding aliases", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          platforms: {
+            type: "inline-json",
+            rows: [
+              { platform: "Windows", pct: 78 },
+              { platform: "Mac ARM", pct: 12 },
+              { platform: "Mobile", pct: 5 },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "pie-alias",
+        children: [{
+          id: "pie-alias.chart",
+          type: "chart-card",
+          chartType: "doughnut",
+          bind: { source: "platforms", sort: "-pct" },
+          encoding: { label: "platform", value: "pct", seriesName: "下载占比" },
+        }] as unknown as DomNode[],
+      }],
+    };
+
+    const validation = validateDeck(deck);
+    expect(validation.errors, validation.errors.map((item) => item.message).join("\n")).toHaveLength(0);
+
+    const rendered = sourceToRenderedDeck(deck);
+    const chart = findNode(rendered.slides[0]!.dom, "pie-alias.chart");
+    expect(chart?.labels).toEqual(["Windows", "Mac ARM", "Mobile"]);
+    expect(chart?.series).toEqual([{ name: "下载占比", values: [78, 12, 5] }]);
   });
 
   it("binds stat-strip items from multiple fields on the selected data row", () => {

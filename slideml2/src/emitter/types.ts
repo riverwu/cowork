@@ -390,7 +390,7 @@ export interface ChartLegendSpec {
 }
 
 export interface ChartPlotAreaSpec {
-  /** Manual layout factors, 0..1, relative to the chart frame. */
+  /** Manual layout factors, 0..1, relative to the chart frame; cm-like values are converted by the emitter. */
   x?: number;
   y?: number;
   w?: number;

@@ -11,6 +11,21 @@ const catalogSkillPath = resolve(repoRoot, "src/catalog/skills/slideml2/SKILL.md
 const skillRulePath = resolve(repoRoot, "slideml2/SKILL-RULE.md");
 const oldSkillPath = resolve(repoRoot, "slideml2/SKILL-old.md");
 const planningTemplatePath = resolve(repoRoot, "slideml2/planning-template.md");
+const pausedSkillComponents = new Set([
+  "architecture-map",
+  "cycle-diagram",
+  "decision-tree",
+  "gantt-chart",
+  "geo-region-map",
+  "hub-spoke",
+  "kanban-board",
+  "raci-matrix",
+  "roadmap-plan",
+  "sankey",
+  "stakeholder-map",
+  "value-chain",
+  "venn-diagram",
+]);
 
 function skillText(): string {
   return readFileSync(goldenSkillPath, "utf8");
@@ -171,6 +186,15 @@ describe("slideml2 SKILL golden copy", () => {
     const source = JSON.parse(readFileSync(join(dir, "build/deck.json"), "utf8")) as { slides: Array<{ id: string }> };
     expect(source.slides.map((slide) => slide.id)).toEqual(["cover", "body"]);
     expect(existsSync(join(dir, "build/deck.pptx"))).toBe(true);
+
+    writeJson("manifest-alias.json", { slides: [{ id: "cover", file: "slides/01-cover.json" }, { id: "slide2", file: "slides/02-body.json" }] });
+    const aliasValidation = run(["validate-manifest", "manifest-alias.json"]);
+    expect(aliasValidation.ok).toBe(true);
+    expect(JSON.stringify(aliasValidation)).toContain("MANIFEST_SLIDE_ID_ALIAS");
+    const aliasComposed = run(["compose", "manifest-alias.json", "--write-source", "build/deck-alias.json", "--out", "build/deck-alias.pptx"]);
+    expect(aliasComposed.ok).toBe(true);
+    const aliasSource = JSON.parse(readFileSync(join(dir, "build/deck-alias.json"), "utf8")) as { slides: Array<{ id: string }> };
+    expect(aliasSource.slides.map((slide) => slide.id)).toEqual(["cover", "body"]);
   });
 
   it("keeps deck-level layout guidance in SKILL instead of a side business file", () => {
@@ -185,11 +209,19 @@ describe("slideml2 SKILL golden copy", () => {
     expect(skill).toContain("Business/research decks default to light analytical themes");
   });
 
-  it("declares every component exposed by component-registry", () => {
+  it("declares every public component exposed by component-registry", () => {
     const declared = new Set(skillDeclaredNames());
-    const missing = registryComponentNames().filter((name) => !declared.has(name));
+    const missing = registryComponentNames().filter((name) => !pausedSkillComponents.has(name) && !declared.has(name));
 
     expect(missing).toEqual([]);
+  });
+
+  it("does not expose paused components in SKILL.md", () => {
+    const skill = skillText();
+    for (const component of pausedSkillComponents) {
+      expect(skill).not.toContain(`\`${component}\``);
+      expect(skill).not.toContain(`type='${component}'`);
+    }
   });
 
   it("documents key high-friction component fields and capacity guidance", () => {
@@ -221,8 +253,8 @@ describe("slideml2 SKILL golden copy", () => {
     expect(skill).toContain("### 2.2 Compositional Archetypes");
     expect(skill).toContain("Use family as a planning check, not a closed taxonomy");
     expect(skill).toContain("Pick layout intent before component");
-    expect(skill).toContain("## 4. Routing — Page Job → First Component");
-    expect(skill).toContain("Use this table as first-pass routing after family/archetype");
+    expect(skill).toContain("### 3.14 Page Job → First Component");
+    expect(skill).toContain("Use this table after the §3.0 data-shape shortlist");
     expect(skill).toContain("| Executive answer / final synthesis");
     expect(skill).toContain("`executive-summary`");
     expect(skill).toContain("Raw `text` is residual");

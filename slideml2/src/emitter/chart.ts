@@ -27,6 +27,8 @@ const DEFAULT_COLORS: HexColor[] = [
   "5A8FB5", "29B5A8", "B5829A", "8C7DCC", "BFB143",
 ];
 
+const EMU_PER_CM = 360000;
+
 /**
  * Build the `chart{N}.xml` body for a chart shape.
  */
@@ -155,19 +157,50 @@ function plotAreaLayoutXml(shape: ChartShape): string {
   const p = shape.plotArea;
   if (!p) return `<c:layout/>`;
   const parts: string[] = [`<c:layoutTarget val="inner"/>`];
-  const x = typeof p.x === "number" ? clampFactor(p.x) : undefined;
-  const y = typeof p.y === "number" ? clampFactor(p.y) : undefined;
-  const w = typeof p.w === "number" ? clampFactor(p.w, 0.01, x === undefined ? 1 : Math.max(0.01, 1 - x)) : undefined;
-  const h = typeof p.h === "number" ? clampFactor(p.h, 0.01, y === undefined ? 1 : Math.max(0.01, 1 - y)) : undefined;
-  if (x !== undefined) parts.push(`<c:xMode val="factor"/><c:x val="${x}"/>`);
-  if (y !== undefined) parts.push(`<c:yMode val="factor"/><c:y val="${y}"/>`);
-  if (w !== undefined) parts.push(`<c:wMode val="factor"/><c:w val="${w}"/>`);
-  if (h !== undefined) parts.push(`<c:hMode val="factor"/><c:h val="${h}"/>`);
+  const normalized = normalizePlotArea(shape);
+  const { x, y, w, h } = normalized;
+  if (x !== undefined) parts.push(`<c:xMode val="factor"/><c:x val="${formatFactor(x)}"/>`);
+  if (y !== undefined) parts.push(`<c:yMode val="factor"/><c:y val="${formatFactor(y)}"/>`);
+  if (w !== undefined) parts.push(`<c:wMode val="factor"/><c:w val="${formatFactor(w)}"/>`);
+  if (h !== undefined) parts.push(`<c:hMode val="factor"/><c:h val="${formatFactor(h)}"/>`);
   return `<c:layout><c:manualLayout>${parts.join("")}</c:manualLayout></c:layout>`;
+}
+
+function normalizePlotArea(shape: ChartShape): { x?: number; y?: number; w?: number; h?: number } {
+  const p = shape.plotArea;
+  if (!p) return {};
+
+  const hasCmLikeValue = [p.x, p.y, p.w, p.h].some((v) => typeof v === "number" && Math.abs(v) > 1);
+  const widthCm = Math.max(0.01, shape.xfrm.cx / EMU_PER_CM);
+  const heightCm = Math.max(0.01, shape.xfrm.cy / EMU_PER_CM);
+  const toFactor = (value: number | undefined, spanCm: number): number | undefined => {
+    if (typeof value !== "number") return undefined;
+    return hasCmLikeValue ? value / spanCm : value;
+  };
+
+  const x = toFactor(p.x, widthCm);
+  const y = toFactor(p.y, heightCm);
+  const clampedX = x === undefined ? undefined : clampFactor(x);
+  const clampedY = y === undefined ? undefined : clampFactor(y);
+  const maxW = clampedX === undefined ? 1 : Math.max(0.01, 1 - clampedX);
+  const maxH = clampedY === undefined ? 1 : Math.max(0.01, 1 - clampedY);
+  const w = toFactor(p.w, widthCm);
+  const h = toFactor(p.h, heightCm);
+
+  return {
+    x: clampedX,
+    y: clampedY,
+    w: w === undefined ? undefined : clampFactor(w, 0.01, maxW),
+    h: h === undefined ? undefined : clampFactor(h, 0.01, maxH),
+  };
 }
 
 function clampFactor(value: number, min = 0, max = 1): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function formatFactor(value: number): string {
+  return Number(value.toFixed(4)).toString();
 }
 
 // ---- Bar / Line / Pie chart bodies --------------------------------------
@@ -250,19 +283,16 @@ function pieChartXml(shape: ChartShape, colors: HexColor[], doughnut: boolean, r
   const series = shape.series[0] ?? { name: "Series", values: [] };
   const elem = doughnut ? "doughnutChart" : "pieChart";
   const holeXml = doughnut ? `<c:holeSize val="50"/>` : "";
-  const dataLabelsXml = dataLabelsXmlOf(shape, {
-    position: "bestFit",
+  const dataLabelsXml = doughnut ? "" : dataLabelsXmlOf(shape, {
+    position: "outsideEnd",
     showValue: false,
     showCategoryName: true,
     showSeriesName: false,
     showPercent: true,
     showLeaderLines: true,
-  // PowerPoint for Mac repairs pie/doughnut charts when c:dLblPos is emitted
-  // in this series-level label block. Let Office choose the position; labels
-  // remain enabled and editable without corrupting the package.
   }, {
     pointCount: shape.labels.length,
-    omitPosition: true,
+    omitNumberFormatAndTextPr: true,
     hiddenPointIndexes: hiddenPieLabelIndexes(series.values, shape.dataLabels?.minPercent ?? 0.03),
   });
   return (
@@ -277,10 +307,10 @@ function pieChartXml(shape: ChartShape, colors: HexColor[], doughnut: boolean, r
       `<c:spPr><a:solidFill><a:srgbClr val="${colors[i % colors.length]!}"/></a:solidFill></c:spPr>` +
       `</c:dPt>`,
     ).join("") +
-    dataLabelsXml +
     catRefXml(shape.labels, refContext) +
     valRefXml(series.values, refContext, 0) +
     `</c:ser>` +
+    dataLabelsXml +
     `<c:firstSliceAng val="0"/>` +
     holeXml +
     `</c:${elem}>`
@@ -317,6 +347,10 @@ function seriesXml(
     showCategoryName: false,
     showSeriesName: false,
     showPercent: false,
+  }, {
+    // Forced label positions such as outEnd are reliable for bars/pies but
+    // PowerPoint may repair line/area charts that carry the same native XML.
+    omitPosition: isLine || isArea,
   });
 
   return (
@@ -376,7 +410,7 @@ function dataLabelsXmlOf(
     showLegendKey?: boolean;
     showLeaderLines?: boolean;
   },
-  options: { pointCount?: number; omitPosition?: boolean; hiddenPointIndexes?: Set<number> } = {},
+  options: { pointCount?: number; omitPosition?: boolean; omitNumberFormatAndTextPr?: boolean; hiddenPointIndexes?: Set<number> } = {},
 ): string {
   const labels = shape.dataLabels;
   const show = labels?.show ?? shape.showValues ?? false;
@@ -397,24 +431,17 @@ function dataLabelsXmlOf(
     `<c:showSerName val="${showSeriesName ? 1 : 0}"/>` +
     `<c:showPercent val="${showPercent ? 1 : 0}"/>` +
     `<c:showBubbleSize val="0"/>`;
-  const pointLabelsXml = options.pointCount && options.pointCount > 0
-    ? Array.from({ length: options.pointCount }, (_, idx) =>
-      options.hiddenPointIndexes?.has(idx)
-        ? `<c:dLbl><c:idx val="${idx}"/><c:delete val="1"/></c:dLbl>`
-        : `<c:dLbl><c:idx val="${idx}"/>` +
-          `<c:numFmt formatCode="General" sourceLinked="0"/>` +
-          `<c:spPr/>` +
-          defaultDataLabelTextPrXml() +
-          showFlagsXml +
-          `</c:dLbl>`,
-    ).join("")
+  const pointLabelsXml = options.hiddenPointIndexes
+    ? Array.from(options.hiddenPointIndexes)
+      .sort((a, b) => a - b)
+      .map((index) => `<c:dLbl><c:idx val="${index}"/><c:delete val="1"/></c:dLbl>`)
+      .join("")
     : "";
   return (
     `<c:dLbls>` +
     pointLabelsXml +
-    `<c:numFmt formatCode="General" sourceLinked="0"/>` +
-    defaultDataLabelTextPrXml() +
     positionXml +
+    (options.omitNumberFormatAndTextPr ? "" : `<c:numFmt formatCode="General" sourceLinked="0"/>` + defaultDataLabelTextPrXml()) +
     showFlagsXml +
     leaderLinesXml +
     `</c:dLbls>`
@@ -768,8 +795,8 @@ function scatterAxesXml(xAxId: number, yAxId: number, xAxis: ChartAxisSpec | und
     scalingXml(xAxis) +
     `<c:delete val="${xAxis?.show === false ? 1 : 0}"/>` +
     `<c:axPos val="b"/>` +
-    axisTitleXml(xAxis) +
     axisGridlinesXml(xAxis) +
+    axisTitleXml(xAxis) +
     `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(xAxis?.numberFormat ?? "General"))}" sourceLinked="${xAxis?.numberFormat ? 0 : 1}"/>` +
     axisTicksXml(xAxis) +
     axisTextXml(xAxis) +
@@ -780,8 +807,8 @@ function scatterAxesXml(xAxId: number, yAxId: number, xAxis: ChartAxisSpec | und
     scalingXml(yAxis) +
     `<c:delete val="${yAxis?.show === false ? 1 : 0}"/>` +
     `<c:axPos val="l"/>` +
-    axisTitleXml(yAxis) +
     axisGridlinesXml(yAxis) +
+    axisTitleXml(yAxis, -90) +
     `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(yAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` +
     axisTicksXml(yAxis) +
     axisTextXml(yAxis) +
@@ -811,8 +838,8 @@ function axesXmlOf(
     scalingXml(xAxis) +
     `<c:delete val="${xAxis?.show === false ? 1 : 0}"/>` +
     `<c:axPos val="${horizontal ? "l" : "b"}"/>` +
-    axisTitleXml(xAxis) +
     axisGridlinesXml(xAxis) +
+    axisTitleXml(xAxis, horizontal ? -90 : 0) +
     axisTicksXml(xAxis) +
     axisTextXml(xAxis) +
     `<c:crossAx val="${valAxId}"/>` +
@@ -822,13 +849,13 @@ function axesXmlOf(
     scalingXml(yAxis) +
     `<c:delete val="${yAxis?.show === false ? 1 : 0}"/>` +
     `<c:axPos val="${horizontal ? "b" : "l"}"/>` +
-    axisTitleXml(yAxis) +
     axisGridlinesXml(yAxis) +
+    axisTitleXml(yAxis, horizontal ? 0 : -90) +
     `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(yAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` +
-    axisUnitXml(yAxis) +
     axisTicksXml(yAxis) +
     axisTextXml(yAxis) +
     `<c:crossAx val="${catAxId}"/>` +
+    axisUnitXml(yAxis) +
     `</c:valAx>` +
     (secondaryValAxId ? (
       `<c:valAx>` +
@@ -836,13 +863,14 @@ function axesXmlOf(
       scalingXml(secondaryYAxis) +
       `<c:delete val="${secondaryYAxis?.show === false ? 1 : 0}"/>` +
       `<c:axPos val="${horizontal ? "t" : "r"}"/>` +
-      axisTitleXml(secondaryYAxis) +
       axisGridlinesXml(secondaryYAxis) +
+      axisTitleXml(secondaryYAxis, horizontal ? 0 : 90) +
       `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(secondaryYAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` +
-      axisUnitXml(secondaryYAxis) +
       axisTicksXml(secondaryYAxis) +
       axisTextXml(secondaryYAxis) +
       `<c:crossAx val="${catAxId}"/>` +
+      `<c:crosses val="max"/>` +
+      axisUnitXml(secondaryYAxis) +
       `</c:valAx>`
     ) : "")
   );
@@ -879,11 +907,12 @@ function axisTextXml(axis: ChartAxisSpec | undefined): string {
   return `<c:txPr><a:bodyPr rot="${rot}"/><a:lstStyle/><a:p><a:pPr/><a:endParaRPr lang="en-US"/></a:p></c:txPr>`;
 }
 
-function axisTitleXml(axis: ChartAxisSpec | undefined): string {
+function axisTitleXml(axis: ChartAxisSpec | undefined, rotationDegrees = 0): string {
   if (!axis?.title) return "";
+  const rot = Math.round(rotationDegrees * 60000);
   return (
     `<c:title><c:tx><c:rich>` +
-    `<a:bodyPr rot="0" spcFirstLastPara="1" vertOverflow="ellipsis" wrap="square" anchor="ctr" anchorCtr="1"/>` +
+    `<a:bodyPr rot="${rot}" spcFirstLastPara="1" vertOverflow="ellipsis" wrap="square" anchor="ctr" anchorCtr="1"/>` +
     `<a:lstStyle/><a:p><a:pPr algn="ctr"><a:defRPr sz="1000" b="1"/></a:pPr>` +
     `<a:r><a:rPr lang="en-US" sz="1000" b="1"/><a:t>${xmlEscapeText(axis.title)}</a:t></a:r>` +
     `</a:p></c:rich></c:tx><c:layout/><c:overlay val="0"/></c:title>`

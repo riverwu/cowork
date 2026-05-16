@@ -28,14 +28,13 @@ import { inferTextKind } from "./text-normalizer.js";
 import type { DeckValidationSpec, DomNode, RenderedDeck, RenderedSlide, Slideml2SourceDeck, SlideV2, ThemeLayoutArea, ThemeOverride } from "./types.js";
 import { measureDeck } from "./render.js";
 import { normalizeSlide, sourceSlideToRendered, sourceToRenderedDeck } from "./source-deck.js";
-import { emuToCm, SLIDE_SIZES } from "./units.js";
+import { emuToCm, parseLayoutDimensionCm, SLIDE_SIZES } from "./units.js";
 import { unsupportedLatexCommands } from "./latex-omml.js";
 import { meaningfulSourceOverlap, rectContains, rectFromAbsoluteRectSpec, rectFromNodePlacement } from "./layout/geometry.js";
 import { SOURCE_VALIDATION_CODE } from "./diagnostic-codes.js";
 import { describeInvalidSlideTransition } from "./transition.js";
 
 const RAW_HEX_RE = /^[0-9A-Fa-f]{6}$/;
-const RESERVED_LAYOUT_AREAS = new Set(["content", "full"]);
 const THEME_FONT_WEIGHT_NAMES = new Set([
   "thin",
   "hairline",
@@ -61,6 +60,39 @@ const REQUIRED_CHILD_CONTAINERS = new Set(["stack", "grid", "split", "fragment"]
 const MAX_VALIDATION_NODE_DEPTH = 80;
 const MAX_VALIDATION_NODES_PER_SLIDE = 5000;
 const MAX_TEXT_LENGTH_ISSUES_PER_SLIDE = 80;
+const METADATA_HERO_COMPONENTS = new Set(["cover-composition", "section-break", "title-lockup", "chapter-divider"]);
+const DATA_BIND_FIELD_ALIASES: Record<string, string[]> = {
+  source: ["dataSource", "dataset", "from"],
+  select: ["fields", "columns"],
+  filter: ["where"],
+  groupBy: ["group", "group_by", "groupby", "by"],
+  aggregate: ["aggregates", "measures"],
+  pivot: [],
+  sort: ["order", "orderBy", "orderby"],
+  limit: ["top", "take", "maxRows"],
+};
+const DATA_ENCODING_FIELD_ALIASES: Record<string, string[]> = {
+  x: ["category", "dimension", "nameField"],
+  y: ["measure", "metric", "metrics"],
+  orientation: ["direction"],
+  series: ["seriesBy", "group", "colorBy"],
+  label: ["name", "categoryLabel", "labelField"],
+  value: ["amount", "measure", "metricValue"],
+  delta: ["change", "diff"],
+  items: ["metrics", "stats"],
+  columns: ["fields"],
+  seriesName: ["legendLabel"],
+  seriesOptions: ["seriesConfig"],
+};
+const DATA_FIELD_SYNONYM_GROUPS = [
+  ["label", "name", "title", "category", "item", "dimension", "metric"],
+  ["value", "amount", "measure", "metricValue", "score"],
+  ["count", "number", "num", "qty", "quantity", "total"],
+  ["headcount", "hc", "people", "staff", "employees"],
+  ["revenue", "rev", "sales", "gmv"],
+  ["percent", "percentage", "pct", "rate", "share"],
+  ["delta", "change", "diff", "variance"],
+] as const;
 const TEXT_VALUE_KEYS = new Set([
   "text", "content", "title", "subtitle", "headline", "body", "detail", "description",
   "label", "name", "caption", "eyebrow", "kicker", "summary", "quote",
@@ -138,9 +170,14 @@ export function validateSlide(slide: SlideV2, deck?: Pick<Slideml2SourceDeck, "d
   if (issues.some((item) => item.level === "error")) return report(issues);
   const bodyHeroTitle = Array.isArray(slide.children) ? findBodyHeroTitle(slide.children) : { found: false, titles: [] };
   if (typeof slide.title === "string" && slide.title.trim() && bodyHeroTitle.found && !bodyHeroTitleMatchesSlideTitle(slide.title, bodyHeroTitle.titles)) {
-    issues.push(issue("error", "DUPLICATE_HERO_TITLE", "slide.title is set AND the body already carries a hero title (cover-composition / section-break / deck-title / slide-title text). Only one — drop slide.title for cover/section pages, or remove the body title for ordinary pages.", {
+    const metadataHero = hasMetadataHeroComponent(slide.children || []);
+    issues.push(issue(metadataHero ? "warning" : "error", "DUPLICATE_HERO_TITLE", metadataHero
+      ? "slide.title differs from the visible cover/section component title. The component title will be rendered; slide.title is treated as navigation metadata."
+      : "slide.title is set AND the body already carries a hero title (deck-title / slide-title text). Only one visible hero title is allowed for ordinary pages.", {
       slideId: slide.id,
-      suggestedFix: "If this is a cover or chapter divider, either make slide.title match the body hero title exactly so it is treated as metadata, or drop slide.title and let the body's section-break/deck-title text be the headline.",
+      suggestedFix: metadataHero
+        ? "For cleaner navigation, align slide.title with the visible cover/section/chapter title. Do not add a second visible title."
+        : "For ordinary pages, remove slide.title or remove the visible deck-title/slide-title text node so the renderer does not create competing headings.",
     }));
   }
   if (issues.some((item) => item.level === "error")) return report(issues);
@@ -739,26 +776,27 @@ function validatePrimitiveGap(node: DomNode, path: string, slideId: string, issu
   if (!("gap" in node)) return;
   if (!(node.type === "stack" || node.type === "grid" || node.type === "split")) return;
   const rawGap = node.gap;
-  if (typeof rawGap !== "number" || !Number.isFinite(rawGap) || rawGap < 0) {
-    issues.push(issue("error", "INVALID_LAYOUT_GAP", `${path}.gap must be a non-negative number in centimeters.`, {
+  const gapCm = parseLayoutDimensionCm(rawGap);
+  if (gapCm === undefined || gapCm < 0) {
+    issues.push(issue("error", "INVALID_LAYOUT_GAP", `${path}.gap must be a non-negative layout length.`, {
       slideId,
       path: `${path}.gap`,
       nodeName: node.id,
-      suggestedFix: "Use a cm value such as gap:0.3 or gap:0.6. Do not use CSS px values.",
+      suggestedFix: "Use a cm value such as gap:0.3, or an explicit unit string such as '12px', '8pt', '0.4cm', '4mm', or '0.16in'.",
     }));
     return;
   }
   const childCount = Array.isArray(node.children) ? node.children.length : 0;
   if (childCount <= 1 && node.type !== "split") return;
-  if (rawGap > 3) {
-    issues.push(issue("error", "LAYOUT_GAP_TOO_LARGE", `${path}.gap is ${rawGap}cm. gap uses centimeters; this usually means a px-style value was used and will collapse child regions.`, {
+  if (gapCm > 3) {
+    issues.push(issue("error", "LAYOUT_GAP_TOO_LARGE", `${path}.gap is ${gapCm.toFixed(2)}cm after unit normalization. This will collapse child regions.`, {
       slideId,
       path: `${path}.gap`,
       nodeName: node.id,
       suggestedFix: "Use gap around 0.25-0.8cm for ordinary grids/stacks. For intentional large whitespace, insert a spacer node with explicit fixedWidth/fixedHeight instead of making every child narrower.",
     }));
-  } else if (rawGap > 1.6) {
-    issues.push(issue("warning", "LAYOUT_GAP_LARGE", `${path}.gap is ${rawGap}cm, which is unusually large for a ${node.type}.`, {
+  } else if (gapCm > 1.6) {
+    issues.push(issue("warning", "LAYOUT_GAP_LARGE", `${path}.gap is ${gapCm.toFixed(2)}cm after unit normalization, which is unusually large for a ${node.type}.`, {
       slideId,
       path: `${path}.gap`,
       nodeName: node.id,
@@ -781,24 +819,25 @@ function validateNodePaddingUnits(node: DomNode, path: string, slideId: string, 
 }
 
 function validatePaddingValue(value: unknown, path: string, slideId: string, nodeName: string | undefined, issues: ValidationIssue[]): void {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    issues.push(issue("error", "INVALID_LAYOUT_PADDING", `${path} must be a non-negative number in centimeters.`, {
+  const paddingCm = parseLayoutDimensionCm(value);
+  if (paddingCm === undefined || paddingCm < 0) {
+    issues.push(issue("error", "INVALID_LAYOUT_PADDING", `${path} must be a non-negative layout length.`, {
       slideId,
       path,
       nodeName,
-      suggestedFix: "Use a cm value such as padding:0.3 or padding:0.6. Do not use CSS px values.",
+      suggestedFix: "Use a cm value such as padding:0.3, or an explicit unit string such as '12px', '8pt', '0.4cm', '4mm', or '0.16in'.",
     }));
     return;
   }
-  if (value > 3) {
-    issues.push(issue("error", "LAYOUT_PADDING_TOO_LARGE", `${path} is ${value}cm. padding uses centimeters; this usually means a px-style value was used and will leave no usable content area.`, {
+  if (paddingCm > 3) {
+    issues.push(issue("error", "LAYOUT_PADDING_TOO_LARGE", `${path} is ${paddingCm.toFixed(2)}cm after unit normalization; this will leave no usable content area.`, {
       slideId,
       path,
       nodeName,
       suggestedFix: "Use padding around 0.2-0.8cm for cards/panels. For deliberate whitespace, resize the region or add a spacer outside the component.",
     }));
-  } else if (value > 1.6) {
-    issues.push(issue("warning", "LAYOUT_PADDING_LARGE", `${path} is ${value}cm, which is unusually large for slide content.`, {
+  } else if (paddingCm > 1.6) {
+    issues.push(issue("warning", "LAYOUT_PADDING_LARGE", `${path} is ${paddingCm.toFixed(2)}cm after unit normalization, which is unusually large for slide content.`, {
       slideId,
       path,
       nodeName,
@@ -809,6 +848,10 @@ function validatePaddingValue(value: unknown, path: string, slideId: string, nod
 
 function validateCellPaddingValue(value: unknown, path: string, slideId: string, nodeName: string | undefined, issues: ValidationIssue[]): void {
   if (typeof value === "number") {
+    validatePaddingValue(tablePaddingNumberToCm(value), path, slideId, nodeName, issues);
+    return;
+  }
+  if (typeof value === "string") {
     validatePaddingValue(value, path, slideId, nodeName, issues);
     return;
   }
@@ -817,13 +860,19 @@ function validateCellPaddingValue(value: unknown, path: string, slideId: string,
       slideId,
       path,
       nodeName,
-      suggestedFix: "Use cellPadding:0.18 or cellPadding:{left:0.18,right:0.18,top:0.1,bottom:0.1}.",
+      suggestedFix: "Use cellPadding:0.18, cellPadding:'8pt', or cellPadding:{left:0.18,right:0.18,top:0.1,bottom:0.1}.",
     }));
     return;
   }
   for (const side of ["left", "right", "top", "bottom"] as const) {
-    if (side in value) validatePaddingValue((value as Record<string, unknown>)[side], `${path}.${side}`, slideId, nodeName, issues);
+    if (!(side in value)) continue;
+    const sideValue = (value as Record<string, unknown>)[side];
+    validatePaddingValue(typeof sideValue === "number" ? tablePaddingNumberToCm(sideValue) : sideValue, `${path}.${side}`, slideId, nodeName, issues);
   }
+}
+
+function tablePaddingNumberToCm(value: number): number {
+  return value > 1.6 ? value * 0.0352777778 : value;
 }
 
 function validateTextSpacingUnits(node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
@@ -866,23 +915,30 @@ function validateLineSpacingValue(value: unknown, path: string, slideId: string,
 }
 
 function validatePointSpacingValue(value: unknown, path: string, slideId: string, nodeName: string | undefined, issues: ValidationIssue[]): void {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    issues.push(issue("error", "INVALID_POINT_SPACING", `${path} must be a non-negative point value.`, {
+  const spacingPt = parsePointSpacingValue(value);
+  if (spacingPt === undefined || spacingPt < 0) {
+    issues.push(issue("error", "INVALID_POINT_SPACING", `${path} must be a non-negative point value or explicit length string.`, {
       slideId,
       path,
       nodeName,
-      suggestedFix: "Use points, e.g. spaceAfter:4 or spaceAfter:8. For inter-block layout spacing, prefer parent gap in centimeters.",
+      suggestedFix: "Use points, e.g. spaceAfter:4 or spaceAfter:'8pt'. For inter-block layout spacing, prefer parent gap in centimeters.",
     }));
     return;
   }
-  if (value > 60) {
-    issues.push(issue("warning", "POINT_SPACING_VERY_LARGE", `${path} is ${value}pt, which is unusually large for slide typography.`, {
+  if (spacingPt > 60) {
+    issues.push(issue("warning", "POINT_SPACING_VERY_LARGE", `${path} is ${spacingPt.toFixed(1)}pt after unit normalization, which is unusually large for slide typography.`, {
       slideId,
       path,
       nodeName,
       suggestedFix: "If this was meant as pixels or centimeters, use a parent gap/spacer instead. Typical paragraph spaceAfter is 2-10pt.",
     }));
   }
+}
+
+function parsePointSpacingValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const cmValue = parseLayoutDimensionCm(value);
+  return cmValue === undefined ? undefined : cmValue * 72 / 2.54;
 }
 
 function isTwoColumnRegionShorthand(node: DomNode, parent: DomNode | undefined, path: string): boolean {
@@ -1064,8 +1120,10 @@ function validateThemeOverride(deck: Slideml2SourceDeck, issues: ValidationIssue
     }
     const weight = style.weight ?? (style as Record<string, unknown>).fontWeight ?? ((style as Record<string, unknown>).bold === true ? "bold" : undefined);
     const namedWeight = typeof weight === "string" ? weight.trim().toLowerCase() : undefined;
+    const numericStringWeight = namedWeight && /^\d+$/.test(namedWeight) ? Number(namedWeight) : undefined;
     const validWeight = weight === undefined
       || (typeof weight === "number" && weight >= 100 && weight <= 900)
+      || (numericStringWeight !== undefined && numericStringWeight >= 100 && numericStringWeight <= 900)
       || (namedWeight !== undefined && THEME_FONT_WEIGHT_NAMES.has(namedWeight));
     if (!validWeight) {
       issues.push(issue("error", "INVALID_THEME_TEXT_WEIGHT", `${path}.weight/fontWeight must be a named CSS weight or a numeric 100..900 weight.`, {
@@ -1620,6 +1678,7 @@ function validateDataFieldReferences(
   nodeName: unknown,
   issues: ValidationIssue[],
 ): void {
+  bind = canonicalDataBindRecord(bind);
   const sourceFields = dataFieldSet(rows);
   if (sourceFields.size === 0) return;
   const groupKeys = dataFieldList(bind.groupBy);
@@ -1650,11 +1709,39 @@ function validateDataFieldReferences(
     checkDataField(field, viewFields, `${path}.select`, "select", slideId, nodeName, issues);
   }
   if (encoding && typeof encoding === "object" && !Array.isArray(encoding)) {
-    const enc = encoding as Record<string, unknown>;
+    const enc = canonicalDataEncodingRecord(encoding as Record<string, unknown>);
     for (const [key, field] of encodingFieldRefs(enc)) {
       checkDataField(field, viewFields, `${path.replace(/\.bind$/, ".encoding")}.${key}`, "encoding", slideId, nodeName, issues);
     }
   }
+}
+
+function canonicalDataBindRecord(rec: Record<string, unknown>): Record<string, unknown> {
+  return canonicalRecord(rec, DATA_BIND_FIELD_ALIASES);
+}
+
+function canonicalDataEncodingRecord(rec: Record<string, unknown>): Record<string, unknown> {
+  return canonicalRecord(rec, DATA_ENCODING_FIELD_ALIASES);
+}
+
+function canonicalRecord(rec: Record<string, unknown>, aliases: Record<string, string[]>): Record<string, unknown> {
+  let out = rec;
+  const copy = () => out === rec ? { ...rec } : out;
+  for (const [canonical, aliasList] of Object.entries(aliases)) {
+    if (rec[canonical] !== undefined) continue;
+    for (const alias of aliasList) {
+      if (rec[alias] === undefined) continue;
+      out = copy();
+      out[canonical] = rec[alias];
+      break;
+    }
+  }
+  return out;
+}
+
+function isKnownDataFieldAlias(key: string, aliases: Record<string, string[]>): boolean {
+  if (Object.prototype.hasOwnProperty.call(aliases, key)) return true;
+  return Object.values(aliases).some((items) => items.includes(key));
 }
 
 function dataFieldSet(rows: Record<string, unknown>[]): Set<string> {
@@ -1780,13 +1867,37 @@ function firstNonEmptyString(...values: unknown[]): string | undefined {
 }
 
 function checkDataField(field: string, fields: Set<string>, path: string, role: string, slideId: string, nodeName: unknown, issues: ValidationIssue[]): void {
-  if (!field || fields.has(field)) return;
+  if (!field || resolveDataFieldName(field, fields)) return;
   issues.push(issue("error", "UNKNOWN_DATA_FIELD", `${path} references missing data field "${field}" for ${role}.`, {
     slideId,
     path,
     nodeName: typeof nodeName === "string" ? nodeName : undefined,
-    suggestedFix: `Use one of: ${Array.from(fields).slice(0, 12).join(", ")}.`,
+    suggestedFix: `Use one of: ${Array.from(fields).slice(0, 12).join(", ")}. Matching is case-insensitive and accepts common semantic aliases such as value/amount, label/name/category, percent/pct, and headcount/hc.`,
   }));
+}
+
+function resolveDataFieldName(field: string, fields: Set<string>): string | undefined {
+  if (!field) return undefined;
+  if (fields.has(field)) return field;
+  const normalized = dataFieldFingerprint(field);
+  const direct = Array.from(fields).find((candidate) => dataFieldFingerprint(candidate) === normalized);
+  if (direct) return direct;
+  const group = DATA_FIELD_SYNONYM_GROUPS.find((items) => items.some((item) => dataFieldFingerprint(item) === normalized));
+  if (!group) return undefined;
+  const matches = Array.from(fields).filter((candidate) => {
+    const candidateFp = dataFieldFingerprint(candidate);
+    return group.some((alias) => dataFieldFingerprint(alias) === candidateFp);
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function dataFieldFingerprint(field: string): string {
+  return String(field || "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s._-]+/g, "")
+    .replace(/[^a-z0-9\u4e00-\u9fff]/g, "");
 }
 
 function validateBindSpec(bind: unknown, path: string, slideId: string, nodeName: unknown, sourceIds: Set<string>, issues: ValidationIssue[]): void {
@@ -1799,14 +1910,15 @@ function validateBindSpec(bind: unknown, path: string, slideId: string, nodeName
     }));
     return;
   }
-  const rec = bind as Record<string, unknown>;
-  for (const key of Object.keys(rec)) {
-    if (!(DATA_BIND_FIELDS as readonly string[]).includes(key)) {
+  const rawRec = bind as Record<string, unknown>;
+  const rec = canonicalDataBindRecord(rawRec);
+  for (const key of Object.keys(rawRec)) {
+    if (!(DATA_BIND_FIELDS as readonly string[]).includes(key) && !isKnownDataFieldAlias(key, DATA_BIND_FIELD_ALIASES)) {
       issues.push(issue("error", "UNKNOWN_DATA_BIND_FIELD", `${path}.${key} is not a supported bind field.`, {
         slideId,
         path: `${path}.${key}`,
         nodeName: typeof nodeName === "string" ? nodeName : undefined,
-        suggestedFix: "Use source, select, filter, groupBy, aggregate, pivot, sort, or limit.",
+        suggestedFix: "Use source, select, filter, groupBy, aggregate, pivot, sort, or limit. Common aliases are accepted: dataSource/dataset/from, fields/columns, where, group/by, aggregates/measures, order/orderBy, top/take.",
       }));
     }
   }
@@ -1815,7 +1927,7 @@ function validateBindSpec(bind: unknown, path: string, slideId: string, nodeName
       slideId,
       path: `${path}.source`,
       nodeName: typeof nodeName === "string" ? nodeName : undefined,
-      suggestedFix: "Set bind.source to a data source id defined under deck.dataSources.",
+      suggestedFix: "Set bind.source (or dataSource/dataset/from) to a data source id defined under deck.dataSources.",
     }));
   } else if (!sourceIds.has(rec.source)) {
     issues.push(issue("error", "UNKNOWN_DATA_BIND_SOURCE", `${path}.source references missing data source "${rec.source}".`, {
@@ -1953,19 +2065,21 @@ function validateEncodingSpec(encoding: unknown, path: string, slideId: string, 
     issues.push(issue("error", "INVALID_DATA_ENCODING", `${path} must be an object.`, { slideId, path, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
     return;
   }
-  for (const key of Object.keys(encoding as Record<string, unknown>)) {
-    if (!(DATA_ENCODING_FIELDS as readonly string[]).includes(key)) {
+  const rawRec = encoding as Record<string, unknown>;
+  const rec = canonicalDataEncodingRecord(rawRec);
+  for (const key of Object.keys(rawRec)) {
+    if (!(DATA_ENCODING_FIELDS as readonly string[]).includes(key) && !isKnownDataFieldAlias(key, DATA_ENCODING_FIELD_ALIASES)) {
       issues.push(issue("error", "UNKNOWN_DATA_ENCODING_FIELD", `${path}.${key} is not a supported encoding field.`, {
         slideId,
         path: `${path}.${key}`,
         nodeName: typeof nodeName === "string" ? nodeName : undefined,
-        suggestedFix: "Use x, y, orientation, series, label, value, delta, columns, seriesName, or seriesOptions.",
+        suggestedFix: "Use x, y, orientation, series, label, value, delta, columns, seriesName, or seriesOptions. Common aliases are accepted: category/dimension, measure/metric, seriesBy/group, name/categoryLabel, amount, fields, seriesConfig.",
       }));
     }
   }
-  validateEncodingColumns((encoding as Record<string, unknown>).columns, `${path}.columns`, slideId, nodeName, issues);
-  validateEncodingItems((encoding as Record<string, unknown>).items, `${path}.items`, slideId, nodeName, issues);
-  validateEncodingSeriesOptions((encoding as Record<string, unknown>).seriesOptions, `${path}.seriesOptions`, slideId, nodeName, issues);
+  validateEncodingColumns(rec.columns, `${path}.columns`, slideId, nodeName, issues);
+  validateEncodingItems(rec.items, `${path}.items`, slideId, nodeName, issues);
+  validateEncodingSeriesOptions(rec.seriesOptions, `${path}.seriesOptions`, slideId, nodeName, issues);
 }
 
 function validateEncodingItems(items: unknown, path: string, slideId: string, nodeName: unknown, issues: ValidationIssue[]): void {
@@ -2231,13 +2345,6 @@ function validateThemeLayoutAreas(value: unknown, path: string, issues: Validati
       }));
       continue;
     }
-    if (RESERVED_LAYOUT_AREAS.has(name)) {
-      issues.push(issue("error", "RESERVED_THEME_LAYOUT_AREA_NAME", `${areaPath} redefines a built-in layout area name.`, {
-        path: areaPath,
-        suggestedFix: `Rename this area. '${name}' is built in; use a specific name such as main, body, contentMain, or ornamentRail.`,
-      }));
-      continue;
-    }
     if (!rawArea || typeof rawArea !== "object" || Array.isArray(rawArea)) {
       issues.push(issue("error", "INVALID_THEME_LAYOUT_AREA", `${areaPath} must be a rectangle object.`, {
         path: areaPath,
@@ -2493,6 +2600,7 @@ function componentFieldTypeError(componentName: string, propName: string, prop: 
   if (prop.type === "enum") return null;
   if (propName === "scale" && typeof value === "string" && ["xs", "sm", "small", "md"].includes(value.trim().toLowerCase())) return null;
   if (propName === "marker" && prop.type === "object" && typeof value === "string" && value.trim()) return null;
+  if (propName === "cellPadding" && prop.type === "object" && typeof value === "number" && Number.isFinite(value) && value >= 0) return null;
   switch (prop.type) {
     case "string":
     case "image-ref":
@@ -2504,12 +2612,15 @@ function componentFieldTypeError(componentName: string, propName: string, prop: 
       return typeof value === "boolean" ? null : { expected: "a boolean", actual: describeValueType(value) };
     case "array":
       if (componentName === "two-column" && propName === "ratio" && typeof value === "number" && Number.isFinite(value) && value > 0) return null;
+      if (componentName === "cover-composition" && propName === "content" && value && typeof value === "object" && !Array.isArray(value) && Array.isArray((value as { runs?: unknown }).runs)) return null;
       return Array.isArray(value) ? null : {
         expected: "an array",
         actual: describeValueType(value),
-        suggestedFix: componentName === "chart-with-rail" && propName === "ratio"
-          ? "Use ratio:[0.72,0.28] for rail-right/rail-left or ratio:[0.68,0.32] for stacked. A scalar ratio is ignored by the renderer."
-          : undefined,
+        suggestedFix: componentName === "cover-composition" && propName === "content"
+          ? "Use content:[{text:'...'}] or content:{runs:[{text:'...',link:'#slide5'}]}."
+          : componentName === "chart-with-rail" && propName === "ratio"
+            ? "Use ratio:[0.72,0.28] for rail-right/rail-left or ratio:[0.68,0.32] for stacked. A scalar ratio is ignored by the renderer."
+            : undefined,
       };
     case "object":
       return value && typeof value === "object" && !Array.isArray(value) ? null : { expected: "an object", actual: describeValueType(value) };
@@ -2546,6 +2657,14 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       path,
       nodeName: node.id,
       suggestedFix: "Use legacy {type:'callout', text:'...'} or a rich callout with title/body/content/bullets.",
+    }));
+  }
+  if (name === "key-takeaway" && !hasKeyTakeawayContent(node)) {
+    issues.push(issue("error", "MISSING_REQUIRED_FIELD", "key-takeaway requires headline, title, detail/body/content, or bullets/points.", {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "Keep key-takeaway semantics and provide headline/title for a single conclusion, or bullets/points for a takeaway list.",
     }));
   }
   if (name === "freeform-group") validateFreeformGroupIntent(node, path, slideId, issues);
@@ -2721,6 +2840,19 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
   }
 }
 
+function hasKeyTakeawayContent(node: DomNode): boolean {
+  const fields = ["headline", "title", "detail", "body", "description", "text"];
+  if (fields.some((key) => typeof node[key] === "string" && String(node[key]).trim() !== "")) return true;
+  if (Array.isArray(node.content) && node.content.length > 0) return true;
+  if (node.content && typeof node.content === "object" && !Array.isArray(node.content)) {
+    const rec = node.content as Record<string, unknown>;
+    if (typeof rec.text === "string" && rec.text.trim()) return true;
+    if (Array.isArray(rec.runs) && rec.runs.length > 0) return true;
+  }
+  return Array.isArray(node.bullets) && node.bullets.length > 0
+    || Array.isArray(node.points) && node.points.length > 0;
+}
+
 function validateChapterDividerUsage(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], parent?: DomNode): void {
   if (parent) {
     issues.push(issue("error", "COMPONENT_MUST_BE_TOP_LEVEL", "chapter-divider renders full-slide overlays and must be a direct slide child.", {
@@ -2806,7 +2938,8 @@ function checkRequiredComponentField(componentName: string, propName: string, pr
 
 function dataBindingSatisfiesRequired(componentName: string, propName: string, value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  if (typeof (value as Record<string, unknown>).source !== "string" || !String((value as Record<string, unknown>).source).trim()) return false;
+  const rec = canonicalDataBindRecord(value as Record<string, unknown>);
+  if (typeof rec.source !== "string" || !String(rec.source).trim()) return false;
   const boundRequiredFields: Record<string, Set<string>> = {
     "chart-card": new Set(["labels", "series"]),
     "table-card": new Set(["rows"]),
@@ -2873,7 +3006,10 @@ function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[]
   for (const node of nodes) {
     if (!node || typeof node !== "object") continue;
     const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
-    if (componentName === "section-break" || componentName === "title-lockup" || componentName === "cover-composition" || componentName === "chapter-divider") {
+    if (componentName === "cover-composition") {
+      found = true;
+      titles.push(...coverCompositionTitleCandidates(node));
+    } else if (componentName === "section-break" || componentName === "title-lockup" || componentName === "chapter-divider") {
       found = true;
       if (typeof node.title === "string" && node.title.trim()) titles.push(node.title);
     } else if (node.type === "deck-title" || node.type === "slide-title") {
@@ -2893,13 +3029,51 @@ function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[]
   return { found, titles };
 }
 
+function hasMetadataHeroComponent(nodes: DomNode[]): boolean {
+  for (const node of nodes) {
+    if (!node || typeof node !== "object") continue;
+    const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
+    if (typeof componentName === "string" && METADATA_HERO_COMPONENTS.has(componentName)) return true;
+    const inner = (node.children as DomNode[] | undefined) || [];
+    if (inner.length && hasMetadataHeroComponent(inner)) return true;
+  }
+  return false;
+}
+
 function bodyHeroTitleMatchesSlideTitle(slideTitle: string, bodyTitles: string[]): boolean {
   const normalizedSlideTitle = normalizeHeroTitle(slideTitle);
   return bodyTitles.length > 0 && bodyTitles.every((title) => normalizeHeroTitle(title) === normalizedSlideTitle);
 }
 
 function normalizeHeroTitle(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return text.replace(/\s+/g, "").trim();
+}
+
+function coverCompositionTitleCandidates(node: DomNode): string[] {
+  const title = typeof node.title === "string" ? node.title.trim() : "";
+  const content = coverCompositionContentText(node.content).trim();
+  const visibleTitle = content ? [title, content].filter(Boolean).join("") : title;
+  return [visibleTitle]
+    .map((candidate) => candidate.trim())
+    .filter((candidate, index, list) => candidate && list.indexOf(candidate) === index);
+}
+
+function coverCompositionContentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map(coverCompositionRunText).join("");
+  if (content && typeof content === "object" && !Array.isArray(content)) {
+    const rec = content as Record<string, unknown>;
+    if (typeof rec.text === "string") return rec.text;
+    if (Array.isArray(rec.runs)) return rec.runs.map(coverCompositionRunText).join("");
+  }
+  return "";
+}
+
+function coverCompositionRunText(run: unknown): string {
+  if (typeof run === "string") return run;
+  if (!run || typeof run !== "object" || Array.isArray(run)) return "";
+  const rec = run as Record<string, unknown>;
+  return typeof rec.text === "string" ? rec.text : "";
 }
 
 /**

@@ -10,6 +10,38 @@ type ChartSeriesOption = NonNullable<DataEncodingSpec["seriesOptions"]>[string];
 type BoundChartSeries = ChartSeries;
 type BoundChartData = { labels: string[]; series: BoundChartSeries[]; orientation?: "vertical" | "horizontal" };
 const MAX_COMPUTED_DATA_SOURCE_DEPTH = 50;
+const DATA_BIND_FIELD_ALIASES: Record<string, string[]> = {
+  source: ["dataSource", "dataset", "from"],
+  select: ["fields", "columns"],
+  filter: ["where"],
+  groupBy: ["group", "group_by", "groupby", "by"],
+  aggregate: ["aggregates", "measures"],
+  pivot: [],
+  sort: ["order", "orderBy", "orderby"],
+  limit: ["top", "take", "maxRows"],
+};
+const DATA_ENCODING_FIELD_ALIASES: Record<string, string[]> = {
+  x: ["category", "dimension", "nameField"],
+  y: ["measure", "metric", "metrics"],
+  orientation: ["direction"],
+  series: ["seriesBy", "group", "colorBy"],
+  label: ["name", "categoryLabel", "labelField"],
+  value: ["amount", "measure", "metricValue"],
+  delta: ["change", "diff"],
+  items: ["metrics", "stats"],
+  columns: ["fields"],
+  seriesName: ["legendLabel"],
+  seriesOptions: ["seriesConfig"],
+};
+const DATA_FIELD_SYNONYM_GROUPS = [
+  ["label", "name", "title", "category", "item", "dimension", "metric"],
+  ["value", "amount", "measure", "metricValue", "score"],
+  ["count", "number", "num", "qty", "quantity", "total"],
+  ["headcount", "hc", "people", "staff", "employees"],
+  ["revenue", "rev", "sales", "gmv"],
+  ["percent", "percentage", "pct", "rate", "share"],
+  ["delta", "change", "diff", "variance"],
+] as const;
 
 export interface DataColumnSchema {
   key: string;
@@ -301,9 +333,9 @@ function bindNodeData(node: DomNode, bind: DataBindSpec, encoding: DataEncodingS
     const deltaKey = firstString(encoding.delta, "delta");
     return {
       ...node,
-      value: node.value ?? formatDataValue(first[valueKey]),
-      label: node.label ?? formatDataValue(first[labelKey]),
-      ...(node.delta === undefined && first[deltaKey] !== undefined ? { delta: formatDataValue(first[deltaKey]) } : {}),
+      value: node.value ?? formatDataValue(rowFieldValue(first, valueKey)),
+      label: node.label ?? formatDataValue(rowFieldValue(first, labelKey)),
+      ...(node.delta === undefined && rowFieldValue(first, deltaKey) !== undefined ? { delta: formatDataValue(rowFieldValue(first, deltaKey)) } : {}),
       dataLineage: lineage,
       resolvedData,
     };
@@ -319,9 +351,24 @@ function bindNodeData(node: DomNode, bind: DataBindSpec, encoding: DataEncodingS
   return { ...node, dataLineage: lineage, resolvedData };
 }
 
+function canonicalRecord(rec: Record<string, unknown>, aliases: Record<string, string[]>): Record<string, unknown> {
+  let out = rec;
+  const copy = () => out === rec ? { ...rec } : out;
+  for (const [canonical, aliasList] of Object.entries(aliases)) {
+    if (rec[canonical] !== undefined) continue;
+    for (const alias of aliasList) {
+      if (rec[alias] === undefined) continue;
+      out = copy();
+      out[canonical] = rec[alias];
+      break;
+    }
+  }
+  return out;
+}
+
 function dataBind(value: unknown): DataBindSpec | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const rec = value as Record<string, unknown>;
+  const rec = canonicalRecord(value as Record<string, unknown>, DATA_BIND_FIELD_ALIASES);
   if (typeof rec.source !== "string" || !rec.source.trim()) return null;
   return {
     source: rec.source.trim(),
@@ -349,7 +396,7 @@ function dataBind(value: unknown): DataBindSpec | null {
 
 function dataView(value: unknown): DataViewSpec {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const rec = value as Record<string, unknown>;
+  const rec = canonicalRecord(value as Record<string, unknown>, DATA_BIND_FIELD_ALIASES);
   return {
     select: Array.isArray(rec.select)
       ? rec.select.map(String).filter(Boolean)
@@ -375,10 +422,19 @@ function dataView(value: unknown): DataViewSpec {
 
 function dataEncoding(value: unknown): DataEncodingSpec {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const rec = value as Record<string, unknown>;
+  const rec = canonicalRecord(value as Record<string, unknown>, DATA_ENCODING_FIELD_ALIASES);
+  const yMap = ySeriesOptionsSpec(rec.y);
+  const explicitSeriesOptions = seriesOptionsSpec(rec.seriesOptions);
+  const mergedSeriesOptions = mergeSeriesOptions(yMap.seriesOptions, explicitSeriesOptions);
   return {
     x: typeof rec.x === "string" ? rec.x : undefined,
-    y: Array.isArray(rec.y) ? rec.y.map(String).filter(Boolean) : typeof rec.y === "string" ? rec.y : undefined,
+    y: yMap.yKeys.length
+      ? yMap.yKeys
+      : Array.isArray(rec.y)
+        ? rec.y.map(String).filter(Boolean)
+        : typeof rec.y === "string"
+          ? rec.y
+          : undefined,
     orientation: rec.orientation === "horizontal" || rec.orientation === "vertical" ? rec.orientation : undefined,
     series: typeof rec.series === "string" ? rec.series : undefined,
     label: typeof rec.label === "string" ? rec.label : undefined,
@@ -409,7 +465,7 @@ function dataEncoding(value: unknown): DataEncodingSpec {
       }).filter((item) => typeof item === "string" ? item : item.key)
       : undefined,
     seriesName: typeof rec.seriesName === "string" ? rec.seriesName : undefined,
-    seriesOptions: seriesOptionsSpec(rec.seriesOptions),
+    seriesOptions: mergedSeriesOptions,
   };
 }
 
@@ -436,25 +492,79 @@ function dataStatItemEncodingSpecs(value: unknown): DataEncodingSpec["items"] {
   return items.length ? items : undefined;
 }
 
+function ySeriesOptionsSpec(value: unknown): { yKeys: string[]; seriesOptions?: DataEncodingSpec["seriesOptions"] } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { yKeys: [] };
+  const yKeys: string[] = [];
+  const seriesOptions: NonNullable<DataEncodingSpec["seriesOptions"]> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const field = key.trim();
+    if (!field) continue;
+    yKeys.push(field);
+    if (typeof raw === "string") {
+      const name = raw.trim();
+      seriesOptions[field] = { y: field, ...(name ? { seriesName: name } : {}) };
+      continue;
+    }
+    const option = seriesOptionSpec(field, raw) || {};
+    seriesOptions[field] = { ...option, y: option.y || option.field || option.key || option.value || field };
+  }
+  return {
+    yKeys,
+    ...(Object.keys(seriesOptions).length ? { seriesOptions } : {}),
+  };
+}
+
 function seriesOptionsSpec(value: unknown): DataEncodingSpec["seriesOptions"] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const out: NonNullable<DataEncodingSpec["seriesOptions"]> = {};
   for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-    const rec = raw as Record<string, unknown>;
-    out[key] = {
-      ...(typeof rec.name === "string" && rec.name.trim() ? { name: rec.name.trim() } : {}),
-      ...(rec.type === "bar" || rec.type === "line" ? { type: rec.type } : {}),
-      ...(rec.axis === "primary" || rec.axis === "secondary" ? { axis: rec.axis } : {}),
-      ...(typeof rec.color === "string" && rec.color.trim() ? { color: rec.color.trim() } : {}),
-      ...(typeof rec.lineWidth === "number" && Number.isFinite(rec.lineWidth) ? { lineWidth: rec.lineWidth } : {}),
-      ...(rec.lineDash === "solid" || rec.lineDash === "dash" || rec.lineDash === "dashDot" || rec.lineDash === "dot" ? { lineDash: rec.lineDash } : {}),
-      ...(typeof rec.smooth === "boolean" ? { smooth: rec.smooth } : {}),
-      ...(rec.marker && typeof rec.marker === "object" && !Array.isArray(rec.marker) ? { marker: rec.marker as ChartSeriesOption["marker"] } : {}),
-      ...(rec.dataLabels && typeof rec.dataLabels === "object" && !Array.isArray(rec.dataLabels) ? { dataLabels: rec.dataLabels as ChartSeriesOption["dataLabels"] } : {}),
-      ...(rec.trendLine === true || rec.trendLine === false || isPlainObject(rec.trendLine) ? { trendLine: rec.trendLine as ChartSeriesOption["trendLine"] } : {}),
-      ...(isPlainObject(rec.errorBars) ? { errorBars: errorBarsSpec(rec.errorBars) } : {}),
-    };
+    const option = seriesOptionSpec(key, raw);
+    if (option) out[key] = option;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+function seriesOptionSpec(key: string, raw: unknown): ChartSeriesOption | undefined {
+  if (typeof raw === "string") {
+    const name = raw.trim();
+    return name ? { seriesName: name } : {};
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const rec = raw as Record<string, unknown>;
+  return {
+    ...(typeof rec.name === "string" && rec.name.trim() ? { name: rec.name.trim() } : {}),
+    ...(typeof rec.seriesName === "string" && rec.seriesName.trim() ? { seriesName: rec.seriesName.trim() } : {}),
+    ...(firstString(rec.y, rec.field, rec.key, rec.value) ? { y: firstString(rec.y, rec.field, rec.key, rec.value) } : {}),
+    ...(rec.type === "bar" || rec.type === "line" ? { type: rec.type } : {}),
+    ...(rec.chartType === "bar" || rec.chartType === "line" ? { type: rec.chartType, chartType: rec.chartType } : {}),
+    ...(rec.axis === "primary" || rec.axis === "secondary" ? { axis: rec.axis } : {}),
+    ...(typeof rec.color === "string" && rec.color.trim() ? { color: rec.color.trim() } : {}),
+    ...(typeof rec.lineWidth === "number" && Number.isFinite(rec.lineWidth) ? { lineWidth: rec.lineWidth } : {}),
+    ...(rec.lineDash === "solid" || rec.lineDash === "dash" || rec.lineDash === "dashDot" || rec.lineDash === "dot" ? { lineDash: rec.lineDash } : {}),
+    ...(typeof rec.smooth === "boolean" ? { smooth: rec.smooth } : {}),
+    ...(rec.marker && typeof rec.marker === "object" && !Array.isArray(rec.marker) ? { marker: rec.marker as ChartSeriesOption["marker"] } : {}),
+    ...(rec.dataLabels && typeof rec.dataLabels === "object" && !Array.isArray(rec.dataLabels) ? { dataLabels: rec.dataLabels as ChartSeriesOption["dataLabels"] } : {}),
+    ...(rec.trendLine === true || rec.trendLine === false || isPlainObject(rec.trendLine) ? { trendLine: rec.trendLine as ChartSeriesOption["trendLine"] } : {}),
+    ...(isPlainObject(rec.errorBars) ? { errorBars: errorBarsSpec(rec.errorBars) } : {}),
+    ...(key ? {} : {}),
+  };
+}
+
+function mergeSeriesOptions(
+  base: DataEncodingSpec["seriesOptions"],
+  override: DataEncodingSpec["seriesOptions"],
+): DataEncodingSpec["seriesOptions"] {
+  if (!base && !override) return undefined;
+  const out: NonNullable<DataEncodingSpec["seriesOptions"]> = { ...(base || {}) };
+  for (const [key, option] of Object.entries(override || {})) {
+    const targetKey = Object.keys(out).find((candidate) => {
+      const existing = out[candidate]!;
+      return candidate === key
+        || existing.name === key
+        || existing.seriesName === key
+        || (option.y !== undefined && (existing.y === option.y || existing.field === option.y || existing.key === option.y || existing.value === option.y));
+    }) || key;
+    out[targetKey] = { ...(out[targetKey] || {}), ...option };
   }
   return Object.keys(out).length ? out : undefined;
 }
@@ -474,11 +584,58 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function applyDataView(rows: DataRow[], bind: DataBindSpec | DataViewSpec): DataRow[] {
   let out = rows.slice();
+  bind = resolveDataViewFieldRefs(out, bind);
   if (bind.filter) out = out.filter((row) => rowMatchesFilter(row, bind.filter!));
   if (bind.groupBy || bind.aggregate) out = aggregateRows(out, bind);
   if (bind.pivot) out = pivotRows(out, bind.pivot);
   if (bind.sort) out = sortRows(out, bind.sort);
   if (bind.limit !== undefined) out = out.slice(0, bind.limit);
+  return out;
+}
+
+function resolveDataViewFieldRefs(rows: DataRow[], bind: DataBindSpec | DataViewSpec): DataBindSpec | DataViewSpec {
+  const mapField = (field: string | undefined): string | undefined => field ? resolveRowsFieldKey(rows, field) || field : field;
+  const out: DataBindSpec | DataViewSpec = { ...bind };
+  if (out.filter) {
+    out.filter = Object.fromEntries(Object.entries(out.filter).map(([key, value]) => [mapField(key) || key, value]));
+  }
+  if (out.groupBy) {
+    out.groupBy = Array.isArray(out.groupBy)
+      ? out.groupBy.map((field) => mapField(field) || field)
+      : mapField(out.groupBy) || out.groupBy;
+  }
+  if (out.aggregate) {
+    out.aggregate = Object.fromEntries(Object.entries(out.aggregate).map(([output, spec]) => {
+      if (spec && typeof spec === "object" && "field" in spec && typeof spec.field === "string") {
+        return [output, { ...spec, field: mapField(spec.field) || spec.field }];
+      }
+      return [output, spec];
+    })) as DataBindSpec["aggregate"];
+  }
+  if (out.pivot) {
+    const pivot = out.pivot;
+    out.pivot = {
+      ...pivot,
+      index: Array.isArray(pivot.index)
+        ? pivot.index.map((field) => mapField(field) || field)
+        : mapField(pivot.index) || pivot.index,
+      columns: mapField(pivot.columns) || pivot.columns,
+      values: mapField(pivot.values) || pivot.values,
+    };
+  }
+  if (typeof out.sort === "string") {
+    const desc = out.sort.startsWith("-");
+    const field = desc ? out.sort.slice(1) : out.sort;
+    const resolved = mapField(field) || field;
+    out.sort = desc ? `-${resolved}` : resolved;
+  } else if (out.sort && typeof out.sort === "object" && typeof out.sort.by === "string") {
+    out.sort = { ...out.sort, by: mapField(out.sort.by) || out.sort.by };
+  }
+  if (Array.isArray(out.select)) {
+    out.select = out.select.map((field) => mapField(field) || field);
+  } else if (out.select && typeof out.select === "object") {
+    out.select = Object.fromEntries(Object.entries(out.select).map(([label, field]) => [label, mapField(String(field)) || String(field)]));
+  }
   return out;
 }
 
@@ -612,7 +769,7 @@ function computeExpression(expr: DataComputedExpressionSpec, row: DataRow): unkn
   const rec = expr as Record<string, unknown>;
   const op = typeof rec.op === "string" ? rec.op : "field";
   if (op === "literal") return rec.value;
-  if (op === "field") return typeof rec.field === "string" ? row[rec.field] : operandValue(rec.value, row);
+  if (op === "field") return typeof rec.field === "string" ? rowFieldValue(row, rec.field) : operandValue(rec.value, row);
   if (op === "concat") {
     const values = Array.isArray(rec.values) ? rec.values : [];
     const separator = typeof rec.separator === "string" ? rec.separator : "";
@@ -665,7 +822,7 @@ function binaryNumeric(leftRaw: unknown, rightRaw: unknown, row: DataRow, fn: (l
 function operandValue(value: unknown, row: DataRow): unknown {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const rec = value as Record<string, unknown>;
-    if (typeof rec.field === "string") return row[rec.field];
+    if (typeof rec.field === "string") return rowFieldValue(row, rec.field);
     if ("value" in rec) return rec.value;
   }
   if (typeof value === "string" && Object.prototype.hasOwnProperty.call(row, value)) return row[value];
@@ -756,28 +913,38 @@ function compareValues(a: unknown, b: unknown): number {
 }
 
 function chartDataFromRows(rows: DataRow[], encoding: DataEncodingSpec, node: DomNode): BoundChartData {
-  const xKey = firstString(encoding.x, "label");
-  const yKeys = Array.isArray(encoding.y) ? encoding.y : [firstString(encoding.y, "value")];
-  const seriesKey = encoding.series;
+  const xKey = firstString(encoding.x, encoding.label, "label");
+  const xDataKey = resolveRowsFieldKey(rows, xKey) || xKey;
+  const optionSeries = boundSeriesFromSeriesOptions(rows, encoding);
+  if (optionSeries.length > 0) {
+    return {
+      labels: uniqueOrdered(rows.map((row) => formatDataValue(rowFieldValue(row, xKey)))),
+      series: optionSeries,
+      ...(encoding.orientation ? { orientation: encoding.orientation } : {}),
+    };
+  }
+  const authoredYKeys = Array.isArray(encoding.y) ? encoding.y : [firstString(encoding.y, encoding.value, "value")];
+  const yKeys = authoredYKeys.map((key) => resolveRowsFieldKey(rows, key) || key);
+  const seriesKey = encoding.series ? resolveRowsFieldKey(rows, encoding.series) || encoding.series : undefined;
   const chartKind = firstString(node.chartType, node.chart, "bar");
   const orientation = encoding.orientation || (node.orientation === "horizontal" || node.orientation === "vertical" ? node.orientation : undefined);
   if (!orientation && isBarLikeChart(chartKind) && yKeys.length === 1 && xKey && yKeys[0] && rows.length > 0) {
-    const xSchema = inferColumnSchema(rows, xKey);
+    const xSchema = inferColumnSchema(rows, xDataKey);
     const ySchema = inferColumnSchema(rows, yKeys[0]!);
     const xIsMeasure = xSchema.type === "number" || xSchema.type === "percent" || xSchema.type === "currency";
     if (xIsMeasure && ySchema.type === "text" && !seriesKey) {
       return {
         labels: rows.map((row) => formatDataValue(row[yKeys[0]!])),
         series: [{
-          name: seriesOption(encoding, xKey)?.name || encoding.seriesName || humanizeFieldName(xKey),
-          values: rows.map((row) => numericValue(row[xKey]) ?? 0),
-          ...chartSeriesDecorations(seriesOption(encoding, xKey)),
+          name: seriesOption(encoding, xDataKey)?.name || seriesOption(encoding, xKey)?.name || encoding.seriesName || humanizeFieldName(xKey),
+          values: rows.map((row) => numericValue(row[xDataKey]) ?? 0),
+          ...chartSeriesDecorations(seriesOption(encoding, xDataKey) || seriesOption(encoding, xKey)),
         }],
         orientation: "horizontal",
       };
     }
   }
-  const labels = uniqueOrdered(rows.map((row) => formatDataValue(row[xKey])));
+  const labels = uniqueOrdered(rows.map((row) => formatDataValue(row[xDataKey])));
   if (seriesKey && yKeys.length === 1) {
     const yKey = yKeys[0]!;
     const groups = uniqueOrdered(rows.map((row) => formatDataValue(row[seriesKey])));
@@ -786,7 +953,7 @@ function chartDataFromRows(rows: DataRow[], encoding: DataEncodingSpec, node: Do
       series: groups.map((group) => ({
         name: seriesOption(encoding, group)?.name || group,
         values: labels.map((label) => {
-          const row = rows.find((candidate) => formatDataValue(candidate[xKey]) === label && formatDataValue(candidate[seriesKey]) === group);
+          const row = rows.find((candidate) => formatDataValue(candidate[xDataKey]) === label && formatDataValue(candidate[seriesKey]) === group);
           return row ? numericValue(row[yKey]) ?? 0 : 0;
         }),
         ...chartSeriesDecorations(seriesOption(encoding, group)),
@@ -796,13 +963,28 @@ function chartDataFromRows(rows: DataRow[], encoding: DataEncodingSpec, node: Do
   }
   return {
     labels,
-    series: yKeys.map((key) => ({
-      name: seriesOption(encoding, key)?.name || (yKeys.length === 1 ? encoding.seriesName : undefined) || key,
+    series: yKeys.map((key, index) => ({
+      name: seriesOption(encoding, key)?.name || seriesOption(encoding, authoredYKeys[index] || key)?.name || (yKeys.length === 1 ? encoding.seriesName : undefined) || authoredYKeys[index] || key,
       values: rows.map((row) => numericValue(row[key]) ?? 0),
-      ...chartSeriesDecorations(seriesOption(encoding, key)),
+      ...chartSeriesDecorations(seriesOption(encoding, key) || seriesOption(encoding, authoredYKeys[index] || key)),
     })),
     ...(orientation ? { orientation } : {}),
   };
+}
+
+function boundSeriesFromSeriesOptions(rows: DataRow[], encoding: DataEncodingSpec): BoundChartSeries[] {
+  const options = encoding.seriesOptions;
+  if (!options || typeof options !== "object") return [];
+  return Object.entries(options).flatMap(([key, option]) => {
+    const authoredYKey = firstString(option.y, option.field, option.key, option.value);
+    const yKey = authoredYKey ? resolveRowsFieldKey(rows, authoredYKey) || authoredYKey : undefined;
+    if (!yKey) return [];
+    return [{
+      name: firstString(option.name, option.seriesName, key, humanizeFieldName(authoredYKey || yKey)),
+      values: rows.map((row) => numericValue(row[yKey]) ?? 0),
+      ...chartSeriesDecorations(option),
+    }];
+  });
 }
 
 function mergeBoundChartSeries(boundSeries: BoundChartSeries[], authoredSeries: unknown): BoundChartSeries[] {
@@ -860,7 +1042,7 @@ function tableDataFromRows(rows: DataRow[], bind: DataBindSpec, encoding: DataEn
   const columns = tableColumns(rows, bind, encoding);
   return {
     headers: columns.map((column) => column.label),
-    rows: rows.map((row) => columns.map((column) => formatTableCell(row[column.key], column))),
+    rows: rows.map((row) => columns.map((column) => formatTableCell(rowFieldValue(row, column.key), column))),
     ...(columns.some((column) => column.width !== undefined) ? { columns: columns.map((column) => ({
       header: column.label,
       ...(column.width !== undefined ? { width: column.width } : {}),
@@ -871,11 +1053,11 @@ function tableDataFromRows(rows: DataRow[], bind: DataBindSpec, encoding: DataEn
 function tableColumns(rows: DataRow[], bind: DataBindSpec, encoding: DataEncodingSpec): BoundTableColumn[] {
   if (encoding.columns?.length) {
     return encoding.columns.map((column) => typeof column === "string"
-      ? inferTableColumn(rows, { key: column, label: column })
-      : inferTableColumn(rows, { ...column, label: column.label || humanizeFieldName(column.key) }));
+      ? inferTableColumn(rows, { key: resolveRowsFieldKey(rows, column) || column, label: column })
+      : inferTableColumn(rows, { ...column, key: resolveRowsFieldKey(rows, column.key) || column.key, label: column.label || humanizeFieldName(column.key) }));
   }
-  if (Array.isArray(bind.select) && bind.select.length) return bind.select.map((key) => inferTableColumn(rows, { key, label: key }));
-  if (bind.select && !Array.isArray(bind.select)) return Object.entries(bind.select).map(([label, key]) => inferTableColumn(rows, { key, label }));
+  if (Array.isArray(bind.select) && bind.select.length) return bind.select.map((key) => inferTableColumn(rows, { key: resolveRowsFieldKey(rows, key) || key, label: key }));
+  if (bind.select && !Array.isArray(bind.select)) return Object.entries(bind.select).map(([label, key]) => inferTableColumn(rows, { key: resolveRowsFieldKey(rows, key) || key, label }));
   return Object.keys(rows[0] || {}).map((key) => inferTableColumn(rows, { key, label: key }));
 }
 
@@ -883,7 +1065,8 @@ function statStripItemsFromRows(rows: DataRow[], encoding: DataEncodingSpec): Ar
   if (encoding.items?.length) {
     const row = rows[0] || {};
     return encoding.items.map((item) => {
-      const valueKey = firstString(item.value, item.key, item.field);
+      const authoredValueKey = firstString(item.value, item.key, item.field);
+      const valueKey = resolveRowsFieldKey(rows, authoredValueKey) || authoredValueKey;
       const label = statItemLabel(row, item, valueKey);
       const column = inferTableColumn(rows, {
         key: valueKey,
@@ -892,7 +1075,7 @@ function statStripItemsFromRows(rows: DataRow[], encoding: DataEncodingSpec): Ar
         ...(item.format ? { format: item.format } : {}),
       });
       return {
-        value: typeof item.valueLabel === "string" ? item.valueLabel : formatColumnValue(row[valueKey], column),
+        value: typeof item.valueLabel === "string" ? item.valueLabel : formatColumnValue(rowFieldValue(row, valueKey), column),
         label,
         ...(item.tone ? { tone: item.tone } : {}),
       };
@@ -901,13 +1084,13 @@ function statStripItemsFromRows(rows: DataRow[], encoding: DataEncodingSpec): Ar
   const valueKey = firstString(encoding.value, singleString(encoding.y), "value");
   const labelKey = firstString(encoding.label, encoding.x, "label");
   return rows.map((row) => ({
-    value: formatDataValue(row[valueKey]),
-    label: formatDataValue(row[labelKey]),
+    value: formatDataValue(rowFieldValue(row, valueKey)),
+    label: formatDataValue(rowFieldValue(row, labelKey)),
   }));
 }
 
 function statItemLabel(row: DataRow, item: DataStatItemEncodingSpec, valueKey: string): string {
-  if (item.labelField) return formatDataValue(row[item.labelField]);
+  if (item.labelField) return formatDataValue(rowFieldValue(row, item.labelField));
   if (typeof item.label === "string" && item.label.trim()) return item.label.trim();
   return humanizeFieldName(valueKey);
 }
@@ -979,6 +1162,36 @@ function dataFields(rows: DataRow[]): string[] {
     }
   }
   return fields;
+}
+
+function rowFieldValue(row: DataRow, field: string): unknown {
+  const key = resolveRowsFieldKey([row], field) || field;
+  return row[key];
+}
+
+function resolveRowsFieldKey(rows: DataRow[], field: string | undefined): string | undefined {
+  if (!field) return undefined;
+  const fields = dataFields(rows);
+  if (fields.includes(field)) return field;
+  const normalized = dataFieldFingerprint(field);
+  const direct = fields.find((candidate) => dataFieldFingerprint(candidate) === normalized);
+  if (direct) return direct;
+  const group = DATA_FIELD_SYNONYM_GROUPS.find((items) => items.some((item) => dataFieldFingerprint(item) === normalized));
+  if (!group) return undefined;
+  const matches = fields.filter((candidate) => {
+    const candidateFp = dataFieldFingerprint(candidate);
+    return group.some((alias) => dataFieldFingerprint(alias) === candidateFp);
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function dataFieldFingerprint(field: string): string {
+  return String(field || "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s._-]+/g, "")
+    .replace(/[^a-z0-9\u4e00-\u9fff]/g, "");
 }
 
 function inferColumnSchema(rows: DataRow[], key: string): DataColumnSchema {
