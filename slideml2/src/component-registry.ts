@@ -293,10 +293,16 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   }, "stack(text.metric-value, text.metric-label)", "grid"),
   component("callout", "Highlighted insight, warning, recommendation, or rule of thumb. Use sparingly: at most one primary callout per slide, not as the default container for every idea. Supports either legacy single-line text or a richer title/body/bullets/content block, so agents should not hand-build callout cards for formatted emphasis.", {
     text: { type: "string", semantic: "callout", description: "Legacy concise insight. Use title/body/content for richer callouts." },
+    message: { type: "string", semantic: "callout", description: "Alias for text." },
     title: { type: "string", semantic: "card-title", description: "Optional colored heading." },
+    headline: { type: "string", semantic: "card-title", description: "Alias for title." },
     body: { type: "string", semantic: "paragraph", description: "Optional supporting body text." },
+    detail: { type: "string", semantic: "paragraph", description: "Alias for body." },
+    description: { type: "string", semantic: "paragraph", description: "Alias for body." },
     content: { type: "array", description: "Optional rich text runs for body text, e.g. [{text:'Key',marks:['bold']},{text:' detail'}]." },
     bullets: { type: "array", semantic: "bullet", max: 5, description: "Optional short support bullets." },
+    items: { type: "array", semantic: "bullet", max: 5, description: "Alias for bullets." },
+    points: { type: "array", semantic: "bullet", max: 5, description: "Alias for bullets." },
     variant: { type: "enum", enum: ["plain", "card", "banner"], description: "plain keeps legacy text shape; card/banner add stronger surface and heading structure." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Semantic tone." },
   }, "text.callout with styled surface", "stack"),
@@ -338,7 +344,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   }, "stack(text.numbered-step, text.card-title, text.paragraph)", "grid"),
   component("definition-card", "Term plus definition. Use for glossary, concept introduction, vocabulary, or clarifying a named framework element.", {
     term: { type: "string", required: true, semantic: "card-title", description: "Term." },
+    title: { type: "string", semantic: "card-title", description: "Alias for term." },
+    name: { type: "string", semantic: "card-title", description: "Alias for term." },
     definition: { type: "string", required: true, semantic: "paragraph", description: "Definition." },
+    body: { type: "string", semantic: "paragraph", description: "Alias for definition." },
+    description: { type: "string", semantic: "paragraph", description: "Alias for definition." },
   }, "stack(text.card-title, text.paragraph)", "grid"),
   component("numbered-list", "Ordered text list where sequence or priority matters but each item is still brief prose. Use numbered-grid when each item should become a designed module.", {
     items: { type: "array", required: true, semantic: "bullet", description: "Ordered list items. Each item may be a string or {title/headline/label/name/text, body/detail/description?}." },
@@ -346,7 +356,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   }, "bullets with numbered:true", "stack"),
   component("quote", "Verbatim or voice-like statement with optional attribution. Use when authority, emotion, or wording is the evidence.", {
     text: { type: "string", required: true, semantic: "quote", description: "Quote text (without enclosing quotes; component adds them)." },
+    statement: { type: "string", semantic: "quote", description: "Alias for text." },
+    quote: { type: "string", semantic: "quote", description: "Alias for text." },
     source: { type: "string", description: "Optional source / attribution." },
+    author: { type: "string", description: "Alias for source." },
+    attribution: { type: "string", description: "Alias for source." },
   }, "stack(text.quote, text.quote-source)", "stack"),
   component("icon-text", "Icon plus short label for compact feature/status/category cues. Use as a small semantic marker, not as a substitute for rich explanation.", {
     icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], required: true, description: "OOXML preset icon shape." },
@@ -531,11 +545,17 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   component("key-takeaway", "The slide's central conclusion or 'so what'. Use when the viewer should leave with one decision, implication, or verdict; one per slide.", {
     headline: { type: "string", semantic: "section-title", description: "The conclusion in one short sentence. Optional when bullets/points carry the takeaway list." },
     title: { type: "string", semantic: "section-title", description: "Alias for headline." },
+    text: { type: "string", semantic: "section-title", description: "Alias for headline when the conclusion is supplied as natural prose." },
+    conclusion: { type: "string", semantic: "section-title", description: "Alias for headline." },
+    takeaway: { type: "string", semantic: "section-title", description: "Alias for headline." },
     detail: { type: "string", semantic: "lead", description: "Optional supporting **sentence**. For multiple implications, pass `bullets`/`points` instead — a `detail` that crams '1. … 2. … 3. …' or '；'-separated runs into one string is rendered as a single paragraph." },
     body: { type: "string", semantic: "lead", description: "Alias for detail." },
+    summary: { type: "string", semantic: "lead", description: "Alias for detail." },
     content: { type: "array", description: "Optional rich text runs for detail copy." },
     bullets: { type: "array", semantic: "bullet", description: "Optional supporting implications." },
     points: { type: "array", semantic: "bullet", description: "Alias for bullets — short list of supporting points." },
+    items: { type: "array", semantic: "bullet", description: "Alias for bullets." },
+    takeaways: { type: "array", semantic: "bullet", description: "Alias for bullets." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Tone color (default brand)." },
     variant: { type: "enum", enum: ["panel", "banner", "minimal"], description: "Visual emphasis level." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
@@ -650,11 +670,15 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     badge: { type: "string", description: "Optional short status/category badge." },
     headline: { type: "string", required: true, semantic: "card-title", description: "Main insight." },
     title: { type: "string", semantic: "card-title", description: "Alias for headline." },
+    text: { type: "string", semantic: "card-title", description: "Alias for headline." },
     detail: { type: "string", semantic: "paragraph", description: "Supporting sentence." },
     body: { type: "string", semantic: "paragraph", description: "Alias for detail." },
+    description: { type: "string", semantic: "paragraph", description: "Alias for detail." },
     bullets: { type: "array", semantic: "bullet", description: "Optional supporting bullets." },
     items: { type: "array", semantic: "bullet", description: "Alias for bullets." },
     points: { type: "array", semantic: "bullet", description: "Alias for bullets." },
+    proof: { type: "array", semantic: "bullet", description: "Alias for bullets/evidence. Strings or objects with text/title are accepted." },
+    evidence: { type: "array", semantic: "bullet", description: "Alias for bullets/proof. Strings or objects with text/title are accepted." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Card tone." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Use compact in dense grids or small cells." },
   }, "card(stack(badge?, title, detail?, bullets?))", "grid"),
@@ -664,9 +688,11 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     body: { type: "string", semantic: "paragraph", description: "Main explanatory paragraph." },
     detail: { type: "string", semantic: "paragraph", description: "Alias for body." },
     description: { type: "string", semantic: "paragraph", description: "Alias for body." },
+    text: { type: "string", semantic: "paragraph", description: "Alias for body." },
     content: { type: "array", description: "Optional rich text runs for the body." },
     bullets: { type: "array", semantic: "bullet", description: "Optional supporting points." },
     items: { type: "array", semantic: "bullet", description: "Alias for bullets." },
+    points: { type: "array", semantic: "bullet", description: "Alias for bullets." },
     example: { type: "string", description: "Optional example sentence." },
     note: { type: "string", description: "Optional muted note or caveat." },
     variant: { type: "enum", enum: ["plain", "minimal", "rail", "panel"], description: "plain/minimal = no chrome; rail = accent spine; panel = subtle surface." },
@@ -678,6 +704,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     title: { type: "string", description: "Optional local heading." },
     basis: { type: "string", description: "Optional comparison basis or lens." },
     items: { type: "array", required: true, description: "Array of {title/name/label, body/description?, points/items/bullets?, badge?, tone?}." },
+    options: { type: "array", description: "Alias for items when comparing options. Each item accepts name/title/label, body/description/detail/text, points/items/bullets/pros/cons." },
+    cases: { type: "array", description: "Alias for items when comparing cases/scenarios." },
     columns: { type: "number", description: "Optional column count; default follows item count." },
     variant: { type: "enum", enum: ["plain", "columns", "subtle"], description: "Visual treatment." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
@@ -685,6 +713,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   component("fact-list", "Evidence-first list of facts, data snippets, claims, or source-backed observations. Prefer this over insight-card when each item is a fact plus interpretation/source rather than a full standalone insight. Dense list variants auto-flow into a compact grid while preserving per-item tone.", {
     title: { type: "string", description: "Optional local heading." },
     items: { type: "array", required: true, description: "Array of {label/title/name, value?, fact/text/body?, interpretation/insight?, source?, tone?}." },
+    facts: { type: "array", description: "Alias for items. Each record may use metric/measure/key as label and description/detail/claim as fact." },
+    observations: { type: "array", description: "Alias for items." },
+    evidence: { type: "array", description: "Alias for items." },
     columns: { type: "number", description: "Optional column count for grid layout." },
     variant: { type: "enum", enum: ["list", "grid", "strip"], description: "list = vertical evidence list (5+ items auto-flow to compact grid); grid = compact multi-column; strip = horizontal facts." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Default accent tone." },
@@ -694,12 +725,18 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     thesis: { type: "string", semantic: "lead", description: "Primary thesis or answer." },
     headline: { type: "string", semantic: "lead", description: "Alias for thesis." },
     title: { type: "string", semantic: "lead", description: "Alias for thesis." },
+    conclusion: { type: "string", semantic: "lead", description: "Alias for thesis." },
+    answer: { type: "string", semantic: "lead", description: "Alias for thesis." },
     summary: { type: "string", semantic: "paragraph", description: "Optional short summary sentence." },
     body: { type: "string", semantic: "paragraph", description: "Alias for summary." },
     findings: { type: "array", description: "Array of {headline/title, detail/body?, tone?}; alias items." },
     items: { type: "array", description: "Alias for findings." },
+    takeaways: { type: "array", description: "Alias for findings." },
+    keyPoints: { type: "array", description: "Alias for findings." },
     implication: { type: "string", description: "Optional implication sentence." },
     action: { type: "string", description: "Optional recommended next action." },
+    recommendation: { type: "string", description: "Alias for action." },
+    nextStep: { type: "string", description: "Alias for action." },
     variant: { type: "enum", enum: ["memo", "board", "compact"], description: "Visual treatment. Default auto-selects 'board' when ≥4 findings AND at least 3 carry both headline and detail (renders findings as a labeled grid with tone color); otherwise 'memo' (collapses findings to a bullet list — better for short prose summaries with ≤3 findings or headline-only items)." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Semantic accent tone." },
   }, "stack(thesis, summary?, findings?, implication/action?)", "stack"),
@@ -754,6 +791,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   }, "card(stack(stem, items:Array<marker+text>?, divider?, explanation?))", "stack"),
   component("takeaway-list", "Multi-item Key Takeaways: 3-5 short conclusions, each with a colored accent bar + bold headline + optional 1-line detail. Right component for a wrap-up / summary slide.", {
     items: { type: "array", required: true, description: "Array of {headline, detail?, tone?, marker?}. Per-item tone (brand|positive|warning|danger|neutral) overrides the list default — useful for a 'three findings + one caveat' shape where the caveat is muted (neutral) and the findings are chromatic." },
+    takeaways: { type: "array", description: "Alias for items. Each item accepts headline/title/text/label/name and detail/body/description." },
+    conclusions: { type: "array", description: "Alias for items." },
+    findings: { type: "array", description: "Alias for items." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Default accent tone for items that don't supply one. 'neutral' renders a divider-gray bar (de-emphasized)." },
     marker: { type: "object", description: "Optional list-wide item marker. String shape or short glyph, or {shape/content,variant,tone,size}. Replaces the default accent bar; use side-bar for a slimmer rail, ring/dot/diamond for lightweight bullets." },
   }, "stack(items:Array<marker/bar+stack(headline,detail)>)", "stack"),
@@ -764,20 +804,27 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   }, "stack(items:Array<marker/bar+stack(headline,detail)>)", "stack"),
   component("outline", "Table of contents / agenda. Vertical list of N chapters, each with optional number + title + optional 1-line body + optional page reference. Use for cover-following TOC slides, talk agendas, chapter indexes. Distinct from numbered-grid (parallel modules in a grid) and timeline (date-ordered events) — outline is for linear reading-order chapters with editorial spacing. Density adapts: 1-5 items show body, 6-9 are compact, 10-12 hide body. Numbering is NEVER auto-generated — pass `number` explicitly per item if you want chapter labels (e.g. \"01\", \"I\", \"Ch 1\"). When at least one item supplies number, a number column is reserved across all rows (blank cells for un-numbered items, so titles stay aligned).", {
     items: { type: "array", required: true, description: "Array of {title:string, number?:string (e.g. \"01\", \"I\", \"Ch 1\"; not auto-generated), body?:string, page?:string|number, tone?:enum[brand|positive|warning|danger]}." },
+    sections: { type: "array", description: "Alias for items." },
+    chapters: { type: "array", description: "Alias for items." },
+    agenda: { type: "array", description: "Alias for items." },
     showPages: { type: "boolean", description: "Right-align item.page as a page reference (default false)." },
     density: { type: "enum", enum: ["comfortable", "compact", "auto"], description: "Force a density; default auto by item count." },
     tone: { type: "enum", enum: ["brand", "neutral"], description: "Default number color: brand (default) or neutral." },
   }, "stack(items:Array<row(number?, title-stack(title, body?), page?)>)", "stack"),
   component("glossary", "Term + definition list for 6-15 terms in a single coherent layout. Different from definition-card (one card per term) — glossary aligns terms uniformly without competing card chrome. Use for technical glossaries, vocabulary lists, framework concept indexes. Layout: list (single column, default) or two-column.", {
     items: { type: "array", required: true, description: "Array of {term:string, definition:string}." },
+    entries: { type: "array", description: "Alias for items. Each entry accepts term/name/label/title and definition/body/description/desc/meaning/text." },
+    terms: { type: "array", description: "Alias for items." },
     layout: { type: "enum", enum: ["list", "two-column"], description: "Single column (default) or two-column grid." },
   }, "stack-or-grid(items:Array<stack(term, definition)>)", "stack"),
   component("q-and-a", "FAQ / answer-page block. Multiple {question, answer} pairs stacked vertically with Q/A chips. Use for FAQs, interview transcripts, classroom answer pages. Distinct from quiz-card (which is for testing readers with multiple-choice options) — q-and-a is read-only, no options expected.", {
     items: { type: "array", required: true, description: "Array of {q:string, a:string} pairs (max 6 per slide; split into two slides for 7+)." },
+    faqs: { type: "array", description: "Alias for items. Each pair accepts q/question/prompt/query and a/answer/response/body/text/reply." },
+    questions: { type: "array", description: "Alias for items." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Force a density; default auto by item count." },
   }, "stack(items:Array<row(Q chip, q-text), row(A chip, a-text)>)", "stack"),
   component("comparison-table", "Multi-option comparison matrix: features as rows, options as columns, with one option highlighted as RECOMMENDED. Distinct from table-card (no per-column emphasis) and comparison-card (single-option card). Cell values that look like ✓/✗/yes/no auto-render in success/danger color.", {
-    features: { type: "array", required: true, description: "Array of feature names (one per row, max 8)." },
+    features: { type: "array", required: true, description: "Array of row labels, either strings or objects with label|name|title|feature|term (max 8). Object fields beyond the label are ignored unless represented in options.values." },
     options: { type: "array", required: true, description: "Array of {name:string, values:string[], recommended?:boolean} (max 4 options). values length should match features length." },
     title: { type: "string", description: "Optional heading rendered above the table." },
   }, "grid(headerRow + featureRows)", "stack"),
@@ -989,8 +1036,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     treeMaxWidth: { type: "number", description: "Optional internal tree layout target width in cm; gaps tighten or spread to use this width before the tree is scaled." },
     treeMaxHeight: { type: "number", description: "Optional internal tree layout target height in cm; level gaps tighten or spread to use this height before overflow is reported." },
     spread: { type: "boolean", description: "Default true. When true, expands sibling and level gaps inside the available tree area so a full-page org feels spacious while a smaller region still fits tightly." },
-    titleStyle: { type: "string", description: "Theme text style key for person/role titles. Defaults to label; no hardcoded font family is set by the component." },
-    bodyStyle: { type: "string", description: "Theme text style key for role/team/member detail. Defaults to footnote; no hardcoded font family is set by the component." },
+    titleStyle: { type: "string", description: "Theme text style key for person/role titles. Defaults to label. Slide-level oversized styles such as section-title are normalized down inside nodes so names do not collapse to ellipses." },
+    bodyStyle: { type: "string", description: "Theme text style key for role/team/member detail. Defaults to footnote. Paragraph/bullet-sized styles are normalized down inside nodes to preserve detail text." },
     nodeSurface: { type: "object", description: "Default person card surface override, e.g. {fill:'surface.subtle', line:'none'}; per-node surface/fill/line overrides win." },
     connectorLine: { type: "string", description: "Reporting-line color token or 'none'. Defaults to divider." },
     connectorLineWidth: { type: "number", description: "Reporting-line width in cm." },
@@ -1265,6 +1312,66 @@ function componentUsabilityGuidance(name: string): string[] {
         "Match the image-card frame to the source aspect ratio when the visual must be inspected; avoid fit:'fill' unless distortion is intentional.",
         "Use fit:'contain' for screenshots/diagrams, fit:'cover' for editorial photos with intentional crop, and move caption/insight to a rail before shrinking the image area.",
       ];
+    case "quote":
+      return [
+        "Author the natural quote only; do not add manual quote marks or a decorative quote glyph. text/statement/quote and source/author/attribution are accepted aliases.",
+        "Quote is content-bearing, not decorative. If it carries the slide's argument, give it a real region; if it is a short side note, use callout instead.",
+      ];
+    case "callout":
+      return [
+        "Use for one highlighted note, warning, or rule of thumb. title/headline + body/detail/description + bullets/items/points are accepted, so do not hand-build a card for callout semantics.",
+        "If the point is the slide's main conclusion, prefer key-takeaway; if it is a multi-item warning list, prefer warning-list/takeaway-list.",
+      ];
+    case "key-takeaway":
+      return [
+        "Use for one slide-level conclusion. headline/title/text/conclusion/takeaway are accepted; bullets/points/items/takeaways carry supporting implications.",
+        "Keep detail as one sentence. If you have multiple semicolon or numbered implications, use bullets/points/items so the component can fit them as a list.",
+      ];
+    case "insight-card":
+      return [
+        "Use for one modular finding, not a generic paragraph box. headline/title/text and detail/body/description are accepted; bullets/items/points/proof/evidence become compact proof bullets.",
+        "For explanation-heavy slides, prefer explanation-block; for the final verdict, prefer key-takeaway.",
+      ];
+    case "explanation-block":
+      return [
+        "Use for how/why/so-what prose. title/headline + body/detail/description/text + bullets/items/points are accepted aliases.",
+        "Prefer this over stacking several insight-cards when one concept needs a coherent explanation.",
+      ];
+    case "comparison-list":
+      return [
+        "Use for 2-4 options/cases when a matrix is too heavy. items/options/cases accept title/name/label plus body/description/detail and points/bullets/pros/cons.",
+        "Use comparison-table when each option must be read across the same feature rows.",
+      ];
+    case "fact-list":
+      return [
+        "Use for evidence snippets, observations, or source-backed facts. items/facts/observations/evidence accept label/title/name/metric plus value and fact/text/body/description.",
+        "Use insight-card only when each item needs its own recommendation-style headline and proof.",
+      ];
+    case "executive-summary":
+      return [
+        "Use for thesis + findings + implication/action. thesis/headline/title/conclusion/answer, findings/items/takeaways/keyPoints, and action/recommendation/nextStep are accepted aliases.",
+        "For 3-5 final conclusions without a thesis paragraph, use takeaway-list instead.",
+      ];
+    case "takeaway-list":
+      return [
+        "Use for 3-5 short conclusions. items/takeaways/conclusions/findings accept headline/title/text/label/name plus detail/body/description.",
+        "Use key-takeaway when there is only one conclusion; use executive-summary when the slide needs thesis + findings + action.",
+      ];
+    case "outline":
+      return [
+        "Use for agenda/chapters/sections in reading order. items/sections/chapters/agenda accept title/label/name/text and body/description/detail.",
+        "Numbering is authored, not generated. Pass number/num/index only when the visible chapter label matters.",
+      ];
+    case "glossary":
+      return [
+        "Use for many term definitions. items/entries/terms accept term/name/label/title and definition/body/description/desc/meaning/text.",
+        "Use definition-card for a single concept that should stand alone.",
+      ];
+    case "q-and-a":
+      return [
+        "Use for FAQ or interview-style read-only Q/A. items/faqs/questions accept q/question/prompt and a/answer/response/body/text.",
+        "Use quiz-card only when answer choices or correctness are part of the slide.",
+      ];
     case "evidence-layout":
     case "chart-with-rail":
       return [
@@ -1429,13 +1536,25 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
     ));
   }
   if (componentName === "article") return withComponentRoot(node, articleFallback(slideId, name, node));
-  if (componentName === "definition-card") return withComponentRoot(node, definitionCard(slideId, name, stringValue(node.term, ""), stringValue(node.definition, "")));
+  if (componentName === "definition-card") {
+    return withComponentRoot(node, definitionCard(
+      slideId,
+      name,
+      semanticTextValue(node, "term", "title", "name", "label", "headline"),
+      semanticTextValue(node, "definition", "body", "detail", "description", "text", "summary"),
+    ));
+  }
   if (componentName === "numbered-list") {
     const density = node.density === "compact" ? "compact" : "comfortable";
     return withComponentRoot(node, numberedList(slideId, name, numberedListItems(node.items), density));
   }
   if (componentName === "quote") {
-    return withComponentRoot(node, quoteBlock(slideId, name, stringValue(node.text, ""), stringValue(node.source, "")));
+    return withComponentRoot(node, quoteBlock(
+      slideId,
+      name,
+      semanticTextValue(node, "text", "quote", "statement", "body", "content"),
+      semanticTextValue(node, "source", "author", "attribution", "byline", "cite", "citation"),
+    ));
   }
   if (componentName === "icon-text") {
     return withComponentRoot(node, iconText(slideId, name, {
@@ -1549,20 +1668,20 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
     return withComponentRoot(node, featureCard(slideId, name, {
       icon: stringValue(node.icon, "ellipse"),
       iconSrc: stringValue(node.iconSrc, ""),
-      title: stringValue(node.title, ""),
-      body: stringValue(node.body, ""),
+      title: semanticTextValue(node, "title", "headline", "name", "label"),
+      body: semanticTextValue(node, "body", "detail", "description", "text", "summary"),
       content: node.content,
       marker: decorationMarker(node.marker),
       decoration: node.decoration && typeof node.decoration === "object" && !Array.isArray(node.decoration) ? node.decoration as FeatureCardDecoration : undefined,
-      badge: stringValue(node.badge, ""),
-      tags: stringArray(node.tags),
+      badge: semanticTextValue(node, "badge", "tag", "category"),
+      tags: semanticStringList(node.tags, node.keywords, node.categories),
       metric: node.metric && typeof node.metric === "object" ? {
         value: stringValue((node.metric as Record<string, unknown>).value, ""),
         label: stringValue((node.metric as Record<string, unknown>).label, ""),
         tone: componentTone((node.metric as Record<string, unknown>).tone),
       } : undefined,
-      proof: stringValue(node.proof, ""),
-      ctaText: stringValue(node.ctaText, ""),
+      proof: semanticTextValue(node, "proof", "evidence", "note", "source"),
+      ctaText: semanticTextValue(node, "ctaText", "cta", "action"),
       iconColor: stringValue(node.iconColor, ""),
       iconBackground: stringValue(node.iconBackground, ""),
       tone: semanticTone,
@@ -1756,18 +1875,18 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
   }
   if (componentName === "key-takeaway") {
     const toneRaw = node.tone;
-    const tone = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" ? toneRaw : undefined;
+    const tone = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" || toneRaw === "neutral" ? toneRaw : undefined;
     // `points` is an alias for `bullets`; either resolves to the bulleted
     // implications below the headline. When neither is set AND `detail` looks
     // like a hand-rolled inline numbered/semicolon list, auto-split it so the
     // takeaway renders structured rather than as a single wrapped paragraph.
-    const explicitBullets = stringArray(node.bullets).length ? stringArray(node.bullets) : stringArray(node.points);
-    const detailText = stringValue(node.detail, stringValue(node.body, stringValue(node.description, "")));
+    const explicitBullets = semanticStringList(node.bullets, node.points, node.items, node.takeaways, node.implications);
+    const detailText = semanticTextValue(node, "detail", "body", "description", "summary", "supportingText");
     const splitBullets = explicitBullets.length === 0 ? splitInlineList(detailText) : null;
     const finalDetail = splitBullets ? "" : detailText;
     const finalBullets = splitBullets ? splitBullets : explicitBullets;
     return withComponentRoot(node, keyTakeaway(slideId, name, {
-      headline: stringValue(node.headline, stringValue(node.title, "")),
+      headline: semanticTextValue(node, "headline", "title", "text", "thesis", "conclusion", "takeaway"),
       detail: finalDetail,
       content: node.content,
       bullets: finalBullets,
@@ -2212,20 +2331,19 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
   }
   if (componentName === "outline") {
     type OutlineTone = "brand" | "positive" | "warning" | "danger";
-    const items: Array<{ number?: string; title: string; body?: string; page?: string | number; tone?: OutlineTone }> = Array.isArray(node.items) ? node.items.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { title: String(raw ?? "") };
+    const items: Array<{ number?: string; title: string; body?: string; page?: string | number; tone?: OutlineTone }> = semanticRecordItems(node.items, node.sections, node.chapters, node.agenda).map((rec) => {
       const toneRaw = rec.tone;
       const tone: OutlineTone | undefined = toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" ? toneRaw : undefined;
       const pageRaw = rec.page ?? rec.pageNumber;
       const page: string | number | undefined = typeof pageRaw === "number" || typeof pageRaw === "string" ? pageRaw : undefined;
       return {
-        number: stringValue(rec.number, stringValue(rec.num, "")) || undefined,
-        title: stringValue(rec.title, stringValue(rec.label, stringValue(rec.name, ""))),
-        body: stringValue(rec.body, stringValue(rec.description, stringValue(rec.text, ""))) || undefined,
+        number: semanticTextValue(rec, "number", "num", "index", "chapter") || undefined,
+        title: semanticTextValue(rec, "title", "label", "name", "text", "heading"),
+        body: semanticTextValue(rec, "body", "description", "detail", "summary") || undefined,
         page,
         tone,
       };
-    }).filter((item) => item.title) : [];
+    }).filter((item) => item.title);
     const tone = node.tone === "brand" || node.tone === "neutral" ? node.tone : undefined;
     const density = node.density === "comfortable" || node.density === "compact" || node.density === "auto" ? node.density : undefined;
     return withComponentRoot(node, outline(slideId, name, {
@@ -2236,29 +2354,27 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
     }));
   }
   if (componentName === "glossary") {
-    const items = Array.isArray(node.items) ? node.items.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { term: String(raw ?? "") };
+    const items = semanticRecordItems(node.items, node.entries, node.terms, node.definitions).map((rec) => {
       return {
-        term: stringValue(rec.term, stringValue(rec.name, stringValue(rec.label, ""))),
-        definition: stringValue(rec.definition, stringValue(rec.body, stringValue(rec.description, ""))),
+        term: semanticTextValue(rec, "term", "name", "label", "title", "key"),
+        definition: semanticTextValue(rec, "definition", "body", "description", "desc", "meaning", "text"),
       };
-    }).filter((item) => item.term) : [];
+    }).filter((item) => item.term);
     const layout = node.layout === "two-column" ? "two-column" : "list";
     return withComponentRoot(node, glossary(slideId, name, { items, layout }));
   }
   if (componentName === "q-and-a") {
-    const items = Array.isArray(node.items) ? node.items.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { q: "", a: String(raw ?? "") };
+    const items = semanticRecordItems(node.items, node.faqs, node.questions, node.qa).map((rec) => {
       return {
-        q: stringValue(rec.q, stringValue(rec.question, stringValue(rec.prompt, ""))),
-        a: stringValue(rec.a, stringValue(rec.answer, stringValue(rec.response, ""))),
+        q: semanticTextValue(rec, "q", "question", "prompt", "query"),
+        a: semanticTextValue(rec, "a", "answer", "response", "body", "text", "reply"),
       };
-    }).filter((item) => item.q && item.a) : [];
+    }).filter((item) => item.q && item.a);
     const density = node.density === "comfortable" || node.density === "compact" ? node.density : undefined;
     return withComponentRoot(node, qAndA(slideId, name, { items, density }));
   }
   if (componentName === "comparison-table") {
-    const features = Array.isArray(node.features) ? node.features.map(String) : [];
+    const features = Array.isArray(node.features) ? node.features.map(comparisonTableFeatureLabel).filter(Boolean) : [];
     const opts = Array.isArray(node.options) ? node.options.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { name: String(raw ?? "") };
       const values = Array.isArray(rec.values) ? rec.values.map((v) => v === undefined || v === null ? "" : String(v))
@@ -2283,15 +2399,14 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
       const norm = normalizeToneAlias(v);
       return norm && allowed.has(norm) ? norm as TakeawayTone : undefined;
     };
-    const items: Array<{ headline: string; detail?: string; tone?: TakeawayTone; marker?: DecorationMarkerInput }> = Array.isArray(node.items) ? node.items.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { headline: String(raw ?? "") };
+    const items: Array<{ headline: string; detail?: string; tone?: TakeawayTone; marker?: DecorationMarkerInput }> = semanticRecordItems(node.items, node.takeaways, node.conclusions, node.findings, node.points, node.warnings).map((rec) => {
       return {
-        headline: stringValue(rec.headline, stringValue(rec.title, stringValue(rec.text, ""))),
-        detail: stringValue(rec.detail, stringValue(rec.body, stringValue(rec.description, ""))) || undefined,
+        headline: semanticTextValue(rec, "headline", "title", "text", "label", "name", "conclusion"),
+        detail: semanticTextValue(rec, "detail", "body", "description", "summary", "supportingText") || undefined,
         tone: coerce(rec.tone),
         marker: decorationMarker(rec.marker),
       };
-    }).filter((item) => item.headline) : [];
+    }).filter((item) => item.headline);
     // warning-list defaults to tone "warning"; takeaway-list keeps existing
     // brand default. Both share the same render path so danger/warning mix
     // works in either component.
@@ -2547,10 +2662,10 @@ function cardToneProps(tone: unknown): Record<string, unknown> {
 }
 
 function calloutNode(slideId: string, name: string, node: DomNode): DomNode {
-  const title = stringValue(node.title, "");
-  const text = stringValue(node.text, "");
-  const body = stringValue(node.body, stringValue(node.detail, ""));
-  const bullets = stringArray(node.bullets).length ? stringArray(node.bullets) : stringArray(node.items);
+  const title = semanticTextValue(node, "title", "headline", "label");
+  const text = semanticTextValue(node, "text", "statement", "message", "summary");
+  const body = semanticTextValue(node, "body", "detail", "description", "explanation");
+  const bullets = semanticStringList(node.bullets, node.items, node.points, node.notes);
   const richContent = richTextRuns(node.content);
   const normalizedVariant = normalizeComponentEnumValue("callout", "variant", node.variant);
   const variant = normalizedVariant === "banner" || normalizedVariant === "card" ? normalizedVariant : (title || body || richContent || bullets.length ? "card" : "plain");
@@ -2597,7 +2712,7 @@ function calloutNode(slideId: string, name: string, node: DomNode): DomNode {
       ...(compact ? { optional: true } : {}),
     });
   }
-  if (bullets.length > 0) children.push(bulletList(slideId, `${name}.bullets`, bullets.slice(0, 5), "compact"));
+  if (bullets.length > 0) children.push({ ...bulletList(slideId, `${name}.bullets`, bullets.slice(0, 5), "compact"), spaceAfter: 1.2 });
   if (children.length === 0) children.push({ id: `${slideId}.${name}.body`, type: "text", text, style: "callout", color: "text.primary", autoFit: "shrink" });
   const surface = variant === "banner"
     ? { fill: toneProps.fill || "brand.tint", line: toneProps.line || accent, padding: compact ? 0.18 : 0.75, cornerRadius: 0.08 }
@@ -3260,7 +3375,7 @@ function imageCardNode(slideId: string, name: string, node: DomNode): DomNode {
       gap: node.variant === "compact" ? 0.16 : 0.25,
       children: [
         ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(badge, { min: 1.0, max: 4.8, padding: 0.62 }), align: "center" as const, autoFit: "shrink" as const }] : []),
-        ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65 }] : []),
+        ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65, autoFit: "shrink" as const }] : []),
         {
           id: `${slideId}.${name}.image`,
           type: "image",
@@ -3308,7 +3423,7 @@ function chartCardNode(slideId: string, name: string, node: DomNode): DomNode {
       gap,
       children: [
         ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(badge, { min: 1.0, max: 4.8, padding: 0.62 }), align: "center" as const, autoFit: "shrink" as const }] : []),
-        ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65 }] : []),
+        ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65, autoFit: "shrink" as const }] : []),
         {
           id: `${slideId}.${name}.chart`,
           type: "chart",
@@ -3366,7 +3481,7 @@ function tableCardNode(slideId: string, name: string, node: DomNode): DomNode {
         ...(badge ? [{ id: `${slideId}.${name}.badge`, type: "text" as const, text: badge, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(badge, { min: 1.0, max: 4.8, padding: 0.62 }), align: "center" as const, autoFit: "shrink" as const }] : []),
         ...(title ? [denseTable
           ? { id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", minHeight: 0.45, autoFit: "shrink" as const, optional: true }
-          : { id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65 }] : []),
+          : { id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", fixedHeight: 0.65, autoFit: "shrink" as const }] : []),
         {
           id: `${slideId}.${name}.table`,
           type: "table",
@@ -5296,8 +5411,8 @@ function orgChartStyleOptions(node: DomNode): TreeChartStyleOptions {
   const base = treeChartStyleOptions(node);
   return {
     ...base,
-    titleStyle: treeChartStyleKey(node.nodeTitleStyle) ?? treeChartStyleKey(node.titleStyle) ?? "label",
-    bodyStyle: treeChartStyleKey(node.nodeBodyStyle) ?? treeChartStyleKey(node.bodyStyle) ?? "footnote",
+    titleStyle: hierarchyNodeTitleStyleKey(treeChartStyleKey(node.nodeTitleStyle) ?? treeChartStyleKey(node.titleStyle), "label"),
+    bodyStyle: hierarchyNodeBodyStyleKey(treeChartStyleKey(node.nodeBodyStyle) ?? treeChartStyleKey(node.bodyStyle), "footnote"),
   };
 }
 
@@ -5792,11 +5907,16 @@ function orgChartPersonLayout(
   const isLeaf = !hasChildren || levelIndex >= levelCount - 1;
   const emphasis: OrgChartPersonLayout["emphasis"] = isRoot ? "root" : isLeaf ? "leaf" : "branch";
   const avatarSize = isRoot ? dense ? 0.70 : 0.70 : dense ? 0.66 : 0.66;
-  const showAvatar = isRoot || !dense || (levelIndex <= 1 && siblingCount <= 4);
+  const explicitAvatarOrIcon = Boolean(
+    stringValue(rec.avatarSrc, stringValue(rec.photoSrc, stringValue(rec.imageSrc, stringValue(rec.iconSrc, ""))))
+    || stringValue(rec.icon, stringValue(rec.iconShape, "")),
+  );
+  const compactAutoAvatarSuppressed = detail === "compact" && dense && !explicitAvatarOrIcon;
+  const showAvatar = !compactAutoAvatarSuppressed && (isRoot || !dense || (levelIndex <= 1 && siblingCount <= 4));
   const rowPadding = dense ? 0.08 : 0.10;
   const headerGap = showAvatar ? dense ? 0.08 : 0.12 : 0;
-  const titleStyle = treeChartStyleKey(rec.titleStyle) ?? style.titleStyle;
-  const bodyStyle = treeChartStyleKey(rec.bodyStyle) ?? style.bodyStyle;
+  const titleStyle = hierarchyNodeTitleStyleKey(treeChartStyleKey(rec.titleStyle) ?? style.titleStyle, "label");
+  const bodyStyle = hierarchyNodeBodyStyleKey(treeChartStyleKey(rec.bodyStyle) ?? style.bodyStyle, "footnote");
   const titleWeight = treeChartFontWeight(rec.titleWeight) ?? style.titleWeight;
   const bodyWeight = treeChartFontWeight(rec.bodyWeight) ?? style.bodyWeight;
   const badges = treeChartBadgeLayouts(rec, dense);
@@ -5807,9 +5927,9 @@ function orgChartPersonLayout(
   const bodyLength = Array.from(contentText).length;
   const longestLineLength = Math.max(0, ...contentLines.map((line) => Array.from(line).length));
   const authoredSize = stringValue(rec.size, stringValue(rec.scale, ""));
-  const maxBySiblings = siblingCount >= 7 ? 1.55
-    : siblingCount >= 5 ? 1.95
-      : siblingCount >= 4 ? 2.40
+  const maxBySiblings = siblingCount >= 7 ? isRoot ? 2.25 : 1.55
+    : siblingCount >= 5 ? isRoot ? 2.70 : 1.95
+      : siblingCount >= 4 ? isRoot ? 3.10 : 2.40
         : isRoot ? 4.75 : isLeaf ? 4.05 : 4.65;
   const minByRole = isRoot ? 2.35 : isLeaf ? 1.24 : 1.72;
   let width = isRoot ? 3.05 : isLeaf ? 1.68 : 2.28;
@@ -5953,7 +6073,9 @@ function orgChartTrimToWidth(theme: SimpleTheme, value: string, maxWidthCm: numb
   const weight = weightOverride ?? style.weight ?? style.fontWeight;
   const measurer = createTextMeasurer(theme);
   const limit = Math.max(0.04, maxWidthCm * ORG_CHART_TEXT_FIT_RATIO);
-  if (measurer.textWidth(text, style.fontSize, weight) <= limit) return text;
+  const measured = measurer.textWidth(text, style.fontSize, weight);
+  if (measured <= limit) return text;
+  if (orgChartLooksCjkText(text) && measured <= limit * 1.18) return text;
   const ellipsis = "...";
   const ellipsisWidth = measurer.textWidth(ellipsis, style.fontSize, weight);
   if (ellipsisWidth > limit) return "";
@@ -5973,6 +6095,10 @@ function orgChartTrimToWidth(theme: SimpleTheme, value: string, maxWidthCm: numb
     }
   }
   return best > 0 ? `${chars.slice(0, best).join("").trimEnd()}${ellipsis}` : ellipsis;
+}
+
+function orgChartLooksCjkText(text: string): boolean {
+  return /[\u3400-\u9FFF\uF900-\uFAFF]/u.test(text);
 }
 
 function orgChartPersonContentLines(rec: Record<string, unknown>): string[] {
@@ -6234,6 +6360,22 @@ function treeChartStyleKey(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const key = value.trim();
   return /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(key) ? key : undefined;
+}
+
+function hierarchyNodeTitleStyleKey(value: string | undefined, fallback: string): string {
+  const key = value || fallback;
+  if (key === "deck-title" || key === "slide-title" || key === "section-title" || key === "h1" || key === "h2") {
+    return fallback;
+  }
+  return key;
+}
+
+function hierarchyNodeBodyStyleKey(value: string | undefined, fallback: string): string {
+  const key = value || fallback;
+  if (key === "deck-title" || key === "slide-title" || key === "section-title" || key === "h1" || key === "h2" || key === "card-title" || key === "paragraph" || key === "bullet") {
+    return fallback;
+  }
+  return key;
 }
 
 function treeChartTokenString(value: unknown): string | undefined {
@@ -6610,8 +6752,8 @@ function treeChartCardLayout(
   const emphasis: TreeChartCardLayout["emphasis"] = isRoot ? "root" : isLeaf ? "leaf" : "branch";
   const stripeWidth = isRoot ? dense ? 0.08 : 0.10 : dense ? 0.055 : 0.065;
   const padding = dense ? 0.08 : 0.11;
-  const titleStyle = treeChartStyleKey(rec.titleStyle) ?? style.titleStyle;
-  const bodyStyle = treeChartStyleKey(rec.bodyStyle) ?? style.bodyStyle;
+  const titleStyle = hierarchyNodeTitleStyleKey(treeChartStyleKey(rec.titleStyle) ?? style.titleStyle, "label");
+  const bodyStyle = hierarchyNodeBodyStyleKey(treeChartStyleKey(rec.bodyStyle) ?? style.bodyStyle, "caption");
   const titleWeight = treeChartFontWeight(rec.titleWeight) ?? style.titleWeight;
   const bodyWeight = treeChartFontWeight(rec.bodyWeight) ?? style.bodyWeight;
   const icon = treeChartIconLayout(rec, dense);
@@ -8572,8 +8714,8 @@ function insightCardNode(slideId: string, name: string, node: DomNode): DomNode 
     const b = badge(slideId, `${name}.badge`, { text: badgeText, tone: tone === "neutral" ? "brand" : tone });
     children.push({ ...b, optional: true } as DomNode);
   }
-  children.push({ id: `${slideId}.${name}.headline`, type: "text", text: stringValue(node.headline, stringValue(node.title, "")), style: "card-title", color: "text.primary", minHeight: compact ? 0.38 : 0.48, autoFit: "shrink" });
-  const detail = stringValue(node.detail, stringValue(node.body, stringValue(node.description, "")));
+  children.push({ id: `${slideId}.${name}.headline`, type: "text", text: semanticTextValue(node, "headline", "title", "text", "summary", "conclusion", "recommendation"), style: "card-title", color: "text.primary", minHeight: compact ? 0.38 : 0.48, autoFit: "shrink" });
+  const detail = semanticTextValue(node, "detail", "body", "description", "supportingText");
   const richContent = richTextRuns(node.content);
   if (detail || richContent) {
     const plainDetail = detail || richTextPlain(richContent);
@@ -8611,8 +8753,8 @@ function insightCardNode(slideId: string, name: string, node: DomNode): DomNode 
       });
     }
   }
-  const bullets = stringArray(node.bullets).length ? stringArray(node.bullets) : stringArray(node.items).length ? stringArray(node.items) : stringArray(node.points);
-  if (bullets.length > 0) children.push({ ...bulletList(slideId, `${name}.bullets`, bullets.slice(0, compact ? 3 : 5), "compact"), optional: true });
+  const bullets = semanticStringList(node.bullets, node.items, node.points, node.proof, node.evidence);
+  if (bullets.length > 0) children.push({ ...bulletList(slideId, `${name}.bullets`, bullets.slice(0, compact ? 3 : 5), "compact"), size: "sm", spaceAfter: 1.0, optional: true });
   return {
     id: `${slideId}.${name}`,
     type: "card",
@@ -8637,10 +8779,10 @@ function explanationBlockNode(slideId: string, name: string, node: DomNode): Dom
       ? "panel"
       : "rail";
   const compact = node.density === "compact";
-  const title = stringValue(node.title, stringValue(node.headline, ""));
-  const body = stringValue(node.body, stringValue(node.detail, stringValue(node.description, "")));
+  const title = semanticTextValue(node, "title", "headline", "label");
+  const body = semanticTextValue(node, "body", "detail", "description", "text", "summary", "explanation");
   const richContent = richTextRuns(node.content);
-  const bullets = stringArray(node.bullets).length ? stringArray(node.bullets) : stringArray(node.items);
+  const bullets = semanticStringList(node.bullets, node.items, node.points, node.steps);
   const example = stringValue(node.example, "");
   const note = stringValue(node.note, "");
   const children: DomNode[] = [];
@@ -8670,7 +8812,7 @@ function explanationBlockNode(slideId: string, name: string, node: DomNode): Dom
       autoFit: "shrink",
     });
   }
-  if (bullets.length) children.push(bulletList(slideId, `${name}.bullets`, bullets.slice(0, compact ? 4 : 6), compact ? "compact" : "comfortable"));
+  if (bullets.length) children.push({ ...bulletList(slideId, `${name}.bullets`, bullets.slice(0, compact ? 4 : 6), compact ? "compact" : "comfortable"), spaceAfter: compact ? 1.2 : 2.0 });
   if (example) {
     children.push({
       id: `${slideId}.${name}.example`,
@@ -8735,12 +8877,12 @@ function explanationBlockNode(slideId: string, name: string, node: DomNode): Dom
 function comparisonListNode(slideId: string, name: string, node: DomNode): DomNode {
   const compact = node.density === "compact";
   const variant = node.variant === "plain" || node.variant === "subtle" ? node.variant : "columns";
-  const items = recordItems(node.items).map((rec) => ({
-    title: stringValue(rec.title, stringValue(rec.name, stringValue(rec.label, ""))),
-    body: stringValue(rec.body, stringValue(rec.description, stringValue(rec.text, ""))),
-    badge: stringValue(rec.badge, ""),
+  const items = semanticRecordItems(node.items, node.options, node.choices, node.cases, node.scenarios).map((rec) => ({
+    title: semanticTextValue(rec, "title", "name", "label", "option", "case"),
+    body: semanticTextValue(rec, "body", "description", "text", "detail", "summary"),
+    badge: semanticTextValue(rec, "badge", "tag", "category"),
     tone: componentTone(rec.tone) || "brand",
-    points: stringArray(rec.points).length ? stringArray(rec.points) : stringArray(rec.items).length ? stringArray(rec.items) : stringArray(rec.bullets),
+    points: semanticStringList(rec.points, rec.items, rec.bullets, rec.pros, rec.cons, rec.evidence),
   })).filter((item) => item.title || item.body || item.points.length);
   const columns = Math.max(1, Math.min(4, Math.round(numberValue(node.columns, items.length <= 1 ? 1 : items.length) || 1)));
   const cells = items.map((item, index) => {
@@ -8760,8 +8902,8 @@ function comparisonListNode(slideId: string, name: string, node: DomNode): DomNo
     } as DomNode;
   });
   const children: DomNode[] = [];
-  const title = stringValue(node.title, "");
-  const basis = stringValue(node.basis, "");
+  const title = semanticTextValue(node, "title", "headline");
+  const basis = semanticTextValue(node, "basis", "lens", "criteria", "subtitle");
   if (title) children.push({ id: `${slideId}.${name}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.5, autoFit: "shrink" });
   if (basis) {
     const basisIsMainStatement = !title;
@@ -8796,12 +8938,12 @@ function comparisonListNode(slideId: string, name: string, node: DomNode): DomNo
 function factListNode(slideId: string, name: string, node: DomNode): DomNode {
   const requestedVariant = node.variant === "grid" || node.variant === "strip" ? node.variant : "list";
   const defaultTone = componentTone(node.tone) || "brand";
-  const items = recordItems(node.items).map((rec) => ({
-    label: stringValue(rec.label, stringValue(rec.title, stringValue(rec.name, ""))),
-    value: stringValue(rec.value, ""),
-    fact: stringValue(rec.fact, stringValue(rec.text, stringValue(rec.body, ""))),
-    interpretation: stringValue(rec.interpretation, stringValue(rec.insight, "")),
-    source: stringValue(rec.source, ""),
+  const items = semanticRecordItems(node.items, node.facts, node.observations, node.evidence, node.metrics, node.data).map((rec) => ({
+    label: semanticTextValue(rec, "label", "title", "name", "metric", "measure", "key"),
+    value: semanticTextValue(rec, "value", "amount", "number", "stat"),
+    fact: semanticTextValue(rec, "fact", "text", "body", "description", "detail", "claim"),
+    interpretation: semanticTextValue(rec, "interpretation", "insight", "meaning", "note"),
+    source: semanticTextValue(rec, "source", "citation", "reference"),
     tone: componentTone(rec.tone) || defaultTone,
   })).filter((item) => item.label || item.value || item.fact || item.interpretation);
   const compact = node.density === "compact" || items.length >= 5 || requestedVariant === "strip";
@@ -8812,7 +8954,7 @@ function factListNode(slideId: string, name: string, node: DomNode): DomNode {
   const variant = requestedVariant === "list" && items.length >= 5 ? "grid" : requestedVariant;
   const cells = items.map((item, index) => factItemNode(slideId, `${name}.${index + 1}`, item, compact, variant !== "list", variant));
   const children: DomNode[] = [];
-  const title = stringValue(node.title, "");
+  const title = semanticTextValue(node, "title", "headline");
   if (title) children.push({ id: `${slideId}.${name}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.5, autoFit: "shrink" });
   if (variant === "list") {
     children.push({
@@ -8848,11 +8990,11 @@ function factListNode(slideId: string, name: string, node: DomNode): DomNode {
 
 function executiveSummaryNode(slideId: string, name: string, node: DomNode): DomNode {
   const tone = componentTone(node.tone) || "brand";
-  const thesis = stringValue(node.thesis, stringValue(node.headline, stringValue(node.title, "")));
-  const summary = stringValue(node.summary, stringValue(node.body, stringValue(node.detail, "")));
-  const findings = recordItems(Array.isArray(node.findings) ? node.findings : node.items).map((rec) => ({
-    headline: stringValue(rec.headline, stringValue(rec.title, stringValue(rec.name, ""))),
-    detail: stringValue(rec.detail, stringValue(rec.body, stringValue(rec.description, ""))),
+  const thesis = semanticTextValue(node, "thesis", "headline", "title", "answer", "conclusion", "takeaway");
+  const summary = semanticTextValue(node, "summary", "body", "detail", "description", "text");
+  const findings = semanticRecordItems(node.findings, node.items, node.takeaways, node.keyPoints, node.points, node.highlights).map((rec) => ({
+    headline: semanticTextValue(rec, "headline", "title", "name", "label", "text"),
+    detail: semanticTextValue(rec, "detail", "body", "description", "summary", "insight"),
     tone: componentTone(rec.tone) || tone,
   })).filter((item) => item.headline || item.detail);
   // Default variant: prefer "board" when there are ≥4 findings AND each
@@ -8899,8 +9041,8 @@ function executiveSummaryNode(slideId: string, name: string, node: DomNode): Dom
       });
     }
   }
-  const implication = stringValue(node.implication, "");
-  const action = stringValue(node.action, "");
+  const implication = semanticTextValue(node, "implication", "soWhat", "impact");
+  const action = semanticTextValue(node, "action", "recommendation", "nextStep", "nextSteps", "decision");
   if (implication || action) {
     const implicationOnly = Boolean(implication && !action);
     children.push({
@@ -9408,6 +9550,7 @@ function textComponentNode(slideId: string, name: string, text: string, style: s
         text: title,
         style: "card-title",
         fixedHeight: 0.5,
+        autoFit: "shrink" as const,
       }] : []),
       {
         id: `${slideId}.${name}.text`,
@@ -9425,6 +9568,7 @@ function textComponentNode(slideId: string, name: string, text: string, style: s
         style: "code-caption",
         align: fields.align || "left",
         fixedHeight: 0.42,
+        autoFit: "shrink" as const,
       }] : []),
     ],
   };
@@ -9524,6 +9668,7 @@ function bibliographyNode(slideId: string, name: string, node: DomNode): DomNode
         text: title,
         style: "card-title",
         fixedHeight: 0.52,
+        autoFit: "shrink" as const,
       }] : []),
       items.length ? {
         id: `${slideId}.${name}.items`,
@@ -9622,6 +9767,7 @@ function codeBlockNode(slideId: string, name: string, node: DomNode): DomNode {
         style: "label",
         color: "text.muted",
         fixedHeight: 0.36,
+        autoFit: "shrink" as const,
       }] : []),
       codeBody,
       ...(caption ? [{
@@ -9630,6 +9776,7 @@ function codeBlockNode(slideId: string, name: string, node: DomNode): DomNode {
         text: caption,
         style: "code-caption",
         fixedHeight: 0.42,
+        autoFit: "shrink" as const,
       }] : []),
     ],
   };
@@ -9765,8 +9912,8 @@ function definitionCard(slideId: string, name: string, term: string, definition:
     line: "divider",
     padding: 0.35,
     children: [
-      { id: `${slideId}.${name}.term`, type: "text", text: term, style: "card-title", color: "brand.primary" },
-      { id: `${slideId}.${name}.definition`, type: "text", text: definition, style: "paragraph" },
+      { id: `${slideId}.${name}.term`, type: "text", text: term, style: "card-title", color: "brand.primary", minHeight: 0.5, autoFit: "shrink" },
+      { id: `${slideId}.${name}.definition`, type: "text", text: definition, style: "paragraph", minHeight: 0.7 },
     ],
   };
 }
@@ -10173,6 +10320,66 @@ function tonePropsFrom(tone: unknown): Record<string, unknown> {
   if (mapped.line) out.line = mapped.line;
   if (mapped.fg) out.color = mapped.fg;
   return out;
+}
+
+function comparisonTableFeatureLabel(value: unknown): string {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const rec = value as Record<string, unknown>;
+    return stringValue(
+      rec.label,
+      stringValue(rec.name, stringValue(rec.title, stringValue(rec.feature, stringValue(rec.term, "")))),
+    );
+  }
+  return String(value ?? "").trim();
+}
+
+function semanticRecordItems(...values: unknown[]): Array<Record<string, unknown>> {
+  for (const value of values) {
+    if (!Array.isArray(value)) continue;
+    return value.map((item) => {
+      if (item && typeof item === "object" && !Array.isArray(item)) return item as Record<string, unknown>;
+      return { text: semanticScalarText(item) };
+    }).filter((item) => Object.keys(item).some((key) => semanticScalarText(item[key])));
+  }
+  return [];
+}
+
+function semanticStringList(...values: unknown[]): string[] {
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      const items = value.map((item) => {
+        if (item && typeof item === "object" && !Array.isArray(item)) {
+          return semanticTextValue(item as Record<string, unknown>, "text", "headline", "title", "label", "name", "body", "detail", "description", "summary", "value", "fact", "term", "definition");
+        }
+        return semanticScalarText(item);
+      }).filter(Boolean);
+      if (items.length) return items;
+      continue;
+    }
+    const text = semanticScalarText(value);
+    if (text) return splitInlineList(text) ?? [text];
+  }
+  return [];
+}
+
+function semanticTextValue(record: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const text = semanticScalarText(record[key]);
+    if (text) return text;
+  }
+  return "";
+}
+
+function semanticScalarText(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (Array.isArray(value)) return richTextPlain(richTextRuns(value)).trim();
+  if (value && typeof value === "object") {
+    const rec = value as Record<string, unknown>;
+    return semanticTextValue(rec, "text", "label", "title", "name", "value", "body", "detail", "description", "summary");
+  }
+  return "";
 }
 
 function stringValue(value: unknown, fallback: string): string {

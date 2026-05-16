@@ -690,8 +690,21 @@ export function quoteBlock(
   source?: string,
   opts: { ornament?: boolean } & { surface?: AgentSurface } & AgentSurface = {},
 ): DomNode {
+  const textWeight = weightedTextLength(text);
+  const hasSource = Boolean(source && source.trim());
+  const compact = textWeight > 42 || (hasSource && textWeight > 32);
+  const veryCompact = textWeight > 64;
+  const quotePadding = veryCompact ? 0.28 : compact ? 0.36 : 0.48;
+  const quoteFontScale = veryCompact ? 0.72 : compact ? 0.82 : undefined;
+  const quoteMinHeight = veryCompact
+    ? (hasSource ? 2.0 : 1.55)
+    : compact
+      ? (hasSource ? 1.75 : 1.35)
+      : (hasSource ? 1.55 : 1.15);
   // Decorative oversized opening quote glyph (❝). Reads as typographic
   // ornament without an extra image. Suppress with `ornament:false`.
+  // It is intentionally layered behind the text so it never consumes vertical
+  // flow space or squeezes the actual quote/source out of the component.
   const wantOrnament = opts.ornament !== false;
   const children: DomNode[] = [];
   if (wantOrnament) {
@@ -705,14 +718,24 @@ export function quoteBlock(
       color: "brand.primary",
       align: "left",
       valign: "top",
-      fixedHeight: 1.4,
+      layer: "behind",
       autoFit: "shrink",
       optional: true,
     });
   }
-  children.push({ id: `${slideId}.${id}.text`, type: "text", text: `\u201C${text}\u201D`, style: "quote", align: "left", valign: "middle", autoFit: "shrink", minHeight: 0.75 });
-  if (source && source.trim()) {
-    children.push({ id: `${slideId}.${id}.source`, type: "text", text: `\u2014 ${source.trim()}`, style: "quote-source", align: "left", minHeight: 0.32, autoFit: "shrink", optional: true });
+  children.push({
+    id: `${slideId}.${id}.text`,
+    type: "text",
+    text: `\u201C${text}\u201D`,
+    style: "quote",
+    align: "left",
+    valign: "middle",
+    autoFit: "shrink",
+    minHeight: compact ? 0.62 : 0.75,
+    ...(quoteFontScale ? { fontScale: quoteFontScale } : {}),
+  });
+  if (hasSource) {
+    children.push({ id: `${slideId}.${id}.source`, type: "text", text: `\u2014 ${source!.trim()}`, style: "quote-source", align: "left", minHeight: 0.32, autoFit: "shrink", optional: true });
   }
   return applyAgentSurface({
     id: `${slideId}.${id}`,
@@ -720,6 +743,8 @@ export function quoteBlock(
     direction: "vertical",
     gap: 0.12,
     role: "quote",
+    padding: quotePadding,
+    minHeight: quoteMinHeight,
     children,
   } as DomNode, opts);
 }
@@ -1224,7 +1249,7 @@ export function profileCard(slideId: string, id: string, options: { image: strin
     children.push({ id: `${slideId}.${id}.role`, type: "text", text: options.role.trim(), style: "label", color: "text.muted", align: "center", minHeight: 0.42, autoFit: "shrink", tracking: "wide" } as DomNode);
   }
   if (options.bio && options.bio.trim()) {
-    children.push({ id: `${slideId}.${id}.bio`, type: "text", text: options.bio.trim(), style: "caption", align: "center", valign: "top" });
+    children.push({ id: `${slideId}.${id}.bio`, type: "text", text: options.bio.trim(), style: "caption", align: "center", valign: "top", minHeight: 0.45, autoFit: "shrink" });
   }
   return {
     id: `${slideId}.${id}`,
@@ -1370,6 +1395,7 @@ export function ctaButton(slideId: string, id: string, options: { text: string; 
     color: fg,
     cornerRadius: 0.3,
     fixedHeight: 1.15,
+    autoFit: "shrink",
     role: "cta",
     ...(content ? { content } : {}),
   };
@@ -1787,8 +1813,8 @@ export function progressBar(slideId: string, id: string, options: { label: strin
         direction: "horizontal",
         gap: 0.3,
         children: [
-          { id: `${slideId}.${id}.label`, type: "text", text: options.label, style: "label", align: "left", layoutWeight: 5 },
-          { id: `${slideId}.${id}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", layoutWeight: 1, bold: true },
+          { id: `${slideId}.${id}.label`, type: "text", text: options.label, style: "label", align: "left", layoutWeight: 5, minHeight: 0.32, autoFit: "shrink" },
+          { id: `${slideId}.${id}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", layoutWeight: 1, bold: true, minHeight: 0.32, autoFit: "shrink" },
         ],
         fixedHeight: 0.5,
       },
@@ -2462,7 +2488,7 @@ export function keyTakeaway(
     });
   }
   if (options.bullets && options.bullets.length) {
-    children.push(bulletList(slideId, `${id}.bullets`, options.bullets.slice(0, 5), compact ? "compact" : "comfortable"));
+    children.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets.slice(0, 5), compact ? "compact" : "comfortable"), spaceAfter: compact ? 1.2 : 2.0 });
   }
   const minimal = options.variant === "minimal";
   return applyAgentSurface({
@@ -2766,7 +2792,7 @@ export function legend(slideId: string, id: string, options: { items: Array<{ la
         // Label color upgraded text.muted → text.primary so legend items
         // read at the same priority as their colored markers. Muted gray
         // labels disappeared next to vivid dots (yajush log).
-        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle" },
+        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle", minHeight: 0.32, autoFit: "shrink" },
       ],
     })),
   };
@@ -2797,6 +2823,7 @@ export function badge(slideId: string, id: string, options: { text: string; tone
     cornerRadius: 0.5,
     fixedHeight: 0.7,
     fixedWidth: intrinsic,
+    autoFit: "shrink",
     noWrap: true,
     role: "badge",
   };
@@ -2835,6 +2862,7 @@ export function flowArrow(slideId: string, id: string, options: { label?: string
       uppercase: true,
       letterSpacing: 80,
       minHeight: 0.5,
+      autoFit: "shrink",
     });
   }
   // Snug cluster width: a flow-arrow with a label should read as ONE compact
@@ -3342,7 +3370,7 @@ export function outline(
       id: `${slideId}.${id}.${idx}.col`,
       type: "stack",
       direction: "vertical",
-      gap: compact ? 0.06 : 0.12,
+      gap: veryCompact ? 0.02 : compact ? 0.06 : 0.08,
       valign: "top",
       layoutWeight: 1,
       children: [
@@ -3355,7 +3383,7 @@ export function outline(
           style: veryCompact ? "label" : compact ? "card-title" : "h2",
           color: "text.primary",
           align: "left",
-          minHeight: veryCompact ? 0.4 : compact ? 0.5 : 0.6,
+          minHeight: veryCompact ? 0.4 : compact ? 0.5 : 0.54,
           autoFit: "shrink",
         },
         ...((!veryCompact && item.body && item.body.trim()) ? [{
@@ -3366,7 +3394,7 @@ export function outline(
           color: "text.muted",
           align: "left" as const,
           valign: "top" as const,
-          minHeight: compact ? 0.42 : 0.5,
+          minHeight: 0.42,
           autoFit: "shrink" as const,
           optional: true,
         }] : []),

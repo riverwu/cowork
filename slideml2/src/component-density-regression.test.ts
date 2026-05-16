@@ -470,6 +470,7 @@ describe("dense data component regressions from live PPT flow", () => {
     const diagnostics = allDiagnostics(slide);
     const evidenceRatio = diagnostics.find((d) => d.code === "EVIDENCE_REGION_TOO_SMALL");
     expect(evidenceRatio, diagnostics.map((d) => `${d.severity}:${d.code}:${d.nodeId}:${d.message}:${d.suggestion}`).join("\n")).toBeDefined();
+    expect(evidenceRatio?.severity).toBe("warn");
     expect(evidenceRatio?.suggestion).toMatch(/adjust the split\/ratio|follow-up slide/i);
     expect(evidenceRatio?.measured?.evidenceRatio).toBeLessThan(evidenceRatio?.measured?.recommendedRatio ?? 0);
   });

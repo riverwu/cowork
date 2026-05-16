@@ -33,6 +33,9 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(isBlockingRenderDiagnostic("OVERFLOW", "warn")).toBe(false);
     expect(isBlockingRenderDiagnostic("CUSTOM_ERROR", "error")).toBe(true);
     expect(isQualityRenderDiagnostic("TIGHT_GAP")).toBe(true);
+    expect(isQualityRenderDiagnostic("FALLBACK_FAILED")).toBe(true);
+    expect(isQualityRenderDiagnostic("SIBLING_INK_OVERLAP")).toBe(true);
+    expect(isQualityRenderDiagnostic("TINY_RECT")).toBe(true);
   });
 
   it("emits structured overlap metrics for collision diagnostics", () => {
@@ -76,6 +79,26 @@ describe("validation geometry and diagnostic contracts", () => {
       }],
     });
     expect(getRenderDiagnostics().some((item) => item.code === "SQUASHED" && item.severity === "error")).toBe(false);
+  });
+
+  it("does not block title-adjacent hairlines as title occlusion", () => {
+    clearRenderDiagnostics();
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "title-hairline",
+        layout: "freeform",
+        dom: {
+          id: "title-hairline.root",
+          type: "slide",
+          children: [
+            { id: "title-hairline.title", type: "text", text: "Quarterly Results", style: "slide-title", at: [1, 1, 10, 0.8] },
+            { id: "title-hairline.rule", type: "shape", preset: "rect", fill: "brand.primary", line: "none", at: [1, 1.72, 10, 0.06] },
+          ],
+        },
+      }],
+    });
+    expect(getRenderDiagnostics().some((item) => item.code === "TITLE_OCCLUDED")).toBe(false);
   });
 
   it("infers positioned callout text so renderer-side shrink can absorb mixed CJK and Latin wrapping", () => {

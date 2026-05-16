@@ -1081,6 +1081,235 @@ describe("component regressions", () => {
     expect(feature!.xfrm!.x).toBeLessThan(option!.xfrm!.x);
   });
 
+  it("comparison-table accepts object feature labels without rendering [object Object]", () => {
+    const slide: SlideV2 = {
+      id: "reg-cmp-object",
+      children: [{
+        id: "reg-cmp-object.table",
+        type: "comparison-table",
+        features: [
+          { label: "重力势能", value: "$U = mgh$", note: "地面附近" },
+          { name: "弹性势能", value: "$U = 1/2kx^2$" },
+        ],
+        options: [
+          { name: "公式", values: ["U = mgh", "U = 1/2kx^2"] },
+          { name: "适用条件", values: ["g 恒定", "线性弹簧"] },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    expect(firstTextShapeContaining(ast, "[object Object]")).toBeUndefined();
+    expect(firstTextShapeContaining(ast, "重力势能")).toBeDefined();
+    expect(firstTextShapeContaining(ast, "弹性势能")).toBeDefined();
+  });
+
+  it("org-chart normalizes oversized node styles so labels and role text stay readable", () => {
+    const slide: SlideV2 = {
+      id: "reg-org-style",
+      children: [{
+        id: "reg-org-style.chart",
+        type: "org-chart",
+        titleStyle: "section-title",
+        bodyStyle: "bullet",
+        detail: "compact",
+        nodes: [
+          { id: "ops", name: "运营委员会", role: "林晨、周予", badge: { text: "经营", tone: "brand" } },
+          { id: "success", name: "客户成功部", role: "陈晓、王曼、刘一", badge: { text: "32人", tone: "positive" } },
+          { id: "key", name: "重点客户组", parent: "success" },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const texts: string[] = [];
+    const walk = (shape: unknown) => {
+      const rec = shape as { type?: string; paragraphs?: Array<{ runs: Array<{ text: string }> }>; children?: unknown[] };
+      if (rec.type === "text") texts.push(rec.paragraphs?.flatMap((p) => p.runs.map((r) => r.text)).join("") || "");
+      for (const child of rec.children || []) walk(child);
+    };
+    for (const shape of ast.slides[0].shapes) walk(shape);
+    const textContent = texts.join("\n").replace(/\u2060/g, "");
+    expect(textContent).toContain("运营委员会");
+    expect(textContent).toContain("客户成功部");
+    expect(textContent).toContain("林晨、周予");
+    expect(textContent).toContain("陈晓、王曼、刘一");
+  });
+
+  it("long quote in a split prologue keeps quote text and source renderable", () => {
+    const slide: SlideV2 = {
+      id: "reg-quote-prologue",
+      title: "高原的天空，比梦更远",
+      children: [{
+        id: "reg-quote-prologue.split",
+        type: "split",
+        direction: "horizontal",
+        ratio: [0.55, 0.45],
+        gap: 0.5,
+        children: [
+          { id: "reg-quote-prologue.image", type: "image", src: TINY_PNG, fit: "cover" } as unknown as DomNode,
+          {
+            id: "reg-quote-prologue.right",
+            type: "stack",
+            gap: 0.5,
+            children: [
+              { id: "reg-quote-prologue.eyebrow", type: "eyebrow", text: "藏地 · 秘境", tone: "brand" },
+              { id: "reg-quote-prologue.h1", type: "h1", text: "高原的天空，\n比梦更远" },
+              {
+                id: "reg-quote-prologue.quote",
+                type: "quote",
+                text: "当你站在这片高原上，头顶是触手可及的蔚蓝，脚下是延续千年的草甸与牧歌，香格里拉便不再是一个地名——它是你心中，那片从未抵达却始终在召唤的所在。",
+                source: "《香格里拉纪行》",
+              },
+              { id: "reg-quote-prologue.divider", type: "divider", color: "brand.primary", thickness: 1.5, length: 3 },
+              {
+                id: "reg-quote-prologue.body",
+                type: "text",
+                text: "海拔 3300 米，天空蓝得近乎透明，经幡在风中吟唱。这里是云南迪庆藏族聚居区，是詹姆斯·希尔顿笔下\"消失的地平线\"。",
+              },
+            ],
+          } as unknown as DomNode,
+        ],
+      } as unknown as DomNode],
+    };
+
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const quoteText = findRenderedByName(ast, "reg-quote-prologue.quote.text");
+    const quoteSource = findRenderedByName(ast, "reg-quote-prologue.quote.source");
+    const quoteBlocking = getRenderDiagnostics().filter((d) =>
+      d.severity === "error" && String(d.nodeId || "").includes("reg-quote-prologue.quote")
+    );
+
+    expect(quoteText?.type).toBe("text");
+    expect(quoteSource?.type).toBe("text");
+    expect(((quoteText as { xfrm?: { cy?: number } } | undefined)?.xfrm?.cy || 0)).toBeGreaterThan(0);
+    expect(((quoteSource as { xfrm?: { cy?: number } } | undefined)?.xfrm?.cy || 0)).toBeGreaterThan(0);
+    expect(quoteBlocking, quoteBlocking.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
+
+  it("semantic narrative components do not block in a split rail for mild internal fit pressure", () => {
+    const long = "当你站在这片高原上，头顶是触手可及的蔚蓝，脚下是延续千年的草甸与牧歌，香格里拉便不再是一个地名，它是心中那片从未抵达却始终召唤的所在。";
+    const body = "海拔 3300 米，天空蓝得近乎透明，经幡在风中吟唱。这里也是无数旅人心中那道永远指向高原的光。";
+    const cases: Array<{ id: string; component: DomNode }> = [
+      { id: "plain-callout", component: { id: "plain-callout.c", type: "callout", text: long, tone: "warning" } as unknown as DomNode },
+      { id: "card-callout", component: { id: "card-callout.c", type: "callout", title: "旅途提示", body: long, tone: "warning", variant: "card" } as unknown as DomNode },
+      { id: "banner-callout", component: { id: "banner-callout.c", type: "callout", title: "旅途提示", body: long, tone: "brand", variant: "banner" } as unknown as DomNode },
+      {
+        id: "insight-proof",
+        component: {
+          id: "insight-proof.c",
+          type: "insight-card",
+          badge: "观察",
+          headline: "高原经验来自天空、风和路",
+          detail: long,
+          bullets: ["蓝天提供第一印象", "草甸形成叙事线索", "藏地文化承担情绪锚点"],
+          tone: "brand",
+        } as unknown as DomNode,
+      },
+      {
+        id: "outline-rail",
+        component: {
+          id: "outline-rail.c",
+          type: "outline",
+          items: [
+            { title: "天空", body: "蓝天与云影" },
+            { title: "草甸", body: "自然地貌" },
+            { title: "文化", body: "藏地生活" },
+            { title: "路线", body: "抵达方式" },
+          ],
+        } as unknown as DomNode,
+      },
+    ];
+
+    for (const item of cases) {
+      const slide: SlideV2 = {
+        id: item.id,
+        title: "高原的天空，比梦更远",
+        children: [{
+          id: `${item.id}.split`,
+          type: "split",
+          direction: "horizontal",
+          ratio: [0.55, 0.45],
+          gap: 0.5,
+          children: [
+            { id: `${item.id}.image`, type: "image", src: TINY_PNG, fit: "cover" } as unknown as DomNode,
+            {
+              id: `${item.id}.right`,
+              type: "stack",
+              gap: 0.5,
+              children: [
+                { id: `${item.id}.eyebrow`, type: "eyebrow", text: "藏地 · 秘境", tone: "brand" },
+                { id: `${item.id}.h1`, type: "h1", text: "高原的天空，\n比梦更远" },
+                item.component,
+                { id: `${item.id}.body`, type: "text", text: body },
+              ],
+            } as unknown as DomNode,
+          ],
+        } as unknown as DomNode],
+      };
+      clearRenderDiagnostics();
+      renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+      const errors = getRenderDiagnostics().filter((d) => d.severity === "error");
+      expect(errors, `${item.id}\n${errors.map((d) => `${d.code} ${d.nodeId}: ${d.message}`).join("\n")}`).toHaveLength(0);
+    }
+  });
+
+  it("semantic prose components accept natural field aliases without dropping content", () => {
+    const cases: Array<{ id: string; component: DomNode; expected: string[] }> = [
+      {
+        id: "alias-quote",
+        component: { id: "alias-quote.c", type: "quote", statement: "高原不是目的地，而是一种缓慢进入内心的方式。", author: "旅行者手记" } as unknown as DomNode,
+        expected: ["高原不是目的地", "旅行者手记"],
+      },
+      {
+        id: "alias-definition",
+        component: { id: "alias-definition.c", type: "definition-card", title: "香格里拉", body: "一个地理地点，也是一套关于远方、净土和高原生活的文化想象。" } as unknown as DomNode,
+        expected: ["香格里拉", "一个地理地点"],
+      },
+      {
+        id: "alias-key",
+        component: { id: "alias-key.c", type: "key-takeaway", text: "真正的体验不来自单一景点，而来自天空、道路和文化节奏的共同作用。", items: ["第一天降低活动强度", "保留天气和交通缓冲"] } as unknown as DomNode,
+        expected: ["真正的体验", "第一天降低活动强度"],
+      },
+      {
+        id: "alias-exec",
+        component: { id: "alias-exec.c", type: "executive-summary", takeaways: [{ title: "自然景观是入口", body: "蓝天和草甸建立第一印象" }], recommendation: "优先设计低强度首日路线" } as unknown as DomNode,
+        expected: ["自然景观是入口", "优先设计低强度"],
+      },
+      {
+        id: "alias-fact",
+        component: { id: "alias-fact.c", type: "fact-list", facts: [{ metric: "海拔", value: "3300m", description: "高反风险需要被纳入行程设计" }] } as unknown as DomNode,
+        expected: ["海拔", "高反风险"],
+      },
+      {
+        id: "alias-comparison",
+        component: { id: "alias-comparison.c", type: "comparison-list", options: [{ name: "自驾", description: "自由度高但风险自担", pros: ["节奏可控"] }, { name: "跟团", description: "组织稳定" }] } as unknown as DomNode,
+        expected: ["自驾", "节奏可控"],
+      },
+      {
+        id: "alias-glossary",
+        component: { id: "alias-glossary.c", type: "glossary", entries: [{ term: "经幡", desc: "风中持续出现的文化符号" }] } as unknown as DomNode,
+        expected: ["经幡", "风中持续"],
+      },
+      {
+        id: "alias-qa",
+        component: { id: "alias-qa.c", type: "q-and-a", faqs: [{ question: "第一次去需要注意什么？", answer: "先适应海拔，减少第一天活动强度。" }] } as unknown as DomNode,
+        expected: ["第一次去", "先适应海拔"],
+      },
+    ];
+
+    for (const item of cases) {
+      clearRenderDiagnostics();
+      const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide({ id: item.id, children: [item.component] })));
+      const renderedText = ast.slides.flatMap((slide) => slide.shapes)
+        .filter((shape): shape is Extract<(typeof ast.slides)[number]["shapes"][number], { type: "text" }> => shape.type === "text")
+        .map((shape) => shape.paragraphs?.flatMap((paragraph) => paragraph.runs.map((run) => run.text)).join("") || "");
+      const missing = item.expected.filter((text) => !renderedText.some((value) => value.includes(text)));
+      const errors = getRenderDiagnostics().filter((d) => d.severity === "error");
+      expect(missing, `${item.id}\n${renderedText.join("\n")}`).toHaveLength(0);
+      expect(errors, `${item.id}\n${errors.map((d) => `${d.code} ${d.nodeId}: ${d.message}`).join("\n")}`).toHaveLength(0);
+    }
+  });
+
   it("outline keeps authored numbers close to their chapter titles", () => {
     const rendered = sourceToRenderedDeck(buildDeckWithSlide({
       id: "reg-outline",

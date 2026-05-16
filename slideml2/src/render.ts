@@ -1245,16 +1245,41 @@ function collisionSeverity(
   overlap: OverlapMetrics,
 ): "info" | "warn" | "error" {
   if (code === "DECORATIVE_OVERLAP") return "info";
-  if (code === "SIBLING_INK_OVERLAP" && isTinySiblingTextOverlap(a, b, overlap)) return "warn";
+  if ((code === "COLLISION" || code === "SIBLING_INK_OVERLAP") && isTinyTextOverlap(a, b, overlap)) return "warn";
+  if (code === "SIBLING_INK_OVERLAP" && isAttributionSiblingOverlap(a, b, overlap)) return "warn";
+  if (code === "STRUCTURAL_OVERLAP" && isThinStructuralOverlap(overlap)) return "warn";
+  if (code === "OVERLAY_OCCLUDES_FLOW" && isLowImpactTextClearanceOverlap(a, b, overlap)) return "warn";
   return "error";
 }
 
-function isTinySiblingTextOverlap(a: MeasuredNode, b: MeasuredNode, overlap: OverlapMetrics): boolean {
+function isTinyTextOverlap(a: MeasuredNode, b: MeasuredNode, overlap: OverlapMetrics): boolean {
   const involvesText = a.visualRole === "text" || b.visualRole === "text";
   if (!involvesText) return false;
   return overlap.rect.h <= 0.08
     && overlap.areaCm2 <= 0.12
     && overlap.ratioOfSmaller <= 0.08;
+}
+
+function isAttributionSiblingOverlap(a: MeasuredNode, b: MeasuredNode, overlap: OverlapMetrics): boolean {
+  const ids = [a.id, b.id];
+  const hasBody = ids.some((id) => /\.text$/.test(id));
+  const hasSource = ids.some((id) => /\.source$/.test(id));
+  if (!hasBody || !hasSource) return false;
+  const baseIds = ids.map((id) => id.replace(/\.(text|source)$/, ""));
+  if (baseIds[0] !== baseIds[1]) return false;
+  return overlap.rect.h <= 0.24 && overlap.ratioOfSmaller <= 0.55;
+}
+
+function isThinStructuralOverlap(overlap: OverlapMetrics): boolean {
+  return (overlap.rect.h <= 0.08 || overlap.rect.w <= 0.08)
+    && overlap.areaCm2 <= 0.35
+    && overlap.ratioOfSmaller <= 0.18;
+}
+
+function isLowImpactTextClearanceOverlap(a: MeasuredNode, b: MeasuredNode, overlap: OverlapMetrics): boolean {
+  const involvesText = a.visualRole === "text" || b.visualRole === "text";
+  if (!involvesText) return false;
+  return overlap.areaCm2 <= 0.16 || overlap.ratioOfSmaller <= 0.10;
 }
 
 function collisionRect(node: MeasuredNode): Rect | undefined {
@@ -1454,9 +1479,8 @@ function detectPageComponentCapacity(theme: SimpleTheme, slideId: string, measur
     .slice(0, 4)
     .map((item) => `${item.role}#${item.nodeId} needs ~${item.neededHeightCm.toFixed(1)}cm`)
     .join("; ");
-  const severity = capacityRatio >= 1.08 ? "error" : "warn";
   pushDiagnostic({
-    severity,
+    severity: "warn",
     code: "PAGE_OVER_CAPACITY",
     slideId,
     nodeId: content.id,
@@ -1667,10 +1691,9 @@ function detectEvidenceRegionBalance(slideId: string, root: MeasuredNode, node: 
   const ratio = evidenceMain / main;
   const recommended = direction === "vertical" ? 0.62 : 0.65;
   if (ratio >= recommended - 0.08) return;
-  const severe = ratio < 0.45;
   const rail = direct.find((item) => /\.rail(?:\.|$)|\.insight(?:\.|$)/.test(item.id));
   pushDiagnostic({
-    severity: severe ? "error" : "warn",
+    severity: "warn",
     code: "EVIDENCE_REGION_TOO_SMALL",
     slideId,
     nodeId: root.id,
@@ -2661,8 +2684,12 @@ function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, s
     code: "SQUASHED",
     slideId,
     nodeId: node.id,
-    message: `Node '${node.id}' was assigned a compressed rect ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm; it may technically render but is not visually usable.`,
-    suggestion: capacitySuggestion(node, "Re-author the slide while preserving the current component's semantics: increase its region, adjust split/grid ratio, reduce sibling content, lower columns, or move supporting content to another slide. Do not rely on squeezed cards or tiny labels."),
+    message: severity === "warn"
+      ? `Node '${node.id}' is slightly compressed (${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm vs ${minHeight.toFixed(2)}cm target height), but remains renderable.`
+      : `Node '${node.id}' was assigned a compressed rect ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm; it may technically render but is not visually usable.`,
+    suggestion: severity === "warn"
+      ? "No blocking fix required if visual review confirms the text remains readable; adjust spacing only when the rendered slide looks crowded."
+      : capacitySuggestion(node, "Re-author the slide while preserving the current component's semantics: increase its region, adjust split/grid ratio, reduce sibling content, lower columns, or move supporting content to another slide. Do not rely on squeezed cards or tiny labels."),
     measured: {
       rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
       minHeightCm: minHeight,
@@ -2675,7 +2702,9 @@ function mildTextSquash(node: DomNode, rect: Rect, minHeight: number): boolean {
   if (node.type !== "text") return false;
   const delta = minHeight - rect.h;
   if (delta <= 0) return true;
-  if (isHeadingTextStyle(textStyleKey(node)) && rect.h >= 0.34 && delta <= 0.18) return true;
+  if (isHeadingTextStyle(textStyleKey(node)) && rect.h >= 0.34 && delta <= 0.22) return true;
+  if (rect.h >= 0.50 && delta <= 0.18) return true;
+  if (rect.w >= 4 && rect.h >= 0.52 && delta <= 0.30) return true;
   if (rect.h >= MIN_READABLE_TEXT_BOX_HEIGHT_CM && delta <= MILD_TEXT_SQUASH_DELTA_CM) return true;
   return rect.h >= MIN_READABLE_SHORT_TEXT_BOX_HEIGHT_CM && delta <= VERY_MILD_TEXT_SQUASH_DELTA_CM;
 }
@@ -5133,6 +5162,12 @@ function pushChartFitDiagnostics(node: DomNode, rect: Rect, resolvedChartType: C
   const hardTooSmall = rect.w < requirement.hardMinWidth || rect.h < requirement.hardMinHeight;
   const tooFlat = Boolean(aspect && rect.w >= minWidth && aspectRatio > aspect.maxAspectRatio && rect.h + 0.04 < aspectNeededHeight);
   if (!tooSmall && !tooFlat) return;
+  const hardWidthDeficit = Math.max(0, requirement.hardMinWidth - rect.w);
+  const hardHeightDeficit = Math.max(0, requirement.hardMinHeight - rect.h);
+  const hardDeficitTolerance = Math.max(0.18, Math.min(0.32, Math.max(requirement.hardMinHeight, requirement.hardMinWidth) * 0.07));
+  const mildHardTooSmall = hardTooSmall && hardWidthDeficit <= hardDeficitTolerance && hardHeightDeficit <= hardDeficitTolerance;
+  const aspectDeficit = Math.max(0, aspectNeededHeight - rect.h);
+  const mildFlatness = tooFlat && aspectDeficit <= Math.max(0.22, rect.h * 0.14);
   const role = nearestSemanticRole(node);
   const neededHeight = Math.max(minHeight, aspectNeededHeight);
   const minWidthAtCurrentHeight = aspect ? rect.h * aspect.maxAspectRatio : minWidth;
@@ -5141,7 +5176,7 @@ function pushChartFitDiagnostics(node: DomNode, rect: Rect, resolvedChartType: C
   const aspectMessage = aspect && tooFlat
     ? ` Its chart-body aspect ratio is ${aspectRatio.toFixed(1)}:1; ${resolvedChartType} charts with this density should stay at or below ${aspect.maxAspectRatio.toFixed(1)}:1, so this body needs about ${aspectNeededHeight.toFixed(1)}cm height at the current width.`
     : "";
-  const severity = role === "chart-card" && (hardTooSmall || tooFlat) ? "error" : "warn";
+  const severity = role === "chart-card" && ((hardTooSmall && !mildHardTooSmall) || (tooFlat && !mildFlatness)) ? "error" : "warn";
   pushDiagnostic({
     severity,
     code: "SQUASHED",
@@ -5934,15 +5969,22 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
   const hardNeeded = sumMin();
   const delta = hardNeeded - availableMain;
   const tolerance = Math.max(0.18, availableMain * 0.15);
-  if (delta < tolerance) {
+  const mildFormulaPressure = isMildFormulaFitDeficit(parent, delta, availableMain);
+  const mildMetricPressure = isMildMetricCardFitDeficit(parent, delta, availableMain);
+  if (delta < tolerance || mildFormulaPressure || mildMetricPressure) {
+    const toleranceLabel = mildFormulaPressure ? "formula fit" : mildMetricPressure ? "metric-card fit" : "hard fit";
     pushDiagnostic({
       severity: "warn",
       code: "OVERFLOW",
       slideId: currentSlideId || undefined,
       nodeId: parent.id,
-      message: `Container '${parent.id}' is ${Math.max(0, readableNeeded - availableMain).toFixed(2)}cm over its readable height (${availableMain.toFixed(2)}cm), but remains within the hard fit tolerance; autoFit will absorb it.`,
-      suggestion: "No fix required unless the rendered output looks crowded; the readable-height delta is absorbed by autoFit shrink.",
-      measured: { available: availableMain, needed: readableNeeded, hardNeeded, deltaCm: Math.max(0, readableNeeded - availableMain), hardDeltaCm: Math.max(0, delta) },
+      message: `Container '${parent.id}' is ${Math.max(0, readableNeeded - availableMain).toFixed(2)}cm over its readable height (${availableMain.toFixed(2)}cm), but remains within the ${toleranceLabel} tolerance; autoFit will absorb it.`,
+      suggestion: mildFormulaPressure
+        ? "No blocking fix required if the rendered formula remains readable; use size:'sm' or split equations only when visual review confirms crowding."
+        : mildMetricPressure
+          ? "No blocking fix required if the rendered metric card remains readable; shorten label/body or give the card more height only when visual review confirms crowding."
+        : "No fix required unless the rendered output looks crowded; the readable-height delta is absorbed by autoFit shrink.",
+      measured: { available: availableMain, needed: readableNeeded, hardNeeded, deltaCm: Math.max(0, readableNeeded - availableMain), hardDeltaCm: Math.max(0, delta), ...(mildFormulaPressure ? { mildFormulaPressure: true } : {}), ...(mildMetricPressure ? { mildMetricPressure: true } : {}) },
     });
     return;
   }
@@ -5973,6 +6015,26 @@ function scaleHintForOverflow(delta: number, available: number): string {
   return "";
 }
 
+function isMildFormulaFitDeficit(parent: DomNode, delta: number, available: number): boolean {
+  if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0 || available < 0.85) return false;
+  const hasFormulaChild = (parent.children || []).some((child) =>
+    child.type === "equation"
+    || child.role === "equation"
+    || /\.math$/.test(String(child.id || ""))
+    || String(child.role || "").includes("equation")
+  );
+  if (!hasFormulaChild) return false;
+  return delta <= Math.max(0.42, Math.min(0.48, available * 0.36));
+}
+
+function isMildMetricCardFitDeficit(parent: DomNode, delta: number, available: number): boolean {
+  if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0) return false;
+  const role = nearestSemanticRole(parent);
+  if (role === "metric-card" && available >= 0.85 && delta <= 0.75) return true;
+  if (/\.value-wrap$/.test(String(parent.id || "")) && available >= 0.40 && delta <= 0.70) return true;
+  return false;
+}
+
 function shouldAutoDropOptionalChild(parent: DomNode, child: DomNode): boolean {
   if (parent.role === "feature-card" && isFeatureCardSemanticChild(child)) return false;
   const rec = child as Record<string, unknown>;
@@ -5996,13 +6058,18 @@ function pushFeatureCardCapacityDiagnostic(parent: DomNode, direction: "horizont
   const constraintHint = constraint
     ? ` Constrained by ${constraint.ancestorId}.${constraint.prop} = ${constraint.value}cm; relax that ancestor or give the card a larger region.`
     : "";
+  const mildPressure = !constraint && availableMain >= 1.0 && delta <= Math.max(0.22, availableMain * 0.14);
   pushDiagnostic({
-    severity: "error",
+    severity: mildPressure ? "warn" : "error",
     code: "FEATURE_CARD_OVER_CAPACITY",
     slideId: currentSlideId || undefined,
     nodeId: parent.id,
-    message: `Feature-card '${parent.id}' cannot keep its title and body readable in the assigned ${axisLabel} (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm).${constraintHint}`,
-    suggestion: `${capacitySuggestion(parent, "Increase the feature-card region, reduce sibling content, or split the feature group across slides.")}${scaleHint ? ` ${scaleHint}` : ""}`,
+    message: mildPressure
+      ? `Feature-card '${parent.id}' is slightly tight in the assigned ${axisLabel} (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm), but remains renderable.`
+      : `Feature-card '${parent.id}' cannot keep its title and body readable in the assigned ${axisLabel} (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm).${constraintHint}`,
+    suggestion: mildPressure
+      ? "No blocking fix required if visual review confirms the card remains readable; try scale:'sm', shorten supporting proof/tags, or give the card a little more space only when it looks crowded."
+      : `${capacitySuggestion(parent, "Increase the feature-card region, reduce sibling content, or split the feature group across slides.")}${scaleHint ? ` ${scaleHint}` : ""}`,
     measured: {
       available: availableMain,
       needed,
@@ -6839,21 +6906,28 @@ function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, 
   const dataRowCount = firstRowHeader ? Math.max(0, rows.length - 1) : rows.length;
   const chromeHeight = outerRect ? Math.max(0, outerRect.h - rect.h) : undefined;
   const outerNeededHeight = chromeHeight !== undefined ? totalNeeded + chromeHeight : undefined;
+  const totalDelta = Math.max(0, totalNeeded - rect.h);
+  const worstDelta = Math.max(0, worst.needed - worst.available);
+  const mildTablePressure = dataRowCount <= 4 && totalDelta <= 0.65 && worstDelta <= 0.18 && rect.w >= 12;
   pushDiagnostic({
-    severity: "error",
+    severity: mildTablePressure ? "warn" : "error",
     code: "FALLBACK_FAILED",
     slideId: currentSlideId,
     nodeId: node.id,
-    message: `Table '${nodeLabel(node)}' has ${shortRows.length} row(s) whose text still needs more height after supported density/font fitting; row ${worst.index + 1} needs ${worst.needed.toFixed(2)}cm, available ${worst.available.toFixed(2)}cm.`,
-    suggestion: tableCapacitySuggestion(node, {
-      dataRowCount,
-      visibleRowsFit,
-      totalNeeded,
-      rect,
-      columnCount: colWidths.length,
-      density: tableDensity(node.density),
-      outerNeededHeight,
-    }),
+    message: mildTablePressure
+      ? `Table '${nodeLabel(node)}' is slightly tight after supported density/font fitting; row ${worst.index + 1} needs ${worst.needed.toFixed(2)}cm, available ${worst.available.toFixed(2)}cm.`
+      : `Table '${nodeLabel(node)}' has ${shortRows.length} row(s) whose text still needs more height after supported density/font fitting; row ${worst.index + 1} needs ${worst.needed.toFixed(2)}cm, available ${worst.available.toFixed(2)}cm.`,
+    suggestion: mildTablePressure
+      ? "No blocking fix required if the rendered table is readable; keep the table semantics and only give it more height or compact labels if the visual review confirms crowding."
+      : tableCapacitySuggestion(node, {
+        dataRowCount,
+        visibleRowsFit,
+        totalNeeded,
+        rect,
+        columnCount: colWidths.length,
+        density: tableDensity(node.density),
+        outerNeededHeight,
+      }),
     measured: {
       available: rect.h,
       needed: totalNeeded,
@@ -6956,15 +7030,24 @@ function pushCodeBlockOverflowDiagnostic(
   const ownerId = nodeLabel(node).replace(/\.table\d*$/, "");
   const worst = shortRows.reduce((max, row) => row.needed - row.available > max.needed - max.available ? row : max, shortRows[0]!);
   const manyRowsShort = shortRows.length > rows.length / 2;
+  const totalDelta = Math.max(0, totalNeeded - available);
+  const worstDelta = Math.max(0, worst.needed - worst.available);
+  const mildCodeOverflow = estimatedCapacity >= totalLines
+    && totalDelta <= Math.max(0.20, available * 0.10)
+    && worstDelta <= 0.12;
   pushDiagnostic({
-    severity: "error",
-    code: "CODE_BLOCK_OVERFLOW",
+    severity: mildCodeOverflow ? "warn" : "error",
+    code: mildCodeOverflow ? "OVERFLOW" : "CODE_BLOCK_OVERFLOW",
     slideId: currentSlideId,
     nodeId: ownerId,
-    message: manyRowsShort
+    message: mildCodeOverflow
+      ? `Code block '${ownerId}' is slightly tight at density '${density}', but estimated capacity still covers the authored ${totalLines} line(s).`
+      : manyRowsShort
       ? `Code block '${ownerId}' has ${totalLines} line(s), but the assigned area can show about ${estimatedCapacity} line(s) at density '${density}'.`
       : `Code block '${ownerId}' has line(s) that wrap or need more height than assigned; row ${worst.index + 1} needs ${worst.needed.toFixed(2)}cm, available ${worst.available.toFixed(2)}cm.`,
-    suggestion: "Paginate the code into multiple slides or multiple code-block components with explicit line ranges. Use columns:2/3, density:'tiny', or fontSize:5-6 only when still readable. Use maxLines only for an intentional excerpt, not to hide required code.",
+    suggestion: mildCodeOverflow
+      ? "No blocking fix required if visual review confirms the code remains readable; use a little more height or density:'tiny' only when it looks crowded."
+      : "Paginate the code into multiple slides or multiple code-block components with explicit line ranges. Use columns:2/3, density:'tiny', or fontSize:5-6 only when still readable. Use maxLines only for an intentional excerpt, not to hide required code.",
     measured: {
       available,
       needed: totalNeeded,
@@ -7433,6 +7516,18 @@ function pushTextFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, s
   if (!text) return;
   const needed = textNeededHeight(theme, node, rect.w, style);
   if (needed <= rect.h + 0.08) return;
+  if (mildTextFitOverflow(needed, rect)) {
+    pushDiagnostic({
+      severity: "warn",
+      code: "OVERFLOW",
+      slideId: currentSlideId,
+      nodeId: node.id,
+      message: `Text '${nodeLabel(node)}' is tight: estimated ${needed.toFixed(2)}cm into ${rect.h.toFixed(2)}cm, but remains within the readable overflow tolerance.`,
+      suggestion: "No blocking fix required if the rendered text remains readable; shorten copy or give it a little more height only when visual review confirms crowding.",
+      measured: { available: rect.h, needed, deltaCm: needed - rect.h, rect },
+    });
+    return;
+  }
   pushDiagnostic({
     severity: "error",
     code: "FALLBACK_FAILED",
@@ -7444,9 +7539,19 @@ function pushTextFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, s
   });
 }
 
-const MILD_BULLET_OVERFLOW_ABSOLUTE_CM = 0.24;
+const MILD_TEXT_OVERFLOW_ABSOLUTE_CM = 0.20;
+const MILD_TEXT_OVERFLOW_RATIO = 0.10;
+const MIN_READABLE_TEXT_FIT_HEIGHT_CM = 1.0;
+
+function mildTextFitOverflow(needed: number, rect: Rect): boolean {
+  if (rect.h < MIN_READABLE_TEXT_FIT_HEIGHT_CM) return false;
+  const delta = needed - rect.h;
+  return delta <= Math.max(MILD_TEXT_OVERFLOW_ABSOLUTE_CM, rect.h * MILD_TEXT_OVERFLOW_RATIO);
+}
+
+const MILD_BULLET_OVERFLOW_ABSOLUTE_CM = 0.30;
 const MILD_BULLET_OVERFLOW_RATIO = 0.14;
-const MIN_READABLE_BULLET_LIST_HEIGHT_CM = 1.2;
+const MIN_READABLE_BULLET_LIST_HEIGHT_CM = 1.05;
 
 function mildBulletFitOverflow(needed: number, rect: Rect): boolean {
   if (rect.h < MIN_READABLE_BULLET_LIST_HEIGHT_CM) return false;
