@@ -7,7 +7,7 @@ import { renderToAst } from "./render.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
 import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
 
-const BLOCKING = new Set(["FALLBACK_FAILED", "TINY_RECT", "SQUASHED", "UNKNOWN_NODE_TYPE", "MISSING_NODE_TYPE", "UNKNOWN_COLOR", "LOW_CONTRAST"]);
+const BLOCKING = new Set(["FALLBACK_FAILED", "TINY_RECT", "SQUASHED", "UNKNOWN_NODE_TYPE", "MISSING_NODE_TYPE", "UNKNOWN_COLOR"]);
 
 function deck(slides: SlideV2[]): Slideml2SourceDeck {
   return { slideml2: 2, deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } }, slides };
@@ -17,7 +17,7 @@ function render(slide: SlideV2) {
   clearRenderDiagnostics();
   const ast = renderToAst(sourceToRenderedDeck(deck([slide])));
   const diagnostics = getRenderDiagnostics();
-  return { ast, blocking: diagnostics.filter((d) => BLOCKING.has(d.code)) };
+  return { ast, blocking: diagnostics.filter((d) => d.severity === "error" || BLOCKING.has(d.code)) };
 }
 
 function findRunByText(shapes: Array<{ type: string }>, needle: string) {

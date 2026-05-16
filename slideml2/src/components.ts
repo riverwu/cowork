@@ -2276,7 +2276,7 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
       align: "center",
       valign: "middle",
       autoFit: "shrink",
-      minHeight: 1.3,
+      minHeight: 1.05,
     },
     {
       id: `${slideId}.${id}.label`,
@@ -2287,7 +2287,7 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
       color: "text.primary",
       align: "center",
       valign: "top",
-      minHeight: 0.55,
+      minHeight: 0.42,
       autoFit: "shrink",
     },
   ];
@@ -2319,7 +2319,7 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
       align: "center",
       valign: "top",
       color: "text.muted",
-      minHeight: 0.45,
+      minHeight: 0.34,
       autoFit: "shrink",
       optional: true,
     });
@@ -2328,7 +2328,7 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.25,
+    gap: 0.18,
     role: "hero-stat",
     align: "center",
     justify: "center",
@@ -2444,7 +2444,7 @@ export function keyTakeaway(
   const headline = options.headline.trim();
   const detail = textWithRichContent(options.detail?.trim() || "", options.content);
   const detailPlain = detail.text || richTextPlain(detail.content);
-  const denseHeadline = options.density === "compact" || weightedTextLength(headline) > 46;
+  const denseHeadline = options.density === "compact" || weightedTextLength(headline) > 36;
   const denseDetail = weightedTextLength(detailPlain) > 44 || (options.bullets || []).length >= 4;
   const compact = options.density === "compact" || denseHeadline || denseDetail;
   // Thicker accent bar (0.18cm vs the previous 0.12) + a longer rule

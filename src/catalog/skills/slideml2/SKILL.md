@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.47
+version: 1.0.52
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -501,6 +501,15 @@ layout intent says why.
   renderer preserves optional children by default and reports capacity pressure.
   Only use `autoDrop:true`, `dropWhenTight:true`, or `fallback:"drop"` for
   decorative/non-semantic extras you truly allow the renderer to remove.
+- Layout spacing: `stack` has a default gap (`theme.layout.defaultGap`, often
+  0.5cm; generated content/two-column stacks often use 0.35cm). Set `gap`
+  explicitly when spacing matters. A `spacer` between two stack children is an
+  explicit gap replacement, not `gap + spacer + gap`; use `gap:0` only when you
+  want fully manual spacing.
+- Padding is container inset, matching OOXML text-box/body insets: it should
+  separate content from a card/callout/quote surface edge, not act as extra
+  row spacing between children. Avoid large padding in tight regions; renderer
+  may cap content-hug component padding so text remains readable.
 
 ### 2.7 Escape Hatches
 
@@ -794,7 +803,7 @@ Simple combinations beat forced specialty layouts.
 Children are required unless noted. Containers may carry `fixedHeight` /
 `fixedWidth` as escape hatches; prefer flex sizing.
 
-- `stack` — Flow container reading in sequence. type='stack' required={children} optional={direction, gap, area, justify:start|center|end, align, valign:top|middle|bottom, padding}
+- `stack` — Flow container reading in sequence. Default gap comes from theme; set `gap` explicitly for exact rhythm. A `spacer` child replaces adjacent default gap. type='stack' required={children} optional={direction, gap, area, justify:start|center|end, align, valign:top|middle|bottom, padding}
 - `grid` — Matrix of peer modules. Use colSpan/rowSpan for one semantic hero plus satellites. type='grid' required={children} optional={columns, gap, area, columnWeights, rowWeights, rows, fixedHeight}
 - `split` — Primary + support. `ratio` is a target proportion, not a hint. type='split' required={children} optional={direction, ratio, gap, area, padding, align, valign}
 - `panel` — Surface wrapper for a related semantic group. type='panel' optional={tone, fill, line, padding, cornerRadius, elevation:flat|raised|outlined, fixedHeight, children}
@@ -852,7 +861,7 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.8.
 ### 3.6 Evidence & Media
 
 - `image-card` — Inspectable image with optional annotations/callouts. type='image-card' required={src:image-ref} optional={alt, title, badge, insight, annotations, callouts, caption, fit:cover|contain|fill, imageWidth, tone, variant, surface}
-- `quote` — Verbatim or voice-like statement. type='quote' required={text} optional={source}
+- `quote` — Verbatim or voice-like statement. Natural authoring `{type:"quote", text, source?}` is enough; quote padding auto-tightens in narrow/tight regions. type='quote' required={text} optional={source} capacity="short quote+source fits ~2.0cm high; long editorial quote needs a dominant region or split"
 - `source-note` — Quiet provenance / caveat. type='source-note' required={text} optional={align}
 - `equation` — Display math via OMML. Supported LaTeX renders natively; unsupported commands fail validation. Split dense derivations across slides or set explicit `fontSize` / `size`; set `color` for intentional contrast overrides. type='equation' required={latex} optional={label, number, align, caption, style, color, size, fontSize, renderMode:omml} capacity="single display formula >=4.0x1.0cm; formula grid cells >=5.0x1.4cm"
 - `bibliography` — Auto bibliography from `deck.references`. Use with `{kind:"cite",refId}` runs. type='bibliography' optional={title, style:numeric|author-year|short, includeAll}
@@ -969,7 +978,7 @@ needed.
 - `shape` — Raw geometry preset. type='shape' optional={preset, text:string|{text,align?,color?,fontSize?,fontWeight?,fontFamily?} OR children:[{type:"text",text}], fill, fillOpacity, line, lineOpacity, lineWidth, lineDash, borderColor, borderWidth, borderStyle, border:{color|line,width?,dash?|style?}, cornerRadius, rotation, headEnd, tailEnd, thickness, ...}
 - `image` — Raster image without card chrome. type='image' required={src:image-ref} optional={alt, fit:cover|contain|fill, opacity, width, height, clip, cornerRadius, line, lineWidth, lineDash, borderColor, borderWidth, borderStyle, border:{color|line,width?,dash?|style?}, overlay, shadow}
 - `divider` — Horizontal or vertical thin rule. type='divider' optional={direction, thickness, color, length}
-- `spacer` — Empty flex spacing in a stack/grid. type='spacer' optional={fixedHeight, fixedWidth, weight}
+- `spacer` — Explicit empty spacing in a stack/grid. In stacks it replaces adjacent default gap, so `fixedHeight:0.3` means about 0.3cm of added space. type='spacer' optional={fixedHeight, fixedWidth, weight}
 
 ### 3.12 Rich Inline Runs
 

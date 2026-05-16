@@ -29,7 +29,7 @@ import type { RenderDiagnosticCode } from "./diagnostic-codes.js";
  *   MISSING_ANCHOR_TARGET anchorTo overlay references a node id that does not exist
  *   MISSING_DATA_BINDING_SOURCE bound chart/table references a source that did not resolve
  *   PAGE_OVER_CAPACITY multiple large components together exceed a single readable page budget
- *   REGION_OVER_CAPACITY a split/rail/local region has more direct content blocks than its readable budget
+ *   REGION_OVER_CAPACITY a split/rail/local region has more hard-layout component demand than its readable budget
  *   ORG_OVERFLOW     an org/tree layout needs more readable space than the assigned region
  */
 export interface LayoutDiagnostic {
@@ -60,6 +60,8 @@ export interface LayoutDiagnostic {
     lineCount?: number;
     renderedRows?: number;
     estimatedCapacityLines?: number;
+    wrappedLines?: number;
+    availableLines?: number;
     columns?: number;
     columnCount?: number;
     dataRowCount?: number;
@@ -69,13 +71,23 @@ export interface LayoutDiagnostic {
     labelCount?: number;
     seriesCount?: number;
     showLegend?: boolean;
+    chartType?: string;
+    plotWidthCm?: number;
+    plotHeightCm?: number;
     aspectRatio?: number;
+    hardMaxAspectRatio?: number;
     maxAspectRatio?: number;
     recommendedAspectRatio?: number;
     aspectNeededHeightCm?: number;
+    hardAspectNeededHeightCm?: number;
     minWidthAtCurrentHeightCm?: number;
     aspectReason?: string;
+    categoryBandCm?: number;
+    pointSpacingCm?: number;
+    minCategoryBandCm?: number;
+    minPointSpacingCm?: number;
     hardMinHeightCm?: number;
+    hardMinWidthCm?: number;
     bodyNeededHeightCm?: number;
     chromeHeightCm?: number;
     outerNeededHeightCm?: number;
@@ -104,14 +116,28 @@ export interface LayoutDiagnostic {
     ringDiameterCm?: number;
     minRingDiameterCm?: number;
     legendWidthCm?: number;
+    contrastRatio?: number;
+    wcagThreshold?: number;
+    perceptualContrastLc?: number;
+    perceptualReadableFloorLc?: number;
+    perceptualTargetLc?: number;
     worstRow?: { index: number; neededCm: number; availableCm: number };
     density?: string;
     fontSize?: number;
+    originalFontSize?: number;
+    finalFontSize?: number;
     fontScale?: number;
+    lineHeightCm?: number;
+    fitMethod?: string;
     componentCount?: number;
     largeComponentCount?: number;
     capacityRatio?: number;
-    components?: Array<{ nodeId: string; role: string; assignedHeightCm: number; neededHeightCm: number }>;
+    comfortPressureCm?: number;
+    hardComponentCount?: number;
+    adaptiveTextPressure?: boolean;
+    mildFormulaPressure?: boolean;
+    mildMetricPressure?: boolean;
+    components?: Array<{ nodeId: string; role: string; assignedHeightCm: number; neededHeightCm: number; preferredHeightCm?: number; hardMinHeightCm?: number; capacityMode?: string }>;
   };
   /**
    * For LOW_CONTRAST: ordered chain of surfaces that determined the comparison

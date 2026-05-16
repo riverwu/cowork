@@ -9,13 +9,12 @@ import type { Slideml2SourceDeck, SlideV2 } from "./types.js";
 
 /**
  * oc7dyx log: agent's brand.primary = 6366F1 (purple) had 4.47:1 vs
- * white — just below WCAG AA 4.5. The contrast auto-fix promoted EVERY
- * occurrence to the default brand blue 2563EB, silently swapping the
- * agent's brand color across 69 text instances.
+ * white — just below WCAG AA 4.5. The old contrast auto-fix promoted EVERY
+ * occurrence to another color, silently swapping the agent's brand color.
  *
- * New behavior: when the failing color has ≥ 2:1 contrast against bg
- * (i.e. borderline rather than invisible), the auto-fix tries a darker
- * shade of the SAME hue first. The agent's purple stays purple.
+ * New behavior: borderline-but-readable brand/accent text stays exactly as
+ * authored and reports only a warning; auto-fix is reserved for unreadable
+ * same/near-same color failures.
  */
 
 function deck(slide: SlideV2, themeOverride?: Record<string, unknown>): Slideml2SourceDeck {
@@ -36,24 +35,8 @@ function findText(ast: { slides: Array<{ shapes: Array<{ name?: string }> }> }, 
     | { paragraphs?: Array<{ runs: Array<{ color?: string }> }> } | undefined;
 }
 
-function chroma(hex: string): number {
-  const r = parseInt(hex.slice(0, 2), 16);
-  const g = parseInt(hex.slice(2, 4), 16);
-  const b = parseInt(hex.slice(4, 6), 16);
-  return Math.max(r, g, b) - Math.min(r, g, b);
-}
-
-function dominantChannel(hex: string): "r" | "g" | "b" {
-  const r = parseInt(hex.slice(0, 2), 16);
-  const g = parseInt(hex.slice(2, 4), 16);
-  const b = parseInt(hex.slice(4, 6), 16);
-  if (r >= g && r >= b) return "r";
-  if (g >= r && g >= b) return "g";
-  return "b";
-}
-
 describe("oc7dyx — hue-preserving contrast auto-fix", () => {
-  it("brand.primary 6366F1 (purple) on white auto-fixes to a darker PURPLE, not the default blue", () => {
+  it("brand.primary 6366F1 (purple) on white stays authored when readable", () => {
     const slide: SlideV2 = {
       id: "s",
       title: "x",
@@ -71,25 +54,15 @@ describe("oc7dyx — hue-preserving contrast auto-fix", () => {
     })));
     const eyebrow = findText(ast, "s.eyebrow");
     expect(eyebrow).toBeDefined();
-    const fixed = eyebrow!.paragraphs?.[0]?.runs[0]?.color?.toUpperCase();
-    expect(fixed).toBeDefined();
-    // Should NOT be the original (failed contrast).
-    expect(fixed).not.toBe("6366F1");
-    // Should NOT be the default brand blue (2563EB) — that's what the
-    // old sibling-accent fallback would have picked. Should be a
-    // darker purple variant.
-    expect(fixed).not.toBe("2563EB");
-    // Hue check: purple 6366F1 has dominant blue channel and high
-    // chroma. The fixed color should also lean blue (still in the
-    // blue/purple family).
-    expect(dominantChannel(fixed!)).toBe("b");
-    expect(chroma(fixed!)).toBeGreaterThan(40);
-    // Diagnostic still emitted.
+    const rendered = eyebrow!.paragraphs?.[0]?.runs[0]?.color?.toUpperCase();
+    expect(rendered).toBe("6366F1");
+    const warnings = getRenderDiagnostics().filter((d) => d.code === "LOW_CONTRAST" && d.severity === "warn");
+    expect(warnings.length).toBeGreaterThan(0);
     const fixes = getRenderDiagnostics().filter((d) => d.code === "LOW_CONTRAST_FIXED");
-    expect(fixes.length).toBeGreaterThan(0);
+    expect(fixes).toHaveLength(0);
   });
 
-  it("warning E67E22 (orange) borderline on white auto-fixes to a darker ORANGE, not a non-orange accent", () => {
+  it("warning E67E22 (orange) borderline on white stays authored when readable", () => {
     const slide: SlideV2 = {
       id: "s",
       title: "x",
@@ -106,15 +79,10 @@ describe("oc7dyx — hue-preserving contrast auto-fix", () => {
       colors: { background: "FFFFFF", warning: "E67E22" },
     })));
     const note = findText(ast, "s.note");
-    const fixed = note!.paragraphs?.[0]?.runs[0]?.color?.toUpperCase();
-    expect(fixed).toBeDefined();
-    expect(fixed).not.toBe("E67E22");
-    // Should still be orange-ish (R dominant, R > G > B).
-    const r = parseInt(fixed!.slice(0, 2), 16);
-    const g = parseInt(fixed!.slice(2, 4), 16);
-    const b = parseInt(fixed!.slice(4, 6), 16);
-    expect(r).toBeGreaterThan(g);
-    expect(g).toBeGreaterThan(b);
+    const rendered = note!.paragraphs?.[0]?.runs[0]?.color?.toUpperCase();
+    expect(rendered).toBe("E67E22");
+    const warnings = getRenderDiagnostics().filter((d) => d.code === "LOW_CONTRAST" && d.severity === "warn");
+    expect(warnings.length).toBeGreaterThan(0);
   });
 
   it("when fg matches bg exactly (1:1) the hue-preserving path is skipped, sibling-accent fallback is used", () => {

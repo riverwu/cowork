@@ -8,8 +8,11 @@ import { meaningfulOverlap } from "./layout/geometry.js";
 import { measureDeck, renderToAst, renderToPptx } from "./render.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
 import type { Slideml2SourceDeck } from "./types.js";
+import { validateDeck } from "./validate.js";
 
 describe("validation geometry and diagnostic contracts", () => {
+  const TINY_SVG = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiPjxyZWN0IHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiIGZpbGw9IiMyNTYzZWIiLz48L3N2Zz4=";
+
   it("uses one meaningful-overlap threshold for tangent and real overlap cases", () => {
     expect(meaningfulOverlap(
       { x: 0, y: 0, w: 2, h: 2 },
@@ -36,6 +39,7 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(isQualityRenderDiagnostic("FALLBACK_FAILED")).toBe(true);
     expect(isQualityRenderDiagnostic("SIBLING_INK_OVERLAP")).toBe(true);
     expect(isQualityRenderDiagnostic("TINY_RECT")).toBe(true);
+    expect(isQualityRenderDiagnostic("LOW_CONTRAST")).toBe(true);
   });
 
   it("emits structured overlap metrics for collision diagnostics", () => {
@@ -509,6 +513,35 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(long?.visualRect?.h).toBeLessThanOrEqual((long?.rect.h ?? 0) + 0.03);
   });
 
+  it("pre-shrinks mildly tight body text and does not emit blocking fit failure", () => {
+    clearRenderDiagnostics();
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "body-prefit",
+        layout: "freeform",
+        dom: {
+          id: "body-prefit.root",
+          type: "slide",
+          children: [{
+            id: "body-prefit.text",
+            type: "text",
+            at: [1, 1, 7, 1.6],
+            style: "paragraph",
+            text: "This paragraph is just a little too long for its original body size but should remain readable after a small renderer-side font fit.",
+          }],
+        },
+      }],
+    });
+
+    const diagnostics = getRenderDiagnostics();
+    const repaired = diagnostics.find((item) => item.code === "TRUNCATED" && item.nodeId === "body-prefit.text");
+    expect(repaired?.severity).toBe("warn");
+    expect(repaired?.measured?.fitMethod).toBe("pre-shrink");
+    expect(repaired?.measured?.finalFontSize).toBeGreaterThanOrEqual(8);
+    expect(diagnostics.some((item) => item.code === "FALLBACK_FAILED" && item.nodeId === "body-prefit.text")).toBe(false);
+  });
+
   it("reports text and bullet squash diagnostics with minimum readable dimensions", () => {
     renderToAst({
       deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
@@ -543,7 +576,7 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(bullets?.measured?.minWidthCm).toBe(1.4);
   });
 
-  it("downgrades mild readable text squash to warning instead of blocking", () => {
+  it("suppresses mild readable text squash instead of emitting an unreliable warning", () => {
     clearRenderDiagnostics();
     renderToAst(sourceToRenderedDeck({
       deck: {
@@ -563,8 +596,7 @@ describe("validation geometry and diagnostic contracts", () => {
     }));
 
     const hit = getRenderDiagnostics().find((item) => item.code === "SQUASHED" && item.nodeId === "mild-title-squash.title");
-    expect(hit?.severity).toBe("warn");
-    expect(isBlockingRenderDiagnostic(hit?.code, hit?.severity)).toBe(false);
+    expect(hit).toBeUndefined();
   });
 
   it("does not block when slide-level title chrome is intentionally zero-height", () => {
@@ -596,6 +628,163 @@ describe("validation geometry and diagnostic contracts", () => {
     const titleTiny = getRenderDiagnostics().find((item) => item.code === "TINY_RECT" && item.nodeId === "metadata-title.title");
     expect(titleTiny?.severity).toBe("warn");
     expect(isBlockingRenderDiagnostic(titleTiny?.code, titleTiny?.severity)).toBe(false);
+  });
+
+  it("lets no-title slides use the title zone instead of starting at contentTop", () => {
+    const measured = measureDeck(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        themeOverride: {
+          layout: { pageMarginX: 2, titleTop: 2.2, titleHeight: 1.2, contentTop: 3.8, contentBottom: 13 },
+        },
+      },
+      slides: [{
+        id: "no-title-prologue",
+        children: [{ type: "text", text: "No title slide should not reserve title chrome." }],
+      }],
+    }));
+
+    const content = measured[0].nodes.find((item) => item.id === "no-title-prologue.content");
+    expect(content?.rect.y).toBeCloseTo(2.2, 3);
+    expect(content?.rect.h).toBeCloseTo(10.8, 3);
+  });
+
+  it("treats explicit spacers as gap replacements in stacks", () => {
+    const measured = measureDeck({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "spacer-gap",
+        layout: "content",
+        dom: {
+          id: "spacer-gap.root",
+          type: "slide",
+          children: [{
+            id: "spacer-gap.stack",
+            type: "stack",
+            area: "content",
+            gap: 0.35,
+            children: [
+              { id: "spacer-gap.a", type: "shape", preset: "rect", fixedHeight: 1 },
+              { id: "spacer-gap.spacer", type: "spacer", fixedHeight: 0.3 },
+              { id: "spacer-gap.b", type: "shape", preset: "rect", fixedHeight: 1 },
+            ],
+          }],
+        },
+      }],
+    });
+    const byId = new Map(measured[0].nodes.map((item) => [item.id, item]));
+    const a = byId.get("spacer-gap.a")!.rect;
+    const spacer = byId.get("spacer-gap.spacer")!.rect;
+    const b = byId.get("spacer-gap.b")!.rect;
+
+    expect(spacer.y).toBeCloseTo(a.y + a.h, 3);
+    expect(b.y).toBeCloseTo(spacer.y + spacer.h, 3);
+  });
+
+  it("keeps a naturally-authored no-title prologue quote renderable", () => {
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        themeOverride: {
+          layout: { pageMarginX: 2, titleTop: 2.2, titleHeight: 1.2, contentTop: 3.8, contentBottom: 13 },
+        },
+      },
+      slides: [{
+        id: "prologue-quote",
+        children: [{
+          type: "two-column",
+          ratio: [0.6, 0.4],
+          gap: 0.6,
+          left: { children: [{ type: "image-card", src: TINY_SVG, fit: "cover", alt: "landscape" }] },
+          right: {
+            children: [
+              { type: "eyebrow", text: "序 · 地理", tone: "brand" },
+              { type: "spacer", fixedHeight: 0.3 },
+              { type: "h1", text: "在滇西北的群山之间，有一片被雪山托举的天空。" },
+              { type: "spacer", fixedHeight: 0.4 },
+              { type: "paragraph", text: "香格里拉，藏语意为\"心中的日月\"。平均海拔3449米，位于云南省迪庆藏族自治州，群峰耸立，三江并流。" },
+              { type: "spacer", fixedHeight: 0.4 },
+              { type: "quote", text: "云岭如一道银色的脊梁，横卧在滇西北的天际。", source: "高原行者" },
+            ],
+          },
+        }],
+      }],
+    }));
+
+    const blocking = getRenderDiagnostics().filter((item) => item.severity === "error");
+    expect(blocking, blocking.map((item) => `${item.code}:${item.nodeId}`).join("\n")).toHaveLength(0);
+    expect(getRenderDiagnostics().some((item) => item.code === "SIBLING_INK_OVERLAP" && String(item.nodeId || "").includes(".quote"))).toBe(false);
+  });
+
+  it("keeps a natural split rail with hero-stat and key-takeaway non-blocking", () => {
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "8B4513" },
+        themeOverride: {
+          colors: {
+            brand: { primary: "8B4513" },
+            background: "FDFAF6",
+            surface: "FFFFFF",
+            text: { primary: "2C2C2C", secondary: "6B6B6B", inverse: "FDFAF6" },
+            divider: "E8E0D5",
+            muted: "9A8F82",
+          },
+          text: {
+            "slide-title": { fontSize: 32, fontWeight: "bold", color: "text.primary" },
+            "section-title": { fontSize: 24, fontWeight: "semibold", color: "text.primary" },
+            "card-title": { fontSize: 18, fontWeight: "semibold", color: "text.primary" },
+            paragraph: { fontSize: 14, lineSpacing: 1.6, color: "text.primary" },
+            caption: { fontSize: 11, color: "text.secondary" },
+            "metric-value": { fontSize: 28, fontWeight: "bold", color: "brand.primary" },
+          },
+          layout: { pageMarginX: 1.5, titleTop: 1.2, titleHeight: 1.2, contentTop: 3.2, contentBottom: 13, defaultGap: 0.5 },
+        },
+      },
+      slides: [{
+        id: "snow-mountain",
+        title: "梅里雪山 · 日照金山",
+        children: [{
+          type: "split",
+          ratio: [0.6, 0.4],
+          gap: 0.6,
+          children: [
+            { type: "image-card", src: TINY_SVG, fit: "cover", alt: "梅里雪山日照金山" },
+            {
+              type: "stack",
+              gap: 0.4,
+              children: [
+                { type: "eyebrow", text: "神山", tone: "muted" },
+                { type: "h1", text: "梅里雪山" },
+                { type: "spacer", fixedHeight: 0.3 },
+                { type: "hero-stat", value: "6,740m", label: "卡瓦格博峰海拔", caption: "云南最高峰 · 藏区八大神山之首" },
+                { type: "spacer", fixedHeight: 0.3 },
+                {
+                  type: "key-takeaway",
+                  headline: "当第一缕阳光洒向神山，金色的光芒如同神明的祝福——这一刻，你便会明白，什么是永恒。",
+                  variant: "minimal",
+                },
+              ],
+            },
+          ],
+        }],
+      }],
+    }));
+
+    const diagnostics = getRenderDiagnostics();
+    const blocking = diagnostics.filter((item) => item.severity === "error");
+    expect(blocking, blocking.map((item) => `${item.code}:${item.nodeId}`).join("\n")).toHaveLength(0);
+    expect(diagnostics.some((item) => item.code === "REGION_OVER_CAPACITY" && item.nodeId === "snow-mountain.node-1.2")).toBe(false);
+    expect(diagnostics.some((item) => item.code === "SIBLING_INK_OVERLAP" && item.severity === "error")).toBe(false);
+    expect(diagnostics.some((item) => item.code === "SQUASHED" && item.nodeId === "snow-mountain.node-1.2.4.value" && item.severity === "error")).toBe(false);
   });
 
   it("treats mild readable-height pressure in auto-oriented process cards as a warning", () => {
@@ -713,8 +902,7 @@ describe("validation geometry and diagnostic contracts", () => {
     });
 
     const hit = getRenderDiagnostics().find((item) => item.code === "SQUASHED" && item.nodeId === "short-title-drift.title");
-    expect(hit?.severity).toBe("warn");
-    expect(isBlockingRenderDiagnostic(hit?.code, hit?.severity)).toBe(false);
+    expect(hit).toBeUndefined();
   });
 
   it("downgrades readable bullet overflow drift to warning", () => {
@@ -741,9 +929,10 @@ describe("validation geometry and diagnostic contracts", () => {
       }],
     });
 
-    const hit = getRenderDiagnostics().find((item) => item.code === "OVERFLOW" && item.nodeId === "bullet-fit-drift.bullets");
+    const hit = getRenderDiagnostics().find((item) => (item.code === "OVERFLOW" || item.code === "TRUNCATED") && item.nodeId === "bullet-fit-drift.bullets");
     expect(hit?.severity).toBe("warn");
     expect(isBlockingRenderDiagnostic(hit?.code, hit?.severity)).toBe(false);
+    expect(hit?.measured?.fitMethod).toBeDefined();
   });
 
   it("preserves optional metric labels and reports capacity failure to the agent", () => {
@@ -1023,6 +1212,152 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(isBlockingRenderDiagnostic(hit?.code, hit?.severity)).toBe(false);
   });
 
+  it("keeps intentional muted editorial text contrast quality-only", () => {
+    const ast = renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "muted-editorial-contrast",
+        layout: "freeform",
+        dom: {
+          id: "muted-editorial-contrast.root",
+          type: "slide",
+          background: "F7F4EE",
+          children: [{
+            id: "muted-editorial-contrast.body",
+            type: "text",
+            text: "香格里拉，藏语意为心中的日月。平均海拔3449米，群峰耸立，三江并流。",
+            style: "paragraph",
+            color: "9A8A7A",
+            at: [1, 1, 9, 1.4],
+          }],
+        },
+      }],
+    });
+    const hit = getRenderDiagnostics().find((item) =>
+      item.code === "LOW_CONTRAST" && item.nodeId === "muted-editorial-contrast.body"
+    );
+    expect(hit?.severity).toBe("warn");
+    expect(hit?.measured?.perceptualContrastLc).toBeGreaterThan(hit?.measured?.perceptualReadableFloorLc ?? 0);
+    expect(isBlockingRenderDiagnostic(hit?.code, hit?.severity)).toBe(false);
+    const shape = ast.slides[0]?.shapes.find((item) => item.type === "text" && item.name === "muted-editorial-contrast.body");
+    expect(shape?.type).toBe("text");
+    if (shape?.type === "text") {
+      expect(shape.paragraphs[0]?.runs[0]?.color).toBe("9A8A7A");
+    }
+  });
+
+  it("keeps genuinely unreadable low contrast blocking when it cannot be safely auto-fixed", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "unreadable-custom-contrast",
+        layout: "freeform",
+        dom: {
+          id: "unreadable-custom-contrast.root",
+          type: "slide",
+          background: "FFFFFF",
+          children: [{
+            id: "unreadable-custom-contrast.body",
+            type: "text",
+            text: "Small body text cannot rely on this near-white custom gray.",
+            style: "caption",
+            fontSize: 10,
+            color: "D0D0D0",
+            at: [1, 1, 8, 0.8],
+          }],
+        },
+      }],
+    });
+    const hit = getRenderDiagnostics().find((item) =>
+      item.code === "LOW_CONTRAST" && item.nodeId === "unreadable-custom-contrast.body"
+    );
+    expect(hit?.severity).toBe("error");
+    expect(isBlockingRenderDiagnostic(hit?.code, hit?.severity)).toBe(true);
+  });
+
+  it("evaluates translucent solid surfaces by their effective blended color", () => {
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "translucent-surface-contrast",
+        layout: "freeform",
+        dom: {
+          id: "translucent-surface-contrast.root",
+          type: "slide",
+          background: "FFFFFF",
+          children: [
+            { id: "translucent-surface-contrast.tint", type: "shape", preset: "rect", fill: "000000", fillOpacity: 0.35, at: [1, 1, 8, 1.2] },
+            { id: "translucent-surface-contrast.body", type: "text", text: "Black text on a translucent gray tint is readable.", style: "paragraph", color: "000000", at: [1.2, 1.15, 7.6, 0.8] },
+          ],
+        },
+      }],
+    });
+    expect(getRenderDiagnostics().some((item) =>
+      (item.code === "LOW_CONTRAST" || item.code === "LOW_CONTRAST_FIXED") && item.nodeId === "translucent-surface-contrast.body"
+    )).toBe(false);
+  });
+
+  it("excludes layout-only spacers from collision diagnostics", () => {
+    clearRenderDiagnostics();
+    measureDeck({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "spacer-collision",
+        layout: "freeform",
+        dom: {
+          id: "spacer-collision.root",
+          type: "slide",
+          children: [
+            { id: "spacer-collision.space", type: "spacer", at: [1, 1, 7, 1] },
+            { id: "spacer-collision.text", type: "text", text: "Visible text", style: "paragraph", at: [1, 1.2, 7, 1] },
+          ],
+        },
+      }],
+    });
+    expect(getRenderDiagnostics().some((item) =>
+      (item.code === "COLLISION" || item.code === "SIBLING_INK_OVERLAP")
+      && (item.nodeId === "spacer-collision.space" || item.measured?.other?.nodeId === "spacer-collision.space")
+    )).toBe(false);
+  });
+
+  it("does not treat top-level positioned spacers as source overlap blockers", () => {
+    const report = validateDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "source-spacer-overlap",
+        title: "Source spacer overlap",
+        children: [
+          { id: "source-spacer-overlap.body", type: "text", area: "content", text: "Real content in the content region.", style: "paragraph" },
+          { id: "source-spacer-overlap.space", type: "spacer", at: [0, 0, 20, 11] },
+        ],
+      }],
+    });
+    expect(report.errors.some((item) => item.code === "TOP_LEVEL_LAYOUT_OVERLAP" && item.nodeName === "source-spacer-overlap.space")).toBe(false);
+  });
+
+  it("keeps thin divider-like shape overlaps non-blocking", () => {
+    clearRenderDiagnostics();
+    measureDeck({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "thin-shape-overlap",
+        layout: "freeform",
+        dom: {
+          id: "thin-shape-overlap.root",
+          type: "slide",
+          children: [
+            { id: "thin-shape-overlap.text", type: "text", text: "A divider can pass near text without becoming a blocking collision.", style: "paragraph", at: [1, 1, 8, 0.9] },
+            { id: "thin-shape-overlap.rule", type: "shape", preset: "rect", fill: "brand.primary", at: [1, 1.4, 8, 0.05] },
+          ],
+        },
+      }],
+    });
+    expect(getRenderDiagnostics().some((item) =>
+      (item.code === "COLLISION" || item.code === "SIBLING_INK_OVERLAP") && item.severity === "error"
+    )).toBe(false);
+  });
+
   it("keeps unresolved invisible shapes blocking and fixed invisible shapes as warnings", () => {
     renderToAst({
       deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
@@ -1093,6 +1428,162 @@ describe("validation geometry and diagnostic contracts", () => {
     const hit = diagnostics.find((item) => item.code === "DECORATIVE_OVERLAP" && item.nodeId === "low-alpha-overlay.tint");
     expect(hit?.severity).toBe("info");
     expect(diagnostics.some((item) => item.code === "OVERLAY_OCCLUDES_FLOW" && item.nodeId === "low-alpha-overlay.tint")).toBe(false);
+  });
+
+  it("does not treat a first-painted full-slide band scrim as content collision", () => {
+    clearRenderDiagnostics();
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "C8102E" } },
+      slides: [{
+        id: "cover-band-scrim",
+        layout: "freeform",
+        dom: {
+          id: "cover-band-scrim.root",
+          type: "slide",
+          children: [
+            {
+              id: "cover-band-scrim.scrim",
+              type: "band",
+              fill: "1A1A2E",
+              opacity: 0.55,
+              children: [],
+            },
+            {
+              id: "cover-band-scrim.copy",
+              type: "stack",
+              area: "content",
+              gap: 0.3,
+              children: [
+                { id: "cover-band-scrim.eyebrow", type: "text", text: "云南 · 迪庆藏族自治州", style: "label", color: "D4A853" },
+                { id: "cover-band-scrim.title", type: "text", text: "寻找梦中的香格里拉", style: "deck-title", color: "text.inverse" },
+                { id: "cover-band-scrim.subtitle", type: "text", text: "高原的天空，雪山的呼吸，藏地的呢喃", style: "lead", color: "text.inverse" },
+              ],
+            },
+          ],
+        },
+      }],
+    });
+    const blockingOverlaps = getRenderDiagnostics().filter((item) =>
+      (item.code === "COLLISION" || item.code === "SIBLING_INK_OVERLAP" || item.code === "OVERLAY_OCCLUDES_FLOW")
+      && (item.nodeId === "cover-band-scrim.scrim" || item.measured?.other?.nodeId === "cover-band-scrim.scrim")
+    );
+    expect(blockingOverlaps, JSON.stringify(blockingOverlaps, null, 2)).toHaveLength(0);
+  });
+
+  it("still reports a full-slide band that paints over existing content", () => {
+    clearRenderDiagnostics();
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "C8102E" } },
+      slides: [{
+        id: "foreground-band-cover",
+        layout: "freeform",
+        dom: {
+          id: "foreground-band-cover.root",
+          type: "slide",
+          children: [
+            {
+              id: "foreground-band-cover.copy",
+              type: "text",
+              area: "content",
+              text: "This text is painted first and should not be covered by a later full-slide band.",
+              style: "paragraph",
+            },
+            {
+              id: "foreground-band-cover.scrim",
+              type: "band",
+              fill: "1A1A2E",
+              opacity: 0.55,
+              children: [],
+            },
+          ],
+        },
+      }],
+    });
+    const hit = getRenderDiagnostics().find((item) =>
+      item.code === "COLLISION"
+      && (item.nodeId === "foreground-band-cover.copy" || item.measured?.other?.nodeId === "foreground-band-cover.scrim")
+    );
+    expect(hit?.severity).toBe("error");
+  });
+
+  it("does not block readable stat-strip metric values on line-box target height alone", () => {
+    clearRenderDiagnostics();
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "C8102E" } },
+      slides: [{
+        id: "stat-strip-readable",
+        layout: "freeform",
+        dom: {
+          id: "stat-strip-readable.root",
+          type: "slide",
+          children: [{
+            id: "stat-strip-readable.strip",
+            type: "stack",
+            at: [14.876, 5.508, 9.324, 2.05],
+            direction: "horizontal",
+            gap: 0.5,
+            role: "stat-strip",
+            align: "stretch",
+            valign: "middle",
+            children: [
+              {
+                id: "stat-strip-readable.0",
+                type: "stack",
+                direction: "vertical",
+                gap: 0.15,
+                align: "center",
+                justify: "center",
+                valign: "middle",
+                fixedHeight: 2.05,
+                layoutWeight: 4,
+                children: [
+                  { id: "stat-strip-readable.0.value", type: "text", text: "3,300", style: "metric-value", color: "brand.primary", align: "center", valign: "bottom", autoFit: "shrink", minHeight: 0.9 },
+                  { id: "stat-strip-readable.0.label", type: "text", text: "平均海拔（米）", style: "metric-label", color: "text.muted", align: "center", valign: "top", autoFit: "shrink", minHeight: 0.36 },
+                ],
+              },
+              { id: "stat-strip-readable.sep1", type: "shape", preset: "rect", fill: "divider", fixedWidth: 0.04, fixedHeight: 1.35, align: "center", valign: "middle" },
+              {
+                id: "stat-strip-readable.1",
+                type: "stack",
+                direction: "vertical",
+                gap: 0.15,
+                align: "center",
+                justify: "center",
+                valign: "middle",
+                fixedHeight: 2.05,
+                layoutWeight: 4,
+                children: [
+                  { id: "stat-strip-readable.1.value", type: "text", text: "13", style: "metric-value", color: "brand.primary", align: "center", valign: "bottom", autoFit: "shrink", minHeight: 0.9 },
+                  { id: "stat-strip-readable.1.label", type: "text", text: "座海拔4000+山峰", style: "metric-label", color: "text.muted", align: "center", valign: "top", autoFit: "shrink", minHeight: 0.36 },
+                ],
+              },
+              { id: "stat-strip-readable.sep2", type: "shape", preset: "rect", fill: "divider", fixedWidth: 0.04, fixedHeight: 1.35, align: "center", valign: "middle" },
+              {
+                id: "stat-strip-readable.2",
+                type: "stack",
+                direction: "vertical",
+                gap: 0.15,
+                align: "center",
+                justify: "center",
+                valign: "middle",
+                fixedHeight: 2.05,
+                layoutWeight: 4,
+                children: [
+                  { id: "stat-strip-readable.2.value", type: "text", text: "90%", style: "metric-value", color: "brand.primary", align: "center", valign: "bottom", autoFit: "shrink", minHeight: 0.9 },
+                  { id: "stat-strip-readable.2.label", type: "text", text: "森林覆盖率", style: "metric-label", color: "text.muted", align: "center", valign: "top", autoFit: "shrink", minHeight: 0.36 },
+                ],
+              },
+            ],
+          }],
+        },
+      }],
+    });
+    const blocking = getRenderDiagnostics().filter((item) =>
+      item.code === "SQUASHED"
+      && item.severity === "error"
+      && item.nodeId?.startsWith("stat-strip-readable.")
+    );
+    expect(blocking, JSON.stringify(blocking, null, 2)).toHaveLength(0);
   });
 
   it("reports direct slide-root sibling container overlap", () => {

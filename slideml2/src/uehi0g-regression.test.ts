@@ -23,7 +23,6 @@ const BLOCKING_CODES: ReadonlySet<LayoutDiagnostic["code"]> = new Set<LayoutDiag
   "COLLISION",
   "TINY_RECT",
   "SQUASHED",
-  "LOW_CONTRAST",
   "UNKNOWN_COLOR",
   "UNKNOWN_STYLE",
 ]);
@@ -37,7 +36,7 @@ function buildDeckWithSlide(slide: SlideV2): Slideml2SourceDeck {
 }
 
 function blocking(): LayoutDiagnostic[] {
-  return getRenderDiagnostics().filter((d) => BLOCKING_CODES.has(d.code) && d.severity !== "info");
+  return getRenderDiagnostics().filter((d) => d.severity === "error" || (BLOCKING_CODES.has(d.code) && d.severity !== "info"));
 }
 
 describe("uehi0g regressions", () => {

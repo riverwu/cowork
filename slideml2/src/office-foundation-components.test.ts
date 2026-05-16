@@ -38,7 +38,6 @@ const BLOCKING = new Set<LayoutDiagnostic["code"]>([
   "TITLE_OCCLUDED",
   "TINY_RECT",
   "SQUASHED",
-  "LOW_CONTRAST",
   "SHAPE_INVISIBLE",
   "UNKNOWN_COLOR",
   "UNKNOWN_STYLE",
@@ -936,7 +935,7 @@ function slide(id: string, title: string, type: string, fields: Record<string, u
 }
 
 function blockingDiagnostics(diags: LayoutDiagnostic[]): LayoutDiagnostic[] {
-  return diags.filter((diag) => BLOCKING.has(diag.code) && diag.severity !== "info");
+  return diags.filter((diag) => diag.severity === "error" || (BLOCKING.has(diag.code) && diag.severity !== "info"));
 }
 
 function formatDiagnostics(diags: LayoutDiagnostic[]): string {

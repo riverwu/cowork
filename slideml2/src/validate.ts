@@ -3241,6 +3241,8 @@ function topLevelExpandedOverlayItems(
 }
 
 function isSignificantMeasuredOverlayNode(id: string, type: string, rect: { w: number; h: number }): boolean {
+  if (type === "spacer" || type === "fragment" || type === "stack" || type === "grid" || type === "positioned-group" || type === "pptx-group") return false;
+  if (type === "divider") return false;
   if (type === "shape" && rect.h <= 0.08) return false;
   return rect.w >= 0.5 && rect.h >= 0.18;
 }
@@ -3257,6 +3259,7 @@ function isTopLevelRegionChild(node: DomNode): boolean {
 
 function isSignificantPositionedChild(node: DomNode): boolean {
   const rec = node as Record<string, unknown>;
+  if (node.type === "spacer" || node.type === "fragment" || node.type === "divider") return false;
   if (node.layer === "behind" || node.layer === "above") return false;
   if (typeof rec.zIndex === "number" && Number.isFinite(rec.zIndex) && rec.zIndex < 0) return false;
   if (isDecorativeTopLevelPositionedChild(node)) return false;
@@ -3271,6 +3274,7 @@ function isSignificantPositionedChild(node: DomNode): boolean {
 }
 
 function isDecorativeTopLevelPositionedChild(node: DomNode): boolean {
+  if (node.type === "divider" || node.type === "spacer") return true;
   if (node.type === "decoration-grid" || node.type === "decorative-shapes" || node.type === "watermark" || node.type === "pointer-arrow") return true;
   const id = typeof node.id === "string" ? node.id.toLowerCase() : "";
   if (id.includes(".decor") || id.includes("decoration") || id.includes("watermark") || id.includes("brand-mark") || id.endsWith(".scrim") || id.endsWith(".backdrop")) return true;

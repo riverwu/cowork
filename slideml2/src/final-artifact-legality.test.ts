@@ -430,7 +430,7 @@ describe("final artifact legality", () => {
     expect(new Set(widths).size).toBeGreaterThan(2);
   });
 
-  it("reports visually compressed business tables as quality warnings, not blocking errors", () => {
+  it("does not warn on business tables solely from row-count heuristics", () => {
     clearRenderDiagnostics();
     renderToAst(sourceToRenderedDeck({
       slideml2: 2,
@@ -453,10 +453,9 @@ describe("final artifact legality", () => {
         } as never],
       }],
     }));
-    const hits = getRenderDiagnostics().filter((item) => item.code === "SQUASHED" && item.nodeId === "s.table");
+    const hits = getRenderDiagnostics().filter((item) => item.nodeId === "s.table" && item.code === "SQUASHED");
 
-    expect(hits.some((item) => item.severity === "warn")).toBe(true);
-    expect(hits.some((item) => item.severity === "error")).toBe(false);
+    expect(hits).toHaveLength(0);
   });
 
   it("falls back to a safe native table style for unknown GUID tableStyleId values", async () => {
@@ -829,14 +828,14 @@ describe("final artifact legality", () => {
     expect(report.errors.some((item) => item.code === "TOP_LEVEL_LAYOUT_OVERLAP" && item.nodeName === "s.hero")).toBe(true);
   });
 
-  it("charts below suggested readable size trigger advisory diagnostics", () => {
+  it("does not warn on charts that are only below suggested readable size", () => {
     const source = deck([{
       id: "s.chart",
       type: "chart",
       chartType: "bar",
       labels: ["京东", "天猫", "抖音"],
       series: [{ name: "ROI变化", values: [-0.397, -0.106, 0.297] }],
-      at: [1, 3, 22, 1.8],
+      at: [1, 3, 7, 1.8],
     } as never]);
 
     clearRenderDiagnostics();
@@ -845,9 +844,6 @@ describe("final artifact legality", () => {
     const hit = diagnostics.find((item) => item.code === "SQUASHED" && item.nodeId === "s.chart" && /Chart/.test(item.message));
     clearRenderDiagnostics();
 
-    expect(hit, JSON.stringify(diagnostics)).toBeDefined();
-    expect(hit?.severity).toBe("warn");
-    expect(hit?.message).toMatch(/Chart .* assigned/);
-    expect(hit?.suggestion).toMatch(/more vertical space|dominant area|split/i);
+    expect(hit, JSON.stringify(diagnostics)).toBeUndefined();
   });
 });

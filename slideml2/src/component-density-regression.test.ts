@@ -199,7 +199,7 @@ describe("dense data component regressions from live PPT flow", () => {
     expect(chartFit?.measured?.outerNeededHeightCm).toBeGreaterThan(chartFit?.measured?.bodyNeededHeightCm ?? 0);
   });
 
-  it("low-density bar chart near the recommended height warns instead of blocking the slide", () => {
+  it("does not warn when a low-density bar chart is below recommendation but above hard geometry", () => {
     const slide: SlideV2 = {
       id: "compact-bar",
       title: "三组部署对比",
@@ -216,9 +216,7 @@ describe("dense data component regressions from live PPT flow", () => {
     };
     const diagnostics = allDiagnostics(slide);
     const chartFit = diagnostics.find((d) => d.code === "SQUASHED" && d.nodeId === "compact-bar.compact.chart.chart");
-    expect(chartFit, diagnostics.map((d) => `${d.severity}:${d.code}:${d.nodeId}:${d.message}`).join("\n")).toBeDefined();
-    expect(chartFit?.severity).toBe("warn");
-    expect(chartFit?.measured?.hardMinHeightCm).toBeLessThan(chartFit?.measured?.minHeightCm ?? 0);
+    expect(chartFit, diagnostics.map((d) => `${d.severity}:${d.code}:${d.nodeId}:${d.message}`).join("\n")).toBeUndefined();
   });
 
   it("overloaded evidence slides emit page-level split guidance before repeated local squeezing", () => {
@@ -309,6 +307,7 @@ describe("dense data component regressions from live PPT flow", () => {
               },
               { type: "quote", text: "Structured evidence panels significantly reduce diagnostic review latency.", source: "Smith et al. 2025" },
               { type: "source-note", text: "Smith et al. 2025 reported latency reduction. Internal: triage 42 to 18 min across 120 cases." },
+              { type: "source-note", text: "Additional caveat: model quality is sensitive to sample mix, annotation delay, and reviewer calibration across departments." },
             ],
           },
         ],
@@ -540,6 +539,7 @@ describe("dense data component regressions from live PPT flow", () => {
     const diagnostics = allDiagnostics(slide);
     const featureGuidance = diagnostics.find((d) => d.code === "FEATURE_CARD_OVER_CAPACITY");
     expect(featureGuidance, diagnostics.map((d) => `${d.code}:${d.nodeId}:${d.suggestion}`).join("\n")).toBeDefined();
+    expect(featureGuidance?.severity).toBe("warn");
     expect(featureGuidance?.suggestion).toMatch(/fewer columns|split feature groups|density:'compact'/i);
     expect(featureGuidance?.nodeId).toBe("feature.card");
     const bodyDrop = diagnostics.find((d) => d.code === "DROP" && d.nodeId === "feature-overload.feature.card.body");

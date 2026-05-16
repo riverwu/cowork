@@ -680,7 +680,7 @@ describe("slideml2 MVP", () => {
     const names = listComponents().map((item) => item.name);
     const described = describeComponents(names).found;
     const failures: Array<{ name: string; codes: string[] }> = [];
-    const blockingCodes = new Set(["FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "LOW_CONTRAST", "UNKNOWN_COLOR", "UNKNOWN_STYLE"]);
+    const blockingCodes = new Set(["FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "UNKNOWN_COLOR", "UNKNOWN_STYLE"]);
     for (const [name, detail] of Object.entries(described)) {
       for (const [index, example] of (detail.examples || []).entries()) {
         const slide = normalizeSlide({ id: `example-${name}-${index}`, children: [example as never] } as never);

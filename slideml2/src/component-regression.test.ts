@@ -28,7 +28,6 @@ const BLOCKING_CODES: ReadonlySet<LayoutDiagnostic["code"]> = new Set<LayoutDiag
   "COLLISION",
   "TINY_RECT",
   "SQUASHED",
-  "LOW_CONTRAST",
   "UNKNOWN_COLOR",
   "UNKNOWN_STYLE",
 ]);
@@ -1926,7 +1925,7 @@ describe("component regressions", () => {
     expect(text).toContain("Memory原生搜索");
   });
 
-  it("reports bullet lists whose PowerPoint paragraph spacing would overlap", () => {
+  it("repairs mildly tight bullet lists with measured pre-shrink instead of blocking", () => {
     const slide: SlideV2 = {
       id: "tight-bullets",
       children: [{
@@ -1943,8 +1942,11 @@ describe("component regressions", () => {
     };
     clearRenderDiagnostics();
     renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
-    const failures = getRenderDiagnostics().filter((d) => d.code === "FALLBACK_FAILED" && d.nodeId === "tight-bullets.list");
-    expect(failures.map((d) => d.message).join("\n")).toContain("PowerPoint would compress paragraph spacing");
+    const diagnostics = getRenderDiagnostics().filter((d) => d.nodeId === "tight-bullets.list");
+    expect(diagnostics.some((d) => d.code === "FALLBACK_FAILED" && d.severity === "error")).toBe(false);
+    const repair = diagnostics.find((d) => d.code === "TRUNCATED" && d.severity === "warn");
+    expect(repair?.measured?.fitMethod).toBe("pre-shrink");
+    expect(repair?.measured?.finalFontSize).toBeGreaterThanOrEqual(7.5);
   });
 
   it("reports mixed CJK/English table rows that need more height than assigned", () => {

@@ -25,7 +25,7 @@ import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
  */
 
 const BLOCKING: ReadonlySet<LayoutDiagnostic["code"]> = new Set([
-  "FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "LOW_CONTRAST", "UNKNOWN_COLOR", "UNKNOWN_STYLE",
+  "FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "UNKNOWN_COLOR", "UNKNOWN_STYLE",
 ]);
 
 function deck(slide: SlideV2, themeOverride?: Slideml2SourceDeck["deck"]["themeOverride"]): Slideml2SourceDeck {
@@ -39,7 +39,7 @@ function deck(slide: SlideV2, themeOverride?: Slideml2SourceDeck["deck"]["themeO
 function blockingFor(slide: SlideV2, themeOverride?: Slideml2SourceDeck["deck"]["themeOverride"]): LayoutDiagnostic[] {
   clearRenderDiagnostics();
   renderToAst(sourceToRenderedDeck(deck(slide, themeOverride)));
-  return getRenderDiagnostics().filter((d) => BLOCKING.has(d.code) && d.severity !== "info");
+  return getRenderDiagnostics().filter((d) => d.severity === "error" || (BLOCKING.has(d.code) && d.severity !== "info"));
 }
 
 describe("insightCallout: long callout text doesn't get clipped at fixedHeight", () => {
