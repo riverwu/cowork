@@ -13156,12 +13156,12 @@ function detectLineGridRect(image, grid) {
   if (!v || !h)
     return null;
   const left = Math.max(0, Math.round(v[0].start));
-  const right = Math.min(image.width, Math.round(v[v.length - 1].end));
+  const right2 = Math.min(image.width, Math.round(v[v.length - 1].end));
   const top = Math.max(0, Math.round(h[0].start));
-  const bottom = Math.min(image.height, Math.round(h[h.length - 1].end));
-  if (right - left < image.width * 0.25 || bottom - top < image.height * 0.25)
+  const bottom2 = Math.min(image.height, Math.round(h[h.length - 1].end));
+  if (right2 - left < image.width * 0.25 || bottom2 - top < image.height * 0.25)
     return null;
-  return fitAspectRect({ left, top, right, bottom }, grid.columns / grid.rows, image.width, image.height);
+  return fitAspectRect({ left, top, right: right2, bottom: bottom2 }, grid.columns / grid.rows, image.width, image.height);
 }
 function detectLineClusters(image, axis) {
   const length = axis === "vertical" ? image.width : image.height;
@@ -13232,11 +13232,11 @@ function bestLineSequence(lines, needed) {
     const gaps = [];
     for (let i = 1; i < window2.length; i += 1)
       gaps.push(window2[i].position - window2[i - 1].position);
-    const avg = gaps.reduce((sum, gap) => sum + gap, 0) / Math.max(1, gaps.length);
+    const avg = gaps.reduce((sum3, gap) => sum3 + gap, 0) / Math.max(1, gaps.length);
     if (avg <= 1)
       continue;
-    const variance = gaps.reduce((sum, gap) => sum + Math.abs(gap - avg) / avg, 0) / Math.max(1, gaps.length);
-    const coverage = window2.reduce((sum, line) => sum + line.coverage, 0) / window2.length;
+    const variance = gaps.reduce((sum3, gap) => sum3 + Math.abs(gap - avg) / avg, 0) / Math.max(1, gaps.length);
+    const coverage = window2.reduce((sum3, line) => sum3 + line.coverage, 0) / window2.length;
     const score = variance - coverage * 0.08;
     if (!best || score < best.score)
       best = { score, window: window2 };
@@ -13765,16 +13765,16 @@ function expandRect(rect, pad) {
 function constrainRect(rect, width, height) {
   const left = Math.max(0, Math.min(width - 1, Math.round(rect.left)));
   const top = Math.max(0, Math.min(height - 1, Math.round(rect.top)));
-  const right = Math.max(left + 1, Math.min(width, Math.round(rect.right)));
-  const bottom = Math.max(top + 1, Math.min(height, Math.round(rect.bottom)));
-  return { left, top, right, bottom };
+  const right2 = Math.max(left + 1, Math.min(width, Math.round(rect.right)));
+  const bottom2 = Math.max(top + 1, Math.min(height, Math.round(rect.bottom)));
+  return { left, top, right: right2, bottom: bottom2 };
 }
 function intersectRect(a, b) {
   const left = Math.max(a.left, b.left);
   const top = Math.max(a.top, b.top);
-  const right = Math.min(a.right, b.right);
-  const bottom = Math.min(a.bottom, b.bottom);
-  return right > left && bottom > top ? { left, top, right, bottom } : null;
+  const right2 = Math.min(a.right, b.right);
+  const bottom2 = Math.min(a.bottom, b.bottom);
+  return right2 > left && bottom2 > top ? { left, top, right: right2, bottom: bottom2 } : null;
 }
 function mergeRects(rects) {
   if (!rects.length)
@@ -14421,7 +14421,7 @@ function hiddenPieLabelIndexes(values, minPercent) {
   if (threshold <= 0)
     return void 0;
   const numeric = values.map((value) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
-  const total = numeric.reduce((sum, value) => sum + value, 0);
+  const total = numeric.reduce((sum3, value) => sum3 + value, 0);
   if (total <= 0)
     return void 0;
   const hidden = /* @__PURE__ */ new Set();
@@ -17607,12 +17607,12 @@ function checklist(slideId, id, items, density = "comfortable", opts = {}) {
     role: "checklist",
     children: items.map((item, index) => {
       const status = item.status === "warning" ? "warning" : item.status === "unchecked" ? "unchecked" : "checked";
-      const mark = status === "checked" ? "\u2713" : status === "warning" ? "!" : "\u2717";
+      const mark2 = status === "checked" ? "\u2713" : status === "warning" ? "!" : "\u2717";
       const markColor = status === "checked" ? "success" : status === "warning" ? "warning" : "danger";
       const markNode = chipStyle ? {
         id: `${slideId}.${id}.${index}.mark`,
         type: "text",
-        text: mark,
+        text: mark2,
         style: compact ? "label" : "card-title",
         color: "text.inverse",
         fill: markColor,
@@ -17625,7 +17625,7 @@ function checklist(slideId, id, items, density = "comfortable", opts = {}) {
       } : {
         id: `${slideId}.${id}.${index}.mark`,
         type: "text",
-        text: mark,
+        text: mark2,
         style: compact ? "label" : "card-title",
         color: markColor,
         align: "center",
@@ -18202,6 +18202,8 @@ function keyTakeaway(slideId, id, options) {
   const denseHeadline = options.density === "compact" || weightedTextLength(headline) > 36;
   const denseDetail = weightedTextLength(detailPlain) > 44 || (options.bullets || []).length >= 4;
   const compact = options.density === "compact" || denseHeadline || denseDetail;
+  const hasBullets = Boolean(options.bullets && options.bullets.length);
+  const compactBulletHeadline = compact && hasBullets;
   const children = [
     {
       id: `${slideId}.${id}.accent`,
@@ -18218,12 +18220,12 @@ function keyTakeaway(slideId, id, options) {
       id: `${slideId}.${id}.headline`,
       type: "text",
       text: headline,
-      style: denseHeadline ? "lead" : "section-title",
-      size: denseHeadline ? "md" : "lg",
+      style: compactBulletHeadline ? "card-title" : denseHeadline ? "lead" : "section-title",
+      size: compactBulletHeadline ? void 0 : denseHeadline ? "md" : "lg",
       color: "text.primary",
       align: "left",
       autoFit: "shrink",
-      minHeight: denseHeadline ? 0.55 : void 0
+      minHeight: estimateTakeawayHeadlineMinHeight(headline, compact, hasBullets)
     });
   }
   if (detail.text || detail.content) {
@@ -18289,6 +18291,20 @@ function estimateTakeawayDetailMinHeight(text, compact) {
   const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / (compact ? 46 : 40)));
   const lineHeight = compact ? 0.46 : 0.58;
   return Math.max(compact ? 0.68 : 0.82, Math.min(compact ? 2.1 : 2.6, estimatedLines * lineHeight + 0.14));
+}
+function estimateTakeawayHeadlineMinHeight(text, compact, hasBullets) {
+  if (!text.trim())
+    return void 0;
+  if (!compact)
+    return void 0;
+  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const weighted = weightedTextLength(text);
+  const capacity = hasBullets ? 17 : 24;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / capacity));
+  const lineHeight = hasBullets ? 0.54 : 0.62;
+  const min = hasBullets ? 0.72 : 0.62;
+  const max = hasBullets ? 1.7 : 1.85;
+  return Math.max(min, Math.min(max, estimatedLines * lineHeight + 0.14));
 }
 function numberedGrid(slideId, id, options) {
   const tone = options.tone || "brand";
@@ -19483,6 +19499,16 @@ function heatmapColor(palette, t) {
 }
 function matrix2x2(slideId, id, options) {
   const items = options.items || [];
+  const compact = options.density !== "comfortable";
+  const rootGap = compact ? 0.1 : 0.18;
+  const gridGap = compact ? 0.16 : 0.25;
+  const cellPadding = compact ? 0.24 : 0.4;
+  const cellGap = compact ? 0.1 : 0.15;
+  const labelMinHeight = compact ? 0.38 : 0.52;
+  const itemMinHeight = compact ? 0.34 : 0.45;
+  const axisMinHeight = compact ? 0.28 : 0.36;
+  const showXAxis = options.showXAxis !== false;
+  const showYAxis = options.showYAxis !== false;
   const quadrants = { tl: [], tr: [], bl: [], br: [] };
   for (const it of items) {
     const key = `${it.y === "high" ? "t" : "b"}${it.x === "low" ? "l" : "r"}`;
@@ -19519,13 +19545,13 @@ function matrix2x2(slideId, id, options) {
       type: "card",
       fill: tint.fill,
       line: tint.line,
-      padding: 0.4,
+      padding: cellPadding,
       elevation: "flat",
       children: [{
         id: `${slideId}.${id}.${key}.stack`,
         type: "stack",
         direction: "vertical",
-        gap: 0.15,
+        gap: cellGap,
         align: labelOnly ? "center" : "start",
         valign: labelOnly ? "middle" : "top",
         children: [
@@ -19533,12 +19559,12 @@ function matrix2x2(slideId, id, options) {
             id: `${slideId}.${id}.${key}.qlabel`,
             type: "text",
             text: qLabel,
-            style: labelOnly ? "section-title" : "label",
+            style: labelOnly ? "card-title" : "label",
             color: labelOnly ? tint.ink : "text.muted",
             tracking: labelOnly ? void 0 : "wide",
             weight: labelOnly ? "semibold" : void 0,
             align: labelOnly ? "center" : "left",
-            minHeight: labelOnly ? 0.6 : 0.32,
+            minHeight: labelOnly ? labelMinHeight : 0.3,
             autoFit: "shrink"
           }] : [],
           ...quadrants[key].map((it, idx) => {
@@ -19555,7 +19581,7 @@ function matrix2x2(slideId, id, options) {
               fill,
               align: "left",
               cornerRadius: 0.08,
-              minHeight: 0.45,
+              minHeight: itemMinHeight,
               autoFit: "shrink"
             };
           })
@@ -19569,7 +19595,7 @@ function matrix2x2(slideId, id, options) {
     fill: "surface.subtle",
     line: "divider",
     cornerRadius: 0.08,
-    padding: 0.1,
+    padding: compact ? 0.06 : 0.1,
     children: [{
       id: `${slideId}.${id}.${idSuffix}.text`,
       type: "text",
@@ -19579,44 +19605,46 @@ function matrix2x2(slideId, id, options) {
       color: "text.primary",
       align: "center",
       tracking: "wide",
-      minHeight: 0.36,
+      minHeight: axisMinHeight,
       autoFit: "shrink"
     }]
   });
+  const grid = {
+    id: `${slideId}.${id}.grid`,
+    type: "grid",
+    columns: 2,
+    gap: gridGap,
+    layoutWeight: 1,
+    children: [
+      renderQuadrant("tl", ql.tl),
+      renderQuadrant("tr", ql.tr),
+      renderQuadrant("bl", ql.bl),
+      renderQuadrant("br", ql.br)
+    ]
+  };
+  const xAxisRow = {
+    id: `${slideId}.${id}.x-axis`,
+    type: "stack",
+    direction: "horizontal",
+    gap: compact ? 0.28 : 0.4,
+    children: [
+      { id: `${slideId}.${id}.xlo`, type: "text", text: options.xAxis.low, style: "label", color: "text.muted", align: "left", tracking: "wide", layoutWeight: 1, minHeight: compact ? 0.28 : 0.32, autoFit: "shrink" },
+      { id: `${slideId}.${id}.xhi`, type: "text", text: options.xAxis.high, style: "label", color: "text.muted", align: "right", tracking: "wide", layoutWeight: 1, minHeight: compact ? 0.28 : 0.32, autoFit: "shrink" }
+    ]
+  };
+  const children = [
+    ...showYAxis ? [yAxisBand(options.yAxis.high, "yhi")] : [],
+    grid,
+    ...showYAxis ? [yAxisBand(options.yAxis.low, "ylo")] : [],
+    ...showXAxis ? [xAxisRow] : []
+  ];
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.18,
+    gap: rootGap,
     role: "matrix-2x2",
-    children: [
-      yAxisBand(options.yAxis.high, "yhi"),
-      {
-        id: `${slideId}.${id}.grid`,
-        type: "grid",
-        columns: 2,
-        gap: 0.25,
-        layoutWeight: 1,
-        children: [
-          renderQuadrant("tl", ql.tl),
-          renderQuadrant("tr", ql.tr),
-          renderQuadrant("bl", ql.bl),
-          renderQuadrant("br", ql.br)
-        ]
-      },
-      yAxisBand(options.yAxis.low, "ylo"),
-      // x-axis labels row
-      {
-        id: `${slideId}.${id}.x-axis`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0.4,
-        children: [
-          { id: `${slideId}.${id}.xlo`, type: "text", text: options.xAxis.low, style: "label", color: "text.muted", align: "left", tracking: "wide", layoutWeight: 1, minHeight: 0.32, autoFit: "shrink" },
-          { id: `${slideId}.${id}.xhi`, type: "text", text: options.xAxis.high, style: "label", color: "text.muted", align: "right", tracking: "wide", layoutWeight: 1, minHeight: 0.32, autoFit: "shrink" }
-        ]
-      }
-    ]
+    children
   }, options);
 }
 function trendLine(slideId, id, options) {
@@ -19829,6 +19857,8 @@ function calloutMarker(slideId, id, options) {
   const tone = options.tone || "brand";
   const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "surface";
   const fgToken = tone === "neutral" ? "text.primary" : "text.inverse";
+  const width = Number.isFinite(options.width) && (options.width || 0) > 0 ? Math.max(2.4, Math.min(8, options.width)) : textChipWidthCm(options.text, { min: 3.2, max: 7, padding: 0.9, latin: 0.2, cjk: 0.34 });
+  const height = Number.isFinite(options.height) && (options.height || 0) > 0 ? Math.max(0.8, Math.min(4, options.height)) : estimateCalloutMarkerHeightCm(options.text, width);
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "text",
@@ -19839,12 +19869,18 @@ function calloutMarker(slideId, id, options) {
     fill: fillToken,
     align: "center",
     valign: "middle",
+    autoFit: "shrink",
     cornerRadius: 0.15,
     role: "callout-marker",
     anchor: options.anchor || "top-right",
-    width: options.width || 4,
-    height: options.height || 1.2
+    width,
+    height
   }, options);
+}
+function estimateCalloutMarkerHeightCm(text, widthCm) {
+  const capacity = Math.max(8, Math.floor((Math.max(2.4, widthCm) - 0.8) / 0.32));
+  const lines = String(text || "").split(/\r?\n/).reduce((sum3, line) => sum3 + Math.max(1, Math.ceil(weightedTextLength(line.trim() || " ") / capacity)), 0);
+  return Math.max(1.05, Math.min(3.2, 0.6 + lines * 0.42));
 }
 function decorationGrid(slideId, id, options) {
   const pattern = options.pattern === "diagonal-lines" || options.pattern === "grid" ? options.pattern : "dots";
@@ -19985,9 +20021,8 @@ function cornerMark(slideId, id, options) {
   const fillToken = tone === "brand" ? "brand.primary" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "text.muted";
   const corner = options.corner || "top-right";
   const style = options.style || "tag";
-  let width = 0.7;
-  for (const ch of options.text)
-    width += /[\u4e00-\u9fff]/.test(ch) ? 0.5 : 0.18;
+  const renderedText = style !== "ribbon" ? options.text.toUpperCase() : options.text;
+  const width = textChipWidthCm(renderedText, { min: 2, max: 7.2, padding: 0.9, latin: 0.24, cjk: 0.48 });
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "text",
@@ -20000,9 +20035,11 @@ function cornerMark(slideId, id, options) {
     fill: fillToken,
     align: "center",
     valign: "middle",
+    autoFit: "shrink",
+    noWrap: true,
     cornerRadius: style === "ribbon" ? 0 : style === "stamp" ? 0.2 : 0.08,
-    fixedHeight: 0.7,
-    fixedWidth: Math.max(2, Math.min(6, width)),
+    width,
+    height: style === "ribbon" ? 0.76 : 0.72,
     role: "corner-mark",
     anchor: corner
   }, options);
@@ -20012,6 +20049,7 @@ function brandMark(slideId, id, options) {
   const tone = options.tone || "muted";
   const color2 = tone === "inverse" ? "text.inverse" : tone === "brand" ? "brand.primary" : tone === "neutral" ? "text.secondary" : "text.muted";
   const align = corner.endsWith("-right") ? "right" : "left";
+  const width = options.width ?? textChipWidthCm(options.text, { min: 2.4, max: 6.4, padding: 0.75, latin: 0.19, cjk: 0.36 });
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "text",
@@ -20021,10 +20059,11 @@ function brandMark(slideId, id, options) {
     align,
     valign: "middle",
     autoFit: "shrink",
+    noWrap: true,
     role: "brand-mark",
     anchor: corner,
-    width: options.width || 3.2,
-    height: options.height || 0.45,
+    width,
+    height: options.height || 0.58,
     offsetX: options.offsetX ?? 0.75,
     offsetY: options.offsetY ?? 0.55,
     zIndex: 5
@@ -20152,8 +20191,17 @@ function pointerArrow(slideId, id, options) {
   const tone = options.tone || "brand";
   const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
   const horizontal = direction === "right" || direction === "left";
-  const hasLabel = Boolean(options.label && options.label.trim());
-  const width = Math.max(options.width || (horizontal ? 3.4 : 1.6), horizontal ? hasLabel ? 2.2 : 1.8 : 1.2);
+  const labelText = (options.label ?? "").trim();
+  const hasLabel = Boolean(labelText);
+  const labelWidth = hasLabel ? textChipWidthCm(labelText, {
+    min: horizontal ? 2.2 : 1.4,
+    max: horizontal ? 6.8 : 3.2,
+    padding: 0.75,
+    latin: 0.2,
+    cjk: 0.34
+  }) : 0;
+  const defaultWidth = horizontal ? Math.max(3.4, labelWidth) : Math.max(1.6, Math.min(3.2, labelWidth || 1.6));
+  const width = Math.max(options.width || defaultWidth, horizontal ? hasLabel ? 2.2 : 1.8 : 1.2);
   const height = Math.max(options.height || (horizontal ? hasLabel ? 1.1 : 0.75 : 2.4), horizontal ? hasLabel ? 1.4 : 0.85 : hasLabel ? 2.8 : 2.1);
   const arrowPreset = horizontal ? "arrow-right" : "arrow-down";
   const arrow = {
@@ -20172,13 +20220,14 @@ function pointerArrow(slideId, id, options) {
   const label = hasLabel ? {
     id: `${slideId}.${id}.label`,
     type: "text",
-    text: (options.label ?? "").trim(),
+    text: labelText,
     style: "label",
     weight: "bold",
     color: accent,
     align: "center",
     valign: "middle",
     autoFit: "shrink",
+    noWrap: true,
     minHeight: 0.35
   } : null;
   return applyAgentSurface({
@@ -28364,7 +28413,7 @@ var MetricPackTextMeasurer = class {
   }
   faceKeyForFamily(family, weight) {
     const normalized = normalizeFontAlias(family);
-    const mapped = fontMetricAliases[normalized] || (normalized.includes("cjk") || normalized.includes("pingfang") || normalized.includes("yahei") || normalized.includes("hiragino") || normalized === "system-ui" || normalized === "apple-system" ? fontMetricAliases["noto-sans-cjk-sc"] : fontMetricAliases.arial);
+    const mapped = fontMetricAliases[normalized] || (isKnownCjkFontAlias(normalized) ? fontMetricAliases["noto-sans-cjk-sc"] : fontMetricAliases.arial);
     return mapped?.[weight] || mapped?.regular;
   }
   advanceEm(face, ch) {
@@ -28517,6 +28566,9 @@ function isWideVisualSymbol2(ch) {
 }
 function normalizeFontAlias(value) {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+function isKnownCjkFontAlias(normalized) {
+  return normalized.includes("cjk") || normalized.includes("pingfang") || normalized.includes("yahei") || normalized.includes("hiragino") || normalized.includes("simsun") || normalized.includes("songti") || normalized.includes("source-han") || normalized.includes("noto-serif-sc") || normalized.includes("noto-serif-cjk") || normalized === "system-ui" || normalized === "apple-system";
 }
 function normalizedNaturalLineHeightCm(fontPt, family, metrics) {
   const raw = Math.max(0.01, metrics.ascentCm + metrics.descentCm);
@@ -29076,11 +29128,11 @@ function mergeSubtrees(layouts, gap) {
   });
   return { placements, leftContour, rightContour, depth };
 }
-function contourOffset(left, right, next, gap) {
+function contourOffset(left, right2, next, gap) {
   let offset = 0;
-  const shared = Math.min(right.length, next.leftContour.length);
+  const shared = Math.min(right2.length, next.leftContour.length);
   for (let depth = 0; depth < shared; depth++) {
-    offset = Math.max(offset, right[depth] + gap - next.leftContour[depth]);
+    offset = Math.max(offset, right2[depth] + gap - next.leftContour[depth]);
   }
   return offset;
 }
@@ -29096,10 +29148,10 @@ function mergeOwnContour(own, childContour) {
 }
 function contourCenter(layout) {
   const left = Math.min(...layout.leftContour);
-  const right = Math.max(...layout.rightContour);
-  if (!Number.isFinite(left) || !Number.isFinite(right))
+  const right2 = Math.max(...layout.rightContour);
+  if (!Number.isFinite(left) || !Number.isFinite(right2))
     return 0;
-  return (left + right) / 2;
+  return (left + right2) / 2;
 }
 function shiftSubtree(layout, dx, depthOffset = 0) {
   return {
@@ -29843,12 +29895,18 @@ var COMPONENT_DEFINITIONS = [
     palette: { type: "enum", enum: ["warm", "cool", "diverging"], description: "Color palette (default cool)." },
     showValues: { type: "boolean", description: "Render numeric values inside cells (default auto by size)." }
   }, "grid of colored cells with axis labels", "stack"),
-  component("matrix-2x2", "2x2 quadrant matrix with labeled axes. Use for risk-matrix (impact \xD7 probability), priority (effort \xD7 value), Boston matrix, market segmentation. Different from swot-matrix which has fixed S/W/O/T semantics. Two authoring modes: (1) item-style \u2014 pass `items` with each entry placed in a quadrant via x/y enum; (2) label-style \u2014 pass only `quadrantLabels {tl,tr,bl,br}` to render each quadrant as a tinted card carrying just the corner label/headline. At least one of `items` or `quadrantLabels` is required.", {
-    xAxis: { type: "object", required: true, description: "{low:string, high:string} \u2014 x-axis labels." },
-    yAxis: { type: "object", required: true, description: "{low:string, high:string} \u2014 y-axis labels." },
-    items: { type: "array", description: "Array of {label:string, x:enum[low|high], y:enum[low|high], tone?}. Optional when quadrantLabels alone describes the matrix." },
-    quadrantLabels: { type: "object", description: 'Optional {tl?:string, tr?:string, bl?:string, br?:string} corner names (e.g. "Quick Wins"). When provided without items, each quadrant renders as a tinted summary card.' },
-    quadrantTones: { type: "object", description: "Optional {tl?,tr?,bl?,br?: enum[brand|positive|warning|danger|neutral]} \u2014 per-quadrant accent tone, applied in label-only mode (no items[]). In item-style mode set per-item `tone` instead \u2014 quadrant cells stay neutral there so the data points stand out." }
+  component("matrix-2x2", "2x2 quadrant matrix with labeled axes. Use for risk-matrix (impact \xD7 probability), priority (effort \xD7 value), Boston matrix, market segmentation. Different from swot-matrix which has fixed S/W/O/T semantics. Two authoring modes: (1) item-style \u2014 pass `items` with each entry placed in a quadrant via x/y enum; (2) label-style \u2014 pass `quadrantLabels {tl,tr,bl,br}` or `quadrants` to render each quadrant as a tinted card carrying just the corner label/headline. At least one of `items`, `quadrantLabels`, or `quadrants` is required.", {
+    xAxis: { type: "object", description: "{low:string, high:string} \u2014 x-axis labels. Alias: x, axes.x, xLow/xHigh." },
+    yAxis: { type: "object", description: "{low:string, high:string} \u2014 y-axis labels. Alias: y, axes.y, yLow/yHigh." },
+    x: { type: "object", description: "Alias for xAxis." },
+    y: { type: "object", description: "Alias for yAxis." },
+    axes: { type: "object", description: "Alias bundle {x:{low,high}, y:{low,high}}." },
+    items: { type: "array", description: "Array of {label|title|name|text, x|column:low|high|left|right, y|row:low|high|top|bottom, quadrant?:tl|tr|bl|br, tone?}. Optional when quadrantLabels alone describes the matrix." },
+    quadrantLabels: { type: "object", description: 'Optional {tl|topLeft, tr|topRight, bl|bottomLeft, br|bottomRight} corner names (e.g. "Quick Wins"). When provided without items, each quadrant renders as a tinted summary card.' },
+    quadrantTones: { type: "object", description: "Optional {tl?,tr?,bl?,br?: enum[brand|positive|warning|danger|neutral]} \u2014 per-quadrant accent tone, applied in label-only mode (no items[]). In item-style mode set per-item `tone` instead \u2014 quadrant cells stay neutral there so the data points stand out." },
+    quadrants: { type: "array", description: "Optional label-style alias: [{quadrant|position:'tl|tr|bl|br', label|title|name|text, tone?}], or an object using topLeft/topRight/bottomLeft/bottomRight keys." },
+    density: { type: "enum", enum: ["auto", "comfortable", "compact"], description: "auto/default uses compact internals so the matrix works inside split/grid regions; comfortable restores larger gaps." },
+    showAxes: { type: "boolean", description: "Force axis labels on/off. By default axes render only when axis labels were explicitly provided." }
   }, "stack(yhi-label, 2x2 grid of quadrant cards, ylo-label, x-axis labels)", "stack"),
   component("trend-line", "Mini sparkline / trend visualization (bars whose height reflects values). Use as decoration next to a metric or under a heading. Different from chart-card (full chart with axes/legend) \u2014 trend-line is just the shape.", {
     values: { type: "array", required: true, description: "Array of numbers (max 24)." },
@@ -29869,12 +29927,12 @@ var COMPONENT_DEFINITIONS = [
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Bar color tone." }
   }, "stack of label + range-bar + optional pointer", "stack"),
   // ---------- DECORATION components ----------
-  component("callout-marker", "Anchored bubble with text \u2014 floats over slide content via anchor positioning. Use to point at a region of an image, chart, or hero element. Different from annotation (inline label, no anchor).", {
+  component("callout-marker", "Anchored bubble with text \u2014 floats over slide content via anchor positioning. Use to point at a region of an image, chart, or hero element. Different from annotation (inline label, no anchor). If width/height are omitted, the renderer sizes the bubble from text length.", {
     text: { type: "string", required: true, description: "The bubble text." },
     anchor: { type: "enum", enum: ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"], description: "Slide-relative anchor position." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Bubble color tone." },
-    width: { type: "number", description: "Bubble width in cm (default 4)." },
-    height: { type: "number", description: "Bubble height in cm (default 1.2)." }
+    width: { type: "number", description: "Bubble width in cm. Omit for text-based auto sizing." },
+    height: { type: "number", description: "Bubble height in cm. Omit for text-based auto sizing." }
   }, "anchored text shape with rounded corners", "stack"),
   component("decoration-grid", "Geometric pattern background (dots, diagonals, grid lines). Use for cover slide texture, section-break decoration, empty-area visual interest.", {
     pattern: { type: "enum", enum: ["dots", "diagonal-lines", "grid"], description: "Pattern type (default dots)." },
@@ -29893,18 +29951,18 @@ var COMPONENT_DEFINITIONS = [
     height: { type: "number", description: "Cluster height in cm for corner positions." },
     asBackground: { type: "boolean", description: "Default true: places the motif behind content. Set false for foreground decorative accents." }
   }, "anchored grid of vector shape marks", "grid"),
-  component("corner-mark", "Small ribbon/stamp/tag in a slide corner \u2014 DRAFT, CONFIDENTIAL, V2.0 style markers. Anchored to corner, doesn't compete with main content.", {
+  component("corner-mark", "Small ribbon/stamp/tag in a slide corner \u2014 DRAFT, CONFIDENTIAL, V2.0 style markers. Anchored to corner, doesn't compete with main content. Width is estimated from text and defaults to no-wrap.", {
     text: { type: "string", required: true, description: "The marker text." },
     corner: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right"], description: "Corner position (default top-right)." },
     tone: { type: "enum", enum: ["brand", "warning", "danger", "neutral"], description: "Color tone (default warning)." },
     style: { type: "enum", enum: ["ribbon", "stamp", "tag"], description: "Visual style (default tag)." }
   }, "anchored corner-positioned label shape", "stack"),
-  component("brand-mark", "Small brand/source label anchored to a slide corner. Use for unobtrusive footer marks such as customer, partner, source, or logo text. Prefer this over hand-coded at coordinates for corner labels.", {
+  component("brand-mark", "Small brand/source label anchored to a slide corner. Use for unobtrusive footer marks such as customer, partner, source, or logo text. Prefer this over hand-coded at coordinates for corner labels. Width is estimated from text and defaults to no-wrap.", {
     text: { type: "string", required: true, description: "Brand/source label text." },
     corner: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right"], description: "Corner anchor (default bottom-right)." },
     tone: { type: "enum", enum: ["muted", "neutral", "inverse", "brand"], description: "Color tone (default muted)." },
-    width: { type: "number", description: "Label box width in cm (default 3.2)." },
-    height: { type: "number", description: "Label box height in cm (default 0.45)." },
+    width: { type: "number", description: "Label box width in cm. Omit for text-based auto sizing." },
+    height: { type: "number", description: "Label box height in cm (default 0.58)." },
     offsetX: { type: "number", description: "Inset from left/right edge in cm (default 0.75)." },
     offsetY: { type: "number", description: "Inset from top/bottom edge in cm (default 0.55)." }
   }, "anchored text label", "stack"),
@@ -29920,7 +29978,7 @@ var COMPONENT_DEFINITIONS = [
     direction: { type: "enum", enum: ["right", "down"], description: "Arrow direction (default right)." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Arrow color tone." }
   }, "stack of from-label, arrow, to-label", "stack"),
-  component("pointer-arrow", "Anchored directional arrow used to point at a region of an image, chart, diagram, or highlighted object. Different from arrow-link: this is an overlay annotation arrow, not an inline flow connector.", {
+  component("pointer-arrow", "Anchored directional arrow used to point at a region of an image, chart, diagram, or highlighted object. Different from arrow-link: this is an overlay annotation arrow, not an inline flow connector. If width/height are omitted, the renderer sizes the overlay from the label and arrow direction.", {
     label: { type: "string", description: "Optional label above/beside the arrow." },
     direction: { type: "enum", enum: ["right", "left", "down", "up"], description: "Direction the arrow points (default right)." },
     anchor: { type: "enum", enum: ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"], description: "Slide-relative anchor position." },
@@ -30966,35 +31024,45 @@ function expandComponent(slideId, node, theme) {
     }));
   }
   if (componentName === "matrix-2x2") {
-    const xAxis = node.xAxis && typeof node.xAxis === "object" ? node.xAxis : { low: "Low", high: "High" };
-    const yAxis = node.yAxis && typeof node.yAxis === "object" ? node.yAxis : { low: "Low", high: "High" };
+    const xAxis = matrixAxis(node, "x");
+    const yAxis = matrixAxis(node, "y");
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw : {};
-      const tRaw = rec.tone;
-      const tone2 = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : void 0;
-      const x = rec.x === "high" ? "high" : "low";
-      const y = rec.y === "high" ? "high" : "low";
-      return { label: stringValue(rec.label, ""), x, y, tone: tone2 };
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { label: raw };
+      const normalizedTone = normalizeToneAlias(rec.tone ?? rec.status);
+      const tone2 = normalizedTone === "brand" || normalizedTone === "positive" || normalizedTone === "warning" || normalizedTone === "danger" ? normalizedTone : void 0;
+      const quadrant = matrixQuadrant(rec.quadrant ?? rec.position ?? rec.cell ?? rec.zone);
+      const position = objectRecord(rec.position);
+      const x = matrixPosition(position?.x ?? rec.x ?? rec.xAxis ?? rec.column ?? rec.col ?? rec.horizontal) ?? (quadrant ? matrixQuadrantToPosition(quadrant).x : "low");
+      const y = matrixPosition(position?.y ?? rec.y ?? rec.yAxis ?? rec.row ?? rec.vertical) ?? (quadrant ? matrixQuadrantToPosition(quadrant).y : "low");
+      return { label: semanticTextValue(rec, "label", "title", "name", "text", "headline", "item", "summary"), x, y, tone: tone2 };
     }).filter((it) => it.label) : [];
-    const ql = node.quadrantLabels && typeof node.quadrantLabels === "object" ? node.quadrantLabels : {};
-    const qt = node.quadrantTones && typeof node.quadrantTones === "object" ? node.quadrantTones : {};
-    const tone = (raw) => raw === "brand" || raw === "positive" || raw === "warning" || raw === "danger" || raw === "neutral" ? raw : void 0;
+    const ql = matrixQuadrantLabels(node);
+    const qt = matrixQuadrantTones(node);
+    const tone = (raw) => {
+      const normalized = normalizeToneAlias(raw);
+      return normalized === "brand" || normalized === "positive" || normalized === "warning" || normalized === "danger" || normalized === "neutral" ? normalized : void 0;
+    };
+    const showAxes = typeof node.showAxes === "boolean" ? node.showAxes : void 0;
+    const density = node.density === "comfortable" || node.density === "compact" || node.density === "auto" ? node.density : void 0;
     return withComponentRoot(node, matrix2x2(slideId, name, {
-      xAxis: { low: stringValue(xAxis.low, "Low"), high: stringValue(xAxis.high, "High") },
-      yAxis: { low: stringValue(yAxis.low, "Low"), high: stringValue(yAxis.high, "High") },
+      xAxis: { low: xAxis.low, high: xAxis.high },
+      yAxis: { low: yAxis.low, high: yAxis.high },
       items,
       quadrantLabels: {
-        tl: stringValue(ql.tl, "") || void 0,
-        tr: stringValue(ql.tr, "") || void 0,
-        bl: stringValue(ql.bl, "") || void 0,
-        br: stringValue(ql.br, "") || void 0
+        tl: ql.tl || void 0,
+        tr: ql.tr || void 0,
+        bl: ql.bl || void 0,
+        br: ql.br || void 0
       },
       quadrantTones: {
         tl: tone(qt.tl),
         tr: tone(qt.tr),
         bl: tone(qt.bl),
         br: tone(qt.br)
-      }
+      },
+      density,
+      showXAxis: showAxes ?? xAxis.explicit,
+      showYAxis: showAxes ?? yAxis.explicit
     }));
   }
   if (componentName === "trend-line") {
@@ -31243,14 +31311,14 @@ function expandComponent(slideId, node, theme) {
   }
   if (componentName === "two-column") {
     const left = twoColumnRegion(slideId, name, "left", node.left);
-    const right = twoColumnRegion(slideId, name, "right", node.right);
+    const right2 = twoColumnRegion(slideId, name, "right", node.right);
     return withComponentRoot(node, {
       id: `${slideId}.${name}`,
       type: "split",
       direction: "horizontal",
       ratio: Array.isArray(node.ratio) ? node.ratio : [0.5, 0.5],
       gap: typeof node.gap === "number" ? node.gap : 0.7,
-      children: [left, right]
+      children: [left, right2]
     });
   }
   if (componentName === "quiz-card") {
@@ -33285,11 +33353,11 @@ function analyticStackLabel(value, column) {
   const explicit = analyticExplicitDisplay(value);
   if (explicit)
     return explicit;
-  const total = analyticStackSegments(value, void 0).reduce((sum, segment) => sum + segment.value, 0);
+  const total = analyticStackSegments(value, void 0).reduce((sum3, segment) => sum3 + segment.value, 0);
   return total > 0 ? analyticFormattedValue(total, column) : "";
 }
 function analyticStackRuns(segments) {
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+  const total = segments.reduce((sum3, segment) => sum3 + segment.value, 0);
   if (total <= 0)
     return [{ text: analyticMiniBar(0), color: "text.muted", weight: "bold" }];
   const slots = 10;
@@ -33432,7 +33500,7 @@ function analyticScaleValues(value, visual) {
     return [range.low, range.high, range.value, range.target].filter((item) => typeof item === "number" && Number.isFinite(item));
   }
   if (visual?.type === "stack") {
-    const total = analyticStackSegments(value, visual.tone).reduce((sum, segment) => sum + segment.value, 0);
+    const total = analyticStackSegments(value, visual.tone).reduce((sum3, segment) => sum3 + segment.value, 0);
     return total > 0 ? [total] : [];
   }
   const numeric = analyticNumericValue(value);
@@ -34382,7 +34450,7 @@ function hierarchyBadgeTextColor(tone, colors) {
   return tone === "neutral" ? "text.secondary" : colors.line || "brand.primary";
 }
 function orgChartDense(node, levels, compact) {
-  const nodeCount = levels.reduce((sum, level) => sum + level.length, 0);
+  const nodeCount = levels.reduce((sum3, level) => sum3 + level.length, 0);
   const widestLevel = Math.max(...levels.map((level) => level.length), 0);
   return compact || levels.length >= 4 || widestLevel >= 4 || nodeCount >= 10;
 }
@@ -34586,7 +34654,7 @@ function orgChartPersonLayout(rec, levelIndex, levelCount, siblingCount, hasChil
   width += Math.min(isRoot ? 1.12 : 1.22, Math.max(0, titleLength - 9) * 0.045 + Math.min(longestLineLength, 46) * 0.024 + Math.max(0, contentLines.length - 1) * 0.08);
   width = Math.max(width, orgChartMeasuredTitleCardWidth(theme, title, showAvatar ? avatarSize : 0, headerGap, rowPadding, titleStyle, titleWeight));
   if (badges.length > 0) {
-    const badgeWidth = badges.reduce((sum, badge2) => sum + badge2.width, 0) + Math.max(0, badges.length - 1) * (dense ? 0.05 : 0.06);
+    const badgeWidth = badges.reduce((sum3, badge2) => sum3 + badge2.width, 0) + Math.max(0, badges.length - 1) * (dense ? 0.05 : 0.06);
     width = Math.max(width, badgeWidth + rowPadding * 2 + ORG_CHART_TEXT_MARGIN_CM);
   }
   if (authoredSize === "sm" || authoredSize === "small")
@@ -34814,6 +34882,123 @@ function objectRecord(value) {
     return value;
   return void 0;
 }
+var MATRIX_QUADRANT_ALIASES = {
+  tl: ["tl", "topLeft", "top_left", "top-left", "upperLeft", "upper_left", "leftTop", "left_top", "yHighXLow", "xLowYHigh"],
+  tr: ["tr", "topRight", "top_right", "top-right", "upperRight", "upper_right", "rightTop", "right_top", "yHighXHigh", "xHighYHigh"],
+  bl: ["bl", "bottomLeft", "bottom_left", "bottom-left", "lowerLeft", "lower_left", "leftBottom", "left_bottom", "yLowXLow", "xLowYLow"],
+  br: ["br", "bottomRight", "bottom_right", "bottom-right", "lowerRight", "lower_right", "rightBottom", "right_bottom", "yLowXHigh", "xHighYLow"]
+};
+function matrixAxis(node, side) {
+  const axes = objectRecord(node.axes) ?? objectRecord(node.axis);
+  const rec = side === "x" ? objectRecord(node.xAxis) ?? objectRecord(node.x) ?? objectRecord(axes?.x) ?? objectRecord(axes?.horizontal) : objectRecord(node.yAxis) ?? objectRecord(node.y) ?? objectRecord(axes?.y) ?? objectRecord(axes?.vertical);
+  const labels = Array.isArray(rec?.labels) ? rec?.labels : Array.isArray(rec?.range) ? rec?.range : void 0;
+  const low = semanticTextValue(rec || {}, "low", "min", "lo", "lower", side === "x" ? "left" : "bottom", "start") || semanticScalarText(labels?.[0]) || semanticTextValue(node, `${side}Low`, `${side}Min`, `${side}Lo`, side === "x" ? "xLeft" : "yBottom");
+  const high = semanticTextValue(rec || {}, "high", "max", "hi", "upper", side === "x" ? "right" : "top", "end") || semanticScalarText(labels?.[1]) || semanticTextValue(node, `${side}High`, `${side}Max`, `${side}Hi`, side === "x" ? "xRight" : "yTop");
+  return {
+    low: low || "Low",
+    high: high || "High",
+    explicit: Boolean(low || high)
+  };
+}
+function matrixPosition(value) {
+  if (typeof value === "boolean")
+    return value ? "high" : "low";
+  if (typeof value === "number" && Number.isFinite(value))
+    return value > 0.5 ? "high" : "low";
+  if (typeof value !== "string")
+    return void 0;
+  const v = value.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (!v)
+    return void 0;
+  if (["high", "hi", "h", "max", "right", "r", "top", "upper", "up", "end", "yes", "true", "2"].includes(v))
+    return "high";
+  if (["low", "lo", "l", "min", "left", "bottom", "lower", "down", "start", "no", "false", "1", "0"].includes(v))
+    return "low";
+  return void 0;
+}
+function matrixQuadrant(value) {
+  const text = typeof value === "string" ? value.trim() : value && typeof value === "object" && !Array.isArray(value) ? semanticTextValue(value, "quadrant", "position", "cell", "zone", "key", "id") : "";
+  if (!text)
+    return void 0;
+  const compact = text.toLowerCase().replace(/[\s_-]+/g, "");
+  for (const quadrant of Object.keys(MATRIX_QUADRANT_ALIASES)) {
+    if (MATRIX_QUADRANT_ALIASES[quadrant].some((alias) => alias.toLowerCase().replace(/[\s_-]+/g, "") === compact))
+      return quadrant;
+  }
+  return void 0;
+}
+function matrixQuadrantToPosition(quadrant) {
+  return {
+    x: quadrant.endsWith("r") ? "high" : "low",
+    y: quadrant.startsWith("t") ? "high" : "low"
+  };
+}
+function matrixQuadrantLabels(node) {
+  const out = { tl: "", tr: "", bl: "", br: "" };
+  matrixApplyQuadrantTextRecord(out, objectRecord(node.quadrantLabels));
+  matrixApplyQuadrantTextRecord(out, objectRecord(node.labels));
+  matrixApplyQuadrantTextRecord(out, objectRecord(node.quadrants));
+  if (Array.isArray(node.quadrants)) {
+    for (const raw of node.quadrants) {
+      const rec = objectRecord(raw);
+      if (!rec)
+        continue;
+      const quadrant = matrixQuadrant(rec.quadrant ?? rec.position ?? rec.cell ?? rec.zone);
+      if (!quadrant || out[quadrant])
+        continue;
+      out[quadrant] = semanticTextValue(rec, "label", "title", "name", "text", "headline", "summary");
+    }
+  }
+  return out;
+}
+function matrixQuadrantTones(node) {
+  const out = { tl: void 0, tr: void 0, bl: void 0, br: void 0 };
+  matrixApplyQuadrantRawRecord(out, objectRecord(node.quadrantTones));
+  matrixApplyQuadrantRawRecord(out, objectRecord(node.tones));
+  if (Array.isArray(node.quadrants)) {
+    for (const raw of node.quadrants) {
+      const rec = objectRecord(raw);
+      if (!rec)
+        continue;
+      const quadrant = matrixQuadrant(rec.quadrant ?? rec.position ?? rec.cell ?? rec.zone);
+      if (!quadrant || out[quadrant] !== void 0)
+        continue;
+      out[quadrant] = rec.tone ?? rec.status;
+    }
+  }
+  return out;
+}
+function matrixApplyQuadrantTextRecord(out, rec) {
+  if (!rec)
+    return;
+  for (const quadrant of Object.keys(out)) {
+    if (out[quadrant])
+      continue;
+    out[quadrant] = matrixQuadrantRecordText(rec, quadrant);
+  }
+}
+function matrixApplyQuadrantRawRecord(out, rec) {
+  if (!rec)
+    return;
+  for (const quadrant of Object.keys(out)) {
+    if (out[quadrant] !== void 0)
+      continue;
+    for (const alias of MATRIX_QUADRANT_ALIASES[quadrant]) {
+      if (rec[alias] !== void 0) {
+        out[quadrant] = rec[alias];
+        break;
+      }
+    }
+  }
+}
+function matrixQuadrantRecordText(rec, quadrant) {
+  for (const alias of MATRIX_QUADRANT_ALIASES[quadrant]) {
+    const text = semanticScalarText(rec[alias]);
+    if (text)
+      return text;
+  }
+  return "";
+}
 function treeChartAgentSurface(value) {
   const record = objectRecord(value);
   if (!record)
@@ -34952,7 +35137,7 @@ function treeChartTreeHeightTarget(node, dense, compact) {
   return explicit === void 0 ? defaultHeight : Math.max(0.8, explicit);
 }
 function treeChartDense(node, levels, compact) {
-  const nodeCount = levels.reduce((sum, level) => sum + level.length, 0);
+  const nodeCount = levels.reduce((sum3, level) => sum3 + level.length, 0);
   const widestLevel = Math.max(...levels.map((level) => level.length), 0);
   return compact || levels.length >= 5 || widestLevel >= 5 || nodeCount >= 12;
 }
@@ -35204,7 +35389,7 @@ function treeChartCardLayout(rec, levelIndex, levelCount, siblingCount, hasChild
   width += Math.min(isRoot ? 1.25 : 1.08, Math.max(0, titleLength - 10) * 0.045 + Math.min(longestLineLength, 48) * 0.021 + Math.max(0, contentLines.length - 1) * 0.06);
   width = Math.max(width, orgChartMeasuredLineWidth(theme, title, titleStyle, titleWeight) / ORG_CHART_TEXT_FIT_RATIO + stripeWidth + padding * 2 + iconReserve + ORG_CHART_TEXT_MARGIN_CM);
   if (badges.length > 0) {
-    const badgeWidth = badges.reduce((sum, badge2) => sum + badge2.width, 0) + Math.max(0, badges.length - 1) * (dense ? 0.05 : 0.06);
+    const badgeWidth = badges.reduce((sum3, badge2) => sum3 + badge2.width, 0) + Math.max(0, badges.length - 1) * (dense ? 0.05 : 0.06);
     width = Math.max(width, badgeWidth + stripeWidth + padding * 2 + ORG_CHART_TEXT_MARGIN_CM);
   }
   if (authoredSize === "sm" || authoredSize === "small")
@@ -35866,7 +36051,7 @@ function layoutPyramidLevels(levels, node, compact, theme, style) {
     topRatio = Math.min(1, bottomRatio + 0.06);
   }
   const rawLayouts = levels.map((rec, index) => pyramidLevelIntrinsicLayout(rec, index, count, width, topRatio, bottomRatio, compact, theme, style));
-  const naturalHeight = rawLayouts.reduce((sum, level) => sum + level.height, 0) + gap * Math.max(0, count - 1);
+  const naturalHeight = rawLayouts.reduce((sum3, level) => sum3 + level.height, 0) + gap * Math.max(0, count - 1);
   const defaultMaxHeight = compact ? 6.2 : 8.8;
   const maxHeight = authoredHeight === void 0 ? Math.min(defaultMaxHeight, naturalHeight) : Math.max(1.8, authoredHeight);
   const scale = naturalHeight > maxHeight ? Math.max(0.74, (maxHeight - gap * Math.max(0, count - 1)) / Math.max(0.1, naturalHeight - gap * Math.max(0, count - 1))) : 1;
@@ -35908,7 +36093,7 @@ function pyramidLevelIntrinsicLayout(rec, index, count, pyramidWidth, topRatio, 
   const titleLines = pyramidWrapTextLines(theme, rawTitle, titleMaxWidth, titleStyle, titleWeight, pyramidTitleLineLimit(rec, rawTitle, titleMaxWidth, compact)).map((line) => orgChartTrimToWidth(theme, line, titleMaxWidth, titleStyle, titleWeight)).filter(Boolean);
   const bodyLines = pyramidBodyLines(theme, rec, contentW, bodyStyle, bodyWeight, compact).map((line) => orgChartTrimToWidth(theme, line, contentW, bodyStyle, bodyWeight)).filter(Boolean);
   const contentItems = pyramidContentItemLayouts(theme, rec, contentW, bodyStyle, bodyWeight, compact);
-  const badgeTotalWidth = badges.reduce((sum, badge2) => sum + badge2.width, 0) + Math.max(0, badges.length - 1) * (compact ? 0.05 : 0.06);
+  const badgeTotalWidth = badges.reduce((sum3, badge2) => sum3 + badge2.width, 0) + Math.max(0, badges.length - 1) * (compact ? 0.05 : 0.06);
   const badgeInline = badges.length > 0 && titleAlign === "left" && headerW - titleReserve - badgeTotalWidth > (compact ? 0.72 : 0.92);
   const titleLineHeight = pyramidTitleLineHeight(theme, titleStyle, rawTitle, compact);
   const titleHeight = Math.max(icon ? icon.size : 0, compact ? 0.36 : 0.42, Math.max(1, titleLines.length) * titleLineHeight + Math.max(0, titleLines.length - 1) * (compact ? 0 : 0.02));
@@ -36004,7 +36189,7 @@ function pyramidLevelNode(id, layout, node, style) {
   const titleY = simpleTextOnly ? Math.max(layout.contentY, Math.min(Math.max(layout.contentY, layout.height - layout.contentY - textBlockH), (layout.height - textBlockH) / 2)) : layout.contentY;
   const simpleTextBox = simpleTextOnly ? pyramidLevelBandBox(layout, style, titleY, textBlockH, 0.1) : void 0;
   const titleBox = simpleTextBox ?? pyramidLevelBandBox(layout, style, titleY, titleBoxH, 0.08);
-  const inlineBadgeWidth = layout.badgeInline ? layout.badges.reduce((sum, badge2) => sum + badge2.width, 0) + Math.max(0, layout.badges.length - 1) * 0.06 + 0.1 : 0;
+  const inlineBadgeWidth = layout.badgeInline ? layout.badges.reduce((sum3, badge2) => sum3 + badge2.width, 0) + Math.max(0, layout.badges.length - 1) * 0.06 + 0.1 : 0;
   const titleW = Math.max(0.2, titleBox.w - iconReserve - inlineBadgeWidth);
   const titleAlign = simpleTextOnly && !pyramidHasExplicitTitleAlign(layout.rec, node) ? "center" : layout.titleAlign;
   const bodyAlign = simpleTextOnly && !pyramidHasExplicitBodyAlign(layout.rec, node) ? "center" : layout.bodyAlign;
@@ -36267,17 +36452,17 @@ function pyramidWeightedWidths(items, contentW, gap, minWidth) {
   const available = Math.max(0.1, contentW - gap * (count - 1));
   const safeMin = Math.min(minWidth, available / count);
   const weights = items.map((item) => Math.max(0.1, item.weight));
-  const totalWeight = weights.reduce((sum, value) => sum + value, 0) || 1;
+  const totalWeight = weights.reduce((sum3, value) => sum3 + value, 0) || 1;
   const initial = weights.map((weight) => Math.max(safeMin, available * weight / totalWeight));
-  const total = initial.reduce((sum, width) => sum + width, 0);
+  const total = initial.reduce((sum3, width) => sum3 + width, 0);
   if (total <= available + 1e-3) {
     const leftover = available - total;
-    const growTotal = weights.reduce((sum, value) => sum + value, 0) || 1;
+    const growTotal = weights.reduce((sum3, value) => sum3 + value, 0) || 1;
     return initial.map((width, index) => width + leftover * (weights[index] / growTotal));
   }
   const overflow = total - available;
   const shrinkables = initial.map((width) => Math.max(0, width - safeMin));
-  const shrinkTotal = shrinkables.reduce((sum, value) => sum + value, 0);
+  const shrinkTotal = shrinkables.reduce((sum3, value) => sum3 + value, 0);
   if (shrinkTotal <= 1e-3)
     return initial.map(() => available / count);
   return initial.map((width, index) => width - overflow * (shrinkables[index] / shrinkTotal));
@@ -37473,6 +37658,10 @@ function minimumExampleField(name, key) {
   if (name === "callout" && key === "text")
     return true;
   if (name === "key-takeaway" && key === "headline")
+    return true;
+  if (name === "chart-with-rail" && key === "evidence")
+    return true;
+  if (name === "comparison-table" && (key === "features" || key === "options"))
     return true;
   if (name === "matrix-2x2" && key === "items")
     return true;
@@ -38802,6 +38991,2067 @@ function richTextPlain2(runs) {
   return runs ? richRunsPlainText(runs) : "";
 }
 
+// node_modules/.pnpm/@lume+kiwi@0.4.4/node_modules/@lume/kiwi/dist/maptype.js
+function createMap() {
+  return new IndexedMap();
+}
+var IndexedMap = class _IndexedMap {
+  index = {};
+  array = [];
+  /**
+   * Returns the number of items in the array.
+   */
+  size() {
+    return this.array.length;
+  }
+  /**
+   * Returns true if the array is empty.
+   */
+  empty() {
+    return this.array.length === 0;
+  }
+  /**
+   * Returns the item at the given array index.
+   *
+   * @param index The integer index of the desired item.
+   */
+  itemAt(index) {
+    return this.array[index];
+  }
+  /**
+   * Returns true if the key is in the array, false otherwise.
+   *
+   * @param key The key to locate in the array.
+   */
+  contains(key) {
+    return this.index[key.id()] !== void 0;
+  }
+  /**
+   * Returns the pair associated with the given key, or undefined.
+   *
+   * @param key The key to locate in the array.
+   */
+  find(key) {
+    const i = this.index[key.id()];
+    return i === void 0 ? void 0 : this.array[i];
+  }
+  /**
+   * Returns the pair associated with the key if it exists.
+   *
+   * If the key does not exist, a new pair will be created and
+   * inserted using the value created by the given factory.
+   *
+   * @param key The key to locate in the array.
+   * @param factory The function which creates the default value.
+   */
+  setDefault(key, factory) {
+    const i = this.index[key.id()];
+    if (i === void 0) {
+      const pair = new Pair(key, factory());
+      this.index[key.id()] = this.array.length;
+      this.array.push(pair);
+      return pair;
+    } else {
+      return this.array[i];
+    }
+  }
+  /**
+   * Insert the pair into the array and return the pair.
+   *
+   * This will overwrite any existing entry in the array.
+   *
+   * @param key The key portion of the pair.
+   * @param value The value portion of the pair.
+   */
+  insert(key, value) {
+    const pair = new Pair(key, value);
+    const i = this.index[key.id()];
+    if (i === void 0) {
+      this.index[key.id()] = this.array.length;
+      this.array.push(pair);
+    } else {
+      this.array[i] = pair;
+    }
+    return pair;
+  }
+  /**
+   * Removes and returns the pair for the given key, or undefined.
+   *
+   * @param key The key to remove from the map.
+   */
+  erase(key) {
+    const i = this.index[key.id()];
+    if (i === void 0) {
+      return void 0;
+    }
+    this.index[key.id()] = void 0;
+    const pair = this.array[i];
+    const last = this.array.pop();
+    if (pair !== last) {
+      this.array[i] = last;
+      this.index[last.first.id()] = i;
+    }
+    return pair;
+  }
+  /**
+   * Create a copy of this associative array.
+   */
+  copy() {
+    const copy = new _IndexedMap();
+    for (let i = 0; i < this.array.length; i++) {
+      const pair = this.array[i].copy();
+      copy.array[i] = pair;
+      copy.index[pair.first.id()] = i;
+    }
+    return copy;
+  }
+};
+var Pair = class _Pair {
+  first;
+  second;
+  /**
+   * Construct a new Pair object.
+   *
+   * @param first The first item of the pair.
+   * @param second The second item of the pair.
+   */
+  constructor(first, second) {
+    this.first = first;
+    this.second = second;
+  }
+  /**
+   * Create a copy of the pair.
+   */
+  copy() {
+    return new _Pair(this.first, this.second);
+  }
+};
+
+// node_modules/.pnpm/@lume+kiwi@0.4.4/node_modules/@lume/kiwi/dist/variable.js
+var Variable = class {
+  constructor(name = "") {
+    this._name = name;
+  }
+  /**
+   * Returns the unique id number of the variable.
+   * @private
+   */
+  id() {
+    return this._id;
+  }
+  /**
+   * Returns the name of the variable.
+   *
+   * @return {String} name of the variable
+   */
+  name() {
+    return this._name;
+  }
+  /**
+   * Set the name of the variable.
+   *
+   * @param {String} name Name of the variable
+   */
+  setName(name) {
+    this._name = name;
+  }
+  /**
+   * Returns the user context object of the variable.
+   * @private
+   */
+  context() {
+    return this._context;
+  }
+  /**
+   * Set the user context object of the variable.
+   * @private
+   */
+  setContext(context) {
+    this._context = context;
+  }
+  /**
+   * Returns the value of the variable.
+   *
+   * @return {Number} Calculated value
+   */
+  value() {
+    return this._value;
+  }
+  /**
+   * Set the value of the variable.
+   * @private
+   */
+  setValue(value) {
+    this._value = value;
+  }
+  /**
+   * Creates a new Expression by adding a number, variable or expression
+   * to the variable.
+   *
+   * @param {Number|Variable|Expression} value Value to add.
+   * @return {Expression} expression
+   */
+  plus(value) {
+    return new Expression(this, value);
+  }
+  /**
+   * Creates a new Expression by substracting a number, variable or expression
+   * from the variable.
+   *
+   * @param {Number|Variable|Expression} value Value to substract.
+   * @return {Expression} expression
+   */
+  minus(value) {
+    return new Expression(this, typeof value === "number" ? -value : [-1, value]);
+  }
+  /**
+   * Creates a new Expression by multiplying with a fixed number.
+   *
+   * @param {Number} coefficient Coefficient to multiply with.
+   * @return {Expression} expression
+   */
+  multiply(coefficient) {
+    return new Expression([coefficient, this]);
+  }
+  /**
+   * Creates a new Expression by dividing with a fixed number.
+   *
+   * @param {Number} coefficient Coefficient to divide by.
+   * @return {Expression} expression
+   */
+  divide(coefficient) {
+    return new Expression([1 / coefficient, this]);
+  }
+  /**
+   * Returns the JSON representation of the variable.
+   * @private
+   */
+  toJSON() {
+    return {
+      name: this._name,
+      value: this._value
+    };
+  }
+  toString() {
+    return this._context + "[" + this._name + ":" + this._value + "]";
+  }
+  _name;
+  _value = 0;
+  _context = null;
+  _id = VarId++;
+};
+var VarId = 0;
+
+// node_modules/.pnpm/@lume+kiwi@0.4.4/node_modules/@lume/kiwi/dist/expression.js
+var Expression = class _Expression {
+  constructor() {
+    let parsed = parseArgs(arguments);
+    this._terms = parsed.terms;
+    this._constant = parsed.constant;
+  }
+  /**
+   * Returns the mapping of terms in the expression.
+   *
+   * This *must* be treated as const.
+   * @private
+   */
+  terms() {
+    return this._terms;
+  }
+  /**
+   * Returns the constant of the expression.
+   * @private
+   */
+  constant() {
+    return this._constant;
+  }
+  /**
+   * Returns the computed value of the expression.
+   *
+   * @private
+   * @return {Number} computed value of the expression
+   */
+  value() {
+    let result = this._constant;
+    for (let i = 0, n = this._terms.size(); i < n; i++) {
+      let pair = this._terms.itemAt(i);
+      result += pair.first.value() * pair.second;
+    }
+    return result;
+  }
+  /**
+   * Creates a new Expression by adding a number, variable or expression
+   * to the expression.
+   *
+   * @param {Number|Variable|Expression} value Value to add.
+   * @return {Expression} expression
+   */
+  plus(value) {
+    return new _Expression(this, value);
+  }
+  /**
+   * Creates a new Expression by substracting a number, variable or expression
+   * from the expression.
+   *
+   * @param {Number|Variable|Expression} value Value to substract.
+   * @return {Expression} expression
+   */
+  minus(value) {
+    return new _Expression(this, typeof value === "number" ? -value : [-1, value]);
+  }
+  /**
+   * Creates a new Expression by multiplying with a fixed number.
+   *
+   * @param {Number} coefficient Coefficient to multiply with.
+   * @return {Expression} expression
+   */
+  multiply(coefficient) {
+    return new _Expression([coefficient, this]);
+  }
+  /**
+   * Creates a new Expression by dividing with a fixed number.
+   *
+   * @param {Number} coefficient Coefficient to divide by.
+   * @return {Expression} expression
+   */
+  divide(coefficient) {
+    return new _Expression([1 / coefficient, this]);
+  }
+  isConstant() {
+    return this._terms.size() == 0;
+  }
+  toString() {
+    let result = this._terms.array.map(function(pair) {
+      return pair.second + "*" + pair.first.toString();
+    }).join(" + ");
+    if (!this.isConstant() && this._constant !== 0) {
+      result += " + ";
+    }
+    result += this._constant;
+    return result;
+  }
+  _terms;
+  _constant;
+};
+function parseArgs(args) {
+  let constant = 0;
+  let factory = () => 0;
+  let terms = createMap();
+  for (let i = 0, n = args.length; i < n; ++i) {
+    let item = args[i];
+    if (typeof item === "number") {
+      constant += item;
+    } else if (item instanceof Variable) {
+      terms.setDefault(item, factory).second += 1;
+    } else if (item instanceof Expression) {
+      constant += item.constant();
+      let terms2 = item.terms();
+      for (let j = 0, k = terms2.size(); j < k; j++) {
+        let termPair = terms2.itemAt(j);
+        terms.setDefault(termPair.first, factory).second += termPair.second;
+      }
+    } else if (item instanceof Array) {
+      if (item.length !== 2) {
+        throw new Error("array must have length 2");
+      }
+      let value = item[0];
+      let value2 = item[1];
+      if (typeof value !== "number") {
+        throw new Error("array item 0 must be a number");
+      }
+      if (value2 instanceof Variable) {
+        terms.setDefault(value2, factory).second += value;
+      } else if (value2 instanceof Expression) {
+        constant += value2.constant() * value;
+        let terms2 = value2.terms();
+        for (let j = 0, k = terms2.size(); j < k; j++) {
+          let termPair = terms2.itemAt(j);
+          terms.setDefault(termPair.first, factory).second += termPair.second * value;
+        }
+      } else {
+        throw new Error("array item 1 must be a variable or expression");
+      }
+    } else {
+      throw new Error("invalid Expression argument: " + item);
+    }
+  }
+  return { terms, constant };
+}
+
+// node_modules/.pnpm/@lume+kiwi@0.4.4/node_modules/@lume/kiwi/dist/strength.js
+var Strength = class _Strength {
+  /**
+   * Create a new symbolic strength.
+   *
+   * @param a strong
+   * @param b medium
+   * @param c weak
+   * @param [w] weight
+   * @return strength
+   */
+  static create(a, b, c, w = 1) {
+    let result = 0;
+    result += Math.max(0, Math.min(1e3, a * w)) * 1e6;
+    result += Math.max(0, Math.min(1e3, b * w)) * 1e3;
+    result += Math.max(0, Math.min(1e3, c * w));
+    return result;
+  }
+  /**
+   * The 'required' symbolic strength.
+   */
+  static required = _Strength.create(1e3, 1e3, 1e3);
+  /**
+   * The 'strong' symbolic strength.
+   */
+  static strong = _Strength.create(1, 0, 0);
+  /**
+   * The 'medium' symbolic strength.
+   */
+  static medium = _Strength.create(0, 1, 0);
+  /**
+   * The 'weak' symbolic strength.
+   */
+  static weak = _Strength.create(0, 0, 1);
+  /**
+   * Clip a symbolic strength to the allowed min and max.
+   * @private
+   */
+  static clip(value) {
+    return Math.max(0, Math.min(_Strength.required, value));
+  }
+};
+
+// node_modules/.pnpm/@lume+kiwi@0.4.4/node_modules/@lume/kiwi/dist/constraint.js
+var Operator;
+(function(Operator2) {
+  Operator2[Operator2["Le"] = 0] = "Le";
+  Operator2[Operator2["Ge"] = 1] = "Ge";
+  Operator2[Operator2["Eq"] = 2] = "Eq";
+})(Operator || (Operator = {}));
+var Constraint = class {
+  constructor(expression, operator, rhs, strength = Strength.required) {
+    this._operator = operator;
+    this._strength = Strength.clip(strength);
+    if (rhs === void 0 && expression instanceof Expression) {
+      this._expression = expression;
+    } else {
+      this._expression = expression.minus(rhs);
+    }
+  }
+  /**
+   * Returns the unique id number of the constraint.
+   * @private
+   */
+  id() {
+    return this._id;
+  }
+  /**
+   * Returns the expression of the constraint.
+   *
+   * @return {Expression} expression
+   */
+  expression() {
+    return this._expression;
+  }
+  /**
+   * Returns the relational operator of the constraint.
+   *
+   * @return {Operator} linear constraint operator
+   */
+  op() {
+    return this._operator;
+  }
+  /**
+   * Returns the strength of the constraint.
+   *
+   * @return {Number} strength
+   */
+  strength() {
+    return this._strength;
+  }
+  toString() {
+    return this._expression.toString() + " " + ["<=", ">=", "="][this._operator] + " 0 (" + this._strength.toString() + ")";
+  }
+  _expression;
+  _operator;
+  _strength;
+  _id = CnId++;
+};
+var CnId = 0;
+
+// node_modules/.pnpm/@lume+kiwi@0.4.4/node_modules/@lume/kiwi/dist/solver.js
+var Solver = class {
+  /**
+   * @type {number} - The max number of solver iterations before an error
+   * is thrown, in order to prevent infinite iteration. Default: `10,000`.
+   */
+  maxIterations = 1e3;
+  /**
+   * Construct a new Solver.
+   */
+  constructor() {
+  }
+  /**
+   * Creates and add a constraint to the solver.
+   *
+   * @param {Expression|Variable} lhs Left hand side of the expression
+   * @param {Operator} operator Operator
+   * @param {Expression|Variable|Number} rhs Right hand side of the expression
+   * @param {Number} [strength=Strength.required] Strength
+   */
+  createConstraint(lhs, operator, rhs, strength = Strength.required) {
+    let cn = new Constraint(lhs, operator, rhs, strength);
+    this.addConstraint(cn);
+    return cn;
+  }
+  /**
+   * Add a constraint to the solver.
+   *
+   * @param {Constraint} constraint Constraint to add to the solver
+   */
+  addConstraint(constraint) {
+    let cnPair = this._cnMap.find(constraint);
+    if (cnPair !== void 0) {
+      throw new Error("duplicate constraint");
+    }
+    let data = this._createRow(constraint);
+    let row = data.row;
+    let tag = data.tag;
+    let subject = this._chooseSubject(row, tag);
+    if (subject.type() === SymbolType.Invalid && row.allDummies()) {
+      if (!nearZero(row.constant())) {
+        throw new Error("unsatisfiable constraint");
+      } else {
+        subject = tag.marker;
+      }
+    }
+    if (subject.type() === SymbolType.Invalid) {
+      if (!this._addWithArtificialVariable(row)) {
+        throw new Error("unsatisfiable constraint");
+      }
+    } else {
+      row.solveFor(subject);
+      this._substitute(subject, row);
+      this._rowMap.insert(subject, row);
+    }
+    this._cnMap.insert(constraint, tag);
+    this._optimize(this._objective);
+  }
+  /**
+   * Remove a constraint from the solver.
+   *
+   * @param {Constraint} constraint Constraint to remove from the solver
+   */
+  removeConstraint(constraint) {
+    let cnPair = this._cnMap.erase(constraint);
+    if (cnPair === void 0) {
+      throw new Error("unknown constraint");
+    }
+    this._removeConstraintEffects(constraint, cnPair.second);
+    let marker = cnPair.second.marker;
+    let rowPair = this._rowMap.erase(marker);
+    if (rowPair === void 0) {
+      let leaving = this._getMarkerLeavingSymbol(marker);
+      if (leaving.type() === SymbolType.Invalid) {
+        throw new Error("failed to find leaving row");
+      }
+      rowPair = this._rowMap.erase(leaving);
+      rowPair.second.solveForEx(leaving, marker);
+      this._substitute(marker, rowPair.second);
+    }
+    this._optimize(this._objective);
+  }
+  /**
+   * Test whether the solver contains the constraint.
+   *
+   * @param {Constraint} constraint Constraint to test for
+   * @return {Bool} true or false
+   */
+  hasConstraint(constraint) {
+    return this._cnMap.contains(constraint);
+  }
+  /**
+   * Get an array of the current constraints.
+   *
+   * @return {Constraint[]}
+   */
+  getConstraints() {
+    return this._cnMap.array.map(({ first }) => first);
+  }
+  /**
+   * Add an edit variable to the solver.
+   *
+   * @param {Variable} variable Edit variable to add to the solver
+   * @param {Number} strength Strength, should be less than `Strength.required`
+   */
+  addEditVariable(variable, strength) {
+    let editPair = this._editMap.find(variable);
+    if (editPair !== void 0) {
+      throw new Error("duplicate edit variable");
+    }
+    strength = Strength.clip(strength);
+    if (strength === Strength.required) {
+      throw new Error("bad required strength");
+    }
+    let expr = new Expression(variable);
+    let cn = new Constraint(expr, Operator.Eq, void 0, strength);
+    this.addConstraint(cn);
+    let tag = this._cnMap.find(cn).second;
+    let info = { tag, constraint: cn, constant: 0 };
+    this._editMap.insert(variable, info);
+  }
+  /**
+   * Remove an edit variable from the solver.
+   *
+   * @param {Variable} variable Edit variable to remove from the solver
+   */
+  removeEditVariable(variable) {
+    let editPair = this._editMap.erase(variable);
+    if (editPair === void 0) {
+      throw new Error("unknown edit variable");
+    }
+    this.removeConstraint(editPair.second.constraint);
+  }
+  /**
+   * Test whether the solver contains the edit variable.
+   *
+   * @param {Variable} variable Edit variable to test for
+   * @return {Bool} true or false
+   */
+  hasEditVariable(variable) {
+    return this._editMap.contains(variable);
+  }
+  /**
+   * Suggest the value of an edit variable.
+   *
+   * @param {Variable} variable Edit variable to suggest a value for
+   * @param {Number} value Suggested value
+   */
+  suggestValue(variable, value) {
+    let editPair = this._editMap.find(variable);
+    if (editPair === void 0) {
+      throw new Error("unknown edit variable");
+    }
+    let rows = this._rowMap;
+    let info = editPair.second;
+    let delta = value - info.constant;
+    info.constant = value;
+    let marker = info.tag.marker;
+    let rowPair = rows.find(marker);
+    if (rowPair !== void 0) {
+      if (rowPair.second.add(-delta) < 0) {
+        this._infeasibleRows.push(marker);
+      }
+      this._dualOptimize();
+      return;
+    }
+    let other = info.tag.other;
+    rowPair = rows.find(other);
+    if (rowPair !== void 0) {
+      if (rowPair.second.add(delta) < 0) {
+        this._infeasibleRows.push(other);
+      }
+      this._dualOptimize();
+      return;
+    }
+    for (let i = 0, n = rows.size(); i < n; ++i) {
+      let rowPair2 = rows.itemAt(i);
+      let row = rowPair2.second;
+      let coeff = row.coefficientFor(marker);
+      if (coeff !== 0 && row.add(delta * coeff) < 0 && rowPair2.first.type() !== SymbolType.External) {
+        this._infeasibleRows.push(rowPair2.first);
+      }
+    }
+    this._dualOptimize();
+  }
+  /**
+   * Update the values of the variables.
+   */
+  updateVariables() {
+    let vars = this._varMap;
+    let rows = this._rowMap;
+    for (let i = 0, n = vars.size(); i < n; ++i) {
+      let pair = vars.itemAt(i);
+      let rowPair = rows.find(pair.second);
+      if (rowPair !== void 0) {
+        pair.first.setValue(rowPair.second.constant());
+      } else {
+        pair.first.setValue(0);
+      }
+    }
+  }
+  /**
+   * Get the symbol for the given variable.
+   *
+   * If a symbol does not exist for the variable, one will be created.
+   * @private
+   */
+  _getVarSymbol(variable) {
+    let factory = () => this._makeSymbol(SymbolType.External);
+    return this._varMap.setDefault(variable, factory).second;
+  }
+  /**
+   * Create a new Row object for the given constraint.
+   *
+   * The terms in the constraint will be converted to cells in the row.
+   * Any term in the constraint with a coefficient of zero is ignored.
+   * This method uses the `_getVarSymbol` method to get the symbol for
+   * the variables added to the row. If the symbol for a given cell
+   * variable is basic, the cell variable will be substituted with the
+   * basic row.
+   *
+   * The necessary slack and error variables will be added to the row.
+   * If the constant for the row is negative, the sign for the row
+   * will be inverted so the constant becomes positive.
+   *
+   * Returns the created Row and the tag for tracking the constraint.
+   * @private
+   */
+  _createRow(constraint) {
+    let expr = constraint.expression();
+    let row = new Row(expr.constant());
+    let terms = expr.terms();
+    for (let i = 0, n = terms.size(); i < n; ++i) {
+      let termPair = terms.itemAt(i);
+      if (!nearZero(termPair.second)) {
+        let symbol = this._getVarSymbol(termPair.first);
+        let basicPair = this._rowMap.find(symbol);
+        if (basicPair !== void 0) {
+          row.insertRow(basicPair.second, termPair.second);
+        } else {
+          row.insertSymbol(symbol, termPair.second);
+        }
+      }
+    }
+    let objective = this._objective;
+    let strength = constraint.strength();
+    let tag = { marker: INVALID_SYMBOL, other: INVALID_SYMBOL };
+    switch (constraint.op()) {
+      case Operator.Le:
+      case Operator.Ge: {
+        let coeff = constraint.op() === Operator.Le ? 1 : -1;
+        let slack = this._makeSymbol(SymbolType.Slack);
+        tag.marker = slack;
+        row.insertSymbol(slack, coeff);
+        if (strength < Strength.required) {
+          let error = this._makeSymbol(SymbolType.Error);
+          tag.other = error;
+          row.insertSymbol(error, -coeff);
+          objective.insertSymbol(error, strength);
+        }
+        break;
+      }
+      case Operator.Eq: {
+        if (strength < Strength.required) {
+          let errplus = this._makeSymbol(SymbolType.Error);
+          let errminus = this._makeSymbol(SymbolType.Error);
+          tag.marker = errplus;
+          tag.other = errminus;
+          row.insertSymbol(errplus, -1);
+          row.insertSymbol(errminus, 1);
+          objective.insertSymbol(errplus, strength);
+          objective.insertSymbol(errminus, strength);
+        } else {
+          let dummy = this._makeSymbol(SymbolType.Dummy);
+          tag.marker = dummy;
+          row.insertSymbol(dummy);
+        }
+        break;
+      }
+    }
+    if (row.constant() < 0) {
+      row.reverseSign();
+    }
+    return { row, tag };
+  }
+  /**
+   * Choose the subject for solving for the row.
+   *
+   * This method will choose the best subject for using as the solve
+   * target for the row. An invalid symbol will be returned if there
+   * is no valid target.
+   *
+   * The symbols are chosen according to the following precedence:
+   *
+   * 1) The first symbol representing an external variable.
+   * 2) A negative slack or error tag variable.
+   *
+   * If a subject cannot be found, an invalid symbol will be returned.
+   *
+   * @private
+   */
+  _chooseSubject(row, tag) {
+    let cells = row.cells();
+    for (let i = 0, n = cells.size(); i < n; ++i) {
+      let pair = cells.itemAt(i);
+      if (pair.first.type() === SymbolType.External) {
+        return pair.first;
+      }
+    }
+    let type = tag.marker.type();
+    if (type === SymbolType.Slack || type === SymbolType.Error) {
+      if (row.coefficientFor(tag.marker) < 0) {
+        return tag.marker;
+      }
+    }
+    type = tag.other.type();
+    if (type === SymbolType.Slack || type === SymbolType.Error) {
+      if (row.coefficientFor(tag.other) < 0) {
+        return tag.other;
+      }
+    }
+    return INVALID_SYMBOL;
+  }
+  /**
+   * Add the row to the tableau using an artificial variable.
+   *
+   * This will return false if the constraint cannot be satisfied.
+   *
+   * @private
+   */
+  _addWithArtificialVariable(row) {
+    let art = this._makeSymbol(SymbolType.Slack);
+    this._rowMap.insert(art, row.copy());
+    this._artificial = row.copy();
+    this._optimize(this._artificial);
+    let success = nearZero(this._artificial.constant());
+    this._artificial = null;
+    let pair = this._rowMap.erase(art);
+    if (pair !== void 0) {
+      let basicRow = pair.second;
+      if (basicRow.isConstant()) {
+        return success;
+      }
+      let entering = this._anyPivotableSymbol(basicRow);
+      if (entering.type() === SymbolType.Invalid) {
+        return false;
+      }
+      basicRow.solveForEx(art, entering);
+      this._substitute(entering, basicRow);
+      this._rowMap.insert(entering, basicRow);
+    }
+    let rows = this._rowMap;
+    for (let i = 0, n = rows.size(); i < n; ++i) {
+      rows.itemAt(i).second.removeSymbol(art);
+    }
+    this._objective.removeSymbol(art);
+    return success;
+  }
+  /**
+   * Substitute the parametric symbol with the given row.
+   *
+   * This method will substitute all instances of the parametric symbol
+   * in the tableau and the objective function with the given row.
+   *
+   * @private
+   */
+  _substitute(symbol, row) {
+    let rows = this._rowMap;
+    for (let i = 0, n = rows.size(); i < n; ++i) {
+      let pair = rows.itemAt(i);
+      pair.second.substitute(symbol, row);
+      if (pair.second.constant() < 0 && pair.first.type() !== SymbolType.External) {
+        this._infeasibleRows.push(pair.first);
+      }
+    }
+    this._objective.substitute(symbol, row);
+    if (this._artificial) {
+      this._artificial.substitute(symbol, row);
+    }
+  }
+  /**
+   * Optimize the system for the given objective function.
+   *
+   * This method performs iterations of Phase 2 of the simplex method
+   * until the objective function reaches a minimum.
+   *
+   * @private
+   */
+  _optimize(objective) {
+    let iterations = 0;
+    while (iterations < this.maxIterations) {
+      let entering = this._getEnteringSymbol(objective);
+      if (entering.type() === SymbolType.Invalid) {
+        return;
+      }
+      let leaving = this._getLeavingSymbol(entering);
+      if (leaving.type() === SymbolType.Invalid) {
+        throw new Error("the objective is unbounded");
+      }
+      let row = this._rowMap.erase(leaving).second;
+      row.solveForEx(leaving, entering);
+      this._substitute(entering, row);
+      this._rowMap.insert(entering, row);
+      iterations++;
+    }
+    throw new Error("solver iterations exceeded");
+  }
+  /**
+   * Optimize the system using the dual of the simplex method.
+   *
+   * The current state of the system should be such that the objective
+   * function is optimal, but not feasible. This method will perform
+   * an iteration of the dual simplex method to make the solution both
+   * optimal and feasible.
+   *
+   * @private
+   */
+  _dualOptimize() {
+    let rows = this._rowMap;
+    let infeasible = this._infeasibleRows;
+    while (infeasible.length !== 0) {
+      let leaving = infeasible.pop();
+      let pair = rows.find(leaving);
+      if (pair !== void 0 && pair.second.constant() < 0) {
+        let entering = this._getDualEnteringSymbol(pair.second);
+        if (entering.type() === SymbolType.Invalid) {
+          throw new Error("dual optimize failed");
+        }
+        let row = pair.second;
+        rows.erase(leaving);
+        row.solveForEx(leaving, entering);
+        this._substitute(entering, row);
+        rows.insert(entering, row);
+      }
+    }
+  }
+  /**
+   * Compute the entering variable for a pivot operation.
+   *
+   * This method will return first symbol in the objective function which
+   * is non-dummy and has a coefficient less than zero. If no symbol meets
+   * the criteria, it means the objective function is at a minimum, and an
+   * invalid symbol is returned.
+   *
+   * @private
+   */
+  _getEnteringSymbol(objective) {
+    let cells = objective.cells();
+    for (let i = 0, n = cells.size(); i < n; ++i) {
+      let pair = cells.itemAt(i);
+      let symbol = pair.first;
+      if (pair.second < 0 && symbol.type() !== SymbolType.Dummy) {
+        return symbol;
+      }
+    }
+    return INVALID_SYMBOL;
+  }
+  /**
+   * Compute the entering symbol for the dual optimize operation.
+   *
+   * This method will return the symbol in the row which has a positive
+   * coefficient and yields the minimum ratio for its respective symbol
+   * in the objective function. The provided row *must* be infeasible.
+   * If no symbol is found which meats the criteria, an invalid symbol
+   * is returned.
+   *
+   * @private
+   */
+  _getDualEnteringSymbol(row) {
+    let ratio = Number.MAX_VALUE;
+    let entering = INVALID_SYMBOL;
+    let cells = row.cells();
+    for (let i = 0, n = cells.size(); i < n; ++i) {
+      let pair = cells.itemAt(i);
+      let symbol = pair.first;
+      let c = pair.second;
+      if (c > 0 && symbol.type() !== SymbolType.Dummy) {
+        let coeff = this._objective.coefficientFor(symbol);
+        let r = coeff / c;
+        if (r < ratio) {
+          ratio = r;
+          entering = symbol;
+        }
+      }
+    }
+    return entering;
+  }
+  /**
+   * Compute the symbol for pivot exit row.
+   *
+   * This method will return the symbol for the exit row in the row
+   * map. If no appropriate exit symbol is found, an invalid symbol
+   * will be returned. This indicates that the objective function is
+   * unbounded.
+   *
+   * @private
+   */
+  _getLeavingSymbol(entering) {
+    let ratio = Number.MAX_VALUE;
+    let found = INVALID_SYMBOL;
+    let rows = this._rowMap;
+    for (let i = 0, n = rows.size(); i < n; ++i) {
+      let pair = rows.itemAt(i);
+      let symbol = pair.first;
+      if (symbol.type() !== SymbolType.External) {
+        let row = pair.second;
+        let temp = row.coefficientFor(entering);
+        if (temp < 0) {
+          let temp_ratio = -row.constant() / temp;
+          if (temp_ratio < ratio) {
+            ratio = temp_ratio;
+            found = symbol;
+          }
+        }
+      }
+    }
+    return found;
+  }
+  /**
+   * Compute the leaving symbol for a marker variable.
+   *
+   * This method will return a symbol corresponding to a basic row
+   * which holds the given marker variable. The row will be chosen
+   * according to the following precedence:
+   *
+   * 1) The row with a restricted basic varible and a negative coefficient
+   *    for the marker with the smallest ratio of -constant / coefficient.
+   *
+   * 2) The row with a restricted basic variable and the smallest ratio
+   *    of constant / coefficient.
+   *
+   * 3) The last unrestricted row which contains the marker.
+   *
+   * If the marker does not exist in any row, an invalid symbol will be
+   * returned. This indicates an internal solver error since the marker
+   * *should* exist somewhere in the tableau.
+   *
+   * @private
+   */
+  _getMarkerLeavingSymbol(marker) {
+    let dmax = Number.MAX_VALUE;
+    let r1 = dmax;
+    let r2 = dmax;
+    let invalid = INVALID_SYMBOL;
+    let first = invalid;
+    let second = invalid;
+    let third = invalid;
+    let rows = this._rowMap;
+    for (let i = 0, n = rows.size(); i < n; ++i) {
+      let pair = rows.itemAt(i);
+      let row = pair.second;
+      let c = row.coefficientFor(marker);
+      if (c === 0) {
+        continue;
+      }
+      let symbol = pair.first;
+      if (symbol.type() === SymbolType.External) {
+        third = symbol;
+      } else if (c < 0) {
+        let r = -row.constant() / c;
+        if (r < r1) {
+          r1 = r;
+          first = symbol;
+        }
+      } else {
+        let r = row.constant() / c;
+        if (r < r2) {
+          r2 = r;
+          second = symbol;
+        }
+      }
+    }
+    if (first !== invalid) {
+      return first;
+    }
+    if (second !== invalid) {
+      return second;
+    }
+    return third;
+  }
+  /**
+   * Remove the effects of a constraint on the objective function.
+   *
+   * @private
+   */
+  _removeConstraintEffects(cn, tag) {
+    if (tag.marker.type() === SymbolType.Error) {
+      this._removeMarkerEffects(tag.marker, cn.strength());
+    }
+    if (tag.other.type() === SymbolType.Error) {
+      this._removeMarkerEffects(tag.other, cn.strength());
+    }
+  }
+  /**
+   * Remove the effects of an error marker on the objective function.
+   *
+   * @private
+   */
+  _removeMarkerEffects(marker, strength) {
+    let pair = this._rowMap.find(marker);
+    if (pair !== void 0) {
+      this._objective.insertRow(pair.second, -strength);
+    } else {
+      this._objective.insertSymbol(marker, -strength);
+    }
+  }
+  /**
+   * Get the first Slack or Error symbol in the row.
+   *
+   * If no such symbol is present, an invalid symbol will be returned.
+   *
+   * @private
+   */
+  _anyPivotableSymbol(row) {
+    let cells = row.cells();
+    for (let i = 0, n = cells.size(); i < n; ++i) {
+      let pair = cells.itemAt(i);
+      let type = pair.first.type();
+      if (type === SymbolType.Slack || type === SymbolType.Error) {
+        return pair.first;
+      }
+    }
+    return INVALID_SYMBOL;
+  }
+  /**
+   * Returns a new Symbol of the given type.
+   *
+   * @private
+   */
+  _makeSymbol(type) {
+    return new Symbol2(type, this._idTick++);
+  }
+  _cnMap = createCnMap();
+  _rowMap = createRowMap();
+  _varMap = createVarMap();
+  _editMap = createEditMap();
+  _infeasibleRows = [];
+  _objective = new Row();
+  _artificial = null;
+  _idTick = 0;
+};
+function nearZero(value) {
+  let eps = 1e-8;
+  return value < 0 ? -value < eps : value < eps;
+}
+function createCnMap() {
+  return createMap();
+}
+function createRowMap() {
+  return createMap();
+}
+function createVarMap() {
+  return createMap();
+}
+function createEditMap() {
+  return createMap();
+}
+var SymbolType;
+(function(SymbolType2) {
+  SymbolType2[SymbolType2["Invalid"] = 0] = "Invalid";
+  SymbolType2[SymbolType2["External"] = 1] = "External";
+  SymbolType2[SymbolType2["Slack"] = 2] = "Slack";
+  SymbolType2[SymbolType2["Error"] = 3] = "Error";
+  SymbolType2[SymbolType2["Dummy"] = 4] = "Dummy";
+})(SymbolType || (SymbolType = {}));
+var Symbol2 = class {
+  /**
+   * Construct a new Symbol
+   *
+   * @param [type] The type of the symbol.
+   * @param [id] The unique id number of the symbol.
+   */
+  constructor(type, id) {
+    this._id = id;
+    this._type = type;
+  }
+  /**
+   * Returns the unique id number of the symbol.
+   */
+  id() {
+    return this._id;
+  }
+  /**
+   * Returns the type of the symbol.
+   */
+  type() {
+    return this._type;
+  }
+  _id;
+  _type;
+};
+var INVALID_SYMBOL = new Symbol2(SymbolType.Invalid, -1);
+var Row = class _Row {
+  /**
+   * Construct a new Row.
+   */
+  constructor(constant = 0) {
+    this._constant = constant;
+  }
+  /**
+   * Returns the mapping of symbols to coefficients.
+   */
+  cells() {
+    return this._cellMap;
+  }
+  /**
+   * Returns the constant for the row.
+   */
+  constant() {
+    return this._constant;
+  }
+  /**
+   * Returns true if the row is a constant value.
+   */
+  isConstant() {
+    return this._cellMap.empty();
+  }
+  /**
+   * Returns true if the Row has all dummy symbols.
+   */
+  allDummies() {
+    let cells = this._cellMap;
+    for (let i = 0, n = cells.size(); i < n; ++i) {
+      let pair = cells.itemAt(i);
+      if (pair.first.type() !== SymbolType.Dummy) {
+        return false;
+      }
+    }
+    return true;
+  }
+  /**
+   * Create a copy of the row.
+   */
+  copy() {
+    let theCopy = new _Row(this._constant);
+    theCopy._cellMap = this._cellMap.copy();
+    return theCopy;
+  }
+  /**
+   * Add a constant value to the row constant.
+   *
+   * Returns the new value of the constant.
+   */
+  add(value) {
+    return this._constant += value;
+  }
+  /**
+   * Insert the symbol into the row with the given coefficient.
+   *
+   * If the symbol already exists in the row, the coefficient
+   * will be added to the existing coefficient. If the resulting
+   * coefficient is zero, the symbol will be removed from the row.
+   */
+  insertSymbol(symbol, coefficient = 1) {
+    let pair = this._cellMap.setDefault(symbol, () => 0);
+    if (nearZero(pair.second += coefficient)) {
+      this._cellMap.erase(symbol);
+    }
+  }
+  /**
+   * Insert a row into this row with a given coefficient.
+   *
+   * The constant and the cells of the other row will be
+   * multiplied by the coefficient and added to this row. Any
+   * cell with a resulting coefficient of zero will be removed
+   * from the row.
+   */
+  insertRow(other, coefficient = 1) {
+    this._constant += other._constant * coefficient;
+    let cells = other._cellMap;
+    for (let i = 0, n = cells.size(); i < n; ++i) {
+      let pair = cells.itemAt(i);
+      this.insertSymbol(pair.first, pair.second * coefficient);
+    }
+  }
+  /**
+   * Remove a symbol from the row.
+   */
+  removeSymbol(symbol) {
+    this._cellMap.erase(symbol);
+  }
+  /**
+   * Reverse the sign of the constant and cells in the row.
+   */
+  reverseSign() {
+    this._constant = -this._constant;
+    let cells = this._cellMap;
+    for (let i = 0, n = cells.size(); i < n; ++i) {
+      let pair = cells.itemAt(i);
+      pair.second = -pair.second;
+    }
+  }
+  /**
+   * Solve the row for the given symbol.
+   *
+   * This method assumes the row is of the form
+   * a * x + b * y + c = 0 and (assuming solve for x) will modify
+   * the row to represent the right hand side of
+   * x = -b/a * y - c / a. The target symbol will be removed from
+   * the row, and the constant and other cells will be multiplied
+   * by the negative inverse of the target coefficient.
+   *
+   * The given symbol *must* exist in the row.
+   */
+  solveFor(symbol) {
+    let cells = this._cellMap;
+    let pair = cells.erase(symbol);
+    let coeff = -1 / pair.second;
+    this._constant *= coeff;
+    for (let i = 0, n = cells.size(); i < n; ++i) {
+      cells.itemAt(i).second *= coeff;
+    }
+  }
+  /**
+   * Solve the row for the given symbols.
+   *
+   * This method assumes the row is of the form
+   * x = b * y + c and will solve the row such that
+   * y = x / b - c / b. The rhs symbol will be removed from the
+   * row, the lhs added, and the result divided by the negative
+   * inverse of the rhs coefficient.
+   *
+   * The lhs symbol *must not* exist in the row, and the rhs
+   * symbol must* exist in the row.
+   */
+  solveForEx(lhs, rhs) {
+    this.insertSymbol(lhs, -1);
+    this.solveFor(rhs);
+  }
+  /**
+   * Returns the coefficient for the given symbol.
+   */
+  coefficientFor(symbol) {
+    let pair = this._cellMap.find(symbol);
+    return pair !== void 0 ? pair.second : 0;
+  }
+  /**
+   * Substitute a symbol with the data from another row.
+   *
+   * Given a row of the form a * x + b and a substitution of the
+   * form x = 3 * y + c the row will be updated to reflect the
+   * expression 3 * a * y + a * c + b.
+   *
+   * If the symbol does not exist in the row, this is a no-op.
+   */
+  substitute(symbol, row) {
+    let pair = this._cellMap.erase(symbol);
+    if (pair !== void 0) {
+      this.insertRow(row, pair.second);
+    }
+  }
+  _cellMap = createMap();
+  _constant;
+};
+
+// slideml2/dist/layout/constraint-solver.js
+var CassowaryLayoutSolver = class {
+  constructor() {
+    this.solver = new Solver();
+    this.boxes = /* @__PURE__ */ new Map();
+  }
+  box(id) {
+    const existing = this.boxes.get(id);
+    if (existing)
+      return existing;
+    const box = {
+      id,
+      x: new Variable(`${id}.x`),
+      y: new Variable(`${id}.y`),
+      w: new Variable(`${id}.w`),
+      h: new Variable(`${id}.h`)
+    };
+    this.boxes.set(id, box);
+    this.ge(box.w, 0);
+    this.ge(box.h, 0);
+    return box;
+  }
+  eq(lhs, rhs, strength = "required") {
+    return this.add(lhs, Operator.Eq, rhs, strength);
+  }
+  ge(lhs, rhs, strength = "required") {
+    return this.add(lhs, Operator.Ge, rhs, strength);
+  }
+  le(lhs, rhs, strength = "required") {
+    return this.add(lhs, Operator.Le, rhs, strength);
+  }
+  pin(box, rect) {
+    this.eq(box.x, rect.x);
+    this.eq(box.y, rect.y);
+    this.eq(box.w, rect.w);
+    this.eq(box.h, rect.h);
+  }
+  size(box, preference) {
+    const minStrength = preference.minStrength ?? "strong";
+    const idealStrength = preference.idealStrength ?? "medium";
+    const maxStrength = preference.maxStrength ?? "strong";
+    if (preference.minW !== void 0)
+      this.ge(box.w, preference.minW, minStrength);
+    if (preference.minH !== void 0)
+      this.ge(box.h, preference.minH, minStrength);
+    if (preference.maxW !== void 0)
+      this.le(box.w, preference.maxW, maxStrength);
+    if (preference.maxH !== void 0)
+      this.le(box.h, preference.maxH, maxStrength);
+    if (preference.idealW !== void 0)
+      this.eq(box.w, preference.idealW, idealStrength);
+    if (preference.idealH !== void 0)
+      this.eq(box.h, preference.idealH, idealStrength);
+  }
+  contain(parent, child, padding = 0, strength = "required") {
+    this.ge(child.x, parent.x.plus(padding), strength);
+    this.ge(child.y, parent.y.plus(padding), strength);
+    this.le(right(child), right(parent).minus(padding), strength);
+    this.le(bottom(child), bottom(parent).minus(padding), strength);
+  }
+  stack(parent, children, options = {}) {
+    if (children.length === 0)
+      return;
+    const axis = options.axis ?? "vertical";
+    const gap = options.gap ?? 0;
+    const padding = options.padding ?? 0;
+    const fill = options.fill ?? true;
+    const stretch = options.stretchCrossAxis ?? true;
+    const mainStart = axis === "horizontal" ? "x" : "y";
+    const mainSize = axis === "horizontal" ? "w" : "h";
+    const crossStart = axis === "horizontal" ? "y" : "x";
+    const crossSize = axis === "horizontal" ? "h" : "w";
+    this.eq(children[0][mainStart], parent[mainStart].plus(padding));
+    for (let index = 1; index < children.length; index++) {
+      const previous = children[index - 1];
+      const current = children[index];
+      this.eq(current[mainStart], previous[mainStart].plus(previous[mainSize]).plus(gap));
+    }
+    for (const child of children) {
+      this.contain(parent, child, padding);
+      if (stretch) {
+        this.eq(child[crossStart], parent[crossStart].plus(padding));
+        this.eq(child[crossSize], parent[crossSize].minus(padding * 2));
+      }
+    }
+    const last = children[children.length - 1];
+    const lastEnd = last[mainStart].plus(last[mainSize]);
+    const parentEnd = parent[mainStart].plus(parent[mainSize]).minus(padding);
+    if (fill)
+      this.eq(lastEnd, parentEnd);
+    else
+      this.le(lastEnd, parentEnd);
+    const weights = positiveWeights(options.weights, children.length);
+    if (weights) {
+      let available = parent[mainSize].minus(gap * Math.max(0, children.length - 1) + padding * 2);
+      children.forEach((child, index) => {
+        if (weights.values[index] <= 0)
+          available = available.minus(child[mainSize]);
+      });
+      children.forEach((child, index) => {
+        const weight = weights.values[index];
+        if (weight <= 0)
+          return;
+        this.eq(child[mainSize], available.multiply(weight / weights.total), options.weightStrength ?? "medium");
+      });
+    }
+  }
+  split(parent, children, options = {}) {
+    this.stack(parent, children, { ...options, fill: true });
+    const ratio = normalizedWeights(options.ratio, children.length);
+    if (!ratio)
+      return;
+    const axis = options.axis ?? "horizontal";
+    const mainSize = axis === "horizontal" ? "w" : "h";
+    const gap = options.gap ?? 0;
+    const padding = options.padding ?? 0;
+    const available = parent[mainSize].minus(gap * Math.max(0, children.length - 1) + padding * 2);
+    const strength = options.ratioStrength ?? "strong";
+    children.forEach((child, index) => {
+      this.eq(child[mainSize], available.multiply(ratio[index]), strength);
+    });
+  }
+  grid(parent, items, options) {
+    if (options.columns <= 0 || options.rows <= 0)
+      throw new Error("Grid must have positive row and column counts.");
+    const gap = options.gap ?? 0;
+    const padding = options.padding ?? 0;
+    const colW = createTrackVariables("col", options.columns);
+    const rowH = createTrackVariables("row", options.rows);
+    const availableW = parent.w.minus(gap * Math.max(0, options.columns - 1) + padding * 2);
+    const availableH = parent.h.minus(gap * Math.max(0, options.rows - 1) + padding * 2);
+    for (const track of [...colW, ...rowH])
+      this.ge(track, 0);
+    this.eq(sum(colW), availableW);
+    this.eq(sum(rowH), availableH);
+    addTrackPreferences(this, colW, availableW, options.columnWeights, options.trackStrength);
+    addTrackPreferences(this, rowH, availableH, options.rowWeights, options.trackStrength);
+    for (const item of items) {
+      const colSpan = clampSpan(item.colSpan ?? 1, options.columns - item.col);
+      const rowSpan = clampSpan(item.rowSpan ?? 1, options.rows - item.row);
+      this.eq(item.box.x, parent.x.plus(padding + item.col * gap).plus(sum(colW.slice(0, item.col))));
+      this.eq(item.box.y, parent.y.plus(padding + item.row * gap).plus(sum(rowH.slice(0, item.row))));
+      this.eq(item.box.w, sum(colW.slice(item.col, item.col + colSpan)).plus(gap * Math.max(0, colSpan - 1)));
+      this.eq(item.box.h, sum(rowH.slice(item.row, item.row + rowSpan)).plus(gap * Math.max(0, rowSpan - 1)));
+      this.contain(parent, item.box, padding);
+    }
+  }
+  solve() {
+    this.solver.updateVariables();
+    const solved = /* @__PURE__ */ new Map();
+    for (const [id, box] of this.boxes) {
+      solved.set(id, {
+        x: box.x.value(),
+        y: box.y.value(),
+        w: box.w.value(),
+        h: box.h.value()
+      });
+    }
+    return solved;
+  }
+  add(lhs, operator, rhs, strength) {
+    const constraint = new Constraint(toConstraintLhs(lhs), operator, rhs, strengthValue(strength));
+    this.solver.addConstraint(constraint);
+    return constraint;
+  }
+};
+function strengthValue(strength) {
+  if (typeof strength === "number")
+    return strength;
+  if (strength === "required")
+    return Strength.required;
+  if (strength === "strong")
+    return Strength.strong;
+  if (strength === "medium")
+    return Strength.medium;
+  return Strength.weak;
+}
+function toConstraintLhs(term) {
+  return typeof term === "number" ? new Expression(term) : term;
+}
+function right(box) {
+  return box.x.plus(box.w);
+}
+function bottom(box) {
+  return box.y.plus(box.h);
+}
+function sum(terms) {
+  let expr = new Expression(0);
+  for (const term of terms)
+    expr = expr.plus(term);
+  return expr;
+}
+function normalizedWeights(values, count) {
+  if (!values || values.length !== count)
+    return void 0;
+  const positive2 = values.map((value) => Number.isFinite(value) && value > 0 ? value : 0);
+  const total = positive2.reduce((acc, value) => acc + value, 0);
+  if (total <= 0)
+    return void 0;
+  return positive2.map((value) => value / total);
+}
+function positiveWeights(values, count) {
+  if (!values || values.length !== count)
+    return void 0;
+  const positive2 = values.map((value) => Number.isFinite(value) && value > 0 ? value : 0);
+  const total = positive2.reduce((acc, value) => acc + value, 0);
+  if (total <= 0)
+    return void 0;
+  return { values: positive2, total };
+}
+function createTrackVariables(prefix, count) {
+  return Array.from({ length: count }, (_, index) => new Variable(`${prefix}${index}`));
+}
+function addTrackPreferences(solver, tracks, available, weights, strength = "weak") {
+  const normalized = normalizedWeights(weights, tracks.length);
+  if (!normalized)
+    return;
+  tracks.forEach((track, index) => {
+    solver.eq(track, available.multiply(normalized[index]), strength);
+  });
+}
+function clampSpan(span, available) {
+  return Math.max(1, Math.min(Math.floor(span), Math.max(1, available)));
+}
+
+// slideml2/dist/layout/constraint-layout.js
+function solveConstraintLayout(root, bounds) {
+  const solver = new CassowaryLayoutSolver();
+  const nodes = /* @__PURE__ */ new Map();
+  const rootBox = buildNode(solver, root, nodes);
+  solver.pin(rootBox, bounds);
+  const rects = solver.solve();
+  return {
+    rects,
+    pressures: measurePressures(nodes, rects)
+  };
+}
+function buildNode(solver, node, nodes) {
+  if (!node.id)
+    throw new Error("Constraint layout node is missing id.");
+  if (nodes.has(node.id))
+    throw new Error(`Duplicate constraint layout node id '${node.id}'.`);
+  nodes.set(node.id, node);
+  const box = solver.box(node.id);
+  if (node.measure)
+    solver.size(box, node.measure);
+  const children = node.children || [];
+  for (const child of children)
+    buildNode(solver, child, nodes);
+  const kind = node.type ?? (children.length > 0 ? "stack" : "box");
+  if (kind === "stack") {
+    solver.stack(box, children.map((child) => solver.box(child.id)), {
+      axis: node.direction,
+      gap: node.gap,
+      padding: node.padding,
+      fill: node.fill,
+      stretchCrossAxis: node.stretchCrossAxis,
+      weights: node.weights,
+      weightStrength: node.weightStrength
+    });
+  } else if (kind === "split") {
+    solver.split(box, children.map((child) => solver.box(child.id)), {
+      axis: node.direction,
+      gap: node.gap,
+      padding: node.padding,
+      fill: true,
+      stretchCrossAxis: node.stretchCrossAxis,
+      ratio: node.ratio,
+      ratioStrength: node.ratioStrength
+    });
+  } else if (kind === "grid") {
+    const placement = placeGridChildren(children, node.columns ?? 2, node.rows);
+    solver.grid(box, placement.items.map((item) => ({
+      box: solver.box(item.node.id),
+      row: item.row,
+      col: item.col,
+      rowSpan: item.rowSpan,
+      colSpan: item.colSpan
+    })), {
+      columns: placement.columns,
+      rows: placement.rows,
+      gap: node.gap,
+      padding: node.padding,
+      columnWeights: node.columnWeights,
+      rowWeights: node.rowWeights,
+      trackStrength: node.trackStrength
+    });
+  }
+  return box;
+}
+function placeGridChildren(children, rawColumns, declaredRows) {
+  const columns = Math.max(1, Math.floor(rawColumns));
+  const occupied = [];
+  const items = [];
+  for (const child of children) {
+    const colSpan = clampSpan2(child.colSpan ?? 1, columns);
+    const rowSpan = Math.max(1, Math.floor(child.rowSpan ?? 1));
+    if (isNonNegativeInteger(child.row) && isNonNegativeInteger(child.col)) {
+      const row = child.row;
+      const col = child.col;
+      if (col + colSpan > columns)
+        throw new Error(`Grid child '${child.id}' exceeds column count.`);
+      if (!isFree(occupied, row, col, rowSpan, colSpan))
+        throw new Error(`Grid child '${child.id}' overlaps another explicit grid child.`);
+      mark(occupied, row, col, rowSpan, colSpan);
+      items.push({ node: child, row, col, rowSpan, colSpan });
+      continue;
+    }
+    let placed = false;
+    for (let row = 0; !placed; row++) {
+      for (let col = 0; col + colSpan <= columns; col++) {
+        if (!isFree(occupied, row, col, rowSpan, colSpan))
+          continue;
+        mark(occupied, row, col, rowSpan, colSpan);
+        items.push({ node: child, row, col, rowSpan, colSpan });
+        placed = true;
+        break;
+      }
+    }
+  }
+  const usedRows = items.reduce((max, item) => Math.max(max, item.row + item.rowSpan), 0);
+  const rows = Math.max(1, declaredRows ?? 0, usedRows);
+  if (declaredRows !== void 0 && usedRows > declaredRows) {
+    throw new Error(`Grid needs ${usedRows} row(s), but rows is ${declaredRows}.`);
+  }
+  return { columns, rows, items };
+}
+function isFree(occupied, row, col, rowSpan, colSpan) {
+  for (let r = row; r < row + rowSpan; r++) {
+    const line = occupied[r] || [];
+    for (let c = col; c < col + colSpan; c++) {
+      if (line[c])
+        return false;
+    }
+  }
+  return true;
+}
+function mark(occupied, row, col, rowSpan, colSpan) {
+  for (let r = row; r < row + rowSpan; r++) {
+    if (!occupied[r])
+      occupied[r] = [];
+    for (let c = col; c < col + colSpan; c++)
+      occupied[r][c] = true;
+  }
+}
+function clampSpan2(span, columns) {
+  return Math.max(1, Math.min(Math.floor(span), columns));
+}
+function isNonNegativeInteger(value) {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+function measurePressures(nodes, rects) {
+  const pressures = [];
+  for (const [id, node] of nodes) {
+    const rect = rects.get(id);
+    const measure = node.measure;
+    if (!rect || !measure)
+      continue;
+    pushPressure(pressures, id, "minW", measure.minW, rect.w, (expected, actual) => expected - actual);
+    pushPressure(pressures, id, "minH", measure.minH, rect.h, (expected, actual) => expected - actual);
+    pushPressure(pressures, id, "maxW", measure.maxW, rect.w, (expected, actual) => actual - expected);
+    pushPressure(pressures, id, "maxH", measure.maxH, rect.h, (expected, actual) => actual - expected);
+  }
+  return pressures;
+}
+function pushPressure(out, nodeId, constraint, expected, actual, deltaFn) {
+  if (expected === void 0)
+    return;
+  const delta = deltaFn(expected, actual);
+  if (delta <= 0.01)
+    return;
+  out.push({ nodeId, constraint, expected, actual, delta });
+}
+
+// slideml2/dist/layout/dom-constraint-layout.js
+function domNodeToConstraintLayoutNode(node, options = {}) {
+  return convertDomNode(node, options, void 0, 0);
+}
+function solveDomConstraintLayout(root, bounds, options = {}) {
+  const ir = domNodeToConstraintLayoutNode(root, options);
+  return { ir, ...solveConstraintLayout(ir, bounds) };
+}
+function convertDomNode(node, options, parentAxis, depth) {
+  const children = domChildren(node, options, depth);
+  const kind = layoutKind(node, children.length, options);
+  const axis = kind === "stack" || kind === "split" ? layoutAxis(node, kind) : void 0;
+  const convertedChildren = children.map((child) => convertDomNode(child, options, axis, depth + 1));
+  const measure = options.measureNode?.(node, parentAxis) ?? measureFromDomNode(node, parentAxis) ?? (convertedChildren.length === 0 ? cloneSizePreference(options.defaultLeafMeasure) : void 0);
+  return stripUndefined({
+    id: safeNodeId(node),
+    type: kind,
+    direction: axis,
+    gap: dimension(node.gap),
+    padding: dimension(node.layoutPadding) ?? dimension(node.padding),
+    fill: typeof node.fillLayout === "boolean" ? node.fillLayout : typeof node.fill === "boolean" ? node.fill : void 0,
+    stretchCrossAxis: stretchCrossAxis(node),
+    weights: kind === "stack" ? childLayoutWeights(children) : void 0,
+    weightStrength: kind === "stack" ? options.stackWeightStrength ?? "medium" : void 0,
+    ratio: kind === "split" ? splitRatio(node, children) : void 0,
+    ratioStrength: kind === "split" ? options.splitRatioStrength ?? "medium" : void 0,
+    columns: kind === "grid" ? positiveInteger(node.columns) ?? 2 : void 0,
+    rows: kind === "grid" ? positiveInteger(node.rows) : void 0,
+    columnWeights: kind === "grid" ? numericArray(node.columnWeights ?? node.colWeights) : void 0,
+    rowWeights: kind === "grid" ? numericArray(node.rowWeights) : void 0,
+    trackStrength: kind === "grid" ? options.gridTrackStrength ?? "weak" : void 0,
+    row: nonNegativeInteger(node.row),
+    col: nonNegativeInteger(node.col ?? node.column),
+    rowSpan: positiveInteger(node.rowSpan ?? node.rowspan),
+    colSpan: positiveInteger(node.colSpan ?? node.colspan),
+    measure,
+    children: convertedChildren.length > 0 ? convertedChildren : void 0
+  });
+}
+function domChildren(node, options, depth) {
+  if (options.maxDepth !== void 0 && depth >= options.maxDepth)
+    return [];
+  const children = Array.isArray(node.children) ? node.children : [];
+  if (options.includeLayeredChildren)
+    return children;
+  return children.filter((child) => child.layer !== "behind" && child.layer !== "above");
+}
+function layoutKind(node, childCount, options) {
+  if (node.type === "stack" || node.type === "split" || node.type === "grid")
+    return node.type;
+  if (childCount > 0)
+    return options.defaultContainerType ?? "stack";
+  return "box";
+}
+function layoutAxis(node, kind) {
+  if (node.direction === "horizontal" || node.direction === "vertical")
+    return node.direction;
+  return kind === "split" ? "horizontal" : "vertical";
+}
+function safeNodeId(node) {
+  return typeof node.id === "string" && node.id ? node.id : "constraint-node";
+}
+function stretchCrossAxis(node) {
+  if (typeof node.stretchCrossAxis === "boolean")
+    return node.stretchCrossAxis;
+  if (node.align === "stretch" || node.valign === "stretch")
+    return true;
+  if (node.align === "start" || node.align === "left" || node.align === "center" || node.align === "right" || node.align === "end")
+    return false;
+  if (node.valign === "start" || node.valign === "top" || node.valign === "middle" || node.valign === "bottom" || node.valign === "end")
+    return false;
+  return void 0;
+}
+function splitRatio(node, children) {
+  const authored = numericArray(node.ratio);
+  if (authored && authored.length === children.length && authored.every((value) => value > 0))
+    return authored;
+  const weights = childLayoutWeights(children);
+  if (weights && weights.every((value) => value > 0))
+    return weights;
+  if (children.length === 2)
+    return [0.62, 0.38];
+  if (children.length === 3)
+    return [0.4, 0.3, 0.3];
+  return children.length > 0 ? children.map(() => 1) : void 0;
+}
+function childLayoutWeights(children) {
+  const weights = children.map((child) => dimension(child.layoutWeight) ?? 0);
+  return weights.some((weight) => weight > 0) ? weights : void 0;
+}
+function measureFromDomNode(node, parentAxis) {
+  const fixedW = dimension(node.fixedWidth) ?? dimension(node.width);
+  const fixedH = dimension(node.fixedHeight) ?? dimension(node.height);
+  const minW = dimension(node.minWidth);
+  const minH = dimension(node.minHeight);
+  const maxW = dimension(node.maxWidth);
+  const maxH = dimension(node.maxHeight);
+  const idealW = dimension(node.idealWidth) ?? dimension(node.preferredWidth) ?? dimension(node.basisWidth);
+  const idealH = dimension(node.idealHeight) ?? dimension(node.preferredHeight) ?? dimension(node.basisHeight);
+  const basis = dimension(node.basis);
+  const measure = stripUndefined({
+    minW: fixedW ?? minW,
+    idealW: fixedW ?? idealW ?? (parentAxis === "horizontal" ? basis : void 0),
+    maxW: fixedW ?? maxW,
+    minH: fixedH ?? minH,
+    idealH: fixedH ?? idealH ?? (parentAxis === "vertical" ? basis : void 0),
+    maxH: fixedH ?? maxH,
+    minStrength: fixedW !== void 0 || fixedH !== void 0 ? "strong" : void 0,
+    idealStrength: fixedW !== void 0 || fixedH !== void 0 ? "strong" : void 0,
+    maxStrength: fixedW !== void 0 || fixedH !== void 0 ? "strong" : void 0
+  });
+  return Object.keys(measure).length > 0 ? measure : void 0;
+}
+function cloneSizePreference(value) {
+  return value ? { ...value } : void 0;
+}
+function numericArray(value) {
+  if (!Array.isArray(value))
+    return void 0;
+  const out = value.map(dimension);
+  return out.every((item) => item !== void 0) ? out : void 0;
+}
+function positiveInteger(value) {
+  const parsed = dimension(value);
+  if (parsed === void 0)
+    return void 0;
+  const rounded = Math.floor(parsed);
+  return rounded > 0 ? rounded : void 0;
+}
+function nonNegativeInteger(value) {
+  const parsed = dimension(value);
+  if (parsed === void 0)
+    return void 0;
+  const rounded = Math.floor(parsed);
+  return rounded >= 0 ? rounded : void 0;
+}
+function dimension(value) {
+  if (typeof value === "number" && Number.isFinite(value))
+    return value;
+  if (typeof value !== "string")
+    return void 0;
+  const trimmed = value.trim();
+  const match = /^(-?\d+(?:\.\d+)?)\s*(?:cm)?$/i.exec(trimmed);
+  if (!match)
+    return void 0;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : void 0;
+}
+function stripUndefined(value) {
+  const record = value;
+  for (const key of Object.keys(record)) {
+    if (record[key] === void 0)
+      delete record[key];
+  }
+  return value;
+}
+
+// slideml2/dist/layout/flex-sizing.js
+var EPSILON = 1e-4;
+function resolveFlexMainTargets(specs, availableMain, options = {}) {
+  if (specs.length === 0)
+    return [];
+  const available = Math.max(0, finiteOrZero(availableMain));
+  const targets = specs.map((spec) => clampMain(spec.basis, spec.min, spec.max));
+  const total = sum2(targets);
+  if (total > available + EPSILON)
+    return shrinkTargets(specs, targets, available, options);
+  if (total < available - EPSILON)
+    return growTargets(specs, targets, available - total, options);
+  return targets;
+}
+function growTargets(specs, targets, extra, options) {
+  let remaining = extra;
+  let growIndexes = growableIndexes(specs, targets, false);
+  if (growIndexes.length === 0 && options.autoFillSlack) {
+    growIndexes = growableIndexes(specs, targets, true);
+  }
+  while (remaining > EPSILON && growIndexes.length > 0) {
+    const weights = normalizeWeights(growIndexes.map((index) => positiveNumber(specs[index].weight, 1)));
+    let consumed = 0;
+    growIndexes.forEach((index, weightIndex) => {
+      const room = normalizedMax(specs[index].max) - targets[index];
+      const addition = Math.min(room, remaining * weights[weightIndex]);
+      targets[index] += addition;
+      consumed += addition;
+    });
+    if (consumed <= EPSILON)
+      break;
+    remaining -= consumed;
+    growIndexes = growIndexes.filter((index) => targets[index] < normalizedMax(specs[index].max) - EPSILON);
+  }
+  return targets;
+}
+function shrinkTargets(specs, targets, available, options) {
+  let overflow = sum2(targets) - available;
+  let shrinkable = shrinkableIndexes(specs, targets);
+  while (overflow > EPSILON && shrinkable.length > 0) {
+    const factors = shrinkable.map((index) => shrinkFactor(specs[index], targets[index]));
+    const totalFactor = sum2(factors);
+    if (totalFactor <= EPSILON)
+      break;
+    let consumed = 0;
+    shrinkable.forEach((index, factorIndex) => {
+      const capacity = Math.max(0, targets[index] - normalizedMin(specs[index].min));
+      const reduction = Math.min(capacity, overflow * (factors[factorIndex] / totalFactor));
+      targets[index] -= reduction;
+      consumed += reduction;
+    });
+    if (consumed <= EPSILON)
+      break;
+    overflow = sum2(targets) - available;
+    shrinkable = shrinkableIndexes(specs, targets);
+  }
+  if (overflow > EPSILON) {
+    options.onOverflow?.(overflow, available);
+    return fitToAvailableRespectingFixed(specs, targets, available);
+  }
+  return targets;
+}
+function growableIndexes(specs, targets, includeNonFixed) {
+  return specs.map((spec, index) => !spec.fixed && (includeNonFixed || spec.grow) && targets[index] < normalizedMax(spec.max) - EPSILON ? index : -1).filter((index) => index >= 0);
+}
+function shrinkableIndexes(specs, targets) {
+  return specs.map((spec, index) => !spec.fixed && targets[index] > normalizedMin(spec.min) + EPSILON ? index : -1).filter((index) => index >= 0);
+}
+function shrinkFactor(spec, target) {
+  if (spec.shrinkWeight !== void 0)
+    return Math.max(0, finiteOrZero(spec.shrinkWeight));
+  return Math.max(0, target - normalizedMin(spec.min));
+}
+function fitToAvailableRespectingFixed(specs, targets, availableMain) {
+  const fixedTotal = specs.reduce((acc, spec, index) => acc + (spec.fixed ? targets[index] : 0), 0);
+  const flexibleTotal = targets.reduce((acc, target, index) => acc + (specs[index].fixed ? 0 : target), 0);
+  const flexibleAvailable = Math.max(0, availableMain - fixedTotal);
+  if (flexibleTotal <= 0 || flexibleTotal <= flexibleAvailable)
+    return targets;
+  const scale = flexibleAvailable / flexibleTotal;
+  return targets.map((target, index) => specs[index].fixed ? target : target * scale);
+}
+function clampMain(value, min, max) {
+  const lower = normalizedMin(min);
+  const upper = Math.max(lower, normalizedMax(max));
+  return Math.max(lower, Math.min(finiteOrZero(value), upper));
+}
+function normalizedMin(value) {
+  return Math.max(0, finiteOrZero(value));
+}
+function normalizedMax(value) {
+  return Number.isFinite(value) ? Math.max(0, value) : Number.POSITIVE_INFINITY;
+}
+function positiveNumber(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+function finiteOrZero(value) {
+  return Number.isFinite(value) ? value : 0;
+}
+function normalizeWeights(values) {
+  const positive2 = values.map((value) => Number.isFinite(value) && value > 0 ? value : 0);
+  const total = sum2(positive2);
+  if (total <= 0)
+    return values.map(() => 1 / Math.max(1, values.length));
+  return positive2.map((value) => value / total);
+}
+function sum2(values) {
+  return values.reduce((acc, value) => acc + value, 0);
+}
+
+// slideml2/dist/layout/grid-track-sizing.js
+function resolveGridColumnTracks(options) {
+  const count = positiveCount(options.count);
+  const available = finiteNonNegative(options.available);
+  const explicit = numericArray2(options.explicitSizes, count);
+  if (explicit) {
+    const sum3 = explicit.reduce((acc, value) => acc + value, 0);
+    if (sum3 > 0) {
+      const looksAbsolute = Math.abs(sum3 - available) < available * 0.5 && explicit.every((value) => value >= 0.3);
+      if (looksAbsolute) {
+        if (sum3 <= available)
+          return explicit;
+        return explicit.map((value) => value / sum3 * available);
+      }
+      return normalizeWeights2(explicit).map((weight) => available * weight);
+    }
+  }
+  return normalizeWeights2(numericArray2(options.weights, count) ?? Array.from({ length: count }, () => 1)).map((weight) => available * weight);
+}
+function resolveGridRowTracks(options) {
+  const count = positiveCount(options.count);
+  const explicitWeights = numericArray2(options.weights, count);
+  const rowWeights = normalizeWeights2(explicitWeights ?? Array.from({ length: count }, () => 1));
+  const basisByRow = new Array(count).fill(0);
+  const minByRow = new Array(count).fill(finiteNonNegative(options.defaultMin ?? 0));
+  const hintedWeights = new Array(count).fill(void 0);
+  for (const contribution of options.contributions) {
+    const start = Math.max(0, Math.floor(contribution.start));
+    const span = Math.max(1, Math.floor(contribution.span ?? 1));
+    const end = Math.min(count, start + span);
+    if (start >= count || end <= start)
+      continue;
+    const basis = finiteNonNegative(contribution.basis) / (end - start);
+    const min = finiteNonNegative(contribution.min) / (end - start);
+    for (let row = start; row < end; row++) {
+      basisByRow[row] = Math.max(basisByRow[row], basis);
+      minByRow[row] = Math.max(minByRow[row], min);
+      if (contribution.weight !== void 0) {
+        hintedWeights[row] = Math.max(hintedWeights[row] ?? 0, finitePositive2(contribution.weight, 1));
+      }
+    }
+  }
+  const specs = basisByRow.map((basis, row) => ({
+    basis,
+    min: minByRow[row],
+    max: Number.POSITIVE_INFINITY,
+    weight: explicitWeights ? rowWeights[row] : hintedWeights[row] ?? rowWeights[row] ?? 1,
+    grow: true,
+    fixed: false
+  }));
+  return resolveFlexMainTargets(specs, options.available);
+}
+function normalizeTrackWeights(value, count) {
+  return normalizeWeights2(numericArray2(value, positiveCount(count)) ?? Array.from({ length: positiveCount(count) }, () => 1));
+}
+function numericArray2(value, count) {
+  if (!Array.isArray(value) || value.length !== count)
+    return void 0;
+  return value.map((item) => typeof item === "number" && Number.isFinite(item) && item > 0 ? item : 0);
+}
+function normalizeWeights2(values) {
+  const positive2 = values.map((value) => Math.max(0, finiteNonNegative(value)));
+  const total = positive2.reduce((acc, value) => acc + value, 0);
+  if (total <= 0)
+    return values.map(() => 1 / Math.max(1, values.length));
+  return positive2.map((value) => value / total);
+}
+function positiveCount(value) {
+  return Math.max(1, Math.floor(Number.isFinite(value) ? value : 1));
+}
+function finiteNonNegative(value) {
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+function finitePositive2(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 // slideml2/dist/text-kinds.js
 var TEXT_KIND_DEFINITIONS = [
   { kind: "deck-title", purpose: "Whole-deck title.", preferredLines: { max: 2 }, defaultWrap: true },
@@ -39652,9 +41902,9 @@ function aggregateValue(rows, op, field) {
     return minMaxValue(values, "max");
   const numbers = values.map((value) => numericValue(value)).filter((value) => value !== null);
   if (op === "sum")
-    return numbers.reduce((sum, value) => sum + value, 0);
+    return numbers.reduce((sum3, value) => sum3 + value, 0);
   if (op === "avg")
-    return numbers.length ? numbers.reduce((sum, value) => sum + value, 0) / numbers.length : "";
+    return numbers.length ? numbers.reduce((sum3, value) => sum3 + value, 0) / numbers.length : "";
   return "";
 }
 function computedColumns(value) {
@@ -39717,31 +41967,31 @@ function computeExpression(expr, row) {
   const values = Array.isArray(rec.values) ? rec.values.map((item) => numericValue(operandValue(item, row))).filter((value) => value !== null) : [];
   if (op === "sum" || op === "add") {
     if (values.length)
-      return values.reduce((sum, value) => sum + value, 0);
-    return binaryNumeric(rec.left, rec.right, row, (left, right) => left + right, rec.empty);
+      return values.reduce((sum3, value) => sum3 + value, 0);
+    return binaryNumeric(rec.left, rec.right, row, (left, right2) => left + right2, rec.empty);
   }
   if (op === "subtract" || op === "sub")
-    return binaryNumeric(rec.left, rec.right, row, (left, right) => left - right, rec.empty);
+    return binaryNumeric(rec.left, rec.right, row, (left, right2) => left - right2, rec.empty);
   if (op === "multiply" || op === "mul") {
     if (values.length)
       return values.reduce((product, value) => product * value, 1);
-    return binaryNumeric(rec.left, rec.right, row, (left, right) => left * right, rec.empty);
+    return binaryNumeric(rec.left, rec.right, row, (left, right2) => left * right2, rec.empty);
   }
   if (op === "divide" || op === "div" || op === "ratio")
-    return binaryNumeric(rec.left, rec.right, row, (left, right) => right === 0 ? null : left / right, rec.empty);
+    return binaryNumeric(rec.left, rec.right, row, (left, right2) => right2 === 0 ? null : left / right2, rec.empty);
   if (op === "percent-change" || op === "percentChange") {
     const current = rec.current ?? rec.left;
     const previous = rec.previous ?? rec.right;
-    return binaryNumeric(current, previous, row, (left, right) => right === 0 ? null : (left - right) / Math.abs(right), rec.empty);
+    return binaryNumeric(current, previous, row, (left, right2) => right2 === 0 ? null : (left - right2) / Math.abs(right2), rec.empty);
   }
   return rec.empty ?? "";
 }
 function binaryNumeric(leftRaw, rightRaw, row, fn, empty) {
   const left = numericValue(operandValue(leftRaw, row));
-  const right = numericValue(operandValue(rightRaw, row));
-  if (left === null || right === null)
+  const right2 = numericValue(operandValue(rightRaw, row));
+  if (left === null || right2 === null)
     return empty ?? "";
-  const value = fn(left, right);
+  const value = fn(left, right2);
   return value === null || !Number.isFinite(value) ? empty ?? "" : value;
 }
 function operandValue(value, row) {
@@ -42950,6 +45200,8 @@ function findNodePathById(root, id, path = []) {
   return void 0;
 }
 function detectComponentLayoutQuality(theme, slideId, measured, slideDom) {
+  detectMetricTextInkOverflow(slideId, measured, slideDom);
+  detectComponentElasticBudgets(theme, slideId, measured, slideDom);
   detectPageComponentCapacity(theme, slideId, measured, slideDom);
   detectLocalRegionCapacity(theme, slideId, measured, slideDom);
   const byId = new Map(measured.map((node) => [node.id, node]));
@@ -42981,6 +45233,247 @@ function detectComponentLayoutQuality(theme, slideId, measured, slideDom) {
     }
   }
 }
+function detectComponentElasticBudgets(theme, slideId, measured, slideDom) {
+  const byId = new Map(measured.map((node) => [node.id, node]));
+  const parentById = collectMeasuredParentIds(measured);
+  for (const item of measured) {
+    const node = findNodeById(slideDom, item.id);
+    if (!node || !isComponentBudgetCandidate(node))
+      continue;
+    if (hasMeasuredAncestorWithSameBudget(parentById, slideDom, item.id))
+      continue;
+    const role = regionCapacityRole(node);
+    const className = componentElasticityClass(node, role);
+    if (className !== "elastic")
+      continue;
+    if (role === "metric-card")
+      continue;
+    const budget = componentElasticBudget(theme, node, item.rect, byId);
+    if (!budget)
+      continue;
+    if (item.rect.h + COMPONENT_ELASTIC_BUDGET_TOLERANCE_CM >= budget.minHeight)
+      continue;
+    pushFitDiagnostic({
+      kind: "container",
+      severity: "error",
+      code: "FALLBACK_FAILED",
+      slideId,
+      nodeId: item.id,
+      message: `Component '${item.id}' exceeded its elastic compression budget (needs ${budget.minHeight.toFixed(2)}cm minimum readable height, has ${item.rect.h.toFixed(2)}cm).`,
+      suggestion: componentElasticBudgetSuggestion(className, role),
+      measured: {
+        available: item.rect.h,
+        needed: budget.minHeight,
+        deltaCm: Math.max(0, budget.minHeight - item.rect.h),
+        minHeightCm: budget.minHeight,
+        readableNeeded: budget.preferredHeight,
+        capacityRatio: budget.minHeight / Math.max(1e-3, item.rect.h),
+        fitMethod: "component-elastic-budget",
+        components: budget.children
+      }
+    });
+  }
+}
+var COMPONENT_ELASTIC_BUDGET_TOLERANCE_CM = 0.04;
+function isComponentBudgetCandidate(node) {
+  if (!Array.isArray(node.children) || node.children.length === 0)
+    return false;
+  const role = regionCapacityRole(node);
+  if (typeof node.role !== "string" || !node.role.trim())
+    return false;
+  if (!role || role === "stack" || role === "grid" || role === "slide")
+    return false;
+  if (role.endsWith("-bg") || role.endsWith("-connector-stub") || role.endsWith("-connector-port"))
+    return false;
+  return node.type === "stack" || node.type === "grid" || node.type === "card" || node.type === "panel" || node.type === "band" || node.type === "frame" || node.type === "inset";
+}
+function hasMeasuredAncestorWithSameBudget(parentById, slideDom, nodeId) {
+  let current = parentById.get(nodeId);
+  const seen = /* @__PURE__ */ new Set();
+  while (current) {
+    if (seen.has(current))
+      return false;
+    seen.add(current);
+    const ancestor = findNodeById(slideDom, current);
+    if (ancestor && isComponentBudgetCandidate(ancestor)) {
+      const role = regionCapacityRole(ancestor);
+      if (componentElasticityClass(ancestor, role) !== "decorative")
+        return true;
+    }
+    current = parentById.get(current);
+  }
+  return false;
+}
+function componentElasticBudget(theme, node, rect, byId) {
+  const role = regionCapacityRole(node);
+  const className = componentElasticityClass(node, role);
+  if (className !== "elastic")
+    return void 0;
+  const content = contentRect(theme, node, rect);
+  const minHeight = componentRequiredMinHeight(theme, node, Math.max(0.45, content.w), byId, 0) + Math.max(0, rect.h - content.h);
+  if (!Number.isFinite(minHeight) || minHeight <= 0.05)
+    return void 0;
+  const preferredHeight = Math.max(minHeight, Math.min(intrinsicMainSize(theme, node, "vertical", Math.max(0.45, rect.w)), rect.h + Math.max(0, minHeight - rect.h)));
+  const children = componentBudgetChildren(theme, node, Math.max(0.45, content.w), byId);
+  return { minHeight, preferredHeight, ...children.length ? { children } : {} };
+}
+function componentRequiredMinHeight(theme, node, widthCm, byId, depth) {
+  if (depth > 5)
+    return Math.min(intrinsicMainSize(theme, node, "vertical", widthCm), 1.2);
+  if (node.type === "text")
+    return textSquashMinHeight(theme, node, { x: 0, y: 0, w: widthCm, h: 10 });
+  if (node.type === "bullets")
+    return bulletsSquashMinHeight(theme, node, { x: 0, y: 0, w: widthCm, h: 10 });
+  if (node.type === "spacer")
+    return optionalNumberProp(node, "fixedHeight") ?? optionalNumberProp(node, "minHeight") ?? 0;
+  if (node.type === "divider")
+    return normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.02;
+  if (node.type === "shape")
+    return optionalNumberProp(node, "fixedHeight") ?? optionalNumberProp(node, "height") ?? optionalNumberProp(node, "minHeight") ?? 0.08;
+  if (node.type === "image")
+    return Math.min(1.25, Math.max(0.5, widthCm * 0.18));
+  if (node.type === "chart")
+    return Math.min(3, Math.max(1.6, widthCm * 0.36));
+  if (node.type === "table")
+    return Math.min(4.5, Math.max(0.9, tableIntrinsicHeight(theme, node, widthCm) * 0.72));
+  const children = componentBudgetFlowChildren(node);
+  if (children.length === 0)
+    return Math.min(intrinsicMainSize(theme, node, "vertical", widthCm), 0.9);
+  const role = regionCapacityRole(node);
+  const className = componentElasticityClass(node, role);
+  const requiredChildren = children.filter((child) => componentBudgetChildCounts(child, className));
+  if (requiredChildren.length === 0)
+    return 0;
+  if (node.type === "grid")
+    return gridRequiredMinHeight(theme, node, requiredChildren, widthCm, byId, depth + 1);
+  if (node.type === "stack" && node.direction === "horizontal") {
+    const gap = totalStackGapCm(theme, node, requiredChildren);
+    const availableWidth = Math.max(0.45, widthCm - gap);
+    const childWidth = Math.max(0.45, availableWidth / requiredChildren.length);
+    return Math.max(...requiredChildren.map((child) => componentRequiredMinHeight(theme, child, childWidth, byId, depth + 1)));
+  }
+  const contentHeight = requiredChildren.reduce((sum3, child) => sum3 + componentRequiredMinHeight(theme, child, widthCm, byId, depth + 1), 0);
+  return contentHeight + totalStackGapCm(theme, node, requiredChildren);
+}
+function gridRequiredMinHeight(theme, node, children, widthCm, byId, depth) {
+  const columns = Math.max(1, numberProp(node, "columns", Math.min(2, children.length || 1)));
+  const gap = gridGapCm(theme, node, children, columns);
+  const colWidths = gridColumnTrackTargets(node, columns, Math.max(0, widthCm - gap * (columns - 1)));
+  const placements = computeGridPlacements(children, columns);
+  const rows = Math.max(1, placements.reduce((max, placement) => Math.max(max, placement.row + placement.rowSpan), 0));
+  const rowHeights = new Array(rows).fill(0);
+  for (const placement of placements) {
+    const childWidth = spannedSize(colWidths, placement.col, placement.colSpan, gap) || Math.max(0.45, widthCm / columns);
+    const childMin = componentRequiredMinHeight(theme, placement.child, childWidth, byId, depth + 1) / Math.max(1, placement.rowSpan);
+    for (let row = placement.row; row < placement.row + placement.rowSpan && row < rows; row++) {
+      rowHeights[row] = Math.max(rowHeights[row] ?? 0, childMin);
+    }
+  }
+  return rowHeights.reduce((sum3, height) => sum3 + height, 0) + gap * Math.max(0, rows - 1);
+}
+function componentBudgetFlowChildren(node) {
+  return (node.children || []).filter((child) => !isOverlayChild(child) && child.layer !== "behind" && child.layer !== "above");
+}
+function componentBudgetChildCounts(child, parentClass) {
+  if (child.optional === true && parentClass === "elastic")
+    return false;
+  const role = regionCapacityRole(child);
+  const childClass = componentElasticityClass(child, role);
+  if (childClass === "decorative" && child.optional === true)
+    return false;
+  return true;
+}
+function componentBudgetChildren(theme, node, widthCm, byId) {
+  return componentBudgetFlowChildren(node).filter((child) => componentBudgetChildCounts(child, componentElasticityClass(node, regionCapacityRole(node)))).slice(0, 8).map((child) => {
+    const measured = byId.get(child.id);
+    const needed = componentRequiredMinHeight(theme, child, widthCm, byId, 1);
+    return {
+      nodeId: child.id,
+      role: regionCapacityRole(child),
+      assignedHeightCm: measured?.rect.h ?? 0,
+      neededHeightCm: needed,
+      capacityMode: componentElasticityClass(child, regionCapacityRole(child)) === "hard" ? "hard" : "elastic"
+    };
+  });
+}
+function componentElasticBudgetSuggestion(className, role) {
+  if (className === "hard") {
+    return `The ${role} component has hard geometry/data constraints. Increase its region, reduce item/series/row count, use an explicit compact scale only for mild pressure, or split the component across slides.`;
+  }
+  return `The ${role} component has used all of its elastic space. Keep the component semantics, but increase its region, reduce optional copy/items, choose a compact scale/density for mild pressure, or split the content instead of squeezing padding or text below readable minima.`;
+}
+function detectMetricTextInkOverflow(slideId, measured, slideDom) {
+  const byId = new Map(measured.map((node) => [node.id, node]));
+  const parentById = collectMeasuredParentIds(measured);
+  const seen = /* @__PURE__ */ new Set();
+  for (const item of measured) {
+    if (item.type !== "text" || !item.visualRect || !item.parentId)
+      continue;
+    const node = findNodeById(slideDom, item.id);
+    if (!node)
+      continue;
+    if (!isMetricTextNode(node))
+      continue;
+    const metricAncestor = nearestMetricMeasuredAncestor(parentById, slideDom, item.id);
+    if (!metricAncestor)
+      continue;
+    const parent = byId.get(item.parentId);
+    const boundary = metricAncestor.role === "metric-card" ? byId.get(metricAncestor.id) : parent;
+    if (!boundary?.rect)
+      continue;
+    const overflow = rectEscapeAmountCm(item.visualRect, boundary.rect);
+    if (overflow <= STRICT_METRIC_TEXT_INK_OVERFLOW_CM)
+      continue;
+    const key = `${slideId}/${item.id}/${boundary.id}`;
+    if (seen.has(key))
+      continue;
+    seen.add(key);
+    pushDiagnostic({
+      severity: "error",
+      code: "OVERFLOW",
+      slideId,
+      nodeId: item.id,
+      message: `Metric text '${item.id}' paints ${overflow.toFixed(2)}cm outside '${boundary.id}'.`,
+      suggestion: "Keep the KPI semantics but give the metric card more height, reduce columns, shorten the label, or let the metric-card compact its value band/padding before accepting the render.",
+      measured: {
+        deltaCm: overflow,
+        rect: item.rect,
+        outerRect: item.visualRect,
+        other: { ...boundary.rect, nodeId: boundary.id },
+        parentId: boundary.id,
+        relationship: `metric-ink-escape:${metricAncestor.id}`
+      }
+    });
+  }
+}
+var STRICT_METRIC_TEXT_INK_OVERFLOW_CM = 0.06;
+function isMetricTextNode(node) {
+  if (node.type !== "text")
+    return false;
+  const styleKey = textStyleKey(node);
+  if (styleKey === "metric-value" || styleKey === "metric-label")
+    return true;
+  const id = String(node.id || "");
+  return /\.(?:value|label|delta)$/.test(id);
+}
+function nearestMetricMeasuredAncestor(parentById, slideDom, nodeId) {
+  const seen = /* @__PURE__ */ new Set();
+  let current = parentById.get(nodeId);
+  while (current) {
+    if (seen.has(current))
+      return void 0;
+    seen.add(current);
+    const node = findNodeById(slideDom, current);
+    const role = typeof node?.role === "string" ? node.role : "";
+    if (role === "metric-card" || role === "kpi-grid" || role === "stat-strip")
+      return { id: current, role };
+    current = parentById.get(current);
+  }
+  return void 0;
+}
+function rectEscapeAmountCm(inner, outer) {
+  return Math.max(0, outer.x - inner.x, outer.y - inner.y, inner.x + inner.w - (outer.x + outer.w), inner.y + inner.h - (outer.y + outer.h));
+}
 function detectPageComponentCapacity(theme, slideId, measured, slideDom) {
   const content = measured.find((item) => item.id === `${slideId}.content`) || measured.find((item) => item.id === slideDom.id) || measured[0];
   if (!content || content.rect.h <= 0)
@@ -42988,8 +45481,8 @@ function detectPageComponentCapacity(theme, slideId, measured, slideDom) {
   const demands = collectLargeComponentDemands(theme, measured, slideDom);
   if (demands.length < 3)
     return;
-  const totalNeeded = demands.reduce((sum, item) => sum + item.neededHeightCm, 0);
-  const totalAssigned = demands.reduce((sum, item) => sum + item.assignedHeightCm, 0);
+  const totalNeeded = demands.reduce((sum3, item) => sum3 + item.neededHeightCm, 0);
+  const totalAssigned = demands.reduce((sum3, item) => sum3 + item.assignedHeightCm, 0);
   const available = content.rect.h;
   const capacityRatio = totalNeeded / available;
   if (capacityRatio < 0.78 && totalAssigned < available * 0.95)
@@ -43037,11 +45530,11 @@ function detectLocalRegionCapacity(theme, slideId, measured, slideDom) {
         const meaningful = demands.filter((d) => d.neededHeightCm >= 0.55);
         const largeCount = meaningful.filter((d) => d.neededHeightCm >= 1.2).length;
         const hardComponentCount = meaningful.filter((d) => d.capacityMode !== "elastic").length;
-        const comfortPressure = meaningful.reduce((sum, demand) => sum + Math.max(0, (demand.preferredHeightCm ?? demand.neededHeightCm) - Math.max(demand.assignedHeightCm, demand.neededHeightCm)), 0);
+        const comfortPressure = meaningful.reduce((sum3, demand) => sum3 + Math.max(0, (demand.preferredHeightCm ?? demand.neededHeightCm) - Math.max(demand.assignedHeightCm, demand.neededHeightCm)), 0);
         const contentBlocks = meaningful.length;
         if (contentBlocks >= 3 && (item.rect.w <= 11.5 || largeCount >= 2)) {
           const gap = totalStackGapCm(theme, node, children);
-          const hardNeeded = meaningful.reduce((sum, demand) => sum + demand.neededHeightCm, 0) + gap;
+          const hardNeeded = meaningful.reduce((sum3, demand) => sum3 + demand.neededHeightCm, 0) + gap;
           const mixedHardTextPressure = hardComponentCount > 0 && contentBlocks >= 4 && comfortPressure >= Math.max(0.65, available * 0.1);
           const needed = hardNeeded + (mixedHardTextPressure ? Math.min(1, comfortPressure * 0.45) : 0);
           const capacityRatio = needed / Math.max(1e-3, available);
@@ -43124,44 +45617,79 @@ function regionCapacityRole(node) {
   return node.type || "content";
 }
 function isElasticRegionCapacityChild(node, role) {
-  if (node.type === "text" || node.type === "bullets" || node.type === "spacer" || node.type === "divider")
+  const className = componentElasticityClass(node, role);
+  if (className === "elastic")
     return true;
-  if (TEXT_FIRST_REGION_ROLES.has(role))
-    return true;
-  if (node.type !== "stack" && node.type !== "grid")
-    return false;
-  if (HARD_REGION_ROLES.has(role))
+  if (className === "hard" || className === "decorative")
     return false;
   const children = node.children || [];
   if (children.length === 0)
     return false;
   return children.every((child) => {
     const childRole = regionCapacityRole(child);
-    if (HARD_REGION_ROLES.has(childRole) || HARD_REGION_NODE_TYPES.has(child.type))
+    if (componentElasticityClass(child, childRole) !== "elastic")
       return false;
     return isElasticRegionCapacityChild(child, childRole);
   });
 }
+function componentElasticityClass(node, role) {
+  if (DECORATIVE_REGION_ROLES.has(role) || DECORATIVE_REGION_NODE_TYPES.has(node.type))
+    return "decorative";
+  if (HARD_REGION_ROLES.has(role) || HARD_REGION_NODE_TYPES.has(node.type))
+    return "hard";
+  if (node.type === "text" || node.type === "bullets" || node.type === "spacer" || node.type === "divider")
+    return "elastic";
+  if (TEXT_FIRST_REGION_ROLES.has(role))
+    return "elastic";
+  const children = node.children || [];
+  if (children.some((child) => HARD_REGION_ROLES.has(regionCapacityRole(child)) || HARD_REGION_NODE_TYPES.has(child.type)))
+    return "hard";
+  if (role && (node.type === "stack" || node.type === "grid" || node.type === "card" || node.type === "panel" || node.type === "band" || node.type === "frame" || node.type === "inset"))
+    return "elastic";
+  return children.length > 0 && children.every((child) => componentElasticityClass(child, regionCapacityRole(child)) === "elastic") ? "elastic" : "hard";
+}
 var TEXT_FIRST_REGION_ROLES = /* @__PURE__ */ new Set([
+  "annotation",
+  "architecture-layer",
+  "axis-ruler",
+  "axis-ruler-item",
+  "axis-ruler-row",
+  "bibliography",
   "bar-list",
   "badge",
   "callout",
   "checklist",
   "checklist-item",
   "comparison-card",
+  "comparison-list",
   "comparison-table",
   "cta",
+  "cycle-step",
+  "definition-card",
+  "eyebrow",
   "executive-summary",
   "explanation-block",
+  "fact-list",
+  "failure-taxonomy",
   "feature-card",
   "glossary",
   "glossary-item",
   "hero-stat",
+  "hero-stat-progress",
+  "hub",
   "icon-text",
+  "insight-card",
+  "kanban-column",
+  "kanban-ticket",
   "key-takeaway",
+  "kpi-grid",
+  "legend",
+  "logo-strip",
+  "main-effect-comparison",
   "metric-card",
   "numbered-grid",
   "numbered-step",
+  "org-chart-person",
   "outline",
   "outline-item",
   "pricing-card",
@@ -43169,17 +45697,27 @@ var TEXT_FIRST_REGION_ROLES = /* @__PURE__ */ new Set([
   "pros-cons",
   "pros-column",
   "cons-column",
+  "progress-bar",
   "q-and-a",
   "qa-answer",
   "qa-question",
   "quiz-card",
   "quiz-item",
+  "region-card",
+  "roadmap-item",
   "quote",
+  "range-plot",
   "scorecard",
   "scorecard-item",
+  "section-break",
+  "side-rail",
   "source-note",
   "stat-strip",
+  "stat-comparison",
+  "stat-flow",
   "step-card",
+  "spoke",
+  "stakeholder-quadrant",
   "swot-matrix",
   "swot-quadrant",
   "tag-list",
@@ -43187,23 +45725,110 @@ var TEXT_FIRST_REGION_ROLES = /* @__PURE__ */ new Set([
   "takeaway-list-items",
   "takeaway-item",
   "text",
-  "bullets"
+  "bullets",
+  "timeline-item-row",
+  "process-step",
+  "timeline-step",
+  "title-lockup",
+  "tree-chart-node",
+  "value-chain-stage",
+  "venn-set",
+  "warning-list"
 ]);
 var HARD_REGION_ROLES = /* @__PURE__ */ new Set([
+  "analytic-table",
+  "analytic-table-cell",
+  "analytic-table-grid",
   "chart-card",
+  "chart-with-rail",
   "chart",
   "code-block",
+  "code-block-table",
+  "company-overview-layout",
+  "cycle-diagram",
+  "decision-tree",
   "donut-summary",
   "equation",
+  "evidence-layout",
+  "factorial-matrix",
+  "funnel",
+  "funnel-stage",
+  "funnel-stages",
+  "gantt-chart",
+  "hero-and-support",
+  "gauge",
+  "heatmap",
+  "hub-spoke",
   "image-card",
+  "image-with-caption",
   "image",
+  "kanban-board",
+  "matrix-2x2",
   "org-chart",
+  "pyramid",
+  "probe-flow",
   "process-flow",
+  "pyramid-levels",
+  "raci-matrix",
+  "roadmap-plan",
+  "sankey",
+  "sankey-stage",
+  "snapshot-callouts",
+  "stakeholder-map",
   "table-card",
   "table",
-  "timeline"
+  "timeline",
+  "tree-chart",
+  "two-column",
+  "value-chain",
+  "venn-diagram"
 ]);
 var HARD_REGION_NODE_TYPES = /* @__PURE__ */ new Set(["chart", "table", "image"]);
+var DECORATIVE_REGION_ROLES = /* @__PURE__ */ new Set([
+  "accent-rule",
+  "analytic-table-bar-track",
+  "analytic-table-range-track",
+  "analytic-table-stack-track",
+  "arrow-link",
+  "big-page-number",
+  "bracket",
+  "brand-mark",
+  "callout-marker",
+  "corner-mark",
+  "decoration-grid",
+  "decorative-shapes",
+  "flow-arrow",
+  "gantt-bar-cell",
+  "item-marker",
+  "org-chart-connector",
+  "org-chart-person-avatar",
+  "org-chart-person-badge",
+  "org-chart-person-bg",
+  "org-chart-person-connector-port",
+  "org-chart-person-connector-stub",
+  "org-chart-person-icon",
+  "org-chart-tree",
+  "pointer-arrow",
+  "process-connector",
+  "scale-bar",
+  "sankey-link",
+  "sankey-link-column",
+  "sankey-node",
+  "timeline-axis-bar",
+  "timeline-axis-node",
+  "timeline-marker",
+  "timeline-marker-row",
+  "timeline-spine",
+  "trend-line",
+  "tree-chart-node-badge",
+  "tree-chart-node-bg",
+  "tree-chart-node-connector-port",
+  "tree-chart-node-connector-stub",
+  "tree-chart-node-icon",
+  "tree-chart-tree",
+  "watermark"
+]);
+var DECORATIVE_REGION_NODE_TYPES = /* @__PURE__ */ new Set(["shape", "divider"]);
 function collectLargeComponentDemands(theme, measured, slideDom) {
   const byId = new Map(measured.map((item) => [item.id, item]));
   const out = [];
@@ -43979,12 +46604,12 @@ function protectedContentRect(theme, slideDom, contentNode) {
   const y = title ? Math.max(theme.layout.contentTop, theme.layout.titleTop + theme.layout.titleHeight + 0.25) : autoNoTitleContent ? Math.max(0.15, Math.min(theme.layout.contentTop, theme.layout.titleTop)) : theme.layout.contentTop;
   const footerChrome = theme.chrome.pageNumber || Boolean(theme.chrome.footerText);
   const footerTop = theme.layout.slideHeightCm - (theme.chrome.footerHeight + 0.2);
-  const bottom = footerChrome ? Math.min(theme.layout.contentBottom, footerTop) : theme.layout.contentBottom;
+  const bottom2 = footerChrome ? Math.min(theme.layout.contentBottom, footerTop) : theme.layout.contentBottom;
   return {
     x: theme.layout.pageMarginX,
     y,
     w: theme.layout.slideWidthCm - theme.layout.pageMarginX * 2,
-    h: Math.max(0.2, bottom - y)
+    h: Math.max(0.2, bottom2 - y)
   };
 }
 function rectForSlideChild(theme, node, slideDom) {
@@ -45027,7 +47652,7 @@ function lineSpacingHalfPtForValue(rawLineSpacing, style) {
     return void 0;
   const pointValue = rawLineSpacing <= 3 ? style.fontSize * rawLineSpacing : rawLineSpacing;
   const requestedHalfPt = pointValue * 2;
-  const naturalHalfPt = lineSpacingHalfPtForStyle(style);
+  const naturalHalfPt = style.fontSize * 2;
   return naturalHalfPt === void 0 ? requestedHalfPt : Math.max(naturalHalfPt, requestedHalfPt);
 }
 function paragraphAlign(value) {
@@ -45761,18 +48386,18 @@ function coveredTableCell(hMerge, vMerge) {
 function resolveTableColWidths(raw, colCount, totalCm, context) {
   if (Array.isArray(raw) && raw.length === colCount) {
     const nums = raw.map((v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
-    const sum = nums.reduce((a, b) => a + b, 0);
-    if (sum > 0) {
+    const sum3 = nums.reduce((a, b) => a + b, 0);
+    if (sum3 > 0) {
       const missing = nums.filter((n) => n <= 0).length;
       if (missing > 0) {
         const weights = nums.map((n) => n > 0 ? n : 1);
         const weightSum = weights.reduce((a, b) => a + b, 0);
         return weights.map((n) => n / weightSum * totalCm);
       }
-      const looksAbsolute = Math.abs(sum - totalCm) < totalCm * 0.5 && nums.every((n) => n >= 0.3);
-      if (looksAbsolute && Math.abs(sum - totalCm) < totalCm * 0.04)
+      const looksAbsolute = Math.abs(sum3 - totalCm) < totalCm * 0.5 && nums.every((n) => n >= 0.3);
+      if (looksAbsolute && Math.abs(sum3 - totalCm) < totalCm * 0.04)
         return nums;
-      return nums.map((n) => n / sum * totalCm);
+      return nums.map((n) => n / sum3 * totalCm);
     }
   }
   if (context && context.rows.length > 0)
@@ -45797,32 +48422,32 @@ function autoTableColWidths(theme, rows, colCount, totalCm, firstRowHeader, dens
     }
     return Math.max(1.25, width || 1.25);
   });
-  const sum = preferred.reduce((a, b) => a + b, 0);
-  if (sum <= 0 || !Number.isFinite(sum))
+  const sum3 = preferred.reduce((a, b) => a + b, 0);
+  if (sum3 <= 0 || !Number.isFinite(sum3))
     return Array.from({ length: colCount }, () => totalCm / colCount);
-  return preferred.map((w) => w / sum * totalCm);
+  return preferred.map((w) => w / sum3 * totalCm);
 }
 function resolveTableRowHeights(raw, rowCount, totalCm, intrinsic) {
   if (Array.isArray(raw) && raw.length === rowCount) {
     const nums = raw.map((v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
-    const sum = nums.reduce((a, b) => a + b, 0);
-    if (sum > 0) {
-      const looksAbsolute = Math.abs(sum - totalCm) < totalCm * 0.5 && nums.every((n) => n >= 0.2);
+    const sum3 = nums.reduce((a, b) => a + b, 0);
+    if (sum3 > 0) {
+      const looksAbsolute = Math.abs(sum3 - totalCm) < totalCm * 0.5 && nums.every((n) => n >= 0.2);
       if (looksAbsolute)
         return nums;
-      return nums.map((n) => n / sum * totalCm);
+      return nums.map((n) => n / sum3 * totalCm);
     }
   }
   if (intrinsic && intrinsic.rows.length === rowCount) {
     const floor = tableRowHeightFloor(false, intrinsic.density || "comfortable");
     const needed = estimateTableRowHeights(intrinsic.theme, intrinsic.rows, intrinsic.colWidths, intrinsic.firstRowHeader, intrinsic.density || "comfortable", intrinsic.fontScale).map((h) => Math.max(floor, h));
-    const sum = needed.reduce((a, b) => a + b, 0);
-    if (sum > 0 && Number.isFinite(sum)) {
-      if (sum <= totalCm) {
-        const surplus = (totalCm - sum) / rowCount;
+    const sum3 = needed.reduce((a, b) => a + b, 0);
+    if (sum3 > 0 && Number.isFinite(sum3)) {
+      if (sum3 <= totalCm) {
+        const surplus = (totalCm - sum3) / rowCount;
         return needed.map((h) => h + surplus);
       }
-      return needed.map((h) => h / sum * totalCm);
+      return needed.map((h) => h / sum3 * totalCm);
     }
   }
   return Array.from({ length: rowCount }, () => totalCm / rowCount);
@@ -46140,7 +48765,7 @@ function doughnutExternalLabelOverlay(theme, chart, rect, ids) {
   if (!series || chart.labels.length === 0)
     return void 0;
   const values = series.values.map((value) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
-  const total = values.reduce((sum, value) => sum + value, 0);
+  const total = values.reduce((sum3, value) => sum3 + value, 0);
   if (total <= 0)
     return void 0;
   const labelW = clamp(rect.w * 0.24, 1.45, 2.55);
@@ -47094,12 +49719,12 @@ function applyFallbackLadder(theme, parent, direction, availableMain, crossSize)
   const sumIntrinsic = () => {
     const current = children();
     const specs = current.map((child) => childMainSpec(theme, child, direction, crossSize));
-    return specs.reduce((sum, spec) => sum + spec.basis, 0) + totalStackGapCm(theme, parent, current);
+    return specs.reduce((sum3, spec) => sum3 + spec.basis, 0) + totalStackGapCm(theme, parent, current);
   };
   const sumMin = () => {
     const current = children();
     const specs = current.map((child) => childMainSpec(theme, child, direction, crossSize));
-    return specs.reduce((sum, spec) => sum + spec.min, 0) + totalStackGapCm(theme, parent, current);
+    return specs.reduce((sum3, spec) => sum3 + spec.min, 0) + totalStackGapCm(theme, parent, current);
   };
   const parentRole = typeof parent.role === "string" ? parent.role : "";
   if (sumMin() <= availableMain + 1e-3)
@@ -47237,9 +49862,9 @@ function isMildMetricCardFitDeficit(parent, delta, available) {
   if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0)
     return false;
   const role = nearestSemanticRole(parent);
-  if (role === "metric-card" && available >= 0.85 && delta <= 0.75)
+  if (role === "metric-card" && available >= 0.85 && delta <= Math.max(0.1, available * 0.08))
     return true;
-  if (/\.value-wrap$/.test(String(parent.id || "")) && available >= 0.4 && delta <= 0.7)
+  if (/\.value-wrap$/.test(String(parent.id || "")) && available >= METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM && delta <= Math.max(0.18, available * 0.32))
     return true;
   return false;
 }
@@ -47247,7 +49872,9 @@ function isAdaptiveTextFirstFitDeficit(parent, delta, available) {
   if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0 || available <= 0)
     return false;
   const role = nearestSemanticRole(parent);
-  if (!isTextFirstRole(role))
+  if (!role)
+    return false;
+  if (componentElasticityClass(parent, role || regionCapacityRole(parent)) !== "elastic")
     return false;
   if (containsHardLayoutDemand(parent))
     return false;
@@ -47256,6 +49883,8 @@ function isAdaptiveTextFirstFitDeficit(parent, delta, available) {
 function isAdaptiveTextOnlyFitDeficit(parent, delta, available) {
   if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0 || available < 0.8)
     return false;
+  if (!nearestSemanticRole(parent))
+    return false;
   if (delta > Math.max(1, available * 1.2))
     return false;
   if (containsHardLayoutDemand(parent))
@@ -47263,13 +49892,11 @@ function isAdaptiveTextOnlyFitDeficit(parent, delta, available) {
   const children = parent.children || [];
   if (children.length === 0)
     return false;
-  return children.every((child) => child.type === "text" || child.type === "bullets" || child.type === "spacer" || child.type === "divider" || isTextFirstRole(regionCapacityRole(child)));
+  return children.every((child) => child.type === "text" || child.type === "bullets" || child.type === "spacer" || child.type === "divider" || componentElasticityClass(child, regionCapacityRole(child)) === "elastic");
 }
 function containsHardLayoutDemand(node) {
   const role = regionCapacityRole(node);
-  if (HARD_REGION_ROLES.has(role))
-    return true;
-  if (node.type === "chart" || node.type === "table")
+  if (componentElasticityClass(node, role) === "hard")
     return true;
   for (const child of node.children || []) {
     if (containsHardLayoutDemand(child))
@@ -47339,7 +49966,7 @@ function layoutStackChildren(theme, node, rect) {
   }
   const availableMain = Math.max(0, mainSize - totalStackGapCm(theme, node, children));
   const explicitSplitRatio = explicitSplitRatioWeights(node, children.length);
-  const childSpecs = children.map((child, index) => {
+  const rawChildSpecs = children.map((child, index) => {
     const spec = childMainSpec(theme, child, direction, crossSize);
     if (!explicitSplitRatio || spec.fixed)
       return spec;
@@ -47351,30 +49978,37 @@ function layoutStackChildren(theme, node, rect) {
       grow: true
     };
   });
+  const { specs: childSpecs, glues: layoutGlues } = applyLayoutGlueSpecs(theme, node, children, rawChildSpecs, direction);
+  const layoutGlueByIndex = new Map(layoutGlues.map((glue) => [glue.index, glue]));
   if (currentSlideId) {
     children.forEach((child, index) => {
       const spec = childSpecs[index];
+      const glue = layoutGlueByIndex.get(index);
       recordDecision(currentSlideId, child.id, {
-        intrinsic: { mainAxis: direction === "horizontal" ? "horizontal" : "vertical", basis: spec.basis, min: spec.min, max: Number.isFinite(spec.max) ? spec.max : -1, weight: spec.weight }
+        intrinsic: { mainAxis: direction === "horizontal" ? "horizontal" : "vertical", basis: spec.basis, min: spec.min, max: Number.isFinite(spec.max) ? spec.max : -1, weight: spec.weight },
+        ...glue ? { notes: [`layout-glue:min=${glue.min.toFixed(2)},preferred=${glue.preferred.toFixed(2)},max=${glue.max.toFixed(2)}`] } : {}
       });
     });
   }
-  const childSizes = solveSizes(childSpecs, availableMain, direction === "horizontal");
-  const totalMain = childSizes.reduce((sum, size) => sum + size, 0) + totalStackGapCm(theme, node, children);
+  const targetChildSizes = solveSizes(childSpecs, availableMain, direction === "horizontal");
+  const constrained = layoutStackChildrenWithCassowary(theme, node, rect, children, layered, direction, childSpecs, explicitSplitRatio, targetChildSizes);
+  if (constrained)
+    return constrained;
+  const totalMain = targetChildSizes.reduce((sum3, size) => sum3 + size, 0) + totalStackGapCm(theme, node, children);
   const slack = Math.max(0, mainSize - totalMain);
   const justify = stringProp2(node, "justify", "start");
   const startOffset = slack > 1e-3 ? justify === "center" || justify === "middle" ? slack / 2 : justify === "end" ? slack : 0 : 0;
   if (currentSlideId) {
     children.forEach((child, index) => {
       const spec = childSpecs[index];
-      const size = childSizes[index];
+      const size = targetChildSizes[index];
       const applied = spec.fixed ? "fit" : size < spec.basis - 1e-3 ? "shrink" : size > spec.basis + 1e-3 ? "fit" : "fit";
       recordDecision(currentSlideId, child.id, { applied });
     });
   }
   let cursor = (direction === "horizontal" ? rect.x : rect.y) + startOffset;
   const flowOut = children.map((child, index) => {
-    const size = childSizes[index];
+    const size = targetChildSizes[index];
     const cross = childCrossRect(theme, child, direction === "horizontal" ? rect.y : rect.x, crossSize, node, size, direction);
     const childRect = direction === "horizontal" ? { x: cursor, y: cross.start, w: size, h: cross.size } : { x: cross.start, y: cursor, w: cross.size, h: size };
     cursor += size + stackGapBetweenCm(theme, node, child, children[index + 1]);
@@ -47393,10 +50027,188 @@ function explicitSplitRatioWeights(node, childCount) {
   const values = raw.map((value) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
   if (values.some((value) => value <= 0))
     return null;
-  const total = values.reduce((sum, value) => sum + value, 0);
+  const total = values.reduce((sum3, value) => sum3 + value, 0);
   if (total <= 0)
     return null;
   return values.map((value) => value / total);
+}
+function cassowaryLayoutRequested(node) {
+  if (node.constraintLayout === false)
+    return false;
+  const mode = typeof node.layoutEngine === "string" ? node.layoutEngine : typeof node.layoutAlgorithm === "string" ? node.layoutAlgorithm : typeof node.layoutMode === "string" ? node.layoutMode : "";
+  const normalized = mode.toLowerCase();
+  if (normalized === "legacy" || normalized === "classic" || normalized === "local" || normalized === "flex")
+    return false;
+  if (normalized === "cassowary" || normalized === "constraint" || normalized === "constraints")
+    return true;
+  if (typeof process !== "undefined" && process.env?.SLIDEML2_LAYOUT_ENGINE === "legacy")
+    return false;
+  return true;
+}
+function uniformStackGapCm(theme, parent, children) {
+  if (children.length <= 1)
+    return 0;
+  const first = stackGapBetweenCm(theme, parent, children[0], children[1]);
+  for (let index = 1; index < children.length - 1; index++) {
+    const gap = stackGapBetweenCm(theme, parent, children[index], children[index + 1]);
+    if (Math.abs(gap - first) > 1e-3)
+      return void 0;
+  }
+  return first;
+}
+function layoutStackChildrenWithCassowary(theme, node, rect, children, layered, direction, childSpecs, explicitSplitRatio, targetChildSizes) {
+  if (!cassowaryLayoutRequested(node))
+    return void 0;
+  const gap = uniformStackGapCm(theme, node, children);
+  if (gap === void 0)
+    return void 0;
+  const autoFillSlack = direction === "horizontal" || explicitSplitRatio !== null;
+  const weights = explicitSplitRatio ?? childSpecs.map((spec) => (spec.grow || autoFillSlack) && !spec.fixed ? spec.weight : 0);
+  const shouldFill = explicitSplitRatio !== null || weights.some((weight) => weight > 0);
+  const cassowarySpecs = childSpecs.map((spec, index) => ({ ...spec, basis: targetChildSizes[index] ?? spec.basis }));
+  const specsById = new Map(children.map((child, index) => [child.id, cassowarySpecs[index]]));
+  const solverNode = {
+    ...node,
+    gap,
+    padding: 0,
+    layoutPadding: 0,
+    fillLayout: shouldFill,
+    children: children.map((child, index) => ({
+      ...child,
+      layoutWeight: weights[index] ?? 0
+    }))
+  };
+  try {
+    const result = solveDomConstraintLayout(solverNode, rect, {
+      maxDepth: 1,
+      stackWeightStrength: explicitSplitRatio ? "medium" : "weak",
+      measureNode: (measureNode, parentAxis) => {
+        if (measureNode.id === node.id)
+          return void 0;
+        const spec = specsById.get(measureNode.id);
+        return spec ? sizePreferenceFromMainSpec(measureNode, parentAxis, spec) : void 0;
+      }
+    });
+    const totalMain = targetChildSizes.reduce((sum3, size) => sum3 + size, 0) + totalStackGapCm(theme, node, children);
+    const parentMain = direction === "horizontal" ? rect.w : rect.h;
+    const slack = Math.max(0, parentMain - totalMain);
+    const justify = stringProp2(node, "justify", "start");
+    const startOffset = !shouldFill && slack > 1e-3 ? justify === "center" || justify === "middle" ? slack / 2 : justify === "end" ? slack : 0 : 0;
+    const flowOut = children.map((child) => {
+      const solved = result.rects.get(child.id);
+      if (!solved || !isFiniteRect(solved))
+        throw new Error(`Cassowary stack did not solve child '${child.id}'.`);
+      const mainSize = direction === "horizontal" ? solved.w : solved.h;
+      const cross = childCrossRect(theme, child, direction === "horizontal" ? rect.y : rect.x, direction === "horizontal" ? rect.h : rect.w, node, mainSize, direction);
+      const childRect = direction === "horizontal" ? { x: solved.x + startOffset, y: cross.start, w: solved.w, h: cross.size } : { x: cross.start, y: solved.y + startOffset, w: cross.size, h: solved.h };
+      if (currentSlideId)
+        recordDecision(currentSlideId, child.id, { applied: "fit", notes: [`cassowary:${direction}`] });
+      return { node: child, rect: childRect };
+    });
+    pushCassowaryPressureDiagnostics(node, stackMainAxisPressures(direction, result.pressures));
+    return layered.length === 0 ? flowOut : [...flowOut, ...layered.map((child) => ({ node: child, rect }))];
+  } catch (error) {
+    if (currentSlideId) {
+      recordDecision(currentSlideId, node.id, { notes: [`cassowary-fallback:${error instanceof Error ? error.message : String(error)}`] });
+    }
+    return void 0;
+  }
+}
+function stackMainAxisPressures(direction, pressures) {
+  const mainConstraints = direction === "horizontal" ? /* @__PURE__ */ new Set(["minW", "maxW"]) : /* @__PURE__ */ new Set(["minH", "maxH"]);
+  return pressures.filter((pressure) => mainConstraints.has(pressure.constraint));
+}
+function sizePreferenceFromMainSpec(node, parentAxis, spec) {
+  const preference = explicitSizePreference(node);
+  const main = axisPreferenceFromSpec(spec);
+  if (parentAxis === "horizontal") {
+    delete preference.minW;
+    delete preference.idealW;
+    delete preference.maxW;
+    Object.assign(preference, {
+      minW: main.min,
+      idealW: main.ideal,
+      ...main.max !== void 0 ? { maxW: main.max } : {}
+    });
+  } else if (parentAxis === "vertical") {
+    delete preference.minH;
+    delete preference.idealH;
+    delete preference.maxH;
+    Object.assign(preference, {
+      minH: main.min,
+      idealH: main.ideal,
+      ...main.max !== void 0 ? { maxH: main.max } : {}
+    });
+  }
+  if (spec.fixed) {
+    preference.minStrength = "strong";
+    preference.idealStrength = "strong";
+    preference.maxStrength = "strong";
+  } else {
+    preference.minStrength = node.optional === true ? "medium" : "strong";
+    preference.idealStrength = node.optional === true ? "weak" : "medium";
+    preference.maxStrength = "strong";
+  }
+  return preference;
+}
+function axisPreferenceFromSpec(spec) {
+  return {
+    min: spec.min,
+    ideal: spec.basis,
+    ...Number.isFinite(spec.max) ? { max: spec.max } : {}
+  };
+}
+function explicitSizePreference(node) {
+  const fixedW = optionalNumberProp(node, "fixedWidth") ?? optionalNumberProp(node, "width");
+  const fixedH = optionalNumberProp(node, "fixedHeight") ?? optionalNumberProp(node, "height");
+  const preference = {
+    ...fixedW !== void 0 ? { minW: fixedW, idealW: fixedW, maxW: fixedW } : explicitAxisPreference(node, "Width"),
+    ...fixedH !== void 0 ? { minH: fixedH, idealH: fixedH, maxH: fixedH } : explicitAxisPreference(node, "Height")
+  };
+  if (fixedW !== void 0 || fixedH !== void 0) {
+    preference.minStrength = "strong";
+    preference.idealStrength = "strong";
+    preference.maxStrength = "strong";
+  }
+  return preference;
+}
+function explicitAxisPreference(node, suffix) {
+  const min = optionalNumberProp(node, `min${suffix}`);
+  const ideal = optionalNumberProp(node, `ideal${suffix}`) ?? optionalNumberProp(node, `preferred${suffix}`) ?? optionalNumberProp(node, `basis${suffix}`);
+  const max = optionalNumberProp(node, `max${suffix}`);
+  if (suffix === "Width") {
+    return {
+      ...min !== void 0 ? { minW: min } : {},
+      ...ideal !== void 0 ? { idealW: ideal } : {},
+      ...max !== void 0 ? { maxW: max } : {}
+    };
+  }
+  return {
+    ...min !== void 0 ? { minH: min } : {},
+    ...ideal !== void 0 ? { idealH: ideal } : {},
+    ...max !== void 0 ? { maxH: max } : {}
+  };
+}
+function isFiniteRect(rect) {
+  return Number.isFinite(rect.x) && Number.isFinite(rect.y) && Number.isFinite(rect.w) && Number.isFinite(rect.h) && rect.w >= -1e-3 && rect.h >= -1e-3;
+}
+function pushCassowaryPressureDiagnostics(parent, pressures) {
+  for (const pressure of pressures) {
+    pushDiagnostic({
+      severity: "warn",
+      code: "OVERFLOW",
+      slideId: currentSlideId || void 0,
+      nodeId: pressure.nodeId,
+      message: `Cassowary layout pressure in '${parent.id}': ${pressure.constraint} expected ${pressure.expected.toFixed(2)}cm, solved ${pressure.actual.toFixed(2)}cm.`,
+      suggestion: "Increase the region, relax fixed/min/max sizing, adjust layoutWeight/ratio, or move lower-priority content to another region.",
+      measured: {
+        available: pressure.actual,
+        needed: pressure.expected,
+        deltaCm: pressure.delta,
+        fitMethod: "cassowary-layout"
+      }
+    });
+  }
 }
 function childCrossRect(theme, child, parentCrossStart, parentCrossSize, parent, mainSize, parentDirection) {
   const isHorizontal = parentDirection === "horizontal";
@@ -47490,7 +50302,7 @@ function pushPositionedGroupFitDiagnostic(node, rect) {
 }
 function computeGridPlacements(children, columns) {
   const occupied = [];
-  const isFree = (row, col, rowSpan, colSpan) => {
+  const isFree2 = (row, col, rowSpan, colSpan) => {
     if (col + colSpan > columns)
       return false;
     for (let r = row; r < row + rowSpan; r++) {
@@ -47502,7 +50314,7 @@ function computeGridPlacements(children, columns) {
     }
     return true;
   };
-  const mark = (row, col, rowSpan, colSpan) => {
+  const mark2 = (row, col, rowSpan, colSpan) => {
     for (let r = row; r < row + rowSpan; r++) {
       if (!occupied[r])
         occupied[r] = new Array(columns).fill(false);
@@ -47519,8 +50331,8 @@ function computeGridPlacements(children, columns) {
     let placed = false;
     for (let row = 0; !placed; row++) {
       for (let col = 0; col + colSpan <= columns; col++) {
-        if (isFree(row, col, rowSpan, colSpan)) {
-          mark(row, col, rowSpan, colSpan);
+        if (isFree2(row, col, rowSpan, colSpan)) {
+          mark2(row, col, rowSpan, colSpan);
           placements.push({ child, row, col, rowSpan, colSpan });
           placed = true;
           break;
@@ -47529,6 +50341,95 @@ function computeGridPlacements(children, columns) {
     }
   }
   return placements;
+}
+function layoutGridChildrenWithCassowary(theme, node, rect, placements, columns, rows, gap, colWidths, rowHeights, layered) {
+  if (!cassowaryLayoutRequested(node))
+    return void 0;
+  const measurementById = /* @__PURE__ */ new Map();
+  for (const placement of placements) {
+    const width = spannedSize(colWidths, placement.col, placement.colSpan, gap);
+    const height = spannedSize(rowHeights, placement.row, placement.rowSpan, gap);
+    measurementById.set(placement.child.id, gridChildSizePreference(theme, placement.child, width, height));
+  }
+  const solverNode = {
+    ...node,
+    gap,
+    padding: 0,
+    layoutPadding: 0,
+    columns,
+    rows,
+    columnWeights: trackWeightsFromSizes(colWidths),
+    rowWeights: trackWeightsFromSizes(rowHeights),
+    children: placements.map((placement) => ({
+      ...placement.child,
+      row: placement.row,
+      col: placement.col,
+      rowSpan: placement.rowSpan,
+      colSpan: placement.colSpan
+    }))
+  };
+  try {
+    const result = solveDomConstraintLayout(solverNode, rect, {
+      maxDepth: 1,
+      gridTrackStrength: "strong",
+      measureNode: (measureNode) => {
+        if (measureNode.id === node.id)
+          return void 0;
+        return measurementById.get(measureNode.id) ?? explicitSizePreference(measureNode);
+      }
+    });
+    if (result.pressures.some((pressure) => (pressure.constraint === "minW" || pressure.constraint === "minH") && pressure.delta > 0.04)) {
+      return void 0;
+    }
+    const flowOut = placements.map(({ child }) => {
+      const solved = result.rects.get(child.id);
+      if (!solved || !isFiniteRect(solved))
+        throw new Error(`Cassowary grid did not solve child '${child.id}'.`);
+      if (currentSlideId)
+        recordDecision(currentSlideId, child.id, { applied: "fit", notes: ["cassowary:grid"] });
+      return { node: child, rect: solved };
+    });
+    pushCassowaryPressureDiagnostics(node, result.pressures);
+    return layered.length === 0 ? flowOut : [...flowOut, ...layered.map((child) => ({ node: child, rect }))];
+  } catch (error) {
+    if (currentSlideId) {
+      recordDecision(currentSlideId, node.id, { notes: [`cassowary-fallback:${error instanceof Error ? error.message : String(error)}`] });
+    }
+    return void 0;
+  }
+}
+function gridChildSizePreference(theme, node, width, height) {
+  const fixedW = optionalNumberProp(node, "fixedWidth") ?? optionalNumberProp(node, "width");
+  const fixedH = optionalNumberProp(node, "fixedHeight") ?? optionalNumberProp(node, "height");
+  const preference = explicitSizePreference(node);
+  if (fixedW === void 0 && preference.minW === void 0)
+    preference.minW = intrinsicMinSize(theme, node, "horizontal", Math.max(0.2, height));
+  if (fixedW === void 0 && preference.idealW === void 0) {
+    const explicitBasisW = optionalNumberProp(node, "basisWidth") ?? optionalNumberProp(node, "basis");
+    if (explicitBasisW !== void 0)
+      preference.idealW = explicitBasisW;
+  }
+  if (fixedH === void 0 && preference.minH === void 0)
+    preference.minH = intrinsicMinSize(theme, node, "vertical", Math.max(0.2, width));
+  if (fixedH === void 0 && preference.idealH === void 0) {
+    const explicitBasisH = optionalNumberProp(node, "basisHeight") ?? optionalNumberProp(node, "basis");
+    preference.idealH = explicitBasisH ?? intrinsicMainSize(theme, node, "vertical", Math.max(0.2, width));
+  }
+  return preference;
+}
+function spannedSize(sizes, start, span, gap) {
+  let total = 0;
+  for (let index = 0; index < span; index++)
+    total += sizes[start + index] || 0;
+  return total + gap * Math.max(0, span - 1);
+}
+function trackWeightsFromSizes(sizes) {
+  if (sizes.length === 0)
+    return void 0;
+  const positive2 = sizes.map((size) => Number.isFinite(size) && size > 0 ? size : 0);
+  if (positive2.every((size) => size <= 0))
+    return void 0;
+  return positive2;
 }
 function layoutGridChildren(theme, node, rect) {
   const allChildren = node.children || [];
@@ -47543,15 +50444,18 @@ function layoutGridChildren(theme, node, rect) {
   const columns = Math.max(1, numberProp(node, "columns", 2));
   const gap = gridGapCm(theme, node, flowOnly, columns);
   const availableWidth = Math.max(0, rect.w - gap * (columns - 1));
-  const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
-  const children = prepareGridChildrenForLayout(theme, node, flowOnly, columns, colWidths, gap);
+  const colWidths = gridColumnTrackTargets(node, columns, availableWidth);
+  const children = prepareGridChildrenForLayout(theme, node, flowOnly, columns, colWidths, gap, rect);
   const placements = computeGridPlacements(children, columns);
   const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
   const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
   const rows = Math.max(1, declaredRows, usedRows);
   const availableHeight = Math.max(0, rect.h - gap * (rows - 1));
   const colX = positionsFromSizes(rect.x, gap, colWidths);
-  const rowHeights = resolveGridRowHeights(theme, placements, columns, rows, availableHeight, colWidths, gap, node.rowWeights);
+  const rowHeights = resolveGridRowHeights(theme, placements, rows, availableHeight, colWidths, gap, node.rowWeights);
+  const constrained = layoutGridChildrenWithCassowary(theme, node, rect, placements, columns, rows, gap, colWidths, rowHeights, layered);
+  if (constrained)
+    return constrained;
   const rowY = positionsFromSizes(rect.y, gap, rowHeights);
   const flowOut = placements.map(({ child, row, col, rowSpan, colSpan }) => {
     const x = colX[col].start;
@@ -47572,14 +50476,22 @@ function layoutGridChildren(theme, node, rect) {
     return flowOut;
   return [...flowOut, ...layered.map((c) => ({ node: c, rect }))];
 }
-function prepareGridChildrenForLayout(theme, node, children, columns, colWidths, gap) {
+function prepareGridChildrenForLayout(theme, node, children, columns, colWidths, gap, rect) {
   const flowChildren2 = normalizeSingleColumnShapeFlowChildren(children, columns, colWidths[0] || 6);
   if (node.role !== "kpi-grid" || flowChildren2.length === 0)
     return flowChildren2;
   children = flowChildren2;
   const placements = computeGridPlacements(children, columns);
+  const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
+  const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
+  const rows = Math.max(1, declaredRows, usedRows);
+  const availableHeight = rect ? Math.max(0, rect.h - gap * (rows - 1)) : 0;
+  const estimatedRowHeights = rect ? normalizeTrackWeights(node.rowWeights, rows).map((weight) => availableHeight * weight) : [];
   let valueBandHeight = 0;
+  let labelBandHeight = 0;
   const valueMinById = /* @__PURE__ */ new Map();
+  const labelMinById = /* @__PURE__ */ new Map();
+  const cardHeightById = /* @__PURE__ */ new Map();
   for (const placement of placements) {
     if (findMetricValueNode(placement.child) === void 0)
       continue;
@@ -47588,20 +50500,38 @@ function prepareGridChildrenForLayout(theme, node, children, columns, colWidths,
       cellWidth += colWidths[placement.col + i] || 0;
     if (placement.colSpan > 1)
       cellWidth += gap * (placement.colSpan - 1);
-    const measured = measuredMetricValueBand(theme, placement.child, cellWidth);
+    if (estimatedRowHeights.length > 0) {
+      cardHeightById.set(placement.child.id, spannedSize(estimatedRowHeights, placement.row, placement.rowSpan, gap));
+    }
+    const measured = measuredMetricBands(theme, placement.child, cellWidth);
     if (!measured)
       continue;
-    valueBandHeight = Math.max(valueBandHeight, measured.bandHeight);
-    valueMinById.set(placement.child.id, measured.textMinHeight);
+    valueBandHeight = Math.max(valueBandHeight, measured.valueBandHeight);
+    valueMinById.set(placement.child.id, measured.valueTextMinHeight);
+    if (measured.labelBandHeight !== void 0) {
+      labelBandHeight = Math.max(labelBandHeight, measured.labelBandHeight);
+      labelMinById.set(placement.child.id, measured.labelTextMinHeight ?? measured.labelBandHeight);
+    }
   }
-  if (valueBandHeight <= 0)
+  if (valueBandHeight <= 0 && labelBandHeight <= 0)
     return children;
   return children.map((child) => {
     const textMinHeight2 = valueMinById.get(child.id);
-    return textMinHeight2 === void 0 ? child : withMeasuredMetricValueBand(child, valueBandHeight, textMinHeight2);
+    const labelMinHeight = labelMinById.get(child.id);
+    return textMinHeight2 === void 0 && labelMinHeight === void 0 ? child : withMeasuredMetricBands(theme, child, {
+      valueBandHeight: textMinHeight2 === void 0 ? void 0 : valueBandHeight,
+      valueTextMinHeight: textMinHeight2,
+      labelBandHeight: labelMinHeight === void 0 ? void 0 : labelBandHeight,
+      labelTextMinHeight: labelMinHeight,
+      cardHeight: cardHeightById.get(child.id)
+    });
   });
 }
-function measuredMetricValueBand(theme, metricCardNode, cellWidth) {
+var METRIC_CARD_REPAIR_MIN_PADDING_CM = 0.3;
+var METRIC_CARD_REPAIR_MIN_GAP_CM = 0.08;
+var METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM = 0.62;
+var METRIC_CARD_REPAIR_CAPACITY_TOLERANCE_CM = 0.03;
+function measuredMetricBands(theme, metricCardNode, cellWidth) {
   const valueWrap = findMetricValueWrap(metricCardNode);
   const valueNode = findMetricValueNode(metricCardNode);
   if (!valueWrap || !valueNode)
@@ -47610,30 +50540,146 @@ function measuredMetricValueBand(theme, metricCardNode, cellWidth) {
   const wrapContent = contentRect(theme, valueWrap, { x: 0, y: 0, w: Math.max(0.25, cardContent.w), h: 10 });
   const width = Math.max(0.45, wrapContent.w);
   const style = effectiveTextStyle(theme, valueNode, "paragraph");
-  const textMinHeight2 = Math.max(textSquashMinHeight(theme, valueNode), textNeededHeight(theme, { ...valueNode, wrapMinHeight: true }, width, style));
   const current = optionalNumberProp(valueWrap, "fixedHeight") ?? optionalNumberProp(valueWrap, "maxHeight") ?? optionalNumberProp(valueWrap, "minHeight") ?? 0;
+  const compactValue = measuredMetricValueBandHeight(theme, valueNode, width, style, current);
+  const label = measuredMetricLabelBand(theme, metricCardNode, cardContent.w);
+  return {
+    valueBandHeight: compactValue.bandHeight,
+    valueTextMinHeight: compactValue.textMinHeight,
+    ...label ? { labelBandHeight: label.bandHeight, labelTextMinHeight: label.textMinHeight } : {}
+  };
+}
+function measuredMetricValueBandHeight(theme, valueNode, width, style, current) {
+  if (current > 0) {
+    const probeRect = { x: 0, y: 0, w: width, h: current };
+    const fittedStyle = measuredTextStyleForInk(theme, valueNode, probeRect, style);
+    const visibleInkHeight = textVisibleInkHeight(theme, valueNode, width, fittedStyle);
+    const textMinHeight3 = Math.min(current, Math.max(textSquashMinHeight(theme, valueNode, probeRect), visibleInkHeight + 0.035));
+    return {
+      bandHeight: clamp(textMinHeight3, Math.min(current, 0.52), current),
+      textMinHeight: textMinHeight3
+    };
+  }
+  const textMinHeight2 = Math.max(textSquashMinHeight(theme, valueNode), textNeededHeight(theme, { ...valueNode, wrapMinHeight: true }, width, style));
   return {
     bandHeight: Math.min(2.4, Math.max(current, textMinHeight2)),
     textMinHeight: textMinHeight2
   };
 }
-function withMeasuredMetricValueBand(metricCardNode, bandHeight, textMinHeight2) {
+function measuredMetricLabelBand(theme, metricCardNode, cardContentWidth) {
+  const labelNode = findMetricLabelNode(metricCardNode);
+  if (!labelNode)
+    return void 0;
+  const width = Math.max(0.45, cardContentWidth);
+  const current = optionalNumberProp(labelNode, "fixedHeight") ?? optionalNumberProp(labelNode, "minHeight") ?? 0;
+  const baseStyle = effectiveTextStyle(theme, labelNode, "paragraph");
+  const styleKey = textStyleKey(labelNode);
+  const minPt = autoShrinkMinFontPt(labelNode, styleKey, baseStyle.fontSize);
+  const readableStyle = { ...baseStyle, fontSize: minPt };
+  const evidence = measureTextFitAtFont(theme, labelNode, readableStyle, { x: 0, y: 0, w: width, h: 10 }, styleKey, minPt);
+  const textMinHeight2 = Math.max(textSquashMinHeight(theme, labelNode), evidence.heightNeeded + 0.035);
+  return {
+    bandHeight: Math.max(current, textMinHeight2),
+    textMinHeight: textMinHeight2
+  };
+}
+function withMeasuredMetricBands(theme, metricCardNode, overrides) {
   if (!Array.isArray(metricCardNode.children))
     return metricCardNode;
+  const plan = metricBandRepairPlan(theme, metricCardNode, overrides);
+  if (overrides.cardHeight !== void 0 && plan.minCardHeight > overrides.cardHeight + METRIC_CARD_REPAIR_CAPACITY_TOLERANCE_CM) {
+    pushMetricBandRepairRejectedDiagnostic(metricCardNode, overrides.cardHeight, plan);
+    return metricCardNode;
+  }
   return {
     ...metricCardNode,
+    ...plan.needsLabelRepair && !plan.explicitPadding ? { padding: plan.padding } : {},
+    ...plan.needsLabelRepair && !plan.explicitGap ? { gap: plan.gap } : {},
+    minHeight: Math.max(optionalNumberProp(metricCardNode, "minHeight") ?? 0, plan.minCardHeight),
     children: metricCardNode.children.map((child) => {
-      if (!isMetricValueWrap(child))
+      if (isMetricLabelNode(child) && plan.labelBandHeight !== void 0) {
+        return {
+          ...child,
+          fixedHeight: plan.labelBandHeight,
+          minHeight: plan.labelTextMinHeight ?? plan.labelBandHeight,
+          autoFit: child.autoFit ?? "shrink",
+          optional: false
+        };
+      }
+      if (!isMetricValueWrap(child) || plan.valueBandHeight === void 0)
         return child;
       return {
         ...child,
-        fixedHeight: bandHeight,
-        maxHeight: bandHeight,
-        minHeight: bandHeight,
-        children: (child.children || []).map((grandchild) => isMetricValueNode(grandchild) ? { ...grandchild, minHeight: textMinHeight2, wrapMinHeight: true } : grandchild)
+        fixedHeight: plan.valueBandHeight,
+        maxHeight: plan.valueBandHeight,
+        minHeight: plan.valueBandHeight,
+        children: (child.children || []).map((grandchild) => isMetricValueNode(grandchild) ? { ...grandchild, minHeight: plan.valueTextMinHeight ?? plan.valueBandHeight, wrapMinHeight: true } : grandchild)
       };
     })
   };
+}
+function metricBandRepairPlan(theme, metricCardNode, overrides) {
+  const labelNode = findMetricLabelNode(metricCardNode);
+  const existingLabelHeight = labelNode ? optionalNumberProp(labelNode, "fixedHeight") ?? 0 : 0;
+  const needsLabelRepair = (overrides.labelBandHeight ?? 0) > existingLabelHeight + 0.04;
+  const explicitPadding = optionalNumberProp(metricCardNode, "padding") !== void 0;
+  const explicitGap = optionalNumberProp(metricCardNode, "gap") !== void 0;
+  const padding = needsLabelRepair && !explicitPadding ? METRIC_CARD_REPAIR_MIN_PADDING_CM : paddingCm(theme, metricCardNode);
+  const gap = needsLabelRepair && !explicitGap ? METRIC_CARD_REPAIR_MIN_GAP_CM : gapCm(theme, metricCardNode);
+  const valueBandHeight = overrides.valueBandHeight === void 0 ? void 0 : Math.max(overrides.valueBandHeight, METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM);
+  const valueTextMinHeight = overrides.valueTextMinHeight === void 0 ? void 0 : Math.max(overrides.valueTextMinHeight, Math.min(valueBandHeight ?? overrides.valueTextMinHeight, METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM));
+  const minCardHeight = metricCardRepairMinHeight(theme, metricCardNode, {
+    padding,
+    gap,
+    valueBandHeight,
+    labelBandHeight: overrides.labelBandHeight,
+    labelTextMinHeight: overrides.labelTextMinHeight
+  });
+  return {
+    padding,
+    gap,
+    valueBandHeight,
+    valueTextMinHeight,
+    labelBandHeight: overrides.labelBandHeight,
+    labelTextMinHeight: overrides.labelTextMinHeight,
+    minCardHeight,
+    needsLabelRepair,
+    explicitPadding,
+    explicitGap
+  };
+}
+function metricCardRepairMinHeight(theme, metricCardNode, plan) {
+  const requiredChildren = (metricCardNode.children || []).filter((child) => child.optional !== true || isMetricValueWrap(child) || isMetricLabelNode(child));
+  if (requiredChildren.length === 0)
+    return plan.padding * 2;
+  const contentHeight = requiredChildren.reduce((sum3, child) => {
+    if (isMetricValueWrap(child) && plan.valueBandHeight !== void 0)
+      return sum3 + plan.valueBandHeight;
+    if (isMetricLabelNode(child) && plan.labelBandHeight !== void 0)
+      return sum3 + Math.max(plan.labelBandHeight, plan.labelTextMinHeight ?? 0);
+    return sum3 + intrinsicMinSize(theme, child, "vertical", 1);
+  }, 0);
+  return plan.padding * 2 + contentHeight + plan.gap * Math.max(0, requiredChildren.length - 1);
+}
+function pushMetricBandRepairRejectedDiagnostic(metricCardNode, availableHeight, plan) {
+  pushFitDiagnostic({
+    kind: "container",
+    severity: "error",
+    code: "FALLBACK_FAILED",
+    slideId: currentSlideId || void 0,
+    nodeId: metricCardNode.id,
+    message: `Metric-card '${metricCardNode.id}' cannot be auto-compacted without violating minimum text breathing room (needs ${plan.minCardHeight.toFixed(2)}cm, has ${availableHeight.toFixed(2)}cm).`,
+    suggestion: "Keep the KPI semantics, but give the metric row more height, reduce columns, shorten labels, or split these metrics across slides. Do not squeeze padding, value bands, or label space below readable minima.",
+    measured: {
+      available: availableHeight,
+      needed: plan.minCardHeight,
+      deltaCm: Math.max(0, plan.minCardHeight - availableHeight),
+      minPaddingCm: METRIC_CARD_REPAIR_MIN_PADDING_CM,
+      minGapCm: METRIC_CARD_REPAIR_MIN_GAP_CM,
+      minValueBandCm: METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM,
+      fitMethod: "metric-card-repair-budget"
+    }
+  });
 }
 function findMetricValueWrap(node) {
   return (node.children || []).find(isMetricValueWrap);
@@ -47642,14 +50688,93 @@ function findMetricValueNode(node) {
   const wrap = findMetricValueWrap(node);
   return (wrap?.children || []).find(isMetricValueNode);
 }
+function findMetricLabelNode(node) {
+  return (node.children || []).find(isMetricLabelNode);
+}
 function isMetricValueWrap(node) {
   return node.type === "stack" && typeof node.id === "string" && node.id.endsWith(".value-wrap");
 }
 function isMetricValueNode(node) {
   return node.type === "text" && typeof node.id === "string" && node.id.endsWith(".value");
 }
+function isMetricLabelNode(node) {
+  return node.type === "text" && typeof node.id === "string" && node.id.endsWith(".label");
+}
 function resolveMainSizes(theme, children, direction, availableMain, crossSize) {
   return solveSizes(children.map((child) => childMainSpec(theme, child, direction, crossSize)), availableMain);
+}
+function applyLayoutGlueSpecs(theme, parent, children, specs, direction) {
+  const glues = children.map((child, index) => layoutGlueSpecForChild(theme, parent, children, child, index, direction)).filter((glue) => glue !== void 0);
+  if (glues.length === 0)
+    return { specs, glues };
+  const next = specs.slice();
+  for (const glue of glues) {
+    const spec = specs[glue.index];
+    next[glue.index] = {
+      ...spec,
+      basis: clamp(Math.max(spec.basis, glue.preferred), glue.min, glue.max),
+      min: Math.max(spec.min, glue.min),
+      max: Math.max(glue.max, glue.min),
+      weight: Math.max(spec.weight, glue.weight),
+      grow: false,
+      fixed: false,
+      shrinkWeight: Math.max(spec.shrinkWeight ?? 0, glue.weight * 2)
+    };
+  }
+  return { specs: next, glues };
+}
+function layoutGlueSpecForChild(theme, parent, children, child, index, direction) {
+  if (direction !== "vertical")
+    return void 0;
+  if (child.type !== "spacer")
+    return void 0;
+  if (child.layoutGlue === false || child.glue === false)
+    return void 0;
+  if (optionalNumberProp(child, "layoutWeight") !== void 0)
+    return void 0;
+  const fixed = optionalNumberProp(child, "fixedHeight") ?? optionalNumberProp(child, "height") ?? optionalNumberProp(child, "basisHeight") ?? optionalNumberProp(child, "basis");
+  if (fixed === void 0)
+    return void 0;
+  const before = children[index - 1];
+  const after = children[index + 1];
+  if (!before || !after)
+    return void 0;
+  if (before.type === "spacer" || after.type === "spacer")
+    return void 0;
+  if (child.layoutGlue !== true && (!isLayoutGlueContentNode(before) || !isLayoutGlueContentNode(after)))
+    return void 0;
+  const parentGap = gapCm(theme, parent);
+  if (parentGap <= 0)
+    return void 0;
+  const policy = stringProp2(child, "gapPolicy", stringProp2(parent, "gapPolicy", "rhythm"));
+  if (policy === "replace" || policy === "fixed" || policy === "none")
+    return void 0;
+  const min = Math.max(0, fixed);
+  const preferred = layoutGluePreferredSize(policy, min, parentGap);
+  const authoredMax = optionalNumberProp(child, "maxHeight") ?? optionalNumberProp(child, "maxGlueHeight") ?? optionalNumberProp(parent, "maxGlueHeight");
+  const rhythmMax = Math.max(preferred, Math.min(1.6, min + parentGap * 1.8, parentGap * 2.4));
+  const max = Math.max(min, authoredMax !== void 0 ? Math.max(preferred, authoredMax) : rhythmMax);
+  return { index, min, preferred, max, weight: 4 };
+}
+function layoutGluePreferredSize(policy, min, parentGap) {
+  if (policy === "max")
+    return Math.max(min, parentGap);
+  if (policy === "additive")
+    return min + parentGap;
+  return Math.max(min + parentGap, parentGap * 1.35);
+}
+function isLayoutGlueContentNode(node) {
+  if (node.type === "spacer" || node.type === "divider" || node.type === "shape")
+    return false;
+  if (node.type === "text" || node.type === "bullets")
+    return true;
+  if (node.type === "image" || node.type === "table" || node.type === "chart")
+    return true;
+  if (node.type === "stack" || node.type === "grid" || node.type === "split")
+    return true;
+  if (node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset")
+    return true;
+  return typeof node.role === "string" && node.role.trim().length > 0;
 }
 function childMainSpec(theme, node, direction, crossSize) {
   const fixed = optionalNumberProp(node, direction === "horizontal" ? "fixedWidth" : "fixedHeight");
@@ -47700,58 +50825,12 @@ function containerNaturalMainSize(theme, node, direction, crossSize) {
 }
 var sizeOverflowWarnings = /* @__PURE__ */ new Set();
 function solveSizes(specs, availableMain, autoFillSlack = false) {
-  if (specs.length === 0)
-    return [];
-  const available = Math.max(0, availableMain);
-  const sizes = specs.map((spec) => clamp(spec.basis, spec.min, spec.max));
-  const total = sizes.reduce((sum, size) => sum + size, 0);
-  if (total > available)
-    return shrinkSizes(specs, sizes, available);
-  if (total < available)
-    return growSizes(specs, sizes, available - total, autoFillSlack);
-  return sizes;
-}
-function shrinkSizes(specs, sizes, available) {
-  let overflow = sizes.reduce((sum, size) => sum + size, 0) - available;
-  const shrinkable = specs.map((spec, index) => ({ spec, index })).filter(({ spec, index }) => !spec.fixed && sizes[index] > spec.min);
-  while (overflow > 1e-4 && shrinkable.some(({ spec, index }) => sizes[index] > spec.min + 1e-4)) {
-    const capacities = shrinkable.map(({ spec, index }) => Math.max(0, sizes[index] - spec.min));
-    const totalCapacity = capacities.reduce((sum, capacity) => sum + capacity, 0);
-    if (totalCapacity <= 0)
-      break;
-    shrinkable.forEach(({ spec, index }, listIndex) => {
-      const reduction = Math.min(sizes[index] - spec.min, overflow * (capacities[listIndex] / totalCapacity));
-      sizes[index] -= reduction;
-    });
-    overflow = sizes.reduce((sum, size) => sum + size, 0) - available;
-  }
-  if (overflow > 1e-4) {
-    sizeOverflowWarnings.add(`overflow=${overflow.toFixed(2)}cm; available=${available.toFixed(2)}cm`);
-    return fitToAvailableRespectingFixed(specs, sizes, available);
-  }
-  return sizes;
-}
-function growSizes(specs, sizes, extra, autoFillSlack = false) {
-  let remaining = extra;
-  let growIndexes = specs.map((spec, index) => spec.grow && sizes[index] < spec.max ? index : -1).filter((index) => index >= 0);
-  if (growIndexes.length === 0 && autoFillSlack) {
-    growIndexes = specs.map((spec, index) => spec.fixed ? -1 : index).filter((index) => index >= 0);
-  }
-  while (remaining > 1e-4 && growIndexes.length > 0) {
-    const weights = normalizeWeights(growIndexes.map((index) => specs[index].weight));
-    let consumed = 0;
-    growIndexes.forEach((index, weightIndex) => {
-      const room = specs[index].max - sizes[index];
-      const addition = Math.min(room, remaining * weights[weightIndex]);
-      sizes[index] += addition;
-      consumed += addition;
-    });
-    if (consumed <= 1e-4)
-      break;
-    remaining -= consumed;
-    growIndexes = growIndexes.filter((index) => sizes[index] < specs[index].max - 1e-4);
-  }
-  return sizes;
+  return resolveFlexMainTargets(specs, availableMain, {
+    autoFillSlack,
+    onOverflow: (overflow, available) => {
+      sizeOverflowWarnings.add(`overflow=${overflow.toFixed(2)}cm; available=${available.toFixed(2)}cm`);
+    }
+  });
 }
 function intrinsicMainSize(theme, node, direction, crossSize) {
   const fixed = optionalNumberProp(node, direction === "horizontal" ? "fixedWidth" : "fixedHeight");
@@ -47871,7 +50950,7 @@ function tableIntrinsicHeight(theme, node, widthCm) {
     return 0.9;
   const fontScale = typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0 ? node.fontScale : 1;
   const rowHeights = estimateTableRowHeights(theme, allRows, colWidths, firstRowHeader, tableDensity(node.density), fontScale);
-  return Math.min(10, Math.max(0.9, rowHeights.reduce((sum, h) => sum + h, 0)));
+  return Math.min(10, Math.max(0.9, rowHeights.reduce((sum3, h) => sum3 + h, 0)));
 }
 function tableLayoutInfo(theme, node, widthCm) {
   const sourceRows = tableSourceRows(node);
@@ -47990,13 +51069,13 @@ function tableCellText(raw) {
 function effectiveTableFontScale(theme, node, rect, rows, colWidths, firstRowHeader, density, authoredFontScale) {
   if (authoredFontScale !== 1)
     return authoredFontScale;
-  const baseNeeded = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density, 1).reduce((sum, h) => sum + h, 0);
+  const baseNeeded = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density, 1).reduce((sum3, h) => sum3 + h, 0);
   if (baseNeeded <= rect.h + 0.08) {
     if (density === "comfortable" && node.role !== "code-block-table" && rows.length <= 7 && rect.w >= 9 && rect.h >= baseNeeded + 0.75) {
       for (const scale of [1.16, 1.12, 1.08]) {
         if (!tableWrapsRemainStable(theme, rows, colWidths, firstRowHeader, density, scale))
           continue;
-        const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density, scale).reduce((sum, h) => sum + h, 0);
+        const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density, scale).reduce((sum3, h) => sum3 + h, 0);
         if (needed <= rect.h - 0.08)
           return scale;
       }
@@ -48004,7 +51083,7 @@ function effectiveTableFontScale(theme, node, rect, rows, colWidths, firstRowHea
     return 1;
   }
   for (const scale of [0.94, 0.9, 0.86, 0.82, 0.78]) {
-    const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density, scale).reduce((sum, h) => sum + h, 0);
+    const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density, scale).reduce((sum3, h) => sum3 + h, 0);
     if (needed <= rect.h + 0.08) {
       pushDiagnostic({
         severity: "warn",
@@ -48060,7 +51139,7 @@ function tableCellHasSingleLineHeadroom(theme, raw, widthCm, isHeader, density, 
 }
 function pushTableFitDiagnostics(theme, node, rect, rows, colWidths, rowHeights, firstRowHeader, outerRect, fontScale = 1) {
   const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, tableDensity(node.density), fontScale);
-  const totalNeeded = needed.reduce((sum, h) => sum + h, 0);
+  const totalNeeded = needed.reduce((sum3, h) => sum3 + h, 0);
   const shortRows = needed.map((height, index) => ({ index, needed: height, available: rowHeights[index] || 0 })).filter((row) => row.needed > row.available + 0.08);
   if (node.role === "code-block-table" && totalNeeded > rect.h + 0.08) {
     pushCodeBlockOverflowDiagnostic(node, rect, rows, needed, rowHeights, shortRows.length > 0 ? shortRows : [{ index: countRowsThatFit(needed, Math.max(0, rect.h)), needed: totalNeeded, available: rect.h }]);
@@ -48145,7 +51224,7 @@ function pushEmptyTableDataDiagnostic(node, rect, sourceRows, bodyRows, firstRow
   });
 }
 function pushCodeBlockOverflowDiagnostic(node, rect, rows, needed, rowHeights, shortRows) {
-  const totalNeeded = needed.reduce((sum, h) => sum + h, 0);
+  const totalNeeded = needed.reduce((sum3, h) => sum3 + h, 0);
   const available = Math.max(0, rect.h);
   const columns = typeof node.codeColumns === "number" && Number.isFinite(node.codeColumns) && node.codeColumns > 0 ? Math.floor(node.codeColumns) : 1;
   const totalLines = typeof node.codeTotalLines === "number" && Number.isFinite(node.codeTotalLines) ? Math.floor(node.codeTotalLines) : rows.length;
@@ -48208,7 +51287,7 @@ function contentHugSafetySlack(node) {
 function subtreeWeightedTextLength(node) {
   let total = weightedTextLength3(renderedTextContent(node));
   if (node.type === "bullets" && Array.isArray(node.items)) {
-    total += node.items.reduce((sum, item) => sum + weightedTextLength3(bulletItemText(item)), 0);
+    total += node.items.reduce((sum3, item) => sum3 + weightedTextLength3(bulletItemText(item)), 0);
   }
   for (const child of node.children || [])
     total += subtreeWeightedTextLength(child);
@@ -48237,7 +51316,7 @@ function stackIntrinsicHeight(theme, node, crossSize) {
     const childHeights = children.map((child, index) => intrinsicMainSize(theme, child, "vertical", widths[index] || innerWidth));
     return Math.max(0, ...childHeights) + pad * 2;
   }
-  const fixed = children.reduce((sum, child) => sum + intrinsicMainSize(theme, child, "vertical", innerWidth), 0);
+  const fixed = children.reduce((sum3, child) => sum3 + intrinsicMainSize(theme, child, "vertical", innerWidth), 0);
   return fixed + totalStackGapCm(theme, node, children) + pad * 2;
 }
 function horizontalStackIntrinsicWidth(theme, node, heightCm) {
@@ -48245,7 +51324,7 @@ function horizontalStackIntrinsicWidth(theme, node, heightCm) {
   if (children.length === 0)
     return 0;
   const pad = paddingCm(theme, node);
-  return children.reduce((sum, child) => sum + intrinsicMainSize(theme, child, "horizontal", heightCm), 0) + totalStackGapCm(theme, node, children) + pad * 2;
+  return children.reduce((sum3, child) => sum3 + intrinsicMainSize(theme, child, "horizontal", heightCm), 0) + totalStackGapCm(theme, node, children) + pad * 2;
 }
 function verticalStackIntrinsicWidth(theme, node, heightCm) {
   const children = (node.children || []).filter((child) => child.layer !== "behind" && child.layer !== "above");
@@ -48264,7 +51343,7 @@ function gridIntrinsicHeight(theme, node, widthCm) {
   const gap = gridGapCm(theme, node, rawChildren, columns);
   const contentWidth = contentRect(theme, node, { x: 0, y: 0, w: widthCm, h: 10 }).w;
   const availableWidth = Math.max(0, contentWidth - gap * (columns - 1));
-  const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
+  const colWidths = gridColumnTrackTargets(node, columns, availableWidth);
   const children = prepareGridChildrenForLayout(theme, node, rawChildren, columns, colWidths, gap);
   const placements = computeGridPlacements(children, columns);
   const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
@@ -48285,39 +51364,29 @@ function gridIntrinsicHeight(theme, node, widthCm) {
         rowHeights[row] = Math.max(rowHeights[row], perRow);
     }
   }
-  const total = rowHeights.reduce((sum, h) => sum + h, 0);
+  const total = rowHeights.reduce((sum3, h) => sum3 + h, 0);
   return total + gap * Math.max(0, rows - 1);
 }
-function resolveGridRowHeights(theme, placements, columns, rows, availableHeight, colWidths, gap, rowWeightsValue) {
-  const rowWeights = weightsFromProp(rowWeightsValue, rows);
-  const explicitRowWeights = Array.isArray(rowWeightsValue) && rowWeightsValue.length === rows;
-  const specs = [];
-  const childByCell = /* @__PURE__ */ new Map();
-  for (const p of placements)
-    childByCell.set(`${p.row}:${p.col}`, p);
-  for (let row = 0; row < rows; row++) {
-    let basis = 0;
-    let min = 0.4;
-    for (let col = 0; col < columns; col++) {
-      const placement = childByCell.get(`${row}:${col}`);
-      if (!placement)
-        continue;
-      const child = placement.child;
-      if (!child)
-        continue;
-      let width = 0;
-      for (let i = 0; i < placement.colSpan; i++)
-        width += colWidths[placement.col + i] || 0;
-      if (placement.colSpan > 1)
-        width += gap * (placement.colSpan - 1);
-      const perRowBasis = intrinsicMainSize(theme, child, "vertical", width || colWidths[col] || colWidths[0] || 1) / placement.rowSpan;
-      const perRowMin = intrinsicMinSize(theme, child, "vertical", width || colWidths[col] || colWidths[0] || 1) / placement.rowSpan;
-      basis = Math.max(basis, perRowBasis);
-      min = Math.max(min, perRowMin);
-    }
-    specs.push({ basis, min, max: Number.POSITIVE_INFINITY, weight: explicitRowWeights ? rowWeights[row] || 1 : gridRowWeightHint(childByCell, row, columns) ?? rowWeights[row] ?? 1, grow: true, fixed: false });
-  }
-  return solveSizes(specs, availableHeight);
+function resolveGridRowHeights(theme, placements, rows, availableHeight, colWidths, gap, rowWeightsValue) {
+  return resolveGridRowTracks({
+    count: rows,
+    available: availableHeight,
+    weights: rowWeightsValue,
+    defaultMin: 0.4,
+    contributions: gridRowContributions(theme, placements, colWidths, gap)
+  });
+}
+function gridRowContributions(theme, placements, colWidths, gap) {
+  return placements.map((placement) => {
+    const width = spannedSize(colWidths, placement.col, placement.colSpan, gap) || colWidths[placement.col] || colWidths[0] || 1;
+    return {
+      start: placement.row,
+      span: placement.rowSpan,
+      basis: intrinsicMainSize(theme, placement.child, "vertical", width),
+      min: intrinsicMinSize(theme, placement.child, "vertical", width),
+      weight: gridPlacementWeightHint(placement)
+    };
+  });
 }
 function gridGapCm(theme, node, children, columns) {
   const gap = gapCm(theme, node);
@@ -48364,19 +51433,15 @@ function isSingleColumnShapeFlow(children, columns) {
   const nodeCount = shapeChildren.length - connectorCount;
   return connectorCount >= 1 && nodeCount >= 2;
 }
-function gridRowWeightHint(childByCell, row, columns) {
-  for (let col = 0; col < columns; col++) {
-    const child = childByCell.get(`${row}:${col}`)?.child;
-    if (!child)
-      continue;
-    const explicit = optionalNumberProp(child, "layoutWeight");
-    if (explicit !== void 0)
-      return Math.max(1e-4, explicit);
-    if (isConnectorShapeNode(child))
-      return 0.22;
-    if (child.type === "shape")
-      return 1.4;
-  }
+function gridPlacementWeightHint(placement) {
+  const child = placement.child;
+  const explicit = optionalNumberProp(child, "layoutWeight");
+  if (explicit !== void 0)
+    return Math.max(1e-4, explicit);
+  if (isConnectorShapeNode(child))
+    return 0.22;
+  if (child.type === "shape")
+    return 1.4;
   return void 0;
 }
 function isConnectorShapeNode(node) {
@@ -48461,7 +51526,7 @@ function bulletsIntrinsicHeight(theme, node, widthCm, styleOverride) {
   const style = styleOverride || (mult === 1 ? baseStyle : { ...baseStyle, fontSize: baseStyle.fontSize * mult });
   const contentWidth = Math.max(0.8, widthCm - 0.85);
   const measurer = createTextMeasurer(theme);
-  const lineCount = items.reduce((sum, item) => sum + measurer.wrapLines(item, style.fontSize, style.weight, contentWidth).lines, 0);
+  const lineCount = items.reduce((sum3, item) => sum3 + measurer.wrapLines(item, style.fontSize, style.weight, contentWidth).lines, 0);
   const lineHeight = textLineMetrics(theme, style, void 0, items.join("\n")).lineHeightCm;
   const spaceAfter = bulletSpaceAfterHalfPt(node) * 0.5 * PT_TO_CM;
   const titleHeight = typeof node.title === "string" && node.title.trim() ? textLineMetrics(theme, theme.text["card-title"], void 0, node.title).lineHeightCm + 6 * 0.5 * PT_TO_CM : 0;
@@ -48472,7 +51537,7 @@ function measureBulletsFit(theme, node, rect, style) {
   const items = Array.isArray(node.items) ? node.items.map(bulletItemText) : [""];
   const contentWidth = Math.max(0.8, rect.w - 0.85);
   const measurer = createTextMeasurer(theme);
-  const wrappedLines = items.reduce((sum, item) => sum + measurer.wrapLines(item, style.fontSize, style.weight, contentWidth).lines, 0);
+  const wrappedLines = items.reduce((sum3, item) => sum3 + measurer.wrapLines(item, style.fontSize, style.weight, contentWidth).lines, 0);
   const lineHeightCm = textLineMetrics(theme, style, void 0, items.join("\n")).lineHeightCm;
   const needed = bulletsIntrinsicHeight(theme, node, rect.w, style);
   return {
@@ -48545,6 +51610,17 @@ function textNeededHeight(theme, node, widthCm, baseStyle = effectiveTextStyle(t
   return Math.min(12, Math.max(minTextLineHeightCm(theme, baseStyle, renderedTextContent(node)), bodyHeight + textVerticalReserveCm(theme, node, baseStyle)));
 }
 function textVisibleInkHeight(theme, node, widthCm, baseStyle = effectiveTextStyle(theme, node, "paragraph")) {
+  const paragraphs = textParagraphsForEstimate(theme, node, baseStyle);
+  if (paragraphs.length === 0)
+    return singleLineTextHeight(theme, node);
+  const visibleLines = textLineCountForEstimate(theme, node, widthCm, paragraphs);
+  if (visibleLines <= 1) {
+    const maxNaturalHeight = Math.max(...paragraphs.map((para) => {
+      const paraStyle = { ...baseStyle, fontSize: para.fontSize, weight: para.bold ? "bold" : baseStyle.weight };
+      return textLineMetrics(theme, paraStyle, void 0, para.text).naturalHeightCm;
+    }));
+    return Math.min(12, Math.max(0.01, maxNaturalHeight + textInkVerticalReserveCm(theme, node, baseStyle)));
+  }
   const bodyHeight = textBodyHeightForEstimate(theme, node, widthCm, baseStyle);
   if (bodyHeight <= 0)
     return singleLineTextHeight(theme, node);
@@ -48555,12 +51631,23 @@ function textBodyHeightForEstimate(theme, node, widthCm, baseStyle) {
   const paragraphs = textParagraphsForEstimate(theme, node, baseStyle);
   if (paragraphs.length === 0)
     return 0;
+  const lineCount = textLineCountForEstimate(theme, node, widthCm, paragraphs);
+  if (lineCount <= 0)
+    return 0;
   const contentWidth = Math.max(0.25, widthCm - textHorizontalReserveCm(node));
   const wrap = node.wrap === "none" || node.noWrap === true ? "none" : "wrap";
-  return paragraphs.reduce((sum, para, index) => {
+  return paragraphs.reduce((sum3, para, index) => {
     const lines = wrap === "none" ? Math.max(1, String(para.text || "").split(/\r?\n/).length) : estimatedWrappedLineCount(theme, para.text, para.fontSize, para.bold, contentWidth);
     const spaceAfter = index === paragraphs.length - 1 ? 0 : para.spaceAfterCm;
-    return sum + lines * para.lineHeightCm + spaceAfter;
+    return sum3 + lines * para.lineHeightCm + spaceAfter;
+  }, 0);
+}
+function textLineCountForEstimate(theme, node, widthCm, paragraphs) {
+  const contentWidth = Math.max(0.25, widthCm - textHorizontalReserveCm(node));
+  const wrap = node.wrap === "none" || node.noWrap === true ? "none" : "wrap";
+  return paragraphs.reduce((sum3, para) => {
+    const lines = wrap === "none" ? Math.max(1, String(para.text || "").split(/\r?\n/).length) : estimatedWrappedLineCount(theme, para.text, para.fontSize, para.bold, contentWidth);
+    return sum3 + lines;
   }, 0);
 }
 function textParagraphsForEstimate(theme, node, baseStyle) {
@@ -48670,7 +51757,7 @@ function pushTextFitDiagnostics(theme, node, rect, style) {
   const evidence = measureTextFitAtFont(theme, node, style, rect, styleKey, style.fontSize);
   const needed = evidence.heightNeeded;
   const available = evidence.heightAvailable;
-  if (evidence.fits || needed <= available + 0.08)
+  if (evidence.fits || needed <= available + 0.08 || textLinesFitReadableHeight(evidence))
     return;
   const measured = {
     available,
@@ -48687,18 +51774,8 @@ function pushTextFitDiagnostics(theme, node, rect, style) {
     availableLines: evidence.availableLines,
     fitMethod: "final-text-measure"
   };
-  if (mildTextFitOverflow(needed, { ...rect, h: available })) {
-    pushFitDiagnostic({
-      kind: "text",
-      severity: "warn",
-      slideId: currentSlideId,
-      nodeId: node.id,
-      message: `Text '${nodeLabel(node)}' is tight after final font measurement: ${needed.toFixed(2)}cm into ${available.toFixed(2)}cm, but remains within the readable overflow tolerance.`,
-      suggestion: "No blocking fix required if the rendered text remains readable; shorten copy or give it a little more height only when visual review confirms crowding.",
-      measured
-    });
+  if (mildTextFitOverflow(needed, { ...rect, h: available }))
     return;
-  }
   pushFitDiagnostic({
     kind: "text",
     severity: "error",
@@ -48720,6 +51797,11 @@ function mildTextFitOverflow(needed, rect) {
     return false;
   return delta <= Math.max(MILD_TEXT_OVERFLOW_ABSOLUTE_CM, rect.h * MILD_TEXT_OVERFLOW_RATIO);
 }
+function textLinesFitReadableHeight(evidence) {
+  if (evidence.wrappedLines <= 0 || evidence.lineHeightCm <= 0)
+    return true;
+  return evidence.availableLines + 0.08 >= evidence.wrappedLines;
+}
 var MILD_BULLET_OVERFLOW_ABSOLUTE_CM = 0.3;
 var MILD_BULLET_OVERFLOW_RATIO = 0.14;
 var MIN_READABLE_BULLET_LIST_HEIGHT_CM = 1.05;
@@ -48733,7 +51815,7 @@ function pushBulletsFitDiagnostics(theme, node, rect, style) {
   const evidence = measureBulletsFit(theme, node, rect, style);
   const needed = evidence.needed;
   const available = evidence.available;
-  if (needed <= available + 0.08)
+  if (needed <= available + 0.08 || evidence.availableLines + 0.08 >= evidence.wrappedLines)
     return;
   const measured = {
     available,
@@ -48748,18 +51830,8 @@ function pushBulletsFitDiagnostics(theme, node, rect, style) {
     itemCount: evidence.itemCount,
     fitMethod: "final-bullets-measure"
   };
-  if (mildBulletFitOverflow(needed, { ...rect, h: available })) {
-    pushFitDiagnostic({
-      kind: "bullets",
-      severity: "warn",
-      slideId: currentSlideId,
-      nodeId: node.id,
-      message: `Bullets '${nodeLabel(node)}' are tight after final font measurement: ${needed.toFixed(2)}cm into ${available.toFixed(2)}cm, but remain within the readable overflow tolerance.`,
-      suggestion: "If the rendered page looks crowded, shorten one bullet or give the bullet list slightly more height. Do not treat this as content loss by itself.",
-      measured
-    });
+  if (mildBulletFitOverflow(needed, { ...rect, h: available }))
     return;
-  }
   pushFitDiagnostic({
     kind: "bullets",
     severity: "error",
@@ -48834,8 +51906,8 @@ function defaultAutoFitForStyle(styleKey) {
 }
 function measureTextFitAtFont(theme, node, style, rect, styleKey, fontPt) {
   const rawText = renderedTextContent(node);
-  const lines = rawText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  const text = (lines.length > 0 ? lines : [rawText.replace(/\n/g, " ")]).join("\n");
+  const lines = textLinesForFit(rawText);
+  const text = lines.join("\n");
   if (!text) {
     return { fits: true, widthNeeded: 0, heightNeeded: 0, heightAvailable: Math.max(0, rect.h), unbreakableNeeded: 0, wrappedLines: 0, availableLines: 0, lineHeightCm: 0, fontPt, innerWidthCm: Math.max(0, rect.w) };
   }
@@ -48864,30 +51936,38 @@ function measureTextFitAtFont(theme, node, style, rect, styleKey, fontPt) {
   const measuredStyle = { ...style, fontSize: fontPt };
   const lineMetrics = textLineMetrics(theme, measuredStyle, node.lineSpacing, text);
   const lineHeightCm = lineMetrics.lineHeightCm;
-  const heightReserve = wrappedLines > 1 ? textVerticalReserveCm(theme, node, measuredStyle) : textInkVerticalReserveCm(theme, node, measuredStyle);
-  const heightNeeded = wrappedLines * lineHeightCm + heightReserve;
-  const mustFitSingleLineHeight = wrappedLines > 1 || (styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") && rect.h <= 0.5;
+  const heightNeeded = wrappedLines > 1 ? wrappedLines * lineHeightCm : Math.min(lineHeightCm, lineMetrics.naturalHeightCm + textInkVerticalReserveCm(theme, node, measuredStyle));
+  const autoFitShrink = node.autoFit === "shrink" || node.__fallbackAutoFitShrink === true;
+  const singleLineAutoFitHeightPressure = autoFitShrink && wrappedLines <= 1 && heightNeeded > rect.h + Math.max(0.18, rect.h * 0.35);
+  const mustFitSingleLineHeight = wrappedLines > 1 || singleLineAutoFitHeightPressure || (styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") && rect.h <= 0.5;
   const heightSensitive = mustFitSingleLineHeight || isTextFirstRole(nearestSemanticRole(node)) && heightNeeded > innerHeight + 0.06;
+  const heightAvailableForFit = wrappedLines <= 1 ? Math.max(0, rect.h) : innerHeight;
   const fitsWidth = noWrap ? widthNeeded <= inner : containsCjk(text) ? true : unbreakableNeeded <= inner;
-  const fitsHeight = !heightSensitive || heightNeeded <= innerHeight + 0.08;
+  const fitsHeight = !heightSensitive || heightNeeded <= heightAvailableForFit + 0.08;
   return {
     fits: fitsWidth && fitsHeight,
     widthNeeded,
     heightNeeded,
-    heightAvailable: innerHeight,
+    heightAvailable: heightAvailableForFit,
     unbreakableNeeded,
     wrappedLines,
-    availableLines: lineHeightCm > 0 ? innerHeight / lineHeightCm : 0,
+    availableLines: lineHeightCm > 0 ? heightAvailableForFit / lineHeightCm : 0,
     lineHeightCm,
     fontPt,
     innerWidthCm: inner
   };
 }
+function textLinesForFit(rawText) {
+  const normalized = String(rawText || "").replace(/\r\n?/g, "\n");
+  if (!normalized.trim())
+    return [];
+  return normalized.split("\n").map((line) => line.trimEnd());
+}
 function autoShrinkStyle(theme, node, style, rect, styleKey, options = {}) {
   const emitDiagnostics = options.emitDiagnostics !== false;
   const rawText = renderedTextContent(node);
-  const lines = rawText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  const text = (lines.length > 0 ? lines : [rawText.replace(/\n/g, " ")]).join("\n");
+  const lines = textLinesForFit(rawText);
+  const text = lines.join("\n");
   if (!text)
     return style;
   const computeFit = (fontPt) => measureTextFitAtFont(theme, node, style, rect, styleKey, fontPt);
@@ -48914,13 +51994,13 @@ function autoShrinkStyle(theme, node, style, rect, styleKey, options = {}) {
   const severe = isSevereTextShrink(node, styleKey, style.fontSize, fitted);
   if (emitDiagnostics && (options.warnOnAnyShrink || severe || fitted <= 9 || fitted <= style.fontSize * 0.78)) {
     const finalEvidence = computeFit(fitted);
-    const reason = options.diagnosticReason || "auto-shrunk";
+    const reason = options.diagnosticReason || (initial.wrappedLines > lines.length ? "wrapped and auto-shrunk" : "auto-shrunk");
     pushDiagnostic({
       severity: severe ? "error" : "warn",
       code: "TRUNCATED",
       slideId: currentSlideId || void 0,
       nodeId: node.id,
-      message: `Text '${nodeLabel(node)}' was ${reason} from ${style.fontSize.toFixed(1)}pt to ${fitted.toFixed(1)}pt to fit its assigned text box after wrapping.`,
+      message: `Text '${nodeLabel(node)}' was ${reason} from ${style.fontSize.toFixed(1)}pt to ${fitted.toFixed(1)}pt to fit its assigned text box.`,
       suggestion: severe ? "This body text is no longer presentation-readable. Give it more width/height, split the content, shorten it, or choose a layout/component that gives body text more space." : "Give this text more width/height, split the content, use shorter lines, or choose a layout/component that gives body text more space.",
       measured: {
         available: initial.innerWidthCm,
@@ -49004,47 +52084,13 @@ function weightedTextLength3(text) {
     length += /[\u4e00-\u9fff]/.test(char) ? 1.05 : 0.58;
   return length;
 }
-function fitToAvailableRespectingFixed(specs, sizes, availableMain) {
-  const fixedTotal = specs.reduce((sum, spec, index) => sum + (spec.fixed ? sizes[index] : 0), 0);
-  const flexTotal = sizes.reduce((sum, size, index) => sum + (specs[index].fixed ? 0 : size), 0);
-  const flexAvailable = Math.max(0, availableMain - fixedTotal);
-  if (flexTotal <= 0)
-    return sizes;
-  if (flexTotal <= flexAvailable)
-    return sizes;
-  const scale = flexAvailable / flexTotal;
-  return sizes.map((size, index) => specs[index].fixed ? size : size * scale);
-}
-function weightsFromProp(value, count) {
-  if (Array.isArray(value) && value.length === count) {
-    return normalizeWeights(value.map((item) => typeof item === "number" && Number.isFinite(item) && item > 0 ? item : 1));
-  }
-  return normalizeWeights(Array.from({ length: count }, () => 1));
-}
-function gridColumnSizesFromProps(node, columns, availableWidth) {
-  if (Array.isArray(node.columnWeights) && node.columnWeights.length === columns) {
-    return weightsFromProp(node.columnWeights, columns).map((weight) => availableWidth * weight);
-  }
-  if (Array.isArray(node.colWidths) && node.colWidths.length === columns) {
-    const nums = node.colWidths.map((item) => typeof item === "number" && Number.isFinite(item) && item > 0 ? item : 0);
-    const sum = nums.reduce((acc, value) => acc + value, 0);
-    if (sum > 0) {
-      const looksAbsolute = Math.abs(sum - availableWidth) < availableWidth * 0.5 && nums.every((n) => n >= 0.3);
-      if (looksAbsolute) {
-        if (sum <= availableWidth)
-          return nums;
-        return nums.map((n) => n / sum * availableWidth);
-      }
-      return normalizeWeights(nums).map((weight) => availableWidth * weight);
-    }
-  }
-  return weightsFromProp(void 0, columns).map((weight) => availableWidth * weight);
-}
-function normalizeWeights(values) {
-  const total = values.reduce((sum, value) => sum + Math.max(value, 0), 0);
-  if (total <= 0)
-    return values.map(() => 1 / values.length);
-  return values.map((value) => Math.max(value, 0) / total);
+function gridColumnTrackTargets(node, columns, availableWidth) {
+  return resolveGridColumnTracks({
+    count: columns,
+    available: availableWidth,
+    weights: node.columnWeights,
+    explicitSizes: node.colWidths
+  });
 }
 function positionsFromSizes(start, gap, sizes) {
   const items = [];
@@ -50752,7 +53798,7 @@ function addRepeatedCardAuthoringDiagnostics(deck, issues) {
     count: countNodesOfType(slide.children || [], "insight-card"),
     equalCardGrids: countEqualCardGrids(slide.children || [])
   }));
-  const total = perSlide.reduce((sum, item) => sum + item.count, 0);
+  const total = perSlide.reduce((sum3, item) => sum3 + item.count, 0);
   if (total >= 10) {
     const repeatedSlides = perSlide.filter((item) => item.count >= 3);
     if (repeatedSlides.length >= 3) {
@@ -50767,7 +53813,7 @@ function addRepeatedCardAuthoringDiagnostics(deck, issues) {
     }
   }
   const equalGridSlides = perSlide.filter((item) => item.equalCardGrids > 0);
-  const equalGridTotal = equalGridSlides.reduce((sum, item) => sum + item.equalCardGrids, 0);
+  const equalGridTotal = equalGridSlides.reduce((sum3, item) => sum3 + item.equalCardGrids, 0);
   if (equalGridSlides.length >= 4 && equalGridTotal >= 4) {
     issues.push(issue("warning", "REPEATED_EQUAL_GRID_LAYOUT", `Deck uses ${equalGridTotal} equal card-like grids across ${equalGridSlides.length} slides; the deck may read as a sequence of interchangeable cards.`, {
       slideId: equalGridSlides[0]?.slide.id,
@@ -51469,6 +54515,56 @@ function validateCardHeaderFields(node, path, slideId, issues) {
 }
 function trimmedString(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+var MATRIX_QUADRANT_FIELD_ALIASES = {
+  tl: ["tl", "topLeft", "top_left", "top-left", "upperLeft", "upper_left", "leftTop", "left_top", "yHighXLow", "xLowYHigh"],
+  tr: ["tr", "topRight", "top_right", "top-right", "upperRight", "upper_right", "rightTop", "right_top", "yHighXHigh", "xHighYHigh"],
+  bl: ["bl", "bottomLeft", "bottom_left", "bottom-left", "lowerLeft", "lower_left", "leftBottom", "left_bottom", "yLowXLow", "xLowYLow"],
+  br: ["br", "bottomRight", "bottom_right", "bottom-right", "lowerRight", "lower_right", "rightBottom", "right_bottom", "yLowXHigh", "xHighYLow"]
+};
+function matrixItemHasRenderableLabel(item) {
+  if (typeof item === "string" || typeof item === "number")
+    return String(item).trim() !== "";
+  if (!isPlainObject2(item))
+    return false;
+  return matrixTextValue(item, ["label", "title", "name", "text", "headline", "item", "summary"]) !== "";
+}
+function matrixHasQuadrantLabels(node) {
+  return matrixRecordHasQuadrantText(node.quadrantLabels) || matrixRecordHasQuadrantText(node.labels) || matrixRecordHasQuadrantText(node.quadrants) || Array.isArray(node.quadrants) && node.quadrants.some((raw) => {
+    if (!isPlainObject2(raw))
+      return false;
+    return matrixTextValue(raw, ["label", "title", "name", "text", "headline", "summary"]) !== "";
+  });
+}
+function matrixRecordHasQuadrantText(value) {
+  if (!isPlainObject2(value))
+    return false;
+  for (const aliases of Object.values(MATRIX_QUADRANT_FIELD_ALIASES)) {
+    for (const alias of aliases) {
+      if (matrixScalarText(value[alias]))
+        return true;
+    }
+  }
+  return false;
+}
+function matrixTextValue(rec, keys) {
+  for (const key of keys) {
+    const text = matrixScalarText(rec[key]);
+    if (text)
+      return text;
+  }
+  return "";
+}
+function matrixScalarText(value) {
+  if (typeof value === "string")
+    return value.trim();
+  if (typeof value === "number" && Number.isFinite(value))
+    return String(value);
+  if (typeof value === "boolean")
+    return value ? "true" : "false";
+  if (isPlainObject2(value))
+    return matrixTextValue(value, ["text", "label", "title", "name", "value", "body", "detail", "description", "summary"]);
+  return "";
 }
 function unknownTypeSuggestion(nodeType) {
   switch (nodeType) {
@@ -52987,6 +56083,8 @@ function componentFieldTypeError(componentName, propName, prop, value) {
         return null;
       if (componentName === "cover-composition" && propName === "content" && value && typeof value === "object" && !Array.isArray(value) && Array.isArray(value.runs))
         return null;
+      if (componentName === "matrix-2x2" && propName === "quadrants" && value && typeof value === "object" && !Array.isArray(value))
+        return null;
       return Array.isArray(value) ? null : {
         expected: "an array",
         actual: describeValueType(value),
@@ -53043,16 +56141,26 @@ function validateComponentNode(node, path, slideId, issues, options, parent) {
     validateChapterDividerUsage(node, path, slideId, issues, parent);
   if (name === "matrix-2x2") {
     const itemsArr = Array.isArray(node.items) ? node.items : [];
-    const ql = node.quadrantLabels && typeof node.quadrantLabels === "object" ? node.quadrantLabels : null;
-    const hasQuadrantLabels = ql ? ["tl", "tr", "bl", "br"].some((key) => typeof ql[key] === "string" && String(ql[key]).trim() !== "") : false;
-    if (itemsArr.length === 0 && !hasQuadrantLabels) {
+    const hasRenderableItems = itemsArr.some((item) => matrixItemHasRenderableLabel(item));
+    const hasQuadrantLabels = matrixHasQuadrantLabels(node);
+    if (!hasRenderableItems && !hasQuadrantLabels) {
       issues.push(issue("error", "MISSING_REQUIRED_FIELD", "matrix-2x2 requires items or quadrantLabels.", {
         slideId,
         path,
         nodeName: node.id,
-        suggestedFix: "Either pass items[] (one entry per data point with x/y enum) or quadrantLabels {tl,tr,bl,br} for a label-only matrix."
+        suggestedFix: "Either pass items[] with label/title/name/text plus x/y or quadrant, or pass quadrantLabels {tl,tr,bl,br} / quadrants[] for a label-only matrix."
       }));
     }
+    itemsArr.forEach((item, index) => {
+      if (matrixItemHasRenderableLabel(item))
+        return;
+      issues.push(issue("error", "INVALID_FIELD_USAGE", `matrix-2x2.items[${index}] has no renderable label/title/name/text field.`, {
+        slideId,
+        path: `${path}.items[${index}]`,
+        nodeName: node.id,
+        suggestedFix: "Use {label:'...', x:'low|high', y:'low|high'} or aliases such as title/name/text and quadrant:'tl|tr|bl|br'."
+      }));
+    });
   }
   if (name === "numbered-list" && Array.isArray(node.items)) {
     node.items.forEach((raw, index) => {
@@ -53518,7 +56626,7 @@ function looksLikeMultilineList(text) {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   if (lines.length < 3)
     return false;
-  const avgLen = lines.reduce((sum, line) => sum + line.length, 0) / lines.length;
+  const avgLen = lines.reduce((sum3, line) => sum3 + line.length, 0) / lines.length;
   const listLikePunctuation = lines.filter((line) => /[：:—–-]|[★⭐✗✓]|\s[/$¥$]?\d/.test(line)).length;
   return avgLen >= 8 && listLikePunctuation >= Math.max(2, Math.ceil(lines.length * 0.4));
 }
@@ -54514,6 +57622,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 }
 export {
   BLOCKING_RENDER_DIAGNOSTIC_CODES,
+  CassowaryLayoutSolver,
   DATA_AGGREGATE_OP_VALUES,
   DATA_BIND_FIELDS,
   DATA_COLUMN_ALIGN_VALUES,
@@ -54552,6 +57661,7 @@ export {
   designDeckFromBrief,
   designSlideFromBrief,
   designTimelineSlide,
+  domNodeToConstraintLayoutNode,
   featureCard,
   flowArrow,
   generateBriefLayoutDemo,
@@ -54611,6 +57721,8 @@ export {
   sectionBreak,
   setDeckProps,
   sliceIconSheet,
+  solveConstraintLayout,
+  solveDomConstraintLayout,
   sourceToRenderedDeck,
   statComparison,
   statStrip,

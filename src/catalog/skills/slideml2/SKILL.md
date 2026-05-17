@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.55
+version: 1.0.56
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -948,13 +948,13 @@ beside, or clearly separated from content text. If a freeform diagram needs a
 caption/explanation, place that text above with enough clearance, or make the
 diagram the main content and move prose to a separate callout/slide.
 
-- `callout-marker` — Anchored bubble pointing at a region. Different from `annotation` (inline, no anchor). type='callout-marker' required={text} optional={anchor:top-left|top-center|top-right|middle-left|middle-center|middle-right|bottom-left|bottom-center|bottom-right, tone, width, height}
-- `pointer-arrow` — Anchored overlay arrow pointing at an image/chart/diagram region. Different from `arrow-link` (inline). type='pointer-arrow' optional={label, direction:right|left|down|up, anchor, offsetX, offsetY, width, height, tone, style:solid|dashed}
+- `callout-marker` — Anchored bubble pointing at a region. Different from `annotation` (inline, no anchor). Omit width/height unless placement needs a precise bubble; renderer auto-sizes from text. type='callout-marker' required={text} optional={anchor:top-left|top-center|top-right|middle-left|middle-center|middle-right|bottom-left|bottom-center|bottom-right, tone, width, height}
+- `pointer-arrow` — Anchored overlay arrow pointing at an image/chart/diagram region. Different from `arrow-link` (inline). Omit width/height unless exact placement matters; renderer sizes from label + direction. type='pointer-arrow' optional={label, direction:right|left|down|up, anchor, offsetX, offsetY, width, height, tone, style:solid|dashed}
 - `arrow-link` — Single directional inline connector with optional from/to labels. type='arrow-link' optional={fromLabel, toLabel, label, direction:right|down, tone}
 - `decoration-grid` — Geometric pattern background (dots, diagonals, grid). type='decoration-grid' optional={pattern:dots|diagonal-lines|grid, density:sparse|normal|dense, tone:muted|brand, rows, columns, asBackground}
 - `decorative-shapes` — Anchored decorative motif cluster. type='decorative-shapes' optional={motif:bubbles|confetti|corner-blobs|sparkles|molecule, anchor:top-left|top-right|bottom-left|bottom-right|full, tone:muted|brand|accent|warning, count, width, height, asBackground}
-- `corner-mark` — Small ribbon/stamp/tag in a corner. type='corner-mark' required={text} optional={corner:top-left|top-right|bottom-left|bottom-right, tone, style:ribbon|stamp|tag}
-- `brand-mark` — Brand/source label anchored to a corner. Prefer this over hand-coded `at` for "bottom-right" placement. type='brand-mark' required={text} optional={corner, tone:muted|neutral|inverse|brand, width, height, offsetX, offsetY}
+- `corner-mark` — Small ribbon/stamp/tag in a corner. Natural authoring `{type:"corner-mark", text}` is enough; renderer estimates width and keeps it one line. type='corner-mark' required={text} optional={corner:top-left|top-right|bottom-left|bottom-right, tone, style:ribbon|stamp|tag}
+- `brand-mark` — Brand/source label anchored to a corner. Prefer this over hand-coded `at` for "bottom-right" placement; renderer estimates width and keeps it one line. type='brand-mark' required={text} optional={corner, tone:muted|neutral|inverse|brand, width, height, offsetX, offsetY}
 - `bracket` — Brace/bracket emphasizing a group. type='bracket' optional={direction:left|right|top|bottom, label, tone}
 - `watermark` — Large semi-transparent decorative overlay (DRAFT, CONFIDENTIAL). type='watermark' required={text} optional={rotation, tone:muted|danger|warning|brand}
 - `big-page-number` — Decorative page number for cover/section. type='big-page-number' required={current} optional={total, corner, tone:brand|muted}
