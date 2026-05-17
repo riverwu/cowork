@@ -9589,6 +9589,8 @@ function minimumExampleField(name: ComponentName, key: string): boolean {
   if (name === "article" && key === "text") return true;
   if (name === "callout" && key === "text") return true;
   if (name === "key-takeaway" && key === "headline") return true;
+  if (name === "chart-with-rail" && key === "evidence") return true;
+  if (name === "comparison-table" && (key === "features" || key === "options")) return true;
   if (name === "matrix-2x2" && key === "items") return true;
   return false;
 }

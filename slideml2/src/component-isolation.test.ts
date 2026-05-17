@@ -232,6 +232,17 @@ function arrayValueFor(componentName: string, fieldName: string, count: number):
   if (componentName === "chart-with-rail" && fieldName === "items") {
     return Array.from({ length: Math.min(count, 4) }, (_, i) => `解读 ${i + 1}`);
   }
+  if (componentName === "comparison-table" && fieldName === "features") {
+    return Array.from({ length: Math.min(count, 4) }, (_, i) => `维度 ${i + 1}`);
+  }
+  if (componentName === "comparison-table" && fieldName === "options") {
+    const features = Math.min(count, 4);
+    return Array.from({ length: Math.min(count, 3) }, (_, i) => ({
+      name: `方案 ${i + 1}`,
+      values: Array.from({ length: features }, (__, j) => (i + j) % 2 === 0 ? "Yes" : "No"),
+      recommended: i === 0,
+    }));
+  }
   if (componentName === "snapshot-callouts" && (fieldName === "callouts" || fieldName === "items")) {
     return Array.from({ length: Math.min(count, 4) }, (_, i) => ({ title: `标注 ${i + 1}`, body: bodyAt(i), tone: i % 2 === 0 ? "brand" : "neutral" }));
   }
@@ -322,6 +333,8 @@ function isMinimumOneOf(componentName: string, fieldName: string): boolean {
   if (componentName === "label" && fieldName === "text") return true;
   if (componentName === "callout" && fieldName === "text") return true;
   if (componentName === "key-takeaway" && fieldName === "headline") return true;
+  if (componentName === "chart-with-rail" && fieldName === "evidence") return true;
+  if (componentName === "comparison-table" && (fieldName === "features" || fieldName === "options")) return true;
   // matrix-2x2 needs items OR quadrantLabels — exercise items in the
   // minimum fixture so the validator's "either-or" rule passes.
   if (componentName === "matrix-2x2" && fieldName === "items") return true;
@@ -335,6 +348,8 @@ function optionalShouldBeIncluded(componentName: string, fieldName: string): boo
   // article without text/paragraphs is not a useful fixture; opt the typical
   // profile in too so the test exercises the actual flow.
   if (componentName === "article" && fieldName === "text") return true;
+  if (componentName === "chart-with-rail" && (fieldName === "evidence" || fieldName === "railBody")) return true;
+  if (componentName === "comparison-table" && (fieldName === "features" || fieldName === "options")) return true;
   // matrix-2x2 schema accepts items OR quadrantLabels (label-only mode); the
   // typical profile must include items so the validator passes.
   if (componentName === "matrix-2x2" && fieldName === "items") return true;
