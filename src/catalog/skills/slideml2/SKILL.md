@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.56
+version: 1.0.57
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -80,10 +80,16 @@ Use `help` whenever uncertain:
 ```bash
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" help
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" help compose
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" help components
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" help component chart-card
 ```
 
 This file is the reference manual. For the latest parameter shape of a specific
-command, run `help <command>` before writing its JSON file.
+command, run `help <command>` before writing its JSON file. For the latest
+schema semantics of a component, run `help component <type>` before authoring
+or repairing that component. Component help returns JSON with
+`schema.requiredAnyOf`, `fields`, `acceptedAuthoringForms`, examples, and
+component-specific pitfalls; prefer it over guessing from prior attempts.
 
 The CLI prints JSON with `ok`, `command`, `stage`, `status`, `deckModified`,
 diagnostics, and paths. Common statuses: `ok`, `usage-error`, `input-error`,
@@ -119,6 +125,8 @@ Before `set-deck` replaces `references`, `footnotes`, or `dataSources`, read the
 | `compose <manifest.json>` | Atomically compose ordered slide files into final PPTX and sidecars. |
 | `slice-icons <sheet-image>` | Slice an AI-generated PNG/JPEG icon sheet into individual PNG icons and `assets/icons/manifest.json`. |
 | `help [command]` | Print command-specific help and argument examples. |
+| `help components` | List public component `type` names and purposes. |
+| `help component <name>` | Print one component's schema, required alternatives, examples, and common pitfalls. |
 
 Common flags:
 
@@ -608,6 +616,28 @@ Accepted `encoding.y` forms: `"revenue"`, `["revenue","margin"]`, or
 If `seriesOptions` is keyed by display name, it is merged into the matching
 `seriesName`; still prefer field keys when possible.
 
+Hand-authored chart data:
+
+```json
+{
+  "type": "chart-card", "chartType": "bar", "title": "Market size",
+  "data": {
+    "labels": ["2025", "2026", "2027"],
+    "series": [{ "name": "Market", "values": [75, 110, 160] }]
+  }
+}
+```
+
+Use `series[].values` for numeric category values. `series[].data` is accepted
+as a compatibility alias for agents that emit Chart.js-style datasets, but
+`values` is the canonical SlideML2 field. Scatter series may use
+`points:[{x,y}]`; `data:[{x,y}]` is accepted as the same compatibility alias.
+If rendering reports `EMPTY_CHART_DATA`, keep the chart and repair the shape
+named by the diagnostic: hand-authored category charts need non-empty
+`labels` plus `series:[{name,values:[number,...]}]` (or compatibility
+`data:[number,...]`). Do not invent keys such as `amount`, `yValues`,
+`dataset`, or `items` inside a series; they are not renderable chart values.
+
 Bound table:
 
 ```json
@@ -630,9 +660,10 @@ Common numeric aliases such as `int`, `integer`, `decimal`, `float`, and
 Pivot (long → wide): use
 `"pivot":{"index":"region","columns":"product","values":"revenue","aggregate":"sum","fill":0}`.
 
-If a bound chart reports `EMPTY_CHART_DATA`, repair the source / filter /
-encoding or split the page. Do not switch to a weaker component to silence
-the diagnostic.
+If a chart reports `EMPTY_CHART_DATA`, repair the source / filter / encoding
+or hand-authored series values. Check that each series has numeric
+`values:[...]` or compatibility `data:[...]`; do not switch to a weaker
+component to silence the diagnostic.
 
 For research / commercial provenance: put bibliography in
 `deck.references[{id,title?,authors?,year?,venue?,doi?,url?,citation?}]`,
@@ -833,7 +864,7 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.8.
 - `stat-comparison` — Before/after with delta. type='stat-comparison' required={beforeLabel, beforeValue, afterLabel, afterValue} optional={trend, deltaLabel}
 - `bar-list` — Ranked categorical comparison, 4–8 items. `value` may be a number, percent string, currency/unit string such as `¥274.7万`, or star rating. Use `valueLabel` when display text differs from numeric value. type='bar-list' required={items:[{label|name|title, value|score|percent, valueLabel?, tone?}]} optional={tone, sort:desc|asc|none} capacity="4-8 ranked items; use table-card for exact dense lookup"
 - `progress-bar` — Single progress-to-target. type='progress-bar' required={label, value} optional={max, valueLabel, tone}
-- `chart-card` — Titled chart with optional insight, caption, dataLabels. Pie uses native PowerPoint outside labels with leader lines by default; doughnut uses repair-safe external PPT text labels and leader lines instead of native dLblPos. Both show major category+percent labels and suppress slices below 3% unless `dataLabels.minPercent` is set. type='chart-card' required={chartType:bar|stacked-bar|line|pie|doughnut|area|combo|scatter|waterfall, labels+series | data.{labels,series} | bind+encoding} optional={title, badge, insight, caption, showLegend, showValues, dataLabels:{show,position,bestFit|center|insideEnd|insideBase|outsideEnd,showValue,showCategoryName,showSeriesName,showPercent,showLegendKey,showLeaderLines,minPercent}, positiveColor, negativeColor, yFormat:int|decimal|percent|wanyuan|yi, tone, variant, surface, bind, encoding:{x,y|seriesOptions:{key:{y,seriesName?,chartType?,axis?}}}, orientation, xAxis, yAxis, secondaryYAxis, legend:{show,position,overlay}, plotArea:{x,y,w,h}} capacity="bar/line/combo body >=4.8x3.0cm; pie/doughnut >=5.2x4.4cm before chrome; keep readable aspect ratio" example={"type":"chart-card","chartType":"bar","bind":{"source":"sales","groupBy":"month","aggregate":{"Revenue":{"op":"sum","field":"revenue"}}},"encoding":{"x":"month","y":"Revenue"}}
+- `chart-card` — Titled chart with optional insight, caption, dataLabels. Pie uses native PowerPoint outside labels with leader lines by default; doughnut uses repair-safe external PPT text labels and leader lines instead of native dLblPos. Both show major category+percent labels and suppress slices below 3% unless `dataLabels.minPercent` is set. type='chart-card' required={chartType:bar|stacked-bar|line|pie|doughnut|area|combo|scatter|waterfall, labels+series | data.{labels,series} | bind+encoding}; hand-authored series use `values:[number]` canonical or `data:[number]` compatibility alias, scatter uses `points:[{x,y}]` or `data:[{x,y}]` optional={title, badge, insight, caption, showLegend, showValues, dataLabels:{show,position,bestFit|center|insideEnd|insideBase|outsideEnd,showValue,showCategoryName,showSeriesName,showPercent,showLegendKey,showLeaderLines,minPercent}, positiveColor, negativeColor, yFormat:int|decimal|percent|wanyuan|yi, tone, variant, surface, bind, encoding:{x,y|seriesOptions:{key:{y,seriesName?,chartType?,axis?}}}, orientation, xAxis, yAxis, secondaryYAxis, legend:{show,position,overlay}, plotArea:{x,y,w,h}} capacity="bar/line/combo body >=4.8x3.0cm; pie/doughnut >=5.2x4.4cm before chrome; keep readable aspect ratio" example={"type":"chart-card","chartType":"bar","bind":{"source":"sales","groupBy":"month","aggregate":{"Revenue":{"op":"sum","field":"revenue"}}},"encoding":{"x":"month","y":"Revenue"}}
 
 ### 3.4 Comparison & Decisions
 

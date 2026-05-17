@@ -5,9 +5,11 @@ import { basename, dirname, isAbsolute, resolve } from "node:path";
 import {
   clearRenderDiagnostics,
   createSourceDeck,
+  describeComponents,
   getRenderDiagnostics,
   isBlockingRenderDiagnostic,
   isQualityRenderDiagnostic,
+  listComponents,
   normalizeSlide,
   renderToAst,
   renderToPptx,
@@ -51,6 +53,9 @@ Commands:
   compose <manifest.json>        Compose ordered slide files into deck source and/or PPTX.
   slice-icons <sheet-image>      Slice an AI-generated PNG/JPEG icon sheet into PNG icons.
   help [command]                 Show command help.
+  help components                List public component types.
+  help component <name>          Show one component schema, examples, and pitfalls.
+  help <component-name>          Shortcut for help component <name>.
 
 Common flags:
   --deck <path>          Deck config source path. Default: ./deck-config.json.
@@ -121,6 +126,279 @@ function printHelp(command) {
     help: HELP[key],
     commands: COMMANDS,
   });
+}
+
+const COMPONENT_HELP_OVERRIDES = {
+  "chart-card": {
+    requiredFields: ["chartType"],
+    requiredAnyOf: [
+      ["type:'chart-card'", "chartType", "labels", "series[].values"],
+      ["type:'chart-card'", "chartType", "data.labels", "data.series[].values"],
+      ["type:'chart-card'", "chartType", "bind.source", "encoding.x", "encoding.y"],
+    ],
+    acceptedAuthoringForms: [
+      {
+        name: "hand-authored top-level data",
+        required: ["chartType", "labels", "series[].values"],
+        example: { type: "chart-card", chartType: "bar", labels: ["2025", "2026"], series: [{ name: "Market", values: [75, 110] }] },
+      },
+      {
+        name: "hand-authored data bundle",
+        required: ["chartType", "data.labels", "data.series[].values"],
+        example: { type: "chart-card", chartType: "bar", data: { labels: ["2025", "2026"], series: [{ name: "Market", values: [75, 110] }] } },
+      },
+      {
+        name: "deck data binding",
+        required: ["chartType", "bind.source", "encoding.x", "encoding.y"],
+        example: { type: "chart-card", chartType: "bar", bind: { source: "marketSize" }, encoding: { x: "year", y: "value", seriesName: "Market" } },
+      },
+    ],
+    commonMistakes: [
+      "Do not use arbitrary series keys such as amount, yValues, dataset, or items; category chart values must be in series[].values, with series[].data accepted only as a Chart.js compatibility alias.",
+      "EMPTY_CHART_DATA means the renderer found no numeric values or scatter points. Keep the chart component and repair the data shape or binding fields.",
+      "Fix chart data first, then fix SQUASHED/capacity diagnostics; layout checks are less useful when the chart has no renderable data.",
+    ],
+  },
+  "chart-with-rail": {
+    requiredFields: [],
+    requiredAnyOf: [
+      ["type:'chart-with-rail'", "evidence:{type:'chart-card'|'table-card'|'image-card'|...}"],
+      ["type:'chart-with-rail'", "chartType", "chartData.labels", "chartData.series[].values"],
+    ],
+    acceptedAuthoringForms: [
+      {
+        name: "nested evidence object",
+        required: ["evidence"],
+        example: { type: "chart-with-rail", evidence: { type: "chart-card", chartType: "bar", labels: ["A", "B"], series: [{ name: "Series", values: [10, 20] }] }, rail: { title: "Readout", body: "The chart is the proof object." } },
+      },
+      {
+        name: "flat chart alias",
+        required: ["chartType", "chartData.labels", "chartData.series[].values"],
+        example: { type: "chart-with-rail", chartType: "bar", chartData: { labels: ["A", "B"], series: [{ name: "Series", values: [10, 20] }] }, railTitle: "Readout", railBody: "Concise interpretation." },
+      },
+    ],
+    commonMistakes: [
+      "For chart-with-rail flat mode, use chartData:{labels,series}; data:{labels,series} is the chart-card bundle, not the documented flat chart-with-rail key.",
+      "evidence must be a single object, not an array. Put one dominant chart/table/image in evidence and keep rail text concise.",
+      "If the chart is SQUASHED, increase evidence ratio/area or move secondary content to another slide before replacing the evidence component.",
+    ],
+  },
+  "table-card": {
+    requiredFields: [],
+    requiredAnyOf: [
+      ["type:'table-card'", "rows"],
+      ["type:'table-card'", "data.rows"],
+      ["type:'table-card'", "bind.source", "encoding.columns"],
+    ],
+    acceptedAuthoringForms: [
+      {
+        name: "hand-authored rows",
+        required: ["rows"],
+        example: { type: "table-card", columns: [{ key: "metric", label: "Metric" }, { key: "value", label: "Value" }], rows: [{ metric: "Revenue", value: "$10m" }] },
+      },
+      {
+        name: "data bundle",
+        required: ["data.rows"],
+        example: { type: "table-card", data: { headers: ["Metric", "Value"], rows: [["Revenue", "$10m"]] } },
+      },
+      {
+        name: "deck data binding",
+        required: ["bind.source", "encoding.columns"],
+        example: { type: "table-card", bind: { source: "sales", limit: 6 }, encoding: { columns: [{ key: "region", label: "Region" }, { key: "revenue", label: "Revenue", type: "currency" }] } },
+      },
+    ],
+    commonMistakes: [
+      "If object rows render empty, add encoding.columns with explicit key/label. Display headers can differ from object keys only when columns declare the key.",
+      "For dense business tables, use density:'compact' and paginate before deleting data.",
+    ],
+  },
+  "analytic-table": {
+    requiredFields: [],
+    requiredAnyOf: [
+      ["type:'analytic-table'", "columns", "rows"],
+      ["type:'analytic-table'", "columns", "data.rows"],
+      ["type:'analytic-table'", "bind.source", "encoding.columns"],
+    ],
+    commonMistakes: [
+      "Use analytic-table when cells need visual encodings such as progress, delta, badge, heat, sparkline, traffic-light, rank, range, or stacked bars.",
+      "Keep calculations upstream; rows should carry final values and columns[].visual should declare how to display them.",
+    ],
+  },
+};
+
+function printHelpTopic(args) {
+  const cleanArgs = args.filter((arg) => arg !== "--json-output" && arg !== "--help" && arg !== "-h");
+  const [topic, name, ...extra] = cleanArgs;
+  if (!topic || topic === "main") {
+    printHelp("main");
+    return;
+  }
+  if (topic === "components") {
+    printComponentsHelp();
+    return;
+  }
+  if (topic === "component") {
+    if (!name) {
+      printPayload({
+        ok: false,
+        command: "help",
+        stage: "help",
+        status: "usage-error",
+        deckModified: false,
+        error: "help component requires a component name.",
+        usage: "slideml2 help component <component-name>",
+        componentCount: listComponents().length,
+        nextAction: "Run slideml2 help components to list names, then run slideml2 help component chart-card.",
+      }, EXIT.usage);
+    }
+    if (extra.length > 0) usage(`help component accepts exactly one component name. Unexpected extra argument(s): ${extra.join(" ")}`);
+    printComponentHelp(name);
+    return;
+  }
+  if (HELP[topic]) {
+    if (name || extra.length > 0) usage(`help ${topic} does not accept extra argument(s): ${[name, ...extra].filter(Boolean).join(" ")}`);
+    printHelp(topic);
+    return;
+  }
+  if (name || extra.length > 0) usage(`Unknown help topic '${topic}'. For components use: slideml2 help component <name>.`);
+  printComponentHelp(topic);
+}
+
+function printComponentsHelp() {
+  const components = listComponents().sort((a, b) => a.name.localeCompare(b.name));
+  printPayload({
+    ok: true,
+    command: "help",
+    stage: "help",
+    status: "ok",
+    deckModified: false,
+    helpCommand: "components",
+    componentCount: components.length,
+    components,
+    nextAction: "Run slideml2 help component <name> to inspect requiredAnyOf, fields, examples, and component-specific pitfalls.",
+  });
+}
+
+function printComponentHelp(rawName) {
+  const requestedName = String(rawName || "").trim();
+  const normalizedName = normalizeComponentHelpName(requestedName);
+  const result = describeComponents([requestedName, normalizedName]);
+  const componentName = result.found[requestedName] ? requestedName : normalizedName;
+  const description = result.found[componentName];
+  if (!description) {
+    printPayload({
+      ok: false,
+      command: "help",
+      stage: "help",
+      status: "not-found",
+      deckModified: false,
+      helpCommand: "component",
+      componentName: requestedName,
+      error: `Unknown component '${requestedName}'.`,
+      suggestions: componentHelpSuggestions(requestedName),
+      nextAction: "Use one of the suggested component names, or run slideml2 help components to list all supported component types.",
+    }, EXIT.usage);
+  }
+  printPayload({
+    ok: true,
+    command: "help",
+    stage: "help",
+    status: "ok",
+    deckModified: false,
+    helpCommand: "component",
+    componentName,
+    component: componentHelpSchema(description),
+    nextAction: `Use type:'${componentName}' with one acceptedAuthoringForms entry, write the slide JSON, then run validate-slide on that same file.`,
+  });
+}
+
+function normalizeComponentHelpName(name) {
+  return String(name || "")
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/[_\s]+/g, "-")
+    .toLowerCase();
+}
+
+function componentHelpSchema(description) {
+  const override = COMPONENT_HELP_OVERRIDES[description.name] || {};
+  const fields = Object.fromEntries(Object.entries(description.fields || {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, prop]) => [key, cleanPropDefinition(prop)]));
+  const rawRequiredFields = Object.entries(fields).filter(([, prop]) => prop.required === true).map(([key]) => key);
+  const requiredFields = override.requiredFields || rawRequiredFields;
+  if (override.requiredAnyOf) {
+    for (const [key, prop] of Object.entries(fields)) {
+      if (prop.required === true && !requiredFields.includes(key)) {
+        prop.required = false;
+        prop.requiredInSomeForms = true;
+      }
+    }
+  }
+  const optionalFields = Object.keys(fields).filter((key) => !requiredFields.includes(key));
+  const defaultRequiredAnyOf = requiredFields.length ? [requiredFields] : [[]];
+  return {
+    name: description.name,
+    purpose: description.purpose,
+    category: description.category,
+    schema: {
+      type: "object",
+      typeField: description.name,
+      requiredAnyOf: override.requiredAnyOf || defaultRequiredAnyOf,
+      requiredFields,
+      optionalFields,
+      fields,
+      children: description.children,
+    },
+    acceptedAuthoringForms: override.acceptedAuthoringForms || [
+      { name: "canonical", required: requiredFields, example: description.examples?.[0] || { type: description.name } },
+    ],
+    examples: description.examples || [],
+    guidance: description.guidance || [],
+    commonMistakes: override.commonMistakes || [],
+    layoutBehavior: description.layoutBehavior,
+    renderBehavior: description.renderBehavior,
+  };
+}
+
+function cleanPropDefinition(prop) {
+  const out = {
+    type: prop.type,
+    required: prop.required === true,
+    description: prop.description,
+  };
+  if (prop.semantic !== undefined) out.semantic = prop.semantic;
+  if (prop.enum !== undefined) out.enum = prop.enum;
+  if (prop.values !== undefined) out.values = prop.values;
+  if (prop.min !== undefined) out.min = prop.min;
+  if (prop.max !== undefined) out.max = prop.max;
+  return out;
+}
+
+function componentHelpSuggestions(name) {
+  const normalized = normalizeComponentHelpName(name);
+  const candidates = listComponents().map((item) => item.name);
+  return candidates
+    .map((candidate) => ({ name: candidate, distance: levenshteinDistance(normalized, candidate) }))
+    .sort((a, b) => a.distance - b.distance || a.name.localeCompare(b.name))
+    .slice(0, 6)
+    .map(({ name }) => name);
+}
+
+function levenshteinDistance(a, b) {
+  const left = String(a || "");
+  const right = String(b || "");
+  const prev = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i += 1) {
+    const curr = [i];
+    for (let j = 1; j <= right.length; j += 1) {
+      curr[j] = left[i - 1] === right[j - 1]
+        ? prev[j - 1]
+        : Math.min(prev[j - 1], prev[j], curr[j - 1]) + 1;
+    }
+    prev.splice(0, prev.length, ...curr);
+  }
+  return prev[right.length];
 }
 
 function abs(path) {
@@ -1090,7 +1368,7 @@ async function main() {
     }, EXIT.usage);
   }
   if (command === "help") {
-    printHelp(rest[0] || "main");
+    printHelpTopic(rest);
     return;
   }
   if (!COMMANDS.includes(command)) usage(`Unknown command: ${command}`);

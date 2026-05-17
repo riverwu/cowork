@@ -779,6 +779,31 @@ describe("final artifact legality", () => {
     expect(hit?.measured?.rect).toMatchObject({ x: expect.any(Number), y: expect.any(Number), w: expect.any(Number), h: expect.any(Number) });
   });
 
+  it("accepts Chart.js-style series.data arrays as chart values", async () => {
+    const source = deck([{
+      id: "s.data-alias",
+      type: "chart-card",
+      title: "Market size",
+      chartType: "bar",
+      data: {
+        labels: ["2025", "2026", "2027"],
+        series: [{ name: "Market", data: [75, 110, 160] }],
+      },
+    } as never]);
+
+    const out = join(mkdtempSync(join(tmpdir(), "slideml2-chart-data-alias-")), "chart-data-alias.pptx");
+    clearRenderDiagnostics();
+    await renderToPptx(sourceToRenderedDeck(source), out);
+    const diagnostics = getRenderDiagnostics();
+    clearRenderDiagnostics();
+
+    const zip = await JSZip.loadAsync(readFileSync(out));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    expect(diagnostics.find((item) => item.code === "EMPTY_CHART_DATA"), JSON.stringify(diagnostics)).toBeUndefined();
+    expect(chartXml).toContain("<c:v>75</c:v>");
+    expect(chartXml).toContain("<c:v>160</c:v>");
+  });
+
   it("empty charts produce blocking diagnostics and still emit PowerPoint-safe chart XML", async () => {
     const source = deck([{
       id: "s.empty",
@@ -800,8 +825,43 @@ describe("final artifact legality", () => {
     const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
     expect(hit, JSON.stringify(diagnostics)).toBeDefined();
     expect(hit?.severity).toBe("error");
+    expect(hit?.message).toContain("missing category labels");
+    expect(hit?.suggestion).toContain("\"values\"");
+    expect(hit?.suggestion).toContain("series[].data");
+    expect(hit?.measured).toMatchObject({ dataMode: "hand-authored", reason: expect.stringContaining("labels=0") });
     expect(chartXml).toContain("<c:barChart>");
     expect(chartXml).toContain("<c:v>No data</c:v>");
+  });
+
+  it("malformed hand-authored chart diagnostics include the correct data format", () => {
+    const source = deck([{
+      id: "s.bad-chart",
+      type: "chart-card",
+      title: "Bad chart",
+      chartType: "bar",
+      data: {
+        labels: ["2025", "2026"],
+        series: [{ name: "Market", amount: [75, 110] }],
+      },
+    } as never]);
+
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(source));
+    const diagnostics = getRenderDiagnostics();
+    const hit = diagnostics.find((item) => item.code === "EMPTY_CHART_DATA" && item.nodeId === "s.bad-chart.chart");
+    clearRenderDiagnostics();
+
+    expect(hit, JSON.stringify(diagnostics)).toBeDefined();
+    expect(hit?.message).toContain("no numeric values");
+    expect(hit?.message).toContain("amount");
+    expect(hit?.suggestion).toContain("\"data\":{\"labels\"");
+    expect(hit?.suggestion).toContain("\"values\"");
+    expect(hit?.suggestion).toContain("Chart.js compatibility alias");
+    expect(hit?.measured).toMatchObject({
+      dataMode: "hand-authored",
+      rawSeriesCount: 1,
+      renderablePointCount: 0,
+    });
   });
 
   it("top-level anchored content cannot overlap a normal content region", () => {

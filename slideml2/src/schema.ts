@@ -99,6 +99,41 @@ export const DATA_ENCODING_FIELDS = [
   "seriesOptions",
 ] as const;
 
+export const DATA_BIND_FIELD_ALIASES = {
+  source: ["dataSource", "dataset", "from"],
+  select: ["fields", "columns"],
+  filter: ["where"],
+  groupBy: ["group", "group_by", "groupby", "by"],
+  aggregate: ["aggregates", "measures"],
+  pivot: [],
+  sort: ["order", "orderBy", "orderby"],
+  limit: ["top", "take", "maxRows"],
+} as const satisfies Record<string, readonly string[]>;
+
+export const DATA_ENCODING_FIELD_ALIASES = {
+  x: ["category", "dimension", "nameField"],
+  y: ["measure", "metric", "metrics"],
+  orientation: ["direction"],
+  series: ["seriesBy", "group", "colorBy"],
+  label: ["name", "categoryLabel", "labelField"],
+  value: ["amount", "measure", "metricValue"],
+  delta: ["change", "diff"],
+  items: ["metrics", "stats"],
+  columns: ["fields"],
+  seriesName: ["legendLabel"],
+  seriesOptions: ["seriesConfig"],
+} as const satisfies Record<string, readonly string[]>;
+
+export const DATA_FIELD_SYNONYM_GROUPS = [
+  ["label", "name", "title", "category", "item", "dimension", "metric"],
+  ["value", "amount", "measure", "metricValue", "score"],
+  ["count", "number", "num", "qty", "quantity", "total"],
+  ["headcount", "hc", "people", "staff", "employees"],
+  ["revenue", "rev", "sales", "gmv"],
+  ["percent", "percentage", "pct", "rate", "share"],
+  ["delta", "change", "diff", "variance"],
+] as const;
+
 export const THEME_COMPONENT_STYLE_FIELDS = [
   "fill",
   "fillOpacity",

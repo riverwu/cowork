@@ -17,6 +17,7 @@ node /path/to/slideml2/runtime/bin/slideml2.js validate-slide slides/01-cover.js
 node /path/to/slideml2/runtime/bin/slideml2.js validate-manifest manifest.json
 node /path/to/slideml2/runtime/bin/slideml2.js compose manifest.json --out deck.pptx
 node /path/to/slideml2/runtime/bin/slideml2.js slice-icons assets/icons/icon-sheet.png --icons assets/icons/icons.json --out-dir assets/icons --grid 2x2
+node /path/to/slideml2/runtime/bin/slideml2.js help component chart-card
 ```
 
 This package is runtime-only: it intentionally omits TypeScript source, tests,

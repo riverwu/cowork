@@ -2,10 +2,13 @@ import { describeComponents, getComponentName, isComponentName, isComponentTyped
 import {
   DECK_SIZE_VALUES,
   DATA_AGGREGATE_OP_VALUES,
+  DATA_BIND_FIELD_ALIASES,
   DATA_BIND_FIELDS,
   DATA_COLUMN_ALIGN_VALUES,
   DATA_COLUMN_TYPE_VALUES,
+  DATA_ENCODING_FIELD_ALIASES,
   DATA_ENCODING_FIELDS,
+  DATA_FIELD_SYNONYM_GROUPS,
   DATA_SOURCE_TYPE_VALUES,
   isDeckSize,
   normalizeValidationMode,
@@ -61,38 +64,6 @@ const MAX_VALIDATION_NODE_DEPTH = 80;
 const MAX_VALIDATION_NODES_PER_SLIDE = 5000;
 const MAX_TEXT_LENGTH_ISSUES_PER_SLIDE = 80;
 const METADATA_HERO_COMPONENTS = new Set(["cover-composition", "section-break", "title-lockup", "chapter-divider"]);
-const DATA_BIND_FIELD_ALIASES: Record<string, string[]> = {
-  source: ["dataSource", "dataset", "from"],
-  select: ["fields", "columns"],
-  filter: ["where"],
-  groupBy: ["group", "group_by", "groupby", "by"],
-  aggregate: ["aggregates", "measures"],
-  pivot: [],
-  sort: ["order", "orderBy", "orderby"],
-  limit: ["top", "take", "maxRows"],
-};
-const DATA_ENCODING_FIELD_ALIASES: Record<string, string[]> = {
-  x: ["category", "dimension", "nameField"],
-  y: ["measure", "metric", "metrics"],
-  orientation: ["direction"],
-  series: ["seriesBy", "group", "colorBy"],
-  label: ["name", "categoryLabel", "labelField"],
-  value: ["amount", "measure", "metricValue"],
-  delta: ["change", "diff"],
-  items: ["metrics", "stats"],
-  columns: ["fields"],
-  seriesName: ["legendLabel"],
-  seriesOptions: ["seriesConfig"],
-};
-const DATA_FIELD_SYNONYM_GROUPS = [
-  ["label", "name", "title", "category", "item", "dimension", "metric"],
-  ["value", "amount", "measure", "metricValue", "score"],
-  ["count", "number", "num", "qty", "quantity", "total"],
-  ["headcount", "hc", "people", "staff", "employees"],
-  ["revenue", "rev", "sales", "gmv"],
-  ["percent", "percentage", "pct", "rate", "share"],
-  ["delta", "change", "diff", "variance"],
-] as const;
 const TEXT_VALUE_KEYS = new Set([
   "text", "content", "title", "subtitle", "headline", "body", "detail", "description",
   "label", "name", "caption", "eyebrow", "kicker", "summary", "quote",
@@ -1566,7 +1537,11 @@ function validateComputedDataSourceSpec(
   let baseRows: Record<string, unknown>[] = [];
   try {
     baseRows = resolveDataSourceRowsById(allSources, baseSource, options);
-  } catch {
+  } catch (error) {
+    issues.push(issue("error", "DATA_SOURCE_UNRESOLVABLE", `${path}.source could not resolve "${baseSource}": ${error instanceof Error ? error.message : String(error)}`, {
+      path: `${path}.source`,
+      suggestedFix: "Fix the referenced data source before validating computed columns or views.",
+    }));
     return;
   }
   const sourceFields = dataFieldSet(baseRows);
@@ -1775,7 +1750,7 @@ function canonicalDataEncodingRecord(rec: Record<string, unknown>): Record<strin
   return canonicalRecord(rec, DATA_ENCODING_FIELD_ALIASES);
 }
 
-function canonicalRecord(rec: Record<string, unknown>, aliases: Record<string, string[]>): Record<string, unknown> {
+function canonicalRecord(rec: Record<string, unknown>, aliases: Record<string, readonly string[]>): Record<string, unknown> {
   let out = rec;
   const copy = () => out === rec ? { ...rec } : out;
   for (const [canonical, aliasList] of Object.entries(aliases)) {
@@ -1790,7 +1765,7 @@ function canonicalRecord(rec: Record<string, unknown>, aliases: Record<string, s
   return out;
 }
 
-function isKnownDataFieldAlias(key: string, aliases: Record<string, string[]>): boolean {
+function isKnownDataFieldAlias(key: string, aliases: Record<string, readonly string[]>): boolean {
   if (Object.prototype.hasOwnProperty.call(aliases, key)) return true;
   return Object.values(aliases).some((items) => items.includes(key));
 }
@@ -1890,6 +1865,23 @@ function encodingFieldRefs(encoding: Record<string, unknown>): Array<[string, st
       if (typeof field === "string" && field.trim()) refs.push([`y[${index}]`, field.trim()]);
     });
   }
+  if (encoding.y && typeof encoding.y === "object" && !Array.isArray(encoding.y)) {
+    for (const [key, raw] of Object.entries(encoding.y as Record<string, unknown>)) {
+      const field = key.trim();
+      if (!field) continue;
+      refs.push([`y.${field}`, field]);
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        pushSeriesOptionFieldRefs(refs, `y.${field}`, raw as Record<string, unknown>);
+      }
+    }
+  }
+  if (encoding.seriesOptions && typeof encoding.seriesOptions === "object" && !Array.isArray(encoding.seriesOptions)) {
+    for (const [key, raw] of Object.entries(encoding.seriesOptions as Record<string, unknown>)) {
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        pushSeriesOptionFieldRefs(refs, `seriesOptions.${key}`, raw as Record<string, unknown>);
+      }
+    }
+  }
   if (Array.isArray(encoding.columns)) {
     encoding.columns.forEach((column, index) => {
       if (typeof column === "string" && column.trim()) refs.push([`columns[${index}]`, column.trim()]);
@@ -1908,6 +1900,13 @@ function encodingFieldRefs(encoding: Record<string, unknown>): Array<[string, st
     });
   }
   return refs;
+}
+
+function pushSeriesOptionFieldRefs(refs: Array<[string, string]>, path: string, option: Record<string, unknown>): void {
+  for (const key of ["y", "field", "key", "value"] as const) {
+    const field = option[key];
+    if (typeof field === "string" && field.trim()) refs.push([`${path}.${key}`, field.trim()]);
+  }
 }
 
 function firstNonEmptyString(...values: unknown[]): string | undefined {
@@ -2200,13 +2199,17 @@ function validateEncodingSeriesOptions(options: unknown, path: string, slideId: 
   }
   for (const [key, raw] of Object.entries(options as Record<string, unknown>)) {
     const itemPath = `${path}.${key}`;
+    if (typeof raw === "string") continue;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      issues.push(issue("error", "INVALID_DATA_ENCODING_SERIES_OPTIONS", `${itemPath} must be an object.`, { slideId, path: itemPath, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
+      issues.push(issue("error", "INVALID_DATA_ENCODING_SERIES_OPTIONS", `${itemPath} must be an object or display-name string.`, { slideId, path: itemPath, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
       continue;
     }
     const rec = raw as Record<string, unknown>;
     if (rec.type !== undefined && rec.type !== "bar" && rec.type !== "line") {
       issues.push(issue("error", "INVALID_CHART_SERIES_OPTION", `${itemPath}.type must be bar or line.`, { slideId, path: `${itemPath}.type`, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
+    }
+    if (rec.chartType !== undefined && rec.chartType !== "bar" && rec.chartType !== "line") {
+      issues.push(issue("error", "INVALID_CHART_SERIES_OPTION", `${itemPath}.chartType must be bar or line.`, { slideId, path: `${itemPath}.chartType`, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
     }
     if (rec.axis !== undefined && rec.axis !== "primary" && rec.axis !== "secondary") {
       issues.push(issue("error", "INVALID_CHART_SERIES_OPTION", `${itemPath}.axis must be primary or secondary.`, { slideId, path: `${itemPath}.axis`, nodeName: typeof nodeName === "string" ? nodeName : undefined }));

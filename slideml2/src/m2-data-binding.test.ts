@@ -113,6 +113,54 @@ describe("M2 data binding", () => {
     expect(chart.series?.[2]?.lineDash).toBe("dash");
   });
 
+  it("validates object-form encoding.y and seriesOptions data field refs", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          releaseMetrics: {
+            type: "inline-json",
+            rows: [
+              { phase: "Alpha", clients: 18, nps: 21 },
+              { phase: "Beta", clients: 54, nps: 34 },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "bad-object-y",
+        children: [{
+          id: "bad-object-y.chart",
+          type: "chart-card",
+          chartType: "combo",
+          bind: { source: "releaseMetrics" },
+          encoding: {
+            x: "phase",
+            y: {
+              missingClients: { seriesName: "Clients" },
+              nps: { y: "missingNps", seriesName: "NPS" },
+            },
+            seriesOptions: {
+              Clients: { y: "missingSeriesField", chartType: "line" },
+              NPS: "NPS score",
+            },
+          },
+        } as unknown as DomNode],
+      }],
+    };
+
+    const validation = validateDeck(deck);
+    expect(validation.errors.map((item) => item.code)).toEqual(expect.arrayContaining(["UNKNOWN_DATA_FIELD"]));
+    expect(validation.errors.map((item) => item.path)).toEqual(expect.arrayContaining([
+      "slides[0].children[0].encoding.y.missingClients",
+      "slides[0].children[0].encoding.y.nps.y",
+      "slides[0].children[0].encoding.seriesOptions.Clients.y",
+    ]));
+    expect(validation.errors.map((item) => item.path)).not.toContain("slides[0].children[0].encoding.seriesOptions.NPS");
+  });
+
   it("resolves one inline-json source into chart, table, stat strip, and metric components", () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,
@@ -491,6 +539,53 @@ describe("M2 data binding", () => {
     ]);
   });
 
+  it("keeps avg aggregates numeric when all values are empty", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          survey: {
+            type: "inline-json",
+            rows: [
+              { region: "US", score: "" },
+              { region: "US", score: null },
+              { region: "EU", score: "n/a" },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "avg-empty",
+        children: [{
+          id: "avg-empty.table",
+          type: "table-card",
+          bind: {
+            source: "survey",
+            groupBy: "region",
+            aggregate: {
+              AvgScore: { op: "avg", field: "score" },
+              SumScore: { op: "sum", field: "score" },
+            },
+            sort: "region",
+          },
+          encoding: { columns: ["region", "AvgScore", "SumScore"] },
+        } as unknown as DomNode],
+      }],
+    };
+
+    const validation = validateDeck(deck);
+    expect(validation.errors, validation.errors.map((item) => item.message).join("\n")).toHaveLength(0);
+
+    const rendered = sourceToRenderedDeck(deck);
+    const table = findNode(rendered.slides[0]!.dom, "avg-empty.table");
+    expect(table?.resolvedData?.rows).toEqual([
+      { region: "EU", AvgScore: 0, SumScore: 0 },
+      { region: "US", AvgScore: 0, SumScore: 0 },
+    ]);
+  });
+
   it("pivots long-form rows into wide table and chart data", () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,
@@ -745,6 +840,31 @@ describe("M2 data binding", () => {
       "UNKNOWN_DATA_FIELD",
       "INVALID_DATA_COMPUTED_FIELD_TYPE",
       "INVALID_COMPUTED_EXPRESSION",
+    ]));
+  });
+
+  it("reports computed data sources whose base source cannot be resolved", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          a: { type: "computed", source: "b", computed: { value: { op: "field", value: "value" } } },
+          b: { type: "computed", source: "a", computed: { value: { op: "field", value: "value" } } },
+        },
+      },
+      slides: [{
+        id: "cyclic-computed",
+        children: [{ id: "cyclic-computed.table", type: "table-card", bind: { source: "a" }, encoding: { columns: ["value"] } }] as unknown as DomNode[],
+      }],
+    };
+
+    const validation = validateDeck(deck);
+    expect(validation.errors.map((item) => item.code)).toEqual(expect.arrayContaining(["DATA_SOURCE_UNRESOLVABLE"]));
+    expect(validation.errors.map((item) => item.path)).toEqual(expect.arrayContaining([
+      "deck.dataSources.a.source",
+      "deck.dataSources.b.source",
     ]));
   });
 

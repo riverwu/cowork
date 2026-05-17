@@ -59,6 +59,10 @@ export interface LayoutDiagnostic {
     parentId?: string;
     lineCount?: number;
     renderedRows?: number;
+    reason?: string;
+    dataMode?: string;
+    rawSeriesCount?: number;
+    renderablePointCount?: number;
     estimatedCapacityLines?: number;
     wrappedLines?: number;
     availableLines?: number;

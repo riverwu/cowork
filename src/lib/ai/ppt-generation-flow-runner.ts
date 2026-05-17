@@ -1239,14 +1239,15 @@ function capacityDiagnosticMatchesRenderedShape(code: string, measured: unknown,
   const needed = numericValue(record.needed);
   const available = numericValue(record.available);
   const widthOverflow = needed !== undefined && available !== undefined && needed > available + 0.01;
+  const shapeMatchesMeasurement = shape.matchKind === "geometry" || shapeMatchesMeasuredRect(shape, measured);
   if (code === "TRUNCATED" && (heightOverflow || widthOverflow)) {
-    return shape.matchKind === "geometry" || shapeMatchesMeasuredRect(shape, measured);
+    return shapeMatchesMeasurement;
   }
   if (heightNeeded !== undefined && heightAvailable !== undefined && heightNeeded > heightAvailable + 0.01) {
-    return shape.h <= heightAvailable + 0.08;
+    return shapeMatchesMeasurement || shape.h <= heightAvailable + 0.08;
   }
   if (needed !== undefined && available !== undefined && needed > available + 0.01) {
-    return shape.h <= available + 0.08;
+    return shapeMatchesMeasurement || shape.h <= available + 0.08;
   }
   const minHeight = numericValue(record.minHeightCm);
   if (minHeight !== undefined && code === "SQUASHED") return shape.h + 0.08 < minHeight;

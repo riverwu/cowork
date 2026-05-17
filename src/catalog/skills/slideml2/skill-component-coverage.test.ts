@@ -204,6 +204,34 @@ describe("slideml2 SKILL golden copy", () => {
     expect(aliasSource.slides.map((slide) => slide.id)).toEqual(["cover", "body"]);
   });
 
+  it("exposes agent-queryable component help schemas through the runtime CLI", () => {
+    const runtimeCliPath = resolve(repoRoot, "src/catalog/skills/slideml2/runtime/bin/slideml2.js");
+    const run = (args: string[], expectedStatus = 0) => {
+      const result = spawnSync(process.execPath, [runtimeCliPath, ...args], { cwd: repoRoot, encoding: "utf8" });
+      expect(result.status, `${args.join(" ")}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(expectedStatus);
+      return JSON.parse(result.stdout) as Record<string, any>;
+    };
+
+    const chart = run(["help", "component", "chart-card"]);
+    expect(chart.ok).toBe(true);
+    expect(chart.componentName).toBe("chart-card");
+    expect(JSON.stringify(chart.component.schema.requiredAnyOf)).toContain("series[].values");
+    expect(JSON.stringify(chart.component.acceptedAuthoringForms)).toContain("data.series[].values");
+    expect(JSON.stringify(chart.component.commonMistakes)).toContain("EMPTY_CHART_DATA");
+
+    const rail = run(["help", "chart-with-rail"]);
+    expect(JSON.stringify(rail.component.schema.requiredAnyOf)).toContain("chartData.labels");
+    expect(JSON.stringify(rail.component.commonMistakes)).toContain("evidence must be a single object");
+
+    const list = run(["help", "components"]);
+    expect(list.componentCount).toBeGreaterThan(20);
+    expect((list.components as Array<{ name: string }>).some((item) => item.name === "chart-card")).toBe(true);
+
+    const missing = run(["help", "component", "chartCardd"], 2);
+    expect(missing.status).toBe("not-found");
+    expect(missing.suggestions).toContain("chart-card");
+  });
+
   it("keeps deck-level layout guidance in SKILL instead of a side business file", () => {
     const skill = skillText();
     const businessPath = resolve(repoRoot, "src/catalog/skills/slideml2/business.md");

@@ -21,7 +21,7 @@ import { formatRichToken, latexToMathText, richInlinePlainText, richRunsPlainTex
 import { latexToOmml } from "./latex-omml.js";
 import { emuToCm, normalizeStrokeCm, parseLayoutDimensionCm, SLIDE_SIZES } from "./units.js";
 import { isDeckSize } from "./schema.js";
-import { createTextMeasurer, PT_TO_CM } from "./text-measure.js";
+import { containsCjkOrFullWidth, createTextMeasurer, PT_TO_CM } from "./text-measure.js";
 import { probeImageDimensions } from "./emitter/image-dim.js";
 import { normalizeSlideTransition } from "./transition.js";
 
@@ -178,47 +178,54 @@ export async function renderSourceDeckToPptx(deck: Slideml2SourceDeck, outputPat
 
 export function renderToAst(deck: RenderedDeck): DeckAst {
   clearRenderDiagnostics();
-  const { theme, size } = buildThemeForDeck(deck);
   layoutDecisionsBySlide.clear();
   squashedWarnings.clear();
-  // umzrkm fix: pass the active theme's resolved palette into the contrast
-  // check so an agent's brand.primary / accent / success / warning / danger
-  // hex values count as "theme-resolved" — auto-fix can then rewrite them
-  // when contrast fails. Without this, agents who rebrand to a mid-saturation
-  // teal (5B8A8A) leak that color into text.color="brand.primary" callsites
-  // and the contrast check refuses to repair, treating it as user intent.
-  themeAccentHexesForContrast = collectThemeAccentHexes(theme);
-  themeMutedHexesForContrast = collectThemeMutedHexes(theme);
-  const slides: SlideAst[] = deck.slides.map((slide, index) => {
-    const dom = materializeAndCompactify(slide.dom, slide.id, theme);
-    const ids = { nextId: 2 };
-    const shapes = renderSlide(theme, dom, ids, slide.id);
-    const resolvedBackground = resolveSlideBackground(theme, dom.background);
-    const slideBgHex = pickContrastBackgroundColor(resolvedBackground);
-    shapes.push(...renderChrome(theme, deck, index, ids, slideBgHex));
-    const slideAst = {
-      shapes,
-      background: resolvedBackground,
-      transition: normalizeSlideTransition(dom.transition),
-      layout: typeof dom.layout === "string" ? dom.layout : undefined,
-      notes: typeof dom.notes === "string" ? dom.notes : undefined,
-    };
-    const flatSlideAst = { ...slideAst, shapes: flattenShapeList(slideAst.shapes) };
-    runTitleOcclusionCheck(slide.id, dom, flatSlideAst);
-    runContrastCheck(slide.id, flatSlideAst, theme);
-    runShapeVisibilityCheck(slide.id, flatSlideAst, theme);
-    return slideAst;
-  });
   themeAccentHexesForContrast = null;
   themeMutedHexesForContrast = null;
-  return {
-    size,
-    language: "zh-CN",
-    title: "SlideML2 MVP",
-    author: "SlideML2",
-    master: normalizeDeckMaster(deck.deck.master),
-    slides,
-  };
+  const { theme, size } = buildThemeForDeck(deck);
+  try {
+    // umzrkm fix: pass the active theme's resolved palette into the contrast
+    // check so an agent's brand.primary / accent / success / warning / danger
+    // hex values count as "theme-resolved" — auto-fix can then rewrite them
+    // when contrast fails. Without this, agents who rebrand to a mid-saturation
+    // teal (5B8A8A) leak that color into text.color="brand.primary" callsites
+    // and the contrast check refuses to repair, treating it as user intent.
+    themeAccentHexesForContrast = collectThemeAccentHexes(theme);
+    themeMutedHexesForContrast = collectThemeMutedHexes(theme);
+    const slides: SlideAst[] = deck.slides.map((slide, index) => {
+      const dom = materializeAndCompactify(slide.dom, slide.id, theme);
+      const ids = { nextId: 2 };
+      const shapes = renderSlide(theme, dom, ids, slide.id);
+      const resolvedBackground = resolveSlideBackground(theme, dom.background);
+      const slideBgHex = pickContrastBackgroundColor(resolvedBackground);
+      shapes.push(...renderChrome(theme, deck, index, ids, slideBgHex));
+      const slideAst = {
+        shapes,
+        background: resolvedBackground,
+        transition: normalizeSlideTransition(dom.transition),
+        layout: typeof dom.layout === "string" ? dom.layout : undefined,
+        notes: typeof dom.notes === "string" ? dom.notes : undefined,
+      };
+      const flatSlideAst = { ...slideAst, shapes: flattenShapeList(slideAst.shapes) };
+      runTitleOcclusionCheck(slide.id, dom, flatSlideAst);
+      runContrastCheck(slide.id, flatSlideAst, theme);
+      runShapeVisibilityCheck(slide.id, flatSlideAst, theme);
+      return slideAst;
+    });
+    return {
+      size,
+      language: "zh-CN",
+      title: "SlideML2 MVP",
+      author: "SlideML2",
+      master: normalizeDeckMaster(deck.deck.master),
+      slides,
+    };
+  } finally {
+    themeAccentHexesForContrast = null;
+    themeMutedHexesForContrast = null;
+    layoutDecisionsBySlide.clear();
+    squashedWarnings.clear();
+  }
 }
 
 function flattenShapeList(shapes: ShapeList, offsetX = 0, offsetY = 0): ShapeList {
@@ -5578,7 +5585,7 @@ function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   pushMissingDataBindingSourceDiagnostic(node, "Chart");
   const resolvedChartType = chartType(node.chartType);
   const hasRenderableData = chartHasRenderableData(resolvedChartType, labels, series);
-  if (!hasRenderableData) pushEmptyChartDataDiagnostic(node, labels, series);
+  if (!hasRenderableData) pushEmptyChartDataDiagnostic(node, labels, series, resolvedChartType);
   const safeLabels = hasRenderableData || labels.length > 0 ? labels : ["No data"];
   const safeSeries = alignChartSeriesToLabels(
     hasRenderableData && series.length > 0 ? series : [{ name: "No data", values: [0] }],
@@ -5810,24 +5817,87 @@ function alignChartSeriesToLabels(series: ChartSeries[], labelCount: number, cha
     : { ...item, values: Array.from({ length: labelCount }, (_, index) => item.values[index] ?? 0) });
 }
 
-function pushEmptyChartDataDiagnostic(node: DomNode, labels: string[], series: ChartSeries[]): void {
+function pushEmptyChartDataDiagnostic(node: DomNode, labels: string[], series: ChartSeries[], chartTypeValue: ChartType): void {
   const rowCount = node.resolvedData && typeof node.resolvedData === "object" && Array.isArray((node.resolvedData as { rows?: unknown }).rows)
     ? (node.resolvedData as { rows: unknown[] }).rows.length
     : undefined;
+  const renderablePointCount = chartRenderablePointCount(series);
+  const context = emptyChartDataContext(node, labels, series, chartTypeValue, rowCount, renderablePointCount);
   pushDiagnostic({
     severity: "error",
     code: "EMPTY_CHART_DATA",
     slideId: currentSlideId || undefined,
     nodeId: nodeLabel(node),
-    message: `Chart '${nodeLabel(node)}' has no renderable data after binding/encoding.`,
-    suggestion: "Keep the chart component and repair its data path: verify bind.filter still returns rows, use array filters as inclusion lists or {in:[...]}, and ensure encoding maps category labels to a text field and values to numeric field(s). For horizontal ranked bars, use orientation:'horizontal' or x:numeric with y:category.",
+    message: `Chart '${nodeLabel(node)}' has no renderable data: ${context.reason}.`,
+    suggestion: context.suggestion,
     measured: {
-      available: series.reduce((count, item) => count + item.values.length + (item.points?.length || 0), 0),
+      available: renderablePointCount,
       needed: 1,
+      reason: context.reason,
+      dataMode: context.dataMode,
       renderedRows: rowCount,
       lineCount: labels.length,
+      labelCount: labels.length,
+      seriesCount: series.length,
+      rawSeriesCount: context.rawSeriesCount,
+      renderablePointCount,
     },
   });
+}
+
+function chartRenderablePointCount(series: ChartSeries[]): number {
+  return series.reduce((count, item) => count + item.values.length + (item.points?.length || 0), 0);
+}
+
+function emptyChartDataContext(
+  node: DomNode,
+  labels: string[],
+  series: ChartSeries[],
+  chartTypeValue: ChartType,
+  rowCount: number | undefined,
+  renderablePointCount: number,
+): { dataMode: string; rawSeriesCount: number; reason: string; suggestion: string } {
+  const rawSeries = Array.isArray(node.series) ? node.series : [];
+  const rawSeriesCount = rawSeries.length;
+  const rawSeriesKeys = chartSeriesKeys(rawSeries);
+  const bindingMode = Boolean(node.bind || node.encoding || node.dataLineage || rowCount !== undefined);
+  if (bindingMode) {
+    const reason = rowCount === 0
+      ? `binding resolved 0 rows; labels=${labels.length}, series=${series.length}, renderable points=${renderablePointCount}`
+      : `binding/encoding produced labels=${labels.length}, series=${series.length}, renderable points=${renderablePointCount}`;
+    return {
+      dataMode: "binding",
+      rawSeriesCount,
+      reason,
+      suggestion: "Keep the chart component and repair the data path: verify bind.source exists and bind.filter returns rows. Use encoding like {\"x\":\"categoryField\",\"y\":\"numericField\"} or {\"x\":\"categoryField\",\"y\":[\"revenue\",\"cost\"]}; every y field must resolve to numeric values. For a hand-authored replacement, use {\"data\":{\"labels\":[\"A\",\"B\"],\"series\":[{\"name\":\"Series\",\"values\":[10,20]}]}}.",
+    };
+  }
+  const labelsProblem = chartTypeValue !== "scatter" && labels.length === 0;
+  const seriesProblem = rawSeriesCount === 0;
+  const valueProblem = rawSeriesCount > 0 && renderablePointCount === 0;
+  const keyHint = rawSeriesKeys.length > 0 ? `; found series keys: ${rawSeriesKeys.join(", ")}` : "";
+  const reason = labelsProblem
+    ? `missing category labels; labels=0, series=${series.length}, renderable points=${renderablePointCount}${keyHint}`
+    : seriesProblem
+      ? `missing series; labels=${labels.length}, series=0`
+      : valueProblem
+        ? `series is present but contains no numeric values or scatter points${keyHint}`
+        : `labels=${labels.length}, series=${series.length}, renderable points=${renderablePointCount}${keyHint}`;
+  return {
+    dataMode: "hand-authored",
+    rawSeriesCount,
+    reason,
+    suggestion: "For hand-authored bar/line/pie charts, use {\"data\":{\"labels\":[\"2025\",\"2026\"],\"series\":[{\"name\":\"Market\",\"values\":[75,110]}]}} or top-level labels/series with the same shape. series[].data:[number] is accepted as a Chart.js compatibility alias for values, but arbitrary keys such as amount, yValues, or dataset are ignored. For scatter charts, use {\"data\":{\"series\":[{\"name\":\"Series\",\"points\":[{\"x\":1,\"y\":2}]}]}}; data:[{x,y}] is accepted as a compatibility alias for points.",
+  };
+}
+
+function chartSeriesKeys(series: unknown[]): string[] {
+  const keys = new Set<string>();
+  for (const item of series) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    for (const key of Object.keys(item as Record<string, unknown>)) keys.add(key);
+  }
+  return Array.from(keys).slice(0, 8);
 }
 
 function pushMissingDataBindingSourceDiagnostic(node: DomNode, noun: "Chart" | "Table"): void {
@@ -6550,39 +6620,46 @@ function bulletsItemsFromNode(node: DomNode): unknown[] {
 
 function materializeDeck(deck: RenderedDeck): RenderedDeck {
   const { theme } = buildThemeForDeck(deck);
-  const slides = deck.slides.map((slide) => {
-    const dom = materializeAndCompactify(slide.dom, slide.id, theme);
-    return { slide, dom, layout: layoutSlide(theme, dom), decisions: layoutDecisionsBySlide.get(slide.id) || new Map() };
-  });
-  const diagnostics = getRenderDiagnostics();
-  return {
-    ...deck,
-    slides: slides.map(({ slide, dom, layout, decisions }) => {
-      const slideDiagnostics = diagnostics.filter((item) => item.slideId === slide.id);
-      return {
-        ...slide,
-        dom,
-        measured: {
-          nodes: layout.measured.map(serializeMeasuredNode),
-          layoutDecisions: Array.from(decisions.entries()).map(([nodeId, decision]) => ({ nodeId, ...decision })),
-          diagnostics: slideDiagnostics,
-          collisions: slideDiagnostics
-            .filter((item) => item.code === "COLLISION" || item.code === "SIBLING_INK_OVERLAP" || item.code === "STRUCTURAL_OVERLAP" || item.code === "OVERLAY_OCCLUDES_FLOW")
-            .map((item) => ({
-              code: item.code,
-              nodeId: item.nodeId,
-              otherNodeId: item.measured?.other?.nodeId,
-              rect: item.measured?.rect,
-              other: item.measured?.other,
-              overlap: item.measured?.overlap,
-              overlapAreaCm2: item.measured?.overlapAreaCm2,
-              overlapRatio: item.measured?.overlapRatio,
-              relationship: item.measured?.relationship,
-            })),
-        },
-      };
-    }),
-  } as RenderedDeck;
+  layoutDecisionsBySlide.clear();
+  squashedWarnings.clear();
+  try {
+    const slides = deck.slides.map((slide) => {
+      const dom = materializeAndCompactify(slide.dom, slide.id, theme);
+      return { slide, dom, layout: layoutSlide(theme, dom), decisions: layoutDecisionsBySlide.get(slide.id) || new Map() };
+    });
+    const diagnostics = getRenderDiagnostics();
+    return {
+      ...deck,
+      slides: slides.map(({ slide, dom, layout, decisions }) => {
+        const slideDiagnostics = diagnostics.filter((item) => item.slideId === slide.id);
+        return {
+          ...slide,
+          dom,
+          measured: {
+            nodes: layout.measured.map(serializeMeasuredNode),
+            layoutDecisions: Array.from(decisions.entries()).map(([nodeId, decision]) => ({ nodeId, ...decision })),
+            diagnostics: slideDiagnostics,
+            collisions: slideDiagnostics
+              .filter((item) => item.code === "COLLISION" || item.code === "SIBLING_INK_OVERLAP" || item.code === "STRUCTURAL_OVERLAP" || item.code === "OVERLAY_OCCLUDES_FLOW")
+              .map((item) => ({
+                code: item.code,
+                nodeId: item.nodeId,
+                otherNodeId: item.measured?.other?.nodeId,
+                rect: item.measured?.rect,
+                other: item.measured?.other,
+                overlap: item.measured?.overlap,
+                overlapAreaCm2: item.measured?.overlapAreaCm2,
+                overlapRatio: item.measured?.overlapRatio,
+                relationship: item.measured?.relationship,
+              })),
+          },
+        };
+      }),
+    } as RenderedDeck;
+  } finally {
+    layoutDecisionsBySlide.clear();
+    squashedWarnings.clear();
+  }
 }
 
 function serializeMeasuredNode(node: MeasuredNode): MeasuredNode {
@@ -8932,7 +9009,7 @@ function textLineMetrics(theme: SimpleTheme, style: TextStyle, rawLineSpacing?: 
     ascentCm *= scale;
     descentCm *= scale;
   }
-  const requested = explicitLineSpacingCm(rawLineSpacing, style) ?? measurer.lineHeight(style.fontSize, style.lineHeight, family);
+  const requested = explicitLineSpacingCm(rawLineSpacing, style) ?? measurer.lineHeightForText(text, style.fontSize, style.lineHeight, family);
   const lineHeightCm = Math.max(naturalHeightCm, requested);
   return {
     ascentCm,
@@ -9485,7 +9562,7 @@ function valignProp(node: DomNode, kind: string): "top" | "middle" | "bottom" {
 }
 
 function containsCjk(text: string): boolean {
-  return /[\u4e00-\u9fff]/.test(text);
+  return containsCjkOrFullWidth(text);
 }
 
 function chartType(value: unknown): ChartType {
@@ -9501,8 +9578,14 @@ function normalizeChartSeries(theme: SimpleTheme, value: unknown): ChartSeries[]
     if (!item || typeof item !== "object") return null;
     const record = item as Record<string, unknown>;
     const name = typeof record.name === "string" ? record.name : `Series ${index + 1}`;
-    if (Array.isArray(record.points)) {
-      const points = record.points
+    const dataArray = Array.isArray(record.data) ? record.data : undefined;
+    const rawPoints = Array.isArray(record.points)
+      ? record.points
+      : dataArray?.some((p) => Boolean(p && typeof p === "object" && ("x" in p || "y" in p)))
+        ? dataArray
+        : undefined;
+    if (rawPoints) {
+      const points = rawPoints
         .filter((p): p is Record<string, unknown> => Boolean(p && typeof p === "object"))
         .map((p) => ({ x: Number(p.x), y: Number(p.y) }))
         .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
@@ -9513,8 +9596,9 @@ function normalizeChartSeries(theme: SimpleTheme, value: unknown): ChartSeries[]
       }
       return;
     }
-    const values = Array.isArray(record.values)
-      ? record.values.map((v) => v === null ? null : Number(v)).filter((v): v is number | null => v === null || Number.isFinite(v))
+    const rawValues = Array.isArray(record.values) ? record.values : dataArray;
+    const values = Array.isArray(rawValues)
+      ? rawValues.map((v) => v === null ? null : Number(v)).filter((v): v is number | null => v === null || Number.isFinite(v))
       : [];
     if (values.length === 0) return;
     const series: ChartSeries = { name, values };

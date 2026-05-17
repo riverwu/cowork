@@ -35,6 +35,16 @@ describe("heuristic text measurement", () => {
     expect(wrapped.lines).toBeGreaterThan(1);
   });
 
+  it("treats Japanese kana and Hangul as CJK-width breakable glyphs", () => {
+    const text = "かなカナ한글";
+    const width = measurer.textWidth(text, 12);
+    const wrapped = measurer.wrapLines(text, 12, undefined, 1.3);
+
+    expect(width).toBeGreaterThan(12 * PT_TO_CM * 5);
+    expect(measurer.unbreakableWidth(text, 12)).toBeCloseTo(measurer.textWidth("か", 12), 6);
+    expect(wrapped.lines).toBeGreaterThan(1);
+  });
+
   it("breaks long Latin technical tokens at useful punctuation", () => {
     const text = "https://example.com/research/data-set/version-2026";
     const width = measurer.textWidth(text, 10);
@@ -105,6 +115,18 @@ describe("metric-pack text measurement", () => {
     expect(width).toBeGreaterThan(10 * PT_TO_CM * 5);
   });
 
+  it("measures glyph script instead of treating every CJK-font run as CJK text", () => {
+    const cjkTheme = buildTheme({ primary: "2563EB" }, "default", {
+      fonts: {
+        latin: { text: ["Microsoft YaHei"], display: ["Microsoft YaHei"] },
+        cjk: { text: ["Microsoft YaHei"], display: ["Microsoft YaHei"] },
+      },
+    });
+    const cjk = createMetricPackTextMeasurer(cjkTheme);
+
+    expect(cjk.textWidth("ABCD", 10)).toBeLessThan(cjk.textWidth("质量检查", 10) * 0.75);
+  });
+
   it("treats Noto Serif SC as CJK-width so flow text reserves enough lines", () => {
     const cjkTheme = buildTheme({ primary: "2563EB" }, "default", {
       fonts: {
@@ -138,14 +160,17 @@ describe("metric-pack text measurement", () => {
     expect(measurer.lineHeight(12, 0.85, "Arial")).toBeCloseTo(arial.ascentCm + arial.descentCm, 8);
   });
 
-  it("caps tall CJK font bboxes to a PowerPoint-like line box", () => {
+  it("caps tall CJK font bboxes from the actual text script, not the font name alone", () => {
     const metrics = measurer.ascentDescent(12, "Microsoft YaHei");
     const rawNatural = metrics.ascentCm + metrics.descentCm;
-    const capped = measurer.lineHeight(12, 0.85, "Microsoft YaHei");
+    const latinText = measurer.lineHeightForText("QUALITY", 12, 0.85, "Microsoft YaHei");
+    const cjkText = measurer.lineHeightForText("质量检查", 12, 0.85, "Microsoft YaHei");
 
     expect(rawNatural).toBeGreaterThan(12 * PT_TO_CM * 1.25);
-    expect(capped).toBeLessThan(rawNatural);
-    expect(capped).toBeCloseTo(12 * PT_TO_CM * 1.12, 6);
+    expect(latinText).toBeLessThan(rawNatural);
+    expect(latinText).toBeCloseTo(12 * PT_TO_CM * 1.16, 6);
+    expect(cjkText).toBeCloseTo(12 * PT_TO_CM * 1.12, 6);
+    expect(latinText).toBeGreaterThan(cjkText);
   });
 
   it("honors explicit lineHeight above the natural font floor", () => {

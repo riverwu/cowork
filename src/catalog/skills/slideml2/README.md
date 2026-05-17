@@ -1,6 +1,6 @@
 # SlideML2 Skill Package
 
-Version: 1.0.56
+Version: 1.0.57
 
 Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
 
@@ -44,6 +44,7 @@ node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-slide slides/01-cove
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-manifest manifest.json
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" compose manifest.json --out build/deck.pptx
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" slice-icons assets/icons/icon-sheet.png --icons assets/icons/icons.json --out-dir assets/icons --grid 2x2
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" help component chart-card
 ```
 
 All CLI commands run from the deck workspace. If `--deck` is omitted, the CLI
@@ -57,6 +58,7 @@ Supported agent-facing commands are:
 - `validate-manifest`
 - `compose`
 - `slice-icons`
+- `help component <name>`
 
 Do not call TypeScript handlers, npm scripts, or tool adapters as the agent
 interface. Rebuilds must happen from the upstream SlideML2 repository; this

@@ -3,7 +3,7 @@
   "version": "1.0.56",
   "description": "Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.",
   "generatedAt": "2026-05-17T12:22:38.623Z",
-  "sourceCommit": "87ad318533e5-dirty",
+  "sourceCommit": "87ad318533e5",
   "files": [
     "slideml2/",
     "slideml2/runtime/",
@@ -47,5 +47,5 @@
     "devBuildCommand": "not supported in the skill package; rebuild from the upstream SlideML2 repository"
   },
   "packageFile": "slideml2-skill-v1.0.56.zip",
-  "sha256": "2f218c913d55eae6a83dce2c5afc4e4fcbdcc4bb69328e56a8e245cc8ab8af2c"
+  "sha256": "34fc74ecfb8171cf87ffca717d87f72bc6d7d09fb3c6d2d1716cad84d710a276"
 }

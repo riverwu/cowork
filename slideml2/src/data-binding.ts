@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import type { ChartSeries } from "./emitter/types.js";
+import { DATA_BIND_FIELD_ALIASES, DATA_ENCODING_FIELD_ALIASES, DATA_FIELD_SYNONYM_GROUPS } from "./schema.js";
 import type { DataAggregateOp, DataColumnEncodingSpec, DataBindSpec, DataComputedExpressionSpec, DataEncodingSpec, DataSourceSpec, DataStatItemEncodingSpec, DataViewSpec, DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
 
 type DataRow = Record<string, unknown>;
@@ -10,38 +11,6 @@ type ChartSeriesOption = NonNullable<DataEncodingSpec["seriesOptions"]>[string];
 type BoundChartSeries = ChartSeries;
 type BoundChartData = { labels: string[]; series: BoundChartSeries[]; orientation?: "vertical" | "horizontal" };
 const MAX_COMPUTED_DATA_SOURCE_DEPTH = 50;
-const DATA_BIND_FIELD_ALIASES: Record<string, string[]> = {
-  source: ["dataSource", "dataset", "from"],
-  select: ["fields", "columns"],
-  filter: ["where"],
-  groupBy: ["group", "group_by", "groupby", "by"],
-  aggregate: ["aggregates", "measures"],
-  pivot: [],
-  sort: ["order", "orderBy", "orderby"],
-  limit: ["top", "take", "maxRows"],
-};
-const DATA_ENCODING_FIELD_ALIASES: Record<string, string[]> = {
-  x: ["category", "dimension", "nameField"],
-  y: ["measure", "metric", "metrics"],
-  orientation: ["direction"],
-  series: ["seriesBy", "group", "colorBy"],
-  label: ["name", "categoryLabel", "labelField"],
-  value: ["amount", "measure", "metricValue"],
-  delta: ["change", "diff"],
-  items: ["metrics", "stats"],
-  columns: ["fields"],
-  seriesName: ["legendLabel"],
-  seriesOptions: ["seriesConfig"],
-};
-const DATA_FIELD_SYNONYM_GROUPS = [
-  ["label", "name", "title", "category", "item", "dimension", "metric"],
-  ["value", "amount", "measure", "metricValue", "score"],
-  ["count", "number", "num", "qty", "quantity", "total"],
-  ["headcount", "hc", "people", "staff", "employees"],
-  ["revenue", "rev", "sales", "gmv"],
-  ["percent", "percentage", "pct", "rate", "share"],
-  ["delta", "change", "diff", "variance"],
-] as const;
 
 export interface DataColumnSchema {
   key: string;
@@ -351,7 +320,7 @@ function bindNodeData(node: DomNode, bind: DataBindSpec, encoding: DataEncodingS
   return { ...node, dataLineage: lineage, resolvedData };
 }
 
-function canonicalRecord(rec: Record<string, unknown>, aliases: Record<string, string[]>): Record<string, unknown> {
+function canonicalRecord(rec: Record<string, unknown>, aliases: Record<string, readonly string[]>): Record<string, unknown> {
   let out = rec;
   const copy = () => out === rec ? { ...rec } : out;
   for (const [canonical, aliasList] of Object.entries(aliases)) {
@@ -739,7 +708,7 @@ function aggregateValue(rows: DataRow[], op: DataAggregateOp, field: string): un
   if (op === "max") return minMaxValue(values, "max");
   const numbers = values.map((value) => numericValue(value)).filter((value): value is number => value !== null);
   if (op === "sum") return numbers.reduce((sum, value) => sum + value, 0);
-  if (op === "avg") return numbers.length ? numbers.reduce((sum, value) => sum + value, 0) / numbers.length : "";
+  if (op === "avg") return numbers.length ? numbers.reduce((sum, value) => sum + value, 0) / numbers.length : 0;
   return "";
 }
 

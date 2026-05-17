@@ -12,6 +12,7 @@ export interface TextWrapMetrics {
 export interface TextMeasurer {
   glyphAdvance(ch: string, fontPt: number, weight?: FontWeight): number;
   lineHeight(fontPt: number, lineHeight: number, family?: string): number;
+  lineHeightForText(text: string, fontPt: number, lineHeight: number, family?: string): number;
   wrapLines(text: string, fontPt: number, weight: FontWeight | undefined, maxWidthCm: number): TextWrapMetrics;
   ascentDescent(fontPt: number, family?: string): { ascentCm: number; descentCm: number };
   textWidth(text: string, fontPt: number, weight?: FontWeight): number;
@@ -45,7 +46,13 @@ class HeuristicTextMeasurer implements TextMeasurer {
 
   lineHeight(fontPt: number, lineHeight: number, family?: string): number {
     const metrics = this.ascentDescent(fontPt, family);
-    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics);
+    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics, false);
+    return Math.max(natural, fontPt * PT_TO_CM * lineHeight);
+  }
+
+  lineHeightForText(text: string, fontPt: number, lineHeight: number, family?: string): number {
+    const metrics = this.ascentDescent(fontPt, family);
+    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics, containsCjkOrFullWidth(text));
     return Math.max(natural, fontPt * PT_TO_CM * lineHeight);
   }
 
@@ -94,7 +101,13 @@ class MetricPackTextMeasurer implements TextMeasurer {
 
   lineHeight(fontPt: number, lineHeight: number, family?: string): number {
     const metrics = this.ascentDescent(fontPt, family);
-    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics);
+    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics, false);
+    return Math.max(natural, fontPt * PT_TO_CM * lineHeight);
+  }
+
+  lineHeightForText(text: string, fontPt: number, lineHeight: number, family?: string): number {
+    const metrics = this.ascentDescent(fontPt, family);
+    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics, containsCjkOrFullWidth(text));
     return Math.max(natural, fontPt * PT_TO_CM * lineHeight);
   }
 
@@ -230,7 +243,7 @@ function measureWrappedText(
 }
 
 function wrapSafetyFactor(text: string, weight: FontWeight | undefined): number {
-  const hasCjk = /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(text);
+  const hasCjk = containsCjkOrFullWidth(text);
   const hasLatin = /[A-Za-z0-9]/.test(text);
   if (hasCjk && hasLatin) return resolveFontWeight(weight).bold ? 0.94 : 0.96;
   return 1;
@@ -292,7 +305,7 @@ function greedyLineCount(segments: Array<BreakSegment & { width: number }>, usab
 }
 
 function segmentCanWrapInternally(text: string): boolean {
-  return /[\s\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(text);
+  return /\s/.test(text) || containsCjkOrFullWidth(text);
 }
 
 function residualWrappedWidth(width: number, usable: number, lines: number): number {
@@ -342,7 +355,30 @@ function endsWithProhibitedLineEnd(text: string): boolean {
 }
 
 export function isCjkOrFullWidth(ch: string): boolean {
-  return /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch);
+  const code = ch.codePointAt(0);
+  if (code === undefined) return false;
+  return (code >= 0x1100 && code <= 0x11ff)
+    || (code >= 0x2e80 && code <= 0x2fdf)
+    || (code >= 0x3000 && code <= 0x303f)
+    || (code >= 0x3040 && code <= 0x30ff)
+    || (code >= 0x3100 && code <= 0x318f)
+    || (code >= 0x31a0 && code <= 0x31ff)
+    || (code >= 0x3400 && code <= 0x4dbf)
+    || (code >= 0x4e00 && code <= 0x9fff)
+    || (code >= 0xa960 && code <= 0xa97f)
+    || (code >= 0xac00 && code <= 0xd7ff)
+    || (code >= 0xf900 && code <= 0xfaff)
+    || (code >= 0xfe30 && code <= 0xfe4f)
+    || (code >= 0xff00 && code <= 0xffef)
+    || (code >= 0x20000 && code <= 0x2fa1f)
+    || (code >= 0x30000 && code <= 0x323af);
+}
+
+export function containsCjkOrFullWidth(text: string): boolean {
+  for (const ch of String(text || "")) {
+    if (isCjkOrFullWidth(ch)) return true;
+  }
+  return false;
 }
 
 export function isWideVisualSymbol(ch: string): boolean {
@@ -367,19 +403,13 @@ function isKnownCjkFontAlias(normalized: string): boolean {
     || normalized === "apple-system";
 }
 
-function normalizedNaturalLineHeightCm(fontPt: number, family: string | undefined, metrics: { ascentCm: number; descentCm: number }): number {
+function normalizedNaturalLineHeightCm(fontPt: number, _family: string | undefined, metrics: { ascentCm: number; descentCm: number }, hasCjkText: boolean): number {
   const raw = Math.max(0.01, metrics.ascentCm + metrics.descentCm);
-  const normalizedFamily = family ? normalizeFontAlias(family) : "";
-  const isCjkFamily = normalizedFamily.includes("cjk")
-    || normalizedFamily.includes("pingfang")
-    || normalizedFamily.includes("yahei")
-    || normalizedFamily.includes("simsun")
-    || normalizedFamily.includes("songti")
-    || normalizedFamily.includes("hiragino");
   // Some CJK fonts report a very tall global bbox (PingFang is ~1.4em).
   // PowerPoint text boxes use a tighter renderer line box; using the full
   // font bbox as the natural line-height floor creates false-positive
-  // SQUASHED/overflow diagnostics for normal 10-12pt labels.
-  const cap = fontPt * PT_TO_CM * (isCjkFamily ? 1.12 : 1.16);
+  // SQUASHED/overflow diagnostics for normal 10-12pt labels. The tighter CJK
+  // cap is selected from the actual text content, not from the font name.
+  const cap = fontPt * PT_TO_CM * (hasCjkText ? 1.12 : 1.16);
   return Math.min(raw, cap);
 }

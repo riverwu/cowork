@@ -28318,7 +28318,12 @@ var HeuristicTextMeasurer = class {
   }
   lineHeight(fontPt, lineHeight, family) {
     const metrics = this.ascentDescent(fontPt, family);
-    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics);
+    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics, false);
+    return Math.max(natural, fontPt * PT_TO_CM * lineHeight);
+  }
+  lineHeightForText(text, fontPt, lineHeight, family) {
+    const metrics = this.ascentDescent(fontPt, family);
+    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics, containsCjkOrFullWidth(text));
     return Math.max(natural, fontPt * PT_TO_CM * lineHeight);
   }
   wrapLines(text, fontPt, weight, maxWidthCm) {
@@ -28358,7 +28363,12 @@ var MetricPackTextMeasurer = class {
   }
   lineHeight(fontPt, lineHeight, family) {
     const metrics = this.ascentDescent(fontPt, family);
-    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics);
+    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics, false);
+    return Math.max(natural, fontPt * PT_TO_CM * lineHeight);
+  }
+  lineHeightForText(text, fontPt, lineHeight, family) {
+    const metrics = this.ascentDescent(fontPt, family);
+    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics, containsCjkOrFullWidth(text));
     return Math.max(natural, fontPt * PT_TO_CM * lineHeight);
   }
   wrapLines(text, fontPt, weight, maxWidthCm) {
@@ -28462,7 +28472,7 @@ function measureWrappedText(text, fontPt, weight, maxWidthCm, measurer) {
   return { lines: lineCount, widthCm, unbreakableCm };
 }
 function wrapSafetyFactor(text, weight) {
-  const hasCjk = /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(text);
+  const hasCjk = containsCjkOrFullWidth(text);
   const hasLatin = /[A-Za-z0-9]/.test(text);
   if (hasCjk && hasLatin)
     return resolveFontWeight(weight).bold ? 0.94 : 0.96;
@@ -28514,7 +28524,7 @@ function greedyLineCount(segments, usable) {
   return lines;
 }
 function segmentCanWrapInternally(text) {
-  return /[\s\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(text);
+  return /\s/.test(text) || containsCjkOrFullWidth(text);
 }
 function residualWrappedWidth(width, usable, lines) {
   const residual = width - usable * Math.max(0, lines - 1);
@@ -28559,7 +28569,17 @@ function endsWithProhibitedLineEnd(text) {
   return last !== void 0 && PROHIBITED_LINE_END.has(last);
 }
 function isCjkOrFullWidth(ch) {
-  return /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch);
+  const code = ch.codePointAt(0);
+  if (code === void 0)
+    return false;
+  return code >= 4352 && code <= 4607 || code >= 11904 && code <= 12255 || code >= 12288 && code <= 12351 || code >= 12352 && code <= 12543 || code >= 12544 && code <= 12687 || code >= 12704 && code <= 12799 || code >= 13312 && code <= 19903 || code >= 19968 && code <= 40959 || code >= 43360 && code <= 43391 || code >= 44032 && code <= 55295 || code >= 63744 && code <= 64255 || code >= 65072 && code <= 65103 || code >= 65280 && code <= 65519 || code >= 131072 && code <= 195103 || code >= 196608 && code <= 205743;
+}
+function containsCjkOrFullWidth(text) {
+  for (const ch of String(text || "")) {
+    if (isCjkOrFullWidth(ch))
+      return true;
+  }
+  return false;
 }
 function isWideVisualSymbol2(ch) {
   return /[\u2605\u2606\u2713\u2714\u2717\u2715\u2716\u26a0\u25cf\u25cb\u25c6\u25c7\u25a0\u25a1\u25b2\u25b3\u25b6\u25b7\u25bc\u25bd]/.test(ch);
@@ -28570,11 +28590,9 @@ function normalizeFontAlias(value) {
 function isKnownCjkFontAlias(normalized) {
   return normalized.includes("cjk") || normalized.includes("pingfang") || normalized.includes("yahei") || normalized.includes("hiragino") || normalized.includes("simsun") || normalized.includes("songti") || normalized.includes("source-han") || normalized.includes("noto-serif-sc") || normalized.includes("noto-serif-cjk") || normalized === "system-ui" || normalized === "apple-system";
 }
-function normalizedNaturalLineHeightCm(fontPt, family, metrics) {
+function normalizedNaturalLineHeightCm(fontPt, _family, metrics, hasCjkText) {
   const raw = Math.max(0.01, metrics.ascentCm + metrics.descentCm);
-  const normalizedFamily = family ? normalizeFontAlias(family) : "";
-  const isCjkFamily = normalizedFamily.includes("cjk") || normalizedFamily.includes("pingfang") || normalizedFamily.includes("yahei") || normalizedFamily.includes("simsun") || normalizedFamily.includes("songti") || normalizedFamily.includes("hiragino");
-  const cap = fontPt * PT_TO_CM * (isCjkFamily ? 1.12 : 1.16);
+  const cap = fontPt * PT_TO_CM * (hasCjkText ? 1.12 : 1.16);
   return Math.min(raw, cap);
 }
 
@@ -29630,7 +29648,7 @@ var COMPONENT_DEFINITIONS = [
     chartType: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], required: true, description: "Chart type." },
     chart: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], description: "Alias for chartType." },
     labels: { type: "array", required: true, description: "Category labels." },
-    series: { type: "array", required: true, description: "Chart series. Series may set type:'bar'|'line' for combo, axis:'primary'|'secondary', trendLine, errorBars, color, lineWidth, lineDash, marker, or dataLabels." },
+    series: { type: "array", required: true, description: "Chart series. Hand-authored category charts use values:[number] as the canonical value field; data:[number] is accepted as a Chart.js compatibility alias. Scatter series use points:[{x,y}] or compatibility data:[{x,y}]. Series may set type:'bar'|'line' for combo, axis:'primary'|'secondary', trendLine, errorBars, color, lineWidth, lineDash, marker, or dataLabels." },
     data: { type: "object", description: "Optional { labels, series } alias bundle." },
     bind: { type: "object", description: "Optional deck data binding {source, filter?, groupBy?, aggregate?, pivot?, sort?, limit?}; resolves labels/series from deck.dataSources." },
     encoding: { type: "object", description: "Binding encoding: {x, y, orientation?, series?, seriesName?, seriesOptions?}. y may be a string or string[]; label/value are accepted aliases for x/y, especially for pie and doughnut charts. seriesOptions can set y/field, name/seriesName, color, lineWidth, lineDash, marker, dataLabels, type/chartType, secondary axis, trendLine, and errorBars per output series. For horizontal bars, use orientation:'horizontal' or x=numeric/y=categorical." },
@@ -32545,6 +32563,10 @@ function chartCardNode(slideId, name, node) {
           plotArea: node.plotArea,
           colors: node.colors,
           annotations: node.annotations,
+          bind: node.bind,
+          encoding: node.encoding,
+          dataLineage: node.dataLineage,
+          resolvedData: node.resolvedData,
           layoutWeight: 1
         },
         ...insight ? [{ id: `${slideId}.${name}.insight`, type: "text", text: insight, style: "paragraph", color: "text.primary", minHeight: 0.45, autoFit: "shrink", optional: true }] : [],
@@ -41200,6 +41222,38 @@ var DATA_ENCODING_FIELDS = [
   "seriesName",
   "seriesOptions"
 ];
+var DATA_BIND_FIELD_ALIASES = {
+  source: ["dataSource", "dataset", "from"],
+  select: ["fields", "columns"],
+  filter: ["where"],
+  groupBy: ["group", "group_by", "groupby", "by"],
+  aggregate: ["aggregates", "measures"],
+  pivot: [],
+  sort: ["order", "orderBy", "orderby"],
+  limit: ["top", "take", "maxRows"]
+};
+var DATA_ENCODING_FIELD_ALIASES = {
+  x: ["category", "dimension", "nameField"],
+  y: ["measure", "metric", "metrics"],
+  orientation: ["direction"],
+  series: ["seriesBy", "group", "colorBy"],
+  label: ["name", "categoryLabel", "labelField"],
+  value: ["amount", "measure", "metricValue"],
+  delta: ["change", "diff"],
+  items: ["metrics", "stats"],
+  columns: ["fields"],
+  seriesName: ["legendLabel"],
+  seriesOptions: ["seriesConfig"]
+};
+var DATA_FIELD_SYNONYM_GROUPS = [
+  ["label", "name", "title", "category", "item", "dimension", "metric"],
+  ["value", "amount", "measure", "metricValue", "score"],
+  ["count", "number", "num", "qty", "quantity", "total"],
+  ["headcount", "hc", "people", "staff", "employees"],
+  ["revenue", "rev", "sales", "gmv"],
+  ["percent", "percentage", "pct", "rate", "share"],
+  ["delta", "change", "diff", "variance"]
+];
 var THEME_COMPONENT_STYLE_FIELDS = [
   "fill",
   "fillOpacity",
@@ -41248,38 +41302,6 @@ var THEME_SCRIPT_FONT_FIELD_SET = new Set(THEME_SCRIPT_FONT_FIELDS);
 import { readFileSync } from "node:fs";
 import { isAbsolute as isAbsolute2, resolve as resolve3 } from "node:path";
 var MAX_COMPUTED_DATA_SOURCE_DEPTH = 50;
-var DATA_BIND_FIELD_ALIASES = {
-  source: ["dataSource", "dataset", "from"],
-  select: ["fields", "columns"],
-  filter: ["where"],
-  groupBy: ["group", "group_by", "groupby", "by"],
-  aggregate: ["aggregates", "measures"],
-  pivot: [],
-  sort: ["order", "orderBy", "orderby"],
-  limit: ["top", "take", "maxRows"]
-};
-var DATA_ENCODING_FIELD_ALIASES = {
-  x: ["category", "dimension", "nameField"],
-  y: ["measure", "metric", "metrics"],
-  orientation: ["direction"],
-  series: ["seriesBy", "group", "colorBy"],
-  label: ["name", "categoryLabel", "labelField"],
-  value: ["amount", "measure", "metricValue"],
-  delta: ["change", "diff"],
-  items: ["metrics", "stats"],
-  columns: ["fields"],
-  seriesName: ["legendLabel"],
-  seriesOptions: ["seriesConfig"]
-};
-var DATA_FIELD_SYNONYM_GROUPS = [
-  ["label", "name", "title", "category", "item", "dimension", "metric"],
-  ["value", "amount", "measure", "metricValue", "score"],
-  ["count", "number", "num", "qty", "quantity", "total"],
-  ["headcount", "hc", "people", "staff", "employees"],
-  ["revenue", "rev", "sales", "gmv"],
-  ["percent", "percentage", "pct", "rate", "share"],
-  ["delta", "change", "diff", "variance"]
-];
 function resolveDataBindings(source, options = {}) {
   const sources = resolveDataSources(source.deck.dataSources, options);
   if (sources.size === 0)
@@ -41904,7 +41926,7 @@ function aggregateValue(rows, op, field) {
   if (op === "sum")
     return numbers.reduce((sum3, value) => sum3 + value, 0);
   if (op === "avg")
-    return numbers.length ? numbers.reduce((sum3, value) => sum3 + value, 0) / numbers.length : "";
+    return numbers.length ? numbers.reduce((sum3, value) => sum3 + value, 0) / numbers.length : 0;
   return "";
 }
 function computedColumns(value) {
@@ -44090,41 +44112,48 @@ async function renderSourceDeckToPptx(deck, outputPath, options = {}) {
 }
 function renderToAst(deck) {
   clearRenderDiagnostics();
-  const { theme, size } = buildThemeForDeck(deck);
   layoutDecisionsBySlide.clear();
   squashedWarnings.clear();
-  themeAccentHexesForContrast = collectThemeAccentHexes(theme);
-  themeMutedHexesForContrast = collectThemeMutedHexes(theme);
-  const slides = deck.slides.map((slide, index) => {
-    const dom = materializeAndCompactify(slide.dom, slide.id, theme);
-    const ids = { nextId: 2 };
-    const shapes = renderSlide(theme, dom, ids, slide.id);
-    const resolvedBackground = resolveSlideBackground2(theme, dom.background);
-    const slideBgHex = pickContrastBackgroundColor(resolvedBackground);
-    shapes.push(...renderChrome(theme, deck, index, ids, slideBgHex));
-    const slideAst = {
-      shapes,
-      background: resolvedBackground,
-      transition: normalizeSlideTransition(dom.transition),
-      layout: typeof dom.layout === "string" ? dom.layout : void 0,
-      notes: typeof dom.notes === "string" ? dom.notes : void 0
-    };
-    const flatSlideAst = { ...slideAst, shapes: flattenShapeList(slideAst.shapes) };
-    runTitleOcclusionCheck(slide.id, dom, flatSlideAst);
-    runContrastCheck(slide.id, flatSlideAst, theme);
-    runShapeVisibilityCheck(slide.id, flatSlideAst, theme);
-    return slideAst;
-  });
   themeAccentHexesForContrast = null;
   themeMutedHexesForContrast = null;
-  return {
-    size,
-    language: "zh-CN",
-    title: "SlideML2 MVP",
-    author: "SlideML2",
-    master: normalizeDeckMaster(deck.deck.master),
-    slides
-  };
+  const { theme, size } = buildThemeForDeck(deck);
+  try {
+    themeAccentHexesForContrast = collectThemeAccentHexes(theme);
+    themeMutedHexesForContrast = collectThemeMutedHexes(theme);
+    const slides = deck.slides.map((slide, index) => {
+      const dom = materializeAndCompactify(slide.dom, slide.id, theme);
+      const ids = { nextId: 2 };
+      const shapes = renderSlide(theme, dom, ids, slide.id);
+      const resolvedBackground = resolveSlideBackground2(theme, dom.background);
+      const slideBgHex = pickContrastBackgroundColor(resolvedBackground);
+      shapes.push(...renderChrome(theme, deck, index, ids, slideBgHex));
+      const slideAst = {
+        shapes,
+        background: resolvedBackground,
+        transition: normalizeSlideTransition(dom.transition),
+        layout: typeof dom.layout === "string" ? dom.layout : void 0,
+        notes: typeof dom.notes === "string" ? dom.notes : void 0
+      };
+      const flatSlideAst = { ...slideAst, shapes: flattenShapeList(slideAst.shapes) };
+      runTitleOcclusionCheck(slide.id, dom, flatSlideAst);
+      runContrastCheck(slide.id, flatSlideAst, theme);
+      runShapeVisibilityCheck(slide.id, flatSlideAst, theme);
+      return slideAst;
+    });
+    return {
+      size,
+      language: "zh-CN",
+      title: "SlideML2 MVP",
+      author: "SlideML2",
+      master: normalizeDeckMaster(deck.deck.master),
+      slides
+    };
+  } finally {
+    themeAccentHexesForContrast = null;
+    themeMutedHexesForContrast = null;
+    layoutDecisionsBySlide.clear();
+    squashedWarnings.clear();
+  }
 }
 function flattenShapeList(shapes, offsetX = 0, offsetY = 0) {
   const out = [];
@@ -48711,7 +48740,7 @@ function chartShape(theme, node, rect, ids, rectsById) {
   const resolvedChartType = chartType(node.chartType);
   const hasRenderableData = chartHasRenderableData(resolvedChartType, labels, series);
   if (!hasRenderableData)
-    pushEmptyChartDataDiagnostic(node, labels, series);
+    pushEmptyChartDataDiagnostic(node, labels, series, resolvedChartType);
   const safeLabels = hasRenderableData || labels.length > 0 ? labels : ["No data"];
   const safeSeries = alignChartSeriesToLabels(hasRenderableData && series.length > 0 ? series : [{ name: "No data", values: [0] }], safeLabels.length, resolvedChartType);
   const customColors = Array.isArray(node.colors) ? node.colors.filter((c) => typeof c === "string") : null;
@@ -48912,22 +48941,69 @@ function alignChartSeriesToLabels(series, labelCount, chartTypeValue) {
     return series;
   return series.map((item) => item.values.length === labelCount ? item : { ...item, values: Array.from({ length: labelCount }, (_, index) => item.values[index] ?? 0) });
 }
-function pushEmptyChartDataDiagnostic(node, labels, series) {
+function pushEmptyChartDataDiagnostic(node, labels, series, chartTypeValue) {
   const rowCount = node.resolvedData && typeof node.resolvedData === "object" && Array.isArray(node.resolvedData.rows) ? node.resolvedData.rows.length : void 0;
+  const renderablePointCount = chartRenderablePointCount(series);
+  const context = emptyChartDataContext(node, labels, series, chartTypeValue, rowCount, renderablePointCount);
   pushDiagnostic({
     severity: "error",
     code: "EMPTY_CHART_DATA",
     slideId: currentSlideId || void 0,
     nodeId: nodeLabel(node),
-    message: `Chart '${nodeLabel(node)}' has no renderable data after binding/encoding.`,
-    suggestion: "Keep the chart component and repair its data path: verify bind.filter still returns rows, use array filters as inclusion lists or {in:[...]}, and ensure encoding maps category labels to a text field and values to numeric field(s). For horizontal ranked bars, use orientation:'horizontal' or x:numeric with y:category.",
+    message: `Chart '${nodeLabel(node)}' has no renderable data: ${context.reason}.`,
+    suggestion: context.suggestion,
     measured: {
-      available: series.reduce((count, item) => count + item.values.length + (item.points?.length || 0), 0),
+      available: renderablePointCount,
       needed: 1,
+      reason: context.reason,
+      dataMode: context.dataMode,
       renderedRows: rowCount,
-      lineCount: labels.length
+      lineCount: labels.length,
+      labelCount: labels.length,
+      seriesCount: series.length,
+      rawSeriesCount: context.rawSeriesCount,
+      renderablePointCount
     }
   });
+}
+function chartRenderablePointCount(series) {
+  return series.reduce((count, item) => count + item.values.length + (item.points?.length || 0), 0);
+}
+function emptyChartDataContext(node, labels, series, chartTypeValue, rowCount, renderablePointCount) {
+  const rawSeries = Array.isArray(node.series) ? node.series : [];
+  const rawSeriesCount = rawSeries.length;
+  const rawSeriesKeys = chartSeriesKeys(rawSeries);
+  const bindingMode = Boolean(node.bind || node.encoding || node.dataLineage || rowCount !== void 0);
+  if (bindingMode) {
+    const reason2 = rowCount === 0 ? `binding resolved 0 rows; labels=${labels.length}, series=${series.length}, renderable points=${renderablePointCount}` : `binding/encoding produced labels=${labels.length}, series=${series.length}, renderable points=${renderablePointCount}`;
+    return {
+      dataMode: "binding",
+      rawSeriesCount,
+      reason: reason2,
+      suggestion: 'Keep the chart component and repair the data path: verify bind.source exists and bind.filter returns rows. Use encoding like {"x":"categoryField","y":"numericField"} or {"x":"categoryField","y":["revenue","cost"]}; every y field must resolve to numeric values. For a hand-authored replacement, use {"data":{"labels":["A","B"],"series":[{"name":"Series","values":[10,20]}]}}.'
+    };
+  }
+  const labelsProblem = chartTypeValue !== "scatter" && labels.length === 0;
+  const seriesProblem = rawSeriesCount === 0;
+  const valueProblem = rawSeriesCount > 0 && renderablePointCount === 0;
+  const keyHint = rawSeriesKeys.length > 0 ? `; found series keys: ${rawSeriesKeys.join(", ")}` : "";
+  const reason = labelsProblem ? `missing category labels; labels=0, series=${series.length}, renderable points=${renderablePointCount}${keyHint}` : seriesProblem ? `missing series; labels=${labels.length}, series=0` : valueProblem ? `series is present but contains no numeric values or scatter points${keyHint}` : `labels=${labels.length}, series=${series.length}, renderable points=${renderablePointCount}${keyHint}`;
+  return {
+    dataMode: "hand-authored",
+    rawSeriesCount,
+    reason,
+    suggestion: 'For hand-authored bar/line/pie charts, use {"data":{"labels":["2025","2026"],"series":[{"name":"Market","values":[75,110]}]}} or top-level labels/series with the same shape. series[].data:[number] is accepted as a Chart.js compatibility alias for values, but arbitrary keys such as amount, yValues, or dataset are ignored. For scatter charts, use {"data":{"series":[{"name":"Series","points":[{"x":1,"y":2}]}]}}; data:[{x,y}] is accepted as a compatibility alias for points.'
+  };
+}
+function chartSeriesKeys(series) {
+  const keys = /* @__PURE__ */ new Set();
+  for (const item of series) {
+    if (!item || typeof item !== "object" || Array.isArray(item))
+      continue;
+    for (const key of Object.keys(item))
+      keys.add(key);
+  }
+  return Array.from(keys).slice(0, 8);
 }
 function pushMissingDataBindingSourceDiagnostic(node, noun) {
   const lineage = node.dataLineage;
@@ -49607,37 +49683,44 @@ function bulletsItemsFromNode(node) {
 }
 function materializeDeck(deck) {
   const { theme } = buildThemeForDeck(deck);
-  const slides = deck.slides.map((slide) => {
-    const dom = materializeAndCompactify(slide.dom, slide.id, theme);
-    return { slide, dom, layout: layoutSlide(theme, dom), decisions: layoutDecisionsBySlide.get(slide.id) || /* @__PURE__ */ new Map() };
-  });
-  const diagnostics2 = getRenderDiagnostics();
-  return {
-    ...deck,
-    slides: slides.map(({ slide, dom, layout, decisions }) => {
-      const slideDiagnostics = diagnostics2.filter((item) => item.slideId === slide.id);
-      return {
-        ...slide,
-        dom,
-        measured: {
-          nodes: layout.measured.map(serializeMeasuredNode),
-          layoutDecisions: Array.from(decisions.entries()).map(([nodeId, decision]) => ({ nodeId, ...decision })),
-          diagnostics: slideDiagnostics,
-          collisions: slideDiagnostics.filter((item) => item.code === "COLLISION" || item.code === "SIBLING_INK_OVERLAP" || item.code === "STRUCTURAL_OVERLAP" || item.code === "OVERLAY_OCCLUDES_FLOW").map((item) => ({
-            code: item.code,
-            nodeId: item.nodeId,
-            otherNodeId: item.measured?.other?.nodeId,
-            rect: item.measured?.rect,
-            other: item.measured?.other,
-            overlap: item.measured?.overlap,
-            overlapAreaCm2: item.measured?.overlapAreaCm2,
-            overlapRatio: item.measured?.overlapRatio,
-            relationship: item.measured?.relationship
-          }))
-        }
-      };
-    })
-  };
+  layoutDecisionsBySlide.clear();
+  squashedWarnings.clear();
+  try {
+    const slides = deck.slides.map((slide) => {
+      const dom = materializeAndCompactify(slide.dom, slide.id, theme);
+      return { slide, dom, layout: layoutSlide(theme, dom), decisions: layoutDecisionsBySlide.get(slide.id) || /* @__PURE__ */ new Map() };
+    });
+    const diagnostics2 = getRenderDiagnostics();
+    return {
+      ...deck,
+      slides: slides.map(({ slide, dom, layout, decisions }) => {
+        const slideDiagnostics = diagnostics2.filter((item) => item.slideId === slide.id);
+        return {
+          ...slide,
+          dom,
+          measured: {
+            nodes: layout.measured.map(serializeMeasuredNode),
+            layoutDecisions: Array.from(decisions.entries()).map(([nodeId, decision]) => ({ nodeId, ...decision })),
+            diagnostics: slideDiagnostics,
+            collisions: slideDiagnostics.filter((item) => item.code === "COLLISION" || item.code === "SIBLING_INK_OVERLAP" || item.code === "STRUCTURAL_OVERLAP" || item.code === "OVERLAY_OCCLUDES_FLOW").map((item) => ({
+              code: item.code,
+              nodeId: item.nodeId,
+              otherNodeId: item.measured?.other?.nodeId,
+              rect: item.measured?.rect,
+              other: item.measured?.other,
+              overlap: item.measured?.overlap,
+              overlapAreaCm2: item.measured?.overlapAreaCm2,
+              overlapRatio: item.measured?.overlapRatio,
+              relationship: item.measured?.relationship
+            }))
+          }
+        };
+      })
+    };
+  } finally {
+    layoutDecisionsBySlide.clear();
+    squashedWarnings.clear();
+  }
 }
 function serializeMeasuredNode(node) {
   return {
@@ -51702,7 +51785,7 @@ function textLineMetrics(theme, style, rawLineSpacing, text = "") {
     ascentCm *= scale;
     descentCm *= scale;
   }
-  const requested = explicitLineSpacingCm(rawLineSpacing, style) ?? measurer.lineHeight(style.fontSize, style.lineHeight, family);
+  const requested = explicitLineSpacingCm(rawLineSpacing, style) ?? measurer.lineHeightForText(text, style.fontSize, style.lineHeight, family);
   const lineHeightCm = Math.max(naturalHeightCm, requested);
   return {
     ascentCm,
@@ -52182,7 +52265,7 @@ function valignProp(node, kind) {
   return "middle";
 }
 function containsCjk(text) {
-  return /[\u4e00-\u9fff]/.test(text);
+  return containsCjkOrFullWidth(text);
 }
 function chartType(value) {
   if (value === "line" || value === "pie" || value === "doughnut" || value === "area" || value === "stacked-bar" || value === "combo" || value === "scatter" || value === "waterfall")
@@ -52198,8 +52281,10 @@ function normalizeChartSeries(theme, value) {
       return null;
     const record = item;
     const name = typeof record.name === "string" ? record.name : `Series ${index + 1}`;
-    if (Array.isArray(record.points)) {
-      const points = record.points.filter((p) => Boolean(p && typeof p === "object")).map((p) => ({ x: Number(p.x), y: Number(p.y) })).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+    const dataArray = Array.isArray(record.data) ? record.data : void 0;
+    const rawPoints = Array.isArray(record.points) ? record.points : dataArray?.some((p) => Boolean(p && typeof p === "object" && ("x" in p || "y" in p))) ? dataArray : void 0;
+    if (rawPoints) {
+      const points = rawPoints.filter((p) => Boolean(p && typeof p === "object")).map((p) => ({ x: Number(p.x), y: Number(p.y) })).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
       if (points.length > 0) {
         const series2 = { name, values: [], points };
         applyChartSeriesStyle(theme, series2, record);
@@ -52207,7 +52292,8 @@ function normalizeChartSeries(theme, value) {
       }
       return;
     }
-    const values = Array.isArray(record.values) ? record.values.map((v) => v === null ? null : Number(v)).filter((v) => v === null || Number.isFinite(v)) : [];
+    const rawValues = Array.isArray(record.values) ? record.values : dataArray;
+    const values = Array.isArray(rawValues) ? rawValues.map((v) => v === null ? null : Number(v)).filter((v) => v === null || Number.isFinite(v)) : [];
     if (values.length === 0)
       return;
     const series = { name, values };
@@ -53551,38 +53637,6 @@ var MAX_VALIDATION_NODE_DEPTH = 80;
 var MAX_VALIDATION_NODES_PER_SLIDE = 5e3;
 var MAX_TEXT_LENGTH_ISSUES_PER_SLIDE = 80;
 var METADATA_HERO_COMPONENTS2 = /* @__PURE__ */ new Set(["cover-composition", "section-break", "title-lockup", "chapter-divider"]);
-var DATA_BIND_FIELD_ALIASES2 = {
-  source: ["dataSource", "dataset", "from"],
-  select: ["fields", "columns"],
-  filter: ["where"],
-  groupBy: ["group", "group_by", "groupby", "by"],
-  aggregate: ["aggregates", "measures"],
-  pivot: [],
-  sort: ["order", "orderBy", "orderby"],
-  limit: ["top", "take", "maxRows"]
-};
-var DATA_ENCODING_FIELD_ALIASES2 = {
-  x: ["category", "dimension", "nameField"],
-  y: ["measure", "metric", "metrics"],
-  orientation: ["direction"],
-  series: ["seriesBy", "group", "colorBy"],
-  label: ["name", "categoryLabel", "labelField"],
-  value: ["amount", "measure", "metricValue"],
-  delta: ["change", "diff"],
-  items: ["metrics", "stats"],
-  columns: ["fields"],
-  seriesName: ["legendLabel"],
-  seriesOptions: ["seriesConfig"]
-};
-var DATA_FIELD_SYNONYM_GROUPS2 = [
-  ["label", "name", "title", "category", "item", "dimension", "metric"],
-  ["value", "amount", "measure", "metricValue", "score"],
-  ["count", "number", "num", "qty", "quantity", "total"],
-  ["headcount", "hc", "people", "staff", "employees"],
-  ["revenue", "rev", "sales", "gmv"],
-  ["percent", "percentage", "pct", "rate", "share"],
-  ["delta", "change", "diff", "variance"]
-];
 var TEXT_VALUE_KEYS = /* @__PURE__ */ new Set([
   "text",
   "content",
@@ -54989,7 +55043,11 @@ function validateComputedDataSourceSpec(sourceId, rec, allSources, issues, optio
   let baseRows = [];
   try {
     baseRows = resolveDataSourceRowsById(allSources, baseSource, options);
-  } catch {
+  } catch (error) {
+    issues.push(issue("error", "DATA_SOURCE_UNRESOLVABLE", `${path}.source could not resolve "${baseSource}": ${error instanceof Error ? error.message : String(error)}`, {
+      path: `${path}.source`,
+      suggestedFix: "Fix the referenced data source before validating computed columns or views."
+    }));
     return;
   }
   const sourceFields = dataFieldSet(baseRows);
@@ -55175,10 +55233,10 @@ function validateDataFieldReferences(bind, encoding, rows, path, slideId, nodeNa
   }
 }
 function canonicalDataBindRecord(rec) {
-  return canonicalRecord2(rec, DATA_BIND_FIELD_ALIASES2);
+  return canonicalRecord2(rec, DATA_BIND_FIELD_ALIASES);
 }
 function canonicalDataEncodingRecord(rec) {
-  return canonicalRecord2(rec, DATA_ENCODING_FIELD_ALIASES2);
+  return canonicalRecord2(rec, DATA_ENCODING_FIELD_ALIASES);
 }
 function canonicalRecord2(rec, aliases) {
   let out = rec;
@@ -55307,6 +55365,24 @@ function encodingFieldRefs(encoding) {
         refs.push([`y[${index}]`, field.trim()]);
     });
   }
+  if (encoding.y && typeof encoding.y === "object" && !Array.isArray(encoding.y)) {
+    for (const [key, raw] of Object.entries(encoding.y)) {
+      const field = key.trim();
+      if (!field)
+        continue;
+      refs.push([`y.${field}`, field]);
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        pushSeriesOptionFieldRefs(refs, `y.${field}`, raw);
+      }
+    }
+  }
+  if (encoding.seriesOptions && typeof encoding.seriesOptions === "object" && !Array.isArray(encoding.seriesOptions)) {
+    for (const [key, raw] of Object.entries(encoding.seriesOptions)) {
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        pushSeriesOptionFieldRefs(refs, `seriesOptions.${key}`, raw);
+      }
+    }
+  }
   if (Array.isArray(encoding.columns)) {
     encoding.columns.forEach((column, index) => {
       if (typeof column === "string" && column.trim())
@@ -55329,6 +55405,13 @@ function encodingFieldRefs(encoding) {
     });
   }
   return refs;
+}
+function pushSeriesOptionFieldRefs(refs, path, option) {
+  for (const key of ["y", "field", "key", "value"]) {
+    const field = option[key];
+    if (typeof field === "string" && field.trim())
+      refs.push([`${path}.${key}`, field.trim()]);
+  }
 }
 function firstNonEmptyString(...values) {
   for (const value of values) {
@@ -55356,7 +55439,7 @@ function resolveDataFieldName(field, fields) {
   const direct = Array.from(fields).find((candidate) => dataFieldFingerprint2(candidate) === normalized);
   if (direct)
     return direct;
-  const group = DATA_FIELD_SYNONYM_GROUPS2.find((items) => items.some((item) => dataFieldFingerprint2(item) === normalized));
+  const group = DATA_FIELD_SYNONYM_GROUPS.find((items) => items.some((item) => dataFieldFingerprint2(item) === normalized));
   if (!group)
     return void 0;
   const matches = Array.from(fields).filter((candidate) => {
@@ -55381,7 +55464,7 @@ function validateBindSpec(bind, path, slideId, nodeName, sourceIds, issues) {
   const rawRec = bind;
   const rec = canonicalDataBindRecord(rawRec);
   for (const key of Object.keys(rawRec)) {
-    if (!DATA_BIND_FIELDS.includes(key) && !isKnownDataFieldAlias(key, DATA_BIND_FIELD_ALIASES2)) {
+    if (!DATA_BIND_FIELDS.includes(key) && !isKnownDataFieldAlias(key, DATA_BIND_FIELD_ALIASES)) {
       issues.push(issue("error", "UNKNOWN_DATA_BIND_FIELD", `${path}.${key} is not a supported bind field.`, {
         slideId,
         path: `${path}.${key}`,
@@ -55535,7 +55618,7 @@ function validateEncodingSpec(encoding, path, slideId, nodeName, issues) {
   const rawRec = encoding;
   const rec = canonicalDataEncodingRecord(rawRec);
   for (const key of Object.keys(rawRec)) {
-    if (!DATA_ENCODING_FIELDS.includes(key) && !isKnownDataFieldAlias(key, DATA_ENCODING_FIELD_ALIASES2)) {
+    if (!DATA_ENCODING_FIELDS.includes(key) && !isKnownDataFieldAlias(key, DATA_ENCODING_FIELD_ALIASES)) {
       issues.push(issue("error", "UNKNOWN_DATA_ENCODING_FIELD", `${path}.${key} is not a supported encoding field.`, {
         slideId,
         path: `${path}.${key}`,
@@ -55616,13 +55699,18 @@ function validateEncodingSeriesOptions(options, path, slideId, nodeName, issues)
   }
   for (const [key, raw] of Object.entries(options)) {
     const itemPath = `${path}.${key}`;
+    if (typeof raw === "string")
+      continue;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      issues.push(issue("error", "INVALID_DATA_ENCODING_SERIES_OPTIONS", `${itemPath} must be an object.`, { slideId, path: itemPath, nodeName: typeof nodeName === "string" ? nodeName : void 0 }));
+      issues.push(issue("error", "INVALID_DATA_ENCODING_SERIES_OPTIONS", `${itemPath} must be an object or display-name string.`, { slideId, path: itemPath, nodeName: typeof nodeName === "string" ? nodeName : void 0 }));
       continue;
     }
     const rec = raw;
     if (rec.type !== void 0 && rec.type !== "bar" && rec.type !== "line") {
       issues.push(issue("error", "INVALID_CHART_SERIES_OPTION", `${itemPath}.type must be bar or line.`, { slideId, path: `${itemPath}.type`, nodeName: typeof nodeName === "string" ? nodeName : void 0 }));
+    }
+    if (rec.chartType !== void 0 && rec.chartType !== "bar" && rec.chartType !== "line") {
+      issues.push(issue("error", "INVALID_CHART_SERIES_OPTION", `${itemPath}.chartType must be bar or line.`, { slideId, path: `${itemPath}.chartType`, nodeName: typeof nodeName === "string" ? nodeName : void 0 }));
     }
     if (rec.axis !== void 0 && rec.axis !== "primary" && rec.axis !== "secondary") {
       issues.push(issue("error", "INVALID_CHART_SERIES_OPTION", `${itemPath}.axis must be primary or secondary.`, { slideId, path: `${itemPath}.axis`, nodeName: typeof nodeName === "string" ? nodeName : void 0 }));
