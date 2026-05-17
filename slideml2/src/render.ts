@@ -9,6 +9,7 @@ import { coverageRatio, meaningfulOverlap, meaningfulOverlayOcclusion, meaningfu
 import { solveDomConstraintLayout } from "./layout/dom-constraint-layout.js";
 import type { SizePreference } from "./layout/constraint-solver.js";
 import { resolveFlexMainTargets, type FlexMainSpec } from "./layout/flex-sizing.js";
+import { normalizeTrackWeights, resolveGridColumnTracks, resolveGridRowTracks, type GridTrackContribution } from "./layout/grid-track-sizing.js";
 import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
 import type { Slideml2SourceDeck } from "./types.js";
@@ -7094,7 +7095,7 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
   const columns = Math.max(1, numberProp(node, "columns", 2));
   const gap = gridGapCm(theme, node, flowOnly, columns);
   const availableWidth = Math.max(0, rect.w - gap * (columns - 1));
-  const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
+  const colWidths = gridColumnTrackTargets(node, columns, availableWidth);
   const children = prepareGridChildrenForLayout(theme, node, flowOnly, columns, colWidths, gap);
   const placements = computeGridPlacements(children, columns);
   const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
@@ -7102,7 +7103,7 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
   const rows = Math.max(1, declaredRows, usedRows);
   const availableHeight = Math.max(0, rect.h - gap * (rows - 1));
   const colX = positionsFromSizes(rect.x, gap, colWidths);
-  const rowHeights = resolveGridRowHeights(theme, placements, columns, rows, availableHeight, colWidths, gap, node.rowWeights);
+  const rowHeights = resolveGridRowHeights(theme, placements, rows, availableHeight, colWidths, gap, node.rowWeights);
   const constrained = layoutGridChildrenWithCassowary(theme, node, rect, placements, columns, rows, gap, colWidths, rowHeights, layered);
   if (constrained) return constrained;
   const rowY = positionsFromSizes(rect.y, gap, rowHeights);
@@ -7820,7 +7821,7 @@ function gridIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number)
   const gap = gridGapCm(theme, node, rawChildren, columns);
   const contentWidth = contentRect(theme, node, { x: 0, y: 0, w: widthCm, h: 10 }).w;
   const availableWidth = Math.max(0, contentWidth - gap * (columns - 1));
-  const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
+  const colWidths = gridColumnTrackTargets(node, columns, availableWidth);
   const children = prepareGridChildrenForLayout(theme, node, rawChildren, columns, colWidths, gap);
   const placements = computeGridPlacements(children, columns);
   const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
@@ -7844,34 +7845,27 @@ function gridIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number)
   return total + gap * Math.max(0, rows - 1);
 }
 
-function resolveGridRowHeights(theme: SimpleTheme, placements: GridPlacement[], columns: number, rows: number, availableHeight: number, colWidths: number[], gap: number, rowWeightsValue: unknown): number[] {
-  const rowWeights = weightsFromProp(rowWeightsValue, rows);
-  const explicitRowWeights = Array.isArray(rowWeightsValue) && rowWeightsValue.length === rows;
-  const specs: SizeSpec[] = [];
-  // For each row, intrinsic basis is driven by the children that *start* in
-  // that row, scaled by their rowSpan (so a rowSpan:2 child contributes half
-  // its intrinsic to each of the two rows it covers).
-  const childByCell = new Map<string, GridPlacement>();
-  for (const p of placements) childByCell.set(`${p.row}:${p.col}`, p);
-  for (let row = 0; row < rows; row++) {
-    let basis = 0;
-    let min = 0.4;
-    for (let col = 0; col < columns; col++) {
-      const placement = childByCell.get(`${row}:${col}`);
-      if (!placement) continue;
-      const child = placement.child;
-      if (!child) continue;
-      let width = 0;
-      for (let i = 0; i < placement.colSpan; i++) width += colWidths[placement.col + i] || 0;
-      if (placement.colSpan > 1) width += gap * (placement.colSpan - 1);
-      const perRowBasis = intrinsicMainSize(theme, child, "vertical", width || colWidths[col] || colWidths[0] || 1) / placement.rowSpan;
-      const perRowMin = intrinsicMinSize(theme, child, "vertical", width || colWidths[col] || colWidths[0] || 1) / placement.rowSpan;
-      basis = Math.max(basis, perRowBasis);
-      min = Math.max(min, perRowMin);
-    }
-    specs.push({ basis, min, max: Number.POSITIVE_INFINITY, weight: explicitRowWeights ? rowWeights[row] || 1 : gridRowWeightHint(childByCell, row, columns) ?? rowWeights[row] ?? 1, grow: true, fixed: false });
-  }
-  return solveSizes(specs, availableHeight);
+function resolveGridRowHeights(theme: SimpleTheme, placements: GridPlacement[], rows: number, availableHeight: number, colWidths: number[], gap: number, rowWeightsValue: unknown): number[] {
+  return resolveGridRowTracks({
+    count: rows,
+    available: availableHeight,
+    weights: rowWeightsValue,
+    defaultMin: 0.4,
+    contributions: gridRowContributions(theme, placements, colWidths, gap),
+  });
+}
+
+function gridRowContributions(theme: SimpleTheme, placements: GridPlacement[], colWidths: number[], gap: number): GridTrackContribution[] {
+  return placements.map((placement) => {
+    const width = spannedSize(colWidths, placement.col, placement.colSpan, gap) || colWidths[placement.col] || colWidths[0] || 1;
+    return {
+      start: placement.row,
+      span: placement.rowSpan,
+      basis: intrinsicMainSize(theme, placement.child, "vertical", width),
+      min: intrinsicMinSize(theme, placement.child, "vertical", width),
+      weight: gridPlacementWeightHint(placement),
+    };
+  });
 }
 
 function gridGapCm(theme: SimpleTheme, node: DomNode, children: DomNode[], columns: number): number {
@@ -7919,15 +7913,12 @@ function isSingleColumnShapeFlow(children: DomNode[], columns: number): boolean 
   return connectorCount >= 1 && nodeCount >= 2;
 }
 
-function gridRowWeightHint(childByCell: Map<string, GridPlacement>, row: number, columns: number): number | undefined {
-  for (let col = 0; col < columns; col++) {
-    const child = childByCell.get(`${row}:${col}`)?.child;
-    if (!child) continue;
-    const explicit = optionalNumberProp(child, "layoutWeight");
-    if (explicit !== undefined) return Math.max(0.0001, explicit);
-    if (isConnectorShapeNode(child)) return 0.22;
-    if (child.type === "shape") return 1.4;
-  }
+function gridPlacementWeightHint(placement: GridPlacement): number | undefined {
+  const child = placement.child;
+  const explicit = optionalNumberProp(child, "layoutWeight");
+  if (explicit !== undefined) return Math.max(0.0001, explicit);
+  if (isConnectorShapeNode(child)) return 0.22;
+  if (child.type === "shape") return 1.4;
   return undefined;
 }
 
@@ -8684,42 +8675,17 @@ function weightedTextLength(text: string): number {
   return length;
 }
 
-function weightsFromProp(value: unknown, count: number): number[] {
-  if (Array.isArray(value) && value.length === count) {
-    return normalizeWeights(value.map((item) => typeof item === "number" && Number.isFinite(item) && item > 0 ? item : 1));
-  }
-  return normalizeWeights(Array.from({ length: count }, () => 1));
-}
-
-function gridColumnSizesFromProps(node: DomNode, columns: number, availableWidth: number): number[] {
-  if (Array.isArray(node.columnWeights) && node.columnWeights.length === columns) {
-    return weightsFromProp(node.columnWeights, columns).map((weight) => availableWidth * weight);
-  }
-  if (Array.isArray(node.colWidths) && node.colWidths.length === columns) {
-    const nums = node.colWidths.map((item) => typeof item === "number" && Number.isFinite(item) && item > 0 ? item : 0);
-    const sum = nums.reduce((acc, value) => acc + value, 0);
-    if (sum > 0) {
-      // Match table semantics: values close to the available width are cm;
-      // small fractional lists such as [0.12, 1] are proportions.
-      const looksAbsolute = Math.abs(sum - availableWidth) < availableWidth * 0.5 && nums.every((n) => n >= 0.3);
-      if (looksAbsolute) {
-        if (sum <= availableWidth) return nums;
-        return nums.map((n) => (n / sum) * availableWidth);
-      }
-      return normalizeWeights(nums).map((weight) => availableWidth * weight);
-    }
-  }
-  return weightsFromProp(undefined, columns).map((weight) => availableWidth * weight);
-}
-
-function normalizeWeights(values: number[]): number[] {
-  const total = values.reduce((sum, value) => sum + Math.max(value, 0), 0);
-  if (total <= 0) return values.map(() => 1 / values.length);
-  return values.map((value) => Math.max(value, 0) / total);
+function gridColumnTrackTargets(node: DomNode, columns: number, availableWidth: number): number[] {
+  return resolveGridColumnTracks({
+    count: columns,
+    available: availableWidth,
+    weights: node.columnWeights,
+    explicitSizes: node.colWidths,
+  });
 }
 
 function positionsFromWeights(start: number, availableSize: number, gap: number, weights: number[]): Array<{ start: number; size: number }> {
-  const sizes = weights.map((weight) => availableSize * weight);
+  const sizes = normalizeTrackWeights(weights, weights.length).map((weight) => availableSize * weight);
   return positionsFromSizes(start, gap, sizes);
 }
 

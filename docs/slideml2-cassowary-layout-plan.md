@@ -112,8 +112,11 @@ to the measurement-target stage:
   `x`, `y`, `w`, and `h` geometry.
 
 Grid sizing follows the same separation of concerns but uses track sizing:
-column/row weights and spanning-child minimum pressure are converted into track
-targets, then Cassowary solves the final child rectangles.
+column/row weights, authored column sizes, and spanning-child minimum pressure
+are converted into track targets, then Cassowary solves the final child
+rectangles. Row-span children contribute pressure across every row they cover,
+matching the intent of mature CSS Grid track sizing rather than treating the
+first row as the only owner of the child.
 
 ## Migration Plan
 
@@ -140,6 +143,8 @@ default.
   size fields, and `layoutWeight` as a soft stack weight.
 - `src/layout/flex-sizing.ts` resolves stack main-axis measurement targets with
   a Flexbox-like grow/shrink/freeze algorithm before Cassowary solves geometry.
+- `src/layout/grid-track-sizing.ts` resolves grid column and row track targets,
+  including explicit/weighted columns and row-span pressure across covered rows.
 - The production renderer now routes stack and grid child layout through the
   Cassowary path by default. The previous local algorithm remains available as
   an explicit migration escape hatch with `layoutEngine:"legacy"` or
