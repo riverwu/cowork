@@ -1058,6 +1058,57 @@ function trimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+type MatrixQuadrantKey = "tl" | "tr" | "bl" | "br";
+
+const MATRIX_QUADRANT_FIELD_ALIASES: Record<MatrixQuadrantKey, string[]> = {
+  tl: ["tl", "topLeft", "top_left", "top-left", "upperLeft", "upper_left", "leftTop", "left_top", "yHighXLow", "xLowYHigh"],
+  tr: ["tr", "topRight", "top_right", "top-right", "upperRight", "upper_right", "rightTop", "right_top", "yHighXHigh", "xHighYHigh"],
+  bl: ["bl", "bottomLeft", "bottom_left", "bottom-left", "lowerLeft", "lower_left", "leftBottom", "left_bottom", "yLowXLow", "xLowYLow"],
+  br: ["br", "bottomRight", "bottom_right", "bottom-right", "lowerRight", "lower_right", "rightBottom", "right_bottom", "yLowXHigh", "xHighYLow"],
+};
+
+function matrixItemHasRenderableLabel(item: unknown): boolean {
+  if (typeof item === "string" || typeof item === "number") return String(item).trim() !== "";
+  if (!isPlainObject(item)) return false;
+  return matrixTextValue(item, ["label", "title", "name", "text", "headline", "item", "summary"]) !== "";
+}
+
+function matrixHasQuadrantLabels(node: DomNode): boolean {
+  return matrixRecordHasQuadrantText(node.quadrantLabels)
+    || matrixRecordHasQuadrantText(node.labels)
+    || matrixRecordHasQuadrantText(node.quadrants)
+    || (Array.isArray(node.quadrants) && node.quadrants.some((raw) => {
+      if (!isPlainObject(raw)) return false;
+      return matrixTextValue(raw, ["label", "title", "name", "text", "headline", "summary"]) !== "";
+    }));
+}
+
+function matrixRecordHasQuadrantText(value: unknown): boolean {
+  if (!isPlainObject(value)) return false;
+  for (const aliases of Object.values(MATRIX_QUADRANT_FIELD_ALIASES)) {
+    for (const alias of aliases) {
+      if (matrixScalarText(value[alias])) return true;
+    }
+  }
+  return false;
+}
+
+function matrixTextValue(rec: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const text = matrixScalarText(rec[key]);
+    if (text) return text;
+  }
+  return "";
+}
+
+function matrixScalarText(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (isPlainObject(value)) return matrixTextValue(value, ["text", "label", "title", "name", "value", "body", "detail", "description", "summary"]);
+  return "";
+}
+
 /**
  * Map common typos / not-yet-implemented type names that LLMs reach for to
  * the canonical replacement. Returns a guidance string the agent can act on
@@ -2613,6 +2664,7 @@ function componentFieldTypeError(componentName: string, propName: string, prop: 
     case "array":
       if (componentName === "two-column" && propName === "ratio" && typeof value === "number" && Number.isFinite(value) && value > 0) return null;
       if (componentName === "cover-composition" && propName === "content" && value && typeof value === "object" && !Array.isArray(value) && Array.isArray((value as { runs?: unknown }).runs)) return null;
+      if (componentName === "matrix-2x2" && propName === "quadrants" && value && typeof value === "object" && !Array.isArray(value)) return null;
       return Array.isArray(value) ? null : {
         expected: "an array",
         actual: describeValueType(value),
@@ -2671,16 +2723,25 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
   if (name === "chapter-divider") validateChapterDividerUsage(node, path, slideId, issues, parent);
   if (name === "matrix-2x2") {
     const itemsArr = Array.isArray(node.items) ? node.items : [];
-    const ql = node.quadrantLabels && typeof node.quadrantLabels === "object" ? node.quadrantLabels as Record<string, unknown> : null;
-    const hasQuadrantLabels = ql ? ["tl", "tr", "bl", "br"].some((key) => typeof ql[key] === "string" && String(ql[key]).trim() !== "") : false;
-    if (itemsArr.length === 0 && !hasQuadrantLabels) {
+    const hasRenderableItems = itemsArr.some((item) => matrixItemHasRenderableLabel(item));
+    const hasQuadrantLabels = matrixHasQuadrantLabels(node);
+    if (!hasRenderableItems && !hasQuadrantLabels) {
       issues.push(issue("error", "MISSING_REQUIRED_FIELD", "matrix-2x2 requires items or quadrantLabels.", {
         slideId,
         path,
         nodeName: node.id,
-        suggestedFix: "Either pass items[] (one entry per data point with x/y enum) or quadrantLabels {tl,tr,bl,br} for a label-only matrix.",
+        suggestedFix: "Either pass items[] with label/title/name/text plus x/y or quadrant, or pass quadrantLabels {tl,tr,bl,br} / quadrants[] for a label-only matrix.",
       }));
     }
+    itemsArr.forEach((item, index) => {
+      if (matrixItemHasRenderableLabel(item)) return;
+      issues.push(issue("error", "INVALID_FIELD_USAGE", `matrix-2x2.items[${index}] has no renderable label/title/name/text field.`, {
+        slideId,
+        path: `${path}.items[${index}]`,
+        nodeName: node.id,
+        suggestedFix: "Use {label:'...', x:'low|high', y:'low|high'} or aliases such as title/name/text and quadrant:'tl|tr|bl|br'.",
+      }));
+    });
   }
   if (name === "numbered-list" && Array.isArray(node.items)) {
     node.items.forEach((raw, index) => {

@@ -5,6 +5,7 @@ import {
 } from "./diagnostics.js";
 import { renderToAst } from "./render.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
+import { validateSlide } from "./validate.js";
 import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
 
 const BLOCKING = new Set(["FALLBACK_FAILED", "TINY_RECT", "SQUASHED", "UNKNOWN_NODE_TYPE", "MISSING_NODE_TYPE", "UNKNOWN_COLOR"]);
@@ -31,6 +32,18 @@ function findRunByText(shapes: Array<{ type: string }>, needle: string) {
     const children = (sh as { children?: Array<{ type: string }> }).children;
     if (Array.isArray(children)) {
       const found = findRunByText(children, needle);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+function findShapeByName(shapes: Array<{ type: string }>, name: string): ({ type: string; name?: string; xfrm?: { cx?: number; cy?: number }; children?: Array<{ type: string }> }) | undefined {
+  for (const sh of shapes) {
+    const shape = sh as { type: string; name?: string; xfrm?: { cx?: number; cy?: number }; children?: Array<{ type: string }> };
+    if (shape.name === name) return shape;
+    if (Array.isArray(shape.children)) {
+      const found = findShapeByName(shape.children, name);
       if (found) return found;
     }
   }
@@ -175,6 +188,77 @@ describe("matrix-2x2", () => {
     expect(findRunByText(ast.slides[0].shapes, "High Value")).toBeDefined();
     expect(findRunByText(ast.slides[0].shapes, "Fix Auth")).toBeDefined();
   });
+
+  it("accepts natural matrix aliases without dropping labels", () => {
+    const slide: SlideV2 = {
+      id: "s", title: "Priority Matrix",
+      children: [{
+        id: "s.m", type: "matrix-2x2",
+        axes: {
+          x: { left: "Low Effort", right: "High Effort" },
+          y: { bottom: "Low Value", top: "High Value" },
+        },
+        quadrantLabels: {
+          topLeft: "Quick Wins",
+          topRight: "Strategic Bets",
+          bottomLeft: "Defer",
+          bottomRight: "Time Sinks",
+        },
+        items: [
+          { title: "Fix Auth", quadrant: "top-left", tone: "success" },
+          { name: "Platform Migration", column: "right", row: "top", status: "warning" },
+          { text: "Archive Cleanup", position: { x: "left", y: "bottom" } },
+        ],
+      } as unknown as DomNode],
+    };
+    const validation = validateSlide(slide);
+    expect(validation.errors.map((e) => `${e.code}: ${e.message}`).join("\n")).toBe("");
+    expectClean(slide, "matrix-2x2-aliases");
+    const { ast } = render(slide);
+    expect(findRunByText(ast.slides[0].shapes, "Quick Wins")).toBeDefined();
+    expect(findRunByText(ast.slides[0].shapes, "Strategic Bets")).toBeDefined();
+    expect(findRunByText(ast.slides[0].shapes, "Fix Auth")).toBeDefined();
+    expect(findRunByText(ast.slides[0].shapes, "Platform Migration")).toBeDefined();
+    expect(findRunByText(ast.slides[0].shapes, "Archive Cleanup")).toBeDefined();
+  });
+
+  it("label-only matrix stays usable inside a narrow split region", () => {
+    const slide: SlideV2 = {
+      id: "s", title: "Portfolio Choices",
+      children: [{
+        id: "s.split",
+        type: "split",
+        direction: "horizontal",
+        ratio: [0.64, 0.36],
+        gap: 0.45,
+        children: [
+          { id: "s.left", type: "text", text: "Left-side narrative content", style: "paragraph" },
+          {
+            id: "s.right",
+            type: "stack",
+            gap: 0.2,
+            children: [
+              { id: "s.right.h", type: "h2", text: "Segment Priority" },
+              {
+                id: "s.right.m",
+                type: "matrix-2x2",
+                fixedHeight: 3.3,
+                x: { low: "Low Effort", high: "High Effort" },
+                y: { low: "Low Value", high: "High Value" },
+                quadrantLabels: {
+                  tl: "Quick Wins",
+                  tr: "Strategic Bets",
+                  bl: "Defer",
+                  br: "Time Sinks",
+                },
+              } as unknown as DomNode,
+            ],
+          } as unknown as DomNode,
+        ],
+      } as unknown as DomNode],
+    };
+    expectClean(slide, "matrix-2x2-split-region");
+  });
 });
 
 describe("trend-line", () => {
@@ -272,6 +356,23 @@ describe("callout-marker", () => {
     const { ast } = render(slide);
     expect(findRunByText(ast.slides[0].shapes, "Q3 inflection")).toBeDefined();
   });
+
+  it("agent-authored long bubble auto-sizes when width and height are omitted", () => {
+    const slide: SlideV2 = {
+      id: "s", title: "x",
+      children: [{
+        id: "s.cm", type: "callout-marker",
+        text: "这是一个用于解释图像边缘细节的较长标注，应该由渲染器自动扩展气泡高度",
+        anchor: "middle-right",
+        tone: "brand",
+      } as unknown as DomNode],
+    };
+    expectClean(slide, "callout-marker-auto-size");
+    const { ast } = render(slide);
+    const marker = findShapeByName(ast.slides[0].shapes, "s.cm");
+    expect((marker?.xfrm?.cx || 0) / 360000).toBeGreaterThan(6.4);
+    expect((marker?.xfrm?.cy || 0) / 360000).toBeGreaterThan(1.3);
+  });
 });
 
 describe("decoration-grid", () => {
@@ -338,6 +439,21 @@ describe("corner-mark", () => {
     const { ast } = render(slide);
     expect(findRunByText(ast.slides[0].shapes, "DRAFT")).toBeDefined();
   });
+
+  it("long corner label estimates enough width and stays one line", () => {
+    const slide: SlideV2 = {
+      id: "s", title: "x",
+      children: [{
+        id: "s.cm", type: "corner-mark",
+        text: "CONFIDENTIAL REVIEW", corner: "top-right", tone: "danger", style: "tag",
+      } as unknown as DomNode],
+    };
+    expectClean(slide, "corner-mark-auto-width");
+    const { ast } = render(slide);
+    const marker = findShapeByName(ast.slides[0].shapes, "s.cm");
+    expect((marker?.xfrm?.cx || 0) / 360000).toBeGreaterThan(5.0);
+    expect(findRunByText(ast.slides[0].shapes, "CONFIDENTIAL REVIEW")).toBeDefined();
+  });
 });
 
 describe("bracket", () => {
@@ -384,6 +500,21 @@ describe("pointer-arrow", () => {
     expectClean(slide, "pointer-arrow");
     const { ast } = render(slide);
     expect(findRunByText(ast.slides[0].shapes, "重点")).toBeDefined();
+  });
+
+  it("long overlay label drives default arrow width", () => {
+    const slide: SlideV2 = {
+      id: "s", title: "x",
+      children: [{
+        id: "s.pa", type: "pointer-arrow",
+        label: "这里是导致转化下降的关键拐点", direction: "right", anchor: "middle-center", tone: "brand",
+      } as unknown as DomNode],
+    };
+    expectClean(slide, "pointer-arrow-auto-width");
+    const { ast } = render(slide);
+    const arrow = findShapeByName(ast.slides[0].shapes, "s.pa.shape");
+    expect((arrow?.xfrm?.cx || 0) / 360000).toBeGreaterThan(4.8);
+    expect(findRunByText(ast.slides[0].shapes, "这里是导致转化下降的关键拐点")).toBeDefined();
   });
 });
 

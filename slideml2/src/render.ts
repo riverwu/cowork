@@ -3934,7 +3934,10 @@ function lineSpacingHalfPtForValue(rawLineSpacing: unknown, style: ReturnType<ty
   // line spacing for backwards compatibility with earlier SlideML decks.
   const pointValue = rawLineSpacing <= 3 ? style.fontSize * rawLineSpacing : rawLineSpacing;
   const requestedHalfPt = pointValue * 2;
-  const naturalHalfPt = lineSpacingHalfPtForStyle(style);
+  // Explicit node/paragraph lineSpacing should override the theme's default
+  // lineHeight. Clamp only to the font's natural one-em box so agents can
+  // intentionally tighten editorial prose from a loose theme default.
+  const naturalHalfPt = style.fontSize * 2;
   return naturalHalfPt === undefined ? requestedHalfPt : Math.max(naturalHalfPt, requestedHalfPt);
 }
 
@@ -7891,6 +7894,16 @@ function textNeededHeight(theme: SimpleTheme, node: DomNode, widthCm: number, ba
 }
 
 function textVisibleInkHeight(theme: SimpleTheme, node: DomNode, widthCm: number, baseStyle = effectiveTextStyle(theme, node, "paragraph")): number {
+  const paragraphs = textParagraphsForEstimate(theme, node, baseStyle);
+  if (paragraphs.length === 0) return singleLineTextHeight(theme, node);
+  const visibleLines = textLineCountForEstimate(theme, node, widthCm, paragraphs);
+  if (visibleLines <= 1) {
+    const maxNaturalHeight = Math.max(...paragraphs.map((para) => {
+      const paraStyle = { ...baseStyle, fontSize: para.fontSize, weight: para.bold ? "bold" : baseStyle.weight };
+      return textLineMetrics(theme, paraStyle, undefined, para.text).naturalHeightCm;
+    }));
+    return Math.min(12, Math.max(0.01, maxNaturalHeight + textInkVerticalReserveCm(theme, node, baseStyle)));
+  }
   const bodyHeight = textBodyHeightForEstimate(theme, node, widthCm, baseStyle);
   if (bodyHeight <= 0) return singleLineTextHeight(theme, node);
   const metrics = textLineMetrics(theme, baseStyle, undefined, renderedTextContent(node));
@@ -7900,6 +7913,8 @@ function textVisibleInkHeight(theme: SimpleTheme, node: DomNode, widthCm: number
 function textBodyHeightForEstimate(theme: SimpleTheme, node: DomNode, widthCm: number, baseStyle: ReturnType<typeof textStyle>): number {
   const paragraphs = textParagraphsForEstimate(theme, node, baseStyle);
   if (paragraphs.length === 0) return 0;
+  const lineCount = textLineCountForEstimate(theme, node, widthCm, paragraphs);
+  if (lineCount <= 0) return 0;
   const contentWidth = Math.max(0.25, widthCm - textHorizontalReserveCm(node));
   const wrap = node.wrap === "none" || node.noWrap === true ? "none" : "wrap";
   return paragraphs.reduce((sum, para, index) => {
@@ -7908,6 +7923,17 @@ function textBodyHeightForEstimate(theme: SimpleTheme, node: DomNode, widthCm: n
       : estimatedWrappedLineCount(theme, para.text, para.fontSize, para.bold, contentWidth);
     const spaceAfter = index === paragraphs.length - 1 ? 0 : para.spaceAfterCm;
     return sum + lines * para.lineHeightCm + spaceAfter;
+  }, 0);
+}
+
+function textLineCountForEstimate(theme: SimpleTheme, node: DomNode, widthCm: number, paragraphs: TextParagraphEstimate[]): number {
+  const contentWidth = Math.max(0.25, widthCm - textHorizontalReserveCm(node));
+  const wrap = node.wrap === "none" || node.noWrap === true ? "none" : "wrap";
+  return paragraphs.reduce((sum, para) => {
+    const lines = wrap === "none"
+      ? Math.max(1, String(para.text || "").split(/\r?\n/).length)
+      : estimatedWrappedLineCount(theme, para.text, para.fontSize, para.bold, contentWidth);
+    return sum + lines;
   }, 0);
 }
 
@@ -8043,7 +8069,7 @@ function pushTextFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, s
   const evidence = measureTextFitAtFont(theme, node, style, rect, styleKey, style.fontSize);
   const needed = evidence.heightNeeded;
   const available = evidence.heightAvailable;
-  if (evidence.fits || needed <= available + 0.08) return;
+  if (evidence.fits || needed <= available + 0.08 || textLinesFitReadableHeight(evidence)) return;
   const measured = {
     available,
     needed,
@@ -8059,18 +8085,7 @@ function pushTextFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, s
     availableLines: evidence.availableLines,
     fitMethod: "final-text-measure",
   };
-  if (mildTextFitOverflow(needed, { ...rect, h: available })) {
-    pushFitDiagnostic({
-      kind: "text",
-      severity: "warn",
-      slideId: currentSlideId,
-      nodeId: node.id,
-      message: `Text '${nodeLabel(node)}' is tight after final font measurement: ${needed.toFixed(2)}cm into ${available.toFixed(2)}cm, but remains within the readable overflow tolerance.`,
-      suggestion: "No blocking fix required if the rendered text remains readable; shorten copy or give it a little more height only when visual review confirms crowding.",
-      measured,
-    });
-    return;
-  }
+  if (mildTextFitOverflow(needed, { ...rect, h: available })) return;
   pushFitDiagnostic({
     kind: "text",
     severity: "error",
@@ -8093,6 +8108,11 @@ function mildTextFitOverflow(needed: number, rect: Rect): boolean {
   return delta <= Math.max(MILD_TEXT_OVERFLOW_ABSOLUTE_CM, rect.h * MILD_TEXT_OVERFLOW_RATIO);
 }
 
+function textLinesFitReadableHeight(evidence: TextFitEvidence): boolean {
+  if (evidence.wrappedLines <= 0 || evidence.lineHeightCm <= 0) return true;
+  return evidence.availableLines + 0.08 >= evidence.wrappedLines;
+}
+
 const MILD_BULLET_OVERFLOW_ABSOLUTE_CM = 0.30;
 const MILD_BULLET_OVERFLOW_RATIO = 0.14;
 const MIN_READABLE_BULLET_LIST_HEIGHT_CM = 1.05;
@@ -8107,7 +8127,7 @@ function pushBulletsFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect
   const evidence = measureBulletsFit(theme, node, rect, style);
   const needed = evidence.needed;
   const available = evidence.available;
-  if (needed <= available + 0.08) return;
+  if (needed <= available + 0.08 || evidence.availableLines + 0.08 >= evidence.wrappedLines) return;
   const measured = {
     available,
     needed,
@@ -8121,18 +8141,7 @@ function pushBulletsFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect
     itemCount: evidence.itemCount,
     fitMethod: "final-bullets-measure",
   };
-  if (mildBulletFitOverflow(needed, { ...rect, h: available })) {
-    pushFitDiagnostic({
-      kind: "bullets",
-      severity: "warn",
-      slideId: currentSlideId,
-      nodeId: node.id,
-      message: `Bullets '${nodeLabel(node)}' are tight after final font measurement: ${needed.toFixed(2)}cm into ${available.toFixed(2)}cm, but remain within the readable overflow tolerance.`,
-      suggestion: "If the rendered page looks crowded, shorten one bullet or give the bullet list slightly more height. Do not treat this as content loss by itself.",
-      measured,
-    });
-    return;
-  }
+  if (mildBulletFitOverflow(needed, { ...rect, h: available })) return;
   pushFitDiagnostic({
     kind: "bullets",
     severity: "error",
@@ -8212,9 +8221,9 @@ function defaultAutoFitForStyle(styleKey: string): "shrink" | undefined {
 }
 
 /**
- * Pre-shrink a text style so the rendered single-line width fits the rect.
- * Used by autoFit:"shrink" nodes to avoid LibreOffice not honoring the
- * runtime normAutofit hint. Floor at 70% of the original size — beyond
+ * Pre-shrink a text style so the rendered text fits the rect. Used by
+ * autoFit:"shrink" nodes to avoid LibreOffice not honoring the runtime
+ * normAutofit hint. Floor at 70% of the original size by default — beyond
  * that the metric is illegible and the slide should be re-authored.
  */
 interface TextFitEvidence {
@@ -8239,8 +8248,8 @@ function measureTextFitAtFont(
   fontPt: number,
 ): TextFitEvidence {
   const rawText = renderedTextContent(node);
-  const lines = rawText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  const text = (lines.length > 0 ? lines : [rawText.replace(/\n/g, " ")]).join("\n");
+  const lines = textLinesForFit(rawText);
+  const text = lines.join("\n");
   if (!text) {
     return { fits: true, widthNeeded: 0, heightNeeded: 0, heightAvailable: Math.max(0, rect.h), unbreakableNeeded: 0, wrappedLines: 0, availableLines: 0, lineHeightCm: 0, fontPt, innerWidthCm: Math.max(0, rect.w) };
   }
@@ -8269,31 +8278,42 @@ function measureTextFitAtFont(
   const measuredStyle = { ...style, fontSize: fontPt };
   const lineMetrics = textLineMetrics(theme, measuredStyle, node.lineSpacing, text);
   const lineHeightCm = lineMetrics.lineHeightCm;
-  const heightReserve = wrappedLines > 1
-    ? textVerticalReserveCm(theme, node, measuredStyle)
-    : textInkVerticalReserveCm(theme, node, measuredStyle);
-  const heightNeeded = wrappedLines * lineHeightCm + heightReserve;
+  const heightNeeded = wrappedLines > 1
+    ? wrappedLines * lineHeightCm
+    : Math.min(lineHeightCm, lineMetrics.naturalHeightCm + textInkVerticalReserveCm(theme, node, measuredStyle));
+  const autoFitShrink = node.autoFit === "shrink" || node.__fallbackAutoFitShrink === true;
+  const singleLineAutoFitHeightPressure = autoFitShrink
+    && wrappedLines <= 1
+    && heightNeeded > rect.h + Math.max(0.18, rect.h * 0.35);
   const mustFitSingleLineHeight = wrappedLines > 1
+    || singleLineAutoFitHeightPressure
     || ((styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") && rect.h <= 0.5);
   const heightSensitive = mustFitSingleLineHeight
     || (isTextFirstRole(nearestSemanticRole(node)) && heightNeeded > innerHeight + 0.06);
+  const heightAvailableForFit = wrappedLines <= 1 ? Math.max(0, rect.h) : innerHeight;
   // CJK text wraps between characters in PowerPoint/LibreOffice. Treating the
   // whole sentence as one unbreakable word forces unnecessary shrink in normal
   // Chinese/Japanese/Korean paragraphs.
   const fitsWidth = noWrap ? widthNeeded <= inner : containsCjk(text) ? true : unbreakableNeeded <= inner;
-  const fitsHeight = !heightSensitive || heightNeeded <= innerHeight + 0.08;
+  const fitsHeight = !heightSensitive || heightNeeded <= heightAvailableForFit + 0.08;
   return {
     fits: fitsWidth && fitsHeight,
     widthNeeded,
     heightNeeded,
-    heightAvailable: innerHeight,
+    heightAvailable: heightAvailableForFit,
     unbreakableNeeded,
     wrappedLines,
-    availableLines: lineHeightCm > 0 ? innerHeight / lineHeightCm : 0,
+    availableLines: lineHeightCm > 0 ? heightAvailableForFit / lineHeightCm : 0,
     lineHeightCm,
     fontPt,
     innerWidthCm: inner,
   };
+}
+
+function textLinesForFit(rawText: string): string[] {
+  const normalized = String(rawText || "").replace(/\r\n?/g, "\n");
+  if (!normalized.trim()) return [];
+  return normalized.split("\n").map((line) => line.trimEnd());
 }
 
 function autoShrinkStyle(
@@ -8306,8 +8326,8 @@ function autoShrinkStyle(
 ): ReturnType<typeof textStyle> {
   const emitDiagnostics = options.emitDiagnostics !== false;
   const rawText = renderedTextContent(node);
-  const lines = rawText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  const text = (lines.length > 0 ? lines : [rawText.replace(/\n/g, " ")]).join("\n");
+  const lines = textLinesForFit(rawText);
+  const text = lines.join("\n");
   if (!text) return style;
   const computeFit = (fontPt: number): TextFitEvidence => measureTextFitAtFont(theme, node, style, rect, styleKey, fontPt);
   const initial = computeFit(style.fontSize);
@@ -8332,13 +8352,13 @@ function autoShrinkStyle(
   const severe = isSevereTextShrink(node, styleKey, style.fontSize, fitted);
   if (emitDiagnostics && (options.warnOnAnyShrink || severe || fitted <= 9 || fitted <= style.fontSize * 0.78)) {
     const finalEvidence = computeFit(fitted);
-    const reason = options.diagnosticReason || "auto-shrunk";
+    const reason = options.diagnosticReason || (initial.wrappedLines > lines.length ? "wrapped and auto-shrunk" : "auto-shrunk");
     pushDiagnostic({
       severity: severe ? "error" : "warn",
       code: "TRUNCATED",
       slideId: currentSlideId || undefined,
       nodeId: node.id,
-      message: `Text '${nodeLabel(node)}' was ${reason} from ${style.fontSize.toFixed(1)}pt to ${fitted.toFixed(1)}pt to fit its assigned text box after wrapping.`,
+      message: `Text '${nodeLabel(node)}' was ${reason} from ${style.fontSize.toFixed(1)}pt to ${fitted.toFixed(1)}pt to fit its assigned text box.`,
       suggestion: severe
         ? "This body text is no longer presentation-readable. Give it more width/height, split the content, shorten it, or choose a layout/component that gives body text more space."
         : "Give this text more width/height, split the content, use shorter lines, or choose a layout/component that gives body text more space.",

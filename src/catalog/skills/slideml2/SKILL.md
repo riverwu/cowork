@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.54
+version: 1.0.55
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -891,7 +891,7 @@ KPI and chart components accept `bind` + `encoding` for data binding. See §2.8.
 - `funnel` — Conversion/pipeline narrowing as an editable inverted pyramid made from PowerPoint trapezoid stages. Not a native chart and not a chevron chain. type='funnel' required={stages:[{label|title|name, value, valueLabel?, body?, items?:string[], contents?:[{title|label|name, content|body?, tone?, fill?, line?, surface?}], icon?|iconSrc?, badge?|badges?, tone?, widthRatio?|ratio?, height?|heightWeight?, fill?|line?|surface?}] (max 6)} optional={showDrop=true, titleStyle, bodyStyle, titleAlign:left|center|right, bodyAlign:left|center|right, minWidthRatio, maxWidthRatio, gap, levelSurface, density, tone, variant, surface} capacity="3-5 stages; bottom stages are narrow, so keep final-stage body short or set widthRatio; put multiple content blocks on wide upper/middle stages; valueLabel preserves the visible KPI and showDrop adds drop/gain text"
 - `gauge` — Single-value progress dial with threshold bands. Different from `progress-bar` (no zones). type='gauge' required={value, label} optional={max, unit, thresholds:[{upTo, tone:danger|warning|positive|brand, label?}]}
 - `heatmap` — N×M colored value matrix, max 12×12. type='heatmap' required={xLabels, yLabels, values:[[number]]} optional={palette:warm|cool|diverging, showValues}
-- `matrix-2x2` — 2-axis quadrant matrix. Two authoring modes: `items:[{label,x,y,tone?}]` and/or `quadrantLabels:{tl,tr,bl,br}`; pass at least one. type='matrix-2x2' required={xAxis:{low,high}, yAxis:{low,high}} optional={items, quadrantLabels, quadrantTones}
+- `matrix-2x2` — 2-axis quadrant matrix. Two modes: `items:[{label|title|name|text,x|column,y|row,quadrant?,tone?}]` and/or `quadrantLabels:{tl|topLeft,tr|topRight,bl|bottomLeft,br|bottomRight}`; pass at least one. type='matrix-2x2' required={items | quadrantLabels | quadrants} optional={xAxis/yAxis or x/y or axes:{x,y}, quadrantTones, density:auto|comfortable|compact, showAxes} capacity="Default auto uses compact internals for split/grid regions; use comfortable only when the matrix is the main object."
 - `trend-line` — Mini sparkline (decoration next to a metric or heading). type='trend-line' required={values (max 24)} optional={tone, height}
 - `stat-flow` — Stat blocks connected by operator text for formulas/KPI cause-effect. type='stat-flow' required={steps:[{value,label,tone?} | {connector: string}] (max 10)}
 - `donut-summary` — Primary share + remainder legend. Different from `chart-card` pie. type='donut-summary' required={primary:{label,value}} optional={others, unit, tone}

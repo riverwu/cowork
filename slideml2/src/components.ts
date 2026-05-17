@@ -2447,6 +2447,8 @@ export function keyTakeaway(
   const denseHeadline = options.density === "compact" || weightedTextLength(headline) > 36;
   const denseDetail = weightedTextLength(detailPlain) > 44 || (options.bullets || []).length >= 4;
   const compact = options.density === "compact" || denseHeadline || denseDetail;
+  const hasBullets = Boolean(options.bullets && options.bullets.length);
+  const compactBulletHeadline = compact && hasBullets;
   // Thicker accent bar (0.18cm vs the previous 0.12) + a longer rule
   // (3.2cm) to give the takeaway visual weight against a busy slide.
   const children: DomNode[] = [
@@ -2465,12 +2467,12 @@ export function keyTakeaway(
       id: `${slideId}.${id}.headline`,
       type: "text",
       text: headline,
-      style: denseHeadline ? "lead" : "section-title",
-      size: denseHeadline ? "md" : "lg",
+      style: compactBulletHeadline ? "card-title" : denseHeadline ? "lead" : "section-title",
+      size: compactBulletHeadline ? undefined : denseHeadline ? "md" : "lg",
       color: "text.primary",
       align: "left",
       autoFit: "shrink",
-      minHeight: denseHeadline ? 0.55 : undefined,
+      minHeight: estimateTakeawayHeadlineMinHeight(headline, compact, hasBullets),
     });
   }
   if (detail.text || detail.content) {
@@ -2531,6 +2533,23 @@ function estimateTakeawayDetailMinHeight(text: string, compact: boolean): number
   const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / (compact ? 46 : 40)));
   const lineHeight = compact ? 0.46 : 0.58;
   return Math.max(compact ? 0.68 : 0.82, Math.min(compact ? 2.1 : 2.6, estimatedLines * lineHeight + 0.14));
+}
+
+function estimateTakeawayHeadlineMinHeight(text: string, compact: boolean, hasBullets: boolean): number | undefined {
+  if (!text.trim()) return undefined;
+  if (!compact) return undefined;
+  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const weighted = weightedTextLength(text);
+  // Compact rail takeaways often pair a short headline with bullets. In that
+  // shape the headline uses card-title scale and must reserve two-line height
+  // before the bullet list starts; otherwise PowerPoint renders the wrapped
+  // second line over the first bullet even though the DOM boxes do not overlap.
+  const capacity = hasBullets ? 17 : 24;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / capacity));
+  const lineHeight = hasBullets ? 0.54 : 0.62;
+  const min = hasBullets ? 0.72 : 0.62;
+  const max = hasBullets ? 1.7 : 1.85;
+  return Math.max(min, Math.min(max, estimatedLines * lineHeight + 0.14));
 }
 
 export function numberedGrid(
@@ -4122,9 +4141,22 @@ export function matrix2x2(
     items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: "brand" | "positive" | "warning" | "danger" }>;
     quadrantLabels?: { tl?: string; tr?: string; bl?: string; br?: string };
     quadrantTones?: { tl?: "brand" | "positive" | "warning" | "danger" | "neutral"; tr?: "brand" | "positive" | "warning" | "danger" | "neutral"; bl?: "brand" | "positive" | "warning" | "danger" | "neutral"; br?: "brand" | "positive" | "warning" | "danger" | "neutral" };
+    density?: "comfortable" | "compact" | "auto";
+    showXAxis?: boolean;
+    showYAxis?: boolean;
   } & { surface?: AgentSurface } & AgentSurface,
 ): DomNode {
   const items = options.items || [];
+  const compact = options.density !== "comfortable";
+  const rootGap = compact ? 0.10 : 0.18;
+  const gridGap = compact ? 0.16 : 0.25;
+  const cellPadding = compact ? 0.24 : 0.4;
+  const cellGap = compact ? 0.10 : 0.15;
+  const labelMinHeight = compact ? 0.38 : 0.52;
+  const itemMinHeight = compact ? 0.34 : 0.45;
+  const axisMinHeight = compact ? 0.28 : 0.36;
+  const showXAxis = options.showXAxis !== false;
+  const showYAxis = options.showYAxis !== false;
   // Group items by quadrant — stack item labels inside each quadrant.
   const quadrants: Record<"tl" | "tr" | "bl" | "br", Array<{ label: string; tone: string }>> = { tl: [], tr: [], bl: [], br: [] };
   for (const it of items) {
@@ -4135,13 +4167,11 @@ export function matrix2x2(
   const ql = options.quadrantLabels || {};
   const qt = options.quadrantTones || {};
   // Label-only mode: when no items are placed, the quadrantLabels become the
-  // primary content of each cell — render them at section-title weight on a
-  // tinted surface so the matrix communicates the four-quadrant story even
-  // without per-item dots. Default per-quadrant tones differentiate the
-  // cells visually (BCG / 2x2 priority conventions): top-right is the
-  // headline quadrant (positive), top-left and bottom-right are caveats
-  // (warning), bottom-left is the de-prioritized cell (neutral). Authors
-  // override via quadrantTones.
+  // primary content of each cell. Keep the typography at card-title scale,
+  // not section-title scale: a matrix cell is often placed inside a split or
+  // rail, and four section-title blocks consume too much of that region.
+  // Default per-quadrant tones differentiate the cells visually (BCG / 2x2
+  // priority conventions). Authors override via quadrantTones.
   const labelOnly = items.length === 0;
   const tintFor = (tone: string | undefined): { fill: string; ink: string; line: string } => {
     if (tone === "positive") return { fill: "success.tint", ink: "success", line: "success" };
@@ -4165,13 +4195,13 @@ export function matrix2x2(
       type: "card",
       fill: tint.fill,
       line: tint.line,
-      padding: 0.4,
+      padding: cellPadding,
       elevation: "flat",
       children: [{
         id: `${slideId}.${id}.${key}.stack`,
         type: "stack",
         direction: "vertical",
-        gap: 0.15,
+        gap: cellGap,
         align: labelOnly ? "center" as const : "start" as const,
         valign: labelOnly ? "middle" as const : "top" as const,
         children: [
@@ -4179,12 +4209,12 @@ export function matrix2x2(
             id: `${slideId}.${id}.${key}.qlabel`,
             type: "text" as const,
             text: qLabel,
-            style: labelOnly ? "section-title" : "label",
+            style: labelOnly ? "card-title" : "label",
             color: labelOnly ? tint.ink : "text.muted",
             tracking: labelOnly ? undefined : "wide" as const,
             weight: labelOnly ? "semibold" as const : undefined,
             align: labelOnly ? "center" as const : "left" as const,
-            minHeight: labelOnly ? 0.6 : 0.32,
+            minHeight: labelOnly ? labelMinHeight : 0.30,
             autoFit: "shrink" as const,
           }] : []),
           ...quadrants[key]!.map((it, idx) => {
@@ -4201,7 +4231,7 @@ export function matrix2x2(
               fill,
               align: "left" as const,
               cornerRadius: 0.08,
-              minHeight: 0.45,
+              minHeight: itemMinHeight,
               autoFit: "shrink" as const,
             };
           }),
@@ -4220,7 +4250,7 @@ export function matrix2x2(
     fill: "surface.subtle",
     line: "divider",
     cornerRadius: 0.08,
-    padding: 0.10,
+    padding: compact ? 0.06 : 0.10,
     children: [{
       id: `${slideId}.${id}.${idSuffix}.text`,
       type: "text",
@@ -4230,44 +4260,46 @@ export function matrix2x2(
       color: "text.primary",
       align: "center",
       tracking: "wide",
-      minHeight: 0.36,
+      minHeight: axisMinHeight,
       autoFit: "shrink",
     }],
   } as unknown as DomNode);
+  const grid: DomNode = {
+    id: `${slideId}.${id}.grid`,
+    type: "grid",
+    columns: 2,
+    gap: gridGap,
+    layoutWeight: 1,
+    children: [
+      renderQuadrant("tl", ql.tl),
+      renderQuadrant("tr", ql.tr),
+      renderQuadrant("bl", ql.bl),
+      renderQuadrant("br", ql.br),
+    ],
+  } as DomNode;
+  const xAxisRow: DomNode = {
+    id: `${slideId}.${id}.x-axis`,
+    type: "stack",
+    direction: "horizontal",
+    gap: compact ? 0.28 : 0.4,
+    children: [
+      { id: `${slideId}.${id}.xlo`, type: "text", text: options.xAxis.low, style: "label", color: "text.muted", align: "left", tracking: "wide", layoutWeight: 1, minHeight: compact ? 0.28 : 0.32, autoFit: "shrink" },
+      { id: `${slideId}.${id}.xhi`, type: "text", text: options.xAxis.high, style: "label", color: "text.muted", align: "right", tracking: "wide", layoutWeight: 1, minHeight: compact ? 0.28 : 0.32, autoFit: "shrink" },
+    ],
+  } as DomNode;
+  const children: DomNode[] = [
+    ...(showYAxis ? [yAxisBand(options.yAxis.high, "yhi")] : []),
+    grid,
+    ...(showYAxis ? [yAxisBand(options.yAxis.low, "ylo")] : []),
+    ...(showXAxis ? [xAxisRow] : []),
+  ];
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.18,
+    gap: rootGap,
     role: "matrix-2x2",
-    children: [
-      yAxisBand(options.yAxis.high, "yhi"),
-      {
-        id: `${slideId}.${id}.grid`,
-        type: "grid",
-        columns: 2,
-        gap: 0.25,
-        layoutWeight: 1,
-        children: [
-          renderQuadrant("tl", ql.tl),
-          renderQuadrant("tr", ql.tr),
-          renderQuadrant("bl", ql.bl),
-          renderQuadrant("br", ql.br),
-        ],
-      },
-      yAxisBand(options.yAxis.low, "ylo"),
-      // x-axis labels row
-      {
-        id: `${slideId}.${id}.x-axis`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0.4,
-        children: [
-          { id: `${slideId}.${id}.xlo`, type: "text", text: options.xAxis.low, style: "label", color: "text.muted", align: "left", tracking: "wide", layoutWeight: 1, minHeight: 0.32, autoFit: "shrink" },
-          { id: `${slideId}.${id}.xhi`, type: "text", text: options.xAxis.high, style: "label", color: "text.muted", align: "right", tracking: "wide", layoutWeight: 1, minHeight: 0.32, autoFit: "shrink" },
-        ],
-      },
-    ],
+    children,
   } as DomNode, options);
 }
 
@@ -4558,6 +4590,12 @@ export function calloutMarker(
   const tone = options.tone || "brand";
   const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "surface";
   const fgToken = tone === "neutral" ? "text.primary" : "text.inverse";
+  const width = Number.isFinite(options.width) && (options.width || 0) > 0
+    ? Math.max(2.4, Math.min(8.0, options.width!))
+    : textChipWidthCm(options.text, { min: 3.2, max: 7.0, padding: 0.9, latin: 0.2, cjk: 0.34 });
+  const height = Number.isFinite(options.height) && (options.height || 0) > 0
+    ? Math.max(0.8, Math.min(4.0, options.height!))
+    : estimateCalloutMarkerHeightCm(options.text, width);
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "text",
@@ -4568,12 +4606,21 @@ export function calloutMarker(
     fill: fillToken,
     align: "center",
     valign: "middle",
+    autoFit: "shrink",
     cornerRadius: 0.15,
     role: "callout-marker",
     anchor: options.anchor || "top-right",
-    width: options.width || 4,
-    height: options.height || 1.2,
+    width,
+    height,
   } as unknown as DomNode, options);
+}
+
+function estimateCalloutMarkerHeightCm(text: string, widthCm: number): number {
+  const capacity = Math.max(8, Math.floor((Math.max(2.4, widthCm) - 0.8) / 0.32));
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .reduce((sum, line) => sum + Math.max(1, Math.ceil(weightedTextLength(line.trim() || " ") / capacity)), 0);
+  return Math.max(1.05, Math.min(3.2, 0.6 + lines * 0.42));
 }
 
 /**
@@ -4770,9 +4817,8 @@ export function cornerMark(
   const fillToken = tone === "brand" ? "brand.primary" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "text.muted";
   const corner = options.corner || "top-right";
   const style = options.style || "tag";
-  // Estimate width per char
-  let width = 0.7;
-  for (const ch of options.text) width += /[\u4e00-\u9fff]/.test(ch) ? 0.5 : 0.18;
+  const renderedText = style !== "ribbon" ? options.text.toUpperCase() : options.text;
+  const width = textChipWidthCm(renderedText, { min: 2.0, max: 7.2, padding: 0.9, latin: 0.24, cjk: 0.48 });
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "text",
@@ -4785,9 +4831,11 @@ export function cornerMark(
     fill: fillToken,
     align: "center",
     valign: "middle",
+    autoFit: "shrink",
+    noWrap: true,
     cornerRadius: style === "ribbon" ? 0 : style === "stamp" ? 0.2 : 0.08,
-    fixedHeight: 0.7,
-    fixedWidth: Math.max(2, Math.min(6, width)),
+    width,
+    height: style === "ribbon" ? 0.76 : 0.72,
     role: "corner-mark",
     anchor: corner,
   } as unknown as DomNode, options);
@@ -4817,6 +4865,7 @@ export function brandMark(
       : tone === "neutral" ? "text.secondary"
         : "text.muted";
   const align = corner.endsWith("-right") ? "right" : "left";
+  const width = options.width ?? textChipWidthCm(options.text, { min: 2.4, max: 6.4, padding: 0.75, latin: 0.19, cjk: 0.36 });
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "text",
@@ -4826,10 +4875,11 @@ export function brandMark(
     align,
     valign: "middle",
     autoFit: "shrink",
+    noWrap: true,
     role: "brand-mark",
     anchor: corner,
-    width: options.width || 3.2,
-    height: options.height || 0.45,
+    width,
+    height: options.height || 0.58,
     offsetX: options.offsetX ?? 0.75,
     offsetY: options.offsetY ?? 0.55,
     zIndex: 5,
@@ -5007,8 +5057,21 @@ export function pointerArrow(
   const tone = options.tone || "brand";
   const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
   const horizontal = direction === "right" || direction === "left";
-  const hasLabel = Boolean(options.label && options.label.trim());
-  const width = Math.max(options.width || (horizontal ? 3.4 : 1.6), horizontal ? (hasLabel ? 2.2 : 1.8) : 1.2);
+  const labelText = (options.label ?? "").trim();
+  const hasLabel = Boolean(labelText);
+  const labelWidth = hasLabel
+    ? textChipWidthCm(labelText, {
+      min: horizontal ? 2.2 : 1.4,
+      max: horizontal ? 6.8 : 3.2,
+      padding: 0.75,
+      latin: 0.2,
+      cjk: 0.34,
+    })
+    : 0;
+  const defaultWidth = horizontal
+    ? Math.max(3.4, labelWidth)
+    : Math.max(1.6, Math.min(3.2, labelWidth || 1.6));
+  const width = Math.max(options.width || defaultWidth, horizontal ? (hasLabel ? 2.2 : 1.8) : 1.2);
   const height = Math.max(options.height || (horizontal ? (hasLabel ? 1.1 : 0.75) : 2.4), horizontal ? (hasLabel ? 1.4 : 0.85) : (hasLabel ? 2.8 : 2.1));
   const arrowPreset = horizontal ? "arrow-right" : "arrow-down";
   const arrow: DomNode = {
@@ -5027,13 +5090,14 @@ export function pointerArrow(
   const label = hasLabel ? {
     id: `${slideId}.${id}.label`,
     type: "text" as const,
-    text: (options.label ?? "").trim(),
+    text: labelText,
     style: "label",
     weight: "bold",
     color: accent,
     align: "center" as const,
     valign: "middle" as const,
     autoFit: "shrink" as const,
+    noWrap: true,
     minHeight: 0.35,
   } : null;
   return applyAgentSurface({

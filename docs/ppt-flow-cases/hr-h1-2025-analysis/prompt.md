@@ -5,11 +5,11 @@
 
 工作流要求：
 - 必须先用 `read_file` 读取 `/Users/river/.cowork/skills/slideml2/SKILL.md`，严格按其中的 manifest + CLI 工作流执行；不要使用旧的 `create_deck` / `replace_slide` / `validate_render` 工具。
-- Excel 是结构化二进制文件，read_file 只能作为快速预览；必须使用 run_python + openpyxl 或等价 Python 解析方式读取工作表、单元格区域、公式结果和图表元数据。
+- Excel 是结构化二进制文件，read_file 只能作为快速预览；必须通过 `shell` 运行 Python/openpyxl 或等价脚本读取工作表、单元格区域、公式结果和图表元数据，不要使用 `run_python` 或 `run_node` 绕过本 case 的标准 CLI 流程。
 - 不允许使用 web_search / web_fetch；本测试只评估基于用户提供 Excel 的离线分析能力。
 - 将你对 Excel 的结构理解、关键数值、图表重建方案和页结构写入工作区的 `plan.md` 或 `source_notes.md`。
 - 使用 SKILL.md 中的 CLI 初始化 `deck-config.json`；每次只写一个 `slides/*.json`，立刻运行 `validate-slide`。若失败，只修正同一个 slide 文件并重跑 `validate-slide`，通过后再写下一页；创建期间和修改期间都不允许批量 validate 或批量生成后再回头修。
-- 全部页面通过后，写 `manifest.json` 控制页序，运行 `validate-manifest`，最后用 `compose --write-source build/deck.json --out {{outputPath}}` 生成 PPTX。
+- 全部页面通过后，写 `manifest.json` 控制页序，运行 `validate-manifest`，最后用 `compose --out {{outputPath}}` 生成 PPTX；deck source sidecar 由 CLI 自动输出。
 - 最终 PPTX 输出到：{{outputPath}}
 
 已知输入结构（仍需你用 Python 核验）：

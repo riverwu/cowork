@@ -864,12 +864,18 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     palette: { type: "enum", enum: ["warm", "cool", "diverging"], description: "Color palette (default cool)." },
     showValues: { type: "boolean", description: "Render numeric values inside cells (default auto by size)." },
   }, "grid of colored cells with axis labels", "stack"),
-  component("matrix-2x2", "2x2 quadrant matrix with labeled axes. Use for risk-matrix (impact × probability), priority (effort × value), Boston matrix, market segmentation. Different from swot-matrix which has fixed S/W/O/T semantics. Two authoring modes: (1) item-style — pass `items` with each entry placed in a quadrant via x/y enum; (2) label-style — pass only `quadrantLabels {tl,tr,bl,br}` to render each quadrant as a tinted card carrying just the corner label/headline. At least one of `items` or `quadrantLabels` is required.", {
-    xAxis: { type: "object", required: true, description: "{low:string, high:string} — x-axis labels." },
-    yAxis: { type: "object", required: true, description: "{low:string, high:string} — y-axis labels." },
-    items: { type: "array", description: "Array of {label:string, x:enum[low|high], y:enum[low|high], tone?}. Optional when quadrantLabels alone describes the matrix." },
-    quadrantLabels: { type: "object", description: "Optional {tl?:string, tr?:string, bl?:string, br?:string} corner names (e.g. \"Quick Wins\"). When provided without items, each quadrant renders as a tinted summary card." },
+  component("matrix-2x2", "2x2 quadrant matrix with labeled axes. Use for risk-matrix (impact × probability), priority (effort × value), Boston matrix, market segmentation. Different from swot-matrix which has fixed S/W/O/T semantics. Two authoring modes: (1) item-style — pass `items` with each entry placed in a quadrant via x/y enum; (2) label-style — pass `quadrantLabels {tl,tr,bl,br}` or `quadrants` to render each quadrant as a tinted card carrying just the corner label/headline. At least one of `items`, `quadrantLabels`, or `quadrants` is required.", {
+    xAxis: { type: "object", description: "{low:string, high:string} — x-axis labels. Alias: x, axes.x, xLow/xHigh." },
+    yAxis: { type: "object", description: "{low:string, high:string} — y-axis labels. Alias: y, axes.y, yLow/yHigh." },
+    x: { type: "object", description: "Alias for xAxis." },
+    y: { type: "object", description: "Alias for yAxis." },
+    axes: { type: "object", description: "Alias bundle {x:{low,high}, y:{low,high}}." },
+    items: { type: "array", description: "Array of {label|title|name|text, x|column:low|high|left|right, y|row:low|high|top|bottom, quadrant?:tl|tr|bl|br, tone?}. Optional when quadrantLabels alone describes the matrix." },
+    quadrantLabels: { type: "object", description: "Optional {tl|topLeft, tr|topRight, bl|bottomLeft, br|bottomRight} corner names (e.g. \"Quick Wins\"). When provided without items, each quadrant renders as a tinted summary card." },
     quadrantTones: { type: "object", description: "Optional {tl?,tr?,bl?,br?: enum[brand|positive|warning|danger|neutral]} — per-quadrant accent tone, applied in label-only mode (no items[]). In item-style mode set per-item `tone` instead — quadrant cells stay neutral there so the data points stand out." },
+    quadrants: { type: "array", description: "Optional label-style alias: [{quadrant|position:'tl|tr|bl|br', label|title|name|text, tone?}], or an object using topLeft/topRight/bottomLeft/bottomRight keys." },
+    density: { type: "enum", enum: ["auto", "comfortable", "compact"], description: "auto/default uses compact internals so the matrix works inside split/grid regions; comfortable restores larger gaps." },
+    showAxes: { type: "boolean", description: "Force axis labels on/off. By default axes render only when axis labels were explicitly provided." },
   }, "stack(yhi-label, 2x2 grid of quadrant cards, ylo-label, x-axis labels)", "stack"),
   component("trend-line", "Mini sparkline / trend visualization (bars whose height reflects values). Use as decoration next to a metric or under a heading. Different from chart-card (full chart with axes/legend) — trend-line is just the shape.", {
     values: { type: "array", required: true, description: "Array of numbers (max 24)." },
@@ -890,12 +896,12 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Bar color tone." },
   }, "stack of label + range-bar + optional pointer", "stack"),
   // ---------- DECORATION components ----------
-  component("callout-marker", "Anchored bubble with text — floats over slide content via anchor positioning. Use to point at a region of an image, chart, or hero element. Different from annotation (inline label, no anchor).", {
+  component("callout-marker", "Anchored bubble with text — floats over slide content via anchor positioning. Use to point at a region of an image, chart, or hero element. Different from annotation (inline label, no anchor). If width/height are omitted, the renderer sizes the bubble from text length.", {
     text: { type: "string", required: true, description: "The bubble text." },
     anchor: { type: "enum", enum: ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"], description: "Slide-relative anchor position." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Bubble color tone." },
-    width: { type: "number", description: "Bubble width in cm (default 4)." },
-    height: { type: "number", description: "Bubble height in cm (default 1.2)." },
+    width: { type: "number", description: "Bubble width in cm. Omit for text-based auto sizing." },
+    height: { type: "number", description: "Bubble height in cm. Omit for text-based auto sizing." },
   }, "anchored text shape with rounded corners", "stack"),
   component("decoration-grid", "Geometric pattern background (dots, diagonals, grid lines). Use for cover slide texture, section-break decoration, empty-area visual interest.", {
     pattern: { type: "enum", enum: ["dots", "diagonal-lines", "grid"], description: "Pattern type (default dots)." },
@@ -914,18 +920,18 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     height: { type: "number", description: "Cluster height in cm for corner positions." },
     asBackground: { type: "boolean", description: "Default true: places the motif behind content. Set false for foreground decorative accents." },
   }, "anchored grid of vector shape marks", "grid"),
-  component("corner-mark", "Small ribbon/stamp/tag in a slide corner — DRAFT, CONFIDENTIAL, V2.0 style markers. Anchored to corner, doesn't compete with main content.", {
+  component("corner-mark", "Small ribbon/stamp/tag in a slide corner — DRAFT, CONFIDENTIAL, V2.0 style markers. Anchored to corner, doesn't compete with main content. Width is estimated from text and defaults to no-wrap.", {
     text: { type: "string", required: true, description: "The marker text." },
     corner: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right"], description: "Corner position (default top-right)." },
     tone: { type: "enum", enum: ["brand", "warning", "danger", "neutral"], description: "Color tone (default warning)." },
     style: { type: "enum", enum: ["ribbon", "stamp", "tag"], description: "Visual style (default tag)." },
   }, "anchored corner-positioned label shape", "stack"),
-  component("brand-mark", "Small brand/source label anchored to a slide corner. Use for unobtrusive footer marks such as customer, partner, source, or logo text. Prefer this over hand-coded at coordinates for corner labels.", {
+  component("brand-mark", "Small brand/source label anchored to a slide corner. Use for unobtrusive footer marks such as customer, partner, source, or logo text. Prefer this over hand-coded at coordinates for corner labels. Width is estimated from text and defaults to no-wrap.", {
     text: { type: "string", required: true, description: "Brand/source label text." },
     corner: { type: "enum", enum: ["top-left", "top-right", "bottom-left", "bottom-right"], description: "Corner anchor (default bottom-right)." },
     tone: { type: "enum", enum: ["muted", "neutral", "inverse", "brand"], description: "Color tone (default muted)." },
-    width: { type: "number", description: "Label box width in cm (default 3.2)." },
-    height: { type: "number", description: "Label box height in cm (default 0.45)." },
+    width: { type: "number", description: "Label box width in cm. Omit for text-based auto sizing." },
+    height: { type: "number", description: "Label box height in cm (default 0.58)." },
     offsetX: { type: "number", description: "Inset from left/right edge in cm (default 0.75)." },
     offsetY: { type: "number", description: "Inset from top/bottom edge in cm (default 0.55)." },
   }, "anchored text label", "stack"),
@@ -941,7 +947,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     direction: { type: "enum", enum: ["right", "down"], description: "Arrow direction (default right)." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Arrow color tone." },
   }, "stack of from-label, arrow, to-label", "stack"),
-  component("pointer-arrow", "Anchored directional arrow used to point at a region of an image, chart, diagram, or highlighted object. Different from arrow-link: this is an overlay annotation arrow, not an inline flow connector.", {
+  component("pointer-arrow", "Anchored directional arrow used to point at a region of an image, chart, diagram, or highlighted object. Different from arrow-link: this is an overlay annotation arrow, not an inline flow connector. If width/height are omitted, the renderer sizes the overlay from the label and arrow direction.", {
     label: { type: "string", description: "Optional label above/beside the arrow." },
     direction: { type: "enum", enum: ["right", "left", "down", "up"], description: "Direction the arrow points (default right)." },
     anchor: { type: "enum", enum: ["top-left", "top-center", "top-right", "middle-left", "middle-center", "middle-right", "bottom-left", "bottom-center", "bottom-right"], description: "Slide-relative anchor position." },
@@ -2033,29 +2039,39 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
   if (componentName === "matrix-2x2") {
     type MatItemTone = "brand" | "positive" | "warning" | "danger";
     type MatQuadrantTone = MatItemTone | "neutral";
-    const xAxis = node.xAxis && typeof node.xAxis === "object" ? node.xAxis as { low: string; high: string } : { low: "Low", high: "High" };
-    const yAxis = node.yAxis && typeof node.yAxis === "object" ? node.yAxis as { low: string; high: string } : { low: "Low", high: "High" };
+    const xAxis = matrixAxis(node, "x");
+    const yAxis = matrixAxis(node, "y");
     const items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: MatItemTone }> = Array.isArray(node.items) ? node.items.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-      const tRaw = rec.tone;
-      const tone: MatItemTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : undefined;
-      const x: "low" | "high" = rec.x === "high" ? "high" : "low";
-      const y: "low" | "high" = rec.y === "high" ? "high" : "low";
-      return { label: stringValue(rec.label, ""), x, y, tone };
+      const rec: Record<string, unknown> = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : { label: raw };
+      const normalizedTone = normalizeToneAlias(rec.tone ?? rec.status);
+      const tone: MatItemTone | undefined = normalizedTone === "brand" || normalizedTone === "positive" || normalizedTone === "warning" || normalizedTone === "danger" ? normalizedTone : undefined;
+      const quadrant = matrixQuadrant(rec.quadrant ?? rec.position ?? rec.cell ?? rec.zone);
+      const position = objectRecord(rec.position);
+      const x: "low" | "high" = matrixPosition(position?.x ?? rec.x ?? rec.xAxis ?? rec.column ?? rec.col ?? rec.horizontal)
+        ?? (quadrant ? matrixQuadrantToPosition(quadrant).x : "low");
+      const y: "low" | "high" = matrixPosition(position?.y ?? rec.y ?? rec.yAxis ?? rec.row ?? rec.vertical)
+        ?? (quadrant ? matrixQuadrantToPosition(quadrant).y : "low");
+      return { label: semanticTextValue(rec, "label", "title", "name", "text", "headline", "item", "summary"), x, y, tone };
     }).filter((it) => it.label) : [];
-    const ql = node.quadrantLabels && typeof node.quadrantLabels === "object" ? node.quadrantLabels as Record<string, unknown> : {};
-    const qt = node.quadrantTones && typeof node.quadrantTones === "object" ? node.quadrantTones as Record<string, unknown> : {};
-    const tone = (raw: unknown): MatQuadrantTone | undefined =>
-      raw === "brand" || raw === "positive" || raw === "warning" || raw === "danger" || raw === "neutral" ? raw : undefined;
+    const ql = matrixQuadrantLabels(node);
+    const qt = matrixQuadrantTones(node);
+    const tone = (raw: unknown): MatQuadrantTone | undefined => {
+      const normalized = normalizeToneAlias(raw);
+      return normalized === "brand" || normalized === "positive" || normalized === "warning" || normalized === "danger" || normalized === "neutral"
+        ? normalized
+        : undefined;
+    };
+    const showAxes = typeof node.showAxes === "boolean" ? node.showAxes : undefined;
+    const density = node.density === "comfortable" || node.density === "compact" || node.density === "auto" ? node.density : undefined;
     return withComponentRoot(node, matrix2x2(slideId, name, {
-      xAxis: { low: stringValue(xAxis.low, "Low"), high: stringValue(xAxis.high, "High") },
-      yAxis: { low: stringValue(yAxis.low, "Low"), high: stringValue(yAxis.high, "High") },
+      xAxis: { low: xAxis.low, high: xAxis.high },
+      yAxis: { low: yAxis.low, high: yAxis.high },
       items,
       quadrantLabels: {
-        tl: stringValue(ql.tl, "") || undefined,
-        tr: stringValue(ql.tr, "") || undefined,
-        bl: stringValue(ql.bl, "") || undefined,
-        br: stringValue(ql.br, "") || undefined,
+        tl: ql.tl || undefined,
+        tr: ql.tr || undefined,
+        bl: ql.bl || undefined,
+        br: ql.br || undefined,
       },
       quadrantTones: {
         tl: tone(qt.tl),
@@ -2063,6 +2079,9 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
         bl: tone(qt.bl),
         br: tone(qt.br),
       },
+      density,
+      showXAxis: showAxes ?? xAxis.explicit,
+      showYAxis: showAxes ?? yAxis.explicit,
     }));
   }
   if (componentName === "trend-line") {
@@ -6474,6 +6493,129 @@ function treeChartStyleOptions(node: DomNode): TreeChartStyleOptions {
 function objectRecord(value: unknown): Record<string, unknown> | undefined {
   if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
   return undefined;
+}
+
+type MatrixQuadrant = "tl" | "tr" | "bl" | "br";
+type MatrixPosition = "low" | "high";
+
+const MATRIX_QUADRANT_ALIASES: Record<MatrixQuadrant, string[]> = {
+  tl: ["tl", "topLeft", "top_left", "top-left", "upperLeft", "upper_left", "leftTop", "left_top", "yHighXLow", "xLowYHigh"],
+  tr: ["tr", "topRight", "top_right", "top-right", "upperRight", "upper_right", "rightTop", "right_top", "yHighXHigh", "xHighYHigh"],
+  bl: ["bl", "bottomLeft", "bottom_left", "bottom-left", "lowerLeft", "lower_left", "leftBottom", "left_bottom", "yLowXLow", "xLowYLow"],
+  br: ["br", "bottomRight", "bottom_right", "bottom-right", "lowerRight", "lower_right", "rightBottom", "right_bottom", "yLowXHigh", "xHighYLow"],
+};
+
+function matrixAxis(node: DomNode, side: "x" | "y"): { low: string; high: string; explicit: boolean } {
+  const axes = objectRecord(node.axes) ?? objectRecord(node.axis);
+  const rec = side === "x"
+    ? objectRecord(node.xAxis) ?? objectRecord(node.x) ?? objectRecord(axes?.x) ?? objectRecord(axes?.horizontal)
+    : objectRecord(node.yAxis) ?? objectRecord(node.y) ?? objectRecord(axes?.y) ?? objectRecord(axes?.vertical);
+  const labels = Array.isArray(rec?.labels) ? rec?.labels as unknown[] : Array.isArray(rec?.range) ? rec?.range as unknown[] : undefined;
+  const low = semanticTextValue(rec || {}, "low", "min", "lo", "lower", side === "x" ? "left" : "bottom", "start")
+    || semanticScalarText(labels?.[0])
+    || semanticTextValue(node as Record<string, unknown>, `${side}Low`, `${side}Min`, `${side}Lo`, side === "x" ? "xLeft" : "yBottom");
+  const high = semanticTextValue(rec || {}, "high", "max", "hi", "upper", side === "x" ? "right" : "top", "end")
+    || semanticScalarText(labels?.[1])
+    || semanticTextValue(node as Record<string, unknown>, `${side}High`, `${side}Max`, `${side}Hi`, side === "x" ? "xRight" : "yTop");
+  return {
+    low: low || "Low",
+    high: high || "High",
+    explicit: Boolean(low || high),
+  };
+}
+
+function matrixPosition(value: unknown): MatrixPosition | undefined {
+  if (typeof value === "boolean") return value ? "high" : "low";
+  if (typeof value === "number" && Number.isFinite(value)) return value > 0.5 ? "high" : "low";
+  if (typeof value !== "string") return undefined;
+  const v = value.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  if (!v) return undefined;
+  if (["high", "hi", "h", "max", "right", "r", "top", "upper", "up", "end", "yes", "true", "2"].includes(v)) return "high";
+  if (["low", "lo", "l", "min", "left", "bottom", "lower", "down", "start", "no", "false", "1", "0"].includes(v)) return "low";
+  return undefined;
+}
+
+function matrixQuadrant(value: unknown): MatrixQuadrant | undefined {
+  const text = typeof value === "string"
+    ? value.trim()
+    : value && typeof value === "object" && !Array.isArray(value)
+      ? semanticTextValue(value as Record<string, unknown>, "quadrant", "position", "cell", "zone", "key", "id")
+      : "";
+  if (!text) return undefined;
+  const compact = text.toLowerCase().replace(/[\s_-]+/g, "");
+  for (const quadrant of Object.keys(MATRIX_QUADRANT_ALIASES) as MatrixQuadrant[]) {
+    if (MATRIX_QUADRANT_ALIASES[quadrant].some((alias) => alias.toLowerCase().replace(/[\s_-]+/g, "") === compact)) return quadrant;
+  }
+  return undefined;
+}
+
+function matrixQuadrantToPosition(quadrant: MatrixQuadrant): { x: MatrixPosition; y: MatrixPosition } {
+  return {
+    x: quadrant.endsWith("r") ? "high" : "low",
+    y: quadrant.startsWith("t") ? "high" : "low",
+  };
+}
+
+function matrixQuadrantLabels(node: DomNode): Record<MatrixQuadrant, string> {
+  const out: Record<MatrixQuadrant, string> = { tl: "", tr: "", bl: "", br: "" };
+  matrixApplyQuadrantTextRecord(out, objectRecord(node.quadrantLabels));
+  matrixApplyQuadrantTextRecord(out, objectRecord(node.labels));
+  matrixApplyQuadrantTextRecord(out, objectRecord(node.quadrants));
+  if (Array.isArray(node.quadrants)) {
+    for (const raw of node.quadrants) {
+      const rec = objectRecord(raw);
+      if (!rec) continue;
+      const quadrant = matrixQuadrant(rec.quadrant ?? rec.position ?? rec.cell ?? rec.zone);
+      if (!quadrant || out[quadrant]) continue;
+      out[quadrant] = semanticTextValue(rec, "label", "title", "name", "text", "headline", "summary");
+    }
+  }
+  return out;
+}
+
+function matrixQuadrantTones(node: DomNode): Record<MatrixQuadrant, unknown> {
+  const out: Record<MatrixQuadrant, unknown> = { tl: undefined, tr: undefined, bl: undefined, br: undefined };
+  matrixApplyQuadrantRawRecord(out, objectRecord(node.quadrantTones));
+  matrixApplyQuadrantRawRecord(out, objectRecord(node.tones));
+  if (Array.isArray(node.quadrants)) {
+    for (const raw of node.quadrants) {
+      const rec = objectRecord(raw);
+      if (!rec) continue;
+      const quadrant = matrixQuadrant(rec.quadrant ?? rec.position ?? rec.cell ?? rec.zone);
+      if (!quadrant || out[quadrant] !== undefined) continue;
+      out[quadrant] = rec.tone ?? rec.status;
+    }
+  }
+  return out;
+}
+
+function matrixApplyQuadrantTextRecord(out: Record<MatrixQuadrant, string>, rec: Record<string, unknown> | undefined): void {
+  if (!rec) return;
+  for (const quadrant of Object.keys(out) as MatrixQuadrant[]) {
+    if (out[quadrant]) continue;
+    out[quadrant] = matrixQuadrantRecordText(rec, quadrant);
+  }
+}
+
+function matrixApplyQuadrantRawRecord(out: Record<MatrixQuadrant, unknown>, rec: Record<string, unknown> | undefined): void {
+  if (!rec) return;
+  for (const quadrant of Object.keys(out) as MatrixQuadrant[]) {
+    if (out[quadrant] !== undefined) continue;
+    for (const alias of MATRIX_QUADRANT_ALIASES[quadrant]) {
+      if (rec[alias] !== undefined) {
+        out[quadrant] = rec[alias];
+        break;
+      }
+    }
+  }
+}
+
+function matrixQuadrantRecordText(rec: Record<string, unknown>, quadrant: MatrixQuadrant): string {
+  for (const alias of MATRIX_QUADRANT_ALIASES[quadrant]) {
+    const text = semanticScalarText(rec[alias]);
+    if (text) return text;
+  }
+  return "";
 }
 
 function treeChartAgentSurface(value: unknown): AgentSurface {

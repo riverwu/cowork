@@ -1180,6 +1180,48 @@ describe("component regressions", () => {
     }
   });
 
+  it("chart-with-rail compact takeaway does not let a wrapped headline collide with bullets", () => {
+    const slide: SlideV2 = {
+      id: "reg-rail-takeaway",
+      title: "半年度营收&人力同比",
+      children: [{
+        id: "reg-rail-takeaway.node-1",
+        type: "chart-with-rail",
+        chartType: "bar",
+        title: "H1 2024 vs H1 2025 核心指标对比",
+        layout: "rail-right",
+        ratio: [0.62, 0.38],
+        evidence: {
+          type: "chart-card",
+          chartType: "bar",
+          title: "",
+          labels: ["营收(未税)", "人力成本", "HC(avg)", "人数", "ROI"],
+          series: [
+            { name: "h1_2024", values: [31600, 10100, 328, 328, 3.13] },
+            { name: "h1_2025", values: [29200, 7300, 271, 271, 4.02] },
+          ],
+          showLegend: true,
+        },
+        keyTakeaway: {
+          headline: "营收降7.6%，成本压降28.2%",
+          detail: "营收：-7.6%（3.16亿→2.92亿）；人力成本压缩超四分之一（-28.2%）；HC减少17%（328人→271人）；人效提升+8.9%；ROI改善+28.7%。",
+        },
+      } as unknown as SlideV2["children"][number]],
+    };
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide(slide));
+    const ast = renderToAst(rendered);
+    const headlineShape = findRenderedByName(ast, "reg-rail-takeaway.node-1.rail.keyTakeaway.headline") as Extract<(typeof ast.slides)[number]["shapes"][number], { type: "text" }> | undefined;
+    const headlineRun = headlineShape?.type === "text" ? headlineShape.paragraphs?.[0]?.runs?.[0] : undefined;
+    expect(headlineRun?.sizeHalfPt).toBeLessThanOrEqual(28);
+
+    const measured = measureDeck(rendered)[0]!.nodes;
+    const headline = measured.find((entry) => entry.id === "reg-rail-takeaway.node-1.rail.keyTakeaway.headline")?.rect;
+    const bullets = measured.find((entry) => entry.id === "reg-rail-takeaway.node-1.rail.keyTakeaway.bullets")?.rect;
+    expect(headline).toBeDefined();
+    expect(bullets).toBeDefined();
+    expect(bullets!.y).toBeGreaterThanOrEqual(headline!.y + headline!.h + 0.1);
+  });
+
   it("org-chart normalizes oversized node styles so labels and role text stay readable", () => {
     const slide: SlideV2 = {
       id: "reg-org-style",
@@ -1920,6 +1962,113 @@ describe("component regressions", () => {
     const ast = renderToAst(sourceToRenderedDeck(deck));
     const body = findRenderedByName(ast, "line-spacing.body") as { paragraphs?: Array<{ lineSpacingHalfPt?: number }> } | undefined;
     expect(body?.paragraphs?.[0]?.lineSpacingHalfPt).toBeCloseTo(11 * 1.7 * 2, 2);
+  });
+
+  it("node lineSpacing can tighten a loose theme paragraph default", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "2563EB" },
+        themeOverride: { text: { paragraph: { fontSize: 11, lineHeight: 1.8 } } },
+      },
+      slides: [{
+        id: "line-spacing-override",
+        children: [{
+          id: "line-spacing-override.body",
+          type: "text",
+          text: "第一行\n第二行\n第三行",
+          style: "paragraph",
+          fontSize: 11,
+          lineSpacing: 1.5,
+        }],
+      }],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    const body = findRenderedByName(ast, "line-spacing-override.body") as { paragraphs?: Array<{ lineSpacingHalfPt?: number }> } | undefined;
+    expect(body?.paragraphs?.[0]?.lineSpacingHalfPt).toBeCloseTo(11 * 1.5 * 2, 2);
+  });
+
+  it("editorial mirror slide does not warn on readable quote text and keeps brand mark on one line", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { name: "堕落", primary: "C9A96E" },
+        themeOverride: {
+          colors: {
+            "surface.primary": "1A1A1A",
+            "text.primary": "E8E4D9",
+            "text.secondary": "9E9689",
+          },
+          text: {
+            paragraph: { fontSize: 14, lineHeight: 1.8, color: "text.secondary" },
+            label: { fontSize: 10.5, color: "text.secondary" },
+          },
+          layout: { contentTop: 1.2, contentBottom: 13.5, titleTop: 0, titleHeight: 0, defaultGap: 0.6, columnGap: 0.5, pageMarginX: 1.2 },
+          fonts: {
+            latin: { display: ["Georgia", "Times New Roman"], text: ["Georgia", "Times New Roman"] },
+            cjk: { display: ["Noto Serif SC", "STSong", "SimSun"], text: ["Noto Serif SC", "STSong", "SimSun"] },
+          },
+        },
+      },
+      slides: [{
+        id: "mirror",
+        background: { fill: "1A1A1A" },
+        children: [
+          {
+            id: "mirror.node-1",
+            type: "split",
+            direction: "horizontal",
+            ratio: [0.42, 0.58],
+            gap: 1.0,
+            area: "content",
+            children: [
+              { id: "mirror.node-1.1", type: "image", src: TINY_PNG, fit: "cover" },
+              {
+                id: "mirror.node-1.2",
+                type: "stack",
+                gap: 0.35,
+                children: [
+                  { id: "mirror.node-1.2.1", type: "spacer", fixedHeight: 0.3 },
+                  { id: "mirror.node-1.2.2", type: "text", text: "镜  子", fontSize: 36, color: "E8E4D9", letterSpacing: 12 },
+                  { id: "mirror.node-1.2.3", type: "text", text: "阿姆斯特丹的运河就是克拉芒斯的镜子。", fontSize: 12, color: "C9A96E", letterSpacing: 2 },
+                  {
+                    id: "mirror.node-1.2.4",
+                    type: "text",
+                    text: "水面不会说谎。倒影中的面孔是真实的。\n\n克拉芒斯住在运河边，说「水是最好的忏悔室」。在雾里和威士忌中，他对陌生人——也就是我们——不断倾诉和解剖自己。\n\n不是在寻求宽恕。只是想让另一个人也看到自己的倒影。",
+                    fontSize: 11,
+                    lineSpacing: 1.6,
+                    color: "A09988",
+                  },
+                  {
+                    id: "mirror.node-1.2.5",
+                    type: "text",
+                    text: "Aucun homme n'est innocent.\nEt il n'y en a pas non plus\nqui soit seul coupable.",
+                    fontSize: 11,
+                    lineSpacing: 1.5,
+                    fontStyle: "italic",
+                    color: "E8E4D9",
+                  },
+                ],
+              },
+            ],
+          } as unknown as DomNode,
+          { id: "mirror.node-2", type: "brand-mark", text: "The Fall · Albert Camus", corner: "bottom-right" } as unknown as DomNode,
+        ],
+      }],
+    };
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    const diagnostics = getRenderDiagnostics();
+    expect(diagnostics.filter((d) => d.nodeId === "mirror.node-1.2.5" && (d.code === "OVERFLOW" || d.code === "TRUNCATED"))).toHaveLength(0);
+    expect(diagnostics.filter((d) => d.nodeId === "mirror.node-2" && d.code === "TRUNCATED")).toHaveLength(0);
+    const mark = findRenderedByName(ast, "mirror.node-2") as { xfrm?: { cx: number; cy: number }; paragraphs?: Array<{ runs: Array<{ sizeHalfPt?: number }> }> } | undefined;
+    expect(mark?.xfrm?.cx).toBeGreaterThan(4.2 * 360000);
+    expect(mark?.xfrm?.cy).toBeGreaterThanOrEqual(0.55 * 360000);
+    expect(mark?.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt).toBeGreaterThanOrEqual(20);
   });
 
   it("validator rejects ignored CSS-style spacing fields and px-like primitive gaps", () => {

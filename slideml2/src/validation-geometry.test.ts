@@ -513,6 +513,89 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(long?.visualRect?.h).toBeLessThanOrEqual((long?.rect.h ?? 0) + 0.03);
   });
 
+  it("keeps fallback-shrunk short display text from inflating sibling ink overlap", () => {
+    clearRenderDiagnostics();
+    const measured = measureDeck({
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { name: "La Chute - Fall", primary: "2563EB" },
+        themeOverride: {
+          colors: {
+            background: "#0A0A0A",
+            surface: "#111111",
+            "text.primary": "#E8E0D5",
+            "text.secondary": "#8A8070",
+            "brand.primary": "#B8933F",
+            "gold.dark": "#6B5A2F",
+            gold: "#B8933F",
+            "gold.bright": "#E8C97A",
+            "blue.muted": "#6B7A8A",
+            danger: "#A05050",
+          },
+          text: {
+            "slide-title": { fontFamily: "display", fontSize: 36, fontWeight: "bold", color: "#E8C97A" },
+            "section-title": { fontFamily: "display", fontSize: 28, fontWeight: "bold", color: "#E8C97A" },
+            "card-title": { fontFamily: "display", fontSize: 18, fontWeight: "bold", color: "#E8E0D5" },
+            paragraph: { fontFamily: "text", fontSize: 16, lineSpacing: 1.5, color: "#E8E0D5" },
+            caption: { fontFamily: "text", fontSize: 12, color: "#8A8070" },
+            label: { fontFamily: "text", fontSize: 12, color: "#6B7A8A" },
+            "metric-value": { fontFamily: "display", fontSize: 72, fontWeight: "bold", color: "#B8933F" },
+          },
+          layout: { titleTop: 0, titleHeight: 0, contentTop: 0.6, contentBottom: 13.8, pageMarginX: 1.5 },
+          fonts: {
+            latin: { display: "Georgia", text: "Georgia" },
+            cjk: { display: "Noto Serif SC", text: "Noto Serif SC" },
+          },
+          chrome: { brandMark: "none" },
+        },
+      },
+      slides: [{
+        id: "ending-fit",
+        layout: "freeform",
+        dom: {
+          id: "ending-fit.root",
+          type: "slide",
+          background: "#0A0A0A",
+          children: [{
+            id: "ending-fit.stack",
+            type: "stack",
+            align: "center",
+            gap: 0.5,
+            children: [
+              { id: "ending-fit.sink", type: "text", text: "沉没", fontSize: 48, fontWeight: "bold", fontFamily: "display", color: "#6B7A8A", align: "center" },
+              { id: "ending-fit.float", type: "text", text: "还是漂浮", fontSize: 48, fontWeight: "bold", fontFamily: "display", color: "#E8E0D5", align: "center" },
+              { id: "ending-fit.spacer-1", type: "spacer", fixedHeight: 0.8 },
+              { id: "ending-fit.body-1", type: "text", text: "阿姆斯特丹是一座低于海平面的城市。", fontSize: 15, fontFamily: "text", color: "#8A8070", align: "center", lineSpacing: 1.5 },
+              { id: "ending-fit.body-2", type: "text", text: "克拉芒斯把自己沉入这座水下城市——是选择，也是隐喻。", fontSize: 15, fontFamily: "text", color: "#8A8070", align: "center", lineSpacing: 1.5 },
+              { id: "ending-fit.body-3", type: "text", text: "我们活在自己的「堕落」之中。", fontSize: 15, fontFamily: "text", color: "#E8E0D5", align: "center", lineSpacing: 1.5 },
+              { id: "ending-fit.body-4", type: "text", text: "问题在于：你是在下沉，还是在漂浮？", fontSize: 15, fontFamily: "text", color: "#E8E0D5", align: "center", lineSpacing: 1.5 },
+              { id: "ending-fit.spacer-2", type: "spacer", fixedHeight: 1 },
+              { id: "ending-fit.divider", type: "divider", direction: "horizontal", thickness: 0.5, color: "#6B5A2F", length: 8 },
+              { id: "ending-fit.spacer-3", type: "spacer", fixedHeight: 0.8 },
+              { id: "ending-fit.spacer-4", type: "spacer", fixedHeight: 0.5 },
+              { id: "ending-fit.choice", type: "text", text: "Il faut choisir.", fontSize: 32, fontWeight: "bold", fontFamily: "display", color: "#E8C97A", align: "center" },
+              { id: "ending-fit.spacer-5", type: "spacer", fixedHeight: 0.3 },
+              { id: "ending-fit.must", type: "text", text: "必须选择。", fontSize: 16, fontFamily: "text", color: "#8A8070", align: "center" },
+              { id: "ending-fit.spacer-6", type: "spacer", fixedHeight: 0.5 },
+              { id: "ending-fit.brand", type: "brand-mark", text: "- Fin -", corner: "bottom-right", tone: "muted" },
+            ],
+          }],
+        },
+      }],
+    });
+
+    const diagnostics = getRenderDiagnostics();
+    expect(diagnostics.some((item) =>
+      item.code === "SIBLING_INK_OVERLAP"
+      && String(item.nodeId || "").startsWith("ending-fit.")
+    )).toBe(false);
+    const nodes = measured[0]?.nodes || [];
+    const choice = nodes.find((item) => item.id === "ending-fit.choice");
+    const must = nodes.find((item) => item.id === "ending-fit.must");
+    expect((choice?.visualRect?.y ?? 0) + (choice?.visualRect?.h ?? 0)).toBeLessThanOrEqual((must?.visualRect?.y ?? 0) + 0.02);
+  });
+
   it("pre-shrinks mildly tight body text and does not emit blocking fit failure", () => {
     clearRenderDiagnostics();
     renderToAst({
