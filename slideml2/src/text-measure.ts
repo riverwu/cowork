@@ -159,7 +159,7 @@ class MetricPackTextMeasurer implements TextMeasurer {
   private faceKeyForFamily(family: string, weight: "regular" | "bold"): string | undefined {
     const normalized = normalizeFontAlias(family);
     const mapped = fontMetricAliases[normalized]
-      || (normalized.includes("cjk") || normalized.includes("pingfang") || normalized.includes("yahei") || normalized.includes("hiragino") || normalized === "system-ui" || normalized === "apple-system"
+      || (isKnownCjkFontAlias(normalized)
         ? fontMetricAliases["noto-sans-cjk-sc"]
         : fontMetricAliases.arial);
     return mapped?.[weight] || mapped?.regular;
@@ -351,6 +351,20 @@ export function isWideVisualSymbol(ch: string): boolean {
 
 function normalizeFontAlias(value: string): string {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function isKnownCjkFontAlias(normalized: string): boolean {
+  return normalized.includes("cjk")
+    || normalized.includes("pingfang")
+    || normalized.includes("yahei")
+    || normalized.includes("hiragino")
+    || normalized.includes("simsun")
+    || normalized.includes("songti")
+    || normalized.includes("source-han")
+    || normalized.includes("noto-serif-sc")
+    || normalized.includes("noto-serif-cjk")
+    || normalized === "system-ui"
+    || normalized === "apple-system";
 }
 
 function normalizedNaturalLineHeightCm(fontPt: number, family: string | undefined, metrics: { ascentCm: number; descentCm: number }): number {

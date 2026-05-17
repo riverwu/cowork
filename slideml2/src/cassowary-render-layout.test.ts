@@ -93,4 +93,112 @@ describe("render Cassowary layout integration", () => {
     expect(rule?.w).toBeCloseTo(1.4, 2);
     expect(getRenderDiagnostics().filter((item) => item.code === "OVERFLOW" && item.nodeId === "s.rule")).toHaveLength(0);
   });
+
+  it("promotes fixed spacers between content blocks to LayoutGlue rhythm", () => {
+    const deck: RenderedDeck = {
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "s",
+        layout: "freeform",
+        dom: {
+          id: "s.root",
+          type: "slide",
+          children: [{
+            id: "s.stack",
+            type: "stack",
+            direction: "vertical",
+            gap: 0.6,
+            at: [1, 1, 10, 7],
+            children: [
+              { id: "s.lead", type: "text", text: "Lead copy", fixedHeight: 1.0 },
+              { id: "s.break", type: "spacer", fixedHeight: 0.4 },
+              {
+                id: "s.list",
+                type: "stack",
+                direction: "vertical",
+                gap: 0.25,
+                children: [
+                  { id: "s.list.a", type: "text", text: "A", fixedHeight: 0.8 },
+                  { id: "s.list.b", type: "text", text: "B", fixedHeight: 0.8 },
+                ],
+              },
+            ],
+          }],
+        },
+      }],
+    };
+
+    const nodes = measureDeck(deck)[0]!.nodes;
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const lead = byId.get("s.lead")!.rect;
+    const spacer = byId.get("s.break")!.rect;
+    const list = byId.get("s.list")!.rect;
+    const decisions = layoutDecisionsForSlide(deck, "s");
+
+    expect(spacer.y).toBeCloseTo(lead.y + lead.h, 3);
+    expect(spacer.h).toBeCloseTo(1.0, 2);
+    expect(list.y).toBeCloseTo(spacer.y + spacer.h, 3);
+    expect(decisions.get("s.break")?.notes?.some((note) => note.startsWith("layout-glue:"))).toBe(true);
+  });
+
+  it("keeps explicit spacers after CJK serif flow text based on reserved wrapped height", () => {
+    const deck: RenderedDeck = {
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "2563EB" },
+        themeOverride: {
+          fonts: {
+            latin: { text: ["Georgia"], display: ["Georgia"] },
+            cjk: { text: ["Noto Serif SC"], display: ["Noto Serif SC"] },
+          },
+        },
+      },
+      slides: [{
+        id: "s",
+        layout: "freeform",
+        dom: {
+          id: "s.root",
+          type: "slide",
+          children: [{
+            id: "s.stack",
+            type: "stack",
+            direction: "vertical",
+            gap: 0,
+            at: [1, 1, 9.856, 6],
+            children: [
+              {
+                id: "s.long",
+                type: "text",
+                text: "克拉芒斯住在运河边，说「水是最好的忏悔室」。在雾里和威士忌中，他对陌生人——也就是我们——不断倾诉和解剖自己。",
+                fontFamily: "text",
+                fontSize: 11,
+                lineSpacing: 1.5,
+              },
+              { id: "s.break", type: "spacer", fixedHeight: 0.3 },
+              {
+                id: "s.after",
+                type: "text",
+                text: "不是在寻求宽恕。只是想让另一个人也看到自己的倒影。",
+                fontFamily: "text",
+                fontSize: 11,
+                lineSpacing: 1.5,
+              },
+            ],
+          }],
+        },
+      }],
+    };
+
+    const nodes = measureDeck(deck)[0]!.nodes;
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const long = byId.get("s.long")!;
+    const spacer = byId.get("s.break")!;
+    const after = byId.get("s.after")!;
+
+    expect(long.rect.h).toBeGreaterThan(1.75);
+    expect(spacer.rect.h).toBeCloseTo(0.3, 3);
+    expect(after.rect.y).toBeCloseTo(spacer.rect.y + spacer.rect.h, 3);
+    expect(after.rect.y - ((long.visualRect?.y ?? long.rect.y) + (long.visualRect?.h ?? long.rect.h))).toBeGreaterThanOrEqual(0.3);
+  });
 });

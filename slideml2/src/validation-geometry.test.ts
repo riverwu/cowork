@@ -1129,6 +1129,220 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(new Set(deltaYs.map((value) => value?.toFixed(3))).size).toBe(1);
   });
 
+  it("reallocates compact kpi-grid value bands so two-line labels stay inside metric cards", () => {
+    clearRenderDiagnostics();
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "8A2545" },
+        themeOverride: {
+          text: {
+            "metric-value": { fontSize: 30.7, fontWeight: "bold", lineHeight: 0.96 },
+            "metric-label": { fontSize: 14, lineHeight: 1.12 },
+          },
+        },
+      },
+      slides: [{
+        id: "kpi-label-repair",
+        children: [{
+          id: "kpi-label-repair.kpis",
+          type: "kpi-grid",
+          at: [1, 1, 9.422, 2.24],
+          columns: 3,
+          variant: "compact",
+          density: "compact",
+          metrics: [
+            { value: "碧塔海", label: "镜面湖泊，倒映冷杉" },
+            { value: "属都湖", label: "晨雾栈道，穿行林间" },
+            { value: "弥里塘", label: "牦牛牧场，远山如黛" },
+          ],
+        }],
+      }],
+    };
+
+    const measured = measureDeck(sourceToRenderedDeck(deck))[0]?.nodes || [];
+    const byId = new Map(measured.map((node) => [node.id, node]));
+    const label = byId.get("kpi-label-repair.kpis-m1.label");
+    const valueWrap = byId.get("kpi-label-repair.kpis-m1.value-wrap");
+    const card = byId.get("kpi-label-repair.kpis-m1");
+    expect(valueWrap?.rect.h).toBeGreaterThanOrEqual(0.61);
+    expect((valueWrap?.rect.y ?? 0) - (card?.rect.y ?? 0)).toBeGreaterThanOrEqual(0.29);
+    expect(label?.rect.h).toBeGreaterThan(0.34);
+    expect((label?.visualRect?.y ?? 0) + (label?.visualRect?.h ?? 0)).toBeLessThanOrEqual((card?.rect.y ?? 0) + (card?.rect.h ?? 0) + 0.06);
+
+    const blocking = getRenderDiagnostics().filter((item) =>
+      item.severity === "error"
+      && (item.nodeId?.startsWith("kpi-label-repair.kpis-m") || item.measured?.relationship?.includes("kpi-label-repair.kpis-m"))
+    );
+    expect(blocking, JSON.stringify(blocking, null, 2)).toHaveLength(0);
+  });
+
+  it("rejects compact kpi-grid repair when breathing room would be over-compressed", () => {
+    clearRenderDiagnostics();
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "8A2545" },
+        themeOverride: {
+          text: {
+            "metric-value": { fontSize: 30.7, fontWeight: "bold", lineHeight: 0.96 },
+            "metric-label": { fontSize: 14, lineHeight: 1.12 },
+          },
+        },
+      },
+      slides: [{
+        id: "kpi-label-overcompressed",
+        children: [{
+          id: "kpi-label-overcompressed.kpis",
+          type: "kpi-grid",
+          at: [1, 1, 9.422, 1.87],
+          columns: 3,
+          variant: "compact",
+          density: "compact",
+          metrics: [
+            { value: "碧塔海", label: "镜面湖泊，倒映冷杉" },
+            { value: "属都湖", label: "晨雾栈道，穿行林间" },
+            { value: "弥里塘", label: "牦牛牧场，远山如黛" },
+          ],
+        }],
+      }],
+    };
+
+    measureDeck(sourceToRenderedDeck(deck));
+    const hit = getRenderDiagnostics().find((item) =>
+      item.code === "FALLBACK_FAILED"
+      && item.severity === "error"
+      && item.nodeId === "kpi-label-overcompressed.kpis-m1"
+      && item.measured?.fitMethod === "metric-card-repair-budget"
+    );
+    expect(hit?.message).toContain("minimum text breathing room");
+    expect(hit?.measured?.needed).toBeGreaterThan(hit?.measured?.available ?? 999);
+  });
+
+  it("reports strict overflow when metric-card text ink escapes the card", () => {
+    clearRenderDiagnostics();
+    renderToAst({
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "8A2545" },
+        themeOverride: {
+          text: {
+            "metric-value": { fontSize: 30.7, fontWeight: "bold", lineHeight: 0.96 },
+            "metric-label": { fontSize: 14, lineHeight: 1.12 },
+          },
+        },
+      },
+      slides: [{
+        id: "metric-ink-escape",
+        layout: "freeform",
+        dom: {
+          id: "metric-ink-escape.root",
+          type: "slide",
+          children: [{
+            id: "metric-ink-escape.card",
+            type: "stack",
+            role: "metric-card",
+            direction: "vertical",
+            gap: 0.1,
+            padding: 0.4,
+            at: [1, 1, 2.927, 2.169],
+            children: [
+              {
+                id: "metric-ink-escape.card.value-wrap",
+                type: "stack",
+                direction: "vertical",
+                fixedHeight: 1.36,
+                children: [{
+                  id: "metric-ink-escape.card.value",
+                  type: "text",
+                  text: "碧塔海",
+                  style: "metric-value",
+                  align: "center",
+                  valign: "bottom",
+                  autoFit: "shrink",
+                  noWrap: true,
+                }],
+              },
+              {
+                id: "metric-ink-escape.card.label",
+                type: "text",
+                text: "镜面湖泊，倒映冷杉，晨雾栈道，穿行林间",
+                style: "metric-label",
+                fixedHeight: 0.34,
+                align: "center",
+                valign: "top",
+                autoFit: "shrink",
+              },
+            ],
+          }],
+        },
+      }],
+    });
+
+    const hit = getRenderDiagnostics().find((item) =>
+      item.code === "OVERFLOW"
+      && item.severity === "error"
+      && item.nodeId === "metric-ink-escape.card.label"
+    );
+    expect(hit?.measured?.relationship).toContain("metric-ink-escape.card");
+  });
+
+  it("enforces elastic budgets for semantic components beyond metric cards", () => {
+    clearRenderDiagnostics();
+    renderToAst({
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "semantic-elastic-budget",
+        layout: "freeform",
+        dom: {
+          id: "semantic-elastic-budget.root",
+          type: "slide",
+          children: [{
+            id: "semantic-elastic-budget.card",
+            type: "stack",
+            role: "insight-card",
+            direction: "vertical",
+            gap: 0.18,
+            padding: 0.4,
+            at: [1, 1, 4.2, 0.95],
+            children: [
+              {
+                id: "semantic-elastic-budget.card.title",
+                type: "text",
+                text: "A required insight title",
+                style: "card-title",
+                minHeight: 0.52,
+                autoFit: "shrink",
+              },
+              {
+                id: "semantic-elastic-budget.card.body",
+                type: "text",
+                text: "Required explanatory body copy that must keep readable breathing room inside the semantic card.",
+                style: "paragraph",
+                minHeight: 0.68,
+                autoFit: "shrink",
+              },
+            ],
+          }],
+        },
+      }],
+    });
+
+    const hit = getRenderDiagnostics().find((item) =>
+      item.code === "FALLBACK_FAILED"
+      && item.severity === "error"
+      && item.nodeId === "semantic-elastic-budget.card"
+      && item.measured?.fitMethod === "component-elastic-budget"
+    );
+    expect(hit?.message).toContain("elastic compression budget");
+    expect(hit?.measured?.needed).toBeGreaterThan(hit?.measured?.available ?? 999);
+  });
+
   it("reports foreground overlays that occlude flow text using visual rects", () => {
     clearRenderDiagnostics();
     renderToAst({

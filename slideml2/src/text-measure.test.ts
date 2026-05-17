@@ -105,6 +105,21 @@ describe("metric-pack text measurement", () => {
     expect(width).toBeGreaterThan(10 * PT_TO_CM * 5);
   });
 
+  it("treats Noto Serif SC as CJK-width so flow text reserves enough lines", () => {
+    const cjkTheme = buildTheme({ primary: "2563EB" }, "default", {
+      fonts: {
+        latin: { text: ["Georgia"], display: ["Georgia"] },
+        cjk: { text: ["Noto Serif SC"], display: ["Noto Serif SC"] },
+      },
+    });
+    const cjk = createMetricPackTextMeasurer(cjkTheme);
+    const text = "克拉芒斯住在运河边，说「水是最好的忏悔室」。在雾里和威士忌中，他对陌生人——也就是我们——不断倾诉和解剖自己。";
+    const wrapped = cjk.wrapLines(text, 11, undefined, 9.506);
+
+    expect(cjk.textWidth("香格里拉", 14)).toBeCloseTo(4 * 14 * PT_TO_CM, 1);
+    expect(wrapped.lines).toBeGreaterThanOrEqual(3);
+  });
+
   it("wraps over-wide mixed CJK/Latin segments instead of treating them as one line", () => {
     const text = "关键约束：质量检查失败（虚线）→ 回到数据完善阶段；GA 判定需 Release Controls readiness ≥ 85 且 P95 延迟 < 500ms 且可靠性 ≥ 99.5%";
     const wrapped = measurer.wrapLines(text, 10, "bold", 12.1);

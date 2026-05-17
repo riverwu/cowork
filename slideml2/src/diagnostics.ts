@@ -68,6 +68,9 @@ export interface LayoutDiagnostic {
     estimatedVisibleRowsFit?: number;
     minWidthCm?: number;
     minHeightCm?: number;
+    minPaddingCm?: number;
+    minGapCm?: number;
+    minValueBandCm?: number;
     labelCount?: number;
     seriesCount?: number;
     showLegend?: boolean;

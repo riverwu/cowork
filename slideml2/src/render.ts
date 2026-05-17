@@ -1566,6 +1566,8 @@ function findNodePathById(root: DomNode, id: string, path: DomNode[] = []): DomN
 }
 
 function detectComponentLayoutQuality(theme: SimpleTheme, slideId: string, measured: MeasuredNode[], slideDom: DomNode): void {
+  detectMetricTextInkOverflow(slideId, measured, slideDom);
+  detectComponentElasticBudgets(theme, slideId, measured, slideDom);
   detectPageComponentCapacity(theme, slideId, measured, slideDom);
   detectLocalRegionCapacity(theme, slideId, measured, slideDom);
   const byId = new Map(measured.map((node) => [node.id, node]));
@@ -1595,6 +1597,262 @@ function detectComponentLayoutQuality(theme: SimpleTheme, slideId: string, measu
       detectImageAspectQuality(slideId, item, node, slideDom);
     }
   }
+}
+
+function detectComponentElasticBudgets(theme: SimpleTheme, slideId: string, measured: MeasuredNode[], slideDom: DomNode): void {
+  const byId = new Map(measured.map((node) => [node.id, node]));
+  const parentById = collectMeasuredParentIds(measured);
+  for (const item of measured) {
+    const node = findNodeById(slideDom, item.id);
+    if (!node || !isComponentBudgetCandidate(node)) continue;
+    if (hasMeasuredAncestorWithSameBudget(parentById, slideDom, item.id)) continue;
+    const role = regionCapacityRole(node);
+    const className = componentElasticityClass(node, role);
+    if (className !== "elastic") continue;
+    if (role === "metric-card") continue;
+    const budget = componentElasticBudget(theme, node, item.rect, byId);
+    if (!budget) continue;
+    if (item.rect.h + COMPONENT_ELASTIC_BUDGET_TOLERANCE_CM >= budget.minHeight) continue;
+    pushFitDiagnostic({
+      kind: "container",
+      severity: "error",
+      code: "FALLBACK_FAILED",
+      slideId,
+      nodeId: item.id,
+      message: `Component '${item.id}' exceeded its elastic compression budget (needs ${budget.minHeight.toFixed(2)}cm minimum readable height, has ${item.rect.h.toFixed(2)}cm).`,
+      suggestion: componentElasticBudgetSuggestion(className, role),
+      measured: {
+        available: item.rect.h,
+        needed: budget.minHeight,
+        deltaCm: Math.max(0, budget.minHeight - item.rect.h),
+        minHeightCm: budget.minHeight,
+        readableNeeded: budget.preferredHeight,
+        capacityRatio: budget.minHeight / Math.max(0.001, item.rect.h),
+        fitMethod: "component-elastic-budget",
+        components: budget.children,
+      },
+    });
+  }
+}
+
+const COMPONENT_ELASTIC_BUDGET_TOLERANCE_CM = 0.04;
+
+interface ComponentElasticBudget {
+  minHeight: number;
+  preferredHeight: number;
+  children?: ComponentBudgetChild[];
+}
+
+type ComponentBudgetChild = NonNullable<NonNullable<LayoutDiagnostic["measured"]>["components"]>[number];
+
+function isComponentBudgetCandidate(node: DomNode): boolean {
+  if (!Array.isArray(node.children) || node.children.length === 0) return false;
+  const role = regionCapacityRole(node);
+  if (typeof node.role !== "string" || !node.role.trim()) return false;
+  if (!role || role === "stack" || role === "grid" || role === "slide") return false;
+  if (role.endsWith("-bg") || role.endsWith("-connector-stub") || role.endsWith("-connector-port")) return false;
+  return node.type === "stack" || node.type === "grid" || node.type === "card" || node.type === "panel" || node.type === "band" || node.type === "frame" || node.type === "inset";
+}
+
+function hasMeasuredAncestorWithSameBudget(parentById: Map<string, string>, slideDom: DomNode, nodeId: string): boolean {
+  let current = parentById.get(nodeId);
+  const seen = new Set<string>();
+  while (current) {
+    if (seen.has(current)) return false;
+    seen.add(current);
+    const ancestor = findNodeById(slideDom, current);
+    if (ancestor && isComponentBudgetCandidate(ancestor)) {
+      const role = regionCapacityRole(ancestor);
+      if (componentElasticityClass(ancestor, role) !== "decorative") return true;
+    }
+    current = parentById.get(current);
+  }
+  return false;
+}
+
+function componentElasticBudget(theme: SimpleTheme, node: DomNode, rect: Rect, byId: Map<string, MeasuredNode>): ComponentElasticBudget | undefined {
+  const role = regionCapacityRole(node);
+  const className = componentElasticityClass(node, role);
+  if (className !== "elastic") return undefined;
+  const content = contentRect(theme, node, rect);
+  const minHeight = componentRequiredMinHeight(theme, node, Math.max(0.45, content.w), byId, 0) + Math.max(0, rect.h - content.h);
+  if (!Number.isFinite(minHeight) || minHeight <= 0.05) return undefined;
+  const preferredHeight = Math.max(minHeight, Math.min(intrinsicMainSize(theme, node, "vertical", Math.max(0.45, rect.w)), rect.h + Math.max(0, minHeight - rect.h)));
+  const children = componentBudgetChildren(theme, node, Math.max(0.45, content.w), byId);
+  return { minHeight, preferredHeight, ...(children.length ? { children } : {}) };
+}
+
+function componentRequiredMinHeight(
+  theme: SimpleTheme,
+  node: DomNode,
+  widthCm: number,
+  byId: Map<string, MeasuredNode>,
+  depth: number,
+): number {
+  if (depth > 5) return Math.min(intrinsicMainSize(theme, node, "vertical", widthCm), 1.2);
+  if (node.type === "text") return textSquashMinHeight(theme, node, { x: 0, y: 0, w: widthCm, h: 10 });
+  if (node.type === "bullets") return bulletsSquashMinHeight(theme, node, { x: 0, y: 0, w: widthCm, h: 10 });
+  if (node.type === "spacer") return optionalNumberProp(node, "fixedHeight") ?? optionalNumberProp(node, "minHeight") ?? 0;
+  if (node.type === "divider") return normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.02;
+  if (node.type === "shape") return optionalNumberProp(node, "fixedHeight") ?? optionalNumberProp(node, "height") ?? optionalNumberProp(node, "minHeight") ?? 0.08;
+  if (node.type === "image") return Math.min(1.25, Math.max(0.5, widthCm * 0.18));
+  if (node.type === "chart") return Math.min(3.0, Math.max(1.6, widthCm * 0.36));
+  if (node.type === "table") return Math.min(4.5, Math.max(0.9, tableIntrinsicHeight(theme, node, widthCm) * 0.72));
+
+  const children = componentBudgetFlowChildren(node);
+  if (children.length === 0) return Math.min(intrinsicMainSize(theme, node, "vertical", widthCm), 0.9);
+  const role = regionCapacityRole(node);
+  const className = componentElasticityClass(node, role);
+  const requiredChildren = children.filter((child) => componentBudgetChildCounts(child, className));
+  if (requiredChildren.length === 0) return 0;
+  if (node.type === "grid") return gridRequiredMinHeight(theme, node, requiredChildren, widthCm, byId, depth + 1);
+  if (node.type === "stack" && node.direction === "horizontal") {
+    const gap = totalStackGapCm(theme, node, requiredChildren);
+    const availableWidth = Math.max(0.45, widthCm - gap);
+    const childWidth = Math.max(0.45, availableWidth / requiredChildren.length);
+    return Math.max(...requiredChildren.map((child) => componentRequiredMinHeight(theme, child, childWidth, byId, depth + 1)));
+  }
+  const contentHeight = requiredChildren.reduce((sum, child) => sum + componentRequiredMinHeight(theme, child, widthCm, byId, depth + 1), 0);
+  return contentHeight + totalStackGapCm(theme, node, requiredChildren);
+}
+
+function gridRequiredMinHeight(
+  theme: SimpleTheme,
+  node: DomNode,
+  children: DomNode[],
+  widthCm: number,
+  byId: Map<string, MeasuredNode>,
+  depth: number,
+): number {
+  const columns = Math.max(1, numberProp(node, "columns", Math.min(2, children.length || 1)));
+  const gap = gridGapCm(theme, node, children, columns);
+  const colWidths = gridColumnTrackTargets(node, columns, Math.max(0, widthCm - gap * (columns - 1)));
+  const placements = computeGridPlacements(children, columns);
+  const rows = Math.max(1, placements.reduce((max, placement) => Math.max(max, placement.row + placement.rowSpan), 0));
+  const rowHeights = new Array<number>(rows).fill(0);
+  for (const placement of placements) {
+    const childWidth = spannedSize(colWidths, placement.col, placement.colSpan, gap) || Math.max(0.45, widthCm / columns);
+    const childMin = componentRequiredMinHeight(theme, placement.child, childWidth, byId, depth + 1) / Math.max(1, placement.rowSpan);
+    for (let row = placement.row; row < placement.row + placement.rowSpan && row < rows; row++) {
+      rowHeights[row] = Math.max(rowHeights[row] ?? 0, childMin);
+    }
+  }
+  return rowHeights.reduce((sum, height) => sum + height, 0) + gap * Math.max(0, rows - 1);
+}
+
+function componentBudgetFlowChildren(node: DomNode): DomNode[] {
+  return (node.children || []).filter((child) => !isOverlayChild(child) && child.layer !== "behind" && child.layer !== "above");
+}
+
+function componentBudgetChildCounts(child: DomNode, parentClass: ComponentElasticityClass): boolean {
+  if (child.optional === true && parentClass === "elastic") return false;
+  const role = regionCapacityRole(child);
+  const childClass = componentElasticityClass(child, role);
+  if (childClass === "decorative" && child.optional === true) return false;
+  return true;
+}
+
+function componentBudgetChildren(
+  theme: SimpleTheme,
+  node: DomNode,
+  widthCm: number,
+  byId: Map<string, MeasuredNode>,
+): ComponentBudgetChild[] {
+  return componentBudgetFlowChildren(node)
+    .filter((child) => componentBudgetChildCounts(child, componentElasticityClass(node, regionCapacityRole(node))))
+    .slice(0, 8)
+    .map((child) => {
+      const measured = byId.get(child.id);
+      const needed = componentRequiredMinHeight(theme, child, widthCm, byId, 1);
+      return {
+        nodeId: child.id,
+        role: regionCapacityRole(child),
+        assignedHeightCm: measured?.rect.h ?? 0,
+        neededHeightCm: needed,
+        capacityMode: componentElasticityClass(child, regionCapacityRole(child)) === "hard" ? "hard" : "elastic",
+      };
+    });
+}
+
+function componentElasticBudgetSuggestion(className: ComponentElasticityClass, role: string): string {
+  if (className === "hard") {
+    return `The ${role} component has hard geometry/data constraints. Increase its region, reduce item/series/row count, use an explicit compact scale only for mild pressure, or split the component across slides.`;
+  }
+  return `The ${role} component has used all of its elastic space. Keep the component semantics, but increase its region, reduce optional copy/items, choose a compact scale/density for mild pressure, or split the content instead of squeezing padding or text below readable minima.`;
+}
+
+function detectMetricTextInkOverflow(slideId: string, measured: MeasuredNode[], slideDom: DomNode): void {
+  const byId = new Map(measured.map((node) => [node.id, node]));
+  const parentById = collectMeasuredParentIds(measured);
+  const seen = new Set<string>();
+  for (const item of measured) {
+    if (item.type !== "text" || !item.visualRect || !item.parentId) continue;
+    const node = findNodeById(slideDom, item.id);
+    if (!node) continue;
+    if (!isMetricTextNode(node)) continue;
+    const metricAncestor = nearestMetricMeasuredAncestor(parentById, slideDom, item.id);
+    if (!metricAncestor) continue;
+    const parent = byId.get(item.parentId);
+    const boundary = metricAncestor.role === "metric-card"
+      ? byId.get(metricAncestor.id)
+      : parent;
+    if (!boundary?.rect) continue;
+    const overflow = rectEscapeAmountCm(item.visualRect, boundary.rect);
+    if (overflow <= STRICT_METRIC_TEXT_INK_OVERFLOW_CM) continue;
+    const key = `${slideId}/${item.id}/${boundary.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pushDiagnostic({
+      severity: "error",
+      code: "OVERFLOW",
+      slideId,
+      nodeId: item.id,
+      message: `Metric text '${item.id}' paints ${overflow.toFixed(2)}cm outside '${boundary.id}'.`,
+      suggestion: "Keep the KPI semantics but give the metric card more height, reduce columns, shorten the label, or let the metric-card compact its value band/padding before accepting the render.",
+      measured: {
+        deltaCm: overflow,
+        rect: item.rect,
+        outerRect: item.visualRect,
+        other: { ...boundary.rect, nodeId: boundary.id },
+        parentId: boundary.id,
+        relationship: `metric-ink-escape:${metricAncestor.id}`,
+      },
+    });
+  }
+}
+
+const STRICT_METRIC_TEXT_INK_OVERFLOW_CM = 0.06;
+
+function isMetricTextNode(node: DomNode): boolean {
+  if (node.type !== "text") return false;
+  const styleKey = textStyleKey(node);
+  if (styleKey === "metric-value" || styleKey === "metric-label") return true;
+  const id = String(node.id || "");
+  return /\.(?:value|label|delta)$/.test(id);
+}
+
+function nearestMetricMeasuredAncestor(parentById: Map<string, string>, slideDom: DomNode, nodeId: string): { id: string; role: string } | undefined {
+  const seen = new Set<string>();
+  let current = parentById.get(nodeId);
+  while (current) {
+    if (seen.has(current)) return undefined;
+    seen.add(current);
+    const node = findNodeById(slideDom, current);
+    const role = typeof node?.role === "string" ? node.role : "";
+    if (role === "metric-card" || role === "kpi-grid" || role === "stat-strip") return { id: current, role };
+    current = parentById.get(current);
+  }
+  return undefined;
+}
+
+function rectEscapeAmountCm(inner: Rect, outer: Rect): number {
+  return Math.max(
+    0,
+    outer.x - inner.x,
+    outer.y - inner.y,
+    (inner.x + inner.w) - (outer.x + outer.w),
+    (inner.y + inner.h) - (outer.y + outer.h),
+  );
 }
 
 interface ComponentCapacityDemand {
@@ -1779,39 +2037,75 @@ function regionCapacityRole(node: DomNode): string {
 }
 
 function isElasticRegionCapacityChild(node: DomNode, role: string): boolean {
-  if (node.type === "text" || node.type === "bullets" || node.type === "spacer" || node.type === "divider") return true;
-  if (TEXT_FIRST_REGION_ROLES.has(role)) return true;
-  if (node.type !== "stack" && node.type !== "grid") return false;
-  if (HARD_REGION_ROLES.has(role)) return false;
+  const className = componentElasticityClass(node, role);
+  if (className === "elastic") return true;
+  if (className === "hard" || className === "decorative") return false;
   const children = node.children || [];
   if (children.length === 0) return false;
   return children.every((child) => {
     const childRole = regionCapacityRole(child);
-    if (HARD_REGION_ROLES.has(childRole) || HARD_REGION_NODE_TYPES.has(child.type)) return false;
+    if (componentElasticityClass(child, childRole) !== "elastic") return false;
     return isElasticRegionCapacityChild(child, childRole);
   });
 }
 
+type ComponentElasticityClass = "elastic" | "hard" | "decorative";
+
+function componentElasticityClass(node: DomNode, role: string): ComponentElasticityClass {
+  if (DECORATIVE_REGION_ROLES.has(role) || DECORATIVE_REGION_NODE_TYPES.has(node.type)) return "decorative";
+  if (HARD_REGION_ROLES.has(role) || HARD_REGION_NODE_TYPES.has(node.type)) return "hard";
+  if (node.type === "text" || node.type === "bullets" || node.type === "spacer" || node.type === "divider") return "elastic";
+  if (TEXT_FIRST_REGION_ROLES.has(role)) return "elastic";
+  const children = node.children || [];
+  if (children.some((child) => HARD_REGION_ROLES.has(regionCapacityRole(child)) || HARD_REGION_NODE_TYPES.has(child.type))) return "hard";
+  if (role && (node.type === "stack" || node.type === "grid" || node.type === "card" || node.type === "panel" || node.type === "band" || node.type === "frame" || node.type === "inset")) return "elastic";
+  return children.length > 0 && children.every((child) => componentElasticityClass(child, regionCapacityRole(child)) === "elastic")
+    ? "elastic"
+    : "hard";
+}
+
 const TEXT_FIRST_REGION_ROLES = new Set([
+  "annotation",
+  "architecture-layer",
+  "axis-ruler",
+  "axis-ruler-item",
+  "axis-ruler-row",
+  "bibliography",
   "bar-list",
   "badge",
   "callout",
   "checklist",
   "checklist-item",
   "comparison-card",
+  "comparison-list",
   "comparison-table",
   "cta",
+  "cycle-step",
+  "definition-card",
+  "eyebrow",
   "executive-summary",
   "explanation-block",
+  "fact-list",
+  "failure-taxonomy",
   "feature-card",
   "glossary",
   "glossary-item",
   "hero-stat",
+  "hero-stat-progress",
+  "hub",
   "icon-text",
+  "insight-card",
+  "kanban-column",
+  "kanban-ticket",
   "key-takeaway",
+  "kpi-grid",
+  "legend",
+  "logo-strip",
+  "main-effect-comparison",
   "metric-card",
   "numbered-grid",
   "numbered-step",
+  "org-chart-person",
   "outline",
   "outline-item",
   "pricing-card",
@@ -1819,17 +2113,27 @@ const TEXT_FIRST_REGION_ROLES = new Set([
   "pros-cons",
   "pros-column",
   "cons-column",
+  "progress-bar",
   "q-and-a",
   "qa-answer",
   "qa-question",
   "quiz-card",
   "quiz-item",
+  "region-card",
+  "roadmap-item",
   "quote",
+  "range-plot",
   "scorecard",
   "scorecard-item",
+  "section-break",
+  "side-rail",
   "source-note",
   "stat-strip",
+  "stat-comparison",
+  "stat-flow",
   "step-card",
+  "spoke",
+  "stakeholder-quadrant",
   "swot-matrix",
   "swot-quadrant",
   "tag-list",
@@ -1838,24 +2142,113 @@ const TEXT_FIRST_REGION_ROLES = new Set([
   "takeaway-item",
   "text",
   "bullets",
+  "timeline-item-row",
+  "process-step",
+  "timeline-step",
+  "title-lockup",
+  "tree-chart-node",
+  "value-chain-stage",
+  "venn-set",
+  "warning-list",
 ]);
 
 const HARD_REGION_ROLES = new Set([
+  "analytic-table",
+  "analytic-table-cell",
+  "analytic-table-grid",
   "chart-card",
+  "chart-with-rail",
   "chart",
   "code-block",
+  "code-block-table",
+  "company-overview-layout",
+  "cycle-diagram",
+  "decision-tree",
   "donut-summary",
   "equation",
+  "evidence-layout",
+  "factorial-matrix",
+  "funnel",
+  "funnel-stage",
+  "funnel-stages",
+  "gantt-chart",
+  "hero-and-support",
+  "gauge",
+  "heatmap",
+  "hub-spoke",
   "image-card",
+  "image-with-caption",
   "image",
+  "kanban-board",
+  "matrix-2x2",
   "org-chart",
+  "pyramid",
+  "probe-flow",
   "process-flow",
+  "pyramid-levels",
+  "raci-matrix",
+  "roadmap-plan",
+  "sankey",
+  "sankey-stage",
+  "snapshot-callouts",
+  "stakeholder-map",
   "table-card",
   "table",
   "timeline",
+  "tree-chart",
+  "two-column",
+  "value-chain",
+  "venn-diagram",
 ]);
 
 const HARD_REGION_NODE_TYPES = new Set(["chart", "table", "image"]);
+
+const DECORATIVE_REGION_ROLES = new Set([
+  "accent-rule",
+  "analytic-table-bar-track",
+  "analytic-table-range-track",
+  "analytic-table-stack-track",
+  "arrow-link",
+  "big-page-number",
+  "bracket",
+  "brand-mark",
+  "callout-marker",
+  "corner-mark",
+  "decoration-grid",
+  "decorative-shapes",
+  "flow-arrow",
+  "gantt-bar-cell",
+  "item-marker",
+  "org-chart-connector",
+  "org-chart-person-avatar",
+  "org-chart-person-badge",
+  "org-chart-person-bg",
+  "org-chart-person-connector-port",
+  "org-chart-person-connector-stub",
+  "org-chart-person-icon",
+  "org-chart-tree",
+  "pointer-arrow",
+  "process-connector",
+  "scale-bar",
+  "sankey-link",
+  "sankey-link-column",
+  "sankey-node",
+  "timeline-axis-bar",
+  "timeline-axis-node",
+  "timeline-marker",
+  "timeline-marker-row",
+  "timeline-spine",
+  "trend-line",
+  "tree-chart-node-badge",
+  "tree-chart-node-bg",
+  "tree-chart-node-connector-port",
+  "tree-chart-node-connector-stub",
+  "tree-chart-node-icon",
+  "tree-chart-tree",
+  "watermark",
+]);
+
+const DECORATIVE_REGION_NODE_TYPES = new Set(["shape", "divider"]);
 
 function collectLargeComponentDemands(theme: SimpleTheme, measured: MeasuredNode[], slideDom: DomNode): ComponentCapacityDemand[] {
   const byId = new Map(measured.map((item) => [item.id, item]));
@@ -6456,21 +6849,23 @@ function isMildFormulaFitDeficit(parent: DomNode, delta: number, available: numb
 function isMildMetricCardFitDeficit(parent: DomNode, delta: number, available: number): boolean {
   if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0) return false;
   const role = nearestSemanticRole(parent);
-  if (role === "metric-card" && available >= 0.85 && delta <= 0.75) return true;
-  if (/\.value-wrap$/.test(String(parent.id || "")) && available >= 0.40 && delta <= 0.70) return true;
+  if (role === "metric-card" && available >= 0.85 && delta <= Math.max(0.10, available * 0.08)) return true;
+  if (/\.value-wrap$/.test(String(parent.id || "")) && available >= METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM && delta <= Math.max(0.18, available * 0.32)) return true;
   return false;
 }
 
 function isAdaptiveTextFirstFitDeficit(parent: DomNode, delta: number, available: number): boolean {
   if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0 || available <= 0) return false;
   const role = nearestSemanticRole(parent);
-  if (!isTextFirstRole(role)) return false;
+  if (!role) return false;
+  if (componentElasticityClass(parent, role || regionCapacityRole(parent)) !== "elastic") return false;
   if (containsHardLayoutDemand(parent)) return false;
   return available >= 0.24;
 }
 
 function isAdaptiveTextOnlyFitDeficit(parent: DomNode, delta: number, available: number): boolean {
   if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0 || available < 0.8) return false;
+  if (!nearestSemanticRole(parent)) return false;
   if (delta > Math.max(1.0, available * 1.2)) return false;
   if (containsHardLayoutDemand(parent)) return false;
   const children = parent.children || [];
@@ -6480,14 +6875,13 @@ function isAdaptiveTextOnlyFitDeficit(parent: DomNode, delta: number, available:
     || child.type === "bullets"
     || child.type === "spacer"
     || child.type === "divider"
-    || isTextFirstRole(regionCapacityRole(child))
+    || componentElasticityClass(child, regionCapacityRole(child)) === "elastic"
   );
 }
 
 function containsHardLayoutDemand(node: DomNode): boolean {
   const role = regionCapacityRole(node);
-  if (HARD_REGION_ROLES.has(role)) return true;
-  if (node.type === "chart" || node.type === "table") return true;
+  if (componentElasticityClass(node, role) === "hard") return true;
   for (const child of node.children || []) {
     if (containsHardLayoutDemand(child)) return true;
   }
@@ -6574,7 +6968,7 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
   }
   const availableMain = Math.max(0, mainSize - totalStackGapCm(theme, node, children));
   const explicitSplitRatio = explicitSplitRatioWeights(node, children.length);
-  const childSpecs = children.map((child, index) => {
+  const rawChildSpecs = children.map((child, index) => {
     const spec = childMainSpec(theme, child, direction, crossSize);
     if (!explicitSplitRatio || spec.fixed) return spec;
     const target = availableMain * explicitSplitRatio[index]!;
@@ -6585,11 +6979,15 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
       grow: true,
     };
   });
+  const { specs: childSpecs, glues: layoutGlues } = applyLayoutGlueSpecs(theme, node, children, rawChildSpecs, direction);
+  const layoutGlueByIndex = new Map(layoutGlues.map((glue) => [glue.index, glue] as const));
   if (currentSlideId) {
     children.forEach((child, index) => {
       const spec = childSpecs[index]!;
+      const glue = layoutGlueByIndex.get(index);
       recordDecision(currentSlideId, child.id, {
         intrinsic: { mainAxis: direction === "horizontal" ? "horizontal" : "vertical", basis: spec.basis, min: spec.min, max: Number.isFinite(spec.max) ? spec.max : -1, weight: spec.weight },
+        ...(glue ? { notes: [`layout-glue:min=${glue.min.toFixed(2)},preferred=${glue.preferred.toFixed(2)},max=${glue.max.toFixed(2)}`] } : {}),
       });
     });
   }
@@ -7104,7 +7502,7 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
   const gap = gridGapCm(theme, node, flowOnly, columns);
   const availableWidth = Math.max(0, rect.w - gap * (columns - 1));
   const colWidths = gridColumnTrackTargets(node, columns, availableWidth);
-  const children = prepareGridChildrenForLayout(theme, node, flowOnly, columns, colWidths, gap);
+  const children = prepareGridChildrenForLayout(theme, node, flowOnly, columns, colWidths, gap, rect);
   const placements = computeGridPlacements(children, columns);
   const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
   const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
@@ -7130,33 +7528,71 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
   return [...flowOut, ...layered.map((c) => ({ node: c, rect }))];
 }
 
-function prepareGridChildrenForLayout(theme: SimpleTheme, node: DomNode, children: DomNode[], columns: number, colWidths: number[], gap: number): DomNode[] {
+function prepareGridChildrenForLayout(theme: SimpleTheme, node: DomNode, children: DomNode[], columns: number, colWidths: number[], gap: number, rect?: Rect): DomNode[] {
   const flowChildren = normalizeSingleColumnShapeFlowChildren(children, columns, colWidths[0] || 6);
   if (node.role !== "kpi-grid" || flowChildren.length === 0) return flowChildren;
   children = flowChildren;
   const placements = computeGridPlacements(children, columns);
+  const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
+  const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
+  const rows = Math.max(1, declaredRows, usedRows);
+  const availableHeight = rect ? Math.max(0, rect.h - gap * (rows - 1)) : 0;
+  const estimatedRowHeights = rect
+    ? normalizeTrackWeights(node.rowWeights, rows).map((weight) => availableHeight * weight)
+    : [];
   let valueBandHeight = 0;
+  let labelBandHeight = 0;
   const valueMinById = new Map<string, number>();
+  const labelMinById = new Map<string, number>();
+  const cardHeightById = new Map<string, number>();
 
   for (const placement of placements) {
     if (findMetricValueNode(placement.child) === undefined) continue;
     let cellWidth = 0;
     for (let i = 0; i < placement.colSpan; i++) cellWidth += colWidths[placement.col + i] || 0;
     if (placement.colSpan > 1) cellWidth += gap * (placement.colSpan - 1);
-    const measured = measuredMetricValueBand(theme, placement.child, cellWidth);
+    if (estimatedRowHeights.length > 0) {
+      cardHeightById.set(placement.child.id, spannedSize(estimatedRowHeights, placement.row, placement.rowSpan, gap));
+    }
+    const measured = measuredMetricBands(theme, placement.child, cellWidth);
     if (!measured) continue;
-    valueBandHeight = Math.max(valueBandHeight, measured.bandHeight);
-    valueMinById.set(placement.child.id, measured.textMinHeight);
+    valueBandHeight = Math.max(valueBandHeight, measured.valueBandHeight);
+    valueMinById.set(placement.child.id, measured.valueTextMinHeight);
+    if (measured.labelBandHeight !== undefined) {
+      labelBandHeight = Math.max(labelBandHeight, measured.labelBandHeight);
+      labelMinById.set(placement.child.id, measured.labelTextMinHeight ?? measured.labelBandHeight);
+    }
   }
 
-  if (valueBandHeight <= 0) return children;
+  if (valueBandHeight <= 0 && labelBandHeight <= 0) return children;
   return children.map((child) => {
     const textMinHeight = valueMinById.get(child.id);
-    return textMinHeight === undefined ? child : withMeasuredMetricValueBand(child, valueBandHeight, textMinHeight);
+    const labelMinHeight = labelMinById.get(child.id);
+    return textMinHeight === undefined && labelMinHeight === undefined
+      ? child
+      : withMeasuredMetricBands(theme, child, {
+        valueBandHeight: textMinHeight === undefined ? undefined : valueBandHeight,
+        valueTextMinHeight: textMinHeight,
+        labelBandHeight: labelMinHeight === undefined ? undefined : labelBandHeight,
+        labelTextMinHeight: labelMinHeight,
+        cardHeight: cardHeightById.get(child.id),
+      });
   });
 }
 
-function measuredMetricValueBand(theme: SimpleTheme, metricCardNode: DomNode, cellWidth: number): { bandHeight: number; textMinHeight: number } | undefined {
+const METRIC_CARD_REPAIR_MIN_PADDING_CM = 0.30;
+const METRIC_CARD_REPAIR_MIN_GAP_CM = 0.08;
+const METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM = 0.62;
+const METRIC_CARD_REPAIR_CAPACITY_TOLERANCE_CM = 0.03;
+
+interface MeasuredMetricBands {
+  valueBandHeight: number;
+  valueTextMinHeight: number;
+  labelBandHeight?: number;
+  labelTextMinHeight?: number;
+}
+
+function measuredMetricBands(theme: SimpleTheme, metricCardNode: DomNode, cellWidth: number): MeasuredMetricBands | undefined {
   const valueWrap = findMetricValueWrap(metricCardNode);
   const valueNode = findMetricValueNode(metricCardNode);
   if (!valueWrap || !valueNode) return undefined;
@@ -7164,39 +7600,194 @@ function measuredMetricValueBand(theme: SimpleTheme, metricCardNode: DomNode, ce
   const wrapContent = contentRect(theme, valueWrap, { x: 0, y: 0, w: Math.max(0.25, cardContent.w), h: 10 });
   const width = Math.max(0.45, wrapContent.w);
   const style = effectiveTextStyle(theme, valueNode, "paragraph");
-  const textMinHeight = Math.max(
-    textSquashMinHeight(theme, valueNode),
-    textNeededHeight(theme, { ...valueNode, wrapMinHeight: true }, width, style),
-  );
   const current = optionalNumberProp(valueWrap, "fixedHeight")
     ?? optionalNumberProp(valueWrap, "maxHeight")
     ?? optionalNumberProp(valueWrap, "minHeight")
     ?? 0;
+  const compactValue = measuredMetricValueBandHeight(theme, valueNode, width, style, current);
+  const label = measuredMetricLabelBand(theme, metricCardNode, cardContent.w);
+  return {
+    valueBandHeight: compactValue.bandHeight,
+    valueTextMinHeight: compactValue.textMinHeight,
+    ...(label ? { labelBandHeight: label.bandHeight, labelTextMinHeight: label.textMinHeight } : {}),
+  };
+}
+
+function measuredMetricValueBandHeight(theme: SimpleTheme, valueNode: DomNode, width: number, style: ReturnType<typeof textStyle>, current: number): { bandHeight: number; textMinHeight: number } {
+  if (current > 0) {
+    const probeRect = { x: 0, y: 0, w: width, h: current };
+    const fittedStyle = measuredTextStyleForInk(theme, valueNode, probeRect, style);
+    const visibleInkHeight = textVisibleInkHeight(theme, valueNode, width, fittedStyle);
+    const textMinHeight = Math.min(current, Math.max(textSquashMinHeight(theme, valueNode, probeRect), visibleInkHeight + 0.035));
+    return {
+      bandHeight: clamp(textMinHeight, Math.min(current, 0.52), current),
+      textMinHeight,
+    };
+  }
+  const textMinHeight = Math.max(
+    textSquashMinHeight(theme, valueNode),
+    textNeededHeight(theme, { ...valueNode, wrapMinHeight: true }, width, style),
+  );
   return {
     bandHeight: Math.min(2.4, Math.max(current, textMinHeight)),
     textMinHeight,
   };
 }
 
-function withMeasuredMetricValueBand(metricCardNode: DomNode, bandHeight: number, textMinHeight: number): DomNode {
+function measuredMetricLabelBand(theme: SimpleTheme, metricCardNode: DomNode, cardContentWidth: number): { bandHeight: number; textMinHeight: number } | undefined {
+  const labelNode = findMetricLabelNode(metricCardNode);
+  if (!labelNode) return undefined;
+  const width = Math.max(0.45, cardContentWidth);
+  const current = optionalNumberProp(labelNode, "fixedHeight")
+    ?? optionalNumberProp(labelNode, "minHeight")
+    ?? 0;
+  const baseStyle = effectiveTextStyle(theme, labelNode, "paragraph");
+  const styleKey = textStyleKey(labelNode);
+  const minPt = autoShrinkMinFontPt(labelNode, styleKey, baseStyle.fontSize);
+  const readableStyle = { ...baseStyle, fontSize: minPt };
+  const evidence = measureTextFitAtFont(theme, labelNode, readableStyle, { x: 0, y: 0, w: width, h: 10 }, styleKey, minPt);
+  const textMinHeight = Math.max(textSquashMinHeight(theme, labelNode), evidence.heightNeeded + 0.035);
+  return {
+    bandHeight: Math.max(current, textMinHeight),
+    textMinHeight,
+  };
+}
+
+interface MetricBandOverrides {
+  valueBandHeight?: number;
+  valueTextMinHeight?: number;
+  labelBandHeight?: number;
+  labelTextMinHeight?: number;
+  cardHeight?: number;
+}
+
+interface MetricBandRepairPlan {
+  padding: number;
+  gap: number;
+  valueBandHeight?: number;
+  valueTextMinHeight?: number;
+  labelBandHeight?: number;
+  labelTextMinHeight?: number;
+  minCardHeight: number;
+  needsLabelRepair: boolean;
+  explicitPadding: boolean;
+  explicitGap: boolean;
+}
+
+function withMeasuredMetricBands(theme: SimpleTheme, metricCardNode: DomNode, overrides: MetricBandOverrides): DomNode {
   if (!Array.isArray(metricCardNode.children)) return metricCardNode;
+  const plan = metricBandRepairPlan(theme, metricCardNode, overrides);
+  if (
+    overrides.cardHeight !== undefined
+    && plan.minCardHeight > overrides.cardHeight + METRIC_CARD_REPAIR_CAPACITY_TOLERANCE_CM
+  ) {
+    pushMetricBandRepairRejectedDiagnostic(metricCardNode, overrides.cardHeight, plan);
+    return metricCardNode;
+  }
   return {
     ...metricCardNode,
+    ...(plan.needsLabelRepair && !plan.explicitPadding ? { padding: plan.padding } : {}),
+    ...(plan.needsLabelRepair && !plan.explicitGap ? { gap: plan.gap } : {}),
+    minHeight: Math.max(optionalNumberProp(metricCardNode, "minHeight") ?? 0, plan.minCardHeight),
     children: metricCardNode.children.map((child) => {
-      if (!isMetricValueWrap(child)) return child;
+      if (isMetricLabelNode(child) && plan.labelBandHeight !== undefined) {
+        return {
+          ...child,
+          fixedHeight: plan.labelBandHeight,
+          minHeight: plan.labelTextMinHeight ?? plan.labelBandHeight,
+          autoFit: child.autoFit ?? "shrink",
+          optional: false,
+        };
+      }
+      if (!isMetricValueWrap(child) || plan.valueBandHeight === undefined) return child;
       return {
         ...child,
-        fixedHeight: bandHeight,
-        maxHeight: bandHeight,
-        minHeight: bandHeight,
+        fixedHeight: plan.valueBandHeight,
+        maxHeight: plan.valueBandHeight,
+        minHeight: plan.valueBandHeight,
         children: (child.children || []).map((grandchild) =>
           isMetricValueNode(grandchild)
-            ? { ...grandchild, minHeight: textMinHeight, wrapMinHeight: true }
+            ? { ...grandchild, minHeight: plan.valueTextMinHeight ?? plan.valueBandHeight, wrapMinHeight: true }
             : grandchild
         ),
       };
     }),
   };
+}
+
+function metricBandRepairPlan(theme: SimpleTheme, metricCardNode: DomNode, overrides: MetricBandOverrides): MetricBandRepairPlan {
+  const labelNode = findMetricLabelNode(metricCardNode);
+  const existingLabelHeight = labelNode ? optionalNumberProp(labelNode, "fixedHeight") ?? 0 : 0;
+  const needsLabelRepair = (overrides.labelBandHeight ?? 0) > existingLabelHeight + 0.04;
+  const explicitPadding = optionalNumberProp(metricCardNode, "padding") !== undefined;
+  const explicitGap = optionalNumberProp(metricCardNode, "gap") !== undefined;
+  const padding = needsLabelRepair && !explicitPadding
+    ? METRIC_CARD_REPAIR_MIN_PADDING_CM
+    : paddingCm(theme, metricCardNode);
+  const gap = needsLabelRepair && !explicitGap
+    ? METRIC_CARD_REPAIR_MIN_GAP_CM
+    : gapCm(theme, metricCardNode);
+  const valueBandHeight = overrides.valueBandHeight === undefined
+    ? undefined
+    : Math.max(overrides.valueBandHeight, METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM);
+  const valueTextMinHeight = overrides.valueTextMinHeight === undefined
+    ? undefined
+    : Math.max(overrides.valueTextMinHeight, Math.min(valueBandHeight ?? overrides.valueTextMinHeight, METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM));
+  const minCardHeight = metricCardRepairMinHeight(theme, metricCardNode, {
+    padding,
+    gap,
+    valueBandHeight,
+    labelBandHeight: overrides.labelBandHeight,
+    labelTextMinHeight: overrides.labelTextMinHeight,
+  });
+  return {
+    padding,
+    gap,
+    valueBandHeight,
+    valueTextMinHeight,
+    labelBandHeight: overrides.labelBandHeight,
+    labelTextMinHeight: overrides.labelTextMinHeight,
+    minCardHeight,
+    needsLabelRepair,
+    explicitPadding,
+    explicitGap,
+  };
+}
+
+function metricCardRepairMinHeight(
+  theme: SimpleTheme,
+  metricCardNode: DomNode,
+  plan: { padding: number; gap: number; valueBandHeight?: number; labelBandHeight?: number; labelTextMinHeight?: number },
+): number {
+  const requiredChildren = (metricCardNode.children || []).filter((child) => child.optional !== true || isMetricValueWrap(child) || isMetricLabelNode(child));
+  if (requiredChildren.length === 0) return plan.padding * 2;
+  const contentHeight = requiredChildren.reduce((sum, child) => {
+    if (isMetricValueWrap(child) && plan.valueBandHeight !== undefined) return sum + plan.valueBandHeight;
+    if (isMetricLabelNode(child) && plan.labelBandHeight !== undefined) return sum + Math.max(plan.labelBandHeight, plan.labelTextMinHeight ?? 0);
+    return sum + intrinsicMinSize(theme, child, "vertical", 1);
+  }, 0);
+  return plan.padding * 2 + contentHeight + plan.gap * Math.max(0, requiredChildren.length - 1);
+}
+
+function pushMetricBandRepairRejectedDiagnostic(metricCardNode: DomNode, availableHeight: number, plan: MetricBandRepairPlan): void {
+  pushFitDiagnostic({
+    kind: "container",
+    severity: "error",
+    code: "FALLBACK_FAILED",
+    slideId: currentSlideId || undefined,
+    nodeId: metricCardNode.id,
+    message: `Metric-card '${metricCardNode.id}' cannot be auto-compacted without violating minimum text breathing room (needs ${plan.minCardHeight.toFixed(2)}cm, has ${availableHeight.toFixed(2)}cm).`,
+    suggestion: "Keep the KPI semantics, but give the metric row more height, reduce columns, shorten labels, or split these metrics across slides. Do not squeeze padding, value bands, or label space below readable minima.",
+    measured: {
+      available: availableHeight,
+      needed: plan.minCardHeight,
+      deltaCm: Math.max(0, plan.minCardHeight - availableHeight),
+      minPaddingCm: METRIC_CARD_REPAIR_MIN_PADDING_CM,
+      minGapCm: METRIC_CARD_REPAIR_MIN_GAP_CM,
+      minValueBandCm: METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM,
+      fitMethod: "metric-card-repair-budget",
+    },
+  });
 }
 
 function findMetricValueWrap(node: DomNode): DomNode | undefined {
@@ -7208,6 +7799,10 @@ function findMetricValueNode(node: DomNode): DomNode | undefined {
   return (wrap?.children || []).find(isMetricValueNode);
 }
 
+function findMetricLabelNode(node: DomNode): DomNode | undefined {
+  return (node.children || []).find(isMetricLabelNode);
+}
+
 function isMetricValueWrap(node: DomNode): boolean {
   return node.type === "stack" && typeof node.id === "string" && node.id.endsWith(".value-wrap");
 }
@@ -7216,11 +7811,101 @@ function isMetricValueNode(node: DomNode): boolean {
   return node.type === "text" && typeof node.id === "string" && node.id.endsWith(".value");
 }
 
+function isMetricLabelNode(node: DomNode): boolean {
+  return node.type === "text" && typeof node.id === "string" && node.id.endsWith(".label");
+}
+
 function resolveMainSizes(theme: SimpleTheme, children: DomNode[], direction: "horizontal" | "vertical", availableMain: number, crossSize: number): number[] {
   return solveSizes(children.map((child) => childMainSpec(theme, child, direction, crossSize)), availableMain);
 }
 
 type SizeSpec = FlexMainSpec;
+
+interface LayoutGlueSpec {
+  index: number;
+  min: number;
+  preferred: number;
+  max: number;
+  weight: number;
+}
+
+function applyLayoutGlueSpecs(
+  theme: SimpleTheme,
+  parent: DomNode,
+  children: DomNode[],
+  specs: SizeSpec[],
+  direction: "horizontal" | "vertical",
+): { specs: SizeSpec[]; glues: LayoutGlueSpec[] } {
+  const glues = children
+    .map((child, index) => layoutGlueSpecForChild(theme, parent, children, child, index, direction))
+    .filter((glue): glue is LayoutGlueSpec => glue !== undefined);
+  if (glues.length === 0) return { specs, glues };
+
+  const next = specs.slice();
+  for (const glue of glues) {
+    const spec = specs[glue.index]!;
+    next[glue.index] = {
+      ...spec,
+      basis: clamp(Math.max(spec.basis, glue.preferred), glue.min, glue.max),
+      min: Math.max(spec.min, glue.min),
+      max: Math.max(glue.max, glue.min),
+      weight: Math.max(spec.weight, glue.weight),
+      grow: false,
+      fixed: false,
+      shrinkWeight: Math.max(spec.shrinkWeight ?? 0, glue.weight * 2),
+    };
+  }
+  return { specs: next, glues };
+}
+
+function layoutGlueSpecForChild(
+  theme: SimpleTheme,
+  parent: DomNode,
+  children: DomNode[],
+  child: DomNode,
+  index: number,
+  direction: "horizontal" | "vertical",
+): LayoutGlueSpec | undefined {
+  if (direction !== "vertical") return undefined;
+  if (child.type !== "spacer") return undefined;
+  if (child.layoutGlue === false || child.glue === false) return undefined;
+  if (optionalNumberProp(child, "layoutWeight") !== undefined) return undefined;
+  const fixed = optionalNumberProp(child, "fixedHeight") ?? optionalNumberProp(child, "height") ?? optionalNumberProp(child, "basisHeight") ?? optionalNumberProp(child, "basis");
+  if (fixed === undefined) return undefined;
+
+  const before = children[index - 1];
+  const after = children[index + 1];
+  if (!before || !after) return undefined;
+  if (before.type === "spacer" || after.type === "spacer") return undefined;
+  if (child.layoutGlue !== true && (!isLayoutGlueContentNode(before) || !isLayoutGlueContentNode(after))) return undefined;
+
+  const parentGap = gapCm(theme, parent);
+  if (parentGap <= 0) return undefined;
+  const policy = stringProp(child, "gapPolicy", stringProp(parent, "gapPolicy", "rhythm"));
+  if (policy === "replace" || policy === "fixed" || policy === "none") return undefined;
+
+  const min = Math.max(0, fixed);
+  const preferred = layoutGluePreferredSize(policy, min, parentGap);
+  const authoredMax = optionalNumberProp(child, "maxHeight") ?? optionalNumberProp(child, "maxGlueHeight") ?? optionalNumberProp(parent, "maxGlueHeight");
+  const rhythmMax = Math.max(preferred, Math.min(1.6, min + parentGap * 1.8, parentGap * 2.4));
+  const max = Math.max(min, authoredMax !== undefined ? Math.max(preferred, authoredMax) : rhythmMax);
+  return { index, min, preferred, max, weight: 4 };
+}
+
+function layoutGluePreferredSize(policy: string, min: number, parentGap: number): number {
+  if (policy === "max") return Math.max(min, parentGap);
+  if (policy === "additive") return min + parentGap;
+  return Math.max(min + parentGap, parentGap * 1.35);
+}
+
+function isLayoutGlueContentNode(node: DomNode): boolean {
+  if (node.type === "spacer" || node.type === "divider" || node.type === "shape") return false;
+  if (node.type === "text" || node.type === "bullets") return true;
+  if (node.type === "image" || node.type === "table" || node.type === "chart") return true;
+  if (node.type === "stack" || node.type === "grid" || node.type === "split") return true;
+  if (node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset") return true;
+  return typeof node.role === "string" && node.role.trim().length > 0;
+}
 
 function childMainSpec(theme: SimpleTheme, node: DomNode, direction: "horizontal" | "vertical", crossSize: number): SizeSpec {
   const fixed = optionalNumberProp(node, direction === "horizontal" ? "fixedWidth" : "fixedHeight");
