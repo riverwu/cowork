@@ -6731,7 +6731,7 @@ function layoutStackChildrenWithCassowary(
       if (currentSlideId) recordDecision(currentSlideId, child.id, { applied: "fit", notes: [`cassowary:${direction}`] });
       return { node: child, rect: childRect };
     });
-    pushCassowaryPressureDiagnostics(node, result.pressures);
+    pushCassowaryPressureDiagnostics(node, stackMainAxisPressures(direction, result.pressures));
     return layered.length === 0 ? flowOut : [...flowOut, ...layered.map((child) => ({ node: child, rect }))];
   } catch (error) {
     if (currentSlideId) {
@@ -6739,6 +6739,14 @@ function layoutStackChildrenWithCassowary(
     }
     return undefined;
   }
+}
+
+function stackMainAxisPressures(
+  direction: "horizontal" | "vertical",
+  pressures: Array<{ nodeId: string; constraint: string; expected: number; actual: number; delta: number }>,
+): Array<{ nodeId: string; constraint: string; expected: number; actual: number; delta: number }> {
+  const mainConstraints = direction === "horizontal" ? new Set(["minW", "maxW"]) : new Set(["minH", "maxH"]);
+  return pressures.filter((pressure) => mainConstraints.has(pressure.constraint));
 }
 
 function sizePreferenceFromMainSpec(node: DomNode, parentAxis: "horizontal" | "vertical" | undefined, spec: SizeSpec): SizePreference {

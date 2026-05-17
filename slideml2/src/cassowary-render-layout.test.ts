@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { clearRenderDiagnostics, getRenderDiagnostics } from "./diagnostics.js";
 import { layoutDecisionsForSlide, measureDeck } from "./render.js";
 import type { RenderedDeck } from "./types.js";
 
@@ -59,5 +60,37 @@ describe("render Cassowary layout integration", () => {
     const decisions = layoutDecisionsForSlide(deck, "s");
 
     expect(decisions.get("s.panel")?.notes?.some((note) => note.startsWith("cassowary:"))).not.toBe(true);
+  });
+
+  it("does not report cross-axis fixed-width pressure that final stack alignment already satisfies", () => {
+    const deck: RenderedDeck = {
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "s",
+        layout: "freeform",
+        dom: {
+          id: "s.root",
+          type: "slide",
+          children: [{
+            id: "s.stack",
+            type: "stack",
+            direction: "vertical",
+            gap: 0.2,
+            at: [1, 1, 6, 4],
+            children: [
+              { id: "s.rule", type: "shape", preset: "rect", fixedWidth: 1.4, fixedHeight: 0.08, align: "start" },
+              { id: "s.body", type: "text", text: "Body", fixedHeight: 0.7 },
+            ],
+          }],
+        },
+      }],
+    };
+
+    clearRenderDiagnostics();
+    const nodes = measureDeck(deck)[0]!.nodes;
+    const rule = nodes.find((node) => node.id === "s.rule")?.rect;
+
+    expect(rule?.w).toBeCloseTo(1.4, 2);
+    expect(getRenderDiagnostics().filter((item) => item.code === "OVERFLOW" && item.nodeId === "s.rule")).toHaveLength(0);
   });
 });
