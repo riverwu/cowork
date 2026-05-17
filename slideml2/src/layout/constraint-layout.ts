@@ -16,6 +16,8 @@ export interface ConstraintLayoutNode {
   padding?: number;
   fill?: boolean;
   stretchCrossAxis?: boolean;
+  weights?: number[];
+  weightStrength?: LayoutStrength;
   ratio?: number[];
   ratioStrength?: LayoutStrength;
   columns?: number;
@@ -74,6 +76,8 @@ function buildNode(solver: CassowaryLayoutSolver, node: ConstraintLayoutNode, no
       padding: node.padding,
       fill: node.fill,
       stretchCrossAxis: node.stretchCrossAxis,
+      weights: node.weights,
+      weightStrength: node.weightStrength,
     });
   } else if (kind === "split") {
     solver.split(box, children.map((child) => solver.box(child.id)), {

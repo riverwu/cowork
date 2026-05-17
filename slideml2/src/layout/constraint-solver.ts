@@ -30,6 +30,8 @@ export interface StackConstraintOptions {
   padding?: number;
   fill?: boolean;
   stretchCrossAxis?: boolean;
+  weights?: number[];
+  weightStrength?: LayoutStrength;
 }
 
 export interface SplitConstraintOptions extends StackConstraintOptions {
@@ -147,6 +149,19 @@ export class CassowaryLayoutSolver {
     const parentEnd = parent[mainStart].plus(parent[mainSize]).minus(padding);
     if (fill) this.eq(lastEnd, parentEnd);
     else this.le(lastEnd, parentEnd);
+
+    const weights = positiveWeights(options.weights, children.length);
+    if (weights) {
+      let available: Variable | Expression = parent[mainSize].minus(gap * Math.max(0, children.length - 1) + padding * 2);
+      children.forEach((child, index) => {
+        if (weights.values[index]! <= 0) available = available.minus(child[mainSize]);
+      });
+      children.forEach((child, index) => {
+        const weight = weights.values[index]!;
+        if (weight <= 0) return;
+        this.eq(child[mainSize], available.multiply(weight / weights.total), options.weightStrength ?? "medium");
+      });
+    }
   }
 
   split(parent: LayoutBox, children: LayoutBox[], options: SplitConstraintOptions = {}): void {
@@ -246,6 +261,14 @@ function normalizedWeights(values: number[] | undefined, count: number): number[
   const total = positive.reduce((acc, value) => acc + value, 0);
   if (total <= 0) return undefined;
   return positive.map((value) => value / total);
+}
+
+function positiveWeights(values: number[] | undefined, count: number): { values: number[]; total: number } | undefined {
+  if (!values || values.length !== count) return undefined;
+  const positive = values.map((value) => Number.isFinite(value) && value > 0 ? value : 0);
+  const total = positive.reduce((acc, value) => acc + value, 0);
+  if (total <= 0) return undefined;
+  return { values: positive, total };
 }
 
 function createTrackVariables(prefix: string, count: number): Variable[] {

@@ -44,6 +44,27 @@ describe("CassowaryLayoutSolver", () => {
     expect(solved.get("left")!.w + solved.get("right")!.w + 0.5).toBeCloseTo(10);
   });
 
+  it("distributes stack slack by positive weights after fixed siblings take space", () => {
+    const solver = new CassowaryLayoutSolver();
+    const parent = solver.box("parent");
+    const fixed = solver.box("fixed");
+    const primary = solver.box("primary");
+    const secondary = solver.box("secondary");
+
+    solver.pin(parent, { x: 0, y: 0, w: 11, h: 3 });
+    solver.size(fixed, { minW: 2, idealW: 2, maxW: 2 });
+    solver.stack(parent, [fixed, primary, secondary], {
+      axis: "horizontal",
+      gap: 0.2,
+      weights: [0, 2, 1],
+    });
+
+    const solved = solver.solve();
+    expect(solved.get("fixed")!.w).toBeCloseTo(2);
+    expect(solved.get("primary")!.w / solved.get("secondary")!.w).toBeCloseTo(2, 4);
+    expect(solved.get("fixed")!.w + solved.get("primary")!.w + solved.get("secondary")!.w + 0.4).toBeCloseTo(11);
+  });
+
   it("uses grid track variables so spanning children contribute across rows", () => {
     const solver = new CassowaryLayoutSolver();
     const parent = solver.box("parent");

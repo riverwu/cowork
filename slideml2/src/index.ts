@@ -22,6 +22,8 @@ export { inspectLayout } from "./layout-inspect.js";
 export type { InspectedLayoutNode, InspectedSlideLayout } from "./layout-inspect.js";
 export { solveConstraintLayout } from "./layout/constraint-layout.js";
 export type { ConstraintLayoutNode, ConstraintLayoutPressure, ConstraintLayoutResult } from "./layout/constraint-layout.js";
+export { domNodeToConstraintLayoutNode, solveDomConstraintLayout } from "./layout/dom-constraint-layout.js";
+export type { DomConstraintLayoutOptions, DomConstraintLayoutResult } from "./layout/dom-constraint-layout.js";
 export { CassowaryLayoutSolver } from "./layout/constraint-solver.js";
 export type { GridConstraintOptions, GridTrackItem, LayoutAxis, LayoutBox, LayoutStrength, SizePreference, SplitConstraintOptions, StackConstraintOptions } from "./layout/constraint-solver.js";
 export { buildDom, getSlide } from "./layouts.js";

@@ -115,5 +115,8 @@ default.
 - `src/layout/constraint-layout.ts` adds a small layout IR adapter that solves
   nested stack/split/grid trees and reports minimum/maximum size pressure from
   solved rectangles.
+- `src/layout/dom-constraint-layout.ts` converts the existing `DomNode` layout
+  subset into the constraint IR, including `split`, `grid` spans, fixed/min/max
+  size fields, and `layoutWeight` as a soft stack weight.
 - These modules are exported for experiments, but the production renderer does
   not use them yet.
