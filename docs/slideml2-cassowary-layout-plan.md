@@ -118,5 +118,8 @@ default.
 - `src/layout/dom-constraint-layout.ts` converts the existing `DomNode` layout
   subset into the constraint IR, including `split`, `grid` spans, fixed/min/max
   size fields, and `layoutWeight` as a soft stack weight.
-- These modules are exported for experiments, but the production renderer does
-  not use them yet.
+- The production renderer now routes stack and grid child layout through the
+  Cassowary path by default. The previous local algorithm remains available as
+  an explicit migration escape hatch with `layoutEngine:"legacy"` or
+  `constraintLayout:false`, and is still used as an internal fallback when a
+  constraint solve cannot produce a safe geometry.

@@ -20,6 +20,20 @@ describe("domNodeToConstraintLayoutNode", () => {
     });
   });
 
+  it("can stop conversion at immediate children for renderer-owned recursion", () => {
+    const ir = domNodeToConstraintLayoutNode({
+      id: "root",
+      type: "stack",
+      children: [
+        { id: "card", type: "stack", children: [{ id: "card.title", type: "text", fixedHeight: 0.5 }] },
+      ],
+    }, { maxDepth: 1 });
+
+    expect(ir.children).toHaveLength(1);
+    expect(ir.children?.[0]?.type).toBe("stack");
+    expect(ir.children?.[0]?.children).toBeUndefined();
+  });
+
   it("solves real DomNode stack and split fields without lowering split first", () => {
     const dom: DomNode = {
       id: "root",

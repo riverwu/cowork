@@ -12,6 +12,7 @@ export interface DomConstraintLayoutOptions {
   defaultLeafMeasure?: SizePreference;
   defaultContainerType?: ConstraintLayoutKind;
   includeLayeredChildren?: boolean;
+  maxDepth?: number;
   measureNode?: (node: DomNode, parentAxis: LayoutAxis | undefined) => SizePreference | undefined;
   splitRatioStrength?: LayoutStrength;
   stackWeightStrength?: LayoutStrength;
@@ -26,7 +27,7 @@ export function domNodeToConstraintLayoutNode(
   node: DomNode,
   options: DomConstraintLayoutOptions = {},
 ): ConstraintLayoutNode {
-  return convertDomNode(node, options, undefined);
+  return convertDomNode(node, options, undefined, 0);
 }
 
 export function solveDomConstraintLayout(
@@ -42,11 +43,12 @@ function convertDomNode(
   node: DomNode,
   options: DomConstraintLayoutOptions,
   parentAxis: LayoutAxis | undefined,
+  depth: number,
 ): ConstraintLayoutNode {
-  const children = domChildren(node, options);
+  const children = domChildren(node, options, depth);
   const kind = layoutKind(node, children.length, options);
   const axis = kind === "stack" || kind === "split" ? layoutAxis(node, kind) : undefined;
-  const convertedChildren = children.map((child) => convertDomNode(child, options, axis));
+  const convertedChildren = children.map((child) => convertDomNode(child, options, axis, depth + 1));
   const measure = options.measureNode?.(node, parentAxis)
     ?? measureFromDomNode(node, parentAxis)
     ?? (convertedChildren.length === 0 ? cloneSizePreference(options.defaultLeafMeasure) : undefined);
@@ -77,7 +79,8 @@ function convertDomNode(
   });
 }
 
-function domChildren(node: DomNode, options: DomConstraintLayoutOptions): DomNode[] {
+function domChildren(node: DomNode, options: DomConstraintLayoutOptions, depth: number): DomNode[] {
+  if (options.maxDepth !== undefined && depth >= options.maxDepth) return [];
   const children = Array.isArray(node.children) ? node.children : [];
   if (options.includeLayeredChildren) return children;
   return children.filter((child) => child.layer !== "behind" && child.layer !== "above");

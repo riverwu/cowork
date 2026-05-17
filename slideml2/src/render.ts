@@ -6,6 +6,8 @@ import type { ChartAnnotation, ChartAxisSpec, ChartDataLabels, ChartLegendSpec, 
 import { expandComponent, isComponentTypedNode } from "./component-registry.js";
 import { clearRenderDiagnostics, contrastRatio, contrastThreshold, getRenderDiagnostics, pushDiagnostic, relativeLuminance, type LayoutDiagnostic } from "./diagnostics.js";
 import { coverageRatio, meaningfulOverlap, meaningfulOverlayOcclusion, meaningfulStructuralOverlap, meaningfulTitleOcclusion, rectFromNodePlacement, type OverlapMetrics } from "./layout/geometry.js";
+import { solveDomConstraintLayout } from "./layout/dom-constraint-layout.js";
+import type { SizePreference } from "./layout/constraint-solver.js";
 import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
 import type { Slideml2SourceDeck } from "./types.js";
@@ -6590,6 +6592,8 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
     });
   }
   const childSizes = solveSizes(childSpecs, availableMain, direction === "horizontal");
+  const constrained = layoutStackChildrenWithCassowary(theme, node, rect, children, layered, direction, childSpecs, explicitSplitRatio, childSizes);
+  if (constrained) return constrained;
   // Main-axis alignment ('justify'): when total size < available and no
   // grow children consumed the slack, distribute the leftover according to
   // the chosen justify. This makes "vertically centered hero", "right-aligned
@@ -6635,6 +6639,202 @@ function explicitSplitRatioWeights(node: DomNode, childCount: number): number[] 
   const total = values.reduce((sum, value) => sum + value, 0);
   if (total <= 0) return null;
   return values.map((value) => value / total);
+}
+
+function cassowaryLayoutRequested(node: DomNode): boolean {
+  if (node.constraintLayout === false) return false;
+  const mode = typeof node.layoutEngine === "string"
+    ? node.layoutEngine
+    : typeof node.layoutAlgorithm === "string"
+      ? node.layoutAlgorithm
+      : typeof node.layoutMode === "string"
+        ? node.layoutMode
+        : "";
+  const normalized = mode.toLowerCase();
+  if (normalized === "legacy" || normalized === "classic" || normalized === "local" || normalized === "flex") return false;
+  if (normalized === "cassowary" || normalized === "constraint" || normalized === "constraints") return true;
+  if (typeof process !== "undefined" && process.env?.SLIDEML2_LAYOUT_ENGINE === "legacy") return false;
+  return true;
+}
+
+function uniformStackGapCm(theme: SimpleTheme, parent: DomNode, children: DomNode[]): number | undefined {
+  if (children.length <= 1) return 0;
+  const first = stackGapBetweenCm(theme, parent, children[0], children[1]);
+  for (let index = 1; index < children.length - 1; index++) {
+    const gap = stackGapBetweenCm(theme, parent, children[index], children[index + 1]);
+    if (Math.abs(gap - first) > 0.001) return undefined;
+  }
+  return first;
+}
+
+function layoutStackChildrenWithCassowary(
+  theme: SimpleTheme,
+  node: DomNode,
+  rect: Rect,
+  children: DomNode[],
+  layered: DomNode[],
+  direction: "horizontal" | "vertical",
+  childSpecs: SizeSpec[],
+  explicitSplitRatio: number[] | null,
+  legacyChildSizes: number[],
+): Array<{ node: DomNode; rect: Rect }> | undefined {
+  if (!cassowaryLayoutRequested(node)) return undefined;
+  const gap = uniformStackGapCm(theme, node, children);
+  if (gap === undefined) return undefined;
+  const autoFillSlack = direction === "horizontal" || explicitSplitRatio !== null;
+  const weights = explicitSplitRatio ?? childSpecs.map((spec) => ((spec.grow || autoFillSlack) && !spec.fixed) ? spec.weight : 0);
+  const shouldFill = explicitSplitRatio !== null || weights.some((weight) => weight > 0);
+  const cassowarySpecs = childSpecs.map((spec, index) => ({ ...spec, basis: legacyChildSizes[index] ?? spec.basis }));
+  const specsById = new Map(children.map((child, index) => [child.id, cassowarySpecs[index]!] as const));
+  const solverNode: DomNode = {
+    ...node,
+    gap,
+    padding: 0,
+    layoutPadding: 0,
+    fillLayout: shouldFill,
+    children: children.map((child, index) => ({
+      ...child,
+      layoutWeight: weights[index] ?? 0,
+    })),
+  };
+
+  try {
+    const result = solveDomConstraintLayout(solverNode, rect, {
+      maxDepth: 1,
+      stackWeightStrength: explicitSplitRatio ? "medium" : "weak",
+      measureNode: (measureNode, parentAxis) => {
+        if (measureNode.id === node.id) return undefined;
+        const spec = specsById.get(measureNode.id);
+        return spec ? sizePreferenceFromMainSpec(measureNode, parentAxis, spec) : undefined;
+      },
+    });
+    const totalMain = legacyChildSizes.reduce((sum, size) => sum + size, 0) + totalStackGapCm(theme, node, children);
+    const parentMain = direction === "horizontal" ? rect.w : rect.h;
+    const slack = Math.max(0, parentMain - totalMain);
+    const justify = stringProp(node, "justify", "start");
+    const startOffset = !shouldFill && slack > 0.001
+      ? (justify === "center" || justify === "middle" ? slack / 2 : justify === "end" ? slack : 0)
+      : 0;
+    const flowOut = children.map((child) => {
+      const solved = result.rects.get(child.id);
+      if (!solved || !isFiniteRect(solved)) throw new Error(`Cassowary stack did not solve child '${child.id}'.`);
+      const mainSize = direction === "horizontal" ? solved.w : solved.h;
+      const cross = childCrossRect(theme, child, direction === "horizontal" ? rect.y : rect.x, direction === "horizontal" ? rect.h : rect.w, node, mainSize, direction);
+      const childRect = direction === "horizontal"
+        ? { x: solved.x + startOffset, y: cross.start, w: solved.w, h: cross.size }
+        : { x: cross.start, y: solved.y + startOffset, w: cross.size, h: solved.h };
+      if (currentSlideId) recordDecision(currentSlideId, child.id, { applied: "fit", notes: [`cassowary:${direction}`] });
+      return { node: child, rect: childRect };
+    });
+    pushCassowaryPressureDiagnostics(node, result.pressures);
+    return layered.length === 0 ? flowOut : [...flowOut, ...layered.map((child) => ({ node: child, rect }))];
+  } catch (error) {
+    if (currentSlideId) {
+      recordDecision(currentSlideId, node.id, { notes: [`cassowary-fallback:${error instanceof Error ? error.message : String(error)}`] });
+    }
+    return undefined;
+  }
+}
+
+function sizePreferenceFromMainSpec(node: DomNode, parentAxis: "horizontal" | "vertical" | undefined, spec: SizeSpec): SizePreference {
+  const preference = explicitSizePreference(node);
+  const main = axisPreferenceFromSpec(spec);
+  if (parentAxis === "horizontal") {
+    delete preference.minW;
+    delete preference.idealW;
+    delete preference.maxW;
+    Object.assign(preference, {
+      minW: main.min,
+      idealW: main.ideal,
+      ...(main.max !== undefined ? { maxW: main.max } : {}),
+    });
+  } else if (parentAxis === "vertical") {
+    delete preference.minH;
+    delete preference.idealH;
+    delete preference.maxH;
+    Object.assign(preference, {
+      minH: main.min,
+      idealH: main.ideal,
+      ...(main.max !== undefined ? { maxH: main.max } : {}),
+    });
+  }
+  if (spec.fixed) {
+    preference.minStrength = "strong";
+    preference.idealStrength = "strong";
+    preference.maxStrength = "strong";
+  } else {
+    preference.minStrength = node.optional === true ? "medium" : "strong";
+    preference.idealStrength = node.optional === true ? "weak" : "medium";
+    preference.maxStrength = "strong";
+  }
+  return preference;
+}
+
+function axisPreferenceFromSpec(spec: SizeSpec): { min: number; ideal: number; max?: number } {
+  return {
+    min: spec.min,
+    ideal: spec.basis,
+    ...(Number.isFinite(spec.max) ? { max: spec.max } : {}),
+  };
+}
+
+function explicitSizePreference(node: DomNode): SizePreference {
+  const fixedW = optionalNumberProp(node, "fixedWidth") ?? optionalNumberProp(node, "width");
+  const fixedH = optionalNumberProp(node, "fixedHeight") ?? optionalNumberProp(node, "height");
+  const preference: SizePreference = {
+    ...(fixedW !== undefined ? { minW: fixedW, idealW: fixedW, maxW: fixedW } : explicitAxisPreference(node, "Width")),
+    ...(fixedH !== undefined ? { minH: fixedH, idealH: fixedH, maxH: fixedH } : explicitAxisPreference(node, "Height")),
+  };
+  if (fixedW !== undefined || fixedH !== undefined) {
+    preference.minStrength = "strong";
+    preference.idealStrength = "strong";
+    preference.maxStrength = "strong";
+  }
+  return preference;
+}
+
+function explicitAxisPreference(node: DomNode, suffix: "Width" | "Height"): SizePreference {
+  const min = optionalNumberProp(node, `min${suffix}`);
+  const ideal = optionalNumberProp(node, `ideal${suffix}`) ?? optionalNumberProp(node, `preferred${suffix}`) ?? optionalNumberProp(node, `basis${suffix}`);
+  const max = optionalNumberProp(node, `max${suffix}`);
+  if (suffix === "Width") {
+    return {
+      ...(min !== undefined ? { minW: min } : {}),
+      ...(ideal !== undefined ? { idealW: ideal } : {}),
+      ...(max !== undefined ? { maxW: max } : {}),
+    };
+  }
+  return {
+    ...(min !== undefined ? { minH: min } : {}),
+    ...(ideal !== undefined ? { idealH: ideal } : {}),
+    ...(max !== undefined ? { maxH: max } : {}),
+  };
+}
+
+function isFiniteRect(rect: Rect): boolean {
+  return Number.isFinite(rect.x) && Number.isFinite(rect.y) && Number.isFinite(rect.w) && Number.isFinite(rect.h) && rect.w >= -0.001 && rect.h >= -0.001;
+}
+
+function pushCassowaryPressureDiagnostics(
+  parent: DomNode,
+  pressures: Array<{ nodeId: string; constraint: string; expected: number; actual: number; delta: number }>,
+): void {
+  for (const pressure of pressures) {
+    pushDiagnostic({
+      severity: "warn",
+      code: "OVERFLOW",
+      slideId: currentSlideId || undefined,
+      nodeId: pressure.nodeId,
+      message: `Cassowary layout pressure in '${parent.id}': ${pressure.constraint} expected ${pressure.expected.toFixed(2)}cm, solved ${pressure.actual.toFixed(2)}cm.`,
+      suggestion: "Increase the region, relax fixed/min/max sizing, adjust layoutWeight/ratio, or move lower-priority content to another region.",
+      measured: {
+        available: pressure.actual,
+        needed: pressure.expected,
+        deltaCm: pressure.delta,
+        fitMethod: "cassowary-layout",
+      },
+    });
+  }
 }
 
 function childCrossRect(theme: SimpleTheme, child: DomNode, parentCrossStart: number, parentCrossSize: number, parent: DomNode, mainSize: number, parentDirection: "horizontal" | "vertical"): { start: number; size: number } {
@@ -6782,6 +6982,101 @@ function computeGridPlacements(children: DomNode[], columns: number): GridPlacem
   return placements;
 }
 
+function layoutGridChildrenWithCassowary(
+  theme: SimpleTheme,
+  node: DomNode,
+  rect: Rect,
+  placements: GridPlacement[],
+  columns: number,
+  rows: number,
+  gap: number,
+  colWidths: number[],
+  rowHeights: number[],
+  layered: DomNode[],
+): Array<{ node: DomNode; rect: Rect }> | undefined {
+  if (!cassowaryLayoutRequested(node)) return undefined;
+  const measurementById = new Map<string, SizePreference>();
+  for (const placement of placements) {
+    const width = spannedSize(colWidths, placement.col, placement.colSpan, gap);
+    const height = spannedSize(rowHeights, placement.row, placement.rowSpan, gap);
+    measurementById.set(placement.child.id, gridChildSizePreference(theme, placement.child, width, height));
+  }
+  const solverNode: DomNode = {
+    ...node,
+    gap,
+    padding: 0,
+    layoutPadding: 0,
+    columns,
+    rows,
+    columnWeights: trackWeightsFromSizes(colWidths),
+    rowWeights: trackWeightsFromSizes(rowHeights),
+    children: placements.map((placement) => ({
+      ...placement.child,
+      row: placement.row,
+      col: placement.col,
+      rowSpan: placement.rowSpan,
+      colSpan: placement.colSpan,
+    })),
+  };
+
+  try {
+    const result = solveDomConstraintLayout(solverNode, rect, {
+      maxDepth: 1,
+      gridTrackStrength: "strong",
+      measureNode: (measureNode) => {
+        if (measureNode.id === node.id) return undefined;
+        return measurementById.get(measureNode.id) ?? explicitSizePreference(measureNode);
+      },
+    });
+    if (result.pressures.some((pressure) => (pressure.constraint === "minW" || pressure.constraint === "minH") && pressure.delta > 0.04)) {
+      return undefined;
+    }
+    const flowOut = placements.map(({ child }) => {
+      const solved = result.rects.get(child.id);
+      if (!solved || !isFiniteRect(solved)) throw new Error(`Cassowary grid did not solve child '${child.id}'.`);
+      if (currentSlideId) recordDecision(currentSlideId, child.id, { applied: "fit", notes: ["cassowary:grid"] });
+      return { node: child, rect: solved };
+    });
+    pushCassowaryPressureDiagnostics(node, result.pressures);
+    return layered.length === 0 ? flowOut : [...flowOut, ...layered.map((child) => ({ node: child, rect }))];
+  } catch (error) {
+    if (currentSlideId) {
+      recordDecision(currentSlideId, node.id, { notes: [`cassowary-fallback:${error instanceof Error ? error.message : String(error)}`] });
+    }
+    return undefined;
+  }
+}
+
+function gridChildSizePreference(theme: SimpleTheme, node: DomNode, width: number, height: number): SizePreference {
+  const fixedW = optionalNumberProp(node, "fixedWidth") ?? optionalNumberProp(node, "width");
+  const fixedH = optionalNumberProp(node, "fixedHeight") ?? optionalNumberProp(node, "height");
+  const preference = explicitSizePreference(node);
+  if (fixedW === undefined && preference.minW === undefined) preference.minW = intrinsicMinSize(theme, node, "horizontal", Math.max(0.2, height));
+  if (fixedW === undefined && preference.idealW === undefined) {
+    const explicitBasisW = optionalNumberProp(node, "basisWidth") ?? optionalNumberProp(node, "basis");
+    if (explicitBasisW !== undefined) preference.idealW = explicitBasisW;
+  }
+  if (fixedH === undefined && preference.minH === undefined) preference.minH = intrinsicMinSize(theme, node, "vertical", Math.max(0.2, width));
+  if (fixedH === undefined && preference.idealH === undefined) {
+    const explicitBasisH = optionalNumberProp(node, "basisHeight") ?? optionalNumberProp(node, "basis");
+    preference.idealH = explicitBasisH ?? intrinsicMainSize(theme, node, "vertical", Math.max(0.2, width));
+  }
+  return preference;
+}
+
+function spannedSize(sizes: number[], start: number, span: number, gap: number): number {
+  let total = 0;
+  for (let index = 0; index < span; index++) total += sizes[start + index] || 0;
+  return total + gap * Math.max(0, span - 1);
+}
+
+function trackWeightsFromSizes(sizes: number[]): number[] | undefined {
+  if (sizes.length === 0) return undefined;
+  const positive = sizes.map((size) => Number.isFinite(size) && size > 0 ? size : 0);
+  if (positive.every((size) => size <= 0)) return undefined;
+  return positive;
+}
+
 function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Array<{ node: DomNode; rect: Rect }> {
   const allChildren = node.children || [];
   if (allChildren.length === 0) return [];
@@ -6804,6 +7099,8 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
   const availableHeight = Math.max(0, rect.h - gap * (rows - 1));
   const colX = positionsFromSizes(rect.x, gap, colWidths);
   const rowHeights = resolveGridRowHeights(theme, placements, columns, rows, availableHeight, colWidths, gap, node.rowWeights);
+  const constrained = layoutGridChildrenWithCassowary(theme, node, rect, placements, columns, rows, gap, colWidths, rowHeights, layered);
+  if (constrained) return constrained;
   const rowY = positionsFromSizes(rect.y, gap, rowHeights);
   const flowOut = placements.map(({ child, row, col, rowSpan, colSpan }) => {
     const x = colX[col]!.start;
