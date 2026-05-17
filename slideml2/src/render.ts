@@ -6591,21 +6591,24 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
       });
     });
   }
-  const childSizes = solveSizes(childSpecs, availableMain, direction === "horizontal");
-  const constrained = layoutStackChildrenWithCassowary(theme, node, rect, children, layered, direction, childSpecs, explicitSplitRatio, childSizes);
+  // Cassowary owns final geometry, but it still needs Auto Layout-style
+  // intrinsic targets so compression/growth follows the renderer's semantic
+  // measurement contract instead of equal-strength arbitrary shrinkage.
+  const targetChildSizes = solveSizes(childSpecs, availableMain, direction === "horizontal");
+  const constrained = layoutStackChildrenWithCassowary(theme, node, rect, children, layered, direction, childSpecs, explicitSplitRatio, targetChildSizes);
   if (constrained) return constrained;
   // Main-axis alignment ('justify'): when total size < available and no
   // grow children consumed the slack, distribute the leftover according to
   // the chosen justify. This makes "vertically centered hero", "right-aligned
   // toolbar" etc. expressible without inserting spacer hacks.
-  const totalMain = childSizes.reduce((sum, size) => sum + size, 0) + totalStackGapCm(theme, node, children);
+  const totalMain = targetChildSizes.reduce((sum, size) => sum + size, 0) + totalStackGapCm(theme, node, children);
   const slack = Math.max(0, mainSize - totalMain);
   const justify = stringProp(node, "justify", "start");
   const startOffset = slack > 0.001 ? (justify === "center" || justify === "middle" ? slack / 2 : justify === "end" ? slack : 0) : 0;
   if (currentSlideId) {
     children.forEach((child, index) => {
       const spec = childSpecs[index]!;
-      const size = childSizes[index]!;
+      const size = targetChildSizes[index]!;
       const applied: LayoutDecision["applied"] = spec.fixed
         ? "fit"
         : size < spec.basis - 0.001
@@ -6618,7 +6621,7 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
   }
   let cursor = (direction === "horizontal" ? rect.x : rect.y) + startOffset;
   const flowOut = children.map((child, index) => {
-    const size = childSizes[index]!;
+    const size = targetChildSizes[index]!;
     const cross = childCrossRect(theme, child, direction === "horizontal" ? rect.y : rect.x, crossSize, node, size, direction);
     const childRect = direction === "horizontal"
       ? { x: cursor, y: cross.start, w: size, h: cross.size }
@@ -6676,7 +6679,7 @@ function layoutStackChildrenWithCassowary(
   direction: "horizontal" | "vertical",
   childSpecs: SizeSpec[],
   explicitSplitRatio: number[] | null,
-  legacyChildSizes: number[],
+  targetChildSizes: number[],
 ): Array<{ node: DomNode; rect: Rect }> | undefined {
   if (!cassowaryLayoutRequested(node)) return undefined;
   const gap = uniformStackGapCm(theme, node, children);
@@ -6684,7 +6687,7 @@ function layoutStackChildrenWithCassowary(
   const autoFillSlack = direction === "horizontal" || explicitSplitRatio !== null;
   const weights = explicitSplitRatio ?? childSpecs.map((spec) => ((spec.grow || autoFillSlack) && !spec.fixed) ? spec.weight : 0);
   const shouldFill = explicitSplitRatio !== null || weights.some((weight) => weight > 0);
-  const cassowarySpecs = childSpecs.map((spec, index) => ({ ...spec, basis: legacyChildSizes[index] ?? spec.basis }));
+  const cassowarySpecs = childSpecs.map((spec, index) => ({ ...spec, basis: targetChildSizes[index] ?? spec.basis }));
   const specsById = new Map(children.map((child, index) => [child.id, cassowarySpecs[index]!] as const));
   const solverNode: DomNode = {
     ...node,
@@ -6708,7 +6711,7 @@ function layoutStackChildrenWithCassowary(
         return spec ? sizePreferenceFromMainSpec(measureNode, parentAxis, spec) : undefined;
       },
     });
-    const totalMain = legacyChildSizes.reduce((sum, size) => sum + size, 0) + totalStackGapCm(theme, node, children);
+    const totalMain = targetChildSizes.reduce((sum, size) => sum + size, 0) + totalStackGapCm(theme, node, children);
     const parentMain = direction === "horizontal" ? rect.w : rect.h;
     const slack = Math.max(0, parentMain - totalMain);
     const justify = stringProp(node, "justify", "start");

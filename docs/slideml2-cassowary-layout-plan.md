@@ -123,3 +123,8 @@ default.
   an explicit migration escape hatch with `layoutEngine:"legacy"` or
   `constraintLayout:false`, and is still used as an internal fallback when a
   constraint solve cannot produce a safe geometry.
+- Stack rendering now treats precomputed shrink/grow sizes as Cassowary
+  measurement targets, not as final placement. This preserves the renderer's
+  semantic compression and content-hugging contract while leaving final
+  geometry to the constraint solver.
+- The full SlideML2 test suite is green with the default Cassowary render path.
