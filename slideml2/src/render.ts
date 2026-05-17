@@ -8,6 +8,7 @@ import { clearRenderDiagnostics, contrastRatio, contrastThreshold, getRenderDiag
 import { coverageRatio, meaningfulOverlap, meaningfulOverlayOcclusion, meaningfulStructuralOverlap, meaningfulTitleOcclusion, rectFromNodePlacement, type OverlapMetrics } from "./layout/geometry.js";
 import { solveDomConstraintLayout } from "./layout/dom-constraint-layout.js";
 import type { SizePreference } from "./layout/constraint-solver.js";
+import { resolveFlexMainTargets, type FlexMainSpec } from "./layout/flex-sizing.js";
 import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
 import type { Slideml2SourceDeck } from "./types.js";
@@ -7210,14 +7211,7 @@ function resolveMainSizes(theme: SimpleTheme, children: DomNode[], direction: "h
   return solveSizes(children.map((child) => childMainSpec(theme, child, direction, crossSize)), availableMain);
 }
 
-interface SizeSpec {
-  basis: number;
-  min: number;
-  max: number;
-  weight: number;
-  grow: boolean;
-  fixed: boolean;
-}
+type SizeSpec = FlexMainSpec;
 
 function childMainSpec(theme: SimpleTheme, node: DomNode, direction: "horizontal" | "vertical", crossSize: number): SizeSpec {
   const fixed = optionalNumberProp(node, direction === "horizontal" ? "fixedWidth" : "fixedHeight");
@@ -7281,58 +7275,12 @@ export function clearSizeOverflowWarnings(): void {
 }
 
 function solveSizes(specs: SizeSpec[], availableMain: number, autoFillSlack = false): number[] {
-  if (specs.length === 0) return [];
-  const available = Math.max(0, availableMain);
-  const sizes = specs.map((spec) => clamp(spec.basis, spec.min, spec.max));
-  const total = sizes.reduce((sum, size) => sum + size, 0);
-  if (total > available) return shrinkSizes(specs, sizes, available);
-  if (total < available) return growSizes(specs, sizes, available - total, autoFillSlack);
-  return sizes;
-}
-
-function shrinkSizes(specs: SizeSpec[], sizes: number[], available: number): number[] {
-  let overflow = sizes.reduce((sum, size) => sum + size, 0) - available;
-  const shrinkable = specs.map((spec, index) => ({ spec, index })).filter(({ spec, index }) => !spec.fixed && sizes[index]! > spec.min);
-  while (overflow > 0.0001 && shrinkable.some(({ spec, index }) => sizes[index]! > spec.min + 0.0001)) {
-    const capacities = shrinkable.map(({ spec, index }) => Math.max(0, sizes[index]! - spec.min));
-    const totalCapacity = capacities.reduce((sum, capacity) => sum + capacity, 0);
-    if (totalCapacity <= 0) break;
-    shrinkable.forEach(({ spec, index }, listIndex) => {
-      const reduction = Math.min(sizes[index]! - spec.min, overflow * (capacities[listIndex]! / totalCapacity));
-      sizes[index] -= reduction;
-    });
-    overflow = sizes.reduce((sum, size) => sum + size, 0) - available;
-  }
-  if (overflow > 0.0001) {
-    sizeOverflowWarnings.add(`overflow=${overflow.toFixed(2)}cm; available=${available.toFixed(2)}cm`);
-    return fitToAvailableRespectingFixed(specs, sizes, available);
-  }
-  return sizes;
-}
-
-function growSizes(specs: SizeSpec[], sizes: number[], extra: number, autoFillSlack = false): number[] {
-  let remaining = extra;
-  let growIndexes = specs.map((spec, index) => spec.grow && sizes[index]! < spec.max ? index : -1).filter((index) => index >= 0);
-  if (growIndexes.length === 0 && autoFillSlack) {
-    // No child opted into growth, but the parent has slack and the caller
-    // signalled that the slack should be absorbed (typical for horizontal
-    // stacks of text where leftover gutter would clip narrow intrinsic widths).
-    growIndexes = specs.map((spec, index) => spec.fixed ? -1 : index).filter((index) => index >= 0);
-  }
-  while (remaining > 0.0001 && growIndexes.length > 0) {
-    const weights = normalizeWeights(growIndexes.map((index) => specs[index]!.weight));
-    let consumed = 0;
-    growIndexes.forEach((index, weightIndex) => {
-      const room = specs[index]!.max - sizes[index]!;
-      const addition = Math.min(room, remaining * weights[weightIndex]!);
-      sizes[index] += addition;
-      consumed += addition;
-    });
-    if (consumed <= 0.0001) break;
-    remaining -= consumed;
-    growIndexes = growIndexes.filter((index) => sizes[index]! < specs[index]!.max - 0.0001);
-  }
-  return sizes;
+  return resolveFlexMainTargets(specs, availableMain, {
+    autoFillSlack,
+    onOverflow: (overflow, available) => {
+      sizeOverflowWarnings.add(`overflow=${overflow.toFixed(2)}cm; available=${available.toFixed(2)}cm`);
+    },
+  });
 }
 
 function intrinsicMainSize(theme: SimpleTheme, node: DomNode, direction: "horizontal" | "vertical", crossSize: number): number {
@@ -8734,16 +8682,6 @@ function weightedTextLength(text: string): number {
   let length = 0;
   for (const char of text) length += /[\u4e00-\u9fff]/.test(char) ? 1.05 : 0.58;
   return length;
-}
-
-function fitToAvailableRespectingFixed(specs: SizeSpec[], sizes: number[], availableMain: number): number[] {
-  const fixedTotal = specs.reduce((sum, spec, index) => sum + (spec.fixed ? sizes[index]! : 0), 0);
-  const flexTotal = sizes.reduce((sum, size, index) => sum + (specs[index]!.fixed ? 0 : size), 0);
-  const flexAvailable = Math.max(0, availableMain - fixedTotal);
-  if (flexTotal <= 0) return sizes;
-  if (flexTotal <= flexAvailable) return sizes;
-  const scale = flexAvailable / flexTotal;
-  return sizes.map((size, index) => specs[index]!.fixed ? size : size * scale);
 }
 
 function weightsFromProp(value: unknown, count: number): number[] {
