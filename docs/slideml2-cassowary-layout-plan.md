@@ -107,3 +107,13 @@ tree.
 
 The first implementation phase should not change existing renderer output by
 default.
+
+## Current Checkpoints
+
+- `src/layout/constraint-solver.ts` wraps `@lume/kiwi` with box, stack, split,
+  grid-track, size, and containment primitives.
+- `src/layout/constraint-layout.ts` adds a small layout IR adapter that solves
+  nested stack/split/grid trees and reports minimum/maximum size pressure from
+  solved rectangles.
+- These modules are exported for experiments, but the production renderer does
+  not use them yet.

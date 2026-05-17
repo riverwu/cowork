@@ -20,6 +20,10 @@ export { sliceIconSheet, normalizeIconRequests, normalizeGridSpec } from "./icon
 export type { IconGridSpec, IconManifest, IconRequest, SliceIconSheetOptions } from "./icon-sheet.js";
 export { inspectLayout } from "./layout-inspect.js";
 export type { InspectedLayoutNode, InspectedSlideLayout } from "./layout-inspect.js";
+export { solveConstraintLayout } from "./layout/constraint-layout.js";
+export type { ConstraintLayoutNode, ConstraintLayoutPressure, ConstraintLayoutResult } from "./layout/constraint-layout.js";
+export { CassowaryLayoutSolver } from "./layout/constraint-solver.js";
+export type { GridConstraintOptions, GridTrackItem, LayoutAxis, LayoutBox, LayoutStrength, SizePreference, SplitConstraintOptions, StackConstraintOptions } from "./layout/constraint-solver.js";
 export { buildDom, getSlide } from "./layouts.js";
 export { renderToAst, renderToPptx } from "./render.js";
 export { buildTheme } from "./theme.js";
