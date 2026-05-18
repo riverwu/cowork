@@ -240,6 +240,44 @@ export function protectCjkLineBreakPunctuation(text: string, context: { previous
   return out;
 }
 
+export function hasCjkLineStartPunctuationRisk(
+  text: string,
+  fontPt: number,
+  weight: FontWeight | undefined,
+  maxWidthCm: number,
+  measurer: Pick<TextMeasurer, "textWidth">,
+): boolean {
+  const usable = Math.max(0.25, maxWidthCm);
+  const guardWidth = usable * 0.965;
+  for (const line of String(text || "").split(/\r?\n/)) {
+    if (!containsCjkOrFullWidth(line)) continue;
+    const wrap = measureWrappedText(line, fontPt, weight, usable, measurer);
+    if (wrap.lines > 2) continue;
+    if (wrap.widthCm <= guardWidth) continue;
+    if (wrap.widthCm > usable * 2.08) continue;
+    const chars = [...line];
+    let prefix = "";
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i]!;
+      if (ch === WORD_JOINER) continue;
+      const previous = previousVisibleChar(chars, i);
+      if (PROHIBITED_LINE_START.has(ch) && shouldJoinCjkPunctuation(previous, ch)) {
+        const beforeWidth = measurer.textWidth(prefix, fontPt, weight);
+        const punctWidth = measurer.textWidth(ch, fontPt, weight);
+        if (beforeWidth <= usable && beforeWidth + punctWidth > guardWidth) return true;
+        const lineIndex = Math.floor(beforeWidth / usable);
+        if (lineIndex > 0) {
+          const residual = beforeWidth - lineIndex * usable;
+          const edgeBand = Math.max(0.08, punctWidth * 1.25);
+          if (residual > usable - edgeBand && residual + punctWidth > guardWidth) return true;
+        }
+      }
+      prefix += ch;
+    }
+  }
+  return false;
+}
+
 function previousVisibleChar(chars: string[], index: number): string | undefined {
   for (let i = index - 1; i >= 0; i--) {
     const ch = chars[i]!;

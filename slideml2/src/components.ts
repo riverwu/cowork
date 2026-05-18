@@ -731,6 +731,9 @@ export function quoteBlock(
     align: "left",
     valign: "middle",
     autoFit: "shrink",
+    autoGrow: true,
+    layoutWeight: 1,
+    maxFontScale: veryCompact ? 1.14 : compact ? 1.34 : 1.52,
     minHeight: compact ? 0.62 : 0.75,
     ...(quoteFontScale ? { fontScale: quoteFontScale } : {}),
   });
@@ -2485,6 +2488,7 @@ export function keyTakeaway(
       align: "left",
       valign: "top",
       autoFit: "shrink",
+      layoutWeight: 1,
       minHeight: estimateTakeawayDetailMinHeight(detailPlain, compact),
       optional: compact ? true : undefined,
     });

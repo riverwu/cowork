@@ -126,11 +126,13 @@ function paragraphPropsXml(p: Paragraph): string {
   const attrs = attr("marL", marginLeft ?? (lvl ? lvl * 285750 : undefined)) +
                 attr("lvl", lvl) +
                 attr("indent", hanging ?? (lvl ? -285750 : undefined)) +
-                attr("algn", algn);
+                attr("algn", algn) +
+                attr("eaLnBrk", "1") +
+                attr("latinLnBrk", "0") +
+                attr("hangingPunct", "1");
 
   // Order matters for OOXML: spacing first, then bullet props.
   const inner = `${lnSpc}${spcAft}${bullet}`;
-  if (!attrs && !inner) return "";
   return `<a:pPr${attrs}>${inner}</a:pPr>`;
 }
 

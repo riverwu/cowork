@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createHeuristicTextMeasurer, createMetricPackTextMeasurer, protectCjkLineBreakPunctuation, PT_TO_CM } from "./text-measure.js";
+import { createHeuristicTextMeasurer, createMetricPackTextMeasurer, hasCjkLineStartPunctuationRisk, protectCjkLineBreakPunctuation, PT_TO_CM } from "./text-measure.js";
 import { buildTheme } from "./theme.js";
 
 describe("heuristic text measurement", () => {
@@ -74,6 +74,15 @@ describe("heuristic text measurement", () => {
     expect(protectCjkLineBreakPunctuation("他说“理论”。")).toBe("他说“\u2060理论\u2060”\u2060。");
     expect(protectCjkLineBreakPunctuation("理论,实验继续")).toBe("理论\u2060,实验继续");
     expect(protectCjkLineBreakPunctuation("13.6% CAGR")).toBe("13.6% CAGR");
+  });
+
+  it("flags near-edge CJK closing punctuation so final PPTX wrapping gets extra budget", () => {
+    const before = measurer.textWidth("加速机制", 14);
+    const punct = measurer.textWidth("。", 14);
+
+    expect(hasCjkLineStartPunctuationRisk("加速机制。", 14, undefined, before + punct * 0.8, measurer)).toBe(true);
+    expect(hasCjkLineStartPunctuationRisk("加速机制。", 14, undefined, before + punct * 2, measurer)).toBe(false);
+    expect(hasCjkLineStartPunctuationRisk("13.6% CAGR.", 14, undefined, before + punct * 0.8, measurer)).toBe(false);
   });
 
   it("keeps unpunctuated Latin identifiers as overflow-causing unbreakable tokens", () => {

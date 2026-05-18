@@ -2536,9 +2536,28 @@ function withComponentRoot(source: DomNode, expanded: DomNode): DomNode {
   const scaled = scale < 0.999 ? applyComponentScale(styled, scale) : styled;
   return {
     ...scaled,
+    ...componentCohortMetadata(source, componentName),
     ...layoutProps(source),
     id: source.id || expanded.id,
   };
+}
+
+function componentCohortMetadata(source: DomNode, componentName: string): Record<string, unknown> {
+  if (!componentName) return {};
+  const metadata: Record<string, unknown> = {
+    __cohortSourceType: componentName,
+  };
+  for (const [sourceKey, targetKey] of [
+    ["variant", "__cohortSourceVariant"],
+    ["density", "__cohortSourceDensity"],
+    ["cohortGroup", "__cohortGroup"],
+    ["cohortScope", "__cohortScope"],
+    ["cohortSlot", "__cohortSlot"],
+  ] as const) {
+    const value = source[sourceKey];
+    if (typeof value === "string" && value.trim()) metadata[targetKey] = value.trim();
+  }
+  return metadata;
 }
 
 function componentScaleFactor(value: unknown): number {
@@ -10364,7 +10383,20 @@ function sideRailNode(slideId: string, name: string, node: DomNode): DomNode {
   const body = stringValue(node.body, "");
   const children: DomNode[] = [
     ...(title ? [{ id: `${slideId}.${name}.title`, type: "text" as const, text: title, style: "card-title", color: tone.fg || "text.primary", minHeight: 0.55, autoFit: "shrink" as const }] : []),
-    ...(body ? [{ id: `${slideId}.${name}.body`, type: "text" as const, text: body, style: "caption", color: "text.primary", valign: "top" as const }] : []),
+    ...(body ? [{
+      id: `${slideId}.${name}.body`,
+      type: "text" as const,
+      text: body,
+      style: "paragraph",
+      color: "text.primary",
+      valign: "top" as const,
+      autoFit: "shrink" as const,
+      autoGrow: true,
+      layoutWeight: 1,
+      maxFontScale: 1.12,
+      lineHeight: 1.42,
+      minHeight: 1.6,
+    }] : []),
     ...((node.children || []) as DomNode[]),
   ];
   return {

@@ -45,6 +45,17 @@ export interface SimpleTheme {
     columnGap: number;
     cardPadding: number;
     areas: Record<string, ThemeLayoutArea>;
+    regionBudget: {
+      headingScale: number;
+      leadScale: number;
+      bodyScale: number;
+      keyTakeawayDetailScale: number;
+      bulletScale: number;
+      bulletMinPt: number;
+      keyTakeawayMinCm: number;
+      keyTakeawayMaxCm: number;
+      keyTakeawayMaxAvailableRatio: number;
+    };
   };
   chart: {
     series: string[];
@@ -253,6 +264,7 @@ function stripHexPrefix(value: string): string {
 function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOverride, prebuiltColors?: Record<string, string>, prebuiltColorAlphas?: Record<string, number>): SimpleTheme {
   const flatColors = prebuiltColors ?? flattenColorOverrides(override?.colors);
   const flatColorAlphas = prebuiltColorAlphas ?? flattenColorOverrideAlphas(override?.colors);
+  const layoutOverride = override?.layout || {};
   const colors = { ...base.colors, ...derivedBrandPalette(brandPrimary), ...flatColors };
   if (flatColors["text.secondary"] && !flatColors["text.muted"]) {
     colors["text.muted"] = flatColors["text.secondary"];
@@ -275,7 +287,12 @@ function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOve
     text: mergeTextStyles(base.text, override?.text),
     component: mergeComponentStyles(base.component, override?.component),
     tone: { ...base.tone, ...(override?.tone || {}) },
-    layout: { ...base.layout, ...(override?.layout || {}), areas: { ...base.layout.areas, ...(override?.layout?.areas || {}) } },
+    layout: {
+      ...base.layout,
+      ...layoutOverride,
+      areas: { ...base.layout.areas, ...(layoutOverride.areas || {}) },
+      regionBudget: { ...base.layout.regionBudget, ...(layoutOverride.regionBudget || {}) },
+    },
     fonts: mergeFonts(base.fonts, override?.fonts),
     chart: { series: override?.chart?.series ?? base.chart.series },
     guidance: {
@@ -1221,6 +1238,17 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       columnGap: 0.7,
       cardPadding: 0.55,
       areas: {},
+      regionBudget: {
+        headingScale: 0.62,
+        leadScale: 0.72,
+        bodyScale: 0.70,
+        keyTakeawayDetailScale: 0.76,
+        bulletScale: 0.74,
+        bulletMinPt: 7.8,
+        keyTakeawayMinCm: 3.05,
+        keyTakeawayMaxCm: 4.25,
+        keyTakeawayMaxAvailableRatio: 0.42,
+      },
     },
     chart: {
       series: ["brand.primary", "brand.primary.shade", "brand.primary.tint", "success", "warning", "danger"],

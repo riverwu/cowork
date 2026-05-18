@@ -30,6 +30,7 @@ import type { RenderDiagnosticCode } from "./diagnostic-codes.js";
  *   MISSING_DATA_BINDING_SOURCE bound chart/table references a source that did not resolve
  *   PAGE_OVER_CAPACITY multiple large components together exceed a single readable page budget
  *   REGION_OVER_CAPACITY a split/rail/local region has more hard-layout component demand than its readable budget
+ *   REGION_BUDGET_INFEASIBLE a narrative region cannot preserve all readable floors after shared compression
  *   ORG_OVERFLOW     an org/tree layout needs more readable space than the assigned region
  */
 export interface LayoutDiagnostic {
@@ -145,6 +146,12 @@ export interface LayoutDiagnostic {
     mildFormulaPressure?: boolean;
     mildMetricPressure?: boolean;
     components?: Array<{ nodeId: string; role: string; assignedHeightCm: number; neededHeightCm: number; preferredHeightCm?: number; hardMinHeightCm?: number; capacityMode?: string }>;
+    preferredTotalCm?: number;
+    floorTotalCm?: number;
+    targetTotalCm?: number;
+    budgetDeficitCm?: number;
+    budgetStrategy?: string;
+    budgetItems?: Array<{ nodeId: string; role: string; preferredCm: number; floorCm: number; targetCm: number; priority: number }>;
   };
   /**
    * For LOW_CONTRAST: ordered chain of surfaces that determined the comparison
@@ -177,6 +184,7 @@ export interface LayoutDiagnostic {
 
 let diagnostics: LayoutDiagnostic[] = [];
 let diagnosticDedupKeys: Set<string> = new Set();
+let diagnosticSuppressionDepth = 0;
 
 /**
  * Build a stable deduplication key for a diagnostic. The renderer's measure
@@ -208,6 +216,7 @@ function diagnosticDedupKey(d: LayoutDiagnostic, includeSlide = true): string {
 }
 
 export function pushDiagnostic(d: LayoutDiagnostic): void {
+  if (diagnosticSuppressionDepth > 0) return;
   const key = diagnosticDedupKey(d);
   // Dedupe across (slide,node,code) AND across (any-slide,node,code) — the
   // second emission from the render pass often has slideId="" while the first
@@ -226,6 +235,15 @@ export function getRenderDiagnostics(): LayoutDiagnostic[] {
 export function clearRenderDiagnostics(): void {
   diagnostics = [];
   diagnosticDedupKeys = new Set();
+}
+
+export function withSuppressedRenderDiagnostics<T>(fn: () => T): T {
+  diagnosticSuppressionDepth += 1;
+  try {
+    return fn();
+  } finally {
+    diagnosticSuppressionDepth = Math.max(0, diagnosticSuppressionDepth - 1);
+  }
 }
 
 /** Filter helpers for agents and tests. */

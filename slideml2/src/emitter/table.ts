@@ -128,7 +128,7 @@ function cellXml(cell: TableCell, shape: TableShape, rowIndex: number): string {
     `<a:bodyPr wrap="square"${bodyInsets} anchor="${anchor}"${rotation}/>` +
     `<a:lstStyle/>` +
     `<a:p>` +
-    `<a:pPr algn="${algn}"/>` +
+    `<a:pPr algn="${algn}" eaLnBrk="1" latinLnBrk="0" hangingPunct="1"/>` +
     protectedRuns.map((r) => runXml(r)).join("") +
     (protectedRuns.length === 0 ? `<a:endParaRPr lang="en-US"/>` : "") +
     `</a:p>` +

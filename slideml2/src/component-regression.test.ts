@@ -7,7 +7,7 @@ import {
   getRenderDiagnostics,
   type LayoutDiagnostic,
 } from "./diagnostics.js";
-import { renderToAst, measureDeck, renderToPptx } from "./render.js";
+import { renderToAst, measureDeck, renderToPptx, layoutDecisionsForSlide } from "./render.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
 import { validateDeck, validateSlide } from "./validate.js";
 import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
@@ -74,6 +74,22 @@ function findRunColor(ast: ReturnType<typeof renderToAst>, name: string): string
   const shape = findShapeByName(ast, name);
   if (!shape || shape.type !== "text") return undefined;
   return shape.paragraphs?.[0]?.runs?.[0]?.color;
+}
+
+function shapeRectCm(shape: { xfrm?: { x?: number; y?: number; cx?: number; cy?: number } } | undefined) {
+  const xfrm = shape?.xfrm;
+  if (!xfrm) return undefined;
+  return {
+    x: (xfrm.x ?? 0) / 360000,
+    y: (xfrm.y ?? 0) / 360000,
+    w: (xfrm.cx ?? 0) / 360000,
+    h: (xfrm.cy ?? 0) / 360000,
+  };
+}
+
+function firstRunSizeHalfPt(shape: unknown): number | undefined {
+  const textShape = shape as { paragraphs?: Array<{ runs?: Array<{ sizeHalfPt?: number }> }> } | undefined;
+  return textShape?.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt;
 }
 
 function findDomNode(node: DomNode | undefined, id: string): DomNode | undefined {
@@ -1171,10 +1187,22 @@ describe("component regressions", () => {
         },
       } as unknown as SlideV2["children"][number]],
     };
-    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
-    const chart = ast.slides[0].shapes.find((shape) => shape.type === "chart") as { labels?: string[]; series?: Array<{ values: number[] }> } | undefined;
+    const source = buildDeckWithSlide(slide);
+    source.deck.themeOverride = {
+      colors: {
+        background: "0B0C10",
+        surface: "0B0C10",
+        "text.primary": "F0EDE5",
+        "text.secondary": "B0B0B0",
+      },
+    };
+    const ast = renderToAst(sourceToRenderedDeck(source));
+    const chart = ast.slides[0].shapes.find((shape) => shape.type === "chart") as { labels?: string[]; series?: Array<{ values: number[] }>; textColor?: string; axisTextColor?: string; dataLabelColor?: string } | undefined;
     expect(chart?.labels).toEqual(["Microsoft AI", "Canva", "Gamma"]);
     expect(chart?.series?.[0]?.values).toEqual([500, 35, 1.02]);
+    expect(chart?.textColor).toBe("F0EDE5");
+    expect(chart?.axisTextColor).toBe("B0B0B0");
+    expect(chart?.dataLabelColor).toBe("F0EDE5");
     for (const text of ["平台玩家 vs Gamma 规模对比", "Microsoft & Canva", "平台玩家拥有更大的渠道", "这不是同一位面的竞争", "公开财报及公司披露"]) {
       expect(firstTextShapeContaining(ast, text), `missing ${text}`).toBeDefined();
     }
@@ -1786,6 +1814,829 @@ describe("component regressions", () => {
     renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
     const failures = getRenderDiagnostics().filter((d) => d.code === "FALLBACK_FAILED" && d.nodeId === "gap-fit.stack");
     expect(failures, failures.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
+
+  it("narrative split regions share compression budget instead of crushing the final takeaway", () => {
+    const slide: SlideV2 = {
+      id: "s07",
+      children: [{
+        type: "evidence-layout",
+        headline: "K2-18b：可能含有生命迹象？",
+        layout: "sidecar",
+        ratio: [0.58, 0.42],
+        evidence: {
+          type: "stack",
+          gap: 0.5,
+          children: [
+            {
+              type: "kpi-grid",
+              metrics: [
+                { value: "124光年", label: "距离地球", status: "狮子座方向" },
+                { value: "8.6x", label: "地球质量", status: "超级地球" },
+                { value: "0-40°C", label: "表面温度估计", status: "宜居带内" },
+              ],
+              columns: 3,
+              variant: "compact",
+            },
+            {
+              type: "quote",
+              text: "K2-18b是迄今为止唯一一颗同时拥有水和适宜温度的大气层的系外行星。这是寻找地外生命历史上的里程碑。",
+              source: "— 剑桥大学天文研究所",
+            },
+          ],
+        },
+        insight: {
+          type: "stack",
+          gap: 0.4,
+          children: [
+            { type: "h1", text: "大气中的惊喜" },
+            { type: "text", text: "2023-2025年，韦伯望远镜对K2-18b的大气进行了前所未有的详细分析，发现了：" },
+            {
+              type: "bullets",
+              items: [
+                "甲烷（CH₄）和二氧化碳（CO₂）——含碳分子的确凿证据",
+                "二甲基硫醚（DMS）——地球上主要由海洋浮游生物产生",
+                "缺乏氨（NH₃）——暗示其大气下方可能存在液态水海洋",
+              ],
+            },
+            {
+              type: "key-takeaway",
+              headline: "氢海行星假说",
+              detail: "科学家推测K2-18b是一个「氢海世界」——厚氢气大气包裹着全球性海洋，温度压力条件可能适合某些微生物生存。",
+              tone: "brand",
+              variant: "minimal",
+            },
+          ],
+        },
+      } as unknown as DomNode],
+    };
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { name: "Space", primary: "2563EB" },
+        themeOverride: {
+          colors: {
+            "brand.primary": "D4A843",
+            surface: "0B0C10",
+            "text.primary": "F0EDE5",
+            background: "0B0C10",
+          },
+          text: {
+            "section-title": { fontSize: 36, fontWeight: "bold", color: "D4A843" },
+            "card-title": { fontSize: 18, fontWeight: "bold", color: "F0EDE5" },
+            paragraph: { fontSize: 14, color: "E0DCD3", lineSpacing: 1.6 },
+            bullet: { fontSize: 14, color: "E0DCD3", lineSpacing: 1.5 },
+            "metric-value": { fontSize: 48, fontWeight: "bold", color: "D4A843" },
+            "metric-label": { fontSize: 14, color: "B0B0B0" },
+          },
+          layout: { pageMarginX: 1.5, contentTop: 2.2, contentBottom: 13, defaultGap: 0.5 },
+        },
+      },
+      slides: [slide],
+    };
+    const rendered = sourceToRenderedDeck(deck);
+    clearRenderDiagnostics();
+    const ast = renderToAst(rendered);
+    const blocking = getRenderDiagnostics().filter((d) =>
+      d.severity === "error" && (d.code === "COLLISION" || d.code === "SIBLING_INK_OVERLAP" || d.code === "FALLBACK_FAILED" || d.code === "SQUASHED")
+    );
+    expect(blocking, blocking.map((d) => d.message).join("\n")).toHaveLength(0);
+
+    const measured = measureDeck(rendered)[0]!.nodes;
+    const intro = measured.find((n) => n.id === "s07.node-1.insight.2")?.rect;
+    const bullets = measured.find((n) => n.id === "s07.node-1.insight.3")?.rect;
+    const takeaway = measured.find((n) => n.id === "s07.node-1.insight.4")?.rect;
+    expect(intro?.h).toBeGreaterThan(2.2);
+    expect(bullets?.h).toBeGreaterThan(2.6);
+    expect(takeaway?.h).toBeGreaterThan(4.0);
+    expect(takeaway?.h).toBeLessThan(5.1);
+
+    const detail = findRenderedByName(ast, "s07.node-1.insight.4.detail") as { xfrm?: { cy: number }; paragraphs?: Array<{ runs: Array<{ sizeHalfPt?: number }> }> } | undefined;
+    const measuredDetail = measured.find((n) => n.id === "s07.node-1.insight.4.detail")?.rect;
+    const renderedBullets = shapeRectCm(findRenderedByName(ast, "s07.node-1.insight.3") as { xfrm?: { x?: number; y?: number; cx?: number; cy?: number } } | undefined);
+    const renderedTakeawayHeadline = shapeRectCm(findRenderedByName(ast, "s07.node-1.insight.4.headline") as { xfrm?: { x?: number; y?: number; cx?: number; cy?: number } } | undefined);
+    expect(renderedBullets).toBeDefined();
+    expect(renderedTakeawayHeadline).toBeDefined();
+    expect(renderedTakeawayHeadline!.y).toBeGreaterThanOrEqual(renderedBullets!.y + renderedBullets!.h - 0.02);
+    expect(detail?.xfrm?.cy ? detail.xfrm.cy / 360000 : 0).toBeGreaterThan(2.0);
+    expect(Math.abs((detail?.xfrm?.cy ? detail.xfrm.cy / 360000 : 0) - (measuredDetail?.h ?? 0))).toBeLessThan(0.05);
+    expect(detail?.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt ?? 0).toBeGreaterThanOrEqual(24);
+  });
+
+  it("tight explanation-block peers reduce chrome before crushing titles", () => {
+    const slide: SlideV2 = {
+      id: "explanation-title-fit",
+      children: [{
+        id: "explanation-title-fit.stack",
+        type: "stack",
+        at: [1, 1, 10.2, 5.2],
+        gap: 0.32,
+        children: [
+          {
+            id: "explanation-title-fit.a",
+            type: "explanation-block",
+            title: "层级问题 (Hierarchy Problem)",
+            body: "为什么Higgs质量与Planck质量之间差17个数量级？量子修正应把Higgs质量推向Planck尺度。这是当前理论最核心的不自洽。",
+            tone: "danger",
+            variant: "panel",
+          },
+          {
+            id: "explanation-title-fit.b",
+            type: "explanation-block",
+            title: "强CP问题",
+            body: "QCD理论允许CP破坏项，但实验测到的中子电偶极矩几乎为零。轴子是主要候选解释，且恰好也是暗物质候选者。",
+            tone: "warning",
+            variant: "panel",
+          },
+        ],
+      } as unknown as DomNode],
+    };
+
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide(slide));
+    clearRenderDiagnostics();
+    renderToAst(rendered);
+    const squashed = getRenderDiagnostics().filter((d) => d.code === "SQUASHED");
+    expect(squashed, squashed.map((d) => d.message).join("\n")).toHaveLength(0);
+    const measured = measureDeck(rendered)[0]!.nodes;
+    for (const id of ["explanation-title-fit.a.title", "explanation-title-fit.b.title"]) {
+      expect(measured.find((node) => node.id === id)?.rect.h).toBeGreaterThanOrEqual(0.33);
+    }
+  });
+
+  it("single-column key-takeaway cohorts keep matching text slots typographically consistent", () => {
+    const slide: SlideV2 = {
+      id: "kt-cohort",
+      children: [{
+        id: "kt-cohort.grid",
+        type: "grid",
+        columns: 1,
+        gap: 0.3,
+        children: [
+          {
+            id: "kt-cohort.first",
+            type: "key-takeaway",
+            headline: "TRAPPIST-1：七颗地球大小的行星",
+            detail: "距离地球仅39光年，7颗岩石行星中有3颗位于宜居带——研究系外行星大气的最佳实验室。",
+            variant: "minimal",
+          },
+          {
+            id: "kt-cohort.second",
+            type: "key-takeaway",
+            headline: "K2-18b：海洋世界的候选者",
+            detail: "8.6倍地球质量的「超级地球」，韦伯在其大气中探测到了甲烷、二氧化碳，以及可能来自生命的二甲基硫醚（DMS）。",
+            variant: "minimal",
+          },
+        ],
+      } as unknown as DomNode],
+    };
+
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const firstHeadline = firstRunSizeHalfPt(findRenderedByName(ast, "kt-cohort.first.headline"));
+    const secondHeadline = firstRunSizeHalfPt(findRenderedByName(ast, "kt-cohort.second.headline"));
+    const firstDetail = firstRunSizeHalfPt(findRenderedByName(ast, "kt-cohort.first.detail"));
+    const secondDetail = firstRunSizeHalfPt(findRenderedByName(ast, "kt-cohort.second.detail"));
+    expect(firstHeadline).toBeDefined();
+    expect(secondHeadline).toBeDefined();
+    expect(firstDetail).toBeDefined();
+    expect(secondDetail).toBeDefined();
+    expect(Math.abs(firstHeadline! - secondHeadline!)).toBeLessThanOrEqual(0.01);
+    expect(Math.abs(firstDetail! - secondDetail!)).toBeLessThanOrEqual(0.01);
+  });
+
+  it("multi-column semantic cohorts keep repeated key-takeaways consistent by row and text slot", () => {
+    const slide: SlideV2 = {
+      id: "kt-multi",
+      children: [{
+        id: "kt-multi.grid",
+        type: "grid",
+        at: [1, 1, 12.2, 6.2],
+        columns: 2,
+        gap: 0.3,
+        children: [
+          { id: "kt-multi.a", type: "key-takeaway", headline: "观测超过理论", detail: "新一代望远镜持续发现理论模型无法快速解释的异常对象。", variant: "minimal" },
+          { id: "kt-multi.b", type: "key-takeaway", headline: "模型需要回炉", detail: "当样本数量、波段覆盖和时间分辨率同时提升，早期宇宙、行星大气和星系演化中的旧假设会在同一页上被集中挑战。", variant: "minimal" },
+          { id: "kt-multi.c", type: "key-takeaway", headline: "证据链更长", detail: "单个结论需要跨仪器、跨波段、跨团队复核。", variant: "minimal" },
+          { id: "kt-multi.d", type: "key-takeaway", headline: "解释更谨慎", detail: "更好的数据不一定立刻给出答案，但会更快暴露模型的边界。", variant: "minimal" },
+        ],
+      } as unknown as DomNode],
+    };
+
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide(slide));
+    const ast = renderToAst(rendered);
+    const headlineSizes = ["a", "b", "c", "d"].map((id) => firstRunSizeHalfPt(findRenderedByName(ast, `kt-multi.${id}.headline`)));
+    const detailSizes = ["a", "b", "c", "d"].map((id) => firstRunSizeHalfPt(findRenderedByName(ast, `kt-multi.${id}.detail`)));
+    expect(new Set(headlineSizes.map((size) => size?.toFixed(3))).size).toBe(1);
+    expect(new Set(detailSizes.map((size) => size?.toFixed(3))).size).toBe(1);
+
+    const measured = measureDeck(rendered)[0]?.nodes || [];
+    const rectById = new Map(measured.map((node) => [node.id, node.rect]));
+    const cardHeights = ["a", "b", "c", "d"].map((id) => rectById.get(`kt-multi.${id}`)?.h.toFixed(3));
+    expect(new Set(cardHeights).size).toBe(1);
+  });
+
+  it("semantic cohort uses fitted text size from the dense peer across feature-card siblings", () => {
+    const body =
+      "这段文字故意比其他卡片长很多，用来模拟一页中三个同类卡片只有一个需要自适应收缩的情况；最终三张卡片的正文应该共享同一字号，而不是只有这一张变小。";
+    const slide: SlideV2 = {
+      id: "feature-cohort",
+      children: [{
+        id: "feature-cohort.grid",
+        type: "grid",
+        at: [1, 1, 12.3, 2.55],
+        columns: 3,
+        gap: 0.35,
+        children: [
+          {
+            id: "feature-cohort.a",
+            type: "stack",
+            role: "feature-card",
+            direction: "vertical",
+            gap: 0.12,
+            padding: 0.28,
+            fill: "surface",
+            children: [
+              { id: "feature-cohort.a.title", type: "text", text: "实验端", style: "card-title", autoFit: "shrink" },
+              { id: "feature-cohort.a.body", type: "text", text: "探测器更灵敏，数据更多。", style: "paragraph", fontSize: 14, autoFit: "shrink" },
+            ],
+          },
+          {
+            id: "feature-cohort.b",
+            type: "stack",
+            role: "feature-card",
+            direction: "vertical",
+            gap: 0.12,
+            padding: 0.28,
+            fill: "surface",
+            children: [
+              { id: "feature-cohort.b.title", type: "text", text: "理论端", style: "card-title", autoFit: "shrink" },
+              { id: "feature-cohort.b.body", type: "text", text: body, style: "paragraph", fontSize: 14, autoFit: "shrink" },
+            ],
+          },
+          {
+            id: "feature-cohort.c",
+            type: "stack",
+            role: "feature-card",
+            direction: "vertical",
+            gap: 0.12,
+            padding: 0.28,
+            fill: "surface",
+            children: [
+              { id: "feature-cohort.c.title", type: "text", text: "传播端", style: "card-title", autoFit: "shrink" },
+              { id: "feature-cohort.c.body", type: "text", text: "解释必须更谨慎。", style: "paragraph", fontSize: 14, autoFit: "shrink" },
+            ],
+          },
+        ],
+      } as unknown as DomNode],
+    };
+
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const bodySizes = ["a", "b", "c"].map((id) => firstRunSizeHalfPt(findRenderedByName(ast, `feature-cohort.${id}.body`)));
+    expect(new Set(bodySizes.map((size) => size?.toFixed(3))).size).toBe(1);
+    expect(bodySizes[0]).toBeLessThan(28);
+  });
+
+  it("generic metric-card cohorts align value and label bands outside kpi-grid", () => {
+    const slide: SlideV2 = {
+      id: "metric-generic",
+      children: [{
+        id: "metric-generic.grid",
+        type: "grid",
+        at: [1, 1, 12.1, 1.75],
+        columns: 3,
+        gap: 0.25,
+        children: [
+          { id: "metric-generic.a", type: "metric-card", value: "134亿", label: "光年距离", variant: "compact", density: "compact" },
+          { id: "metric-generic.b", type: "metric-card", value: "2.9亿", label: "年", variant: "compact", density: "compact" },
+          { id: "metric-generic.c", type: "metric-card", value: "1,600", label: "光年直径", variant: "compact", density: "compact" },
+        ],
+      } as unknown as DomNode],
+    };
+
+    const measured = measureDeck(sourceToRenderedDeck(buildDeckWithSlide(slide)))[0]?.nodes || [];
+    const rectById = new Map(measured.map((node) => [node.id, node.rect]));
+    const ids = ["a", "b", "c"].map((id) => `metric-generic.${id}`);
+    expect(new Set(ids.map((id) => rectById.get(`${id}.value-wrap`)?.h.toFixed(3))).size).toBe(1);
+    expect(new Set(ids.map((id) => rectById.get(`${id}.label`)?.y.toFixed(3))).size).toBe(1);
+  });
+
+  it("page-level semantic cohorts normalize matching components across separate regions", () => {
+    const slide: SlideV2 = {
+      id: "page-cohort",
+      children: [{
+        id: "page-cohort.split",
+        type: "split",
+        direction: "horizontal",
+        ratio: [0.5, 0.5],
+        gap: 0.5,
+        children: [
+          {
+            id: "page-cohort.left",
+            type: "stack",
+            children: [
+              {
+                id: "page-cohort.left.kt",
+                type: "key-takeaway",
+                headline: "实验先行",
+                detail: "观测数据不断刷新理论边界，新的异常比解释出现得更快。",
+                variant: "minimal",
+              },
+            ],
+          },
+          {
+            id: "page-cohort.right",
+            type: "stack",
+            children: [
+              {
+                id: "page-cohort.right.kt",
+                type: "key-takeaway",
+                headline: "理论滞后",
+                detail: "当一页中的另一个同类组件因为内容更长而需要字体收缩时，页面级 cohort 应该同步更新同一语义位置的字号，否则左右两边会显得像两套不同模板。",
+                variant: "minimal",
+              },
+            ],
+          },
+        ],
+      } as unknown as DomNode],
+    };
+
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const leftDetail = firstRunSizeHalfPt(findRenderedByName(ast, "page-cohort.left.kt.detail"));
+    const rightDetail = firstRunSizeHalfPt(findRenderedByName(ast, "page-cohort.right.kt.detail"));
+    expect(leftDetail).toBeDefined();
+    expect(rightDetail).toBeDefined();
+    expect(Math.abs(leftDetail! - rightDetail!)).toBeLessThanOrEqual(0.01);
+
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide(slide));
+    measureDeck(rendered);
+    const decisions = layoutDecisionsForSlide(rendered, "page-cohort");
+    expect(decisions.get("page-cohort.left.kt")?.notes?.some((note) => note.includes("semantic-cohort:") && note.includes("scope=slide"))).toBe(true);
+    expect(decisions.get("page-cohort.right.kt")?.notes?.some((note) => note.includes("semantic-cohort:") && note.includes("scope=slide"))).toBe(true);
+  });
+
+  it("page-level semantic cohorts normalize a same-standing subset when another region is not a peer", () => {
+    const slide: SlideV2 = {
+      id: "subset-page-cohort",
+      children: [{
+        id: "subset-page-cohort.split",
+        type: "split",
+        direction: "horizontal",
+        ratio: [0.42, 0.42, 0.16],
+        gap: 0.35,
+        children: [
+          {
+            id: "subset-page-cohort.left",
+            type: "stack",
+            layoutWeight: 1,
+            children: [{
+              id: "subset-page-cohort.left.kt",
+              type: "key-takeaway",
+              headline: "同等主区 A",
+              detail: "短文本本来会保持更大的字号。",
+              variant: "minimal",
+            }],
+          },
+          {
+            id: "subset-page-cohort.middle",
+            type: "stack",
+            layoutWeight: 1,
+            children: [{
+              id: "subset-page-cohort.middle.kt",
+              type: "key-takeaway",
+              headline: "同等主区 B",
+              detail: "这个同等主区里的文本明显更长，因此它会触发字号压缩；同等地位的左侧主区应该共享这一组排版预算，而不是保持一套不同字号。",
+              variant: "minimal",
+            }],
+          },
+          {
+            id: "subset-page-cohort.note",
+            type: "stack",
+            layoutWeight: 0.35,
+            children: [{ id: "subset-page-cohort.note.text", type: "text", text: "旁注区域不是同等主内容。" }],
+          },
+        ],
+      } as unknown as DomNode],
+    };
+
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const leftDetail = firstRunSizeHalfPt(findRenderedByName(ast, "subset-page-cohort.left.kt.detail"));
+    const middleDetail = firstRunSizeHalfPt(findRenderedByName(ast, "subset-page-cohort.middle.kt.detail"));
+    expect(leftDetail).toBeDefined();
+    expect(middleDetail).toBeDefined();
+    expect(Math.abs(leftDetail! - middleDetail!)).toBeLessThanOrEqual(0.01);
+  });
+
+  it("page-level semantic cohorts match slots despite optional non-semantic decoration", () => {
+    const slide: SlideV2 = {
+      id: "decorated-slot-cohort",
+      children: [{
+        id: "decorated-slot-cohort.split",
+        type: "split",
+        direction: "horizontal",
+        ratio: [0.5, 0.5],
+        gap: 0.5,
+        children: [
+          {
+            id: "decorated-slot-cohort.left",
+            type: "stack",
+            children: [
+              { id: "decorated-slot-cohort.left.rule", type: "divider", fixedHeight: 0.05 },
+              {
+                id: "decorated-slot-cohort.left.kt",
+                type: "key-takeaway",
+                headline: "有装饰元素",
+                detail: "短文本。",
+                variant: "minimal",
+              },
+            ],
+          },
+          {
+            id: "decorated-slot-cohort.right",
+            type: "stack",
+            children: [{
+              id: "decorated-slot-cohort.right.kt",
+              type: "key-takeaway",
+              headline: "无装饰元素",
+              detail: "右侧没有前置装饰元素，但它和左侧 key-takeaway 是同一语义槽位，应该按语义 slot 对齐字号，而不是被 child index 干扰。",
+              variant: "minimal",
+            }],
+          },
+        ],
+      } as unknown as DomNode],
+    };
+
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const leftDetail = firstRunSizeHalfPt(findRenderedByName(ast, "decorated-slot-cohort.left.kt.detail"));
+    const rightDetail = firstRunSizeHalfPt(findRenderedByName(ast, "decorated-slot-cohort.right.kt.detail"));
+    expect(leftDetail).toBeDefined();
+    expect(rightDetail).toBeDefined();
+    expect(Math.abs(leftDetail! - rightDetail!)).toBeLessThanOrEqual(0.01);
+  });
+
+  it("semantic cohorts respect authored component cohort groups", () => {
+    const slide: SlideV2 = {
+      id: "authored-group-cohort",
+      children: [{
+        id: "authored-group-cohort.grid",
+        type: "grid",
+        at: [1, 1, 12, 2.4],
+        columns: 2,
+        gap: 0.35,
+        children: [
+          {
+            id: "authored-group-cohort.a",
+            type: "key-takeaway",
+            cohortGroup: "primary",
+            headline: "不同结构组",
+            detail: "短文本应该保持自身字号。",
+            variant: "minimal",
+          },
+          {
+            id: "authored-group-cohort.b",
+            type: "key-takeaway",
+            cohortGroup: "secondary",
+            headline: "不同结构组",
+            detail: "这个文本明显更长，用来确认 agent 明确声明的不同 cohortGroup 不会因为组件类型相同就被统一压缩到同一字号。",
+            variant: "minimal",
+          },
+        ],
+      } as unknown as DomNode],
+    };
+
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const firstDetail = firstRunSizeHalfPt(findRenderedByName(ast, "authored-group-cohort.a.detail"));
+    const secondDetail = firstRunSizeHalfPt(findRenderedByName(ast, "authored-group-cohort.b.detail"));
+    expect(firstDetail).toBeDefined();
+    expect(secondDetail).toBeDefined();
+    expect(firstDetail! - secondDetail!).toBeGreaterThan(2);
+  });
+
+  it("page-level semantic cohorts do not force peers across unequal regions", () => {
+    const detail = "同一类结论在窄栏里需要更多换行。宽栏可以保持更舒展的正文尺度。这里使用连续说明来制造宽窄差异并避免被自动拆成列表。".repeat(2);
+    const slide: SlideV2 = {
+      id: "unequal-page-cohort",
+      children: [{
+        id: "unequal-page-cohort.split",
+        type: "split",
+        direction: "horizontal",
+        ratio: [0.5, 0.5],
+        gap: 0.5,
+        children: [
+          {
+            id: "unequal-page-cohort.left",
+            type: "stack",
+            children: [{
+              id: "unequal-page-cohort.left.kt",
+              type: "key-takeaway",
+              headline: "同类组件，空间不同",
+              detail,
+              variant: "minimal",
+            }],
+          },
+          {
+            id: "unequal-page-cohort.right",
+            type: "stack",
+            fixedHeight: 3,
+            children: [{
+              id: "unequal-page-cohort.right.kt",
+              type: "key-takeaway",
+              headline: "同类组件，空间不同",
+              detail,
+              variant: "minimal",
+            }],
+          },
+        ],
+      } as unknown as DomNode],
+    };
+
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const leftDetail = firstRunSizeHalfPt(findRenderedByName(ast, "unequal-page-cohort.left.kt.detail"));
+    const rightDetail = firstRunSizeHalfPt(findRenderedByName(ast, "unequal-page-cohort.right.kt.detail"));
+    expect(leftDetail).toBeDefined();
+    expect(rightDetail).toBeDefined();
+    expect(leftDetail! - rightDetail!).toBeGreaterThan(2);
+  });
+
+  it("page-level semantic cohorts do not force peers across unequal split ratios", () => {
+    const detail = "同一类结论在窄栏里需要更多换行。宽栏可以保持更舒展的正文尺度。这里使用连续说明来制造宽窄差异并避免被自动拆成列表。".repeat(2);
+    const slide: SlideV2 = {
+      id: "unequal-ratio-cohort",
+      children: [{
+        id: "unequal-ratio-cohort.split",
+        type: "split",
+        direction: "horizontal",
+        ratio: [0.66, 0.34],
+        gap: 0.5,
+        children: [
+          {
+            id: "unequal-ratio-cohort.left",
+            type: "stack",
+            children: [{
+              id: "unequal-ratio-cohort.left.kt",
+              type: "key-takeaway",
+              headline: "同类组件，区域更宽",
+              detail: "宽区域里的短文本应该保持更大的正文。",
+              variant: "minimal",
+            }],
+          },
+          {
+            id: "unequal-ratio-cohort.right",
+            type: "stack",
+            children: [{
+              id: "unequal-ratio-cohort.right.kt",
+              type: "key-takeaway",
+              headline: "同类组件，区域更窄",
+              detail,
+              variant: "minimal",
+            }],
+          },
+        ],
+      } as unknown as DomNode],
+    };
+
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const leftDetail = firstRunSizeHalfPt(findRenderedByName(ast, "unequal-ratio-cohort.left.kt.detail"));
+    const rightDetail = firstRunSizeHalfPt(findRenderedByName(ast, "unequal-ratio-cohort.right.kt.detail"));
+    expect(leftDetail).toBeDefined();
+    expect(rightDetail).toBeDefined();
+    expect(leftDetail! - rightDetail!).toBeGreaterThan(2);
+  });
+
+  it("semantic cohorts grow back from an early compressed pass when the final region has room", () => {
+    const slide: SlideV2 = {
+      id: "cohort-growback",
+      children: [{
+        type: "evidence-layout",
+        headline: "引力波：聆听宇宙的声音",
+        layout: "sidecar",
+        ratio: [0.6, 0.4],
+        evidence: {
+          type: "stack",
+          gap: 0.5,
+          children: [
+            { type: "h1", text: "爱因斯坦的终极预言" },
+            {
+              type: "text",
+              text: "1916年，爱因斯坦预言了引力波的存在——当大质量物体加速运动时，它们会在时空结构中激起涟漪，以光速向外传播。整整100年后的2016年，LIGO首次直接探测到了引力波。",
+            },
+            { type: "spacer", fixedHeight: 0.3 },
+            {
+              type: "quote",
+              text: "引力波不仅是发现，它是一扇全新的窗户——我们第一次能「听见」宇宙，而不只是「看见」它。",
+            },
+          ],
+        },
+        insight: {
+          type: "stack",
+          gap: 0.4,
+          children: [
+            {
+              id: "cohort-growback.first",
+              type: "key-takeaway",
+              headline: "2023年：脉冲星计时阵列",
+              detail: "利用遍布银河系的毫秒脉冲星作为天然钟表，科学家们首次「听到」了来自超大质量黑洞合并产生的超低频引力波背景——这是一种宇宙级别的「嗡嗡声」。",
+              tone: "brand",
+              variant: "minimal",
+            },
+            {
+              id: "cohort-growback.second",
+              type: "key-takeaway",
+              headline: "2025年：国际合作深化",
+              detail: "中国、欧洲、印度、澳大利亚、北美五大脉冲星计时阵列首次同步发布数据，人类对引力波宇宙的探测进入了多信使天文学新纪元。",
+              tone: "info",
+              variant: "minimal",
+            },
+          ],
+        },
+      } as unknown as DomNode],
+    };
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { name: "Space", primary: "2563EB" },
+        themeOverride: {
+          colors: {
+            "brand.primary": "D4A843",
+            surface: "0B0C10",
+            "text.primary": "F0EDE5",
+            background: "0B0C10",
+          },
+          text: {
+            "section-title": { fontSize: 36, fontWeight: "bold", color: "D4A843" },
+            "card-title": { fontSize: 18, fontWeight: "bold", color: "F0EDE5" },
+            paragraph: { fontSize: 14, color: "E0DCD3", lineSpacing: 1.6 },
+          },
+          layout: { pageMarginX: 1.5, contentTop: 2.2, contentBottom: 13, defaultGap: 0.5 },
+        },
+      },
+      slides: [slide],
+    };
+
+    const ast = renderToAst(sourceToRenderedDeck(deck));
+    const firstDetail = firstRunSizeHalfPt(findRenderedByName(ast, "cohort-growback.first.detail"));
+    const secondDetail = firstRunSizeHalfPt(findRenderedByName(ast, "cohort-growback.second.detail"));
+    expect(firstDetail).toBeDefined();
+    expect(secondDetail).toBeDefined();
+    expect(Math.min(firstDetail!, secondDetail!)).toBeGreaterThanOrEqual(23);
+  });
+
+  it("quote blocks grow text into spacious assigned regions", () => {
+    const slide: SlideV2 = {
+      id: "quote-grow",
+      children: [{
+        id: "quote-grow.q",
+        type: "quote",
+        text: "它看起来完全不像我们预测的那样。",
+        fixedHeight: 3.2,
+      } as unknown as DomNode],
+    };
+
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const quote = findRenderedByName(ast, "quote-grow.q.text");
+    expect(firstRunSizeHalfPt(quote)).toBeGreaterThanOrEqual(56);
+    expect(shapeRectCm(quote as { xfrm?: { x?: number; y?: number; cx?: number; cy?: number } } | undefined)?.h ?? 0).toBeGreaterThan(2.0);
+  });
+
+  it("narrative budget accounts for layout glue before protecting the final takeaway", () => {
+    const slide: SlideV2 = {
+      id: "budget-glue",
+      children: [{
+        id: "budget-glue.split",
+        type: "split",
+        direction: "horizontal",
+        ratio: [0.56, 0.44],
+        gap: 0.55,
+        children: [
+          {
+            id: "budget-glue.left",
+            type: "stack",
+            gap: 0.35,
+            children: [
+              { id: "budget-glue.left.title", type: "h2", text: "观测证据" },
+              { id: "budget-glue.left.body", type: "text", text: "左侧区域承载图像、数据表或证据摘要，不参与右侧叙事区域的统一压缩预算。" },
+            ],
+          },
+          {
+            id: "budget-glue.right",
+            type: "stack",
+            gap: 0.35,
+            children: [
+              { id: "budget-glue.title", type: "h1", text: "右侧叙事需要统一压缩" },
+              { id: "budget-glue.intro", type: "text", text: "当标题、导语、列表和结论同时存在时，布局不应该让前面的内容先占满空间，再把最后的关键结论压缩到不可读。" },
+              { id: "budget-glue.glue", type: "spacer", fixedHeight: 0.2, layoutGlue: true },
+              {
+                id: "budget-glue.bullets",
+                type: "bullets",
+                items: [
+                  "导语和列表可以进入 compact/shrink 模式，但要和结论共享预算",
+                  "layoutGlue 产生的节奏空间必须先计入总预算，再统一求解",
+                  "关键结论应保留足够的文字高度，而不是只剩一个很小的注脚",
+                ],
+              },
+              {
+                id: "budget-glue.takeaway",
+                type: "key-takeaway",
+                headline: "统一预算优先于局部贪心",
+                detail: "区域内所有叙事子块一起压缩，才能保持视觉一致性和阅读优先级。",
+                tone: "brand",
+                variant: "minimal",
+              },
+            ],
+          },
+        ],
+      } as unknown as DomNode],
+    };
+
+    clearRenderDiagnostics();
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide(slide));
+    const ast = renderToAst(rendered);
+    const blocking = getRenderDiagnostics().filter((d) =>
+      d.severity === "error" && (d.code === "COLLISION" || d.code === "SIBLING_INK_OVERLAP" || d.code === "FALLBACK_FAILED" || d.code === "SQUASHED")
+    );
+    expect(blocking, blocking.map((d) => d.message).join("\n")).toHaveLength(0);
+
+    const measured = measureDeck(rendered)[0]!.nodes;
+    const glue = measured.find((n) => n.id === "budget-glue.glue")?.rect;
+    const takeaway = measured.find((n) => n.id === "budget-glue.takeaway")?.rect;
+    const detail = findRenderedByName(ast, "budget-glue.takeaway.detail") as { xfrm?: { cy: number }; paragraphs?: Array<{ runs: Array<{ sizeHalfPt?: number }> }> } | undefined;
+    expect(glue?.h).toBeGreaterThanOrEqual(0.18);
+    expect(takeaway?.h).toBeGreaterThan(3.0);
+    expect(detail?.xfrm?.cy ? detail.xfrm.cy / 360000 : 0).toBeGreaterThan(1.35);
+    expect(detail?.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt ?? 0).toBeGreaterThanOrEqual(22);
+  });
+
+  it("narrative budget reports infeasible readable floors instead of silently scaling below them", () => {
+    const slide: SlideV2 = {
+      id: "budget-infeasible",
+      children: [{
+        id: "budget-infeasible.split",
+        type: "split",
+        direction: "horizontal",
+        ratio: [0.64, 0.36],
+        gap: 0.6,
+        children: [
+          { id: "budget-infeasible.left", type: "text", text: "Evidence column" },
+          {
+            id: "budget-infeasible.right",
+            type: "stack",
+            gap: 0.42,
+            children: [
+              { id: "budget-infeasible.title", type: "h1", text: "过载叙事区域" },
+              { id: "budget-infeasible.lead", type: "text", text: "这个区域故意放入过多文字，用来验证当可读 floor 总和超过可用高度时，渲染器必须给出明确诊断，而不是静默把每一块都缩到不可读。" },
+              {
+                id: "budget-infeasible.bullets",
+                type: "bullets",
+                items: [
+                  "第一条说明会很长，迫使右侧窄列发生换行，并抬高 bullets 的可读 floor。",
+                  "第二条继续增加压力，模拟 agent 在同一页中过度塞入多个论点的情况。",
+                  "第三条还要保留上下文，避免压缩算法只优化最后一个组件而忽略整体阅读。",
+                  "第四条确保总 floor 明显超过右半区域高度。",
+                ],
+              },
+              {
+                id: "budget-infeasible.takeaway",
+                type: "key-takeaway",
+                headline: "必须暴露不可满足状态",
+                detail: "当区域预算已经不可满足，正确行为是报告 REGION_BUDGET_INFEASIBLE，并给出拆页、删减或降低优先级的提示。",
+                tone: "brand",
+                variant: "minimal",
+              },
+            ],
+          },
+        ],
+      } as unknown as DomNode],
+    };
+    const deck = buildDeckWithSlide(slide);
+    deck.deck.themeOverride = {
+      text: {
+        "section-title": { fontSize: 42, lineSpacing: 1.1 },
+        paragraph: { fontSize: 17, lineSpacing: 1.65 },
+        bullet: { fontSize: 17, lineSpacing: 1.55 },
+      },
+      layout: {
+        contentTop: 2.4,
+        contentBottom: 12.2,
+        regionBudget: {
+          bodyScale: 0.92,
+          leadScale: 0.92,
+          bulletScale: 0.90,
+          bulletMinPt: 13,
+          keyTakeawayMinCm: 4.8,
+          keyTakeawayMaxCm: 6.2,
+          keyTakeawayMaxAvailableRatio: 0.7,
+        },
+      },
+    };
+
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(deck));
+    const diagnostic = getRenderDiagnostics().find((d) => d.code === "REGION_BUDGET_INFEASIBLE" && d.nodeId === "budget-infeasible.right");
+    expect(diagnostic).toBeTruthy();
+    expect(diagnostic?.measured?.budgetDeficitCm ?? 0).toBeGreaterThan(0);
+    expect(diagnostic?.suggestion || "").toContain("split");
   });
 
   it("numbered-grid supports a normal 2x2 business summary under a key takeaway", () => {

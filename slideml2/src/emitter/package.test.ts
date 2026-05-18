@@ -477,6 +477,41 @@ describe("emitter — package end-to-end", () => {
     expect(chartXml).not.toContain('<c:dLblPos val="outEnd"/>');
   });
 
+  it("emits readable chart text colors for dark themed charts", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "bar",
+          title: "Dark chart",
+          labels: ["Theory", "Observed"],
+          series: [{ name: "Mass", values: [1, 8] }],
+          showLegend: true,
+          showValues: true,
+          textColor: "F0EDE5",
+          axisTextColor: "B0B0B0",
+          dataLabelColor: "F0EDE5",
+          titleColor: "F0EDE5",
+          legendTextColor: "B0B0B0",
+          xAxis: { title: "Source" },
+          yAxis: { title: "Relative mass" },
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+
+    expect(chartXml).toContain('<c:showVal val="1"/>');
+    expect(chartXml).toContain('<a:srgbClr val="F0EDE5"/>');
+    expect(chartXml).toContain('<a:srgbClr val="B0B0B0"/>');
+    expect(chartXml).not.toContain('<a:srgbClr val="111827"/>');
+    expect(chartXml).toContain("<c:legend>");
+    expect(chartXml).toContain("<c:txPr>");
+  });
+
   it("escapes chart number format attributes including ampersands", async () => {
     const deck: DeckAst = {
       size: "16x9",
@@ -951,5 +986,7 @@ describe("emitter — package end-to-end", () => {
     expect(slideXml).toContain("实验（\u2060");
     expect(slideXml).toContain("理论\u2060）继续\u2060。");
     expect(slideXml).toContain("边界\u2060,继续");
+    expect(slideXml).toContain('<a:pPr eaLnBrk="1" latinLnBrk="0" hangingPunct="1">');
+    expect(slideXml).toContain('<a:pPr algn="l" eaLnBrk="1" latinLnBrk="0" hangingPunct="1"/>');
   });
 });

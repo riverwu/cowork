@@ -180,6 +180,18 @@ export type ThemeTextWeight =
 
 export type ThemeFontChain = string | string[];
 
+export interface ThemeRegionBudgetOverride {
+  headingScale?: number;
+  leadScale?: number;
+  bodyScale?: number;
+  keyTakeawayDetailScale?: number;
+  bulletScale?: number;
+  bulletMinPt?: number;
+  keyTakeawayMinCm?: number;
+  keyTakeawayMaxCm?: number;
+  keyTakeawayMaxAvailableRatio?: number;
+}
+
 export interface SurfaceShadowOverride {
   color?: string;
   alpha?: number;
@@ -284,7 +296,7 @@ export interface ThemeOverride {
   }>;
   component?: Record<string, Omit<SurfaceOverride, "accent"> & { accent?: string | SurfaceOverride["accent"]; surface?: SurfaceOverride }>;
   tone?: Record<string, { fg: string; bg: string; line: string }>;
-  layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number; areas: Record<string, ThemeLayoutArea> }>;
+  layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number; areas: Record<string, ThemeLayoutArea>; regionBudget: ThemeRegionBudgetOverride }>;
   /** Per-script font chains. `latin` and `cjk` accept either a single
    *  font face, a string[] chain (doubles as text + display), or
    *  `{ display?, text? }` for separate display + text faces. `mono`
