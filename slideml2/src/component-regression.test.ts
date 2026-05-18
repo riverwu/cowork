@@ -10,6 +10,7 @@ import {
 import { renderToAst, measureDeck, renderToPptx, layoutDecisionsForSlide } from "./render.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
 import { validateDeck, validateSlide } from "./validate.js";
+import { expandComponent } from "./component-registry.js";
 import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
 
 /**
@@ -158,9 +159,8 @@ describe("component regressions", () => {
     const icon = measured.find((n) => n.id === "feature-pad.card.icon")?.rect;
     const title = measured.find((n) => n.id === "feature-pad.card.title")?.rect;
     expect(card).toBeDefined();
-    expect(icon).toBeDefined();
+    expect(icon).toBeUndefined();
     expect(title).toBeDefined();
-    expect(icon!.x - card!.x).toBeGreaterThanOrEqual(0.24);
     expect(title!.x - card!.x).toBeGreaterThanOrEqual(0.24);
   });
 
@@ -189,7 +189,38 @@ describe("component regressions", () => {
     expect(title!.x).toBeGreaterThan(icon!.x + icon!.w + 0.18);
   });
 
-  it("feature-card decoration:none disables the default icon", () => {
+  it("feature-card does not draw a default icon when decoration is omitted", () => {
+    const slide: SlideV2 = {
+      id: "feature-plain",
+      title: "Plain feature",
+      children: [
+        {
+          id: "feature-plain.card",
+          type: "feature-card",
+          title: "No implicit ornament",
+          body: "Plain text card.",
+          variant: "card",
+        } as unknown as DomNode,
+      ],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    expect(findRenderedByName(ast, "feature-plain.card.icon")).toBeUndefined();
+    expect(findRenderedByName(ast, "feature-plain.card.marker")).toBeUndefined();
+  });
+
+  it("feature-card compact without decoration keeps title and body vertical", () => {
+    const card = expandComponent("feature-compact-plain", {
+      id: "feature-compact-plain.card",
+      type: "feature-card",
+      title: "Plain compact",
+      body: "Body should sit below the title, not beside it.",
+      variant: "compact",
+    } as unknown as DomNode);
+    expect(card.direction).toBe("vertical");
+    expect(card.children?.find((child) => child.id.endsWith(".content"))).toBeUndefined();
+  });
+
+  it("feature-card decoration:none disables explicit decoration output", () => {
     const slide: SlideV2 = {
       id: "feature-none",
       title: "No decoration",
@@ -207,6 +238,23 @@ describe("component regressions", () => {
     const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
     expect(findRenderedByName(ast, "feature-none.card.icon")).toBeUndefined();
     expect(findRenderedByName(ast, "feature-none.card.marker")).toBeUndefined();
+  });
+
+  it("invalid child nodes validate with format guidance and do not synthesize empty text", () => {
+    const deck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "invalid-child",
+        children: ["bare text is not a node" as unknown as DomNode],
+      }],
+    } as Slideml2SourceDeck;
+    const report = validateDeck(deck);
+    const invalid = report.errors.find((item) => item.code === "INVALID_NODE");
+    expect(invalid?.suggestedFix).toContain("{id:'body', type:'text'");
+    expect(() => renderToAst(sourceToRenderedDeck(deck))).not.toThrow();
+    const rendered = sourceToRenderedDeck(deck);
+    expect(findDomNode(rendered.slides[0]!.dom, "invalid-child.node-1")?.type).toBe("fragment");
   });
 
   it("component surface line:none is honored on feature-card and other cards", () => {
@@ -1923,6 +1971,46 @@ describe("component regressions", () => {
     expect(detail?.xfrm?.cy ? detail.xfrm.cy / 360000 : 0).toBeGreaterThan(2.0);
     expect(Math.abs((detail?.xfrm?.cy ? detail.xfrm.cy / 360000 : 0) - (measuredDetail?.h ?? 0))).toBeLessThan(0.05);
     expect(detail?.paragraphs?.[0]?.runs?.[0]?.sizeHalfPt ?? 0).toBeGreaterThanOrEqual(24);
+  });
+
+  it("kpi-grid renders authored status notes and keeps compact CJK values readable", () => {
+    const slide: SlideV2 = {
+      id: "jwst-kpis",
+      children: [{
+        id: "grid",
+        type: "kpi-grid",
+        at: [1, 1, 14, 2.5],
+        columns: 3,
+        variant: "compact",
+        metrics: [
+          { value: "135亿年", label: "可观测宇宙年龄", status: "大爆炸后仅3亿年" },
+          { value: "6.5米", label: "主镜直径", status: "18块六边形镜片" },
+          { value: "100倍", label: "哈勃灵敏度提升", status: "红外波段" },
+        ],
+      } as unknown as DomNode],
+    };
+
+    clearRenderDiagnostics();
+    const deck = sourceToRenderedDeck(buildDeckWithSlide(slide));
+    const ast = renderToAst(deck);
+    expect(firstTextShapeContaining(ast, "大爆炸后仅3亿年")).toBeTruthy();
+    expect(firstTextShapeContaining(ast, "18块六边形镜片")).toBeTruthy();
+    expect(firstTextShapeContaining(ast, "红外波段")).toBeTruthy();
+    expect(firstRunSizeHalfPt(findRenderedByName(ast, "jwst-kpis.grid-m1.value"))).toBeGreaterThanOrEqual(40);
+
+    const measured = measureDeck(deck)[0]?.nodes || [];
+    const byId = new Map(measured.map((node) => [node.id, node]));
+    const firstCard = byId.get("jwst-kpis.grid-m1");
+    const firstStatus = byId.get("jwst-kpis.grid-m1.status");
+    expect(firstStatus?.visualRect).toBeTruthy();
+    expect((firstStatus?.visualRect?.y ?? 0) + (firstStatus?.visualRect?.h ?? 0)).toBeLessThanOrEqual((firstCard?.rect.y ?? 0) + (firstCard?.rect.h ?? 0) + 0.06);
+
+    const blocking = getRenderDiagnostics().filter((d) =>
+      d.severity === "error"
+      && ["FALLBACK_FAILED", "SQUASHED", "TRUNCATED", "OVERFLOW"].includes(d.code)
+      && String(d.nodeId || "").startsWith("jwst-kpis.grid-m"),
+    );
+    expect(blocking, JSON.stringify(blocking, null, 2)).toHaveLength(0);
   });
 
   it("tight explanation-block peers reduce chrome before crushing titles", () => {

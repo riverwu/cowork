@@ -52,8 +52,9 @@ export function sourceToRenderedDeck(source: Slideml2SourceDeck, options: DataBi
       master: source.deck.master,
     },
     slides: source.slides
+      .map((slide, index) => normalizeSlide(slide, `slide-${index + 1}`))
       .flatMap((slide) => expandArticleSlide(slide, pageWeight))
-      .map((slide) => sourceSlideToRendered(normalizeSlide(slide))),
+      .map((slide) => sourceSlideToRendered(normalizeSlide(slide, slide.id))),
   };
 }
 
@@ -265,8 +266,8 @@ function resolveSlideBackground(slide: SlideV2): unknown {
   return explicit || "background";
 }
 
-export function normalizeSlide(slide: SlideV2): SlideV2 {
-  const safeId = typeof slide?.id === "string" && slide.id ? slide.id : `slide-${Date.now()}`;
+export function normalizeSlide(slide: SlideV2, fallbackId = "slide"): SlideV2 {
+  const safeId = typeof slide?.id === "string" && slide.id ? slide.id : fallbackId;
   const safeChildren = Array.isArray(slide?.children) ? slide.children : [];
   return {
     ...slide,
@@ -495,7 +496,7 @@ function isExplicitAreaChild(node: DomNode): boolean {
 }
 
 function normalizeNode(slideId: string, node: DomNode, fallbackId: string): DomNode {
-  if (!node || typeof node !== "object") return { id: fallbackId, type: "text", text: "" };
+  if (!node || typeof node !== "object") return { id: fallbackId, type: "fragment", children: [] };
   const raw = node as DomNode & { component?: unknown };
   void raw;
   const aliased = normalizeAuthoringAliases(aliasDimensionFields(node));

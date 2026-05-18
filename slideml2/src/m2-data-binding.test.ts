@@ -61,6 +61,85 @@ describe("M2 data binding", () => {
     expect(chart.series?.[0]?.values).toEqual([10, 14]);
   });
 
+  it("reports malformed inline data sources before they degrade into empty chart data", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          malformedJson: { type: "inline-json", row: [{ label: "A", value: 1 }] } as unknown as DataSourceSpec,
+          malformedCsv: { type: "inline-csv", csv: "" },
+        },
+      },
+      slides: [],
+    };
+
+    const report = validateDeck(deck);
+    const messages = report.errors.map((item) => item.message).join("\n");
+    expect(messages).toContain("inline-json data source requires rows");
+    expect(messages).toContain("inline-csv data source requires a non-empty csv");
+  });
+
+  it("requires object-form aggregates to name their input field", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          sales: { type: "inline-json", rows: [{ month: "Jan", revenue: 10 }] },
+        },
+      },
+      slides: [{
+        id: "missing-aggregate-field",
+        children: [{
+          id: "missing-aggregate-field.chart",
+          type: "chart-card",
+          chartType: "bar",
+          bind: { source: "sales", groupBy: "month", aggregate: { Revenue: { op: "sum" } } },
+          encoding: { x: "month", y: "Revenue" },
+        } as unknown as DomNode],
+      }],
+    };
+
+    const report = validateDeck(deck);
+    expect(report.errors.map((item) => item.code)).toContain("MISSING_DATA_AGGREGATE_FIELD");
+  });
+
+  it("reports non-numeric bound chart measures instead of silently plotting them as zero", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          sales: {
+            type: "inline-json",
+            rows: [
+              { month: "Jan", revenue: 10 },
+              { month: "Feb", revenue: "not available" },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "bad-measure",
+        children: [{
+          id: "bad-measure.chart",
+          type: "chart-card",
+          chartType: "bar",
+          bind: { source: "sales" },
+          encoding: { x: "month", y: "revenue" },
+        } as unknown as DomNode],
+      }],
+    };
+
+    const report = validateDeck(deck);
+    const hit = report.errors.find((item) => item.code === "NON_NUMERIC_DATA_FIELD");
+    expect(hit?.message).toContain("revenue");
+  });
+
   it("binds chart-card series from object-form encoding.y and display-keyed seriesOptions", () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,

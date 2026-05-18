@@ -7,8 +7,25 @@ import { clearRenderDiagnostics, getRenderDiagnostics } from "./diagnostics.js";
 import { meaningfulOverlap } from "./layout/geometry.js";
 import { measureDeck, renderToAst, renderToPptx } from "./render.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
-import type { Slideml2SourceDeck } from "./types.js";
+import type { RenderedDeck, Slideml2SourceDeck } from "./types.js";
 import { validateDeck } from "./validate.js";
+
+interface RenderTreeNode {
+  id?: string;
+  fontSize?: number;
+  children?: RenderTreeNode[];
+  [key: string]: unknown;
+}
+
+function findRenderTreeNode(node: RenderTreeNode | undefined, id: string): RenderTreeNode | undefined {
+  if (!node) return undefined;
+  if (node.id === id) return node;
+  for (const child of node.children || []) {
+    const found = findRenderTreeNode(child, id);
+    if (found) return found;
+  }
+  return undefined;
+}
 
 describe("validation geometry and diagnostic contracts", () => {
   const TINY_SVG = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiPjxyZWN0IHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiIGZpbGw9IiMyNTYzZWIiLz48L3N2Zz4=";
@@ -239,6 +256,79 @@ describe("validation geometry and diagnostic contracts", () => {
     const measured = tree.slides[0]?.measured;
     expect(measured?.nodes?.some((node) => node.id === "tree.body" && node.rect && node.inkRect && node.visualRect && node.visualRole === "text")).toBe(true);
     expect(Array.isArray(measured?.diagnostics)).toBe(true);
+  });
+
+  it("writes the measured semantic-cohort DOM into the render tree", async () => {
+    const deck: RenderedDeck = {
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "cohort-tree",
+        layout: "freeform",
+        dom: {
+          id: "cohort-tree.root",
+          type: "slide",
+          children: [{
+            id: "cohort-tree.row",
+            type: "stack",
+            direction: "horizontal",
+            gap: 0.25,
+            at: [1, 1, 11.4, 1.7],
+            children: [
+              {
+                id: "cohort-tree.a",
+                type: "stack",
+                role: "feature-card",
+                direction: "vertical",
+                padding: 0.28,
+                gap: 0.12,
+                children: [
+                  { id: "cohort-tree.a.title", type: "text", text: "实验端", style: "card-title", fontSize: 16 },
+                  { id: "cohort-tree.a.body", type: "text", text: "短说明。", style: "paragraph", fontSize: 14, autoFit: "shrink" },
+                ],
+              },
+              {
+                id: "cohort-tree.b",
+                type: "stack",
+                role: "feature-card",
+                direction: "vertical",
+                padding: 0.28,
+                gap: 0.12,
+                children: [
+                  { id: "cohort-tree.b.title", type: "text", text: "理论端", style: "card-title", fontSize: 16 },
+                  { id: "cohort-tree.b.body", type: "text", text: "这段说明故意很长，用来触发 measured cohort 的页面内一致压缩；render-tree 必须记录最终用于 PPTX 的 DOM。", style: "paragraph", fontSize: 14, autoFit: "shrink" },
+                ],
+              },
+              {
+                id: "cohort-tree.c",
+                type: "stack",
+                role: "feature-card",
+                direction: "vertical",
+                padding: 0.28,
+                gap: 0.12,
+                children: [
+                  { id: "cohort-tree.c.title", type: "text", text: "传播端", style: "card-title", fontSize: 16 },
+                  { id: "cohort-tree.c.body", type: "text", text: "短说明。", style: "paragraph", fontSize: 14, autoFit: "shrink" },
+                ],
+              },
+            ],
+          }],
+        },
+      }],
+    };
+    const dir = mkdtempSync(join(tmpdir(), "slideml2-cohort-tree-"));
+    const out = join(dir, "deck.pptx");
+
+    await renderToPptx(deck, out);
+    const tree = JSON.parse(readFileSync(`${out}.render-tree.json`, "utf8")) as {
+      slides: Array<{ dom?: RenderTreeNode; measured?: { layoutDecisions?: Array<{ nodeId?: string; notes?: string[] }> } }>;
+    };
+    const shortBody = findRenderTreeNode(tree.slides[0]?.dom, "cohort-tree.a.body");
+    const denseBody = findRenderTreeNode(tree.slides[0]?.dom, "cohort-tree.b.body");
+    const decisions = tree.slides[0]?.measured?.layoutDecisions || [];
+
+    expect(shortBody?.fontSize).toBeLessThan(14);
+    expect(denseBody?.fontSize).toBe(shortBody?.fontSize);
+    expect(decisions.some((item) => item.nodeId === "cohort-tree.a" && item.notes?.some((note) => note.includes("semantic-cohort:")))).toBe(true);
   });
 
   it("keeps ink rects independent from slot rects for overflowing text", () => {

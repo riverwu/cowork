@@ -281,7 +281,8 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     unit: { type: "string", description: "Optional unit appended to value." },
     trend: { type: "enum", enum: ["up", "down", "flat"], description: "Optional trend intent." },
     delta: { type: "string", description: "Optional delta or change label." },
-    status: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Semantic status color independent of trend." },
+    status: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Semantic status color independent of trend. For a visible note, use statusText; non-tone status strings are rendered as statusText for compatibility." },
+    statusText: { type: "string", description: "Optional visible status/note line under the metric label, e.g. '18 blocks complete'. Use this for content; use status/tone for color." },
     comparison: { type: "string", description: "Optional benchmark / target / peer note." },
     source: { type: "string", description: "Optional compact source note." },
     sparkline: { type: "array", description: "Optional tiny trend sequence; numeric values render as a micro-bar sparkline." },
@@ -382,7 +383,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     bio: { type: "string", semantic: "caption", description: "Short biography." },
   }, "stack(image.clip:circle, text.card-title, text.label, text.caption)", "grid"),
   component("kpi-grid", "Set of related headline metrics that should be scanned together. Use for 2-4 KPI peers; prefer chart/bar-list when the relationship is ranking or trend.", {
-    metrics: { type: "array", required: true, description: "Array of { value, label, unit?, trend? } objects." },
+    metrics: { type: "array", required: true, description: "Array of { value, label, unit?, trend?, delta?, comparison?, source?, status?, statusText?, tone? } objects. status/tone set color when they are tone words; statusText is visible content. Non-tone status strings are treated as statusText for compatibility." },
     items: { type: "array", description: "Alias for metrics. Metric label may also be name/title." },
     columns: { type: "number", description: "Number of columns (default min(4, metrics.length))." },
   }, "grid of metric-card", "stack"),
@@ -404,9 +405,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     link: { type: "string", description: "Optional hyperlink target." },
   }, "text on roundRect surface", "stack"),
   component("feature-card", "One feature, capability, benefit, or ingredient of an offer. Use for modular value propositions, not for arbitrary bullet paragraphs.", {
-    icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional large icon shape preset. Prefer marker for subtle item decoration." },
+    icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional large icon shape preset. No icon is drawn when icon/iconSrc/marker/decoration are omitted. Prefer marker for subtle item decoration." },
     iconSrc: { type: "image-ref", description: "Optional generated/raster icon path. Use with slice-icons outputs; rendered as a contain-fit square icon." },
-    decoration: { type: "object", description: "Unified visual cue. Prefer over separate icon/iconSrc/marker when authoring new decks. Shape: {kind:'image'|'shape'|'marker'|'none', src?/iconSrc?, shape?/icon?, marker?, size?:'xs'|'sm'|'md'|'lg'|'xl'|number, color?, background?, tone?, variant?}. `marker` accepts shape names or short glyphs like '!', '$', 'Q1', emoji; `image`/`shape` are larger visual icons." },
+    decoration: { type: "object", description: "Unified visual cue. Prefer over separate icon/iconSrc/marker when authoring new decks. Shape: {kind:'image'|'shape'|'marker'|'none', src?/iconSrc?, shape?/icon?, marker?, size?:'xs'|'sm'|'md'|'lg'|'xl'|number, color?, background?, tone?, variant?}. `marker` accepts shape names or short glyphs like '!', '$', 'Q1', emoji; `image`/`shape` are larger visual icons. Omit decoration for a plain text feature-card." },
     title: { type: "string", required: true, semantic: "card-title", description: "Feature title." },
     body: { type: "string", semantic: "caption", description: "Optional supporting copy." },
     content: { type: "array", description: "Optional rich text runs for supporting copy." },
@@ -420,14 +421,14 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     iconBackground: { type: "string", description: "Icon fill (theme token)." },
     tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger"], description: "Semantic feature tone; controls title, marker, and icon accent color." },
     titleColor: { type: "color-ref", description: "Explicit title color token when semantic tone is not enough." },
-    layout: { type: "enum", enum: ["vertical", "horizontal"], description: "Explicit card layout. vertical places the decoration above the title; horizontal places the decoration left of the text. No auto mode, so repeated feature-cards stay visually consistent. Compact feature-cards default to horizontal unless you set layout:'vertical'." },
+    layout: { type: "enum", enum: ["vertical", "horizontal"], description: "Explicit card layout. vertical places the decoration above the title; horizontal places the decoration left of the text. Compact feature-cards with an explicit decoration default to horizontal; plain text feature-cards stay vertical so title/body do not become side-by-side." },
     variant: { type: "enum", enum: ["plain", "card", "compact"], description: "Visual treatment." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
     surface: { type: "object", description: "Optional surface override." },
-  }, "stack(shape, text.card-title, text.caption)", "grid"),
+  }, "stack(decoration?, text.card-title, text.caption)", "grid"),
   component("checklist", "Status list with checked/unchecked/warning states. Use for requirements, audit, readiness, QA, or feature parity where completion state matters.", {
-    items: { type: "array", required: true, description: "Array of { text, status?: 'checked'|'unchecked'|'warning' }." },
-  }, "stack of horizontal text rows with check/cross marks", "stack"),
+    items: { type: "array", required: true, description: "Array of { text, status?: 'checked'|'unchecked'|'warning'|'neutral' }. Omitted status renders a neutral bullet, not a completed checkmark." },
+  }, "stack of horizontal text rows with status marks", "stack"),
   component("progress-bar", "Single progress-to-target measure. Use for completion, quota, adoption, or capacity where the percent/ratio is the semantic point.", {
     label: { type: "string", required: true, semantic: "label", description: "Metric label." },
     value: { type: "number", required: true, description: "Value 0..max; numeric strings like '75%' are accepted." },
@@ -1491,7 +1492,7 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
   if (componentName === "metric-card") {
     const unit = stringValue(node.unit, "");
     const trend = node.trend === "up" || node.trend === "down" || node.trend === "flat" ? node.trend : undefined;
-    const status = componentTone(node.status);
+    const status = componentTone(node.tone) ?? componentTone(node.status);
     const variant = node.variant === "card" || node.variant === "compact" ? node.variant : undefined;
     const density = node.density === "compact" || node.density === "comfortable" ? node.density : undefined;
     return withComponentRoot(node, metricCard(slideId, name, stringValue(node.value, ""), stringValue(node.label, ""), {
@@ -1499,6 +1500,7 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
       trend,
       delta: stringValue(node.delta, ""),
       status,
+      statusText: metricStatusText(node),
       source: stringValue(node.source, ""),
       comparison: stringValue(node.comparison, ""),
       sparkline: Array.isArray(node.sparkline) ? node.sparkline as Array<number | string> : undefined,
@@ -1577,7 +1579,7 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
   }
   if (componentName === "icon-text") {
     return withComponentRoot(node, iconText(slideId, name, {
-      icon: stringValue(node.icon, "ellipse"),
+      icon: stringValue(node.icon, ""),
       text: stringValue(node.text, ""),
       iconColor: stringValue(node.iconColor, ""),
       iconBackground: stringValue(node.iconBackground, ""),
@@ -1640,7 +1642,8 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
         label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))),
         unit: stringValue(rec.unit, ""),
         delta: stringValue(rec.delta, ""),
-        status: componentTone(rec.status),
+        status: componentTone(rec.tone) ?? componentTone(rec.status),
+        statusText: metricStatusText(rec),
         source: stringValue(rec.source, ""),
         comparison: stringValue(rec.comparison, ""),
         sparkline: Array.isArray(rec.sparkline) ? rec.sparkline as Array<number | string> : undefined,
@@ -1685,7 +1688,7 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
     const rawTone = stringValue(node.tone, "");
     const semanticTone = componentTone(rawTone);
     return withComponentRoot(node, featureCard(slideId, name, {
-      icon: stringValue(node.icon, "ellipse"),
+      icon: stringValue(node.icon, ""),
       iconSrc: stringValue(node.iconSrc, ""),
       title: semanticTextValue(node, "title", "headline", "name", "label"),
       body: semanticTextValue(node, "body", "detail", "description", "text", "summary"),
@@ -1715,8 +1718,10 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : { text: String(raw ?? "") };
       const statusRaw = rec.status;
-      const status: "checked" | "unchecked" | "warning" =
-        statusRaw === "unchecked" ? "unchecked" : statusRaw === "warning" ? "warning" : "checked";
+      const status: "checked" | "unchecked" | "warning" | "neutral" =
+        statusRaw === "checked" || statusRaw === "unchecked" || statusRaw === "warning" || statusRaw === "neutral"
+          ? statusRaw
+          : "neutral";
       return { text: stringValue(rec.text, ""), status };
     }).filter((item) => item.text) : [];
     return withComponentRoot(node, checklist(slideId, name, items));
@@ -2006,19 +2011,21 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
   if (componentName === "gauge") {
     type GaugeTone = "danger" | "warning" | "positive" | "brand";
     const thresholdsRaw = Array.isArray(node.thresholds) ? node.thresholds : [];
-    const thresholds = thresholdsRaw.map((raw) => {
+    const thresholds: Array<{ upTo: number; tone: GaugeTone; label?: string }> = thresholdsRaw.flatMap((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
       const tRaw = rec.tone;
       const tone: GaugeTone = tRaw === "danger" || tRaw === "warning" || tRaw === "positive" || tRaw === "brand" ? tRaw : "brand";
-      return {
-        upTo: typeof rec.upTo === "number" ? rec.upTo : Number(rec.upTo) || 0,
+      const upTo = strictNumberValue(rec.upTo);
+      if (upTo === undefined) return [];
+      return [{
+        upTo,
         tone,
-        label: stringValue(rec.label, "") || undefined,
-      };
+        ...(stringValue(rec.label, "") ? { label: stringValue(rec.label, "") } : {}),
+      }];
     });
     return withComponentRoot(node, gauge(slideId, name, {
-      value: typeof node.value === "number" ? node.value : Number(node.value) || 0,
-      max: typeof node.max === "number" ? node.max : undefined,
+      value: strictNumberValue(node.value) ?? 0,
+      max: strictNumberValue(node.max),
       label: stringValue(node.label, ""),
       unit: stringValue(node.unit, "") || undefined,
       thresholds: thresholds.length > 0 ? thresholds : undefined,
@@ -2028,7 +2035,7 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
     const xLabels = Array.isArray(node.xLabels) ? node.xLabels.map(String) : [];
     const yLabels = Array.isArray(node.yLabels) ? node.yLabels.map(String) : [];
     const valuesRaw = Array.isArray(node.values) ? node.values : [];
-    const values: number[][] = valuesRaw.map((row) => Array.isArray(row) ? row.map((v) => typeof v === "number" ? v : Number(v) || 0) : []);
+    const values: number[][] = valuesRaw.map((row) => Array.isArray(row) ? row.map((v) => strictNumberValue(v) ?? 0) : []);
     const palette = node.palette === "warm" || node.palette === "diverging" || node.palette === "cool" ? node.palette : undefined;
     return withComponentRoot(node, heatmap(slideId, name, {
       xLabels, yLabels, values,
@@ -2088,7 +2095,7 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
     type TLTone = "brand" | "positive" | "warning" | "danger";
     const tRaw = node.tone;
     const tone: TLTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : undefined;
-    const values = Array.isArray(node.values) ? node.values.map((v) => typeof v === "number" ? v : Number(v) || 0) : [];
+    const values = Array.isArray(node.values) ? node.values.map((v) => strictNumberValue(v)).filter((value): value is number => value !== undefined) : [];
     return withComponentRoot(node, trendLine(slideId, name, {
       values, tone,
       height: typeof node.height === "number" ? node.height : undefined,
@@ -2116,10 +2123,11 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
     const primaryRaw = node.primary && typeof node.primary === "object" ? node.primary as Record<string, unknown> : { label: "", value: 0 };
     const others = Array.isArray(node.others) ? node.others.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
-      return { label: stringValue(rec.label, ""), value: typeof rec.value === "number" ? rec.value : Number(rec.value) || 0 };
-    }).filter((o) => o.label) : [];
+      const value = strictNumberValue(rec.value);
+      return value === undefined ? undefined : { label: stringValue(rec.label, ""), value };
+    }).filter((o): o is { label: string; value: number } => Boolean(o?.label)) : [];
     return withComponentRoot(node, donutSummary(slideId, name, {
-      primary: { label: stringValue(primaryRaw.label, ""), value: typeof primaryRaw.value === "number" ? primaryRaw.value : Number(primaryRaw.value) || 0 },
+      primary: { label: stringValue(primaryRaw.label, ""), value: strictNumberValue(primaryRaw.value) ?? 0 },
       others,
       unit: stringValue(node.unit, "") || undefined,
       tone,
@@ -2129,16 +2137,22 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
     type RPTone = "brand" | "positive" | "warning" | "danger";
     const tRaw = node.tone;
     const tone: RPTone | undefined = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : undefined;
-    const items = Array.isArray(node.items) ? node.items.map((raw) => {
+    const items: Array<{ label: string; min: number; max: number; point?: number; unit?: string }> = Array.isArray(node.items) ? node.items.flatMap((raw) => {
       const rec = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+      const min = strictNumberValue(rec.min);
+      const max = strictNumberValue(rec.max);
+      const label = stringValue(rec.label, "");
+      if (min === undefined || max === undefined || !label) return [];
+      const point = strictNumberValue(rec.point);
+      const unit = stringValue(rec.unit, "");
       return {
-        label: stringValue(rec.label, ""),
-        min: typeof rec.min === "number" ? rec.min : Number(rec.min) || 0,
-        max: typeof rec.max === "number" ? rec.max : Number(rec.max) || 0,
-        point: typeof rec.point === "number" ? rec.point : undefined,
-        unit: stringValue(rec.unit, "") || undefined,
+        label,
+        min,
+        max,
+        ...(point !== undefined ? { point } : {}),
+        ...(unit ? { unit } : {}),
       };
-    }).filter((it) => it.label) : [];
+    }) : [];
     return withComponentRoot(node, rangePlot(slideId, name, { items, tone }));
   }
   if (componentName === "callout-marker") {
@@ -2468,7 +2482,7 @@ function twoColumnRegion(slideId: string, name: string, side: "left" | "right", 
 }
 
 function normalizeEmbeddedNode(raw: DomNode, fallbackId: string): DomNode {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { id: fallbackId, type: "text", text: "" };
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { id: fallbackId, type: "fragment", children: [] };
   const id = typeof raw.id === "string" && raw.id ? raw.id : fallbackId;
   const children = Array.isArray(raw.children)
     ? raw.children.map((child, index) => normalizeEmbeddedNode(child as DomNode, `${id}.${index + 1}`))
@@ -3393,7 +3407,7 @@ function factorialMatrixNode(slideId: string, name: string, node: DomNode): DomN
   const columns = Array.isArray(node.columns) ? node.columns.map(String) : [];
   const rawCells = Array.isArray(node.cells) ? node.cells : [];
   const gridChildren: DomNode[] = [
-    { id: `${slideId}.${name}.corner`, type: "text", text: "", style: "label", fill: "surface.subtle" },
+    { id: `${slideId}.${name}.corner`, type: "shape", preset: "rect", fill: "surface.subtle", line: "surface.subtle", minHeight: 0.6 },
     ...columns.map((col, i) => ({ id: `${slideId}.${name}.col${i}`, type: "text" as const, text: col, style: "label", weight: "bold" as const, align: "center" as const, valign: "middle" as const, fill: "surface.subtle", color: "text.primary", minHeight: 0.6, autoFit: "shrink" as const })),
   ];
   rows.forEach((row, r) => {
@@ -9133,7 +9147,7 @@ function explanationBlockNode(slideId: string, name: string, node: DomNode): Dom
     });
   }
   if (!children.length) {
-    children.push({ id: `${slideId}.${name}.body`, type: "text", text: "", style: "paragraph", minHeight: 0.45 });
+    children.push({ id: `${slideId}.${name}.body`, type: "spacer", fixedHeight: 0.45 });
   }
   const contentStack: DomNode = {
     id: `${slideId}.${name}.content`,
@@ -9218,7 +9232,7 @@ function comparisonListNode(slideId: string, name: string, node: DomNode): DomNo
     type: "grid",
     columns,
     gap: compact ? 0.22 : 0.34,
-    children: cells.length ? cells : [{ id: `${slideId}.${name}.empty`, type: "text", text: "", style: "paragraph" }],
+    children: cells.length ? cells : [{ id: `${slideId}.${name}.empty`, type: "spacer", fixedHeight: 0.4 }],
   });
   return {
     id: `${slideId}.${name}`,
@@ -10531,6 +10545,14 @@ function comparisonPoints(fields: Record<string, unknown>): string[] {
   return [stringValue(fields.subtitle, ""), stringValue(fields.body, "")].filter(Boolean);
 }
 
+function metricStatusText(fields: Record<string, unknown>): string {
+  const explicit = semanticTextValue(fields, "statusText", "statusLabel", "note", "caption");
+  if (explicit) return explicit;
+  const rawStatus = fields.status;
+  if (componentTone(rawStatus)) return "";
+  return semanticScalarText(rawStatus);
+}
+
 type ComponentTone = "brand" | "positive" | "warning" | "danger" | "neutral";
 
 function componentTone(value: unknown): ComponentTone | undefined {
@@ -10828,6 +10850,16 @@ function numberValue(value: unknown, fallback: number | undefined): number | und
   if (!normalized) return fallback;
   const parsed = Number.parseFloat(normalized.endsWith("%") ? normalized.slice(0, -1) : normalized);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function strictNumberValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().replace(/,/g, "");
+  if (!normalized) return undefined;
+  const raw = normalized.endsWith("%") ? normalized.slice(0, -1) : normalized;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function arrayValue(...values: unknown[]): unknown[] {

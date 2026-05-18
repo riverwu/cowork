@@ -108,7 +108,11 @@ function resolveDataSource(spec: DataSourceSpec, options: DataBindingOptions = {
   }
   const type = spec.type || inferDataSourceType(spec);
   if (type === "inline-csv") {
-    return withSourceMetadata(spec, { type, rows: parseCsvRows(String(spec.csv ?? spec.text ?? ""), spec.delimiter || ",") });
+    const csvText = spec.csv ?? spec.text;
+    if (typeof csvText !== "string" || !csvText.trim()) {
+      throw new Error("inline-csv data source requires a non-empty csv or text string");
+    }
+    return withSourceMetadata(spec, { type, rows: parseCsvRows(csvText, spec.delimiter || ",") });
   }
   if (type === "file-csv") {
     const rawPath = firstString(spec.path, spec.file);
@@ -124,12 +128,21 @@ function resolveDataSource(spec: DataSourceSpec, options: DataBindingOptions = {
   if (type !== "inline-json") {
     throw new Error(`unsupported data source type: ${String(type)}`);
   }
+  const hasInlineRows = Object.prototype.hasOwnProperty.call(spec, "rows")
+    || Object.prototype.hasOwnProperty.call(spec, "data")
+    || Object.prototype.hasOwnProperty.call(spec, "json");
+  if (!hasInlineRows) {
+    throw new Error("inline-json data source requires rows:[...] or data:{rows:[...]}");
+  }
   const raw = spec.rows ?? spec.data ?? spec.json;
   const rows = Array.isArray(raw)
     ? raw
     : raw && typeof raw === "object" && Array.isArray((raw as { rows?: unknown }).rows)
       ? (raw as { rows: unknown[] }).rows
-      : [];
+      : undefined;
+  if (!rows) {
+    throw new Error("inline-json rows must be an array of row objects, or data/json must contain {rows:[...]}");
+  }
   return withSourceMetadata(spec, { type, rows: rows.map((row) => normalizeRow(row)).filter((row) => Object.keys(row).length > 0) });
 }
 

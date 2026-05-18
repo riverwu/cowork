@@ -524,7 +524,11 @@ function validateNode(
     return;
   }
   if (!node || typeof node !== "object") {
-    issues.push(issue("error", "INVALID_NODE", `${path} must be a node object.`, { slideId, path }));
+    issues.push(issue("error", "INVALID_NODE", `${path} must be a node object.`, {
+      slideId,
+      path,
+      suggestedFix: "Replace this entry with a full node object such as {id:'body', type:'text', text:'...'} or {id:'group', type:'stack', children:[...]}. Do not put bare strings/numbers/null directly in children.",
+    }));
     return;
   }
   if (isTwoColumnRegionShorthand(node, parent, path)) {
@@ -920,7 +924,7 @@ function isTwoColumnRegionShorthand(node: DomNode, parent: DomNode | undefined, 
 }
 
 function withSyntheticNodeIds(node: DomNode, fallbackId: string): DomNode {
-  if (!node || typeof node !== "object" || Array.isArray(node)) return { id: fallbackId, type: "text", text: "" };
+  if (!node || typeof node !== "object" || Array.isArray(node)) return { id: fallbackId, type: "fragment", children: [] };
   const id = typeof node.id === "string" && node.id ? node.id : fallbackId;
   const children = Array.isArray(node.children)
     ? node.children.map((child, index) => withSyntheticNodeIds(child as DomNode, `${id}.${index + 1}`))
@@ -1676,8 +1680,11 @@ function validateNodeDataBinding(node: DomNode, path: string, slideId: string, s
         suggestedFix: "Repair the data source or bind.filter so the component receives at least one row; otherwise remove the bind and author explicit chart/table data.",
       }));
     }
-    if (rows && rows.length) validateDataFieldReferences(bind as Record<string, unknown>, encoding, rows, `${path}.bind`, slideId, node.id, issues);
-  }
+	    if (rows && rows.length) {
+	      validateDataFieldReferences(bind as Record<string, unknown>, encoding, rows, `${path}.bind`, slideId, node.id, issues);
+	      validateNumericDataBindingFields(node, bind as Record<string, unknown>, encoding, rows, `${path}.bind`, slideId, node.id, issues);
+	    }
+	  }
   node.children?.forEach((child, index) => validateNodeDataBinding(child, `${path}.children[${index}]`, slideId, sourceIds, sourceRows, issues, depth + 1));
   if (Array.isArray(node.items)) {
     node.items.forEach((item, index) => {
@@ -1742,6 +1749,95 @@ function validateDataFieldReferences(
   }
 }
 
+function validateNumericDataBindingFields(
+  node: DomNode,
+  bind: Record<string, unknown>,
+  encoding: unknown,
+  rows: Record<string, unknown>[],
+  path: string,
+  slideId: string,
+  nodeName: unknown,
+  issues: ValidationIssue[],
+): void {
+  const kind = getComponentName(node) || node.type;
+  if (kind !== "chart-card" && kind !== "chart") return;
+  if (!encoding || typeof encoding !== "object" || Array.isArray(encoding)) return;
+  const enc = canonicalDataEncodingRecord(encoding as Record<string, unknown>);
+  const fields = dataFieldSet(rows);
+  const numericRefs = chartNumericFieldRefs(node, enc, rows, fields);
+  for (const [refPath, field] of numericRefs) {
+    const resolved = resolveDataFieldName(field, fields);
+    if (!resolved) continue;
+    checkNumericDataField(resolved, rows, `${path.replace(/\.bind$/, ".encoding")}.${refPath}`, slideId, nodeName, issues);
+  }
+  const aggregate = canonicalDataBindRecord(bind).aggregate;
+  if (aggregate && typeof aggregate === "object" && !Array.isArray(aggregate)) {
+    for (const ref of aggregateFieldRefs(aggregate)) {
+      if (!ref.input) continue;
+      const resolved = resolveDataFieldName(ref.input, dataFieldSet(rows));
+      if (resolved) checkNumericDataField(resolved, rows, `${path}.aggregate.${ref.output}`, slideId, nodeName, issues);
+    }
+  }
+}
+
+function chartNumericFieldRefs(node: DomNode, encoding: Record<string, unknown>, rows: Record<string, unknown>[], fields: Set<string>): Array<[string, string]> {
+  const seriesOptionRefs = chartSeriesOptionNumericRefs(encoding);
+  if (seriesOptionRefs.length) return seriesOptionRefs;
+  const xKey = firstNonEmptyString(encoding.x, encoding.label) || "label";
+  const yValues = Array.isArray(encoding.y) ? encoding.y : [firstNonEmptyString(encoding.y, encoding.value) || "value"];
+  const yRefs = yValues
+    .map((field, index) => typeof field === "string" && field.trim() ? [`y${Array.isArray(encoding.y) ? `[${index}]` : ""}`, field.trim()] as [string, string] : undefined)
+    .filter((item): item is [string, string] => Boolean(item));
+  const yField = yRefs[0]?.[1];
+  const seriesKey = typeof encoding.series === "string" && encoding.series.trim() ? encoding.series.trim() : undefined;
+  const xResolved = resolveDataFieldName(xKey, fields) || xKey;
+  const yResolved = yField ? resolveDataFieldName(yField, fields) || yField : undefined;
+  const chartKind = firstNonEmptyString(node.chartType, node.chart) || "bar";
+  if (!encoding.orientation && isBarLikeChartKind(chartKind) && yRefs.length === 1 && !seriesKey && xResolved && yResolved) {
+    if (dataFieldLooksNumeric(rows, xResolved) && !dataFieldLooksNumeric(rows, yResolved)) {
+      return [["x", xKey]];
+    }
+  }
+  return yRefs;
+}
+
+function chartSeriesOptionNumericRefs(encoding: Record<string, unknown>): Array<[string, string]> {
+  if (!encoding.seriesOptions || typeof encoding.seriesOptions !== "object" || Array.isArray(encoding.seriesOptions)) return [];
+  const refs: Array<[string, string]> = [];
+  for (const [key, raw] of Object.entries(encoding.seriesOptions as Record<string, unknown>)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const option = raw as Record<string, unknown>;
+    const field = firstNonEmptyString(option.y, option.field, option.key, option.value);
+    if (field) refs.push([`seriesOptions.${key}`, field]);
+  }
+  return refs;
+}
+
+function checkNumericDataField(field: string, rows: Record<string, unknown>[], path: string, slideId: string, nodeName: unknown, issues: ValidationIssue[]): void {
+  const invalid = rows
+    .map((row) => row[field])
+    .filter((value) => value !== undefined && value !== null && String(value).trim() !== "" && strictNumericValue(value) === null);
+  if (!invalid.length) return;
+  issues.push(issue("error", "NON_NUMERIC_DATA_FIELD", `${path} uses field "${field}" as a numeric measure, but ${invalid.length} row(s) contain non-numeric values.`, {
+    slideId,
+    path,
+    nodeName: typeof nodeName === "string" ? nodeName : undefined,
+    details: { field, examples: invalid.slice(0, 3).map((value) => String(value)) },
+    suggestedFix: `Clean deck.dataSources so ${field} contains only numbers, or change encoding so this field is used as a label/category instead of y/value.`,
+  }));
+}
+
+function dataFieldLooksNumeric(rows: Record<string, unknown>[], field: string): boolean {
+  const values = rows.map((row) => row[field]).filter((value) => value !== undefined && value !== null && String(value).trim() !== "");
+  if (!values.length) return false;
+  const numericCount = values.filter((value) => strictNumericValue(value) !== null).length;
+  return numericCount >= Math.max(1, values.length * 0.8);
+}
+
+function isBarLikeChartKind(kind: string): boolean {
+  return kind === "bar" || kind === "stacked-bar" || kind === "waterfall" || kind === "combo";
+}
+
 function canonicalDataBindRecord(rec: Record<string, unknown>): Record<string, unknown> {
   return canonicalRecord(rec, DATA_BIND_FIELD_ALIASES);
 }
@@ -1797,16 +1893,14 @@ function aggregateFieldRefs(value: unknown): Array<{ output: string; input?: str
       else out.push({ output });
       continue;
     }
-    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-      const spec = raw as Record<string, unknown>;
-      if (spec.op === "count" && spec.field === undefined) {
-        out.push({ output });
-      } else if (typeof spec.field === "string" && spec.field.trim()) {
-        out.push({ output, input: spec.field.trim() });
-      } else {
-        out.push({ output, input: output });
-      }
-    }
+	    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+	      const spec = raw as Record<string, unknown>;
+	      if (spec.op === "count" && spec.field === undefined) {
+	        out.push({ output });
+	      } else if (typeof spec.field === "string" && spec.field.trim()) {
+	        out.push({ output, input: spec.field.trim() });
+	      }
+	    }
   }
   return out;
 }
@@ -2100,15 +2194,22 @@ function validateAggregateSpec(aggregate: unknown, path: string, slideId: string
         nodeName: typeof nodeName === "string" ? nodeName : undefined,
       }));
     }
-    if (spec.field !== undefined && (typeof spec.field !== "string" || !spec.field.trim())) {
-      issues.push(issue("error", "INVALID_DATA_BIND_AGGREGATE", `${aggregatePath}.field must be a non-empty field name when provided.`, {
-        slideId,
-        path: `${aggregatePath}.field`,
-        nodeName: typeof nodeName === "string" ? nodeName : undefined,
-      }));
-    }
-  }
-}
+	    if (spec.field !== undefined && (typeof spec.field !== "string" || !spec.field.trim())) {
+	      issues.push(issue("error", "INVALID_DATA_BIND_AGGREGATE", `${aggregatePath}.field must be a non-empty field name when provided.`, {
+	        slideId,
+	        path: `${aggregatePath}.field`,
+	        nodeName: typeof nodeName === "string" ? nodeName : undefined,
+	      }));
+	    } else if ((DATA_AGGREGATE_OP_VALUES as readonly string[]).includes(String(spec.op)) && spec.op !== "count" && spec.field === undefined) {
+	      issues.push(issue("error", "MISSING_DATA_AGGREGATE_FIELD", `${aggregatePath}.field is required for ${String(spec.op)} aggregates.`, {
+	        slideId,
+	        path: `${aggregatePath}.field`,
+	        nodeName: typeof nodeName === "string" ? nodeName : undefined,
+	        suggestedFix: `Use ${output}: { op: '${String(spec.op)}', field: 'sourceFieldName' }. The shorthand ${output}: '${String(spec.op)}' is only safe when the output field and input field intentionally have the same name.`,
+	      }));
+	    }
+	  }
+	}
 
 function validateEncodingSpec(encoding: unknown, path: string, slideId: string, nodeName: unknown, issues: ValidationIssue[]): void {
   if (!encoding || typeof encoding !== "object" || Array.isArray(encoding)) {
@@ -2649,6 +2750,62 @@ function hasExplicitBackgroundPlacement(child: DomNode): boolean {
 
 type ComponentFieldTypeError = { expected: string; actual: string; suggestedFix?: string };
 
+function validateComponentNumericFields(componentName: string, node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
+  if (componentName === "gauge" && Array.isArray(node.thresholds)) {
+    node.thresholds.forEach((raw, index) => {
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+      validateFiniteNumberField(rec.upTo, `${path}.thresholds[${index}].upTo`, slideId, node.id, issues, "Use {upTo:80, tone:'warning'}; threshold upTo must be a number.");
+    });
+  }
+  if (componentName === "heatmap" && Array.isArray(node.values)) {
+    node.values.forEach((row, rowIndex) => {
+      if (!Array.isArray(row)) {
+        issues.push(issue("error", "INVALID_FIELD_USAGE", `${path}.values[${rowIndex}] must be an array of numbers.`, {
+          slideId,
+          path: `${path}.values[${rowIndex}]`,
+          nodeName: node.id,
+          suggestedFix: "Use values as a rectangular number matrix, e.g. [[1,2,3],[2,3,4]].",
+        }));
+        return;
+      }
+      row.forEach((value, colIndex) => validateFiniteNumberField(value, `${path}.values[${rowIndex}][${colIndex}]`, slideId, node.id, issues, "Use only finite numeric heatmap cell values."));
+    });
+  }
+  if (componentName === "trend-line" && Array.isArray(node.values)) {
+    node.values.forEach((value, index) => validateFiniteNumberField(value, `${path}.values[${index}]`, slideId, node.id, issues, "Use values:[10,20,30] with finite numbers."));
+  }
+  if (componentName === "donut-summary") {
+    const primary = node.primary;
+    if (primary && typeof primary === "object" && !Array.isArray(primary)) {
+      validateFiniteNumberField((primary as Record<string, unknown>).value, `${path}.primary.value`, slideId, node.id, issues, "Use primary:{label:'...', value:62}; value must be a number.");
+    }
+    if (Array.isArray(node.others)) {
+      node.others.forEach((raw, index) => {
+        const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+        validateFiniteNumberField(rec.value, `${path}.others[${index}].value`, slideId, node.id, issues, "Use others entries like {label:'Other', value:38}; value must be a number.");
+      });
+    }
+  }
+  if (componentName === "range-plot" && Array.isArray(node.items)) {
+    node.items.forEach((raw, index) => {
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+      validateFiniteNumberField(rec.min, `${path}.items[${index}].min`, slideId, node.id, issues, "Use range items like {label:'A', min:10, max:60}; min/max must be numbers.");
+      validateFiniteNumberField(rec.max, `${path}.items[${index}].max`, slideId, node.id, issues, "Use range items like {label:'A', min:10, max:60}; min/max must be numbers.");
+      if (rec.point !== undefined) validateFiniteNumberField(rec.point, `${path}.items[${index}].point`, slideId, node.id, issues, "range-plot point must be a finite number when provided.");
+    });
+  }
+}
+
+function validateFiniteNumberField(value: unknown, path: string, slideId: string, nodeName: unknown, issues: ValidationIssue[], suggestedFix: string): void {
+  if (strictNumericValue(value) !== null) return;
+  issues.push(issue("error", "INVALID_FIELD_USAGE", `${path} must be a finite number.`, {
+    slideId,
+    path,
+    nodeName: typeof nodeName === "string" ? nodeName : undefined,
+    suggestedFix,
+  }));
+}
+
 function componentFieldTypeError(componentName: string, propName: string, prop: PropDefinition, value: unknown): ComponentFieldTypeError | null {
   if (value === undefined || value === null || value === "") return null;
   if (prop.type === "enum") return null;
@@ -2724,7 +2881,7 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
   }
   if (name === "freeform-group") validateFreeformGroupIntent(node, path, slideId, issues);
   if (name === "chapter-divider") validateChapterDividerUsage(node, path, slideId, issues, parent);
-  if (name === "matrix-2x2") {
+	  if (name === "matrix-2x2") {
     const itemsArr = Array.isArray(node.items) ? node.items : [];
     const hasRenderableItems = itemsArr.some((item) => matrixItemHasRenderableLabel(item));
     const hasQuadrantLabels = matrixHasQuadrantLabels(node);
@@ -2746,7 +2903,7 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       }));
     });
   }
-  if (name === "numbered-list" && Array.isArray(node.items)) {
+	  if (name === "numbered-list" && Array.isArray(node.items)) {
     node.items.forEach((raw, index) => {
       if (typeof raw === "string") return;
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -2769,8 +2926,9 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
         }));
       }
     });
-  }
-  for (const [propName, prop] of Object.entries(definition.fields)) {
+	  }
+	  validateComponentNumericFields(String(name), node, path, slideId, issues);
+	  for (const [propName, prop] of Object.entries(definition.fields)) {
     if (prop.required) {
       const required = checkRequiredComponentField(String(name), propName, prop, node);
       if (!required.ok) {
@@ -3108,11 +3266,18 @@ function describeValueType(value: unknown): string {
 }
 
 function isNumericString(value: unknown): boolean {
-  if (typeof value !== "string") return false;
+  return strictNumericValue(value) !== null;
+}
+
+function strictNumericValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
   const normalized = value.trim().replace(/,/g, "");
-  if (!normalized) return false;
+  if (!normalized) return null;
   const raw = normalized.endsWith("%") ? normalized.slice(0, -1) : normalized;
-  return raw.trim() !== "" && Number.isFinite(Number.parseFloat(raw));
+  if (!raw.trim()) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function valueAtPath(value: unknown, path: string): unknown {

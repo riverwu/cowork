@@ -352,6 +352,7 @@ export function metricCard(
     trend?: "up" | "down" | "flat";
     delta?: string;
     status?: "positive" | "warning" | "danger" | "neutral" | "brand";
+    statusText?: string;
     source?: string;
     comparison?: string;
     sparkline?: Array<number | string>;
@@ -362,6 +363,7 @@ export function metricCard(
 ): DomNode {
   const trend = options.trend;
   const unit = options.unit && options.unit.trim() ? options.unit.trim() : "";
+  const statusText = options.statusText && options.statusText.trim() ? options.statusText.trim() : "";
   // Trend semantics are conveyed by *coloring* the value (and label) — no
   // extra glyph, so narrow cards never have to make room for an arrow that
   // would otherwise force the value text to wrap.
@@ -386,9 +388,10 @@ export function metricCard(
   // value text inside still autoFit-shrinks to fit short strings.
   const valueSize = metricValueSize(value, dense);
   const peerAligned = options.peerAligned === true;
-  const valueBandHeight = peerAligned ? (dense ? 0.74 : 1.65) : undefined;
-  const labelBandHeight = peerAligned ? (dense ? 0.34 : 1.05) : undefined;
-  const deltaBandHeight = peerAligned ? (dense ? 0.3 : 0.36) : undefined;
+  const hasMetricMeta = Boolean(statusText || options.delta || options.comparison);
+  const valueBandHeight = peerAligned ? (dense ? (hasMetricMeta ? 0.96 : 0.74) : 1.65) : undefined;
+  const labelBandHeight = peerAligned ? (dense ? (hasMetricMeta ? 0.42 : 0.34) : 1.05) : undefined;
+  const deltaBandHeight = peerAligned ? (dense ? 0.34 : 0.36) : undefined;
   const valueNode: DomNode = {
     id: `${slideId}.${id}.value`,
     type: "text",
@@ -400,7 +403,7 @@ export function metricCard(
     autoFit: "shrink",
     noWrap: true,
     ...(valueSize ? { size: valueSize } : {}),
-    ...(dense && peerAligned ? { fontScale: 0.82 } : {}),
+    ...(dense && peerAligned && metricValueNeedsCompactScale(value) ? { fontScale: 0.92 } : {}),
     ...(content.length > 0 ? { content } : {}),
   };
   // maxHeight on the wrap stack flexes downward — tight rows (timeline
@@ -415,6 +418,7 @@ export function metricCard(
     gap: 0,
     align: "center",
     valign: "bottom",
+    justify: "end",
     ...(valueBandHeight !== undefined
       ? { fixedHeight: valueBandHeight, maxHeight: valueBandHeight }
       : { maxHeight: dense ? 1.55 : metricValueNeedsCompactScale(value) ? 1.85 : 2.4, layoutWeight: 2 }),
@@ -447,11 +451,12 @@ export function metricCard(
       optional: true,
     },
   ];
-  if (options.delta || options.comparison) {
+  const metaText = [statusText, options.delta, options.comparison].filter(Boolean).join(" · ");
+  if (metaText) {
     children.push({
-      id: `${slideId}.${id}.delta`,
+      id: `${slideId}.${id}.${statusText && !options.delta && !options.comparison ? "status" : "delta"}`,
       type: "text",
-      text: [options.delta, options.comparison].filter(Boolean).join(" · "),
+      text: metaText,
       style: "label",
       color: valueColor,
       align: "center",
@@ -483,6 +488,7 @@ export function metricCard(
     gap: dense ? 0.1 : 0.18,
     role: "metric-card",
     valign: "middle",
+    justify: "center",
     ...(options.variant === "card" ? { fill: "surface", line: "divider", padding: 0.45, cornerRadius: 0.1 } : {}),
     children,
   } as DomNode, options);
@@ -491,11 +497,11 @@ export function metricCard(
 function metricValueNeedsCompactScale(value: string): boolean {
   const weighted = weightedTextLength(value);
   const cjkCount = Array.from(value).filter((char) => /[\u4e00-\u9fff]/.test(char)).length;
-  return weighted >= 4.2 || (cjkCount >= 2 && weighted >= 3.0) || /^[-+]/.test(value.trim());
+  return weighted >= 6.2 || (cjkCount >= 4 && weighted >= 4.8) || /^[-+−]/.test(value.trim());
 }
 
 function metricValueSize(value: string, dense: boolean): "xs" | "sm" | undefined {
-  if (dense) return "xs";
+  if (dense) return metricValueNeedsCompactScale(value) ? "sm" : undefined;
   return metricValueNeedsCompactScale(value) ? "sm" : undefined;
 }
 
@@ -1273,6 +1279,7 @@ export function kpiGrid(slideId: string, id: string, metrics: Array<{
   trend?: "up" | "down" | "flat";
   delta?: string;
   status?: "positive" | "warning" | "danger" | "neutral" | "brand";
+  statusText?: string;
   source?: string;
   comparison?: string;
   sparkline?: Array<number | string>;
@@ -1285,7 +1292,7 @@ export function kpiGrid(slideId: string, id: string, metrics: Array<{
     columns: cols,
     gap: dense ? 0.32 : 0.5,
     role: "kpi-grid",
-    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable", peerAligned: true })),
+    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, statusText: m.statusText, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable", peerAligned: true })),
   } as DomNode, options);
 }
 
@@ -1495,7 +1502,8 @@ export function featureCard(slideId: string, id: string, options: {
   if (options.ctaText) {
     textChildren.push({ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "label", color: "text.inverse", fill: "brand.primary", cornerRadius: 0.2, align: "center", valign: "middle", fixedHeight: 0.46, autoFit: "shrink", optional: true });
   }
-  const children: DomNode[] = layout === "horizontal" && decorationNode
+  const effectiveLayout: FeatureCardLayout = layout === "horizontal" && !decorationNode ? "vertical" : layout;
+  const children: DomNode[] = effectiveLayout === "horizontal" && decorationNode
     ? [
         decorationNode,
         {
@@ -1516,8 +1524,8 @@ export function featureCard(slideId: string, id: string, options: {
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
-    direction: layout,
-    gap: layout === "horizontal" ? (dense ? 0.28 : 0.36) : (dense ? 0.1 : 0.16),
+    direction: effectiveLayout,
+    gap: effectiveLayout === "horizontal" ? (dense ? 0.28 : 0.36) : (dense ? 0.1 : 0.16),
     role: "feature-card",
     valign: "top",
     ...defaultSurface,
@@ -1564,6 +1572,8 @@ function featureCardDecorationNode(
   const spec = options.decoration;
   const explicitKind = spec?.kind;
   if (explicitKind === "none") return undefined;
+  const hasExplicitDecoration = spec !== undefined || Boolean(options.iconSrc) || Boolean(options.icon);
+  if (!hasExplicitDecoration) return undefined;
   const tone = spec?.tone || markerToneFromFeatureTone(ctx.semanticTone);
   const size = featureDecorationSizeCm(spec?.size, ctx.dense, ctx.layout);
   if (explicitKind === "marker") {
@@ -1728,7 +1738,7 @@ function isRatingLikeMetric(value: string): boolean {
   return /[\u2605\u2606]/.test(value);
 }
 
-export function checklist(slideId: string, id: string, items: Array<{ text: string; status?: "checked" | "unchecked" | "warning" }>, density: "comfortable" | "compact" = "comfortable", opts: { markStyle?: "chip" | "plain" } = {}): DomNode {
+export function checklist(slideId: string, id: string, items: Array<{ text: string; status?: "checked" | "unchecked" | "warning" | "neutral" }>, density: "comfortable" | "compact" = "comfortable", opts: { markStyle?: "chip" | "plain" } = {}): DomNode {
   const compact = density === "compact";
   // Chip-style marks (default): small rounded square with the tone color
   // as fill and white glyph on top — much louder than a bare colored
@@ -1744,17 +1754,18 @@ export function checklist(slideId: string, id: string, items: Array<{ text: stri
     gap: compact ? 0.1 : 0.18,
     role: "checklist",
     children: items.map((item, index) => {
-      const status = item.status === "warning" ? "warning" : item.status === "unchecked" ? "unchecked" : "checked";
-      const mark = status === "checked" ? "✓" : status === "warning" ? "!" : "✗";
-      const markColor = status === "checked" ? "success" : status === "warning" ? "warning" : "danger";
+      const status = item.status === "checked" || item.status === "warning" || item.status === "unchecked" ? item.status : "neutral";
+      const mark = status === "checked" ? "✓" : status === "warning" ? "!" : status === "unchecked" ? "✗" : "•";
+      const markColor = status === "checked" ? "success" : status === "warning" ? "warning" : status === "unchecked" ? "danger" : "text.muted";
       const markNode: DomNode = chipStyle
         ? {
             id: `${slideId}.${id}.${index}.mark`,
             type: "text",
             text: mark,
             style: compact ? "label" : "card-title",
-            color: "text.inverse",
-            fill: markColor,
+            color: status === "neutral" ? "text.muted" : "text.inverse",
+            fill: status === "neutral" ? "surface.subtle" : markColor,
+            line: status === "neutral" ? "divider" : undefined,
             align: "center",
             valign: "middle",
             fixedWidth: markSize,

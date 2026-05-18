@@ -4212,10 +4212,7 @@ function measuredContainerPlacements(node: DomNode, rectsById: Map<string, Rect>
 
 function shouldReuseMeasuredContainerPlacements(node: DomNode): boolean {
   if (node.type === "grid") return false;
-  if (isNarrativeSplitRegion(node)) return true;
-  if (node.semanticBudget === "narrative" || node.layoutBudget === "narrative") return true;
-  const role = typeof node.role === "string" ? node.role.trim() : "";
-  return role.length > 0 && SEMANTIC_BUDGET_REGION_ROLES.has(role);
+  return usesSemanticRegionBudget(node, node.direction === "horizontal" ? "horizontal" : "vertical");
 }
 
 function renderChrome(theme: SimpleTheme, deck: RenderedDeck, slideIndex: number, ids: { nextId: number }, slideBgHex?: string): ShapeList {
@@ -6777,7 +6774,8 @@ function materializeDeck(deck: RenderedDeck): RenderedDeck {
   try {
     const slides = deck.slides.map((slide) => {
       const dom = materializeAndCompactify(slide.dom, slide.id, theme);
-      return { slide, dom, layout: layoutSlide(theme, dom), decisions: layoutDecisionsBySlide.get(slide.id) || new Map() };
+      const measuredDom = prepareDomForMeasuredSemanticCohorts(theme, dom, slide.id);
+      return { slide, dom: measuredDom, layout: layoutSlide(theme, measuredDom), decisions: layoutDecisionsBySlide.get(slide.id) || new Map() };
     });
     const diagnostics = getRenderDiagnostics();
     return {
@@ -7373,7 +7371,10 @@ function layoutStackChildrenWithCassowary(
       if (currentSlideId) recordDecision(currentSlideId, child.id, { applied: "fit", notes: [`cassowary:${direction}`] });
       return { node: child, rect: childRect };
     });
-    pushCassowaryPressureDiagnostics(node, stackMainAxisPressures(direction, result.pressures));
+    pushCassowaryPressureDiagnostics(node, dedupeCassowaryPressures([
+      ...stackMainAxisPressures(direction, result.pressures),
+      ...stackCrossAxisPressures(direction, stackFinalSizePressures(children, flowOut, direction, childSpecs)),
+    ]));
     return layered.length === 0 ? flowOut : [...flowOut, ...layered.map((child) => ({ node: child, rect }))];
   } catch (error) {
     if (currentSlideId) {
@@ -7383,12 +7384,69 @@ function layoutStackChildrenWithCassowary(
   }
 }
 
-function stackMainAxisPressures(
-  direction: "horizontal" | "vertical",
-  pressures: Array<{ nodeId: string; constraint: string; expected: number; actual: number; delta: number }>,
-): Array<{ nodeId: string; constraint: string; expected: number; actual: number; delta: number }> {
+interface CassowaryPressure {
+  nodeId: string;
+  constraint: string;
+  expected: number;
+  actual: number;
+  delta: number;
+}
+
+function stackMainAxisPressures(direction: "horizontal" | "vertical", pressures: CassowaryPressure[]): CassowaryPressure[] {
   const mainConstraints = direction === "horizontal" ? new Set(["minW", "maxW"]) : new Set(["minH", "maxH"]);
   return pressures.filter((pressure) => mainConstraints.has(pressure.constraint));
+}
+
+function stackCrossAxisPressures(direction: "horizontal" | "vertical", pressures: CassowaryPressure[]): CassowaryPressure[] {
+  const crossConstraints = direction === "horizontal" ? new Set(["minH", "maxH"]) : new Set(["minW", "maxW"]);
+  return pressures.filter((pressure) => crossConstraints.has(pressure.constraint));
+}
+
+function dedupeCassowaryPressures(pressures: CassowaryPressure[]): CassowaryPressure[] {
+  const seen = new Set<string>();
+  const out: CassowaryPressure[] = [];
+  for (const pressure of pressures) {
+    const key = `${pressure.nodeId}|${pressure.constraint}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(pressure);
+  }
+  return out;
+}
+
+function stackFinalSizePressures(
+  children: DomNode[],
+  flowOut: Array<{ node: DomNode; rect: Rect }>,
+  direction: "horizontal" | "vertical",
+  specs: SizeSpec[],
+): CassowaryPressure[] {
+  const rectById = new Map(flowOut.map((item) => [item.node.id, item.rect] as const));
+  const pressures: CassowaryPressure[] = [];
+  children.forEach((child, index) => {
+    const rect = rectById.get(child.id);
+    const spec = specs[index];
+    if (!rect || !spec) return;
+    const preference = sizePreferenceFromMainSpec(child, direction, spec);
+    pushMinPressure(pressures, child.id, "minW", preference.minW, rect.w);
+    pushMinPressure(pressures, child.id, "minH", preference.minH, rect.h);
+    pushMaxPressure(pressures, child.id, "maxW", preference.maxW, rect.w);
+    pushMaxPressure(pressures, child.id, "maxH", preference.maxH, rect.h);
+  });
+  return pressures;
+}
+
+function pushMinPressure(pressures: CassowaryPressure[], nodeId: string, constraint: string, expected: number | undefined, actual: number): void {
+  if (expected === undefined || !Number.isFinite(expected)) return;
+  const delta = expected - actual;
+  if (delta <= 0.04) return;
+  pressures.push({ nodeId, constraint, expected, actual, delta });
+}
+
+function pushMaxPressure(pressures: CassowaryPressure[], nodeId: string, constraint: string, expected: number | undefined, actual: number): void {
+  if (expected === undefined || !Number.isFinite(expected)) return;
+  const delta = actual - expected;
+  if (delta <= 0.04) return;
+  pressures.push({ nodeId, constraint, expected, actual, delta });
 }
 
 function sizePreferenceFromMainSpec(node: DomNode, parentAxis: "horizontal" | "vertical" | undefined, spec: SizeSpec): SizePreference {
@@ -8096,13 +8154,30 @@ function estimateSemanticCohortMemberRects(theme: SimpleTheme, parent: DomNode, 
   }
   if (context.kind === "stack") {
     const direction = context.direction === "horizontal" ? "horizontal" : "vertical";
-    const gap = totalStackGapCm(theme, parent, children);
-    const availableMain = Math.max(0, (direction === "horizontal" ? rect.w : rect.h) - gap);
-    const equalMain = children.length > 0 ? availableMain / children.length : 0;
-    for (const child of children) {
+    const availableMain = Math.max(0, (direction === "horizontal" ? rect.w : rect.h) - totalStackGapCm(theme, parent, children));
+    const crossSize = direction === "horizontal" ? rect.h : rect.w;
+    const explicitSplitRatio = explicitSplitRatioWeights(parent, children.length);
+    const specs = children.map((child, index) => {
+      const spec = childMainSpec(theme, child, direction, crossSize);
+      if (!explicitSplitRatio || spec.fixed) return spec;
+      const target = availableMain * explicitSplitRatio[index]!;
+      return {
+        ...spec,
+        basis: clamp(target, spec.min, spec.max),
+        weight: Math.max(0.0001, explicitSplitRatio[index]!),
+        grow: true,
+      };
+    });
+    const sizes = resolveFlexMainTargets(specs, availableMain, { autoFillSlack: direction === "horizontal" });
+    const itemGap = children.length > 1 ? totalStackGapCm(theme, parent, children) / (children.length - 1) : 0;
+    let cursor = direction === "horizontal" ? rect.x : rect.y;
+    for (let index = 0; index < children.length; index++) {
+      const child = children[index]!;
+      const main = Math.max(0, sizes[index] ?? 0);
       out.set(child.id, direction === "horizontal"
-        ? { x: rect.x, y: rect.y, w: equalMain, h: rect.h }
-        : { x: rect.x, y: rect.y, w: rect.w, h: equalMain });
+        ? { x: cursor, y: rect.y, w: main, h: rect.h }
+        : { x: rect.x, y: cursor, w: rect.w, h: main });
+      cursor += main + itemGap;
     }
   }
   return out;
@@ -8120,12 +8195,29 @@ function semanticCohortSettingsKey(node: DomNode): string {
     `direction=${stringSetting(node.direction)}`,
     `columns=${numberSetting(node.columns)}`,
     `rows=${numberSetting(node.rows)}`,
+    `layoutWeight=${numberSetting(node.layoutWeight)}`,
+    `basis=${numberSetting(node.basis)}`,
+    `basisWidth=${numberSetting(node.basisWidth)}`,
+    `basisHeight=${numberSetting(node.basisHeight)}`,
+    `preferredWidth=${numberSetting(node.preferredWidth)}`,
+    `preferredHeight=${numberSetting(node.preferredHeight)}`,
+    `idealWidth=${numberSetting(node.idealWidth)}`,
+    `idealHeight=${numberSetting(node.idealHeight)}`,
     `width=${numberSetting(node.width)}`,
     `height=${numberSetting(node.height)}`,
     `fixedWidth=${numberSetting(node.fixedWidth)}`,
     `fixedHeight=${numberSetting(node.fixedHeight)}`,
     `minWidth=${numberSetting(node.minWidth)}`,
     `minHeight=${numberSetting(node.minHeight)}`,
+    `maxWidth=${numberSetting(node.maxWidth)}`,
+    `maxHeight=${numberSetting(node.maxHeight)}`,
+    `row=${numberSetting(node.row)}`,
+    `col=${numberSetting(node.col)}`,
+    `rowSpan=${numberSetting(node.rowSpan)}`,
+    `colSpan=${numberSetting(node.colSpan)}`,
+    `area=${stringSetting(node.area)}`,
+    `anchor=${stringSetting(node.anchor)}`,
+    `at=${tupleSetting(node.at)}`,
     `slots=${slots.join(",")}`,
   ].join(";");
 }
@@ -8753,9 +8845,9 @@ function applySemanticRegionBudgetSpecs(
   availableMain: number,
   crossSize: number,
 ): SizeSpec[] {
-  if (direction !== "vertical" || children.length < 2) return specs;
-  if (!isNarrativeSplitRegion(parent)) return specs;
-  const items = collectSemanticRegionBudgetItems(theme, parent, children, specs, crossSize, availableMain);
+  if (children.length < 2) return specs;
+  if (!usesSemanticRegionBudget(parent, direction)) return specs;
+  const items = collectSemanticRegionBudgetItems(theme, parent, children, specs, direction, crossSize, availableMain);
   const preferredTotal = items.reduce((sum, item) => sum + item.preferred, 0);
   const floorTotal = items.reduce((sum, item) => sum + item.floor, 0);
   const projected = solveSizes(specs, availableMain, false);
@@ -8782,11 +8874,12 @@ function collectSemanticRegionBudgetItems(
   parent: DomNode,
   children: DomNode[],
   specs: SizeSpec[],
+  direction: "horizontal" | "vertical",
   crossSize: number,
   availableMain: number,
 ): SemanticRegionBudgetItem[] {
   return children.map((child, index) =>
-    semanticRegionBudgetItem(theme, parent, child, specs[index]!, index, crossSize, availableMain)
+    semanticRegionBudgetItem(theme, parent, child, specs[index]!, index, direction, crossSize, availableMain)
   );
 }
 
@@ -8846,6 +8939,7 @@ function semanticRegionBudgetItem(
   child: DomNode,
   spec: SizeSpec,
   index: number,
+  direction: "horizontal" | "vertical",
   crossSize: number,
   availableMain: number,
 ): SemanticRegionBudgetItem {
@@ -8853,7 +8947,7 @@ function semanticRegionBudgetItem(
   const preferred = semanticPreferredMain(spec);
   const floor = spec.fixed
     ? preferred
-    : Math.min(preferred, semanticRegionFloor(theme, parent, child, spec, priority, crossSize, availableMain));
+    : Math.min(preferred, semanticRegionFloor(theme, parent, child, spec, priority, direction, crossSize, availableMain));
   return { index, spec, priority, preferred, floor };
 }
 
@@ -8946,18 +9040,24 @@ function roundCm(value: number): number {
 }
 
 function isNarrativeSplitRegion(parent: DomNode): boolean {
+  return usesSemanticRegionBudget(parent, "vertical");
+}
+
+function usesSemanticRegionBudget(parent: DomNode, direction: "horizontal" | "vertical"): boolean {
   if (parent.semanticBudget === false || parent.layoutBudget === "none") return false;
   if (parent.semanticBudget === "narrative" || parent.layoutBudget === "narrative") return true;
   const role = typeof parent.role === "string" ? parent.role.trim() : "";
   if (role && SEMANTIC_BUDGET_REGION_ROLES.has(role)) return true;
   if (!isSemanticBudgetCandidateContainer(parent)) return false;
-  return ancestorStack.some((ancestor) =>
+  const isWithinSemanticLayout = ancestorStack.some((ancestor) =>
     ancestor !== parent
     && (ancestor.__loweredFromSplit === true
       || ancestor.role === "evidence-layout"
       || ancestor.role === "chart-with-rail"
       || ancestor.role === "main-effect-comparison")
   );
+  if (isWithinSemanticLayout) return true;
+  return direction === "vertical";
 }
 
 const SEMANTIC_BUDGET_REGION_ROLES = new Set([
@@ -9029,9 +9129,11 @@ function semanticRegionFloor(
   node: DomNode,
   spec: SizeSpec,
   priority: number,
+  direction: "horizontal" | "vertical",
   crossSize: number,
   availableMain: number,
 ): number {
+  if (direction === "horizontal") return semanticHorizontalRegionFloor(theme, parent, node, spec, priority, crossSize, availableMain);
   const role = regionCapacityRole(node);
   if (role === "key-takeaway") return keyTakeawayRegionFloor(theme, node, crossSize, spec, availableMain);
   if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") {
@@ -9041,6 +9143,49 @@ function semanticRegionFloor(
   if (node.type === "text") return Math.max(semanticCompressionMainFloor(theme, node, "vertical", crossSize, spec), semanticTextReadableFloor(theme, parent, node, crossSize, priority));
   if (node.type === "bullets") return Math.max(semanticCompressionMainFloor(theme, node, "vertical", crossSize, spec), semanticBulletsReadableFloor(theme, node, crossSize));
   return semanticCompressionMainFloor(theme, node, "vertical", crossSize, spec);
+}
+
+function semanticHorizontalRegionFloor(
+  theme: SimpleTheme,
+  parent: DomNode,
+  node: DomNode,
+  spec: SizeSpec,
+  priority: number,
+  crossSize: number,
+  availableMain: number,
+): number {
+  const role = regionCapacityRole(node);
+  if (node.type === "spacer" || node.type === "divider" || node.type === "shape") return 0;
+  const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "horizontal", crossSize));
+  const readable = Math.max(spec.min, natural * semanticHorizontalFloorRatio(node, role, priority));
+  if (role === "key-takeaway") {
+    const cap = Math.max(spec.min, Math.min(6.2, availableMain * 0.62));
+    return clamp(Math.max(spec.min, Math.min(readable, 4.4)), spec.min, cap);
+  }
+  if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") {
+    const cap = Math.max(spec.min, Math.min(5.8, availableMain * 0.58));
+    return clamp(Math.max(spec.min, Math.min(readable, 3.9)), spec.min, cap);
+  }
+  if (role === "quote") {
+    const cap = Math.max(spec.min, Math.min(5.0, availableMain * 0.54));
+    return clamp(Math.max(spec.min, Math.min(readable, 3.4)), spec.min, cap);
+  }
+  if (node.type === "text" || node.type === "bullets") {
+    const cap = Math.max(spec.min, Math.min(5.4, availableMain * 0.5));
+    return clamp(Math.max(spec.min, Math.min(readable, 3.2)), spec.min, cap);
+  }
+  if (componentElasticityClass(node, role) === "hard") return spec.min;
+  const cap = Math.max(spec.min, Math.min(5.2, availableMain * 0.52));
+  return clamp(Math.max(spec.min, Math.min(readable, 3.2)), spec.min, cap);
+}
+
+function semanticHorizontalFloorRatio(node: DomNode, role: string, priority: number): number {
+  if (role === "key-takeaway") return 0.52;
+  if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") return 0.48;
+  if (role === "quote") return 0.44;
+  if (node.type === "bullets") return 0.42;
+  if (node.type === "text") return priority >= 58 ? 0.42 : 0.36;
+  return 0.4;
 }
 
 function keyTakeawayRegionFloor(theme: SimpleTheme, node: DomNode, widthCm: number, spec: SizeSpec, availableMain: number): number {

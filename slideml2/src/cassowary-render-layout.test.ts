@@ -94,6 +94,38 @@ describe("render Cassowary layout integration", () => {
     expect(getRenderDiagnostics().filter((item) => item.code === "OVERFLOW" && item.nodeId === "s.rule")).toHaveLength(0);
   });
 
+  it("reports real cross-axis pressure after final stack alignment", () => {
+    const deck: RenderedDeck = {
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [{
+        id: "s",
+        layout: "freeform",
+        dom: {
+          id: "s.root",
+          type: "slide",
+          children: [{
+            id: "s.stack",
+            type: "stack",
+            direction: "vertical",
+            at: [1, 1, 2, 3],
+            children: [
+              { id: "s.body", type: "text", text: "This item declares a wider minimum than the available column.", minWidth: 3.2, fixedHeight: 1.0 },
+            ],
+          }],
+        },
+      }],
+    };
+
+    clearRenderDiagnostics();
+    const nodes = measureDeck(deck)[0]!.nodes;
+    const body = nodes.find((node) => node.id === "s.body")?.rect;
+    const hit = getRenderDiagnostics().find((item) => item.code === "OVERFLOW" && item.nodeId === "s.body");
+
+    expect(body?.w).toBeCloseTo(2, 2);
+    expect(hit?.message || "").toContain("minW");
+    expect(hit?.measured?.needed).toBeGreaterThan(hit?.measured?.available ?? 0);
+  });
+
   it("promotes fixed spacers between content blocks to LayoutGlue rhythm", () => {
     const deck: RenderedDeck = {
       deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
