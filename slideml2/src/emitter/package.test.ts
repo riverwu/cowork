@@ -916,4 +916,40 @@ describe("emitter — package end-to-end", () => {
     expect(slideXml).toContain("&#x201C;");
     expect(slideXml).toContain("&#x201D;");
   });
+
+  it("protects CJK punctuation from becoming a standalone line in emitted text", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      language: "zh-CN",
+      slides: [{
+        shapes: [
+          {
+            type: "text",
+            id: 2,
+            xfrm: { x: cm(2), y: cm(2), cx: cm(8), cy: cm(3) },
+            paragraphs: [{
+              runs: [
+                { text: "实验（", sizeHalfPt: 28, cjk: true, fontFace: "PingFang SC" },
+                { text: "理论）继续。", sizeHalfPt: 28, cjk: true, fontFace: "PingFang SC" },
+              ],
+            }],
+          },
+          {
+            type: "table",
+            id: 3,
+            xfrm: { x: cm(2), y: cm(6), cx: cm(8), cy: cm(2) },
+            colWidths: [cm(8)],
+            rowHeights: [cm(2)],
+            cells: [[{ runs: [{ text: "边界,继续", sizeHalfPt: 24, cjk: true, fontFace: "PingFang SC" }] }]],
+          },
+        ],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+
+    expect(slideXml).toContain("实验（\u2060");
+    expect(slideXml).toContain("理论\u2060）继续\u2060。");
+    expect(slideXml).toContain("边界\u2060,继续");
+  });
 });

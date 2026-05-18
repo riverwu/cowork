@@ -1223,6 +1223,57 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(hit?.measured?.needed).toBeGreaterThan(hit?.measured?.available ?? 999);
   });
 
+  it("applies one cohort repair profile to compact numeric KPI peers", () => {
+    clearRenderDiagnostics();
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "2563EB" },
+        themeOverride: {
+          text: {
+            "metric-value": { fontSize: 30.7, fontWeight: "bold", lineHeight: 0.96 },
+            "metric-label": { fontSize: 14, lineHeight: 1.12 },
+          },
+        },
+      },
+      slides: [{
+        id: "kpi-cohort-repair",
+        children: [{
+          id: "kpi-cohort-repair.kpis",
+          type: "kpi-grid",
+          at: [1, 1, 12.2, 1.68],
+          columns: 3,
+          variant: "compact",
+          density: "compact",
+          metrics: [
+            { value: "27 km", label: "隧道周长" },
+            { value: "13.6 TeV", label: "质心能量" },
+            { value: "$17B", label: "预算量级" },
+          ],
+        }],
+      }],
+    };
+
+    const measured = measureDeck(sourceToRenderedDeck(deck))[0]?.nodes || [];
+    const byId = new Map(measured.map((node) => [node.id, node]));
+    const ids = [1, 2, 3].map((index) => `kpi-cohort-repair.kpis-m${index}`);
+    const valueHeights = ids.map((id) => byId.get(`${id}.value-wrap`)?.rect.h.toFixed(3));
+    const labelHeights = ids.map((id) => byId.get(`${id}.label`)?.rect.h.toFixed(3));
+    expect(new Set(valueHeights).size).toBe(1);
+    expect(new Set(labelHeights).size).toBe(1);
+    expect(Number(valueHeights[0])).toBeLessThan(0.74);
+    expect(Number(labelHeights[0])).toBeGreaterThan(0.34);
+    expect(Number(labelHeights[0])).toBeLessThan(0.5);
+
+    const diagnostics = getRenderDiagnostics().filter((item) =>
+      ["FALLBACK_FAILED", "SQUASHED", "TRUNCATED"].includes(item.code)
+      && ids.some((id) => String(item.nodeId || "").startsWith(id)),
+    );
+    expect(diagnostics, JSON.stringify(diagnostics, null, 2)).toHaveLength(0);
+  });
+
   it("reports strict overflow when metric-card text ink escapes the card", () => {
     clearRenderDiagnostics();
     renderToAst({

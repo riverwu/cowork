@@ -2411,6 +2411,46 @@ describe("slideml2 MVP", () => {
     expect(findNodeForTest(renderedMatching.slides[0]!.dom, "cover2.title")).toBeNull();
     expect(findNodeForTest(renderedMatching.slides[0]!.dom, "cover2.hero")?.text).toBe("Deck title");
 
+    const matchingBodyH1Slide = {
+      id: "body-h1",
+      title: "对撞机：能量前沿",
+      children: [{
+        id: "body-h1.content",
+        type: "two-column",
+        area: "content",
+        left: { children: [{ id: "body-h1.body", type: "text", style: "paragraph", text: "正文" }] },
+        right: { children: [{ id: "body-h1.h", type: "h1", text: "对撞机：能量前沿" }] },
+      }],
+    } as const;
+    const renderedMatchingH1 = sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [matchingBodyH1Slide as never],
+    });
+    expect(findNodeForTest(renderedMatchingH1.slides[0]!.dom, "body-h1.title")).toBeNull();
+    const matchingH1TwoColumn = renderedMatchingH1.slides[0]!.dom.children?.[0] as { right?: { children?: Array<{ id?: string; text?: string }> } };
+    expect(matchingH1TwoColumn.right?.children?.find((node) => node.id === "body-h1.h")?.text).toBe("对撞机：能量前沿");
+
+    const differentBodyH1Slide = {
+      id: "body-h1-different",
+      title: "对撞机：能量前沿",
+      children: [{
+        id: "body-h1-different.content",
+        type: "stack",
+        area: "content",
+        children: [
+          { id: "body-h1-different.h", type: "h1", text: "把粒子撞向光速" },
+          { id: "body-h1-different.body", type: "text", style: "paragraph", text: "正文" },
+        ],
+      }],
+    } as const;
+    const renderedDifferentH1 = sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [differentBodyH1Slide as never],
+    });
+    expect(findNodeForTest(renderedDifferentH1.slides[0]!.dom, "body-h1-different.title")?.text).toBe("对撞机：能量前沿");
+
     const conflictingDeckTitleText = validateSlide({
       id: "cover3",
       title: "Metadata title",

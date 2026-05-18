@@ -1317,6 +1317,84 @@ describe("ppt generation flow runner", () => {
     expect(analysis.candidates.map((item) => item.category)).toContain("component-selection-degradation");
   });
 
+  it("reports semantic component degradation when a failed KPI component becomes generic cards", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-semantic-degrade-${Date.now()}`);
+    const sceneDir = join(dir, "reports", "validation-failure-scenes", "step-1-market");
+    const deckPath = join(dir, "outputs", "deck.json");
+    const slideJsonPath = join(sceneDir, "slide.json");
+    await mkdir(sceneDir, { recursive: true });
+    await mkdir(join(dir, "outputs"), { recursive: true });
+    await writeFile(slideJsonPath, JSON.stringify({
+      id: "market",
+      children: [{
+        id: "market.kpis",
+        type: "kpi-grid",
+        metrics: [
+          { value: "27 km", label: "隧道周长" },
+          { value: "13.6 TeV", label: "质心能量" },
+          { value: "$17B", label: "预算量级" },
+        ],
+      }],
+    }));
+    await writeFile(deckPath, JSON.stringify({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "market",
+        children: [{
+          id: "market.generic",
+          type: "grid",
+          children: [
+            { id: "market.generic.1", type: "card", children: [{ type: "text", text: "27 km" }] },
+          ],
+        }],
+      }],
+    }));
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "semantic-degrade-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords: [],
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary: {
+        toolNames: [],
+        replaceSlideCount: 0,
+        outputPaths: [deckPath],
+        finalText: "",
+        errors: [],
+        progressEvents: [],
+      },
+      validationFailureScenes: [{
+        step: 1,
+        toolName: "shell",
+        slideId: "market",
+        slidePath: join(dir, "slides", "03-market.json"),
+        sceneDirectory: sceneDir,
+        sceneJsonPath: join(sceneDir, "scene.json"),
+        slideJsonPath,
+        judgment: {
+          ok: true,
+          reason: "validate-slide failed on kpi-grid capacity, then agent rewrote the page.",
+          diagnosticCodes: ["FALLBACK_FAILED"],
+          evidence: [{ code: "FALLBACK_FAILED", nodeId: "market.kpis-m1", pptxShapeFound: true, confirmsCapacityFailure: true }],
+        },
+      }],
+    };
+
+    const verification = await verifyPptGenerationFlow(result, { requireFinalValidateRender: false });
+    const analysis = analyzePptGenerationFlowImprovements(result, verification);
+    const signal = analysis.recoveredFrictionSignals.find((item) => item.diagnosticCodes.includes("SEMANTIC_COMPONENT_DEGRADED"));
+
+    expect(signal?.category).toBe("component-selection-degradation");
+    expect(signal?.componentTypes).toContain("kpi-grid");
+    expect(signal?.message).toContain("omitting kpi-grid");
+  });
+
   it("reports generated image assets that are not referenced by the final deck", async () => {
     const dir = join(tmpdir(), `cowork-ppt-flow-unused-asset-${Date.now()}`);
     const runDir = join(dir, ".cowork-runs", "run_1");
@@ -1369,6 +1447,72 @@ describe("ppt generation flow runner", () => {
 
     expect(signal?.category).toBe("asset-workflow");
     expect(signal?.evidence).toContain("unused.png");
+  });
+
+  it("checks generated asset use against the final compose source deck first", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-final-deck-assets-${Date.now()}`);
+    const staleDeckPath = join(dir, "build", "stale.json");
+    const outputPath = join(dir, "outputs", "deck.pptx");
+    const finalDeckPath = `${outputPath}.deck.json`;
+    const asset1 = join(dir, "assets", "collider.png");
+    const asset2 = join(dir, "assets", "detector.svg");
+    const iconSheet = join(dir, "assets", "hep-icons-sheet.png");
+    const icon = join(dir, "assets", "icons", "neutrino.png");
+    await mkdir(join(dir, "build"), { recursive: true });
+    await mkdir(join(dir, "outputs"), { recursive: true });
+    await mkdir(join(dir, "assets"), { recursive: true });
+    await mkdir(join(dir, "assets", "icons"), { recursive: true });
+    await writeFile(staleDeckPath, JSON.stringify({ slideml2: 2, deck: {}, slides: [{ id: "stale", children: [] }] }));
+    await writeFile(finalDeckPath, JSON.stringify({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "final",
+        children: [
+          { id: "final.a", type: "image-card", src: asset1 },
+          { id: "final.b", type: "image-card", src: asset2 },
+          { id: "final.c", type: "feature-card", iconSrc: icon, title: "Neutrino" },
+        ],
+      }],
+    }));
+    await writeFile(outputPath, "fake pptx");
+    const toolRecords = [
+      {
+        step: 1,
+        name: "image_gen",
+        toolCallId: "call-img",
+        success: true,
+        result: `Image generated and saved to ${asset1}\nImage generated and saved to ${asset2}\nImage generated and saved to ${iconSheet}\nImage generated and saved to ${icon}`,
+      },
+      shellCliRecord(2, "compose", join(dir, "manifest.json"), {
+        ok: true,
+        stage: "render",
+        status: "ok",
+        sourcePath: finalDeckPath,
+        outputPath,
+        diagnostics: { blockingCount: 0 },
+      }, ["--out", outputPath], dir),
+    ];
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "final-deck-assets-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords,
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary: {
+        ...summarizePptGenerationFlow([], toolRecords),
+        outputPaths: [staleDeckPath, outputPath],
+      },
+    };
+
+    const verification = await verifyPptGenerationFlow(result, { requireFinalValidateRender: false });
+    const analysis = analyzePptGenerationFlowImprovements(result, verification);
+    expect(analysis.recoveredFrictionSignals.some((item) => item.diagnosticCodes.includes("UNUSED_GENERATED_ASSET"))).toBe(false);
   });
 
   it("aggregates case improvement candidates into a suite-level improvement plan", async () => {

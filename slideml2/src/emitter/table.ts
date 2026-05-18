@@ -13,6 +13,7 @@
 
 import { assertHex, escapeText } from "./xml.js";
 import type { FillSpec, HexColor, TableBorderLineSpec, TableBorderSide, TableCell, TableShape, TextRun } from "./types.js";
+import { protectTextRunsForCjkLineBreaks } from "./text-protection.js";
 
 const URI_TABLE = "http://schemas.openxmlformats.org/drawingml/2006/table";
 
@@ -121,14 +122,15 @@ function cellXml(cell: TableCell, shape: TableShape, rowIndex: number): string {
   const attrText = attrs ? ` ${attrs}` : "";
 
   const fill = cell.fill ?? (isHeader ? undefined : undefined);
+  const protectedRuns = protectTextRunsForCjkLineBreaks(cell.runs);
   const txBody =
     `<a:txBody>` +
     `<a:bodyPr wrap="square"${bodyInsets} anchor="${anchor}"${rotation}/>` +
     `<a:lstStyle/>` +
     `<a:p>` +
     `<a:pPr algn="${algn}"/>` +
-    cell.runs.map((r) => runXml(r)).join("") +
-    (cell.runs.length === 0 ? `<a:endParaRPr lang="en-US"/>` : "") +
+    protectedRuns.map((r) => runXml(r)).join("") +
+    (protectedRuns.length === 0 ? `<a:endParaRPr lang="en-US"/>` : "") +
     `</a:p>` +
     `</a:txBody>`;
 

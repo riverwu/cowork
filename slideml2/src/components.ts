@@ -2704,6 +2704,9 @@ function numberedGridBodyMinHeight(text: string, dense: boolean, twoByTwo = fals
 
 export function statStrip(slideId: string, id: string, options: { items: Array<{ value: string; label: string; tone?: StatStripTone }>; tone?: StatStripTone }): DomNode {
   const stripTone: StatStripTone = options.tone || "brand";
+  const compact = options.items.length >= 4 || options.items.some((item) => item.label.includes("\n"));
+  const valueBandHeight = Math.max(...options.items.map((item) => statStripValueMinHeight(item.value, compact)), compact ? 0.78 : 0.9);
+  const labelBandHeight = Math.max(...options.items.map((item) => statStripLabelMinHeight(item.label)), 0.36);
   // Inline KPI row — no card chrome, just bold values + small labels separated
   // by thin vertical accent rules. Reads as a tighter alternative to kpi-grid
   // for the "headline numbers in one row" pattern (OOXML / consulting-deck
@@ -2724,7 +2727,7 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
         preset: "rect",
         fill: "divider",
         fixedWidth: 0.04,
-        fixedHeight: 1.35,
+        fixedHeight: compact ? 1.2 : 1.35,
         align: "center",
         valign: "middle",
       });
@@ -2733,15 +2736,15 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
       id: `${slideId}.${id}.${index}`,
       type: "stack",
       direction: "vertical",
-      gap: 0.15,
+      gap: compact ? 0.08 : 0.15,
       align: "center",
       justify: "center",
       valign: "middle",
       fixedHeight: 2.05,
       layoutWeight: 4,
       children: [
-        { id: `${slideId}.${id}.${index}.value`, type: "text", text: item.value, style: "metric-value", size: metricValueSize(item.value, false), color: valueColor, align: "center", valign: "bottom", autoFit: "shrink", minHeight: metricValueNeedsCompactScale(item.value) ? 1.0 : 0.9 },
-        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "metric-label", color: "text.muted", align: "center", valign: "top", uppercase: !/[\u4e00-\u9fff]/.test(item.label), letterSpacing: /[\u4e00-\u9fff]/.test(item.label) ? 0 : 60, autoFit: "shrink", minHeight: 0.36 },
+        { id: `${slideId}.${id}.${index}.value`, type: "text", text: item.value, style: "metric-value", size: statStripValueSize(item.value, compact), color: valueColor, align: "center", valign: "bottom", autoFit: "shrink", fixedHeight: valueBandHeight, minHeight: valueBandHeight, maxHeight: valueBandHeight },
+        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "metric-label", color: "text.muted", align: "center", valign: "top", uppercase: !/[\u4e00-\u9fff]/.test(item.label), letterSpacing: /[\u4e00-\u9fff]/.test(item.label) ? 0 : 60, autoFit: "shrink", fixedHeight: labelBandHeight, minHeight: labelBandHeight },
       ],
     });
   });
@@ -2757,6 +2760,22 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
     maxHeight: 2.35,
     children: items,
   };
+}
+
+function statStripValueSize(value: string, compact: boolean): "xs" | "sm" | undefined {
+  if (compact) return "xs";
+  return metricValueSize(value, false);
+}
+
+function statStripValueMinHeight(value: string, compact: boolean): number {
+  if (compact) return metricValueNeedsCompactScale(value) ? 0.86 : 0.78;
+  return metricValueNeedsCompactScale(value) ? 1.0 : 0.9;
+}
+
+function statStripLabelMinHeight(label: string): number {
+  const explicitLines = label.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weightedTextLength(label) / 12));
+  return Math.max(0.36, Math.min(0.84, estimatedLines * 0.28 + 0.08));
 }
 
 export type StatStripTone = "brand" | "positive" | "neutral" | "warning" | "danger";

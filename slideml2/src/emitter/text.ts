@@ -9,6 +9,7 @@
 
 import { assertHex, attr, escapeText, xmlEscape } from "./xml.js";
 import type { Paragraph, TextRun, TextShape } from "./types.js";
+import { protectTextRunsForCjkLineBreaks } from "./text-protection.js";
 
 /** Per-text-shape rels that the run-XML accumulates. The slide emitter
  *  passes a SlideRels-shaped accumulator so hyperlink rels land on the
@@ -74,11 +75,12 @@ export function txBody(shape: TextShape, rels?: RunRels): string {
 /** Render a single `<a:p>` paragraph with its runs. */
 function paragraphXml(p: Paragraph, rels?: RunRels): string {
   const pPr = paragraphPropsXml(p);
-  const runs = p.runs.length > 0
-    ? p.runs.map((r, i) => runXml(r, i === p.runs.length - 1, rels)).join("")
+  const protectedRuns = protectTextRunsForCjkLineBreaks(p.runs);
+  const runs = protectedRuns.length > 0
+    ? protectedRuns.map((r, i) => runXml(r, i === protectedRuns.length - 1, rels)).join("")
     : "";
   // Empty paragraphs still need an endParaRPr so PowerPoint doesn't drop them.
-  const endRPr = p.runs.length === 0 ? `<a:endParaRPr lang="en-US"/>` : "";
+  const endRPr = protectedRuns.length === 0 ? `<a:endParaRPr lang="en-US"/>` : "";
   return `<a:p>${pPr}${runs}${endRPr}</a:p>`;
 }
 

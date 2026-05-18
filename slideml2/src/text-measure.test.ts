@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createHeuristicTextMeasurer, createMetricPackTextMeasurer, PT_TO_CM } from "./text-measure.js";
+import { createHeuristicTextMeasurer, createMetricPackTextMeasurer, protectCjkLineBreakPunctuation, PT_TO_CM } from "./text-measure.js";
 import { buildTheme } from "./theme.js";
 
 describe("heuristic text measurement", () => {
@@ -67,6 +67,13 @@ describe("heuristic text measurement", () => {
     const unbreakable = measurer.unbreakableWidth(text, 14);
     expect(unbreakable).toBeGreaterThan(measurer.textWidth("雪", 14));
     expect(unbreakable).toBeLessThan(measurer.textWidth("雪山（草甸）", 14));
+  });
+
+  it("protects CJK punctuation line breaks without changing Latin decimals", () => {
+    expect(protectCjkLineBreakPunctuation("实验（理论）已经完成。")).toBe("实验（\u2060理论\u2060）已经完成\u2060。");
+    expect(protectCjkLineBreakPunctuation("他说“理论”。")).toBe("他说“\u2060理论\u2060”\u2060。");
+    expect(protectCjkLineBreakPunctuation("理论,实验继续")).toBe("理论\u2060,实验继续");
+    expect(protectCjkLineBreakPunctuation("13.6% CAGR")).toBe("13.6% CAGR");
   });
 
   it("keeps unpunctuated Latin identifiers as overflow-causing unbreakable tokens", () => {

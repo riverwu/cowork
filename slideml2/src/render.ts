@@ -21,9 +21,10 @@ import { formatRichToken, latexToMathText, richInlinePlainText, richRunsPlainTex
 import { latexToOmml } from "./latex-omml.js";
 import { emuToCm, normalizeStrokeCm, parseLayoutDimensionCm, SLIDE_SIZES } from "./units.js";
 import { isDeckSize } from "./schema.js";
-import { containsCjkOrFullWidth, createTextMeasurer, PT_TO_CM } from "./text-measure.js";
+import { containsCjkOrFullWidth, createTextMeasurer, protectCjkLineBreakPunctuation, PT_TO_CM } from "./text-measure.js";
 import { probeImageDimensions } from "./emitter/image-dim.js";
 import { normalizeSlideTransition } from "./transition.js";
+import { protectTextRunsForCjkLineBreaks } from "./emitter/text-protection.js";
 
 /** Resolve a TextStyle's weight (string or numeric) into the boolean
  *  emitter flag. Anything ≥ 600 reads as bold so the OOXML `b` attribute
@@ -85,7 +86,7 @@ function plainTextRun(theme: SimpleTheme, text: string, style: TextStyle, bold: 
 
 function normalizeTextForPpt(text: string, literal = false): string {
   if (literal || !text) return text;
-  return text.replace(/([^\s\u2060])([，。！？；：、）》」』】〕〉》])/g, "$1\u2060$2");
+  return protectCjkLineBreakPunctuation(text);
 }
 
 export interface LayoutDecision {
@@ -1828,7 +1829,7 @@ function detectMetricTextInkOverflow(slideId: string, measured: MeasuredNode[], 
   }
 }
 
-const STRICT_METRIC_TEXT_INK_OVERFLOW_CM = 0.06;
+const STRICT_METRIC_TEXT_INK_OVERFLOW_CM = 0.10;
 
 function isMetricTextNode(node: DomNode): boolean {
   if (node.type !== "text") return false;
@@ -2440,7 +2441,7 @@ function detectMetricCollectionCapacity(slideId: string, root: MeasuredNode, nod
   const metricRole = role === "kpi-grid" ? "metric-card" : "";
   const items = measured.filter((item) => item.parentId === root.id && (metricRole ? findNodeById(slideDom, item.id)?.role === metricRole : !/\.sep\d+$/.test(item.id)));
   const count = role === "kpi-grid" ? items.length : Math.max(0, items.length);
-  if (count < (role === "kpi-grid" ? 4 : 5)) return;
+  if (count < (role === "kpi-grid" ? 3 : 5)) return;
   const perMetricWidth = count > 0 ? Math.min(...items.map((item) => item.rect.w)) : 0;
   const perMetricHeight = count > 0 ? Math.min(...items.map((item) => item.rect.h)) : 0;
   const minWidth = role === "kpi-grid" ? 2.9 : 2.05;
@@ -4288,9 +4289,10 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
                 return parsed.runs.map((r) => richRunToTextRun(theme, r, styleColor, isStyleBold(paraStyle.weight)));
               }
             }
-            const face = pickRunFontFace(theme, text, paraStyle);
+            const runText = normalizeTextForPpt(text);
+            const face = pickRunFontFace(theme, runText, paraStyle);
             return [{
-              text,
+              text: runText,
               sizeHalfPt: paraStyle.fontSize * 2,
               bold: isStyleBold(paraStyle.weight),
               italic: paraStyle.italic === true,
@@ -4304,7 +4306,7 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
             }];
           })();
       const para: Paragraph = {
-        runs,
+        runs: protectTextRunsForCjkLineBreaks(runs),
         align: paragraphAlign(rec.align ?? node.align),
       };
       if (typeof rec.indentLevel === "number" && rec.indentLevel > 0) para.indentLevel = rec.indentLevel;
@@ -4318,7 +4320,7 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
   const runs = textRuns(theme, node, style);
   const para: Paragraph = {
     align: paragraphAlign(node.align),
-    runs,
+    runs: protectTextRunsForCjkLineBreaks(runs),
   };
   if (typeof node.indentLevel === "number" && node.indentLevel > 0) para.indentLevel = node.indentLevel;
   para.lineSpacingHalfPt = lineSpacingHalfPtForValue(node.lineSpacing, style) ?? lineSpacingHalfPtForStyle(style);
@@ -5331,7 +5333,7 @@ function makeTableCell(
         ? parsedRuns.runs.map((r) => richRunToTextRun(theme, r, effectiveStyle, bold))
         : [plainTextRun(theme, text, style, bold, color(theme, colorToken, style.color))];
     return {
-      runs,
+      runs: protectTextRunsForCjkLineBreaks(runs),
       fill: tableCellFill(theme, fillToken),
       align,
       valign,
@@ -5345,9 +5347,9 @@ function makeTableCell(
   const text = String(raw ?? "");
   const parsedRuns = parseMarkdownInline(text);
   return {
-    runs: parsedRuns.matched
+    runs: protectTextRunsForCjkLineBreaks(parsedRuns.matched
       ? parsedRuns.runs.map((r) => richRunToTextRun(theme, r, style, isStyleBold(style.weight)))
-      : [plainTextRun(theme, text, style, isStyleBold(style.weight), color(theme, undefined, style.color))],
+      : [plainTextRun(theme, text, style, isStyleBold(style.weight), color(theme, undefined, style.color))]),
     fill: tableCellFill(theme, isHeader ? defaults.headerFill || "surface.subtle" : defaults.bodyFill),
     align: isHeader ? "center" : defaultAlign,
     valign: "middle",
@@ -7308,6 +7310,7 @@ function pushCassowaryPressureDiagnostics(
   pressures: Array<{ nodeId: string; constraint: string; expected: number; actual: number; delta: number }>,
 ): void {
   for (const pressure of pressures) {
+    if (isBenignCassowaryPressure(pressure)) continue;
     pushDiagnostic({
       severity: "warn",
       code: "OVERFLOW",
@@ -7323,6 +7326,12 @@ function pushCassowaryPressureDiagnostics(
       },
     });
   }
+}
+
+function isBenignCassowaryPressure(pressure: { nodeId: string; constraint: string; expected: number; actual: number }): boolean {
+  if (pressure.actual <= pressure.expected) return false;
+  if (!/\.value-wrap$/.test(pressure.nodeId)) return false;
+  return pressure.constraint === "maxH" || pressure.constraint === "fixedH";
 }
 
 function childCrossRect(theme: SimpleTheme, child: DomNode, parentCrossStart: number, parentCrossSize: number, parent: DomNode, mainSize: number, parentDirection: "horizontal" | "vertical"): { start: number; size: number } {
@@ -7653,6 +7662,7 @@ function prepareGridChildrenForLayout(theme: SimpleTheme, node: DomNode, childre
         labelBandHeight: labelMinHeight === undefined ? undefined : labelBandHeight,
         labelTextMinHeight: labelMinHeight,
         cardHeight: cardHeightById.get(child.id),
+        cohortSize: valueMinById.size,
       });
   });
 }
@@ -7661,6 +7671,12 @@ const METRIC_CARD_REPAIR_MIN_PADDING_CM = 0.30;
 const METRIC_CARD_REPAIR_MIN_GAP_CM = 0.08;
 const METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM = 0.62;
 const METRIC_CARD_REPAIR_CAPACITY_TOLERANCE_CM = 0.03;
+const METRIC_CARD_COHORT_MICRO_PADDING_CM = 0.22;
+const METRIC_CARD_COHORT_MICRO_GAP_CM = 0.04;
+const METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM = 0.52;
+const METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM = 0.30;
+const METRIC_CARD_COHORT_MICRO_FONT_SCALE = 0.78;
+const METRIC_CARD_COHORT_MICRO_TOLERANCE_CM = 0.04;
 
 interface MeasuredMetricBands {
   valueBandHeight: number;
@@ -7736,6 +7752,7 @@ interface MetricBandOverrides {
   labelBandHeight?: number;
   labelTextMinHeight?: number;
   cardHeight?: number;
+  cohortSize?: number;
 }
 
 interface MetricBandRepairPlan {
@@ -7749,17 +7766,32 @@ interface MetricBandRepairPlan {
   needsLabelRepair: boolean;
   explicitPadding: boolean;
   explicitGap: boolean;
+  fontScale?: number;
+  adaptiveMode?: "cohort-micro";
+  diagnosticMinPaddingCm: number;
+  diagnosticMinGapCm: number;
+  diagnosticMinValueBandCm: number;
+}
+
+interface MetricBandRepairOptions {
+  minPaddingCm?: number;
+  minGapCm?: number;
+  minValueBandCm?: number;
 }
 
 function withMeasuredMetricBands(theme: SimpleTheme, metricCardNode: DomNode, overrides: MetricBandOverrides): DomNode {
   if (!Array.isArray(metricCardNode.children)) return metricCardNode;
-  const plan = metricBandRepairPlan(theme, metricCardNode, overrides);
+  let plan = metricBandRepairPlan(theme, metricCardNode, overrides);
   if (
     overrides.cardHeight !== undefined
     && plan.minCardHeight > overrides.cardHeight + METRIC_CARD_REPAIR_CAPACITY_TOLERANCE_CM
   ) {
-    pushMetricBandRepairRejectedDiagnostic(metricCardNode, overrides.cardHeight, plan);
-    return metricCardNode;
+    const microPlan = metricCohortMicroRepairPlan(theme, metricCardNode, overrides);
+    if (!microPlan) {
+      pushMetricBandRepairRejectedDiagnostic(metricCardNode, overrides.cardHeight, plan);
+      return metricCardNode;
+    }
+    plan = microPlan;
   }
   return {
     ...metricCardNode,
@@ -7774,6 +7806,7 @@ function withMeasuredMetricBands(theme: SimpleTheme, metricCardNode: DomNode, ov
           minHeight: plan.labelTextMinHeight ?? plan.labelBandHeight,
           autoFit: child.autoFit ?? "shrink",
           optional: false,
+          ...(plan.fontScale !== undefined ? { fontScale: mergedFontScale(child.fontScale, plan.fontScale) } : {}),
         };
       }
       if (!isMetricValueWrap(child) || plan.valueBandHeight === undefined) return child;
@@ -7784,7 +7817,12 @@ function withMeasuredMetricBands(theme: SimpleTheme, metricCardNode: DomNode, ov
         minHeight: plan.valueBandHeight,
         children: (child.children || []).map((grandchild) =>
           isMetricValueNode(grandchild)
-            ? { ...grandchild, minHeight: plan.valueTextMinHeight ?? plan.valueBandHeight, wrapMinHeight: true }
+            ? {
+              ...grandchild,
+              minHeight: plan.valueTextMinHeight ?? plan.valueBandHeight,
+              wrapMinHeight: true,
+              ...(plan.fontScale !== undefined ? { fontScale: mergedFontScale(grandchild.fontScale, plan.fontScale) } : {}),
+            }
             : grandchild
         ),
       };
@@ -7792,24 +7830,27 @@ function withMeasuredMetricBands(theme: SimpleTheme, metricCardNode: DomNode, ov
   };
 }
 
-function metricBandRepairPlan(theme: SimpleTheme, metricCardNode: DomNode, overrides: MetricBandOverrides): MetricBandRepairPlan {
+function metricBandRepairPlan(theme: SimpleTheme, metricCardNode: DomNode, overrides: MetricBandOverrides, options: MetricBandRepairOptions = {}): MetricBandRepairPlan {
+  const minPadding = options.minPaddingCm ?? METRIC_CARD_REPAIR_MIN_PADDING_CM;
+  const minGap = options.minGapCm ?? METRIC_CARD_REPAIR_MIN_GAP_CM;
+  const minValueBand = options.minValueBandCm ?? METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM;
   const labelNode = findMetricLabelNode(metricCardNode);
   const existingLabelHeight = labelNode ? optionalNumberProp(labelNode, "fixedHeight") ?? 0 : 0;
   const needsLabelRepair = (overrides.labelBandHeight ?? 0) > existingLabelHeight + 0.04;
   const explicitPadding = optionalNumberProp(metricCardNode, "padding") !== undefined;
   const explicitGap = optionalNumberProp(metricCardNode, "gap") !== undefined;
   const padding = needsLabelRepair && !explicitPadding
-    ? METRIC_CARD_REPAIR_MIN_PADDING_CM
+    ? minPadding
     : paddingCm(theme, metricCardNode);
   const gap = needsLabelRepair && !explicitGap
-    ? METRIC_CARD_REPAIR_MIN_GAP_CM
+    ? minGap
     : gapCm(theme, metricCardNode);
   const valueBandHeight = overrides.valueBandHeight === undefined
     ? undefined
-    : Math.max(overrides.valueBandHeight, METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM);
+    : Math.max(overrides.valueBandHeight, minValueBand);
   const valueTextMinHeight = overrides.valueTextMinHeight === undefined
     ? undefined
-    : Math.max(overrides.valueTextMinHeight, Math.min(valueBandHeight ?? overrides.valueTextMinHeight, METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM));
+    : Math.max(overrides.valueTextMinHeight, Math.min(valueBandHeight ?? overrides.valueTextMinHeight, minValueBand));
   const minCardHeight = metricCardRepairMinHeight(theme, metricCardNode, {
     padding,
     gap,
@@ -7828,7 +7869,66 @@ function metricBandRepairPlan(theme: SimpleTheme, metricCardNode: DomNode, overr
     needsLabelRepair,
     explicitPadding,
     explicitGap,
+    diagnosticMinPaddingCm: minPadding,
+    diagnosticMinGapCm: minGap,
+    diagnosticMinValueBandCm: minValueBand,
   };
+}
+
+function metricCohortMicroRepairPlan(theme: SimpleTheme, metricCardNode: DomNode, overrides: MetricBandOverrides): MetricBandRepairPlan | undefined {
+  const available = overrides.cardHeight;
+  if (available === undefined) return undefined;
+  if (!metricCardEligibleForCohortMicroRepair(metricCardNode, overrides.cohortSize ?? 1)) return undefined;
+  const valueBandHeight = overrides.valueBandHeight === undefined
+    ? undefined
+    : clamp(overrides.valueBandHeight * 0.86, METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM, overrides.valueBandHeight);
+  const labelBandHeight = overrides.labelBandHeight === undefined
+    ? undefined
+    : clamp(overrides.labelBandHeight * 0.9, METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM, overrides.labelBandHeight);
+  const valueTextMinHeight = overrides.valueTextMinHeight === undefined || valueBandHeight === undefined
+    ? overrides.valueTextMinHeight
+    : Math.min(overrides.valueTextMinHeight, Math.max(METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM, valueBandHeight - 0.02));
+  const labelTextMinHeight = overrides.labelTextMinHeight === undefined || labelBandHeight === undefined
+    ? overrides.labelTextMinHeight
+    : Math.min(overrides.labelTextMinHeight, Math.max(METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM, labelBandHeight - 0.01));
+  const plan = metricBandRepairPlan(theme, metricCardNode, {
+    ...overrides,
+    valueBandHeight,
+    valueTextMinHeight,
+    labelBandHeight,
+    labelTextMinHeight,
+  }, {
+    minPaddingCm: METRIC_CARD_COHORT_MICRO_PADDING_CM,
+    minGapCm: METRIC_CARD_COHORT_MICRO_GAP_CM,
+    minValueBandCm: METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM,
+  });
+  if (plan.minCardHeight > available + METRIC_CARD_COHORT_MICRO_TOLERANCE_CM) return undefined;
+  return {
+    ...plan,
+    fontScale: METRIC_CARD_COHORT_MICRO_FONT_SCALE,
+    adaptiveMode: "cohort-micro",
+  };
+}
+
+function metricCardEligibleForCohortMicroRepair(metricCardNode: DomNode, cohortSize: number): boolean {
+  if (cohortSize < 3) return false;
+  const valueNode = findMetricValueNode(metricCardNode);
+  const labelNode = findMetricLabelNode(metricCardNode);
+  if (!valueNode || !labelNode) return false;
+  const children = metricCardNode.children || [];
+  if (children.some((child) => !isMetricValueWrap(child) && !isMetricLabelNode(child) && child.optional !== true)) return false;
+  const value = renderedTextContent(valueNode).trim();
+  const label = renderedTextContent(labelNode).trim();
+  if (!metricValueLooksNumeric(value)) return false;
+  return weightedTextLength(label) <= 18;
+}
+
+function metricValueLooksNumeric(value: string): boolean {
+  return /^[~≈<>≤≥+\-−]?\s*(?:[$€£¥])?\s*\d[\d,]*(?:\.\d+)?\s*(?:[%‰x×:+/\-–—]|\p{L}){0,12}$/u.test(value);
+}
+
+function mergedFontScale(existing: unknown, target: number): number {
+  return Math.min(typeof existing === "number" && Number.isFinite(existing) ? existing : 1, target);
 }
 
 function metricCardRepairMinHeight(

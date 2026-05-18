@@ -935,12 +935,14 @@ export function analyzePptGenerationFlowImprovements(
     .map((record) => signalFromToolRecord(record, "recovered-friction"))
     .filter((signal): signal is PptGenerationFlowSignal => Boolean(signal));
   const planComponentSignals = planComponentDegradationSignals(result, caseDefinition);
+  const semanticComponentSignals = semanticComponentDegradationSignals(result, caseDefinition);
   const assetSignals = generatedAssetUsageSignals(result, caseDefinition);
   const finalQualitySignals = finalQualitySignalsFromValidate(result.summary.finalValidateRender);
   const candidates = buildImprovementCandidates([
     ...blockingFailureSignals,
     ...recoveredFrictionSignals,
     ...planComponentSignals,
+    ...semanticComponentSignals,
     ...assetSignals,
     ...finalQualitySignals,
   ], verification);
@@ -950,12 +952,12 @@ export function analyzePptGenerationFlowImprovements(
     passed: verification.ok,
     summary: {
       failedToolCalls: blockingFailureSignals.length,
-      recoveredFrictionSignals: recoveredFrictionSignals.length + planComponentSignals.length + assetSignals.length,
+      recoveredFrictionSignals: recoveredFrictionSignals.length + planComponentSignals.length + semanticComponentSignals.length + assetSignals.length,
       finalQualitySignals: finalQualitySignals.length,
       improvementCandidates: candidates.length,
     },
     blockingFailureSignals,
-    recoveredFrictionSignals: [...recoveredFrictionSignals, ...planComponentSignals, ...assetSignals],
+    recoveredFrictionSignals: [...recoveredFrictionSignals, ...planComponentSignals, ...semanticComponentSignals, ...assetSignals],
     finalQualitySignals,
     candidates,
   };
@@ -1606,11 +1608,82 @@ function planComponentDegradationSignals(
   return signals;
 }
 
+function semanticComponentDegradationSignals(
+  result: PptGenerationFlowResult,
+  caseDefinition?: PptGenerationFlowCase | null,
+): PptGenerationFlowSignal[] {
+  const scenes = result.validationFailureScenes || [];
+  if (scenes.length === 0) return [];
+  const actual = actualComponentsBySlide(result, caseDefinition);
+  if (actual.size === 0) return [];
+
+  const signals: PptGenerationFlowSignal[] = [];
+  for (const scene of scenes) {
+    const slideId = scene.slideId;
+    if (!slideId) continue;
+    const finalComponents = actual.get(slideId);
+    if (!finalComponents) continue;
+    const failedComponents = validationSceneComponentTypes(scene);
+    if (failedComponents.size === 0) continue;
+    const missing = [...failedComponents].filter((component) =>
+      planTrackedComponents.has(component) && !finalComponents.has(component),
+    );
+    if (missing.length === 0) continue;
+    const capacityRelated = scene.judgment.diagnosticCodes.some((code) =>
+      ["FALLBACK_FAILED", "SQUASHED", "TINY_RECT", "TRUNCATED", "OVERFLOW", "KPI_REGION_OVER_CAPACITY"].includes(code),
+    );
+    if (!capacityRelated && !componentFallbackReplacementPresent(finalComponents)) continue;
+    const finalList = [...finalComponents].sort();
+    signals.push({
+      kind: "plan-component-degradation",
+      step: scene.step,
+      toolName: "report_analysis",
+      category: "component-selection-degradation",
+      severity: "medium",
+      message: `Slide ${slideId} recovered from a semantic component failure by omitting ${missing.join(", ")} in the final deck.`,
+      evidence: `slide=${slideId}; failed=${[...failedComponents].sort().join(", ")}; final=${finalList.join(", ") || "none"}; failureCodes=${scene.judgment.diagnosticCodes.join(",")}`,
+      diagnosticCodes: ["SEMANTIC_COMPONENT_DEGRADED"],
+      diagnosticSummary: { SEMANTIC_COMPONENT_DEGRADED: missing.length },
+      schemaErrorCodes: [],
+      schemaErrorPaths: [],
+      slideIds: [slideId],
+      nodeIds: scene.judgment.evidence.flatMap((item) => objectStringValue(item, "nodeId")),
+      componentTypes: missing,
+    });
+  }
+  return signals;
+}
+
+function validationSceneComponentTypes(scene: PptGenerationFlowValidationFailureScene): Set<string> {
+  const out = new Set<string>();
+  const add = (values: string[]): void => {
+    for (const value of values) out.add(value);
+  };
+  if (scene.slideJsonPath && nodeFs.existsSync(scene.slideJsonPath)) {
+    try {
+      add(collectComponentTypes(JSON.parse(nodeFs.readFileSync(scene.slideJsonPath, "utf8"))));
+    } catch {
+      // Ignore stale scene files; other report signals still remain valid.
+    }
+  }
+  add(inferComponentTypes(scene.judgment.reason));
+  for (const code of scene.judgment.diagnosticCodes) add(inferComponentTypes(code));
+  for (const evidence of scene.judgment.evidence) {
+    add(collectComponentTypes(evidence));
+    add(inferComponentTypes(JSON.stringify(evidence)));
+  }
+  return out;
+}
+
+function componentFallbackReplacementPresent(components: Set<string>): boolean {
+  return components.has("grid") || components.has("stack") || components.has("card") || components.has("text");
+}
+
 function generatedAssetUsageSignals(
   result: PptGenerationFlowResult,
   caseDefinition?: PptGenerationFlowCase | null,
 ): PptGenerationFlowSignal[] {
-  const generated = generatedAssetPaths(result);
+  const generated = generatedAssetPaths(result).filter((assetPath) => !isIntermediateGeneratedAsset(assetPath));
   if (generated.length === 0) return [];
   const used = finalDeckAssetReferences(result, caseDefinition);
   const unused = generated.filter((assetPath) => !used.has(assetPath) && !used.has(nodePath.basename(assetPath)));
@@ -1639,10 +1712,19 @@ function generatedAssetPaths(result: PptGenerationFlowResult): string[] {
     if (!["image_gen", "run_python", "run_node", "shell", "generate_icon_sheet"].includes(record.name)) continue;
     candidates.push(
       ...regexAll(resultText, /(?:saved to|output(?:Path)?["': ]+|generated(?: and saved)? to)\s*["']?([^"'\n]+?\.(?:png|jpg|jpeg|webp|svg))/gi),
-      ...regexAll(resultText, /([/\w .@()_-]+\/assets\/[^"'\n]+?\.(?:png|jpg|jpeg|webp|svg))/gi),
+      ...regexAll(resultText, /((?:\/|[A-Za-z]:[\\/])[^"'\n]*?\/assets\/[^"'\n]+?\.(?:png|jpg|jpeg|webp|svg))/gi),
     );
   }
-  return unique(candidates.map((value) => nodePath.resolve(value.trim())));
+  return unique(candidates.map((value) => {
+    const trimmed = value.trim();
+    return nodePath.isAbsolute(trimmed)
+      ? nodePath.resolve(trimmed)
+      : nodePath.resolve(result.scenario.workingDirectory, trimmed);
+  }));
+}
+
+function isIntermediateGeneratedAsset(assetPath: string): boolean {
+  return /(?:^|[-_/])icons?-sheet\.(?:png|jpg|jpeg|webp|svg)$/i.test(assetPath);
 }
 
 function finalDeckAssetReferences(
@@ -1666,7 +1748,7 @@ function finalDeckAssetReferences(
       return;
     }
     const record = node as Record<string, unknown>;
-    for (const key of ["src", "path", "image", "url"]) {
+    for (const key of ["src", "path", "image", "url", "iconSrc", "imageSrc", "backgroundSrc"]) {
       const value = record[key];
       if (typeof value === "string" && /\.(?:png|jpg|jpeg|webp|svg)$/i.test(value)) add(value);
     }
@@ -1739,7 +1821,11 @@ function actualComponentsBySlide(
 }
 
 function readFinalSourceDeck(result: PptGenerationFlowResult, caseDefinition?: PptGenerationFlowCase | null): unknown {
+  const finalOutput = finalValidateOutputPath(result.summary.finalValidateRender);
+  const finalDeck = finalValidateDeckPath(result.toolRecords);
   const paths = unique([
+    finalDeck,
+    finalOutput ? `${finalOutput}.deck.json` : undefined,
     ...result.summary.outputPaths,
     caseDefinition ? nodePath.join(caseDefinition.outputsDirectory, `${caseDefinition.id}-deck.json`) : undefined,
     ...result.toolRecords.flatMap((record) => regexAll(record.result || "", /([/\w .@()-]+\.json)/gi)),
@@ -1966,22 +2052,22 @@ function classifySignal(input: {
 }): string {
   const text = `${input.result}\n${input.componentTypes.join(" ")}\n${input.nodeIds.join(" ")}`.toLowerCase();
   const explicitComponents = new Set(input.componentTypes);
+  if (input.diagnosticCodes.includes("PLANNED_COMPONENT_OMITTED") || input.diagnosticCodes.includes("SEMANTIC_COMPONENT_DEGRADED") || /planned component|semantic component/.test(text)) return "component-selection-degradation";
+  if (/json string|themeoverride string|could not read deck|enoent/.test(text)) return "tool-argument-robustness";
+  if (input.schemaErrorCodes.length || /invalid_field_usage|raw hex|duplicate_hero_title|invalid_theme_font_family|missing_node_type/.test(text)) return "schema-interface";
+  if (explicitComponents.has("kpi-grid") || explicitComponents.has("stat-strip") || explicitComponents.has("metric-card") || /kpi-grid|stat-strip|metric-card|kpi|stats|value-wrap/.test(text)) return "component-kpi-stat";
+  if (explicitComponents.has("process-flow") || /process-flow|(?:^|[.\s])flow(?:[.\s]|$)/.test(text)) return "component-process-flow";
+  if (/equation|\.eq|\.math|formula/.test(text)) return "component-equation";
+  if (/table-card|table '|\.table/.test(text)) return "component-table";
+  if (/feature-card|swot|strengths|weaknesses|opportunities|threats/.test(text)) return "component-card-grid";
+  if (/cover-composition|hero|caption|duplicate hero title/.test(text)) return "component-cover-title";
+  if (input.diagnosticCodes.some((code) => ["FALLBACK_FAILED", "SQUASHED", "TINY_RECT", "TRUNCATED", "OVERFLOW"].includes(code))) return "component-capacity";
   if (
     input.toolName === "run_python" ||
     input.toolName === "image_gen" ||
     input.toolName === "generate_icon_sheet" ||
     /glyph|font|savefig|generated asset|generated icon|unused generated icon|icon manifest|assets\/(?:icons|img)\//.test(text)
   ) return "asset-workflow";
-  if (/json string|themeoverride string|could not read deck|enoent/.test(text)) return "tool-argument-robustness";
-  if (input.diagnosticCodes.includes("PLANNED_COMPONENT_OMITTED") || /planned component/.test(text)) return "component-selection-degradation";
-  if (input.schemaErrorCodes.length || /invalid_field_usage|raw hex|duplicate_hero_title/.test(text)) return "schema-interface";
-  if (explicitComponents.has("process-flow") || /process-flow|(?:^|[.\s])flow(?:[.\s]|$)/.test(text)) return "component-process-flow";
-  if (/equation|\.eq|\.math|formula/.test(text)) return "component-equation";
-  if (/table-card|table '|\.table/.test(text)) return "component-table";
-  if (/kpi-grid|stat-strip|kpi|stats|value-wrap/.test(text)) return "component-kpi-stat";
-  if (/feature-card|swot|strengths|weaknesses|opportunities|threats/.test(text)) return "component-card-grid";
-  if (/cover-composition|hero|caption|duplicate hero title/.test(text)) return "component-cover-title";
-  if (input.diagnosticCodes.some((code) => ["FALLBACK_FAILED", "SQUASHED", "TINY_RECT", "TRUNCATED", "OVERFLOW"].includes(code))) return "component-capacity";
   return "runner-reporting";
 }
 
@@ -2140,7 +2226,9 @@ function collectComponentTypes(value: unknown): string[] {
       return;
     }
     const record = node as Record<string, unknown>;
-    if (typeof record.type === "string") out.push(record.type);
+    for (const key of ["type", "role", "component"]) {
+      if (typeof record[key] === "string") out.push(record[key]);
+    }
     for (const child of Object.values(record)) walk(child);
   };
   walk(value);

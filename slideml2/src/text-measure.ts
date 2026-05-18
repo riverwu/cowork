@@ -208,9 +208,63 @@ interface BreakSegment {
   whitespace?: boolean;
 }
 
+export const WORD_JOINER = "\u2060";
+
 const LATIN_BREAK_AFTER = new Set(["-", "/", "\\", "_", "@", ".", ":", "+", "="]);
-const PROHIBITED_LINE_START = new Set(["，", "。", "、", "；", "：", "！", "？", "）", "】", "》", "」", "』", "〉", ")", "]", "}", ",", ".", ";", ":", "!", "?"]);
-const PROHIBITED_LINE_END = new Set(["（", "【", "《", "「", "『", "〈", "(", "[", "{"]);
+const PROHIBITED_LINE_START = new Set(["，", "。", "、", "；", "：", "！", "？", "）", "】", "〕", "》", "」", "』", "〉", "”", "’", ")", "]", "}", ",", ".", ";", ":", "!", "?"]);
+const PROHIBITED_LINE_END = new Set(["（", "【", "〔", "《", "「", "『", "〈", "“", "‘", "(", "[", "{"]);
+const CJK_PUNCTUATION = new Set([
+  "，", "。", "、", "；", "：", "！", "？",
+  "（", "）", "【", "】", "〔", "〕", "《", "》", "「", "」", "『", "』", "〈", "〉",
+  "“", "”", "‘", "’",
+]);
+
+export function protectCjkLineBreakPunctuation(text: string, context: { previous?: string; next?: string } = {}): string {
+  const chars = [...String(text || "")];
+  if (chars.length === 0) return "";
+  let out = "";
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i]!;
+    const previous = previousVisibleChar(chars, i) ?? context.previous;
+    if (PROHIBITED_LINE_START.has(ch) && shouldJoinCjkPunctuation(previous, ch) && !out.endsWith(WORD_JOINER)) {
+      out += WORD_JOINER;
+    }
+    out += ch;
+    const next = nextVisibleChar(chars, i) ?? context.next;
+    if (PROHIBITED_LINE_END.has(ch)
+      && chars[i + 1] !== WORD_JOINER
+      && shouldJoinCjkPunctuation(ch, next)) {
+      out += WORD_JOINER;
+    }
+  }
+  return out;
+}
+
+function previousVisibleChar(chars: string[], index: number): string | undefined {
+  for (let i = index - 1; i >= 0; i--) {
+    const ch = chars[i]!;
+    if (ch !== WORD_JOINER) return ch;
+  }
+  return undefined;
+}
+
+function nextVisibleChar(chars: string[], index: number): string | undefined {
+  for (let i = index + 1; i < chars.length; i++) {
+    const ch = chars[i]!;
+    if (ch !== WORD_JOINER) return ch;
+  }
+  return undefined;
+}
+
+function shouldJoinCjkPunctuation(left: string | undefined, right: string | undefined): boolean {
+  if (!left || !right) return false;
+  if (left === WORD_JOINER || right === WORD_JOINER) return false;
+  if (/\s/.test(left) || /\s/.test(right)) return false;
+  return isCjkOrFullWidth(left)
+    || isCjkOrFullWidth(right)
+    || CJK_PUNCTUATION.has(left)
+    || CJK_PUNCTUATION.has(right);
+}
 
 function measureWrappedText(
   text: string,

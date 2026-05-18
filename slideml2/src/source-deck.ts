@@ -128,14 +128,14 @@ function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[]
     } else if (componentName === "section-break" || componentName === "title-lockup" || componentName === "chapter-divider") {
       found = true;
       if (typeof node.title === "string" && node.title.trim()) titles.push(node.title);
-    } else if (node.type === "deck-title" || node.type === "slide-title") {
+    } else if (componentName === "deck-title" || componentName === "slide-title" || componentName === "h1") {
       found = true;
       if (typeof node.text === "string" && node.text.trim()) titles.push(node.text);
     } else if (node.type === "text" && (node.style === "deck-title" || node.style === "slide-title" || node.style === "section-title")) {
       found = true;
       if (typeof node.text === "string" && node.text.trim()) titles.push(node.text);
     }
-    const inner = (node.children as DomNode[] | undefined) || [];
+    const inner = nestedDomChildren(node);
     if (inner.length) {
       const nested = findBodyHeroTitle(inner);
       found = found || nested.found;
@@ -152,10 +152,45 @@ function hasMetadataHeroComponent(nodes: DomNode[]): boolean {
     if (!node || typeof node !== "object") continue;
     const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
     if (typeof componentName === "string" && METADATA_HERO_COMPONENTS.has(componentName)) return true;
-    const inner = (node.children as DomNode[] | undefined) || [];
+    const inner = nestedDomChildren(node);
     if (inner.length && hasMetadataHeroComponent(inner)) return true;
   }
   return false;
+}
+
+function nestedDomChildren(node: DomNode): DomNode[] {
+  const rec = node as Record<string, unknown>;
+  return [
+    ...domNodesFromValue(rec.children),
+    ...domNodesFromValue(rec.left),
+    ...domNodesFromValue(rec.right),
+    ...domNodesFromValue(rec.primary),
+    ...domNodesFromValue(rec.secondary),
+    ...domNodesFromValue(rec.main),
+    ...domNodesFromValue(rec.side),
+    ...domNodesFromValue(rec.sidecar),
+    ...domNodesFromValue(rec.top),
+    ...domNodesFromValue(rec.bottom),
+    ...domNodesFromValue(rec.header),
+    ...domNodesFromValue(rec.footer),
+    ...domNodesFromValue(rec.content),
+  ];
+}
+
+function domNodesFromValue(value: unknown): DomNode[] {
+  if (Array.isArray(value)) return value.filter(isDomNodeLike) as DomNode[];
+  if (!value || typeof value !== "object") return [];
+  const rec = value as Record<string, unknown>;
+  const out: DomNode[] = [];
+  if (isDomNodeLike(value)) out.push(value as DomNode);
+  if (Array.isArray(rec.children)) out.push(...rec.children.filter(isDomNodeLike) as DomNode[]);
+  return out;
+}
+
+function isDomNodeLike(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const rec = value as Record<string, unknown>;
+  return typeof rec.type === "string" || typeof rec.component === "string";
 }
 
 function bodyHeroTitleMatchesSlideTitle(slideTitle: string, bodyTitles: string[]): boolean {
