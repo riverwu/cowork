@@ -24921,6 +24921,7 @@ function imageWithCaptionPanel(slideId, imageSrc, imageTitle) {
 function metricCard(slideId, id, value, label, options = {}) {
   const trend = options.trend;
   const unit = options.unit && options.unit.trim() ? options.unit.trim() : "";
+  const statusText = options.statusText && options.statusText.trim() ? options.statusText.trim() : "";
   const statusColor = toneColor(options.status, "");
   const valueColor = statusColor || (trend === "up" ? "success" : trend === "down" ? "danger" : trend === "flat" ? "text.muted" : "brand.primary");
   const labelColor = statusColor || (trend === "up" ? "success" : trend === "down" ? "danger" : "text.muted");
@@ -24928,9 +24929,10 @@ function metricCard(slideId, id, value, label, options = {}) {
   const content = unit ? [{ text: value, color: valueColor }, { text: ` ${unit}`, color: "text.muted" }] : [];
   const valueSize = metricValueSize(value, dense);
   const peerAligned = options.peerAligned === true;
-  const valueBandHeight = peerAligned ? dense ? 0.74 : 1.65 : void 0;
-  const labelBandHeight = peerAligned ? dense ? 0.34 : 1.05 : void 0;
-  const deltaBandHeight = peerAligned ? dense ? 0.3 : 0.36 : void 0;
+  const hasMetricMeta = Boolean(statusText || options.delta || options.comparison);
+  const valueBandHeight = peerAligned ? dense ? hasMetricMeta ? 0.96 : 0.74 : 1.65 : void 0;
+  const labelBandHeight = peerAligned ? dense ? hasMetricMeta ? 0.42 : 0.34 : 1.05 : void 0;
+  const deltaBandHeight = peerAligned ? dense ? 0.34 : 0.36 : void 0;
   const valueNode = {
     id: `${slideId}.${id}.value`,
     type: "text",
@@ -24942,7 +24944,7 @@ function metricCard(slideId, id, value, label, options = {}) {
     autoFit: "shrink",
     noWrap: true,
     ...valueSize ? { size: valueSize } : {},
-    ...dense && peerAligned ? { fontScale: 0.82 } : {},
+    ...dense && peerAligned && metricValueNeedsCompactScale(value) ? { fontScale: 0.92 } : {},
     ...content.length > 0 ? { content } : {}
   };
   const valueWrap = {
@@ -24952,6 +24954,7 @@ function metricCard(slideId, id, value, label, options = {}) {
     gap: 0,
     align: "center",
     valign: "bottom",
+    justify: "end",
     ...valueBandHeight !== void 0 ? { fixedHeight: valueBandHeight, maxHeight: valueBandHeight } : { maxHeight: dense ? 1.55 : metricValueNeedsCompactScale(value) ? 1.85 : 2.4, layoutWeight: 2 },
     children: [valueNode]
   };
@@ -24982,11 +24985,12 @@ function metricCard(slideId, id, value, label, options = {}) {
       optional: true
     }
   ];
-  if (options.delta || options.comparison) {
+  const metaText = [statusText, options.delta, options.comparison].filter(Boolean).join(" \xB7 ");
+  if (metaText) {
     children.push({
-      id: `${slideId}.${id}.delta`,
+      id: `${slideId}.${id}.${statusText && !options.delta && !options.comparison ? "status" : "delta"}`,
       type: "text",
-      text: [options.delta, options.comparison].filter(Boolean).join(" \xB7 "),
+      text: metaText,
       style: "label",
       color: valueColor,
       align: "center",
@@ -25018,6 +25022,7 @@ function metricCard(slideId, id, value, label, options = {}) {
     gap: dense ? 0.1 : 0.18,
     role: "metric-card",
     valign: "middle",
+    justify: "center",
     ...options.variant === "card" ? { fill: "surface", line: "divider", padding: 0.45, cornerRadius: 0.1 } : {},
     children
   }, options);
@@ -25025,11 +25030,11 @@ function metricCard(slideId, id, value, label, options = {}) {
 function metricValueNeedsCompactScale(value) {
   const weighted = weightedTextLength(value);
   const cjkCount = Array.from(value).filter((char) => /[\u4e00-\u9fff]/.test(char)).length;
-  return weighted >= 4.2 || cjkCount >= 2 && weighted >= 3 || /^[-+]/.test(value.trim());
+  return weighted >= 6.2 || cjkCount >= 4 && weighted >= 4.8 || /^[-+−]/.test(value.trim());
 }
 function metricValueSize(value, dense) {
   if (dense)
-    return "xs";
+    return metricValueNeedsCompactScale(value) ? "sm" : void 0;
   return metricValueNeedsCompactScale(value) ? "sm" : void 0;
 }
 function stepCard(slideId, id, step, title, body, options = {}) {
@@ -25630,7 +25635,7 @@ function kpiGrid(slideId, id, metrics, columns, options = {}) {
     columns: cols,
     gap: dense ? 0.32 : 0.5,
     role: "kpi-grid",
-    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable", peerAligned: true }))
+    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, statusText: m.statusText, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable", peerAligned: true }))
   }, options);
 }
 function sectionBreak(slideId, id, options) {
@@ -25786,7 +25791,8 @@ function featureCard(slideId, id, options) {
   if (options.ctaText) {
     textChildren.push({ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "label", color: "text.inverse", fill: "brand.primary", cornerRadius: 0.2, align: "center", valign: "middle", fixedHeight: 0.46, autoFit: "shrink", optional: true });
   }
-  const children = layout === "horizontal" && decorationNode ? [
+  const effectiveLayout = layout === "horizontal" && !decorationNode ? "vertical" : layout;
+  const children = effectiveLayout === "horizontal" && decorationNode ? [
     decorationNode,
     {
       id: `${slideId}.${id}.content`,
@@ -25805,8 +25811,8 @@ function featureCard(slideId, id, options) {
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
-    direction: layout,
-    gap: layout === "horizontal" ? dense ? 0.28 : 0.36 : dense ? 0.1 : 0.16,
+    direction: effectiveLayout,
+    gap: effectiveLayout === "horizontal" ? dense ? 0.28 : 0.36 : dense ? 0.1 : 0.16,
     role: "feature-card",
     valign: "top",
     ...defaultSurface,
@@ -25827,6 +25833,9 @@ function featureCardDecorationNode(slideId, id, options, ctx) {
   const spec = options.decoration;
   const explicitKind = spec?.kind;
   if (explicitKind === "none")
+    return void 0;
+  const hasExplicitDecoration = spec !== void 0 || Boolean(options.iconSrc) || Boolean(options.icon);
+  if (!hasExplicitDecoration)
     return void 0;
   const tone = spec?.tone || markerToneFromFeatureTone(ctx.semanticTone);
   const size = featureDecorationSizeCm(spec?.size, ctx.dense, ctx.layout);
@@ -26021,16 +26030,17 @@ function checklist(slideId, id, items, density = "comfortable", opts = {}) {
     gap: compact ? 0.1 : 0.18,
     role: "checklist",
     children: items.map((item, index) => {
-      const status = item.status === "warning" ? "warning" : item.status === "unchecked" ? "unchecked" : "checked";
-      const mark2 = status === "checked" ? "\u2713" : status === "warning" ? "!" : "\u2717";
-      const markColor = status === "checked" ? "success" : status === "warning" ? "warning" : "danger";
+      const status = item.status === "checked" || item.status === "warning" || item.status === "unchecked" ? item.status : "neutral";
+      const mark2 = status === "checked" ? "\u2713" : status === "warning" ? "!" : status === "unchecked" ? "\u2717" : "\u2022";
+      const markColor = status === "checked" ? "success" : status === "warning" ? "warning" : status === "unchecked" ? "danger" : "text.muted";
       const markNode = chipStyle ? {
         id: `${slideId}.${id}.${index}.mark`,
         type: "text",
         text: mark2,
         style: compact ? "label" : "card-title",
-        color: "text.inverse",
-        fill: markColor,
+        color: status === "neutral" ? "text.muted" : "text.inverse",
+        fill: status === "neutral" ? "surface.subtle" : markColor,
+        line: status === "neutral" ? "divider" : void 0,
         align: "center",
         valign: "middle",
         fixedWidth: markSize,
@@ -29591,7 +29601,8 @@ var COMPONENT_DEFINITIONS = [
     unit: { type: "string", description: "Optional unit appended to value." },
     trend: { type: "enum", enum: ["up", "down", "flat"], description: "Optional trend intent." },
     delta: { type: "string", description: "Optional delta or change label." },
-    status: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Semantic status color independent of trend." },
+    status: { type: "enum", enum: ["brand", "positive", "warning", "danger", "neutral"], description: "Semantic status color independent of trend. For a visible note, use statusText; non-tone status strings are rendered as statusText for compatibility." },
+    statusText: { type: "string", description: "Optional visible status/note line under the metric label, e.g. '18 blocks complete'. Use this for content; use status/tone for color." },
     comparison: { type: "string", description: "Optional benchmark / target / peer note." },
     source: { type: "string", description: "Optional compact source note." },
     sparkline: { type: "array", description: "Optional tiny trend sequence; numeric values render as a micro-bar sparkline." },
@@ -29692,7 +29703,7 @@ var COMPONENT_DEFINITIONS = [
     bio: { type: "string", semantic: "caption", description: "Short biography." }
   }, "stack(image.clip:circle, text.card-title, text.label, text.caption)", "grid"),
   component("kpi-grid", "Set of related headline metrics that should be scanned together. Use for 2-4 KPI peers; prefer chart/bar-list when the relationship is ranking or trend.", {
-    metrics: { type: "array", required: true, description: "Array of { value, label, unit?, trend? } objects." },
+    metrics: { type: "array", required: true, description: "Array of { value, label, unit?, trend?, delta?, comparison?, source?, status?, statusText?, tone? } objects. status/tone set color when they are tone words; statusText is visible content. Non-tone status strings are treated as statusText for compatibility." },
     items: { type: "array", description: "Alias for metrics. Metric label may also be name/title." },
     columns: { type: "number", description: "Number of columns (default min(4, metrics.length))." }
   }, "grid of metric-card", "stack"),
@@ -29714,9 +29725,9 @@ var COMPONENT_DEFINITIONS = [
     link: { type: "string", description: "Optional hyperlink target." }
   }, "text on roundRect surface", "stack"),
   component("feature-card", "One feature, capability, benefit, or ingredient of an offer. Use for modular value propositions, not for arbitrary bullet paragraphs.", {
-    icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional large icon shape preset. Prefer marker for subtle item decoration." },
+    icon: { type: "enum", enum: ["rect", "roundRect", "ellipse", "triangle", "rightTriangle", "pentagon", "diamond", "arrow-right", "arrow-down", "callout", "chevron", "star-5", "parallelogram", "cloud"], description: "Optional large icon shape preset. No icon is drawn when icon/iconSrc/marker/decoration are omitted. Prefer marker for subtle item decoration." },
     iconSrc: { type: "image-ref", description: "Optional generated/raster icon path. Use with slice-icons outputs; rendered as a contain-fit square icon." },
-    decoration: { type: "object", description: "Unified visual cue. Prefer over separate icon/iconSrc/marker when authoring new decks. Shape: {kind:'image'|'shape'|'marker'|'none', src?/iconSrc?, shape?/icon?, marker?, size?:'xs'|'sm'|'md'|'lg'|'xl'|number, color?, background?, tone?, variant?}. `marker` accepts shape names or short glyphs like '!', '$', 'Q1', emoji; `image`/`shape` are larger visual icons." },
+    decoration: { type: "object", description: "Unified visual cue. Prefer over separate icon/iconSrc/marker when authoring new decks. Shape: {kind:'image'|'shape'|'marker'|'none', src?/iconSrc?, shape?/icon?, marker?, size?:'xs'|'sm'|'md'|'lg'|'xl'|number, color?, background?, tone?, variant?}. `marker` accepts shape names or short glyphs like '!', '$', 'Q1', emoji; `image`/`shape` are larger visual icons. Omit decoration for a plain text feature-card." },
     title: { type: "string", required: true, semantic: "card-title", description: "Feature title." },
     body: { type: "string", semantic: "caption", description: "Optional supporting copy." },
     content: { type: "array", description: "Optional rich text runs for supporting copy." },
@@ -29730,14 +29741,14 @@ var COMPONENT_DEFINITIONS = [
     iconBackground: { type: "string", description: "Icon fill (theme token)." },
     tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger"], description: "Semantic feature tone; controls title, marker, and icon accent color." },
     titleColor: { type: "color-ref", description: "Explicit title color token when semantic tone is not enough." },
-    layout: { type: "enum", enum: ["vertical", "horizontal"], description: "Explicit card layout. vertical places the decoration above the title; horizontal places the decoration left of the text. No auto mode, so repeated feature-cards stay visually consistent. Compact feature-cards default to horizontal unless you set layout:'vertical'." },
+    layout: { type: "enum", enum: ["vertical", "horizontal"], description: "Explicit card layout. vertical places the decoration above the title; horizontal places the decoration left of the text. Compact feature-cards with an explicit decoration default to horizontal; plain text feature-cards stay vertical so title/body do not become side-by-side." },
     variant: { type: "enum", enum: ["plain", "card", "compact"], description: "Visual treatment." },
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
     surface: { type: "object", description: "Optional surface override." }
-  }, "stack(shape, text.card-title, text.caption)", "grid"),
+  }, "stack(decoration?, text.card-title, text.caption)", "grid"),
   component("checklist", "Status list with checked/unchecked/warning states. Use for requirements, audit, readiness, QA, or feature parity where completion state matters.", {
-    items: { type: "array", required: true, description: "Array of { text, status?: 'checked'|'unchecked'|'warning' }." }
-  }, "stack of horizontal text rows with check/cross marks", "stack"),
+    items: { type: "array", required: true, description: "Array of { text, status?: 'checked'|'unchecked'|'warning'|'neutral' }. Omitted status renders a neutral bullet, not a completed checkmark." }
+  }, "stack of horizontal text rows with status marks", "stack"),
   component("progress-bar", "Single progress-to-target measure. Use for completion, quota, adoption, or capacity where the percent/ratio is the semantic point.", {
     label: { type: "string", required: true, semantic: "label", description: "Metric label." },
     value: { type: "number", required: true, description: "Value 0..max; numeric strings like '75%' are accepted." },
@@ -30791,7 +30802,7 @@ function expandComponent(slideId, node, theme) {
   if (componentName === "metric-card") {
     const unit = stringValue(node.unit, "");
     const trend = node.trend === "up" || node.trend === "down" || node.trend === "flat" ? node.trend : void 0;
-    const status = componentTone(node.status);
+    const status = componentTone(node.tone) ?? componentTone(node.status);
     const variant = node.variant === "card" || node.variant === "compact" ? node.variant : void 0;
     const density = node.density === "compact" || node.density === "comfortable" ? node.density : void 0;
     return withComponentRoot(node, metricCard(slideId, name, stringValue(node.value, ""), stringValue(node.label, ""), {
@@ -30799,6 +30810,7 @@ function expandComponent(slideId, node, theme) {
       trend,
       delta: stringValue(node.delta, ""),
       status,
+      statusText: metricStatusText(node),
       source: stringValue(node.source, ""),
       comparison: stringValue(node.comparison, ""),
       sparkline: Array.isArray(node.sparkline) ? node.sparkline : void 0,
@@ -30861,7 +30873,7 @@ function expandComponent(slideId, node, theme) {
   }
   if (componentName === "icon-text") {
     return withComponentRoot(node, iconText(slideId, name, {
-      icon: stringValue(node.icon, "ellipse"),
+      icon: stringValue(node.icon, ""),
       text: stringValue(node.text, ""),
       iconColor: stringValue(node.iconColor, ""),
       iconBackground: stringValue(node.iconBackground, ""),
@@ -30911,7 +30923,8 @@ function expandComponent(slideId, node, theme) {
         label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))),
         unit: stringValue(rec.unit, ""),
         delta: stringValue(rec.delta, ""),
-        status: componentTone(rec.status),
+        status: componentTone(rec.tone) ?? componentTone(rec.status),
+        statusText: metricStatusText(rec),
         source: stringValue(rec.source, ""),
         comparison: stringValue(rec.comparison, ""),
         sparkline: Array.isArray(rec.sparkline) ? rec.sparkline : void 0,
@@ -30956,7 +30969,7 @@ function expandComponent(slideId, node, theme) {
     const rawTone = stringValue(node.tone, "");
     const semanticTone = componentTone(rawTone);
     return withComponentRoot(node, featureCard(slideId, name, {
-      icon: stringValue(node.icon, "ellipse"),
+      icon: stringValue(node.icon, ""),
       iconSrc: stringValue(node.iconSrc, ""),
       title: semanticTextValue(node, "title", "headline", "name", "label"),
       body: semanticTextValue(node, "body", "detail", "description", "text", "summary"),
@@ -30986,7 +30999,7 @@ function expandComponent(slideId, node, theme) {
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw : { text: String(raw ?? "") };
       const statusRaw = rec.status;
-      const status = statusRaw === "unchecked" ? "unchecked" : statusRaw === "warning" ? "warning" : "checked";
+      const status = statusRaw === "checked" || statusRaw === "unchecked" || statusRaw === "warning" || statusRaw === "neutral" ? statusRaw : "neutral";
       return { text: stringValue(rec.text, ""), status };
     }).filter((item) => item.text) : [];
     return withComponentRoot(node, checklist(slideId, name, items));
@@ -31270,19 +31283,22 @@ function expandComponent(slideId, node, theme) {
   }
   if (componentName === "gauge") {
     const thresholdsRaw = Array.isArray(node.thresholds) ? node.thresholds : [];
-    const thresholds = thresholdsRaw.map((raw) => {
+    const thresholds = thresholdsRaw.flatMap((raw) => {
       const rec = raw && typeof raw === "object" ? raw : {};
       const tRaw = rec.tone;
       const tone = tRaw === "danger" || tRaw === "warning" || tRaw === "positive" || tRaw === "brand" ? tRaw : "brand";
-      return {
-        upTo: typeof rec.upTo === "number" ? rec.upTo : Number(rec.upTo) || 0,
+      const upTo = strictNumberValue(rec.upTo);
+      if (upTo === void 0)
+        return [];
+      return [{
+        upTo,
         tone,
-        label: stringValue(rec.label, "") || void 0
-      };
+        ...stringValue(rec.label, "") ? { label: stringValue(rec.label, "") } : {}
+      }];
     });
     return withComponentRoot(node, gauge(slideId, name, {
-      value: typeof node.value === "number" ? node.value : Number(node.value) || 0,
-      max: typeof node.max === "number" ? node.max : void 0,
+      value: strictNumberValue(node.value) ?? 0,
+      max: strictNumberValue(node.max),
       label: stringValue(node.label, ""),
       unit: stringValue(node.unit, "") || void 0,
       thresholds: thresholds.length > 0 ? thresholds : void 0
@@ -31292,7 +31308,7 @@ function expandComponent(slideId, node, theme) {
     const xLabels = Array.isArray(node.xLabels) ? node.xLabels.map(String) : [];
     const yLabels = Array.isArray(node.yLabels) ? node.yLabels.map(String) : [];
     const valuesRaw = Array.isArray(node.values) ? node.values : [];
-    const values = valuesRaw.map((row) => Array.isArray(row) ? row.map((v) => typeof v === "number" ? v : Number(v) || 0) : []);
+    const values = valuesRaw.map((row) => Array.isArray(row) ? row.map((v) => strictNumberValue(v) ?? 0) : []);
     const palette = node.palette === "warm" || node.palette === "diverging" || node.palette === "cool" ? node.palette : void 0;
     return withComponentRoot(node, heatmap(slideId, name, {
       xLabels,
@@ -31347,7 +31363,7 @@ function expandComponent(slideId, node, theme) {
   if (componentName === "trend-line") {
     const tRaw = node.tone;
     const tone = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : void 0;
-    const values = Array.isArray(node.values) ? node.values.map((v) => typeof v === "number" ? v : Number(v) || 0) : [];
+    const values = Array.isArray(node.values) ? node.values.map((v) => strictNumberValue(v)).filter((value) => value !== void 0) : [];
     return withComponentRoot(node, trendLine(slideId, name, {
       values,
       tone,
@@ -31375,10 +31391,11 @@ function expandComponent(slideId, node, theme) {
     const primaryRaw = node.primary && typeof node.primary === "object" ? node.primary : { label: "", value: 0 };
     const others = Array.isArray(node.others) ? node.others.map((raw) => {
       const rec = raw && typeof raw === "object" ? raw : {};
-      return { label: stringValue(rec.label, ""), value: typeof rec.value === "number" ? rec.value : Number(rec.value) || 0 };
-    }).filter((o) => o.label) : [];
+      const value = strictNumberValue(rec.value);
+      return value === void 0 ? void 0 : { label: stringValue(rec.label, ""), value };
+    }).filter((o) => Boolean(o?.label)) : [];
     return withComponentRoot(node, donutSummary(slideId, name, {
-      primary: { label: stringValue(primaryRaw.label, ""), value: typeof primaryRaw.value === "number" ? primaryRaw.value : Number(primaryRaw.value) || 0 },
+      primary: { label: stringValue(primaryRaw.label, ""), value: strictNumberValue(primaryRaw.value) ?? 0 },
       others,
       unit: stringValue(node.unit, "") || void 0,
       tone
@@ -31387,16 +31404,23 @@ function expandComponent(slideId, node, theme) {
   if (componentName === "range-plot") {
     const tRaw = node.tone;
     const tone = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" ? tRaw : void 0;
-    const items = Array.isArray(node.items) ? node.items.map((raw) => {
+    const items = Array.isArray(node.items) ? node.items.flatMap((raw) => {
       const rec = raw && typeof raw === "object" ? raw : {};
+      const min = strictNumberValue(rec.min);
+      const max = strictNumberValue(rec.max);
+      const label = stringValue(rec.label, "");
+      if (min === void 0 || max === void 0 || !label)
+        return [];
+      const point = strictNumberValue(rec.point);
+      const unit = stringValue(rec.unit, "");
       return {
-        label: stringValue(rec.label, ""),
-        min: typeof rec.min === "number" ? rec.min : Number(rec.min) || 0,
-        max: typeof rec.max === "number" ? rec.max : Number(rec.max) || 0,
-        point: typeof rec.point === "number" ? rec.point : void 0,
-        unit: stringValue(rec.unit, "") || void 0
+        label,
+        min,
+        max,
+        ...point !== void 0 ? { point } : {},
+        ...unit ? { unit } : {}
       };
-    }).filter((it) => it.label) : [];
+    }) : [];
     return withComponentRoot(node, rangePlot(slideId, name, { items, tone }));
   }
   if (componentName === "callout-marker") {
@@ -31720,7 +31744,7 @@ function twoColumnRegion(slideId, name, side, raw) {
 }
 function normalizeEmbeddedNode(raw, fallbackId) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
-    return { id: fallbackId, type: "text", text: "" };
+    return { id: fallbackId, type: "fragment", children: [] };
   const id = typeof raw.id === "string" && raw.id ? raw.id : fallbackId;
   const children = Array.isArray(raw.children) ? raw.children.map((child, index) => normalizeEmbeddedNode(child, `${id}.${index + 1}`)) : raw.children;
   return {
@@ -32634,7 +32658,7 @@ function factorialMatrixNode(slideId, name, node) {
   const columns = Array.isArray(node.columns) ? node.columns.map(String) : [];
   const rawCells = Array.isArray(node.cells) ? node.cells : [];
   const gridChildren = [
-    { id: `${slideId}.${name}.corner`, type: "text", text: "", style: "label", fill: "surface.subtle" },
+    { id: `${slideId}.${name}.corner`, type: "shape", preset: "rect", fill: "surface.subtle", line: "surface.subtle", minHeight: 0.6 },
     ...columns.map((col, i) => ({ id: `${slideId}.${name}.col${i}`, type: "text", text: col, style: "label", weight: "bold", align: "center", valign: "middle", fill: "surface.subtle", color: "text.primary", minHeight: 0.6, autoFit: "shrink" }))
   ];
   rows.forEach((row, r) => {
@@ -37483,7 +37507,7 @@ function explanationBlockNode(slideId, name, node) {
     });
   }
   if (!children.length) {
-    children.push({ id: `${slideId}.${name}.body`, type: "text", text: "", style: "paragraph", minHeight: 0.45 });
+    children.push({ id: `${slideId}.${name}.body`, type: "spacer", fixedHeight: 0.45 });
   }
   const contentStack = {
     id: `${slideId}.${name}.content`,
@@ -37568,7 +37592,7 @@ function comparisonListNode(slideId, name, node) {
     type: "grid",
     columns,
     gap: compact ? 0.22 : 0.34,
-    children: cells.length ? cells : [{ id: `${slideId}.${name}.empty`, type: "text", text: "", style: "paragraph" }]
+    children: cells.length ? cells : [{ id: `${slideId}.${name}.empty`, type: "spacer", fixedHeight: 0.4 }]
   });
   return {
     id: `${slideId}.${name}`,
@@ -38956,6 +38980,15 @@ function comparisonPoints(fields) {
     return items;
   return [stringValue(fields.subtitle, ""), stringValue(fields.body, "")].filter(Boolean);
 }
+function metricStatusText(fields) {
+  const explicit = semanticTextValue(fields, "statusText", "statusLabel", "note", "caption");
+  if (explicit)
+    return explicit;
+  const rawStatus = fields.status;
+  if (componentTone(rawStatus))
+    return "";
+  return semanticScalarText(rawStatus);
+}
 function componentTone(value) {
   const normalized = normalizeToneAlias(value);
   return normalized === "brand" || normalized === "positive" || normalized === "warning" || normalized === "danger" || normalized === "neutral" ? normalized : void 0;
@@ -39230,6 +39263,18 @@ function numberValue(value, fallback) {
     return fallback;
   const parsed = Number.parseFloat(normalized.endsWith("%") ? normalized.slice(0, -1) : normalized);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+function strictNumberValue(value) {
+  if (typeof value === "number" && Number.isFinite(value))
+    return value;
+  if (typeof value !== "string")
+    return void 0;
+  const normalized = value.trim().replace(/,/g, "");
+  if (!normalized)
+    return void 0;
+  const raw = normalized.endsWith("%") ? normalized.slice(0, -1) : normalized;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : void 0;
 }
 function arrayValue(...values) {
   for (const value of values) {
@@ -41660,7 +41705,11 @@ function resolveDataSource(spec, options = {}) {
   }
   const type = spec.type || inferDataSourceType(spec);
   if (type === "inline-csv") {
-    return withSourceMetadata(spec, { type, rows: parseCsvRows(String(spec.csv ?? spec.text ?? ""), spec.delimiter || ",") });
+    const csvText = spec.csv ?? spec.text;
+    if (typeof csvText !== "string" || !csvText.trim()) {
+      throw new Error("inline-csv data source requires a non-empty csv or text string");
+    }
+    return withSourceMetadata(spec, { type, rows: parseCsvRows(csvText, spec.delimiter || ",") });
   }
   if (type === "file-csv") {
     const rawPath = firstString2(spec.path, spec.file);
@@ -41678,8 +41727,15 @@ function resolveDataSource(spec, options = {}) {
   if (type !== "inline-json") {
     throw new Error(`unsupported data source type: ${String(type)}`);
   }
+  const hasInlineRows = Object.prototype.hasOwnProperty.call(spec, "rows") || Object.prototype.hasOwnProperty.call(spec, "data") || Object.prototype.hasOwnProperty.call(spec, "json");
+  if (!hasInlineRows) {
+    throw new Error("inline-json data source requires rows:[...] or data:{rows:[...]}");
+  }
   const raw = spec.rows ?? spec.data ?? spec.json;
-  const rows = Array.isArray(raw) ? raw : raw && typeof raw === "object" && Array.isArray(raw.rows) ? raw.rows : [];
+  const rows = Array.isArray(raw) ? raw : raw && typeof raw === "object" && Array.isArray(raw.rows) ? raw.rows : void 0;
+  if (!rows) {
+    throw new Error("inline-json rows must be an array of row objects, or data/json must contain {rows:[...]}");
+  }
   return withSourceMetadata(spec, { type, rows: rows.map((row) => normalizeRow(row)).filter((row) => Object.keys(row).length > 0) });
 }
 function inferDataSourceType(spec) {
@@ -43119,7 +43175,7 @@ function sourceToRenderedDeck(source, options = {}) {
       themeOverride,
       master: source.deck.master
     },
-    slides: source.slides.flatMap((slide) => expandArticleSlide(slide, pageWeight)).map((slide) => sourceSlideToRendered(normalizeSlide(slide)))
+    slides: source.slides.map((slide, index) => normalizeSlide(slide, `slide-${index + 1}`)).flatMap((slide) => expandArticleSlide(slide, pageWeight)).map((slide) => sourceSlideToRendered(normalizeSlide(slide, slide.id)))
   };
 }
 function mergeDeckChrome(themeOverride, chrome) {
@@ -43318,8 +43374,8 @@ function resolveSlideBackground(slide) {
   }
   return explicit || "background";
 }
-function normalizeSlide(slide) {
-  const safeId = typeof slide?.id === "string" && slide.id ? slide.id : `slide-${Date.now()}`;
+function normalizeSlide(slide, fallbackId = "slide") {
+  const safeId = typeof slide?.id === "string" && slide.id ? slide.id : fallbackId;
   const safeChildren = Array.isArray(slide?.children) ? slide.children : [];
   return {
     ...slide,
@@ -43564,7 +43620,7 @@ function isExplicitAreaChild(node) {
 }
 function normalizeNode(slideId, node, fallbackId) {
   if (!node || typeof node !== "object")
-    return { id: fallbackId, type: "text", text: "" };
+    return { id: fallbackId, type: "fragment", children: [] };
   const raw = node;
   void raw;
   const aliased = normalizeAuthoringAliases(aliasDimensionFields(node));
@@ -47913,12 +47969,7 @@ function measuredContainerPlacements(node, rectsById) {
 function shouldReuseMeasuredContainerPlacements(node) {
   if (node.type === "grid")
     return false;
-  if (isNarrativeSplitRegion(node))
-    return true;
-  if (node.semanticBudget === "narrative" || node.layoutBudget === "narrative")
-    return true;
-  const role = typeof node.role === "string" ? node.role.trim() : "";
-  return role.length > 0 && SEMANTIC_BUDGET_REGION_ROLES.has(role);
+  return usesSemanticRegionBudget(node, node.direction === "horizontal" ? "horizontal" : "vertical");
 }
 function renderChrome(theme, deck, slideIndex, ids, slideBgHex) {
   const out = [];
@@ -50169,7 +50220,8 @@ function materializeDeck(deck) {
   try {
     const slides = deck.slides.map((slide) => {
       const dom = materializeAndCompactify(slide.dom, slide.id, theme);
-      return { slide, dom, layout: layoutSlide(theme, dom), decisions: layoutDecisionsBySlide.get(slide.id) || /* @__PURE__ */ new Map() };
+      const measuredDom = prepareDomForMeasuredSemanticCohorts(theme, dom, slide.id);
+      return { slide, dom: measuredDom, layout: layoutSlide(theme, measuredDom), decisions: layoutDecisionsBySlide.get(slide.id) || /* @__PURE__ */ new Map() };
     });
     const diagnostics2 = getRenderDiagnostics();
     return {
@@ -50685,7 +50737,10 @@ function layoutStackChildrenWithCassowary(theme, node, rect, children, layered, 
         recordDecision(currentSlideId, child.id, { applied: "fit", notes: [`cassowary:${direction}`] });
       return { node: child, rect: childRect };
     });
-    pushCassowaryPressureDiagnostics(node, stackMainAxisPressures(direction, result.pressures));
+    pushCassowaryPressureDiagnostics(node, dedupeCassowaryPressures([
+      ...stackMainAxisPressures(direction, result.pressures),
+      ...stackCrossAxisPressures(direction, stackFinalSizePressures(children, flowOut, direction, childSpecs))
+    ]));
     return layered.length === 0 ? flowOut : [...flowOut, ...layered.map((child) => ({ node: child, rect }))];
   } catch (error) {
     if (currentSlideId) {
@@ -50697,6 +50752,54 @@ function layoutStackChildrenWithCassowary(theme, node, rect, children, layered, 
 function stackMainAxisPressures(direction, pressures) {
   const mainConstraints = direction === "horizontal" ? /* @__PURE__ */ new Set(["minW", "maxW"]) : /* @__PURE__ */ new Set(["minH", "maxH"]);
   return pressures.filter((pressure) => mainConstraints.has(pressure.constraint));
+}
+function stackCrossAxisPressures(direction, pressures) {
+  const crossConstraints = direction === "horizontal" ? /* @__PURE__ */ new Set(["minH", "maxH"]) : /* @__PURE__ */ new Set(["minW", "maxW"]);
+  return pressures.filter((pressure) => crossConstraints.has(pressure.constraint));
+}
+function dedupeCassowaryPressures(pressures) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  for (const pressure of pressures) {
+    const key = `${pressure.nodeId}|${pressure.constraint}`;
+    if (seen.has(key))
+      continue;
+    seen.add(key);
+    out.push(pressure);
+  }
+  return out;
+}
+function stackFinalSizePressures(children, flowOut, direction, specs) {
+  const rectById = new Map(flowOut.map((item) => [item.node.id, item.rect]));
+  const pressures = [];
+  children.forEach((child, index) => {
+    const rect = rectById.get(child.id);
+    const spec = specs[index];
+    if (!rect || !spec)
+      return;
+    const preference = sizePreferenceFromMainSpec(child, direction, spec);
+    pushMinPressure(pressures, child.id, "minW", preference.minW, rect.w);
+    pushMinPressure(pressures, child.id, "minH", preference.minH, rect.h);
+    pushMaxPressure(pressures, child.id, "maxW", preference.maxW, rect.w);
+    pushMaxPressure(pressures, child.id, "maxH", preference.maxH, rect.h);
+  });
+  return pressures;
+}
+function pushMinPressure(pressures, nodeId, constraint, expected, actual) {
+  if (expected === void 0 || !Number.isFinite(expected))
+    return;
+  const delta = expected - actual;
+  if (delta <= 0.04)
+    return;
+  pressures.push({ nodeId, constraint, expected, actual, delta });
+}
+function pushMaxPressure(pressures, nodeId, constraint, expected, actual) {
+  if (expected === void 0 || !Number.isFinite(expected))
+    return;
+  const delta = actual - expected;
+  if (delta <= 0.04)
+    return;
+  pressures.push({ nodeId, constraint, expected, actual, delta });
 }
 function sizePreferenceFromMainSpec(node, parentAxis, spec) {
   const preference = explicitSizePreference(node);
@@ -51359,11 +51462,29 @@ function estimateSemanticCohortMemberRects(theme, parent, children, context) {
   }
   if (context.kind === "stack") {
     const direction = context.direction === "horizontal" ? "horizontal" : "vertical";
-    const gap = totalStackGapCm(theme, parent, children);
-    const availableMain = Math.max(0, (direction === "horizontal" ? rect.w : rect.h) - gap);
-    const equalMain = children.length > 0 ? availableMain / children.length : 0;
-    for (const child of children) {
-      out.set(child.id, direction === "horizontal" ? { x: rect.x, y: rect.y, w: equalMain, h: rect.h } : { x: rect.x, y: rect.y, w: rect.w, h: equalMain });
+    const availableMain = Math.max(0, (direction === "horizontal" ? rect.w : rect.h) - totalStackGapCm(theme, parent, children));
+    const crossSize = direction === "horizontal" ? rect.h : rect.w;
+    const explicitSplitRatio = explicitSplitRatioWeights(parent, children.length);
+    const specs = children.map((child, index) => {
+      const spec = childMainSpec(theme, child, direction, crossSize);
+      if (!explicitSplitRatio || spec.fixed)
+        return spec;
+      const target = availableMain * explicitSplitRatio[index];
+      return {
+        ...spec,
+        basis: clamp(target, spec.min, spec.max),
+        weight: Math.max(1e-4, explicitSplitRatio[index]),
+        grow: true
+      };
+    });
+    const sizes = resolveFlexMainTargets(specs, availableMain, { autoFillSlack: direction === "horizontal" });
+    const itemGap = children.length > 1 ? totalStackGapCm(theme, parent, children) / (children.length - 1) : 0;
+    let cursor = direction === "horizontal" ? rect.x : rect.y;
+    for (let index = 0; index < children.length; index++) {
+      const child = children[index];
+      const main = Math.max(0, sizes[index] ?? 0);
+      out.set(child.id, direction === "horizontal" ? { x: cursor, y: rect.y, w: main, h: rect.h } : { x: rect.x, y: cursor, w: rect.w, h: main });
+      cursor += main + itemGap;
     }
   }
   return out;
@@ -51380,12 +51501,29 @@ function semanticCohortSettingsKey(node) {
     `direction=${stringSetting(node.direction)}`,
     `columns=${numberSetting(node.columns)}`,
     `rows=${numberSetting(node.rows)}`,
+    `layoutWeight=${numberSetting(node.layoutWeight)}`,
+    `basis=${numberSetting(node.basis)}`,
+    `basisWidth=${numberSetting(node.basisWidth)}`,
+    `basisHeight=${numberSetting(node.basisHeight)}`,
+    `preferredWidth=${numberSetting(node.preferredWidth)}`,
+    `preferredHeight=${numberSetting(node.preferredHeight)}`,
+    `idealWidth=${numberSetting(node.idealWidth)}`,
+    `idealHeight=${numberSetting(node.idealHeight)}`,
     `width=${numberSetting(node.width)}`,
     `height=${numberSetting(node.height)}`,
     `fixedWidth=${numberSetting(node.fixedWidth)}`,
     `fixedHeight=${numberSetting(node.fixedHeight)}`,
     `minWidth=${numberSetting(node.minWidth)}`,
     `minHeight=${numberSetting(node.minHeight)}`,
+    `maxWidth=${numberSetting(node.maxWidth)}`,
+    `maxHeight=${numberSetting(node.maxHeight)}`,
+    `row=${numberSetting(node.row)}`,
+    `col=${numberSetting(node.col)}`,
+    `rowSpan=${numberSetting(node.rowSpan)}`,
+    `colSpan=${numberSetting(node.colSpan)}`,
+    `area=${stringSetting(node.area)}`,
+    `anchor=${stringSetting(node.anchor)}`,
+    `at=${tupleSetting(node.at)}`,
     `slots=${slots.join(",")}`
   ].join(";");
 }
@@ -51937,11 +52075,11 @@ function resolveMainSizes(theme, children, direction, availableMain, crossSize) 
   return solveSizes(children.map((child) => childMainSpec(theme, child, direction, crossSize)), availableMain);
 }
 function applySemanticRegionBudgetSpecs(theme, parent, children, specs, direction, availableMain, crossSize) {
-  if (direction !== "vertical" || children.length < 2)
+  if (children.length < 2)
     return specs;
-  if (!isNarrativeSplitRegion(parent))
+  if (!usesSemanticRegionBudget(parent, direction))
     return specs;
-  const items = collectSemanticRegionBudgetItems(theme, parent, children, specs, crossSize, availableMain);
+  const items = collectSemanticRegionBudgetItems(theme, parent, children, specs, direction, crossSize, availableMain);
   const preferredTotal = items.reduce((sum3, item) => sum3 + item.preferred, 0);
   const floorTotal = items.reduce((sum3, item) => sum3 + item.floor, 0);
   const projected = solveSizes(specs, availableMain, false);
@@ -51958,8 +52096,8 @@ function applySemanticRegionBudgetSpecs(theme, parent, children, specs, directio
   }
   return applySemanticRegionBudgetTargets(parent, children, specs, items, targetSizes);
 }
-function collectSemanticRegionBudgetItems(theme, parent, children, specs, crossSize, availableMain) {
-  return children.map((child, index) => semanticRegionBudgetItem(theme, parent, child, specs[index], index, crossSize, availableMain));
+function collectSemanticRegionBudgetItems(theme, parent, children, specs, direction, crossSize, availableMain) {
+  return children.map((child, index) => semanticRegionBudgetItem(theme, parent, child, specs[index], index, direction, crossSize, availableMain));
 }
 function applySemanticRegionBudgetTargets(parent, children, specs, items, targetSizes) {
   const next = specs.slice();
@@ -51997,10 +52135,10 @@ function applySemanticRegionBudgetTargets(parent, children, specs, items, target
   return next;
 }
 var SEMANTIC_CRITICAL_PRIORITY = 90;
-function semanticRegionBudgetItem(theme, parent, child, spec, index, crossSize, availableMain) {
+function semanticRegionBudgetItem(theme, parent, child, spec, index, direction, crossSize, availableMain) {
   const priority = semanticLayoutPriority(child, parent);
   const preferred = semanticPreferredMain(spec);
-  const floor = spec.fixed ? preferred : Math.min(preferred, semanticRegionFloor(theme, parent, child, spec, priority, crossSize, availableMain));
+  const floor = spec.fixed ? preferred : Math.min(preferred, semanticRegionFloor(theme, parent, child, spec, priority, direction, crossSize, availableMain));
   return { index, spec, priority, preferred, floor };
 }
 function semanticPreferredMain(spec) {
@@ -52075,7 +52213,7 @@ function pushSemanticRegionBudgetInfeasibleDiagnostic(parent, children, items, t
 function roundCm(value) {
   return Math.round(value * 1e3) / 1e3;
 }
-function isNarrativeSplitRegion(parent) {
+function usesSemanticRegionBudget(parent, direction) {
   if (parent.semanticBudget === false || parent.layoutBudget === "none")
     return false;
   if (parent.semanticBudget === "narrative" || parent.layoutBudget === "narrative")
@@ -52085,7 +52223,10 @@ function isNarrativeSplitRegion(parent) {
     return true;
   if (!isSemanticBudgetCandidateContainer(parent))
     return false;
-  return ancestorStack.some((ancestor) => ancestor !== parent && (ancestor.__loweredFromSplit === true || ancestor.role === "evidence-layout" || ancestor.role === "chart-with-rail" || ancestor.role === "main-effect-comparison"));
+  const isWithinSemanticLayout = ancestorStack.some((ancestor) => ancestor !== parent && (ancestor.__loweredFromSplit === true || ancestor.role === "evidence-layout" || ancestor.role === "chart-with-rail" || ancestor.role === "main-effect-comparison"));
+  if (isWithinSemanticLayout)
+    return true;
+  return direction === "vertical";
 }
 var SEMANTIC_BUDGET_REGION_ROLES = /* @__PURE__ */ new Set([
   "callout",
@@ -52154,7 +52295,9 @@ function isFinalSemanticSibling(parent, node) {
   const siblings = (parent?.children || []).filter((child) => !isOverlayChild(child) && child.type !== "spacer" && child.type !== "divider");
   return siblings.length > 0 && siblings[siblings.length - 1] === node;
 }
-function semanticRegionFloor(theme, parent, node, spec, priority, crossSize, availableMain) {
+function semanticRegionFloor(theme, parent, node, spec, priority, direction, crossSize, availableMain) {
+  if (direction === "horizontal")
+    return semanticHorizontalRegionFloor(theme, parent, node, spec, priority, crossSize, availableMain);
   const role = regionCapacityRole(node);
   if (role === "key-takeaway")
     return keyTakeawayRegionFloor(theme, node, crossSize, spec, availableMain);
@@ -52167,6 +52310,46 @@ function semanticRegionFloor(theme, parent, node, spec, priority, crossSize, ava
   if (node.type === "bullets")
     return Math.max(semanticCompressionMainFloor(theme, node, "vertical", crossSize, spec), semanticBulletsReadableFloor(theme, node, crossSize));
   return semanticCompressionMainFloor(theme, node, "vertical", crossSize, spec);
+}
+function semanticHorizontalRegionFloor(theme, parent, node, spec, priority, crossSize, availableMain) {
+  const role = regionCapacityRole(node);
+  if (node.type === "spacer" || node.type === "divider" || node.type === "shape")
+    return 0;
+  const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "horizontal", crossSize));
+  const readable = Math.max(spec.min, natural * semanticHorizontalFloorRatio(node, role, priority));
+  if (role === "key-takeaway") {
+    const cap2 = Math.max(spec.min, Math.min(6.2, availableMain * 0.62));
+    return clamp(Math.max(spec.min, Math.min(readable, 4.4)), spec.min, cap2);
+  }
+  if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") {
+    const cap2 = Math.max(spec.min, Math.min(5.8, availableMain * 0.58));
+    return clamp(Math.max(spec.min, Math.min(readable, 3.9)), spec.min, cap2);
+  }
+  if (role === "quote") {
+    const cap2 = Math.max(spec.min, Math.min(5, availableMain * 0.54));
+    return clamp(Math.max(spec.min, Math.min(readable, 3.4)), spec.min, cap2);
+  }
+  if (node.type === "text" || node.type === "bullets") {
+    const cap2 = Math.max(spec.min, Math.min(5.4, availableMain * 0.5));
+    return clamp(Math.max(spec.min, Math.min(readable, 3.2)), spec.min, cap2);
+  }
+  if (componentElasticityClass(node, role) === "hard")
+    return spec.min;
+  const cap = Math.max(spec.min, Math.min(5.2, availableMain * 0.52));
+  return clamp(Math.max(spec.min, Math.min(readable, 3.2)), spec.min, cap);
+}
+function semanticHorizontalFloorRatio(node, role, priority) {
+  if (role === "key-takeaway")
+    return 0.52;
+  if (role === "executive-summary" || role === "insight-card" || role === "explanation-block")
+    return 0.48;
+  if (role === "quote")
+    return 0.44;
+  if (node.type === "bullets")
+    return 0.42;
+  if (node.type === "text")
+    return priority >= 58 ? 0.42 : 0.36;
+  return 0.4;
 }
 function keyTakeawayRegionFloor(theme, node, widthCm, spec, availableMain) {
   const children = (node.children || []).filter((child) => !isOverlayChild(child));
@@ -55583,7 +55766,11 @@ function validateNode(node, path, slideId, issues, parent, options = validationO
     return;
   }
   if (!node || typeof node !== "object") {
-    issues.push(issue("error", "INVALID_NODE", `${path} must be a node object.`, { slideId, path }));
+    issues.push(issue("error", "INVALID_NODE", `${path} must be a node object.`, {
+      slideId,
+      path,
+      suggestedFix: "Replace this entry with a full node object such as {id:'body', type:'text', text:'...'} or {id:'group', type:'stack', children:[...]}. Do not put bare strings/numbers/null directly in children."
+    }));
     return;
   }
   if (isTwoColumnRegionShorthand(node, parent, path)) {
@@ -55981,7 +56168,7 @@ function isTwoColumnRegionShorthand(node, parent, path) {
 }
 function withSyntheticNodeIds(node, fallbackId) {
   if (!node || typeof node !== "object" || Array.isArray(node))
-    return { id: fallbackId, type: "text", text: "" };
+    return { id: fallbackId, type: "fragment", children: [] };
   const id = typeof node.id === "string" && node.id ? node.id : fallbackId;
   const children = Array.isArray(node.children) ? node.children.map((child, index) => withSyntheticNodeIds(child, `${id}.${index + 1}`)) : node.children;
   const out = { ...node, id, children };
@@ -56688,8 +56875,10 @@ function validateNodeDataBinding(node, path, slideId, sourceIds, sourceRows, iss
         suggestedFix: "Repair the data source or bind.filter so the component receives at least one row; otherwise remove the bind and author explicit chart/table data."
       }));
     }
-    if (rows && rows.length)
+    if (rows && rows.length) {
       validateDataFieldReferences(bind, encoding, rows, `${path}.bind`, slideId, node.id, issues);
+      validateNumericDataBindingFields(node, bind, encoding, rows, `${path}.bind`, slideId, node.id, issues);
+    }
   }
   node.children?.forEach((child, index) => validateNodeDataBinding(child, `${path}.children[${index}]`, slideId, sourceIds, sourceRows, issues, depth + 1));
   if (Array.isArray(node.items)) {
@@ -56741,6 +56930,87 @@ function validateDataFieldReferences(bind, encoding, rows, path, slideId, nodeNa
       checkDataField(field, viewFields, `${path.replace(/\.bind$/, ".encoding")}.${key}`, "encoding", slideId, nodeName, issues);
     }
   }
+}
+function validateNumericDataBindingFields(node, bind, encoding, rows, path, slideId, nodeName, issues) {
+  const kind = getComponentName(node) || node.type;
+  if (kind !== "chart-card" && kind !== "chart")
+    return;
+  if (!encoding || typeof encoding !== "object" || Array.isArray(encoding))
+    return;
+  const enc = canonicalDataEncodingRecord(encoding);
+  const fields = dataFieldSet(rows);
+  const numericRefs = chartNumericFieldRefs(node, enc, rows, fields);
+  for (const [refPath, field] of numericRefs) {
+    const resolved = resolveDataFieldName(field, fields);
+    if (!resolved)
+      continue;
+    checkNumericDataField(resolved, rows, `${path.replace(/\.bind$/, ".encoding")}.${refPath}`, slideId, nodeName, issues);
+  }
+  const aggregate = canonicalDataBindRecord(bind).aggregate;
+  if (aggregate && typeof aggregate === "object" && !Array.isArray(aggregate)) {
+    for (const ref of aggregateFieldRefs(aggregate)) {
+      if (!ref.input)
+        continue;
+      const resolved = resolveDataFieldName(ref.input, dataFieldSet(rows));
+      if (resolved)
+        checkNumericDataField(resolved, rows, `${path}.aggregate.${ref.output}`, slideId, nodeName, issues);
+    }
+  }
+}
+function chartNumericFieldRefs(node, encoding, rows, fields) {
+  const seriesOptionRefs = chartSeriesOptionNumericRefs(encoding);
+  if (seriesOptionRefs.length)
+    return seriesOptionRefs;
+  const xKey = firstNonEmptyString(encoding.x, encoding.label) || "label";
+  const yValues = Array.isArray(encoding.y) ? encoding.y : [firstNonEmptyString(encoding.y, encoding.value) || "value"];
+  const yRefs = yValues.map((field, index) => typeof field === "string" && field.trim() ? [`y${Array.isArray(encoding.y) ? `[${index}]` : ""}`, field.trim()] : void 0).filter((item) => Boolean(item));
+  const yField = yRefs[0]?.[1];
+  const seriesKey = typeof encoding.series === "string" && encoding.series.trim() ? encoding.series.trim() : void 0;
+  const xResolved = resolveDataFieldName(xKey, fields) || xKey;
+  const yResolved = yField ? resolveDataFieldName(yField, fields) || yField : void 0;
+  const chartKind = firstNonEmptyString(node.chartType, node.chart) || "bar";
+  if (!encoding.orientation && isBarLikeChartKind(chartKind) && yRefs.length === 1 && !seriesKey && xResolved && yResolved) {
+    if (dataFieldLooksNumeric(rows, xResolved) && !dataFieldLooksNumeric(rows, yResolved)) {
+      return [["x", xKey]];
+    }
+  }
+  return yRefs;
+}
+function chartSeriesOptionNumericRefs(encoding) {
+  if (!encoding.seriesOptions || typeof encoding.seriesOptions !== "object" || Array.isArray(encoding.seriesOptions))
+    return [];
+  const refs = [];
+  for (const [key, raw] of Object.entries(encoding.seriesOptions)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw))
+      continue;
+    const option = raw;
+    const field = firstNonEmptyString(option.y, option.field, option.key, option.value);
+    if (field)
+      refs.push([`seriesOptions.${key}`, field]);
+  }
+  return refs;
+}
+function checkNumericDataField(field, rows, path, slideId, nodeName, issues) {
+  const invalid = rows.map((row) => row[field]).filter((value) => value !== void 0 && value !== null && String(value).trim() !== "" && strictNumericValue(value) === null);
+  if (!invalid.length)
+    return;
+  issues.push(issue("error", "NON_NUMERIC_DATA_FIELD", `${path} uses field "${field}" as a numeric measure, but ${invalid.length} row(s) contain non-numeric values.`, {
+    slideId,
+    path,
+    nodeName: typeof nodeName === "string" ? nodeName : void 0,
+    details: { field, examples: invalid.slice(0, 3).map((value) => String(value)) },
+    suggestedFix: `Clean deck.dataSources so ${field} contains only numbers, or change encoding so this field is used as a label/category instead of y/value.`
+  }));
+}
+function dataFieldLooksNumeric(rows, field) {
+  const values = rows.map((row) => row[field]).filter((value) => value !== void 0 && value !== null && String(value).trim() !== "");
+  if (!values.length)
+    return false;
+  const numericCount = values.filter((value) => strictNumericValue(value) !== null).length;
+  return numericCount >= Math.max(1, values.length * 0.8);
+}
+function isBarLikeChartKind(kind) {
+  return kind === "bar" || kind === "stacked-bar" || kind === "waterfall" || kind === "combo";
 }
 function canonicalDataBindRecord(rec) {
   return canonicalRecord2(rec, DATA_BIND_FIELD_ALIASES);
@@ -56805,8 +57075,6 @@ function aggregateFieldRefs(value) {
         out.push({ output });
       } else if (typeof spec.field === "string" && spec.field.trim()) {
         out.push({ output, input: spec.field.trim() });
-      } else {
-        out.push({ output, input: output });
       }
     }
   }
@@ -57116,6 +57384,13 @@ function validateAggregateSpec(aggregate, path, slideId, nodeName, issues) {
         slideId,
         path: `${aggregatePath}.field`,
         nodeName: typeof nodeName === "string" ? nodeName : void 0
+      }));
+    } else if (DATA_AGGREGATE_OP_VALUES.includes(String(spec.op)) && spec.op !== "count" && spec.field === void 0) {
+      issues.push(issue("error", "MISSING_DATA_AGGREGATE_FIELD", `${aggregatePath}.field is required for ${String(spec.op)} aggregates.`, {
+        slideId,
+        path: `${aggregatePath}.field`,
+        nodeName: typeof nodeName === "string" ? nodeName : void 0,
+        suggestedFix: `Use ${output}: { op: '${String(spec.op)}', field: 'sourceFieldName' }. The shorthand ${output}: '${String(spec.op)}' is only safe when the output field and input field intentionally have the same name.`
       }));
     }
   }
@@ -57656,6 +57931,62 @@ function hasExplicitBackgroundPlacement(child) {
     return true;
   return false;
 }
+function validateComponentNumericFields(componentName, node, path, slideId, issues) {
+  if (componentName === "gauge" && Array.isArray(node.thresholds)) {
+    node.thresholds.forEach((raw, index) => {
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+      validateFiniteNumberField(rec.upTo, `${path}.thresholds[${index}].upTo`, slideId, node.id, issues, "Use {upTo:80, tone:'warning'}; threshold upTo must be a number.");
+    });
+  }
+  if (componentName === "heatmap" && Array.isArray(node.values)) {
+    node.values.forEach((row, rowIndex) => {
+      if (!Array.isArray(row)) {
+        issues.push(issue("error", "INVALID_FIELD_USAGE", `${path}.values[${rowIndex}] must be an array of numbers.`, {
+          slideId,
+          path: `${path}.values[${rowIndex}]`,
+          nodeName: node.id,
+          suggestedFix: "Use values as a rectangular number matrix, e.g. [[1,2,3],[2,3,4]]."
+        }));
+        return;
+      }
+      row.forEach((value, colIndex) => validateFiniteNumberField(value, `${path}.values[${rowIndex}][${colIndex}]`, slideId, node.id, issues, "Use only finite numeric heatmap cell values."));
+    });
+  }
+  if (componentName === "trend-line" && Array.isArray(node.values)) {
+    node.values.forEach((value, index) => validateFiniteNumberField(value, `${path}.values[${index}]`, slideId, node.id, issues, "Use values:[10,20,30] with finite numbers."));
+  }
+  if (componentName === "donut-summary") {
+    const primary = node.primary;
+    if (primary && typeof primary === "object" && !Array.isArray(primary)) {
+      validateFiniteNumberField(primary.value, `${path}.primary.value`, slideId, node.id, issues, "Use primary:{label:'...', value:62}; value must be a number.");
+    }
+    if (Array.isArray(node.others)) {
+      node.others.forEach((raw, index) => {
+        const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+        validateFiniteNumberField(rec.value, `${path}.others[${index}].value`, slideId, node.id, issues, "Use others entries like {label:'Other', value:38}; value must be a number.");
+      });
+    }
+  }
+  if (componentName === "range-plot" && Array.isArray(node.items)) {
+    node.items.forEach((raw, index) => {
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+      validateFiniteNumberField(rec.min, `${path}.items[${index}].min`, slideId, node.id, issues, "Use range items like {label:'A', min:10, max:60}; min/max must be numbers.");
+      validateFiniteNumberField(rec.max, `${path}.items[${index}].max`, slideId, node.id, issues, "Use range items like {label:'A', min:10, max:60}; min/max must be numbers.");
+      if (rec.point !== void 0)
+        validateFiniteNumberField(rec.point, `${path}.items[${index}].point`, slideId, node.id, issues, "range-plot point must be a finite number when provided.");
+    });
+  }
+}
+function validateFiniteNumberField(value, path, slideId, nodeName, issues, suggestedFix) {
+  if (strictNumericValue(value) !== null)
+    return;
+  issues.push(issue("error", "INVALID_FIELD_USAGE", `${path} must be a finite number.`, {
+    slideId,
+    path,
+    nodeName: typeof nodeName === "string" ? nodeName : void 0,
+    suggestedFix
+  }));
+}
 function componentFieldTypeError(componentName, propName, prop, value) {
   if (value === void 0 || value === null || value === "")
     return null;
@@ -57785,6 +58116,7 @@ function validateComponentNode(node, path, slideId, issues, options, parent) {
       }
     });
   }
+  validateComponentNumericFields(String(name), node, path, slideId, issues);
   for (const [propName, prop] of Object.entries(definition.fields)) {
     if (prop.required) {
       const required = checkRequiredComponentField(String(name), propName, prop, node);
@@ -58103,13 +58435,21 @@ function describeValueType(value) {
   return typeof value;
 }
 function isNumericString(value) {
+  return strictNumericValue(value) !== null;
+}
+function strictNumericValue(value) {
+  if (typeof value === "number" && Number.isFinite(value))
+    return value;
   if (typeof value !== "string")
-    return false;
+    return null;
   const normalized = value.trim().replace(/,/g, "");
   if (!normalized)
-    return false;
+    return null;
   const raw = normalized.endsWith("%") ? normalized.slice(0, -1) : normalized;
-  return raw.trim() !== "" && Number.isFinite(Number.parseFloat(raw));
+  if (!raw.trim())
+    return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 function valueAtPath(value, path) {
   return path.split(".").reduce((current, key) => {
