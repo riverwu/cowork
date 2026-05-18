@@ -12125,6 +12125,7 @@ function rectContains(outer, inner, epsilon = 0.03) {
 // slideml2/dist/diagnostics.js
 var diagnostics = [];
 var diagnosticDedupKeys = /* @__PURE__ */ new Set();
+var diagnosticSuppressionDepth = 0;
 function diagnosticDedupKey(d, includeSlide = true) {
   const key = { code: d.code };
   const slide = includeSlide ? d.slideId || "" : "";
@@ -12148,6 +12149,8 @@ function diagnosticDedupKey(d, includeSlide = true) {
   return JSON.stringify(key);
 }
 function pushDiagnostic(d) {
+  if (diagnosticSuppressionDepth > 0)
+    return;
   const key = diagnosticDedupKey(d);
   const sansSlide = diagnosticDedupKey(d, false);
   if (diagnosticDedupKeys.has(key) || diagnosticDedupKeys.has(sansSlide))
@@ -12162,6 +12165,14 @@ function getRenderDiagnostics() {
 function clearRenderDiagnostics() {
   diagnostics = [];
   diagnosticDedupKeys = /* @__PURE__ */ new Set();
+}
+function withSuppressedRenderDiagnostics(fn) {
+  diagnosticSuppressionDepth += 1;
+  try {
+    return fn();
+  } finally {
+    diagnosticSuppressionDepth = Math.max(0, diagnosticSuppressionDepth - 1);
+  }
 }
 function getDiagnosticsBySeverity(severity) {
   return diagnostics.filter((d) => d.severity === severity);
@@ -12227,6 +12238,7 @@ var RENDER_DIAGNOSTIC_CODES = [
   "DONUT_SUMMARY_OVER_CAPACITY",
   "PAGE_OVER_CAPACITY",
   "REGION_OVER_CAPACITY",
+  "REGION_BUDGET_INFEASIBLE",
   "ORG_OVERFLOW",
   "LOW_CONTRAST",
   "LOW_CONTRAST_FIXED",
@@ -12291,6 +12303,7 @@ var QUALITY_RENDER_DIAGNOSTIC_CODES = /* @__PURE__ */ new Set([
   "DONUT_SUMMARY_OVER_CAPACITY",
   "PAGE_OVER_CAPACITY",
   "REGION_OVER_CAPACITY",
+  "REGION_BUDGET_INFEASIBLE",
   "ORG_OVERFLOW"
 ]);
 function isBlockingRenderDiagnostic(code, severity) {
@@ -14151,6 +14164,7 @@ var DEFAULT_COLORS = [
   "8C7DCC",
   "BFB143"
 ];
+var DEFAULT_CHART_TEXT_COLOR = "111827";
 var EMU_PER_CM = 36e4;
 function chartXml(shape, options = {}) {
   const colors = (shape.colors && shape.colors.length > 0 ? shape.colors : DEFAULT_COLORS).map((c) => {
@@ -14167,7 +14181,8 @@ function chartXml(shape, options = {}) {
   const valAxId = 100000002;
   const secondaryValAxId = 100000003;
   const hasSecondaryAxis = chartSupportsSecondaryAxis(shape) && shape.series.some((series) => series.axis === "secondary");
-  const titleXml = shape.title ? `<c:title><c:tx><c:rich><a:bodyPr rot="0" spcFirstLastPara="1" vertOverflow="ellipsis" wrap="square" anchor="ctr" anchorCtr="1"/><a:lstStyle/><a:p><a:pPr algn="ctr"><a:defRPr sz="1400" b="1"/></a:pPr><a:r><a:rPr lang="en-US" sz="1400" b="1"/><a:t>${xmlEscapeText(shape.title)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>` : "";
+  const titleColor = (shape.titleColor ?? shape.textColor ?? DEFAULT_CHART_TEXT_COLOR).toUpperCase();
+  const titleXml = shape.title ? `<c:title><c:tx><c:rich><a:bodyPr rot="0" spcFirstLastPara="1" vertOverflow="ellipsis" wrap="square" anchor="ctr" anchorCtr="1"/><a:lstStyle/><a:p><a:pPr algn="ctr">${defaultRunPrXml(titleColor, 1400, true)}</a:pPr><a:r><a:rPr lang="en-US" sz="1400" b="1">${solidFillXml(titleColor)}</a:rPr><a:t>${xmlEscapeText(shape.title)}</a:t></a:r></a:p></c:rich></c:tx><c:overlay val="0"/></c:title>` : "";
   const showLegend = shape.legend ? shape.legend.show !== false : shape.showLegend ?? shape.series.length > 1;
   const legendXml = legendXmlOf(shape, showLegend);
   let plotInner = "";
@@ -14206,7 +14221,7 @@ function chartXml(shape, options = {}) {
   }
   const axisLessTypes = ["pie", "doughnut"];
   const isScatter = shape.chartType === "scatter";
-  const axesXml = axisLessTypes.includes(shape.chartType) ? "" : isScatter ? scatterAxesXml(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt) : axesXmlOf(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt, hasSecondaryAxis ? secondaryValAxId : void 0, shape.secondaryYAxis, isHorizontalBarChart(shape) ? "horizontal" : "vertical");
+  const axesXml = axisLessTypes.includes(shape.chartType) ? "" : isScatter ? scatterAxesXml(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt, shape.axisTextColor ?? shape.textColor) : axesXmlOf(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt, hasSecondaryAxis ? secondaryValAxId : void 0, shape.secondaryYAxis, isHorizontalBarChart(shape) ? "horizontal" : "vertical", shape.axisTextColor ?? shape.textColor);
   const externalDataXml = options.embeddedWorkbookRelId ? `<c:externalData r:id="${options.embeddedWorkbookRelId}"><c:autoUpdate val="0"/></c:externalData>` : "";
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <c:chartSpace xmlns:c="${NS_CHART}" xmlns:a="${NS_DRAWING}" xmlns:r="${NS_REL}">
@@ -14232,6 +14247,18 @@ function chartSupportsSecondaryAxis(shape) {
   return shape.chartType === "bar" || shape.chartType === "stacked-bar" || shape.chartType === "line" || shape.chartType === "area" || shape.chartType === "combo";
 }
 function validateChartStyle(shape) {
+  for (const [field, value] of [
+    ["textColor", shape.textColor],
+    ["axisTextColor", shape.axisTextColor],
+    ["dataLabelColor", shape.dataLabelColor],
+    ["titleColor", shape.titleColor],
+    ["legendTextColor", shape.legendTextColor]
+  ]) {
+    if (value)
+      assertHex(value, `ChartShape.${field}`);
+  }
+  if (shape.dataLabels?.color)
+    assertHex(shape.dataLabels.color, "ChartShape.dataLabels.color");
   for (const [idx, series] of shape.series.entries()) {
     if (series.color)
       assertHex(series.color, `ChartSeries[${idx}].color`);
@@ -14239,8 +14266,14 @@ function validateChartStyle(shape) {
       assertHex(series.marker.fill, `ChartSeries[${idx}].marker.fill`);
     if (series.marker?.line)
       assertHex(series.marker.line, `ChartSeries[${idx}].marker.line`);
+    if (series.dataLabels?.color)
+      assertHex(series.dataLabels.color, `ChartSeries[${idx}].dataLabels.color`);
   }
   for (const [label, axis] of [["xAxis", shape.xAxis], ["yAxis", shape.yAxis], ["secondaryYAxis", shape.secondaryYAxis]]) {
+    if (axis?.color)
+      assertHex(axis.color, `ChartShape.${label}.color`);
+    if (axis?.titleColor)
+      assertHex(axis.titleColor, `ChartShape.${label}.titleColor`);
     const grid = axis?.gridlines;
     if (grid && typeof grid === "object" && grid.color)
       assertHex(grid.color, `ChartShape.${label}.gridlines.color`);
@@ -14252,7 +14285,9 @@ function legendXmlOf(shape, showLegend) {
   const position = shape.legend?.position ?? "bottom";
   const pos = position === "top" ? "t" : position === "left" ? "l" : position === "right" ? "r" : "b";
   const overlay = shape.legend?.overlay ? 1 : 0;
-  return `<c:legend><c:legendPos val="${pos}"/><c:overlay val="${overlay}"/></c:legend>`;
+  const legendColor = shape.legendTextColor ?? shape.axisTextColor ?? shape.textColor;
+  const txPr = legendColor ? chartTextPrXml(legendColor, 1e3) : "";
+  return `<c:legend><c:legendPos val="${pos}"/><c:overlay val="${overlay}"/>${txPr}</c:legend>`;
 }
 function plotAreaLayoutXml(shape) {
   const p = shape.plotArea;
@@ -14361,7 +14396,12 @@ function seriesXml(s, idx, colors, labels, showValues = false, isLine = false, i
     negativeColor: shape?.negativeColor?.toUpperCase()
   }) : "";
   const linePart = isLine ? `<c:spPr>${lineStyleXml(color2, s.lineWidth, s.lineDash)}</c:spPr>` + markerXml(s.marker, color2) : isArea ? `<c:spPr><a:solidFill><a:srgbClr val="${color2}"><a:alpha val="60000"/></a:srgbClr></a:solidFill>` + lineStyleXml(color2, s.lineWidth, s.lineDash) + `</c:spPr>` : `<c:spPr><a:solidFill><a:srgbClr val="${color2}"/></a:solidFill></c:spPr>`;
-  const dLbls = dataLabelsXmlOf({ showValues, dataLabels: s.dataLabels ?? shape?.dataLabels }, {
+  const dLbls = dataLabelsXmlOf({
+    showValues,
+    dataLabels: s.dataLabels ?? shape?.dataLabels,
+    textColor: shape?.textColor,
+    dataLabelColor: shape?.dataLabelColor
+  }, {
     position: void 0,
     showValue: true,
     showCategoryName: false,
@@ -14412,9 +14452,10 @@ function dataLabelsXmlOf(shape, defaults, options = {}) {
   const showPercent = labels?.showPercent ?? defaults.showPercent;
   const showLeaderLines = labels?.showLeaderLines ?? defaults.showLeaderLines;
   const leaderLinesXml = typeof showLeaderLines === "boolean" ? `<c:showLeaderLines val="${showLeaderLines ? 1 : 0}"/>` : "";
+  const labelColor = labels?.color ?? shape.dataLabelColor ?? shape.textColor ?? DEFAULT_CHART_TEXT_COLOR;
   const showFlagsXml = `<c:showLegendKey val="${showLegendKey ? 1 : 0}"/><c:showVal val="${showValue ? 1 : 0}"/><c:showCatName val="${showCategoryName ? 1 : 0}"/><c:showSerName val="${showSeriesName ? 1 : 0}"/><c:showPercent val="${showPercent ? 1 : 0}"/><c:showBubbleSize val="0"/>`;
   const pointLabelsXml = options.hiddenPointIndexes ? Array.from(options.hiddenPointIndexes).sort((a, b) => a - b).map((index) => `<c:dLbl><c:idx val="${index}"/><c:delete val="1"/></c:dLbl>`).join("") : "";
-  return `<c:dLbls>` + pointLabelsXml + positionXml + (options.omitNumberFormatAndTextPr ? "" : `<c:numFmt formatCode="General" sourceLinked="0"/>` + defaultDataLabelTextPrXml()) + showFlagsXml + leaderLinesXml + `</c:dLbls>`;
+  return `<c:dLbls>` + pointLabelsXml + positionXml + (options.omitNumberFormatAndTextPr ? "" : `<c:numFmt formatCode="General" sourceLinked="0"/>` + defaultDataLabelTextPrXml(labelColor)) + showFlagsXml + leaderLinesXml + `</c:dLbls>`;
 }
 function hiddenPieLabelIndexes(values, minPercent) {
   const threshold = typeof minPercent === "number" && Number.isFinite(minPercent) ? Math.max(0, minPercent) : 0;
@@ -14431,8 +14472,17 @@ function hiddenPieLabelIndexes(values, minPercent) {
   });
   return hidden.size ? hidden : void 0;
 }
-function defaultDataLabelTextPrXml() {
-  return `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr sz="1200"><a:solidFill><a:srgbClr val="111827"/></a:solidFill><a:latin typeface="Arial"/></a:defRPr></a:pPr></a:p></c:txPr>`;
+function defaultDataLabelTextPrXml(color2) {
+  return chartTextPrXml(color2, 1200);
+}
+function chartTextPrXml(color2, size = 1e3) {
+  return `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr>${defaultRunPrXml(color2, size)}</a:pPr></a:p></c:txPr>`;
+}
+function defaultRunPrXml(color2, size = 1e3, bold = false) {
+  return `<a:defRPr sz="${size}"${bold ? ` b="1"` : ""}>${solidFillXml(color2)}<a:latin typeface="Arial"/></a:defRPr>`;
+}
+function solidFillXml(color2) {
+  return `<a:solidFill><a:srgbClr val="${color2.toUpperCase()}"/></a:solidFill>`;
 }
 function dataLabelPositionXml(position) {
   switch (position) {
@@ -14579,15 +14629,15 @@ function waterfallChartXml(shape, colors, catAxId, valAxId, refContext) {
   const deltaSer = `<c:ser><c:idx val="1"/><c:order val="1"/>` + seriesTxXml(series.name, 1, refContext) + fill.map((c, i) => `<c:dPt><c:idx val="${i}"/><c:invertIfNegative val="0"/><c:bubble3D val="0"/><c:spPr><a:solidFill><a:srgbClr val="${c}"/></a:solidFill></c:spPr></c:dPt>`).join("") + catRefXml(shape.labels, refContext) + valRefXml(delta, refContext, 1) + `</c:ser>`;
   return `<c:barChart><c:barDir val="col"/><c:grouping val="stacked"/><c:varyColors val="0"/>` + baseSer + deltaSer + `<c:gapWidth val="40"/><c:overlap val="100"/><c:axId val="${catAxId}"/><c:axId val="${valAxId}"/></c:barChart>`;
 }
-function scatterAxesXml(xAxId, yAxId, xAxis, yAxis, numFmt) {
-  return `<c:valAx><c:axId val="${xAxId}"/>` + scalingXml(xAxis) + `<c:delete val="${xAxis?.show === false ? 1 : 0}"/><c:axPos val="b"/>` + axisGridlinesXml(xAxis) + axisTitleXml(xAxis) + `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(xAxis?.numberFormat ?? "General"))}" sourceLinked="${xAxis?.numberFormat ? 0 : 1}"/>` + axisTicksXml(xAxis) + axisTextXml(xAxis) + `<c:crossAx val="${yAxId}"/></c:valAx><c:valAx><c:axId val="${yAxId}"/>` + scalingXml(yAxis) + `<c:delete val="${yAxis?.show === false ? 1 : 0}"/><c:axPos val="l"/>` + axisGridlinesXml(yAxis) + axisTitleXml(yAxis, -90) + `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(yAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` + axisTicksXml(yAxis) + axisTextXml(yAxis) + `<c:crossAx val="${xAxId}"/></c:valAx>`;
+function scatterAxesXml(xAxId, yAxId, xAxis, yAxis, numFmt, fallbackTextColor) {
+  return `<c:valAx><c:axId val="${xAxId}"/>` + scalingXml(xAxis) + `<c:delete val="${xAxis?.show === false ? 1 : 0}"/><c:axPos val="b"/>` + axisGridlinesXml(xAxis) + axisTitleXml(xAxis, 0, fallbackTextColor) + `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(xAxis?.numberFormat ?? "General"))}" sourceLinked="${xAxis?.numberFormat ? 0 : 1}"/>` + axisTicksXml(xAxis) + axisTextXml(xAxis, fallbackTextColor) + `<c:crossAx val="${yAxId}"/></c:valAx><c:valAx><c:axId val="${yAxId}"/>` + scalingXml(yAxis) + `<c:delete val="${yAxis?.show === false ? 1 : 0}"/><c:axPos val="l"/>` + axisGridlinesXml(yAxis) + axisTitleXml(yAxis, -90, fallbackTextColor) + `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(yAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` + axisTicksXml(yAxis) + axisTextXml(yAxis, fallbackTextColor) + `<c:crossAx val="${xAxId}"/></c:valAx>`;
 }
 function isHorizontalBarChart(shape) {
   return shape.orientation === "horizontal" && (shape.chartType === "bar" || shape.chartType === "stacked-bar");
 }
-function axesXmlOf(catAxId, valAxId, xAxis, yAxis, numFmt, secondaryValAxId, secondaryYAxis, orientation = "vertical") {
+function axesXmlOf(catAxId, valAxId, xAxis, yAxis, numFmt, secondaryValAxId, secondaryYAxis, orientation = "vertical", fallbackTextColor) {
   const horizontal = orientation === "horizontal";
-  return `<c:catAx><c:axId val="${catAxId}"/>` + scalingXml(xAxis) + `<c:delete val="${xAxis?.show === false ? 1 : 0}"/><c:axPos val="${horizontal ? "l" : "b"}"/>` + axisGridlinesXml(xAxis) + axisTitleXml(xAxis, horizontal ? -90 : 0) + axisTicksXml(xAxis) + axisTextXml(xAxis) + `<c:crossAx val="${valAxId}"/></c:catAx><c:valAx><c:axId val="${valAxId}"/>` + scalingXml(yAxis) + `<c:delete val="${yAxis?.show === false ? 1 : 0}"/><c:axPos val="${horizontal ? "b" : "l"}"/>` + axisGridlinesXml(yAxis) + axisTitleXml(yAxis, horizontal ? 0 : -90) + `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(yAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` + axisTicksXml(yAxis) + axisTextXml(yAxis) + `<c:crossAx val="${catAxId}"/>` + axisUnitXml(yAxis) + `</c:valAx>` + (secondaryValAxId ? `<c:valAx><c:axId val="${secondaryValAxId}"/>` + scalingXml(secondaryYAxis) + `<c:delete val="${secondaryYAxis?.show === false ? 1 : 0}"/><c:axPos val="${horizontal ? "t" : "r"}"/>` + axisGridlinesXml(secondaryYAxis) + axisTitleXml(secondaryYAxis, horizontal ? 0 : 90) + `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(secondaryYAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` + axisTicksXml(secondaryYAxis) + axisTextXml(secondaryYAxis) + `<c:crossAx val="${catAxId}"/><c:crosses val="max"/>` + axisUnitXml(secondaryYAxis) + `</c:valAx>` : "");
+  return `<c:catAx><c:axId val="${catAxId}"/>` + scalingXml(xAxis) + `<c:delete val="${xAxis?.show === false ? 1 : 0}"/><c:axPos val="${horizontal ? "l" : "b"}"/>` + axisGridlinesXml(xAxis) + axisTitleXml(xAxis, horizontal ? -90 : 0, fallbackTextColor) + axisTicksXml(xAxis) + axisTextXml(xAxis, fallbackTextColor) + `<c:crossAx val="${valAxId}"/></c:catAx><c:valAx><c:axId val="${valAxId}"/>` + scalingXml(yAxis) + `<c:delete val="${yAxis?.show === false ? 1 : 0}"/><c:axPos val="${horizontal ? "b" : "l"}"/>` + axisGridlinesXml(yAxis) + axisTitleXml(yAxis, horizontal ? 0 : -90, fallbackTextColor) + `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(yAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` + axisTicksXml(yAxis) + axisTextXml(yAxis, fallbackTextColor) + `<c:crossAx val="${catAxId}"/>` + axisUnitXml(yAxis) + `</c:valAx>` + (secondaryValAxId ? `<c:valAx><c:axId val="${secondaryValAxId}"/>` + scalingXml(secondaryYAxis) + `<c:delete val="${secondaryYAxis?.show === false ? 1 : 0}"/><c:axPos val="${horizontal ? "t" : "r"}"/>` + axisGridlinesXml(secondaryYAxis) + axisTitleXml(secondaryYAxis, horizontal ? 0 : 90, fallbackTextColor) + `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(secondaryYAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` + axisTicksXml(secondaryYAxis) + axisTextXml(secondaryYAxis, fallbackTextColor) + `<c:crossAx val="${catAxId}"/><c:crosses val="max"/>` + axisUnitXml(secondaryYAxis) + `</c:valAx>` : "");
 }
 function scalingXml(axis) {
   const parts = [`<c:orientation val="minMax"/>`];
@@ -14614,17 +14664,21 @@ function axisTicksXml(axis) {
 function tickMarkXml(value) {
   return value === "in" ? "in" : value === "cross" ? "cross" : value === "none" ? "none" : "out";
 }
-function axisTextXml(axis) {
-  if (typeof axis?.tickLabelRotation !== "number")
+function axisTextXml(axis, fallbackTextColor) {
+  const color2 = axis?.color ?? fallbackTextColor;
+  if (typeof axis?.tickLabelRotation !== "number" && !color2)
     return "";
-  const rot = Math.round(-axis.tickLabelRotation * 6e4);
-  return `<c:txPr><a:bodyPr rot="${rot}"/><a:lstStyle/><a:p><a:pPr/><a:endParaRPr lang="en-US"/></a:p></c:txPr>`;
+  const rot = typeof axis?.tickLabelRotation === "number" ? Math.round(-axis.tickLabelRotation * 6e4) : void 0;
+  const bodyAttrs = rot === void 0 ? "" : ` rot="${rot}"`;
+  const pPr = color2 ? `<a:pPr>${defaultRunPrXml(color2, 1e3)}</a:pPr>` : `<a:pPr/>`;
+  return `<c:txPr><a:bodyPr${bodyAttrs}/><a:lstStyle/><a:p>${pPr}<a:endParaRPr lang="en-US"/></a:p></c:txPr>`;
 }
-function axisTitleXml(axis, rotationDegrees = 0) {
+function axisTitleXml(axis, rotationDegrees = 0, fallbackTextColor) {
   if (!axis?.title)
     return "";
   const rot = Math.round(rotationDegrees * 6e4);
-  return `<c:title><c:tx><c:rich><a:bodyPr rot="${rot}" spcFirstLastPara="1" vertOverflow="ellipsis" wrap="square" anchor="ctr" anchorCtr="1"/><a:lstStyle/><a:p><a:pPr algn="ctr"><a:defRPr sz="1000" b="1"/></a:pPr><a:r><a:rPr lang="en-US" sz="1000" b="1"/><a:t>${xmlEscapeText(axis.title)}</a:t></a:r></a:p></c:rich></c:tx><c:layout/><c:overlay val="0"/></c:title>`;
+  const titleColor = axis.titleColor ?? axis.color ?? fallbackTextColor ?? DEFAULT_CHART_TEXT_COLOR;
+  return `<c:title><c:tx><c:rich><a:bodyPr rot="${rot}" spcFirstLastPara="1" vertOverflow="ellipsis" wrap="square" anchor="ctr" anchorCtr="1"/><a:lstStyle/><a:p><a:pPr algn="ctr">${defaultRunPrXml(titleColor, 1e3, true)}</a:pPr><a:r><a:rPr lang="en-US" sz="1000" b="1">${solidFillXml(titleColor)}</a:rPr><a:t>${xmlEscapeText(axis.title)}</a:t></a:r></a:p></c:rich></c:tx><c:layout/><c:overlay val="0"/></c:title>`;
 }
 function axisGridlinesXml(axis) {
   const grid = axis?.gridlines;
@@ -15026,5403 +15080,6 @@ function notesMasterRelsXml() {
 </Relationships>`;
 }
 
-// slideml2/dist/emitter/text.js
-var DEFAULT_TEXT_MARGIN_EMU = 91440;
-function txBody(shape, rels) {
-  const margin = shape.margin ?? {};
-  const lIns = margin.l ?? DEFAULT_TEXT_MARGIN_EMU;
-  const tIns = margin.t ?? DEFAULT_TEXT_MARGIN_EMU;
-  const rIns = margin.r ?? DEFAULT_TEXT_MARGIN_EMU;
-  const bIns = margin.b ?? DEFAULT_TEXT_MARGIN_EMU;
-  const anchor = shape.valign === "middle" ? "ctr" : shape.valign === "bottom" ? "b" : "t";
-  const autoFitChild = shape.autoFit === "shrink" ? `<a:normAutofit/>` : shape.autoFit === "resize" ? `<a:spAutoFit/>` : "";
-  const bodyPrAttrs = attr("wrap", shape.wrap ?? "square") + attr("lIns", lIns) + attr("tIns", tIns) + attr("rIns", rIns) + attr("bIns", bIns) + attr("anchor", anchor);
-  const bodyPr = autoFitChild ? `<a:bodyPr${bodyPrAttrs}>${autoFitChild}</a:bodyPr>` : `<a:bodyPr${bodyPrAttrs}/>`;
-  const lstStyle = `<a:lstStyle/>`;
-  const paragraphs = shape.paragraphs.length > 0 ? shape.paragraphs.map((p) => paragraphXml(p, rels)).join("") : `<a:p><a:endParaRPr lang="en-US"/></a:p>`;
-  return `<p:txBody>${bodyPr}${lstStyle}${paragraphs}</p:txBody>`;
-}
-function paragraphXml(p, rels) {
-  const pPr = paragraphPropsXml(p);
-  const runs = p.runs.length > 0 ? p.runs.map((r, i) => runXml(r, i === p.runs.length - 1, rels)).join("") : "";
-  const endRPr = p.runs.length === 0 ? `<a:endParaRPr lang="en-US"/>` : "";
-  return `<a:p>${pPr}${runs}${endRPr}</a:p>`;
-}
-function paragraphPropsXml(p) {
-  const algn = p.align === "center" ? "ctr" : p.align === "right" ? "r" : p.align === "justify" ? "just" : void 0;
-  const lvl = p.indentLevel && p.indentLevel > 0 ? p.indentLevel : void 0;
-  const lnSpc = p.lineSpacingHalfPt ? `<a:lnSpc><a:spcPts val="${Math.round(p.lineSpacingHalfPt * 50)}"/></a:lnSpc>` : "";
-  const spcAft = p.spaceAfterHalfPt ? `<a:spcAft><a:spcPts val="${Math.round(p.spaceAfterHalfPt * 50)}"/></a:spcAft>` : "";
-  let bullet = "";
-  if (p.bullet && "auto" in p.bullet && p.bullet.auto) {
-    bullet = `<a:buChar char="\u2022"/>`;
-  } else if (p.bullet && "number" in p.bullet && p.bullet.number) {
-    bullet = `<a:buAutoNum type="arabicPeriod"/>`;
-  } else if (p.bullet && "char" in p.bullet && typeof p.bullet.char === "string" && p.bullet.char.length > 0) {
-    const buClr = typeof p.bullet.color === "string" ? `<a:buClr><a:srgbClr val="${p.bullet.color.toUpperCase()}"/></a:buClr>` : "";
-    const sizeRaw = typeof p.bullet.sizePct === "number" ? p.bullet.sizePct : 0;
-    const sizeClamped = sizeRaw > 0 ? Math.max(0.25, Math.min(4, sizeRaw)) : 0;
-    const buSz = sizeClamped > 0 ? `<a:buSzPct val="${Math.round(sizeClamped * 1e5)}"/>` : "";
-    const buFont = typeof p.bullet.font === "string" && p.bullet.font.length > 0 ? `<a:buFont typeface="${xmlEscape(p.bullet.font)}"/>` : "";
-    bullet = `${buClr}${buSz}${buFont}<a:buChar char="${xmlEscape(p.bullet.char)}"/>`;
-  } else if (!p.bullet) {
-    bullet = `<a:buNone/>`;
-  }
-  const marginLeft = typeof p.marginLeft === "number" ? Math.max(0, Math.round(p.marginLeft)) : void 0;
-  const hanging = typeof p.hanging === "number" ? Math.round(p.hanging) : void 0;
-  const attrs = attr("marL", marginLeft ?? (lvl ? lvl * 285750 : void 0)) + attr("lvl", lvl) + attr("indent", hanging ?? (lvl ? -285750 : void 0)) + attr("algn", algn);
-  const inner = `${lnSpc}${spcAft}${bullet}`;
-  if (!attrs && !inner)
-    return "";
-  return `<a:pPr${attrs}>${inner}</a:pPr>`;
-}
-function runXml(run, isLast, rels) {
-  if (run.mathOmml) {
-    if (run.color)
-      assertHex(run.color, "TextRun.color");
-    const mathOmml = run.color ? mathOmmlWithRunColor(run.mathOmml, run.color) : run.mathOmml;
-    const softBreak2 = run.breakLine && !isLast ? `<a:br><a:rPr lang="en-US"/></a:br>` : "";
-    return `<a14:m xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${mathOmml}</a14:m>${softBreak2}`;
-  }
-  if (run.color)
-    assertHex(run.color, "TextRun.color");
-  const szValue = run.sizeHalfPt !== void 0 ? Math.round(run.sizeHalfPt * 50) : void 0;
-  const underlined = run.underline ?? !!run.hyperlink;
-  const baselineValue = typeof run.baseline === "number" && run.baseline !== 0 ? Math.round(run.baseline * 1e3) : void 0;
-  const rPrAttrs = attr("lang", "en-US") + attr("sz", szValue) + attr("b", run.bold) + attr("i", run.italic) + (underlined ? ` u="sng"` : "") + (run.strike ? ` strike="sngStrike"` : "") + attr("baseline", baselineValue) + attr("spc", typeof run.letterSpacing === "number" ? Math.round(run.letterSpacing) : void 0) + attr("dirty", "0");
-  const fillXml = run.color ? `<a:solidFill><a:srgbClr val="${run.color.toUpperCase()}"/></a:solidFill>` : "";
-  const highlightXml = run.highlight ? (assertHex(run.highlight, "TextRun.highlight"), `<a:highlight><a:srgbClr val="${run.highlight.toUpperCase()}"/></a:highlight>`) : "";
-  let fontsXml = "";
-  if (run.fontFace || run.cjk || run.mono) {
-    const latinFace = xmlEscape(run.fontFace ?? "Calibri");
-    const eaFace = run.cjk ? xmlEscape(run.eastAsianFontFace ?? run.fontFace ?? "PingFang SC") : void 0;
-    const csFace = run.mono ? xmlEscape(run.complexScriptFontFace ?? run.fontFace ?? "Menlo") : void 0;
-    fontsXml += `<a:latin typeface="${latinFace}"/>`;
-    if (eaFace !== void 0)
-      fontsXml += `<a:ea typeface="${eaFace}"/>`;
-    if (csFace !== void 0)
-      fontsXml += `<a:cs typeface="${csFace}"/>`;
-  }
-  let hlinkXml = "";
-  if (run.hyperlink && rels) {
-    const rId = rels.addHyperlink(run.hyperlink);
-    const action = isInternalSlideLink(run.hyperlink) ? ` action="ppaction://hlinksldjump"` : "";
-    hlinkXml = `<a:hlinkClick xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${rId}"${action}/>`;
-  }
-  const rPr = `<a:rPr${rPrAttrs}>${fillXml}${highlightXml}${fontsXml}${hlinkXml}</a:rPr>`;
-  const softBreak = run.breakLine && !isLast ? `<a:br><a:rPr lang="en-US"/></a:br>` : "";
-  const text = `<a:t xml:space="preserve">${escapeText(run.text)}</a:t>`;
-  return `<a:r>${rPr}${text}</a:r>${softBreak}`;
-}
-function mathOmmlWithRunColor(omml, hex) {
-  const colorPr = `<w:rPr><w:color w:val="${hex.toUpperCase()}"/></w:rPr>`;
-  return omml.replace(/<m:r>(<m:rPr>[\s\S]*?<\/m:rPr>)?(<w:rPr>[\s\S]*?<\/w:rPr>)?/g, (_match, mathPr = "", wordPr = "") => {
-    if (!wordPr)
-      return `<m:r>${mathPr}${colorPr}`;
-    const patchedWordPr = /<w:color\b/.test(wordPr) ? wordPr.replace(/<w:color\b[^>]*\/>/, `<w:color w:val="${hex.toUpperCase()}"/>`) : wordPr.replace("</w:rPr>", `<w:color w:val="${hex.toUpperCase()}"/></w:rPr>`);
-    return `<m:r>${mathPr}${patchedWordPr}`;
-  });
-}
-function isInternalSlideLink(target) {
-  return /^#?slide\d+$/i.test(target.trim()) || /^slide:\d+$/i.test(target.trim());
-}
-
-// slideml2/dist/emitter/table.js
-var URI_TABLE = "http://schemas.openxmlformats.org/drawingml/2006/table";
-var DEFAULT_BORDER_COLOR = "BFBFBF";
-var DEFAULT_TABLE_STYLE_ID = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}";
-var TABLE_STYLE_ALIASES = {
-  lightgridaccent1: "{5940675A-B579-460E-94D1-54222C63F5DA}",
-  mediumgridaccent1: DEFAULT_TABLE_STYLE_ID
-};
-var KNOWN_TABLE_STYLE_IDS = /* @__PURE__ */ new Set([
-  DEFAULT_TABLE_STYLE_ID,
-  ...Object.values(TABLE_STYLE_ALIASES)
-]);
-function tableGraphicFrameXml(shape) {
-  const nvGFP = `<p:nvGraphicFramePr><p:cNvPr id="${shape.id}" name="${shape.name ?? `Table ${shape.id}`}"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>`;
-  const xfrm2 = `<p:xfrm><a:off x="${Math.round(shape.xfrm.x)}" y="${Math.round(shape.xfrm.y)}"/><a:ext cx="${Math.round(shape.xfrm.cx)}" cy="${Math.round(shape.xfrm.cy)}"/></p:xfrm>`;
-  const tbl = tblXml(shape);
-  const graphic = `<a:graphic><a:graphicData uri="${URI_TABLE}">` + tbl + `</a:graphicData></a:graphic>`;
-  return `<p:graphicFrame>${nvGFP}${xfrm2}${graphic}</p:graphicFrame>`;
-}
-function tblXml(shape) {
-  const tableStyleId = normalizeTableStyleId(shape.tableStyleId);
-  const tblPr = `<a:tblPr firstRow="${shape.firstRowHeader ? 1 : 0}" bandRow="${shape.bandRows === false ? 0 : 1}" bandCol="${shape.bandCols ? 1 : 0}" firstCol="${shape.firstCol ? 1 : 0}" lastCol="${shape.lastCol ? 1 : 0}" lastRow="${shape.lastRow ? 1 : 0}"><a:tableStyleId>${xmlEscape2(tableStyleId)}</a:tableStyleId></a:tblPr>`;
-  const tblGrid = `<a:tblGrid>` + shape.colWidths.map((w) => `<a:gridCol w="${Math.round(w)}"/>`).join("") + `</a:tblGrid>`;
-  const rows = shape.cells.map((row, ri) => rowXml(row, shape.rowHeights[ri] ?? 0, shape, ri)).join("");
-  return `<a:tbl>${tblPr}${tblGrid}${rows}</a:tbl>`;
-}
-function normalizeTableStyleId(value) {
-  if (!value)
-    return DEFAULT_TABLE_STYLE_ID;
-  const trimmed = value.trim();
-  if (/^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$/.test(trimmed)) {
-    const upper = trimmed.toUpperCase();
-    return KNOWN_TABLE_STYLE_IDS.has(upper) ? upper : DEFAULT_TABLE_STYLE_ID;
-  }
-  return TABLE_STYLE_ALIASES[trimmed.replace(/[\s_-]+/g, "").toLowerCase()] ?? DEFAULT_TABLE_STYLE_ID;
-}
-function rowXml(cells, height, shape, rowIndex) {
-  const cellsXml = cells.map((c) => cellXml(c, shape, rowIndex)).join("");
-  return `<a:tr h="${Math.round(height)}">${cellsXml}</a:tr>`;
-}
-function cellXml(cell, shape, rowIndex) {
-  const isHeader = !!shape.firstRowHeader && rowIndex === 0;
-  const align = cell.align ?? (isHeader ? "left" : "left");
-  const algn = align === "center" ? "ctr" : align === "right" ? "r" : "l";
-  const valign = cell.valign ?? "middle";
-  const anchor = valign === "middle" ? "ctr" : valign === "bottom" ? "b" : "t";
-  const padding = { ...shape.cellPadding, ...cell.padding };
-  const bodyInsets = ` lIns="${Math.round(padding.l ?? 91440)}" tIns="${Math.round(padding.t ?? 45720)}" rIns="${Math.round(padding.r ?? 91440)}" bIns="${Math.round(padding.b ?? 45720)}"`;
-  const rotation = cell.textRotation === 90 ? ` rot="5400000"` : cell.textRotation === 270 ? ` rot="16200000"` : cell.textRotation === "vertical" ? ` vert="vert"` : "";
-  const attrs = [
-    cell.colspan && cell.colspan > 1 ? `gridSpan="${Math.floor(cell.colspan)}"` : "",
-    cell.rowspan && cell.rowspan > 1 ? `rowSpan="${Math.floor(cell.rowspan)}"` : "",
-    cell.hMerge ? `hMerge="1"` : "",
-    cell.vMerge ? `vMerge="1"` : ""
-  ].filter(Boolean).join(" ");
-  const attrText = attrs ? ` ${attrs}` : "";
-  const fill = cell.fill ?? (isHeader ? void 0 : void 0);
-  const txBody2 = `<a:txBody><a:bodyPr wrap="square"${bodyInsets} anchor="${anchor}"${rotation}/><a:lstStyle/><a:p><a:pPr algn="${algn}"/>` + cell.runs.map((r) => runXml2(r)).join("") + (cell.runs.length === 0 ? `<a:endParaRPr lang="en-US"/>` : "") + `</a:p></a:txBody>`;
-  const tcPr = tcPrXml(fill, shape, cell, isHeader);
-  return `<a:tc${attrText}>${txBody2}${tcPr}</a:tc>`;
-}
-function tcPrXml(fill, shape, cell, isHeader) {
-  if (shape.borderColor)
-    assertHex(shape.borderColor, "TableShape.borderColor");
-  const fillXml = fillXmlOf(fill, isHeader);
-  return `<a:tcPr>` + tableLineXml("left", shape, cell) + tableLineXml("right", shape, cell) + tableLineXml("top", shape, cell) + tableLineXml("bottom", shape, cell) + fillXml + `</a:tcPr>`;
-}
-function tableLineXml(side, shape, cell) {
-  const tag = side === "left" ? "lnL" : side === "right" ? "lnR" : side === "top" ? "lnT" : "lnB";
-  const spec = borderForSide(side, shape, cell);
-  if (spec === "none")
-    return `<a:${tag}><a:noFill/></a:${tag}>`;
-  const borderColor = (spec.color ?? shape.borderColor ?? DEFAULT_BORDER_COLOR).toUpperCase();
-  assertHex(borderColor, `TableCell.border.${side}.color`);
-  const borderWidth = Math.max(1, Math.round(spec.width ?? shape.borderWidth ?? 6350));
-  const dash = spec.dash ?? shape.borderDash ?? "solid";
-  const alphaXml = spec.alpha !== void 0 && spec.alpha < 1 ? `<a:alpha val="${Math.round(spec.alpha * 1e5)}"/>` : "";
-  const dashXml = dash && dash !== "solid" ? `<a:prstDash val="${dash}"/>` : `<a:prstDash val="solid"/>`;
-  const lnW = `w="${borderWidth}" cap="flat" cmpd="sng" algn="ctr"`;
-  const lnFill = `<a:solidFill><a:srgbClr val="${borderColor}">${alphaXml}</a:srgbClr></a:solidFill>${dashXml}<a:round/>`;
-  const headLnEnd = `<a:headEnd type="none" w="med" len="med"/><a:tailEnd type="none" w="med" len="med"/>`;
-  return `<a:${tag} ${lnW}>${lnFill}${headLnEnd}</a:${tag}>`;
-}
-function borderForSide(side, shape, cell) {
-  const merged = mergeBorderSpec(side, shape.borders);
-  const cellSpec = mergeBorderSpec(side, cell.border);
-  return cellSpec ?? merged ?? { color: shape.borderColor, width: shape.borderWidth, dash: shape.borderDash };
-}
-function mergeBorderSpec(side, value) {
-  if (!value || typeof value !== "object")
-    return void 0;
-  const rec = value;
-  const sideValue = rec[side];
-  if (sideValue === "none")
-    return "none";
-  const base = {};
-  if (typeof rec.color === "string")
-    base.color = rec.color;
-  if (typeof rec.width === "number")
-    base.width = rec.width;
-  if (rec.dash === "solid" || rec.dash === "dash" || rec.dash === "dashDot" || rec.dash === "dot")
-    base.dash = rec.dash;
-  if (typeof rec.alpha === "number")
-    base.alpha = rec.alpha;
-  if (sideValue && typeof sideValue === "object") {
-    const s = sideValue;
-    if (typeof s.color === "string")
-      base.color = s.color;
-    if (typeof s.width === "number")
-      base.width = s.width;
-    if (s.dash === "solid" || s.dash === "dash" || s.dash === "dashDot" || s.dash === "dot")
-      base.dash = s.dash;
-    if (typeof s.alpha === "number")
-      base.alpha = s.alpha;
-  }
-  return base;
-}
-function fillXmlOf(fill, isHeader) {
-  if (!fill && !isHeader)
-    return "";
-  if (!fill || fill.type === "none")
-    return "";
-  if (fill.type === "gradient") {
-    const stops = fill.stops || [];
-    if (stops.length === 0)
-      return "";
-    const avg = stops.map((s) => s.color);
-    const r = Math.round(avg.reduce((acc, c) => acc + parseInt(c.slice(0, 2), 16), 0) / avg.length);
-    const g = Math.round(avg.reduce((acc, c) => acc + parseInt(c.slice(2, 4), 16), 0) / avg.length);
-    const b = Math.round(avg.reduce((acc, c) => acc + parseInt(c.slice(4, 6), 16), 0) / avg.length);
-    const hex = [r, g, b].map((n) => n.toString(16).padStart(2, "0").toUpperCase()).join("");
-    return `<a:solidFill><a:srgbClr val="${hex}"/></a:solidFill>`;
-  }
-  assertHex(fill.color, "TableCell.fill.color");
-  const alphaXml = fill.alpha !== void 0 && fill.alpha < 1 ? `<a:alpha val="${Math.round(fill.alpha * 1e5)}"/>` : "";
-  return `<a:solidFill><a:srgbClr val="${fill.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:solidFill>`;
-}
-function runXml2(run) {
-  if (run.color)
-    assertHex(run.color, "TableCell.runs[].color");
-  if (run.highlight)
-    assertHex(run.highlight, "TableCell.runs[].highlight");
-  const sz = run.sizeHalfPt !== void 0 ? ` sz="${Math.round(run.sizeHalfPt * 50)}"` : "";
-  const b = run.bold ? ` b="1"` : "";
-  const i = run.italic ? ` i="1"` : "";
-  const u = run.underline ? ` u="sng"` : "";
-  const strike = run.strike ? ` strike="sngStrike"` : "";
-  const baseline = typeof run.baseline === "number" ? ` baseline="${Math.round(run.baseline * 1e3)}"` : "";
-  const spc = typeof run.letterSpacing === "number" ? ` spc="${Math.round(run.letterSpacing)}"` : "";
-  const fill = run.color ? `<a:solidFill><a:srgbClr val="${run.color.toUpperCase()}"/></a:solidFill>` : "";
-  const highlight = run.highlight ? `<a:highlight><a:srgbClr val="${run.highlight.toUpperCase()}"/></a:highlight>` : "";
-  let fonts = "";
-  if (run.fontFace || run.cjk || run.mono) {
-    const latinFace = xmlEscape2(run.fontFace ?? "Calibri");
-    const eaFace = run.cjk ? xmlEscape2(run.eastAsianFontFace ?? run.fontFace ?? "PingFang SC") : void 0;
-    const csFace = run.mono ? xmlEscape2(run.complexScriptFontFace ?? run.fontFace ?? "Menlo") : void 0;
-    fonts += `<a:latin typeface="${latinFace}"/>`;
-    if (eaFace)
-      fonts += `<a:ea typeface="${eaFace}"/>`;
-    if (csFace)
-      fonts += `<a:cs typeface="${csFace}"/>`;
-  }
-  const rPr = `<a:rPr lang="en-US"${sz}${b}${i}${u}${strike}${baseline}${spc} dirty="0">${fill}${highlight}${fonts}</a:rPr>`;
-  return `<a:r>${rPr}<a:t xml:space="preserve">${escapeText(run.text)}</a:t></a:r>`;
-}
-function xmlEscape2(s) {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c] ?? c);
-}
-
-// slideml2/dist/emitter/shapes.js
-var PRESET_TO_GEOM = {
-  rect: "rect",
-  roundRect: "roundRect",
-  ellipse: "ellipse",
-  line: "line",
-  triangle: "triangle",
-  rightTriangle: "rtTriangle",
-  pentagon: "pentagon",
-  diamond: "diamond",
-  hexagon: "hexagon",
-  octagon: "octagon",
-  plus: "plus",
-  trapezoid: "trapezoid",
-  leftBracket: "leftBracket",
-  rightBracket: "rightBracket",
-  leftBrace: "leftBrace",
-  rightBrace: "rightBrace",
-  "arrow-right": "rightArrow",
-  "arrow-left": "leftArrow",
-  "arrow-up": "upArrow",
-  "arrow-down": "downArrow",
-  leftRightArrow: "leftRightArrow",
-  upDownArrow: "upDownArrow",
-  bentArrow: "bentUpArrow",
-  elbowConnector: "bentConnector2",
-  orthogonalConnector: "bentConnector3",
-  curvedConnector: "curvedConnector3",
-  straightConnector: "straightConnector1",
-  callout: "wedgeRectCallout",
-  chevron: "chevron",
-  "star-5": "star5",
-  "star-8": "star8",
-  parallelogram: "parallelogram",
-  flowChartProcess: "flowChartProcess",
-  flowChartDecision: "flowChartDecision",
-  flowChartData: "flowChartData",
-  flowChartTerminator: "flowChartTerminator",
-  flowChartDocument: "flowChartDocument",
-  cylinder: "can",
-  cube: "cube",
-  gear6: "gear6",
-  heart: "heart",
-  lightningBolt: "lightningBolt",
-  cloud: "cloud"
-};
-function shapeXml(shape, slidePart, rels, context = {}) {
-  switch (shape.type) {
-    case "text":
-      return textShapeXml(shape, rels);
-    case "shape":
-      return presetShapeXml(shape, rels, context);
-    case "image":
-      return imageShapeXml(shape, slidePart, rels);
-    case "chart":
-      return chartShapeXml(shape, rels);
-    case "table":
-      return tableShapeXml(shape);
-    case "group":
-      return groupShapeXml(shape, slidePart, rels, context);
-  }
-}
-function tableShapeXml(shape) {
-  return tableGraphicFrameXml(shape);
-}
-function textShapeXml(shape, rels) {
-  const isRoundRect = shape.cornerRadius !== void 0;
-  const nvSpPr = nvSpPrXml(shape.id, shape.name ?? `Text ${shape.id}`, true);
-  const adjustments = isRoundRect ? `<a:avLst><a:gd name="adj" fmla="val ${Math.round(Math.max(0, Math.min(0.5, shape.cornerRadius)) * 5e4)}"/></a:avLst>` : void 0;
-  const spPr = spPrXml(shape.xfrm, isRoundRect ? "roundRect" : "rect", adjustments, shape.fill, shape.line);
-  const runRels = runRelsForSlide(rels);
-  return `<p:sp>${nvSpPr}${spPr}${txBody(shape, runRels)}</p:sp>`;
-}
-function presetShapeXml(shape, rels, context) {
-  if (isConnectorShape(shape))
-    return connectorShapeXml(shape, context);
-  const nvSpPr = nvSpPrXml(shape.id, shape.name ?? `${shape.preset} ${shape.id}`);
-  const geom = PRESET_TO_GEOM[shape.preset];
-  const adjustments = shape.preset === "roundRect" && shape.cornerRadius !== void 0 ? `<a:avLst><a:gd name="adj" fmla="val ${Math.round(Math.max(0, Math.min(0.5, shape.cornerRadius)) * 5e4)}"/></a:avLst>` : `<a:avLst/>`;
-  const spPr = spPrXml(shape.xfrm, geom, adjustments, shape.fill, shape.line, shape.shadow);
-  const body = shape.paragraphs ? txBody({
-    type: "text",
-    id: shape.id,
-    name: shape.name,
-    xfrm: shape.xfrm,
-    paragraphs: shape.paragraphs,
-    margin: shape.margin,
-    valign: shape.valign,
-    wrap: shape.wrap,
-    autoFit: shape.autoFit
-  }, runRelsForSlide(rels)) : `<p:txBody><a:bodyPr wrap="square" rtlCol="0" anchor="ctr"/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody>`;
-  return `<p:sp>${nvSpPr}${spPr}${body}</p:sp>`;
-}
-function isConnectorShape(shape) {
-  return Boolean(shape.connection) && (shape.preset === "straightConnector" || shape.preset === "elbowConnector" || shape.preset === "orthogonalConnector" || shape.preset === "curvedConnector" || shape.preset === "line");
-}
-function connectorShapeXml(shape, context) {
-  const connection = resolveConnectorBinding(shape.connection, context);
-  const nvCxnSpPr = `<p:nvCxnSpPr><p:cNvPr id="${shape.id}" name="${shape.name ?? `${shape.preset} ${shape.id}`}"/><p:cNvCxnSpPr>${connection}</p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr>`;
-  const geom = PRESET_TO_GEOM[shape.preset];
-  const spPr = spPrXml(shape.xfrm, geom, `<a:avLst/>`, { type: "none" }, shape.line, shape.shadow);
-  const emptyStyle = `<p:style><a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef><a:fillRef idx="0"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="tx1"/></a:fontRef></p:style>`;
-  return `<p:cxnSp>${nvCxnSpPr}${spPr}${emptyStyle}</p:cxnSp>`;
-}
-function resolveConnectorBinding(connection, context) {
-  if (!connection)
-    return "";
-  const startId = connection.startShapeId ?? (connection.startShapeName ? context.shapeIdByName?.get(connection.startShapeName) : void 0);
-  const endId = connection.endShapeId ?? (connection.endShapeName ? context.shapeIdByName?.get(connection.endShapeName) : void 0);
-  const start = startId !== void 0 ? `<a:stCxn id="${Math.round(startId)}" idx="${Math.max(0, Math.round(connection.startIdx ?? 2))}"/>` : "";
-  const end = endId !== void 0 ? `<a:endCxn id="${Math.round(endId)}" idx="${Math.max(0, Math.round(connection.endIdx ?? 0))}"/>` : "";
-  return `${start}${end}`;
-}
-function groupShapeXml(shape, slidePart, rels, context) {
-  const nvGrpSpPr = `<p:nvGrpSpPr><p:cNvPr id="${shape.id}" name="${shape.name ?? `Group ${shape.id}`}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`;
-  const grpSpPr = `<p:grpSpPr><a:xfrm><a:off x="${Math.round(shape.xfrm.x)}" y="${Math.round(shape.xfrm.y)}"/><a:ext cx="${Math.round(shape.xfrm.cx)}" cy="${Math.round(shape.xfrm.cy)}"/><a:chOff x="0" y="0"/><a:chExt cx="${Math.round(shape.xfrm.cx)}" cy="${Math.round(shape.xfrm.cy)}"/></a:xfrm></p:grpSpPr>`;
-  const children = shape.children.map((child) => shapeXml(child, slidePart, rels, context)).join("");
-  return `<p:grpSp>${nvGrpSpPr}${grpSpPr}${children}</p:grpSp>`;
-}
-function runRelsForSlide(rels) {
-  return {
-    addHyperlink(target) {
-      const rId = nextRelId(rels);
-      const slideTarget = internalSlideTarget(target);
-      if (slideTarget) {
-        rels.entries.push({
-          id: rId,
-          type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide",
-          target: slideTarget
-        });
-      } else {
-        rels.entries.push({
-          id: rId,
-          type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
-          target,
-          targetMode: "External"
-        });
-      }
-      return rId;
-    }
-  };
-}
-function nextRelId(rels) {
-  return `rId${rels.entries.length + 2}`;
-}
-function internalSlideTarget(target) {
-  const trimmed = target.trim();
-  const match = /^(?:#?slide|slide:)(\d+)$/i.exec(trimmed);
-  if (!match)
-    return void 0;
-  const index = Math.max(1, Math.floor(Number(match[1])));
-  return `../slides/slide${index}.xml`;
-}
-function chartShapeXml(shape, rels) {
-  const rId = nextRelId(rels);
-  rels.entries.push({
-    id: rId,
-    type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart",
-    // Placeholder target; package emitter rewrites to the actual chart filename.
-    target: `../charts/__chart_${shape.id}__.xml`
-  });
-  const nvGFP = `<p:nvGraphicFramePr><p:cNvPr id="${shape.id}" name="${shape.name ?? `Chart ${shape.id}`}"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>`;
-  const xfrm2 = `<p:xfrm><a:off x="${Math.round(shape.xfrm.x)}" y="${Math.round(shape.xfrm.y)}"/><a:ext cx="${Math.round(shape.xfrm.cx)}" cy="${Math.round(shape.xfrm.cy)}"/></p:xfrm>`;
-  const graphic = `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${rId}"/></a:graphicData></a:graphic>`;
-  return `<p:graphicFrame>${nvGFP}${xfrm2}${graphic}</p:graphicFrame>`;
-}
-function imageShapeXml(shape, _slidePart, rels) {
-  const rId = nextRelId(rels);
-  rels.entries.push({
-    id: rId,
-    type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
-    target: `../media/${shape.name ?? `image${shape.id}`}.png`,
-    // package emitter rewrites filename
-    role: "shape-image",
-    assetSrc: shape.src
-  });
-  const nvPicPr = `<p:nvPicPr><p:cNvPr id="${shape.id}" name="${shape.name ?? `Picture ${shape.id}`}"` + (shape.altText ? attr("descr", shape.altText) : "") + `/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>`;
-  const blipInner = [];
-  if (shape.opacity !== void 0 && shape.opacity < 1) {
-    blipInner.push(`<a:alphaModFix amt="${Math.round(Math.max(0, Math.min(1, shape.opacity)) * 1e5)}"/>`);
-  }
-  if (shape.blur !== void 0 && shape.blur > 0) {
-    blipInner.push(`<a:blur rad="${Math.round(shape.blur)}" grow="0"/>`);
-  }
-  if (shape.duotone) {
-    blipInner.push(`<a:duotone><a:srgbClr val="${shape.duotone.dark.toUpperCase()}"/><a:srgbClr val="${shape.duotone.light.toUpperCase()}"/></a:duotone>`);
-  }
-  if (shape.grayscale) {
-    blipInner.push(`<a:grayscl/>`);
-  }
-  if (shape.brightness !== void 0 && shape.brightness !== 0) {
-    const bright = Math.round(Math.max(-1, Math.min(1, shape.brightness)) * 1e5);
-    blipInner.push(`<a:lum bright="${bright}"/>`);
-  }
-  const blipXml = blipInner.length > 0 ? `<a:blip r:embed="${rId}">${blipInner.join("")}</a:blip>` : `<a:blip r:embed="${rId}"/>`;
-  const fit = shape.fit ?? "cover";
-  const explicitCrop = shape.crop;
-  const autoCover = !explicitCrop && fit === "cover" && shape.sourceDimensions ? coverCrop(shape.sourceDimensions.width, shape.sourceDimensions.height, shape.xfrm.cx, shape.xfrm.cy) : void 0;
-  const containInsets = !explicitCrop && fit === "contain" && shape.sourceDimensions ? containFill(shape.sourceDimensions.width, shape.sourceDimensions.height, shape.xfrm.cx, shape.xfrm.cy) : void 0;
-  const cropToUse = explicitCrop ?? autoCover;
-  const srcRectXml = cropToUse ? `<a:srcRect l="${Math.round(Math.max(0, Math.min(1, cropToUse.left ?? 0)) * 1e5)}" r="${Math.round(Math.max(0, Math.min(1, cropToUse.right ?? 0)) * 1e5)}" t="${Math.round(Math.max(0, Math.min(1, cropToUse.top ?? 0)) * 1e5)}" b="${Math.round(Math.max(0, Math.min(1, cropToUse.bottom ?? 0)) * 1e5)}"/>` : "";
-  const fillRectXml = containInsets ? `<a:fillRect l="${Math.round(containInsets.left * 1e5)}" r="${Math.round(containInsets.right * 1e5)}" t="${Math.round(containInsets.top * 1e5)}" b="${Math.round(containInsets.bottom * 1e5)}"/>` : `<a:fillRect/>`;
-  const blipFill = `<p:blipFill>${blipXml}${srcRectXml}<a:stretch>${fillRectXml}</a:stretch></p:blipFill>`;
-  const clip = shape.clip ?? "square";
-  const geom = clip === "circle" ? "ellipse" : clip === "rounded" ? "roundRect" : "rect";
-  const adjustments = clip === "rounded" && shape.cornerRadius !== void 0 ? `<a:avLst><a:gd name="adj" fmla="val ${Math.round(Math.max(0, Math.min(0.5, shape.cornerRadius)) * 5e4)}"/></a:avLst>` : `<a:avLst/>`;
-  const lineXml = shape.border ? lineXmlOf(shape.border) : "";
-  const effectParts = [];
-  if (shape.shadow) {
-    const sh = shape.shadow;
-    const blurEmu = Math.round(sh.blur ?? 76200);
-    const dx = Math.round(sh.dx ?? 0);
-    const dy = Math.round(sh.dy ?? 38100);
-    const dist = Math.round(Math.sqrt(dx * dx + dy * dy));
-    const dirDeg = dist === 0 ? 0 : Math.round(Math.atan2(dy, dx) * 180 / Math.PI * 6e4);
-    const alphaXml = sh.alpha !== void 0 && sh.alpha < 1 ? `<a:alpha val="${Math.round(sh.alpha * 1e5)}"/>` : "";
-    effectParts.push(`<a:outerShdw blurRad="${blurEmu}" dist="${dist}" dir="${dirDeg}" algn="tl" rotWithShape="0"><a:srgbClr val="${sh.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:outerShdw>`);
-  }
-  if (shape.softEdge !== void 0 && shape.softEdge > 0) {
-    const shorter = Math.min(shape.xfrm.cx, shape.xfrm.cy);
-    const rad = Math.round(Math.max(0, Math.min(0.5, shape.softEdge)) * shorter);
-    effectParts.push(`<a:softEdge rad="${rad}"/>`);
-  }
-  const effectLstXml = effectParts.length > 0 ? `<a:effectLst>${effectParts.join("")}</a:effectLst>` : "";
-  const spPr = `<p:spPr>` + xfrmXml(shape.xfrm) + `<a:prstGeom prst="${geom}">${adjustments}</a:prstGeom>` + lineXml + effectLstXml + `</p:spPr>`;
-  let out = `<p:pic>${nvPicPr}${blipFill}${spPr}</p:pic>`;
-  if (shape.overlay) {
-    const ov = shape.overlay;
-    const alphaXml = ov.alpha !== void 0 && ov.alpha < 1 ? `<a:alpha val="${Math.round(ov.alpha * 1e5)}"/>` : "";
-    const overlayId = shape.id + 1e5;
-    const overlayNvSpPr = nvSpPrXml(overlayId, `Overlay ${overlayId}`);
-    const overlaySpPr = `<p:spPr>` + xfrmXml(shape.xfrm) + `<a:prstGeom prst="${geom}">${adjustments}</a:prstGeom><a:solidFill><a:srgbClr val="${ov.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr>`;
-    const emptyTxBody = `<p:txBody><a:bodyPr wrap="square" rtlCol="0" anchor="ctr"/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody>`;
-    out += `<p:sp>${overlayNvSpPr}${overlaySpPr}${emptyTxBody}</p:sp>`;
-  }
-  return out;
-}
-function nvSpPrXml(id, name, isTextBox = false) {
-  const cNvSpPr = isTextBox ? `<p:cNvSpPr txBox="1"/>` : `<p:cNvSpPr/>`;
-  return `<p:nvSpPr><p:cNvPr id="${id}" name="${name}"/>` + cNvSpPr + `<p:nvPr/></p:nvSpPr>`;
-}
-function spPrXml(xfrm2, geom, adjustments, fill, line, shadow) {
-  const fillXml = fillXmlOf2(fill);
-  const lineXml = lineXmlOf(line);
-  const geomXml = `<a:prstGeom prst="${geom}">${adjustments ?? `<a:avLst/>`}</a:prstGeom>`;
-  const effectLstXml = shadow ? buildShadowEffectLst(shadow) : "";
-  return `<p:spPr>${xfrmXml(xfrm2)}${geomXml}${fillXml}${lineXml}${effectLstXml}</p:spPr>`;
-}
-function buildShadowEffectLst(sh) {
-  const blurEmu = Math.round(sh.blur ?? 76200);
-  const dx = Math.round(sh.dx ?? 0);
-  const dy = Math.round(sh.dy ?? 38100);
-  const dist = Math.round(Math.sqrt(dx * dx + dy * dy));
-  const dirDeg = dist === 0 ? 0 : Math.round(Math.atan2(dy, dx) * 180 / Math.PI * 6e4);
-  const alphaXml = sh.alpha !== void 0 && sh.alpha < 1 ? `<a:alpha val="${Math.round(sh.alpha * 1e5)}"/>` : "";
-  return `<a:effectLst><a:outerShdw blurRad="${blurEmu}" dist="${dist}" dir="${dirDeg}" algn="tl" rotWithShape="0"><a:srgbClr val="${sh.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:outerShdw></a:effectLst>`;
-}
-function xfrmXml(xfrm2) {
-  const rotAttr = xfrm2.rot ? attr("rot", Math.round(xfrm2.rot)) : "";
-  const flipAttr = (xfrm2.flipH ? ` flipH="1"` : "") + (xfrm2.flipV ? ` flipV="1"` : "");
-  return `<a:xfrm${rotAttr}${flipAttr}><a:off x="${Math.round(xfrm2.x)}" y="${Math.round(xfrm2.y)}"/><a:ext cx="${Math.round(xfrm2.cx)}" cy="${Math.round(xfrm2.cy)}"/></a:xfrm>`;
-}
-function coverCrop(srcW, srcH, tgtW, tgtH) {
-  if (srcW <= 0 || srcH <= 0 || tgtW <= 0 || tgtH <= 0)
-    return void 0;
-  const srcAspect = srcW / srcH;
-  const tgtAspect = tgtW / tgtH;
-  const EPS = 5e-3;
-  if (Math.abs(srcAspect - tgtAspect) < EPS)
-    return void 0;
-  if (srcAspect > tgtAspect) {
-    const visibleFraction2 = tgtAspect / srcAspect;
-    const totalCrop2 = (1 - visibleFraction2) / 2;
-    return { left: totalCrop2, right: totalCrop2, top: 0, bottom: 0 };
-  }
-  const visibleFraction = srcAspect / tgtAspect;
-  const totalCrop = (1 - visibleFraction) / 2;
-  return { left: 0, right: 0, top: totalCrop, bottom: totalCrop };
-}
-function containFill(srcW, srcH, tgtW, tgtH) {
-  if (srcW <= 0 || srcH <= 0 || tgtW <= 0 || tgtH <= 0)
-    return void 0;
-  const srcAspect = srcW / srcH;
-  const tgtAspect = tgtW / tgtH;
-  const EPS = 5e-3;
-  if (Math.abs(srcAspect - tgtAspect) < EPS)
-    return void 0;
-  if (srcAspect > tgtAspect) {
-    const drawnHeight = tgtW / srcAspect;
-    const totalInset2 = (tgtH - drawnHeight) / tgtH / 2;
-    return { left: 0, right: 0, top: totalInset2, bottom: totalInset2 };
-  }
-  const drawnWidth = tgtH * srcAspect;
-  const totalInset = (tgtW - drawnWidth) / tgtW / 2;
-  return { left: totalInset, right: totalInset, top: 0, bottom: 0 };
-}
-function fillXmlOf2(fill) {
-  if (!fill || fill.type === "none")
-    return `<a:noFill/>`;
-  if (fill.type === "gradient")
-    return gradientFillXml(fill, "Shape.fill");
-  assertHex(fill.color, "Shape.fill.color");
-  const alphaXml = fill.alpha !== void 0 && fill.alpha < 1 ? `<a:alpha val="${Math.round(fill.alpha * 1e5)}"/>` : "";
-  return `<a:solidFill><a:srgbClr val="${fill.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:solidFill>`;
-}
-function gradientFillXml(fill, ownerLabel) {
-  const stops = fill.stops && fill.stops.length >= 2 ? fill.stops : null;
-  if (!stops)
-    return `<a:noFill/>`;
-  const stopXml = stops.slice().sort((a, b) => a.position - b.position).map((stop) => {
-    assertHex(stop.color, `${ownerLabel}.stop.color`);
-    const alphaXml = stop.alpha !== void 0 && stop.alpha < 1 ? `<a:alpha val="${Math.round(stop.alpha * 1e5)}"/>` : "";
-    const pos = Math.max(0, Math.min(100, stop.position));
-    return `<a:gs pos="${Math.round(pos * 1e3)}"><a:srgbClr val="${stop.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:gs>`;
-  }).join("");
-  if (fill.kind === "radial") {
-    return `<a:gradFill flip="none" rotWithShape="1"><a:gsLst>${stopXml}</a:gsLst><a:path path="circle"><a:fillToRect l="50000" t="50000" r="50000" b="50000"/></a:path></a:gradFill>`;
-  }
-  const cssAngle = typeof fill.angle === "number" ? fill.angle : 180;
-  const ooxmlAngle = ((cssAngle - 90) % 360 + 360) % 360;
-  const angleAttr = Math.round(ooxmlAngle * 6e4);
-  return `<a:gradFill flip="none" rotWithShape="1"><a:gsLst>${stopXml}</a:gsLst><a:lin ang="${angleAttr}" scaled="0"/></a:gradFill>`;
-}
-function lineXmlOf(line) {
-  if (!line)
-    return `<a:ln><a:noFill/></a:ln>`;
-  assertHex(line.color, "Shape.line.color");
-  const dashXml = line.dash && line.dash !== "solid" ? `<a:prstDash val="${line.dash}"/>` : "";
-  const compound = lineCompoundXml(line.compound);
-  const compoundXml = compound ? ` cmpd="${compound}"` : "";
-  const alphaXml = line.alpha !== void 0 && line.alpha < 1 ? `<a:alpha val="${Math.round(line.alpha * 1e5)}"/>` : "";
-  const headEnd = lineEndXml("headEnd", line.headEnd);
-  const tailEnd = lineEndXml("tailEnd", line.tailEnd);
-  return `<a:ln w="${Math.round(line.width)}"${compoundXml}><a:solidFill><a:srgbClr val="${line.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:solidFill>` + dashXml + headEnd + tailEnd + `</a:ln>`;
-}
-function lineCompoundXml(value) {
-  switch (value) {
-    case "double":
-      return "dbl";
-    case "thickThin":
-      return "thickThin";
-    case "thinThick":
-      return "thinThick";
-    case "triple":
-      return "tri";
-    case "single":
-    default:
-      return void 0;
-  }
-}
-function lineEndXml(tag, end) {
-  if (!end)
-    return "";
-  const type = end.type === "arrow" ? "triangle" : end.type ?? "none";
-  const width = end.width ?? "med";
-  const length = end.length ?? "med";
-  return `<a:${tag} type="${type}" w="${width}" len="${length}"/>`;
-}
-
-// slideml2/dist/emitter/slide.js
-var SLIDE_NS2 = ` xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"`;
-function slideXml(slide, slidePart) {
-  const rels = { entries: [] };
-  const bgXml = backgroundXml(slide, rels);
-  const groupHeader = `<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>`;
-  const shapeIdByName = collectShapeIds(slide.shapes);
-  const shapesXml = slide.shapes.map((s) => shapeXml(s, slidePart, rels, { shapeIdByName })).join("");
-  const spTree = `<p:spTree>${groupHeader}${shapesXml}</p:spTree>`;
-  const cSld = `<p:cSld>${bgXml}${spTree}</p:cSld>`;
-  const clrMapOvr = `<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>`;
-  const transition = transitionXml(slide);
-  const body = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sld${SLIDE_NS2}>${cSld}${clrMapOvr}${transition}</p:sld>`;
-  return { body, rels };
-}
-function collectShapeIds(shapes, out = /* @__PURE__ */ new Map()) {
-  for (const shape of shapes) {
-    if (typeof shape.name === "string" && shape.name && !out.has(shape.name))
-      out.set(shape.name, shape.id);
-    if (shape.type === "group")
-      collectShapeIds(shape.children, out);
-  }
-  return out;
-}
-function transitionXml(slide) {
-  const t = slide.transition;
-  if (!t || t.type === "none")
-    return "";
-  const speed = transitionSpeed(t.durationMs);
-  const speedAttr = speed ? ` spd="${speed}"` : "";
-  const dir = t.direction === "left" ? "l" : t.direction === "right" ? "r" : t.direction === "up" ? "u" : t.direction === "down" ? "d" : void 0;
-  const dirAttr = dir ? ` dir="${dir}"` : "";
-  switch (t.type) {
-    case "push":
-      return `<p:transition${speedAttr}><p:push${dirAttr}/></p:transition>`;
-    case "wipe":
-      return `<p:transition${speedAttr}><p:wipe${dirAttr}/></p:transition>`;
-    case "split":
-      return `<p:transition${speedAttr}><p:split orient="horz"/></p:transition>`;
-    case "cover":
-      return `<p:transition${speedAttr}><p:cover${dirAttr}/></p:transition>`;
-    case "uncover":
-      return `<p:transition${speedAttr}><p:uncover${dirAttr}/></p:transition>`;
-    case "fade":
-    default:
-      return `<p:transition${speedAttr}><p:fade/></p:transition>`;
-  }
-}
-function transitionSpeed(durationMs) {
-  if (typeof durationMs !== "number" || !Number.isFinite(durationMs))
-    return void 0;
-  const ms = Math.max(0, durationMs);
-  if (ms <= 500)
-    return "fast";
-  if (ms <= 1e3)
-    return "med";
-  return "slow";
-}
-function backgroundXml(slide, rels) {
-  if (!slide.background)
-    return "";
-  if (slide.background.type === "solid") {
-    assertHex(slide.background.color, "Slide.background.color");
-    return `<p:bg><p:bgPr><a:solidFill><a:srgbClr val="${slide.background.color.toUpperCase()}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>`;
-  }
-  if (slide.background.type === "gradient") {
-    return `<p:bg><p:bgPr>` + gradientFillXml(slide.background, "Slide.background") + `<a:effectLst/></p:bgPr></p:bg>`;
-  }
-  const rId = `rId${rels.entries.length + 2}`;
-  rels.entries.push({
-    id: rId,
-    type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
-    target: `../media/__background-${slide.background.src}`,
-    // package emitter rewrites
-    role: "background-image",
-    assetSrc: slide.background.src
-  });
-  return `<p:bg><p:bgPr><a:blipFill dpi="0" rotWithShape="1"><a:blip r:embed="${rId}"/><a:srcRect/><a:stretch><a:fillRect/></a:stretch></a:blipFill><a:effectLst/></p:bgPr></p:bg>`;
-}
-function slideRelsXml(rels, slideLayoutRId) {
-  const layoutRel = `<Relationship Id="${slideLayoutRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>`;
-  const otherRels = rels.entries.map((e) => {
-    const tm = e.targetMode ? ` TargetMode="${xmlEscape(e.targetMode)}"` : "";
-    const target = xmlEscape(e.target);
-    return `<Relationship Id="${xmlEscape(e.id)}" Type="${xmlEscape(e.type)}" Target="${target}"${tm}/>`;
-  }).join("");
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${layoutRel}${otherRels}</Relationships>`;
-}
-
-// slideml2/dist/units.js
-var EMU_PER_INCH = 914400;
-var EMU_PER_CM2 = 36e4;
-var EMU_PER_PT = 12700;
-var inch = (n) => Math.round(n * EMU_PER_INCH);
-function ptToCm(n) {
-  return n * EMU_PER_PT / EMU_PER_CM2;
-}
-function parseLayoutDimensionCm(raw) {
-  if (typeof raw === "number" && Number.isFinite(raw))
-    return raw;
-  if (typeof raw !== "string")
-    return void 0;
-  const value = raw.trim().replace(/,/g, "");
-  if (!value)
-    return void 0;
-  const match = value.match(/^(-?\d+(?:\.\d+)?)(?:\s*(cm|mm|in|pt|px))?$/i);
-  if (!match)
-    return void 0;
-  const amount = Number.parseFloat(match[1] || "");
-  if (!Number.isFinite(amount))
-    return void 0;
-  const unit = (match[2] || "").toLowerCase();
-  if (unit === "cm")
-    return amount;
-  if (unit === "mm")
-    return amount / 10;
-  if (unit === "in")
-    return amount * 2.54;
-  if (unit === "pt")
-    return amount * 2.54 / 72;
-  if (unit === "px")
-    return amount * 2.54 / 96;
-  return amount > 3 && amount <= 96 ? amount * 2.54 / 96 : amount;
-}
-function normalizeStrokeCm(raw, fallbackCm, options = {}) {
-  const minCm = options.minCm ?? 5e-3;
-  const maxCm = options.maxCm ?? 0.18;
-  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
-    return clampNumber(fallbackCm, minCm, maxCm);
-  }
-  const cmValue = raw > 0.3 ? ptToCm(raw) : raw;
-  return clampNumber(cmValue, minCm, maxCm);
-}
-function emuToCm(emu) {
-  return emu / EMU_PER_CM2;
-}
-var SLIDE_SIZES = {
-  "16x9": { width: inch(10), height: inch(5.625) },
-  "16x10": { width: inch(10), height: inch(6.25) },
-  "4x3": { width: inch(10), height: inch(7.5) },
-  "wide": { width: inch(13.333), height: inch(7.5) }
-};
-function clampNumber(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
-
-// slideml2/dist/emitter/package.js
-async function internOrAnnotate(assets, src, context) {
-  try {
-    await assets.intern(src);
-  } catch (err) {
-    const original = err instanceof Error ? err.message : String(err);
-    throw new Error(`${context}: failed to load image "${src}" \u2014 ${original}`);
-  }
-}
-var OFFICE_FALLBACK_COLORS = {
-  dk2: "44546A",
-  lt2: "E7E6E6",
-  accent1: "4472C4",
-  accent2: "ED7D31",
-  accent3: "A5A5A5",
-  accent4: "FFC000",
-  accent5: "5B9BD5",
-  accent6: "70AD47",
-  hlink: "0563C1",
-  folHlink: "954F72"
-};
-var OFFICE_FALLBACK_FONTS = {
-  majorLatin: "Calibri Light",
-  minorLatin: "Calibri"
-};
-async function emitPackage(deck, themeOxml) {
-  if (deck.slides.length === 0) {
-    throw new Error("emitPackage: deck has no slides");
-  }
-  const zip = new import_jszip2.default();
-  const dims = SLIDE_SIZES[deck.size];
-  const author = deck.author ?? "SlideML";
-  const title = deck.title ?? "Presentation";
-  const lang = deck.language ?? "en-US";
-  const chartCount = deck.slides.reduce((acc, slide) => acc + slide.shapes.filter((s) => s.type === "chart").length, 0);
-  const notesIndices = [];
-  deck.slides.forEach((s, i) => {
-    if (s.notes && s.notes.trim().length > 0)
-      notesIndices.push(i + 1);
-  });
-  const hasNotes = notesIndices.length > 0;
-  const assets = new Assets();
-  for (let i = 0; i < deck.slides.length; i++) {
-    const slide = deck.slides[i];
-    const slideNum = i + 1;
-    if (slide.background?.type === "image") {
-      await internOrAnnotate(assets, slide.background.src, `slides[${slideNum}].background`);
-    }
-    for (const shape of slide.shapes) {
-      if (shape.type === "image") {
-        await internOrAnnotate(assets, shape.src, `slides[${slideNum}] image shape "${shape.name ?? shape.id}"`);
-        const entry = assets.get(shape.src);
-        if (entry?.resolved.dimensions && !shape.sourceDimensions) {
-          shape.sourceDimensions = { ...entry.resolved.dimensions };
-        }
-      }
-    }
-  }
-  zip.file("[Content_Types].xml", contentTypesXml(deck.slides.length, assets.extensions(), chartCount, notesIndices));
-  zip.file("_rels/.rels", rootRelsXml());
-  zip.file("docProps/app.xml", appXml(deck.slides.length));
-  zip.file("docProps/core.xml", coreXml(title, author));
-  zip.file("ppt/theme/theme1.xml", themeXml(themeOxml));
-  zip.file("ppt/slideMasters/slideMaster1.xml", slideMasterXml(deck.master));
-  zip.file("ppt/slideMasters/_rels/slideMaster1.xml.rels", slideMasterRelsXml());
-  zip.file("ppt/slideLayouts/slideLayout1.xml", slideLayoutXml(deck.master));
-  zip.file("ppt/slideLayouts/_rels/slideLayout1.xml.rels", slideLayoutRelsXml());
-  if (hasNotes) {
-    zip.file("ppt/notesMasters/notesMaster1.xml", notesMasterXml());
-    zip.file("ppt/notesMasters/_rels/notesMaster1.xml.rels", notesMasterRelsXml());
-    zip.file("ppt/theme/theme2.xml", themeXml());
-  }
-  zip.file("ppt/presentation.xml", presentationXml(deck.slides.length, dims, lang, hasNotes));
-  zip.file("ppt/_rels/presentation.xml.rels", presentationRelsXml(deck.slides.length, hasNotes));
-  zip.file("ppt/presProps.xml", presPropsXml());
-  zip.file("ppt/viewProps.xml", viewPropsXml());
-  zip.file("ppt/tableStyles.xml", tableStylesXml());
-  for (const entry of assets.entries()) {
-    zip.file(`ppt/media/${entry.filename}`, entry.resolved.bytes);
-  }
-  let nextChartIndex = 1;
-  for (let i = 0; i < deck.slides.length; i++) {
-    const slide = deck.slides[i];
-    const slideNum = i + 1;
-    const slidePart = `ppt/slides/slide${slideNum}.xml`;
-    const built = slideXml(slide, slidePart);
-    let imgRelIdx = 0;
-    let chartRelIdx = 0;
-    const imageShapes = slide.shapes.filter((s) => s.type === "image");
-    const chartShapes2 = slide.shapes.filter((s) => s.type === "chart");
-    const slideChartFilenames = [];
-    for (const _chart of chartShapes2) {
-      const chartFilename = `chart${nextChartIndex++}.xml`;
-      slideChartFilenames.push(chartFilename);
-      const workbookFilename = `Microsoft_Excel_Worksheet${nextChartIndex - 1}.xlsx`;
-      zip.file(`ppt/charts/${chartFilename}`, chartXml(_chart, { embeddedWorkbookRelId: "rId1" }));
-      zip.file(`ppt/embeddings/${workbookFilename}`, await chartWorkbookXlsx(_chart));
-      zip.file(`ppt/charts/_rels/${chartFilename}.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/package" Target="../embeddings/${workbookFilename}"/>
-</Relationships>`);
-    }
-    const bgImageSrc = slide.background?.type === "image" ? slide.background.src : void 0;
-    let bgRelConsumed = false;
-    built.rels.entries = built.rels.entries.map((rel) => {
-      if (rel.type.endsWith("/image")) {
-        const explicitSrc = rel.assetSrc;
-        const src = explicitSrc || (bgImageSrc && !bgRelConsumed ? bgImageSrc : imageShapes[imgRelIdx++]?.src);
-        if (rel.role === "background-image" || src === bgImageSrc && !bgRelConsumed) {
-          bgRelConsumed = true;
-        }
-        if (!src)
-          throw new Error(`slides[${slideNum}] image relationship ${rel.id} has no source asset`);
-        const entry = assets.get(src);
-        if (!entry)
-          throw new Error(`slides[${slideNum}] image relationship ${rel.id} references uninterned asset "${src}"`);
-        return { ...rel, target: `../media/${entry.filename}` };
-      }
-      if (rel.type.endsWith("/chart")) {
-        const filename = slideChartFilenames[chartRelIdx++];
-        return { ...rel, target: `../charts/${filename}` };
-      }
-      return rel;
-    });
-    if (slide.notes && slide.notes.trim().length > 0) {
-      const notesFilename = `notesSlide${slideNum}.xml`;
-      zip.file(`ppt/notesSlides/${notesFilename}`, notesSlideXml(slide.notes, slideNum));
-      zip.file(`ppt/notesSlides/_rels/${notesFilename}.rels`, notesSlideRelsXml(slideNum));
-      const nextRId = `rId${built.rels.entries.length + 2}`;
-      built.rels.entries.push({
-        id: nextRId,
-        type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide",
-        target: `../notesSlides/${notesFilename}`
-      });
-    }
-    zip.file(slidePart, built.body);
-    zip.file(`ppt/slides/_rels/slide${slideNum}.xml.rels`, slideRelsXml(built.rels, "rId1"));
-  }
-  for (const path of Object.keys(zip.files)) {
-    if (zip.files[path].dir)
-      delete zip.files[path];
-  }
-  return await zip.generateAsync({
-    type: "nodebuffer",
-    compression: "DEFLATE"
-  });
-}
-function contentTypesXml(slideCount, imageExts, chartCount, notesIndices) {
-  const overrides = [
-    `<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>`,
-    `<Override PartName="/ppt/presProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"/>`,
-    `<Override PartName="/ppt/viewProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"/>`,
-    `<Override PartName="/ppt/tableStyles.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"/>`,
-    `<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>`,
-    `<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>`,
-    `<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>`,
-    `<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>`,
-    `<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>`
-  ];
-  for (let i = 1; i <= slideCount; i++) {
-    overrides.push(`<Override PartName="/ppt/slides/slide${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`);
-  }
-  for (let i = 1; i <= chartCount; i++) {
-    overrides.push(`<Override PartName="/ppt/charts/chart${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`);
-    overrides.push(`<Override PartName="/ppt/embeddings/Microsoft_Excel_Worksheet${i}.xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>`);
-  }
-  if (notesIndices.length > 0) {
-    overrides.push(`<Override PartName="/ppt/notesMasters/notesMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"/>`);
-    overrides.push(`<Override PartName="/ppt/theme/theme2.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>`);
-    for (const i of notesIndices) {
-      overrides.push(`<Override PartName="/ppt/notesSlides/notesSlide${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/>`);
-    }
-  }
-  const defaults = [
-    `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`,
-    `<Default Extension="xml" ContentType="application/xml"/>`
-  ];
-  if (chartCount > 0) {
-    defaults.push(`<Default Extension="xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>`);
-  }
-  const allExts = /* @__PURE__ */ new Set([...imageExts, "png", "jpg"]);
-  for (const ext of allExts) {
-    const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
-    defaults.push(`<Default Extension="${ext}" ContentType="${mime}"/>`);
-  }
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">${defaults.join("")}${overrides.join("")}</Types>`;
-}
-function rootRelsXml() {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
-<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
-<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
-</Relationships>`;
-}
-function appXml(slideCount) {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
-<TotalTime>0</TotalTime>
-<Words>0</Words>
-<Application>SlideML</Application>
-<PresentationFormat>Custom</PresentationFormat>
-<Paragraphs>0</Paragraphs>
-<Slides>${slideCount}</Slides>
-<Notes>0</Notes>
-<HiddenSlides>0</HiddenSlides>
-<MMClips>0</MMClips>
-<ScaleCrop>false</ScaleCrop>
-<HeadingPairs><vt:vector size="2" baseType="variant"><vt:variant><vt:lpstr>Slides</vt:lpstr></vt:variant><vt:variant><vt:i4>${slideCount}</vt:i4></vt:variant></vt:vector></HeadingPairs>
-<TitlesOfParts><vt:vector size="${slideCount}" baseType="lpstr">${"<vt:lpstr>Slide</vt:lpstr>".repeat(slideCount)}</vt:vector></TitlesOfParts>
-<LinksUpToDate>false</LinksUpToDate>
-<SharedDoc>false</SharedDoc>
-<HyperlinksChanged>false</HyperlinksChanged>
-<AppVersion>1.0</AppVersion>
-</Properties>`;
-}
-function coreXml(title, author) {
-  const now = STABLE_OOXML_TIMESTAMP;
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-<dc:title>${escapeForXml(title)}</dc:title>
-<dc:creator>${escapeForXml(author)}</dc:creator>
-<cp:lastModifiedBy>${escapeForXml(author)}</cp:lastModifiedBy>
-<cp:revision>1</cp:revision>
-<dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created>
-<dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified>
-</cp:coreProperties>`;
-}
-function themeXml(themeOxml) {
-  const themeName = themeOxml?.name ?? "Office Theme";
-  const c = themeOxml?.colors ?? OFFICE_FALLBACK_COLORS;
-  const f = themeOxml?.fonts ?? OFFICE_FALLBACK_FONTS;
-  const dk1 = c.dk1 ? `<a:srgbClr val="${c.dk1.toUpperCase()}"/>` : `<a:sysClr val="windowText" lastClr="000000"/>`;
-  const lt1 = c.lt1 ? `<a:srgbClr val="${c.lt1.toUpperCase()}"/>` : `<a:sysClr val="window" lastClr="FFFFFF"/>`;
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="${escapeForXml(themeName)}">
-<a:themeElements>
-<a:clrScheme name="${escapeForXml(themeName)}">
-<a:dk1>${dk1}</a:dk1>
-<a:lt1>${lt1}</a:lt1>
-<a:dk2><a:srgbClr val="${c.dk2.toUpperCase()}"/></a:dk2>
-<a:lt2><a:srgbClr val="${c.lt2.toUpperCase()}"/></a:lt2>
-<a:accent1><a:srgbClr val="${c.accent1.toUpperCase()}"/></a:accent1>
-<a:accent2><a:srgbClr val="${c.accent2.toUpperCase()}"/></a:accent2>
-<a:accent3><a:srgbClr val="${c.accent3.toUpperCase()}"/></a:accent3>
-<a:accent4><a:srgbClr val="${c.accent4.toUpperCase()}"/></a:accent4>
-<a:accent5><a:srgbClr val="${c.accent5.toUpperCase()}"/></a:accent5>
-<a:accent6><a:srgbClr val="${c.accent6.toUpperCase()}"/></a:accent6>
-<a:hlink><a:srgbClr val="${c.hlink.toUpperCase()}"/></a:hlink>
-<a:folHlink><a:srgbClr val="${c.folHlink.toUpperCase()}"/></a:folHlink>
-</a:clrScheme>
-<a:fontScheme name="${escapeForXml(themeName)}">
-<a:majorFont><a:latin typeface="${escapeForXml(f.majorLatin)}"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>
-<a:minorFont><a:latin typeface="${escapeForXml(f.minorLatin)}"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont>
-</a:fontScheme>
-<a:fmtScheme name="Office">
-<a:fillStyleLst>
-<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
-<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
-<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
-</a:fillStyleLst>
-<a:lnStyleLst>
-<a:ln w="6350" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln>
-<a:ln w="12700" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln>
-<a:ln w="19050" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln>
-</a:lnStyleLst>
-<a:effectStyleLst>
-<a:effectStyle><a:effectLst/></a:effectStyle>
-<a:effectStyle><a:effectLst/></a:effectStyle>
-<a:effectStyle><a:effectLst/></a:effectStyle>
-</a:effectStyleLst>
-<a:bgFillStyleLst>
-<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
-<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
-<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
-</a:bgFillStyleLst>
-</a:fmtScheme>
-</a:themeElements>
-<a:objectDefaults/>
-<a:extraClrSchemeLst/>
-</a:theme>`;
-}
-function slideMasterXml(master) {
-  const placeholders = placeholderShapesXml(master, 10);
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-<p:cSld>
-<p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg>
-<p:spTree>
-<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
-<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-${placeholders}
-</p:spTree>
-</p:cSld>
-<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>
-<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst>
-<p:txStyles>
-<p:titleStyle><a:lvl1pPr algn="ctr"><a:defRPr sz="4400"/></a:lvl1pPr></p:titleStyle>
-<p:bodyStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:bodyStyle>
-<p:otherStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:otherStyle>
-</p:txStyles>
-</p:sldMaster>`;
-}
-function slideMasterRelsXml() {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
-<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/>
-</Relationships>`;
-}
-function slideLayoutXml(master) {
-  const placeholders = placeholderShapesXml(master, 100);
-  const layoutName = escapeForXml(master?.layout ?? "Blank");
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank" preserve="1">
-<p:cSld name="${layoutName}">
-<p:spTree>
-<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
-<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
-${placeholders}
-</p:spTree>
-</p:cSld>
-<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
-</p:sldLayout>`;
-}
-function placeholderShapesXml(master, startId) {
-  const entries = Object.entries(master?.placeholders ?? {});
-  return entries.map(([name, ph], index) => {
-    const id = startId + index;
-    const type = placeholderType(ph.type);
-    const idxAttr = ` idx="${index + 1}"`;
-    const x = Math.round(ph.x);
-    const y = Math.round(ph.y);
-    const w = Math.round(ph.w);
-    const h = Math.round(ph.h);
-    return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${escapeForXml(name)}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="${type}"${idxAttr}/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp>`;
-  }).join("");
-}
-function placeholderType(type) {
-  switch (type) {
-    case "title":
-      return "title";
-    case "footer":
-      return "ftr";
-    case "image":
-      return "pic";
-    case "chart":
-    case "table":
-    case "body":
-    default:
-      return "body";
-  }
-}
-function slideLayoutRelsXml() {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>
-</Relationships>`;
-}
-function presentationXml(slideCount, dims, lang, hasNotes) {
-  const sldIdEntries = [];
-  for (let i = 0; i < slideCount; i++) {
-    sldIdEntries.push(`<p:sldId id="${256 + i}" r:id="rId${2 + i}"/>`);
-  }
-  const sldSzType = sizeTypeFor(dims);
-  const notesMasterRId = hasNotes ? `rId${1 + slideCount + 4 + 1}` : null;
-  const notesMasterLst = notesMasterRId ? `<p:notesMasterIdLst><p:notesMasterId r:id="${notesMasterRId}"/></p:notesMasterIdLst>` : "";
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" saveSubsetFonts="1">
-<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>
-${notesMasterLst}
-<p:sldIdLst>${sldIdEntries.join("")}</p:sldIdLst>
-<p:sldSz cx="${dims.width}" cy="${dims.height}" type="${sldSzType}"/>
-<p:notesSz cx="6858000" cy="9144000"/>
-<p:defaultTextStyle>${defaultTextStyleXml(lang)}</p:defaultTextStyle>
-</p:presentation>`;
-}
-function sizeTypeFor(dims) {
-  if (dims.width === 9144e3 && dims.height === 5143500)
-    return "screen16x9";
-  if (dims.width === 9144e3 && dims.height === 5715e3)
-    return "screen16x10";
-  if (dims.width === 9144e3 && dims.height === 6858e3)
-    return "screen4x3";
-  return "custom";
-}
-function defaultTextStyleXml(lang) {
-  const escapedLang = lang.replace(/"/g, "&quot;");
-  const lvl = (n, marL) => `<a:lvl${n}pPr marL="${marL}" algn="l" defTabSz="914400" rtl="0" eaLnBrk="1" latinLnBrk="0" hangingPunct="1"><a:defRPr sz="1800" kern="1200"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill><a:latin typeface="+mn-lt"/><a:ea typeface="+mn-ea"/><a:cs typeface="+mn-cs"/></a:defRPr></a:lvl${n}pPr>`;
-  const indents = [0, 457200, 914400, 1371600, 1828800, 2286e3, 2743200, 3200400, 3657600];
-  const levels = indents.map((m, i) => lvl(i + 1, m)).join("");
-  return `<a:defPPr><a:defRPr lang="${escapedLang}"/></a:defPPr>${levels}`;
-}
-function presentationRelsXml(slideCount, hasNotes) {
-  const slideRels = [];
-  for (let i = 1; i <= slideCount; i++) {
-    slideRels.push(`<Relationship Id="rId${1 + i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i}.xml"/>`);
-  }
-  const finalIds = {
-    master: 1,
-    presProps: 2 + slideCount,
-    viewProps: 3 + slideCount,
-    theme: 4 + slideCount,
-    tableStyles: 5 + slideCount,
-    notesMaster: 6 + slideCount
-  };
-  const notesMasterRel = hasNotes ? `
-<Relationship Id="rId${finalIds.notesMaster}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster" Target="notesMasters/notesMaster1.xml"/>` : "";
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-<Relationship Id="rId${finalIds.master}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>
-${slideRels.join("\n")}
-<Relationship Id="rId${finalIds.presProps}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps" Target="presProps.xml"/>
-<Relationship Id="rId${finalIds.viewProps}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/viewProps" Target="viewProps.xml"/>
-<Relationship Id="rId${finalIds.theme}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>
-<Relationship Id="rId${finalIds.tableStyles}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles" Target="tableStyles.xml"/>${notesMasterRel}
-</Relationships>`;
-}
-function presPropsXml() {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:presentationPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>`;
-}
-function viewPropsXml() {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<p:viewPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
-<p:normalViewPr><p:restoredLeft sz="15620"/><p:restoredTop sz="94660"/></p:normalViewPr>
-<p:slideViewPr><p:cSldViewPr snapToGrid="0"><p:cViewPr varScale="1"><p:scale><a:sx n="100" d="100"/><a:sy n="100" d="100"/></p:scale><p:origin x="0" y="0"/></p:cViewPr><p:guideLst/></p:cSldViewPr></p:slideViewPr>
-<p:notesTextViewPr><p:cViewPr><p:scale><a:sx n="100" d="100"/><a:sy n="100" d="100"/></p:scale><p:origin x="0" y="0"/></p:cViewPr></p:notesTextViewPr>
-<p:gridSpacing cx="76200" cy="76200"/>
-</p:viewPr>`;
-}
-function tableStylesXml() {
-  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" def="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"/>`;
-}
-function escapeForXml(s) {
-  return xmlEscape(s);
-}
-
-// slideml2/dist/components.js
-var DECORATION_MARKER_SHAPES = /* @__PURE__ */ new Set([
-  "dot",
-  "ring",
-  "square",
-  "rounded-square",
-  "diamond",
-  "side-bar",
-  "slash",
-  "index-chip"
-]);
-function decorationMarkerNode(slideId, id, marker, defaults = {}) {
-  const spec = normalizeDecorationMarker(marker, defaults);
-  if (!spec)
-    return void 0;
-  const dims = decorationMarkerDimensionsCm(spec.shape, markerSizeCm(spec.size), spec.content);
-  return {
-    id: `${slideId}.${id}`,
-    type: "shape",
-    role: "item-marker",
-    marker: spec,
-    fixedWidth: dims.w,
-    fixedHeight: dims.h,
-    align: "start",
-    valign: defaults.valign || "middle",
-    optional: true,
-    ...spec.content ? {
-      text: spec.content,
-      style: "label",
-      bold: true,
-      color: decorationMarkerContentColor(spec.tone, spec.variant),
-      autoFit: "shrink",
-      noWrap: true
-    } : {}
-  };
-}
-function normalizeDecorationMarker(marker, defaults) {
-  if (marker === void 0)
-    return null;
-  const rawShape = typeof marker === "string" ? marker : marker?.shape ?? marker?.marker ?? marker?.preset ?? marker?.type ?? defaults.shape;
-  const shape = normalizeDecorationMarkerShape(rawShape);
-  const explicitContent = typeof marker === "object" ? marker.content ?? marker.glyph ?? marker.text : void 0;
-  const content = normalizeDecorationMarkerContent(explicitContent ?? (shape ? void 0 : rawShape));
-  const fallbackShape = normalizeDecorationMarkerShape(defaults.shape) || "rounded-square";
-  const resolvedShape = shape || (content ? fallbackShape : null);
-  if (!resolvedShape)
-    return null;
-  const explicitVariant = typeof marker === "object" ? marker.variant : void 0;
-  return {
-    shape: resolvedShape,
-    tone: (typeof marker === "object" ? marker.tone : void 0) || defaults.tone || "brand",
-    variant: explicitVariant || (content ? "badge" : defaults.variant) || "tint",
-    size: (typeof marker === "object" ? marker.size : void 0) || defaults.size || "sm",
-    ...content ? { content } : {}
-  };
-}
-function normalizeDecorationMarkerShape(value) {
-  if (typeof value !== "string")
-    return null;
-  const normalized = value === "rect" ? "square" : value === "roundRect" || value === "roundedSquare" || value === "round-square" || value === "rounded-rect" ? "rounded-square" : value === "ellipse" ? "dot" : value === "bar" || value === "stripe" || value === "side-rail" ? "side-bar" : value === "chip" || value === "index" ? "index-chip" : value;
-  return DECORATION_MARKER_SHAPES.has(normalized) ? normalized : null;
-}
-function normalizeDecorationMarkerContent(value) {
-  if (typeof value !== "string")
-    return void 0;
-  const trimmed = value.trim();
-  if (!trimmed)
-    return void 0;
-  const glyphs = Array.from(trimmed);
-  if (glyphs.length > 3)
-    return void 0;
-  return trimmed;
-}
-function decorationMarkerContentColor(tone, variant) {
-  if (tone === "neutral" || tone === "muted")
-    return "text.primary";
-  if (variant === "solid" || variant === "badge")
-    return "text.inverse";
-  if (tone === "positive")
-    return "success";
-  if (tone === "warning")
-    return "warning";
-  if (tone === "danger")
-    return "danger";
-  return "brand.primary";
-}
-function markerSizeCm(value) {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0)
-    return Math.max(0.12, Math.min(0.9, value));
-  if (value === "xs")
-    return 0.18;
-  if (value === "sm")
-    return 0.28;
-  if (value === "lg")
-    return 0.52;
-  if (value === "xl")
-    return 0.68;
-  return 0.38;
-}
-function decorationMarkerDimensionsCm(shape, size, content) {
-  if (content) {
-    const glyphSize = Math.max(0.42, size);
-    const widthMultiplier = Math.max(1, Math.min(1.6, Array.from(content).length * 0.62));
-    return { w: glyphSize * widthMultiplier, h: glyphSize };
-  }
-  if (shape === "side-bar")
-    return { w: Math.max(0.06, size * 0.22), h: Math.max(0.55, size * 1.9) };
-  if (shape === "slash")
-    return { w: Math.max(0.5, size * 1.55), h: Math.max(0.16, size * 0.32) };
-  if (shape === "index-chip")
-    return { w: size * 1.35, h: size };
-  return { w: size, h: size };
-}
-function textChipWidthCm(text, options = {}) {
-  const min = options.min ?? 1;
-  const max = options.max ?? 4.2;
-  const padding = options.padding ?? 0.62;
-  const cjk = options.cjk ?? 0.34;
-  const latin = options.latin ?? 0.18;
-  let width = padding;
-  for (const ch of text) {
-    if (/\s/.test(ch))
-      width += latin * 0.55;
-    else
-      width += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? cjk : isWideVisualSymbol(ch) ? cjk * 1.06 : latin;
-  }
-  return Math.max(min, Math.min(max, width));
-}
-function isWideVisualSymbol(ch) {
-  return /[\u2605\u2606\u2713\u2714\u2717\u2715\u2716\u26a0\u25cf\u25cb\u25c6\u25c7\u25a0\u25a1\u25b2\u25b3\u25b6\u25b7\u25bc\u25bd]/.test(ch);
-}
-function applyAgentSurface(node, options = {}) {
-  const merged = { ...options, ...options.surface || {} };
-  const out = { ...node };
-  if (typeof merged.fill === "string")
-    out.fill = merged.fill;
-  if (typeof merged.fillOpacity === "number")
-    out.fillOpacity = merged.fillOpacity;
-  if (typeof merged.line === "string")
-    out.line = merged.line;
-  if (typeof merged.lineOpacity === "number")
-    out.lineOpacity = merged.lineOpacity;
-  if (typeof merged.lineWidth === "number")
-    out.lineWidth = merged.lineWidth;
-  if (merged.lineDash) {
-    out.lineDash = merged.lineDash;
-    if (merged.lineDash === "solid")
-      delete out.dash;
-    else
-      out.dash = merged.lineDash;
-  }
-  if (typeof merged.borderColor === "string")
-    out.line = merged.borderColor;
-  if (typeof merged.borderWidth === "number")
-    out.lineWidth = merged.borderWidth;
-  if (merged.borderStyle) {
-    out.borderStyle = merged.borderStyle;
-    if (merged.borderStyle === "solid")
-      delete out.dash;
-    else
-      out.dash = merged.borderStyle;
-  }
-  if (typeof merged.cornerRadius === "number")
-    out.cornerRadius = merged.cornerRadius;
-  if (merged.border && typeof merged.border === "object") {
-    if (typeof merged.border.color === "string")
-      out.line = merged.border.color;
-    if (typeof merged.border.width === "number")
-      out.lineWidth = merged.border.width;
-    if (merged.border.style) {
-      out.borderStyle = merged.border.style;
-      if (merged.border.style === "solid")
-        delete out.dash;
-      else
-        out.dash = merged.border.style;
-    }
-    if (typeof merged.border.cornerRadius === "number")
-      out.cornerRadius = merged.border.cornerRadius;
-  } else if (typeof merged.border === "string") {
-    out.line = merged.border;
-  }
-  if (typeof merged.padding === "number")
-    out.padding = merged.padding;
-  if (merged.elevation)
-    out.elevation = merged.elevation;
-  if (merged.shadow && typeof merged.shadow === "object")
-    out.shadow = merged.shadow;
-  if (merged.gradient && typeof merged.gradient === "object")
-    out.gradient = merged.gradient;
-  if (merged.accent === "none" || merged.accent === "left" || merged.accent === "top")
-    out.accent = merged.accent;
-  if (typeof merged.accentColor === "string")
-    out.accentColor = merged.accentColor;
-  if (typeof merged.accentWidth === "number")
-    out.accentWidth = merged.accentWidth;
-  return out;
-}
-function richContent(value) {
-  if (!Array.isArray(value))
-    return void 0;
-  const runs = value.filter((run) => {
-    if (!run || typeof run !== "object" || Array.isArray(run))
-      return false;
-    const rec = run;
-    if (typeof rec.text === "string")
-      return true;
-    return rec.kind === "math" || rec.kind === "cite" || rec.kind === "footnoteRef" || rec.kind === "icon" || rec.kind === "token";
-  });
-  return runs.length ? runs : void 0;
-}
-function textWithRichContent(text, content) {
-  const runs = richContent(content);
-  return runs ? { text, content: runs } : { text };
-}
-function toneColor(tone, fallback = "brand.primary") {
-  if (tone === "positive" || tone === "success" || tone === "good")
-    return "success";
-  if (tone === "warning" || tone === "caution" || tone === "warn")
-    return "warning";
-  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative")
-    return "danger";
-  if (tone === "neutral" || tone === "muted")
-    return "text.muted";
-  if (tone === "flat")
-    return "text.muted";
-  return fallback;
-}
-function toneAccentColor(tone, fallback = "brand.primary") {
-  if (tone === "positive" || tone === "success" || tone === "good")
-    return "success.accent";
-  if (tone === "warning" || tone === "caution" || tone === "warn")
-    return "warning.accent";
-  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative")
-    return "danger.accent";
-  if (tone === "neutral" || tone === "muted" || tone === "flat")
-    return "divider";
-  return fallback;
-}
-function titleText(slideId, id, text) {
-  return { id: `${slideId}.${id}`, type: "slide-title", text, align: "left" };
-}
-function paragraphText(slideId, id, text) {
-  return { id: `${slideId}.${id}`, type: "text", text, align: "left", style: "paragraph" };
-}
-function bulletList(slideId, id, items, density = "comfortable") {
-  return { id: `${slideId}.${id}`, type: "bullets", items, density };
-}
-function imageBlock(slideId, id, src, alt, fit = "cover") {
-  return { id: `${slideId}.${id}`, type: "image", src, alt, fit };
-}
-function imageWithCaptionPanel(slideId, imageSrc, imageTitle) {
-  const image = { ...imageBlock(slideId, "brief-image", imageSrc, imageTitle, "contain"), caption: imageTitle };
-  return {
-    id: `${slideId}.visualPanel`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.3,
-    role: "image-with-caption",
-    children: [
-      { ...image, layoutWeight: 1, minHeight: 6.8 }
-    ]
-  };
-}
-function metricCard(slideId, id, value, label, options = {}) {
-  const trend = options.trend;
-  const unit = options.unit && options.unit.trim() ? options.unit.trim() : "";
-  const statusColor = toneColor(options.status, "");
-  const valueColor = statusColor || (trend === "up" ? "success" : trend === "down" ? "danger" : trend === "flat" ? "text.muted" : "brand.primary");
-  const labelColor = statusColor || (trend === "up" ? "success" : trend === "down" ? "danger" : "text.muted");
-  const dense = options.density === "compact" || options.variant === "compact";
-  const content = unit ? [{ text: value, color: valueColor }, { text: ` ${unit}`, color: "text.muted" }] : [];
-  const valueSize = metricValueSize(value, dense);
-  const peerAligned = options.peerAligned === true;
-  const valueBandHeight = peerAligned ? dense ? 0.74 : 1.65 : void 0;
-  const labelBandHeight = peerAligned ? dense ? 0.34 : 1.05 : void 0;
-  const deltaBandHeight = peerAligned ? dense ? 0.3 : 0.36 : void 0;
-  const valueNode = {
-    id: `${slideId}.${id}.value`,
-    type: "text",
-    text: value,
-    style: "metric-value",
-    color: valueColor,
-    align: "center",
-    valign: "bottom",
-    autoFit: "shrink",
-    noWrap: true,
-    ...valueSize ? { size: valueSize } : {},
-    ...dense && peerAligned ? { fontScale: 0.82 } : {},
-    ...content.length > 0 ? { content } : {}
-  };
-  const valueWrap = {
-    id: `${slideId}.${id}.value-wrap`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0,
-    align: "center",
-    valign: "bottom",
-    ...valueBandHeight !== void 0 ? { fixedHeight: valueBandHeight, maxHeight: valueBandHeight } : { maxHeight: dense ? 1.55 : metricValueNeedsCompactScale(value) ? 1.85 : 2.4, layoutWeight: 2 },
-    children: [valueNode]
-  };
-  const spark = (options.sparkline || []).map((v) => typeof v === "number" ? v : Number.parseFloat(String(v))).filter((v) => Number.isFinite(v));
-  const sparkMax = Math.max(1, ...spark);
-  const sparkNodes = spark.slice(0, 12).map((v, idx) => ({
-    id: `${slideId}.${id}.spark.${idx}`,
-    type: "shape",
-    preset: "rect",
-    fill: valueColor,
-    line: valueColor,
-    layoutWeight: 1,
-    fixedHeight: Math.max(0.1, Math.min(0.42, v / sparkMax * 0.42)),
-    valign: "bottom"
-  }));
-  const children = [
-    valueWrap,
-    {
-      id: `${slideId}.${id}.label`,
-      type: "text",
-      text: label,
-      style: "metric-label",
-      color: labelColor,
-      align: "center",
-      valign: "top",
-      ...labelBandHeight !== void 0 ? { fixedHeight: labelBandHeight } : { layoutWeight: 1 },
-      autoFit: "shrink",
-      optional: true
-    }
-  ];
-  if (options.delta || options.comparison) {
-    children.push({
-      id: `${slideId}.${id}.delta`,
-      type: "text",
-      text: [options.delta, options.comparison].filter(Boolean).join(" \xB7 "),
-      style: "label",
-      color: valueColor,
-      align: "center",
-      ...deltaBandHeight !== void 0 ? { fixedHeight: deltaBandHeight } : { minHeight: dense ? 0.25 : 0.35 },
-      autoFit: "shrink",
-      optional: true
-    });
-  }
-  if (sparkNodes.length >= 2) {
-    children.push({
-      id: `${slideId}.${id}.spark`,
-      type: "stack",
-      direction: "horizontal",
-      gap: 0.04,
-      align: "center",
-      valign: "bottom",
-      fixedHeight: 0.45,
-      optional: true,
-      children: sparkNodes
-    });
-  }
-  if (options.source) {
-    children.push({ id: `${slideId}.${id}.source`, type: "text", text: options.source, style: "caption", color: "text.muted", align: "center", minHeight: 0.25, autoFit: "shrink", optional: true });
-  }
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: dense ? 0.1 : 0.18,
-    role: "metric-card",
-    valign: "middle",
-    ...options.variant === "card" ? { fill: "surface", line: "divider", padding: 0.45, cornerRadius: 0.1 } : {},
-    children
-  }, options);
-}
-function metricValueNeedsCompactScale(value) {
-  const weighted = weightedTextLength(value);
-  const cjkCount = Array.from(value).filter((char) => /[\u4e00-\u9fff]/.test(char)).length;
-  return weighted >= 4.2 || cjkCount >= 2 && weighted >= 3 || /^[-+]/.test(value.trim());
-}
-function metricValueSize(value, dense) {
-  if (dense)
-    return "xs";
-  return metricValueNeedsCompactScale(value) ? "sm" : void 0;
-}
-function stepCard(slideId, id, step, title, body, options = {}) {
-  const dense = options.density === "compact" || options.variant === "compact";
-  const status = toneColor(options.status, "text.primary");
-  const iconFill = status === "text.primary" ? "surface.subtle" : status;
-  const meta = [options.owner, options.time].filter(Boolean).join(" \xB7 ");
-  const marker = decorationMarkerNode(slideId, `${id}.marker`, options.marker, {
-    shape: "dot",
-    tone: options.status || "brand",
-    variant: "tint",
-    size: dense ? "xs" : "sm"
-  });
-  const titleRowChildren = [
-    ...marker ? [marker] : options.icon ? [{ id: `${slideId}.${id}.icon`, type: "shape", preset: options.icon, fill: iconFill, line: status, fixedWidth: 0.55, fixedHeight: 0.55, align: "start" }] : [],
-    { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", minHeight: 0.65, autoFit: "shrink", layoutWeight: 1 }
-  ];
-  const children = [
-    { id: `${slideId}.${id}.step`, type: "text", text: step, style: "numbered-step", color: status, minHeight: 0.42, autoFit: "shrink" },
-    {
-      id: `${slideId}.${id}.titleRow`,
-      type: "stack",
-      direction: "horizontal",
-      gap: 0.2,
-      valign: "middle",
-      children: titleRowChildren
-    }
-  ];
-  if (meta)
-    children.push({ id: `${slideId}.${id}.meta`, type: "text", text: meta, style: "label", color: "text.muted", minHeight: 0.35, autoFit: "shrink", optional: true });
-  if (body || richContent(options.content)) {
-    children.push({ id: `${slideId}.${id}.body`, type: "text", ...textWithRichContent(body, options.content), style: "caption", valign: "top", autoFit: "shrink", optional: dense });
-  }
-  if (options.bullets && options.bullets.length)
-    children.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets.slice(0, 4), "compact"), optional: true });
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: dense ? 0.14 : 0.25,
-    role: "step-card",
-    ...options.variant === "card" ? { fill: "surface", line: "divider", padding: 0.5, cornerRadius: 0.1 } : {},
-    children
-  }, options);
-}
-function comparisonCard(slideId, id, title, points, options = {}) {
-  const dense = options.density === "compact" || options.variant === "compact";
-  const crowded = points.length + (options.pros?.length || 0) + (options.cons?.length || 0) + (options.metrics?.length || 0) + (options.body ? 1 : 0) + (options.score ? 1 : 0) > 8;
-  const visiblePoints = points.slice(0, crowded ? 3 : 6);
-  const children = [
-    ...options.badge ? [{ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", uppercase: true, color: options.winner ? "text.inverse" : "text.primary", fill: options.winner ? "brand.primary" : "surface.subtle", cornerRadius: 0.18, align: "center", fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1.2, max: 4.6, padding: 0.6 }), autoFit: "shrink", noWrap: true }] : [],
-    { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.6, autoFit: "shrink" },
-    ...options.subtitle && !crowded ? [{ id: `${slideId}.${id}.subtitle`, type: "text", text: options.subtitle, style: "label", color: "text.muted", minHeight: 0.32, autoFit: "shrink" }] : []
-  ];
-  if (options.score)
-    children.push({ id: `${slideId}.${id}.score`, type: "text", text: options.score, style: crowded ? "label" : "metric-value", color: options.winner ? "brand.primary" : "text.primary", align: "left", minHeight: crowded ? 0.34 : 0.7, autoFit: "shrink" });
-  if ((options.body || richContent(options.content)) && !crowded)
-    children.push({ id: `${slideId}.${id}.body`, type: "text", ...textWithRichContent(options.body || "", options.content), style: "caption", color: "text.primary", autoFit: "shrink", minHeight: 0.45 });
-  if (visiblePoints.length)
-    children.push({ ...bulletList(slideId, `${id}-points`, visiblePoints, "compact"), maxHeight: crowded ? 1.55 : void 0 });
-  if (options.metrics && options.metrics.length) {
-    children.push({
-      id: `${slideId}.${id}.metrics`,
-      type: "stack",
-      direction: "horizontal",
-      gap: 0.2,
-      fixedHeight: 0.5,
-      children: options.metrics.slice(0, crowded ? 2 : 3).map((m, index) => ({
-        id: `${slideId}.${id}.metric${index + 1}`,
-        type: "text",
-        text: `${m.label}: ${m.value}`,
-        style: "label",
-        color: toneColor(m.tone, "text.primary"),
-        fill: "surface.subtle",
-        cornerRadius: 0.12,
-        align: "center",
-        valign: "middle",
-        autoFit: "shrink",
-        layoutWeight: 1
-      }))
-    });
-  }
-  if (options.pros && options.pros.length || options.cons && options.cons.length) {
-    const prosText = (options.pros || []).slice(0, crowded ? 1 : 2).join(" / ");
-    const consText = (options.cons || []).slice(0, crowded ? 1 : 2).join(" / ");
-    children.push({
-      id: `${slideId}.${id}.tradeoff`,
-      type: "grid",
-      columns: 2,
-      gap: 0.2,
-      fixedHeight: crowded ? 0.48 : 0.72,
-      children: [
-        { id: `${slideId}.${id}.pros`, type: "text", text: prosText ? `+ ${prosText}` : "+", style: "caption", color: "success", autoFit: "shrink", valign: "middle" },
-        { id: `${slideId}.${id}.cons`, type: "text", text: consText ? `- ${consText}` : "-", style: "caption", color: "danger", autoFit: "shrink", valign: "middle" }
-      ]
-    });
-  }
-  if (options.footer && !crowded)
-    children.push({ id: `${slideId}.${id}.footer`, type: "text", text: options.footer, style: "caption", color: "text.muted", minHeight: 0.35, autoFit: "shrink" });
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: dense ? 0.16 : 0.25,
-    role: "comparison-card",
-    ...options.variant === "card" || options.winner ? { fill: options.winner ? "brand.tint" : "surface", line: options.winner ? "brand.primary" : "divider", padding: 0.5, cornerRadius: 0.1 } : {},
-    children
-  }, options);
-}
-function insightCallout(slideId, id, text) {
-  return { id: `${slideId}.${id}`, type: "text", text, style: "callout", role: "callout", minHeight: 1, autoFit: "shrink" };
-}
-function numberedListItem(item) {
-  if (typeof item === "string")
-    return item.trim();
-  const title = String(item.title ?? item.headline ?? item.label ?? item.name ?? item.text ?? "").trim();
-  const body = String(item.body ?? item.detail ?? item.description ?? "").trim();
-  if (title && body) {
-    const separator = /[\u4e00-\u9fff\uff00-\uffef]$/.test(title) ? "\uFF1A" : ": ";
-    return {
-      text: `${title}${separator}${body}`,
-      runs: [
-        { text: title, marks: ["bold"] },
-        { text: `${separator}${body}` }
-      ]
-    };
-  }
-  if (title)
-    return { text: title, runs: [{ text: title, marks: ["bold"] }] };
-  return body;
-}
-function numberedList(slideId, id, items, density = "comfortable") {
-  return { id: `${slideId}.${id}`, type: "bullets", items: items.map(numberedListItem).filter(Boolean), density, numbered: true };
-}
-function quoteBlock(slideId, id, text, source, opts = {}) {
-  const textWeight = weightedTextLength(text);
-  const hasSource = Boolean(source && source.trim());
-  const compact = textWeight > 42 || hasSource && textWeight > 32;
-  const veryCompact = textWeight > 64;
-  const quotePadding = veryCompact ? 0.28 : compact ? 0.36 : 0.48;
-  const quoteFontScale = veryCompact ? 0.72 : compact ? 0.82 : void 0;
-  const quoteMinHeight = veryCompact ? hasSource ? 2 : 1.55 : compact ? hasSource ? 1.75 : 1.35 : hasSource ? 1.55 : 1.15;
-  const wantOrnament = opts.ornament !== false;
-  const children = [];
-  if (wantOrnament) {
-    children.push({
-      id: `${slideId}.${id}.ornament`,
-      type: "text",
-      text: "\u201C",
-      // Display-tier glyph in muted accent — visually subordinate to the
-      // quote text itself.
-      style: "hero",
-      color: "brand.primary",
-      align: "left",
-      valign: "top",
-      layer: "behind",
-      autoFit: "shrink",
-      optional: true
-    });
-  }
-  children.push({
-    id: `${slideId}.${id}.text`,
-    type: "text",
-    text: `\u201C${text}\u201D`,
-    style: "quote",
-    align: "left",
-    valign: "middle",
-    autoFit: "shrink",
-    minHeight: compact ? 0.62 : 0.75,
-    ...quoteFontScale ? { fontScale: quoteFontScale } : {}
-  });
-  if (hasSource) {
-    children.push({ id: `${slideId}.${id}.source`, type: "text", text: `\u2014 ${source.trim()}`, style: "quote-source", align: "left", minHeight: 0.32, autoFit: "shrink", optional: true });
-  }
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.12,
-    role: "quote",
-    padding: quotePadding,
-    minHeight: quoteMinHeight,
-    children
-  }, opts);
-}
-function iconText(slideId, id, options) {
-  const iconPreset = options.icon || "ellipse";
-  const iconColor = options.iconColor || "brand.primary";
-  const iconBackground = options.iconBackground || "brand.tint";
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "horizontal",
-    gap: 0.4,
-    role: "icon-text",
-    align: "start",
-    valign: "middle",
-    children: [
-      {
-        id: `${slideId}.${id}.icon`,
-        type: "shape",
-        preset: iconPreset,
-        fill: iconBackground,
-        line: iconColor,
-        fixedWidth: 1.15,
-        fixedHeight: 1.15
-      },
-      { id: `${slideId}.${id}.text`, type: "text", text: options.text, style: "card-title", align: "left", valign: "middle", color: options.tone || "text.primary" }
-    ]
-  };
-}
-function timelineBlock(slideId, id, options) {
-  const requested = options.direction === "horizontal" ? "horizontal" : "vertical";
-  const items = options.items;
-  const itemCount = items.length;
-  const simpleItems = items.every((item) => !item.content);
-  const richCount = items.filter((item) => item.content).length;
-  const rowGap = typeof options.gap === "number" && Number.isFinite(options.gap) ? Math.max(0, Math.min(1.4, options.gap)) : 0.52;
-  if (simpleItems && itemCount > 6) {
-    const columns = 4;
-    const rows = [];
-    for (let start = 0; start < itemCount; start += columns) {
-      const rowIndex = Math.floor(start / columns);
-      const rowItems = items.slice(start, start + columns);
-      rows.push(timelineHorizontalRow(slideId, id, rowItems, start, columns, `${slideId}.${id}.row${rowIndex}`));
-    }
-    return {
-      id: `${slideId}.${id}`,
-      type: "stack",
-      direction: "vertical",
-      gap: rowGap,
-      role: "timeline",
-      children: rows
-    };
-  }
-  if (requested === "horizontal" && richCount > 0 && itemCount > 5) {
-    return {
-      id: `${slideId}.${id}`,
-      type: "stack",
-      direction: "vertical",
-      gap: 0.22,
-      role: "timeline",
-      children: items.map((item, index) => timelineStep(slideId, id, index, item, "vertical"))
-    };
-  }
-  if (requested === "horizontal") {
-    return timelineHorizontalRow(slideId, id, items, 0, Math.max(1, Math.min(6, itemCount)), `${slideId}.${id}`, "timeline");
-  }
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.22,
-    role: "timeline",
-    children: items.map((item, index) => timelineStep(slideId, id, index, item, "vertical"))
-  };
-}
-function timelineHorizontalRow(slideId, id, items, startIndex, columns, nodeId, role = "timeline-row") {
-  const markerGridId = role === "timeline" ? `${slideId}.${id}.markers` : `${nodeId}.markers`;
-  const textGridId = role === "timeline" ? `${slideId}.${id}.items` : `${nodeId}.items`;
-  return {
-    id: nodeId,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.02,
-    role,
-    children: [
-      {
-        id: markerGridId,
-        type: "grid",
-        columns,
-        gap: 0,
-        role: "timeline-marker-row",
-        minHeight: 1.2,
-        children: items.map((item, localIndex) => timelineHorizontalMarker(slideId, id, startIndex + localIndex, item))
-      },
-      {
-        id: textGridId,
-        type: "grid",
-        columns,
-        gap: columns >= 5 ? 0.2 : 0.3,
-        role: "timeline-item-row",
-        children: items.map((item, localIndex) => timelineStep(slideId, id, startIndex + localIndex, item, "horizontal"))
-      }
-    ]
-  };
-}
-function timelineHorizontalMarker(slideId, id, index, item) {
-  const toneToken = timelineToneToken(item.tone);
-  const shapePreset = item.shape || "ellipse";
-  const visualChildren = [{
-    id: `${slideId}.${id}.${index}.halo`,
-    type: "shape",
-    preset: shapePreset,
-    fill: "surface",
-    line: toneToken,
-    lineWidth: 0.018,
-    fixedWidth: 0.7,
-    fixedHeight: 0.7,
-    optional: true
-  }];
-  const iconLayer = timelineIconLayer(slideId, id, index, item, toneToken, 0.44);
-  if (iconLayer)
-    visualChildren.push(iconLayer);
-  return {
-    id: `${slideId}.${id}.${index}.marker`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.02,
-    role: "timeline-marker",
-    align: "center",
-    valign: "bottom",
-    children: [
-      {
-        id: `${slideId}.${id}.${index}.visual`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0.08,
-        justify: "center",
-        align: "center",
-        valign: "middle",
-        fixedHeight: 0.72,
-        children: visualChildren
-      },
-      {
-        id: `${slideId}.${id}.${index}.leader`,
-        type: "shape",
-        preset: "rect",
-        fill: "divider",
-        line: "divider",
-        fixedWidth: 0.04,
-        fixedHeight: 0.16,
-        optional: true
-      },
-      {
-        id: `${slideId}.${id}.${index}.axis`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0,
-        role: "timeline-axis-node",
-        valign: "middle",
-        fixedHeight: 0.2,
-        children: [
-          {
-            id: `${slideId}.${id}.${index}.railLeft`,
-            type: "shape",
-            preset: "rect",
-            fill: "brand.primary",
-            line: "brand.primary",
-            fixedHeight: 0.04,
-            layoutWeight: 1
-          },
-          {
-            id: `${slideId}.${id}.${index}.dot`,
-            type: "shape",
-            preset: "ellipse",
-            fill: "surface",
-            line: toneToken,
-            lineWidth: 0.035,
-            fixedWidth: 0.18,
-            fixedHeight: 0.18,
-            optional: true
-          },
-          {
-            id: `${slideId}.${id}.${index}.railRight`,
-            type: "shape",
-            preset: "rect",
-            fill: "brand.primary",
-            line: "brand.primary",
-            fixedHeight: 0.04,
-            layoutWeight: 1
-          }
-        ]
-      }
-    ]
-  };
-}
-function timelineToneToken(tone) {
-  switch (tone) {
-    case "positive":
-      return "success";
-    case "warning":
-      return "warning";
-    case "danger":
-      return "danger";
-    case "neutral":
-      return "text.muted";
-    default:
-      return "brand.primary";
-  }
-}
-function timelineIconLayer(slideId, id, index, item, toneToken, size) {
-  const iconSrc = item.iconSrc?.trim();
-  const iconPreset = item.icon?.trim();
-  if (!iconSrc && !iconPreset)
-    return null;
-  return {
-    id: `${slideId}.${id}.${index}.iconLayer`,
-    type: "stack",
-    direction: "horizontal",
-    justify: "center",
-    align: "center",
-    valign: "middle",
-    layer: "above",
-    children: [
-      iconSrc ? {
-        id: `${slideId}.${id}.${index}.icon`,
-        type: "image",
-        src: iconSrc,
-        alt: item.title || item.time || "timeline icon",
-        fit: "contain",
-        fixedWidth: size,
-        fixedHeight: size,
-        optional: true
-      } : {
-        id: `${slideId}.${id}.${index}.icon`,
-        type: "shape",
-        preset: iconPreset || "ellipse",
-        fill: toneToken,
-        line: toneToken,
-        lineWidth: 0.018,
-        fixedWidth: size * 0.73,
-        fixedHeight: size * 0.73,
-        optional: true
-      }
-    ]
-  };
-}
-function timelineStep(slideId, id, index, item, direction) {
-  const toneToken = timelineToneToken(item.tone);
-  const content = item.content && typeof item.content === "object" ? {
-    ...item.content,
-    id: typeof item.content.id === "string" && item.content.id ? item.content.id : `${slideId}.${id}.${index}.content`
-  } : null;
-  if (direction === "horizontal") {
-    const children = [];
-    if (item.time && item.time.trim()) {
-      children.push({
-        id: `${slideId}.${id}.${index}.time`,
-        type: "text",
-        text: item.time.trim(),
-        style: "timeline-time",
-        color: item.tone ? toneToken : void 0,
-        align: "center",
-        minHeight: 0.3,
-        autoFit: "shrink",
-        optional: true
-      });
-    }
-    if (item.title && item.title.trim()) {
-      children.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title.trim(), style: "timeline-title", color: "text.primary", align: "center", minHeight: 0.48, autoFit: "shrink" });
-    }
-    if (content) {
-      children.push(content);
-    } else if (item.body && item.body.trim()) {
-      children.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "timeline-body", align: "center", valign: "top", minHeight: estimateTimelineBodyMinHeight(item.body, "horizontal"), autoFit: "shrink", optional: true });
-    }
-    return {
-      id: `${slideId}.${id}.${index}`,
-      type: "stack",
-      direction: "vertical",
-      gap: 0.08,
-      role: "timeline-step",
-      children
-    };
-  }
-  const rightColChildren = [];
-  if (item.title && item.title.trim()) {
-    rightColChildren.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title.trim(), style: "timeline-title", color: "text.primary", minHeight: 0.5, autoFit: "shrink" });
-  }
-  if (content) {
-    rightColChildren.push(content);
-  } else if (item.body && item.body.trim()) {
-    rightColChildren.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "timeline-body", valign: "top", minHeight: estimateTimelineBodyMinHeight(item.body, "vertical"), autoFit: "shrink", optional: true });
-  }
-  if (rightColChildren.length === 0) {
-    rightColChildren.push({ id: `${slideId}.${id}.${index}.placeholder`, type: "spacer", fixedHeight: 0.1 });
-  }
-  const rowChildren = [];
-  if (item.time && item.time.trim()) {
-    rowChildren.push({
-      id: `${slideId}.${id}.${index}.time`,
-      type: "text",
-      text: item.time.trim(),
-      style: "timeline-time",
-      align: "right",
-      valign: "top",
-      // Fixed width keeps time labels aligned across rows. 2.5cm fits
-      // most date strings ("2024 Q3", "March 2024", "公元前 221 年").
-      fixedWidth: 2.5,
-      minHeight: 0.4,
-      autoFit: "shrink"
-    });
-  }
-  const verticalIconLayer = timelineIconLayer(slideId, id, index, item, toneToken, 0.3);
-  const verticalDot = {
-    id: `${slideId}.${id}.${index}.dot`,
-    type: "shape",
-    preset: "ellipse",
-    fill: verticalIconLayer ? "surface" : toneToken,
-    line: toneToken,
-    fixedWidth: verticalIconLayer ? 0.36 : 0.24,
-    fixedHeight: verticalIconLayer ? 0.36 : 0.24
-  };
-  const verticalMarker = verticalIconLayer ? {
-    id: `${slideId}.${id}.${index}.marker`,
-    type: "stack",
-    direction: "horizontal",
-    justify: "center",
-    align: "center",
-    valign: "middle",
-    fixedWidth: 0.4,
-    fixedHeight: 0.4,
-    children: [verticalDot, verticalIconLayer]
-  } : verticalDot;
-  rowChildren.push({
-    id: `${slideId}.${id}.${index}.spine`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0,
-    role: "timeline-spine",
-    align: "center",
-    valign: "top",
-    fixedWidth: 0.4,
-    children: [
-      verticalMarker,
-      {
-        id: `${slideId}.${id}.${index}.line`,
-        type: "shape",
-        preset: "rect",
-        // Per-row spine segment tracks the row's tone for visual coherence —
-        // a danger row's dot+line are both red, not red dot + blue line.
-        fill: toneToken,
-        line: toneToken,
-        fixedWidth: 0.03,
-        layoutWeight: 1
-      }
-    ]
-  });
-  rowChildren.push({
-    id: `${slideId}.${id}.${index}.col`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.1,
-    valign: "top",
-    layoutWeight: 1,
-    children: rightColChildren
-  });
-  return {
-    id: `${slideId}.${id}.${index}`,
-    type: "stack",
-    direction: "horizontal",
-    gap: 0.35,
-    role: "timeline-step",
-    align: "start",
-    valign: "top",
-    children: rowChildren
-  };
-}
-function estimateTimelineBodyMinHeight(text, direction) {
-  const explicitLines = text.split(/\n+/).filter((line) => line.trim()).length;
-  const weighted = weightedTextLength(text);
-  const charsPerLine = direction === "horizontal" ? 22 : 46;
-  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / charsPerLine));
-  const lineHeight = direction === "horizontal" ? 0.29 : 0.34;
-  return Math.max(direction === "horizontal" ? 0.46 : 0.42, Math.min(direction === "horizontal" ? 1.2 : 1.2, estimatedLines * lineHeight + 0.12));
-}
-function profileCard(slideId, id, options) {
-  const children = [
-    { id: `${slideId}.${id}.photo`, type: "image", src: options.image, alt: options.name, clip: "circle", fit: "cover", fixedWidth: 2.8, fixedHeight: 2.8 },
-    { id: `${slideId}.${id}.name`, type: "text", text: options.name, style: "card-title", align: "center", minHeight: 0.6, autoFit: "shrink" }
-  ];
-  if (options.role && options.role.trim()) {
-    children.push({ id: `${slideId}.${id}.role`, type: "text", text: options.role.trim(), style: "label", color: "text.muted", align: "center", minHeight: 0.42, autoFit: "shrink", tracking: "wide" });
-  }
-  if (options.bio && options.bio.trim()) {
-    children.push({ id: `${slideId}.${id}.bio`, type: "text", text: options.bio.trim(), style: "caption", align: "center", valign: "top", minHeight: 0.45, autoFit: "shrink" });
-  }
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.25,
-    role: "profile-card",
-    align: "center",
-    children
-  };
-}
-function kpiGrid(slideId, id, metrics, columns, options = {}) {
-  const cols = Math.max(1, columns || Math.min(4, metrics.length));
-  const dense = options.density === "compact" || options.variant === "compact" || metrics.length >= 5;
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "grid",
-    columns: cols,
-    gap: dense ? 0.32 : 0.5,
-    role: "kpi-grid",
-    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable", peerAligned: true }))
-  }, options);
-}
-function sectionBreak(slideId, id, options) {
-  const children = [];
-  const tone = options.tone || "brand";
-  const ruleColor = tone === "neutral" ? "divider" : tone === "inverse" ? "text.inverse" : "brand.primary";
-  children.push({
-    id: `${slideId}.${id}.rule`,
-    type: "shape",
-    preset: "rect",
-    fill: ruleColor,
-    line: ruleColor,
-    fixedHeight: 0.08,
-    fixedWidth: 4,
-    align: "start"
-  });
-  const accentText = (options.accent || "").trim();
-  const isToneKeyword = /^(brand|primary|secondary|tertiary|neutral|positive|negative|warning|danger|caution|success|error|muted|subtle|info|inverse|tone|color)$/i.test(accentText);
-  if (accentText && !isToneKeyword) {
-    children.push({ id: `${slideId}.${id}.accent`, type: "text", text: accentText, style: "label", color: "text.primary", align: "left", minHeight: 0.42, autoFit: "shrink", tracking: "wide" });
-  }
-  children.push({ id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "deck-title", align: "left", color: "text.primary" });
-  if (options.subtitle && options.subtitle.trim()) {
-    children.push({ id: `${slideId}.${id}.subtitle`, type: "text", text: options.subtitle.trim(), style: "lead", align: "left", color: "text.muted" });
-  }
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.32,
-    role: "section-break",
-    area: "content",
-    // valign+justify both centered: section-break content was previously
-    // top-aligned at y=3 leaving 5.5cm empty at the bottom (96vi8n slides
-    // 4/9/13/17/21). justify:"center" centers the stack in the content
-    // rect along its own main axis, valign:"middle" was effectively
-    // unused for vertical stacks and stays for cross-axis alignment.
-    justify: "center",
-    valign: "middle",
-    align: "start",
-    children
-  };
-}
-function swotMatrix(slideId, id, options) {
-  const quadrant = (qid, title, points, color2) => ({
-    id: `${slideId}.${id}.${qid}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.12,
-    role: "swot-quadrant",
-    children: [
-      { id: `${slideId}.${id}.${qid}.title`, type: "text", text: title, style: "card-title", color: color2, minHeight: 0.46, autoFit: "shrink" },
-      { ...bulletList(slideId, `${id}-${qid}`, points, "compact"), spaceAfter: 1 }
-    ]
-  });
-  return {
-    id: `${slideId}.${id}`,
-    type: "grid",
-    columns: 2,
-    gap: 0.5,
-    role: "swot-matrix",
-    children: [
-      quadrant("strengths", "Strengths", options.strengths, "success"),
-      quadrant("weaknesses", "Weaknesses", options.weaknesses, "warning"),
-      quadrant("opportunities", "Opportunities", options.opportunities, "brand.primary"),
-      quadrant("threats", "Threats", options.threats, "danger")
-    ]
-  };
-}
-function ctaButton(slideId, id, options) {
-  const tone = options.tone || "brand";
-  const fill = tone === "neutral" ? "surface" : tone === "brand" ? "brand.primary" : tone;
-  const fg = tone === "neutral" ? "text.primary" : "text.inverse";
-  const content = options.link ? [{ text: options.text, link: options.link }] : void 0;
-  return {
-    id: `${slideId}.${id}`,
-    type: "text",
-    text: options.text,
-    style: "card-title",
-    align: "center",
-    valign: "middle",
-    fill,
-    color: fg,
-    cornerRadius: 0.3,
-    fixedHeight: 1.15,
-    autoFit: "shrink",
-    role: "cta",
-    ...content ? { content } : {}
-  };
-}
-function featureCard(slideId, id, options) {
-  const dense = options.density === "compact" || options.variant === "compact";
-  const layout = options.layout === "horizontal" || options.layout !== "vertical" && dense ? "horizontal" : "vertical";
-  const semanticTone = featureSemanticTone(options.tone);
-  const iconColor = options.iconColor || featureAccentColor(semanticTone);
-  const iconBackground = options.iconBackground || featureTintColor(semanticTone);
-  const explicitTitleMarker = options.decoration?.kind === "marker" && layout === "vertical" ? featureMarkerInput(options.decoration.marker || options.decoration.shape || "rounded-square") : void 0;
-  const titleMarkerBase = decorationMarkerNode(slideId, `${id}.marker`, options.marker || explicitTitleMarker, {
-    shape: "rounded-square",
-    tone: options.decoration?.tone || markerToneFromFeatureTone(semanticTone),
-    variant: options.decoration?.variant || "tint",
-    size: options.decoration?.size || (dense ? "xs" : "sm")
-  });
-  const titleMarker = titleMarkerBase ? { ...titleMarkerBase, optional: false, __featureCardSemanticChild: true } : void 0;
-  const decorationNode = featureCardDecorationNode(slideId, id, options, {
-    layout,
-    dense,
-    semanticTone,
-    iconColor,
-    iconBackground,
-    hasLegacyTitleMarker: !!titleMarker
-  });
-  const titleNode = { id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "card-title", align: "left", color: options.titleColor || featureTitleColor(options.tone), minHeight: dense ? 0.42 : 0.5, autoFit: "shrink", layoutWeight: titleMarker ? 1 : void 0 };
-  const titleRow = titleMarker ? {
-    id: `${slideId}.${id}.titleRow`,
-    type: "stack",
-    direction: "horizontal",
-    gap: dense ? 0.14 : 0.18,
-    valign: "middle",
-    children: [titleMarker, titleNode]
-  } : titleNode;
-  const leadingChildren = [];
-  if (options.badge) {
-    leadingChildren.push({ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", color: "text.primary", fill: "surface.subtle", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1, max: 4.8, padding: 0.62 }), align: "center", autoFit: "shrink", noWrap: true });
-  }
-  const textChildren = [
-    ...leadingChildren,
-    titleRow
-  ];
-  const body = textWithRichContent(options.body?.trim() || "", options.content);
-  if (body.text || body.content) {
-    textChildren.push({
-      id: `${slideId}.${id}.body`,
-      type: "text",
-      ...body,
-      style: "caption",
-      align: "left",
-      valign: "top",
-      minHeight: estimateFeatureBodyMinHeight(body.text, dense),
-      autoFit: "shrink",
-      __featureCardSemanticChild: true
-    });
-  }
-  if (options.metric) {
-    textChildren.push({ ...featureMetricNode(slideId, id, options.metric, dense), optional: true });
-  }
-  if (options.proof) {
-    textChildren.push({ id: `${slideId}.${id}.proof`, type: "text", text: options.proof, style: "label", color: "text.muted", minHeight: 0.34, autoFit: "shrink", optional: true });
-  }
-  if (options.tags && options.tags.length) {
-    textChildren.push({ id: `${slideId}.${id}.tags`, type: "stack", direction: "horizontal", gap: 0.12, optional: true, children: options.tags.slice(0, 4).map((tag, index) => ({ id: `${slideId}.${id}.tag${index}`, type: "text", text: String(tag), style: "label", fill: "surface.subtle", color: "text.muted", cornerRadius: 0.16, fixedHeight: 0.42, autoFit: "shrink", layoutWeight: 1 })) });
-  }
-  if (options.ctaText) {
-    textChildren.push({ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "label", color: "text.inverse", fill: "brand.primary", cornerRadius: 0.2, align: "center", valign: "middle", fixedHeight: 0.46, autoFit: "shrink", optional: true });
-  }
-  const children = layout === "horizontal" && decorationNode ? [
-    decorationNode,
-    {
-      id: `${slideId}.${id}.content`,
-      type: "stack",
-      direction: "vertical",
-      gap: dense ? 0.09 : 0.14,
-      layoutWeight: 1,
-      valign: "top",
-      children: textChildren
-    }
-  ] : [
-    ...decorationNode ? [decorationNode] : [],
-    ...textChildren
-  ];
-  const defaultSurface = featureCardDefaultSurface(options, dense);
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: layout,
-    gap: layout === "horizontal" ? dense ? 0.28 : 0.36 : dense ? 0.1 : 0.16,
-    role: "feature-card",
-    valign: "top",
-    ...defaultSurface,
-    children
-  }, options);
-}
-function featureCardDefaultSurface(options, dense) {
-  const hasSurface = !!options.surface || typeof options.fill === "string" || typeof options.line === "string" || options.border !== void 0 || typeof options.borderColor === "string" || typeof options.elevation === "string" || options.shadow !== void 0 || options.gradient !== void 0;
-  if (options.variant === "card") {
-    return { fill: "surface", line: "divider", padding: dense ? 0.32 : 0.42, cornerRadius: 0.1 };
-  }
-  if (options.variant === "compact" || hasSurface) {
-    return { padding: dense ? 0.28 : 0.36, cornerRadius: 0.08 };
-  }
-  return {};
-}
-function featureCardDecorationNode(slideId, id, options, ctx) {
-  const spec = options.decoration;
-  const explicitKind = spec?.kind;
-  if (explicitKind === "none")
-    return void 0;
-  const tone = spec?.tone || markerToneFromFeatureTone(ctx.semanticTone);
-  const size = featureDecorationSizeCm(spec?.size, ctx.dense, ctx.layout);
-  if (explicitKind === "marker") {
-    if (ctx.layout === "vertical")
-      return void 0;
-    const markerNode = decorationMarkerNode(slideId, `${id}.decoration`, featureMarkerInput(spec?.marker || spec?.shape || "rounded-square"), {
-      shape: "rounded-square",
-      tone,
-      variant: spec?.variant || "tint",
-      size: spec?.size || (ctx.dense ? "sm" : "md"),
-      valign: "top"
-    });
-    return markerNode ? { ...markerNode, optional: false, __featureCardSemanticChild: true } : void 0;
-  }
-  const src = spec?.src || spec?.iconSrc || options.iconSrc;
-  if (explicitKind === "image" || src) {
-    if (!src)
-      return void 0;
-    return {
-      id: `${slideId}.${id}.icon`,
-      type: "image",
-      src,
-      fit: "contain",
-      fixedWidth: size,
-      fixedHeight: size,
-      align: "start",
-      valign: "top",
-      optional: true
-    };
-  }
-  if (ctx.hasLegacyTitleMarker && !spec)
-    return void 0;
-  const shape = spec?.shape || spec?.icon || options.icon || "ellipse";
-  if (shape === "none")
-    return void 0;
-  return {
-    id: `${slideId}.${id}.icon`,
-    type: "shape",
-    preset: shape,
-    fill: spec?.background || ctx.iconBackground,
-    line: spec?.color || ctx.iconColor,
-    lineWidth: 0.04,
-    fixedWidth: size,
-    fixedHeight: size,
-    align: "start",
-    valign: "top",
-    optional: true
-  };
-}
-function featureMarkerInput(value) {
-  return value;
-}
-function featureDecorationSizeCm(size, dense, layout) {
-  if (typeof size === "number" && Number.isFinite(size) && size > 0)
-    return Math.max(0.24, Math.min(1.6, size));
-  if (size === "xs")
-    return 0.52;
-  if (size === "sm")
-    return 0.68;
-  if (size === "lg")
-    return 1.12;
-  if (size === "xl")
-    return 1.36;
-  if (size === "md")
-    return 0.9;
-  if (layout === "horizontal")
-    return dense ? 0.76 : 0.94;
-  return dense ? 0.82 : 1.02;
-}
-function featureSemanticTone(tone) {
-  if (tone === "positive" || tone === "success" || tone === "good")
-    return "positive";
-  if (tone === "warning" || tone === "caution" || tone === "warn")
-    return "warning";
-  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative")
-    return "danger";
-  if (tone === "neutral" || tone === "muted" || tone === "flat")
-    return "neutral";
-  return "brand";
-}
-function markerToneFromFeatureTone(tone) {
-  return tone === "muted" ? "neutral" : tone;
-}
-function featureTitleColor(tone) {
-  if (tone === void 0 || tone === null || tone === "")
-    return "text.primary";
-  if (tone === "brand")
-    return "brand.primary";
-  if (tone === "positive" || tone === "success" || tone === "good")
-    return "success.accent";
-  if (tone === "warning" || tone === "caution" || tone === "warn")
-    return "warning.accent";
-  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative")
-    return "danger.accent";
-  if (tone === "neutral")
-    return "text.primary";
-  if (tone === "muted" || tone === "flat")
-    return "text.muted";
-  return String(tone);
-}
-function featureAccentColor(tone) {
-  if (tone === "brand")
-    return "brand.primary";
-  if (tone === "positive" || tone === "success" || tone === "good")
-    return "success";
-  if (tone === "warning" || tone === "caution" || tone === "warn")
-    return "warning";
-  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative")
-    return "danger";
-  if (tone === "neutral")
-    return "text.primary";
-  if (tone === "muted" || tone === "flat")
-    return "text.muted";
-  return typeof tone === "string" && tone.trim() ? tone : "brand.primary";
-}
-function featureTintColor(tone) {
-  if (tone === "positive" || tone === "success" || tone === "good")
-    return "success.tint";
-  if (tone === "warning" || tone === "caution" || tone === "warn")
-    return "warning.tint";
-  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative")
-    return "danger.tint";
-  if (tone === "neutral" || tone === "muted" || tone === "flat")
-    return "surface.subtle";
-  return "brand.tint";
-}
-function estimateFeatureBodyMinHeight(text, dense) {
-  const explicitLines = text.split(/\n+/).filter((line) => line.trim()).length;
-  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weightedTextLength(text) / (dense ? 24 : 20)));
-  return Math.max(dense ? 0.42 : 0.5, Math.min(dense ? 0.85 : 1.1, estimatedLines * (dense ? 0.34 : 0.4) + 0.14));
-}
-function featureMetricNode(slideId, id, metric, dense) {
-  if (isConciseNumericMetric(metric.value)) {
-    return metricCard(slideId, `${id}.metric`, metric.value, metric.label, { variant: "compact", status: metric.tone });
-  }
-  const tone = featureAccentColor(metric.tone || "brand");
-  const ratingLike = isRatingLikeMetric(metric.value);
-  const valueLines = Math.max(1, Math.ceil(weightedTextLength(metric.value) / (dense ? 22 : 26)));
-  return {
-    id: `${slideId}.${id}.metric`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.06,
-    fill: "surface.subtle",
-    line: "divider",
-    padding: dense ? 0.14 : 0.18,
-    cornerRadius: 0.08,
-    children: [
-      {
-        id: `${slideId}.${id}.metric.value`,
-        type: "text",
-        text: metric.value,
-        style: dense || ratingLike ? "label" : "card-title",
-        color: tone,
-        minHeight: Math.max(dense ? 0.32 : 0.42, Math.min(dense ? 0.78 : 0.95, valueLines * (dense ? 0.28 : 0.34) + 0.1)),
-        autoFit: "shrink"
-      },
-      ...metric.label ? [{
-        id: `${slideId}.${id}.metric.label`,
-        type: "text",
-        text: metric.label,
-        style: "caption",
-        color: "text.muted",
-        minHeight: dense ? 0.28 : 0.32,
-        autoFit: "shrink"
-      }] : []
-    ]
-  };
-}
-function isConciseNumericMetric(value) {
-  const text = value.trim();
-  if (!text || isRatingLikeMetric(text))
-    return false;
-  if (text.length > 14)
-    return false;
-  if (!/[0-9]/.test(text))
-    return false;
-  return /^[+\-~≈¥$€£]?\s*\d[\d,.]*(?:\s*[-–]\s*\d[\d,.]*)?(?:\s*(?:%|x|X|k|K|m|M|b|B|万|亿|千|百|倍|人|家|项|年|月|天|小时|ms|s|秒|pt|pts))?\+?$/.test(text);
-}
-function isRatingLikeMetric(value) {
-  return /[\u2605\u2606]/.test(value);
-}
-function checklist(slideId, id, items, density = "comfortable", opts = {}) {
-  const compact = density === "compact";
-  const chipStyle = opts.markStyle !== "plain";
-  const markSize = compact ? 0.55 : 0.7;
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: compact ? 0.1 : 0.18,
-    role: "checklist",
-    children: items.map((item, index) => {
-      const status = item.status === "warning" ? "warning" : item.status === "unchecked" ? "unchecked" : "checked";
-      const mark2 = status === "checked" ? "\u2713" : status === "warning" ? "!" : "\u2717";
-      const markColor = status === "checked" ? "success" : status === "warning" ? "warning" : "danger";
-      const markNode = chipStyle ? {
-        id: `${slideId}.${id}.${index}.mark`,
-        type: "text",
-        text: mark2,
-        style: compact ? "label" : "card-title",
-        color: "text.inverse",
-        fill: markColor,
-        align: "center",
-        valign: "middle",
-        fixedWidth: markSize,
-        fixedHeight: markSize,
-        cornerRadius: 0.18,
-        weight: "bold"
-      } : {
-        id: `${slideId}.${id}.${index}.mark`,
-        type: "text",
-        text: mark2,
-        style: compact ? "label" : "card-title",
-        color: markColor,
-        align: "center",
-        valign: "middle",
-        fixedWidth: compact ? 0.5 : 0.7,
-        weight: "bold"
-      };
-      return {
-        id: `${slideId}.${id}.${index}`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0.3,
-        role: "checklist-item",
-        align: "start",
-        valign: "middle",
-        fixedHeight: compact ? 0.6 : void 0,
-        children: [
-          markNode,
-          { id: `${slideId}.${id}.${index}.text`, type: "text", text: item.text, style: compact ? "caption" : "paragraph", align: "left", valign: "middle", layoutWeight: 1, autoFit: compact ? "shrink" : void 0 }
-        ]
-      };
-    })
-  };
-}
-function progressBar(slideId, id, options) {
-  const max = options.max && options.max > 0 ? options.max : 100;
-  const ratio = Math.max(0, Math.min(1, options.value / max));
-  const tone = options.tone || "brand";
-  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
-  const trackToken = "surface.subtle";
-  const valueLabel = options.valueLabel || `${Math.round(ratio * 100)}%`;
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.18,
-    role: "progress-bar",
-    children: [
-      {
-        id: `${slideId}.${id}.header`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0.3,
-        children: [
-          { id: `${slideId}.${id}.label`, type: "text", text: options.label, style: "label", align: "left", layoutWeight: 5, minHeight: 0.32, autoFit: "shrink" },
-          { id: `${slideId}.${id}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", layoutWeight: 1, bold: true, minHeight: 0.32, autoFit: "shrink" }
-        ],
-        fixedHeight: 0.5
-      },
-      {
-        id: `${slideId}.${id}.track`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0,
-        fixedHeight: 0.4,
-        fill: trackToken,
-        cornerRadius: 0.5,
-        padding: 0,
-        children: [
-          { id: `${slideId}.${id}.fill`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, layoutWeight: Math.max(1e-3, ratio) },
-          { id: `${slideId}.${id}.spacer`, type: "spacer", layoutWeight: Math.max(1e-3, 1 - ratio) }
-        ]
-      }
-    ]
-  };
-}
-function prosCons(slideId, id, options) {
-  return {
-    id: `${slideId}.${id}`,
-    type: "grid",
-    columns: 2,
-    gap: 0.5,
-    role: "pros-cons",
-    children: [
-      {
-        id: `${slideId}.${id}.pros`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.25,
-        role: "pros-column",
-        children: [
-          { id: `${slideId}.${id}.pros.title`, type: "text", text: options.prosTitle || "Pros", style: "card-title", color: "success", minHeight: 0.55, autoFit: "shrink" },
-          checklist(slideId, `${id}-pros`, options.pros.map((text) => ({ text, status: "checked" })))
-        ]
-      },
-      {
-        id: `${slideId}.${id}.cons`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.25,
-        role: "cons-column",
-        children: [
-          { id: `${slideId}.${id}.cons.title`, type: "text", text: options.consTitle || "Cons", style: "card-title", color: "danger", minHeight: 0.55, autoFit: "shrink" },
-          checklist(slideId, `${id}-cons`, options.cons.map((text) => ({ text, status: "unchecked" })))
-        ]
-      }
-    ]
-  };
-}
-function processFlow(slideId, id, options) {
-  const direction = options.direction === "vertical" ? "vertical" : "horizontal";
-  const arrow = direction === "horizontal" ? "arrow-right" : "arrow-down";
-  const compact = options.density === "compact";
-  const dense = compact || options.steps.length >= 5;
-  const cardVariant = options.variant === "cards";
-  const markerMode = options.marker === "number" || options.marker === "dot" || options.marker === "icon" || options.marker === "none" ? options.marker : "auto";
-  const connectorMode = options.connector === "chevron" || options.connector === "line" || options.connector === "none" ? options.connector : "arrow";
-  const connectorDash = options.connectorDash === "dash" || options.connectorDash === "dot" ? options.connectorDash : void 0;
-  const connectorColor = typeof options.connectorColor === "string" && options.connectorColor.trim() ? options.connectorColor.trim() : "brand.primary";
-  const placement = options.placement === "center" || options.placement === "top" ? options.placement : cardVariant ? "top" : "center";
-  const spread = options.spread === "fill" || options.spread === "compact" || options.spread === "balanced" ? options.spread : cardVariant ? "balanced" : "compact";
-  const stepAccent = options.stepAccent === "none" ? "none" : "top";
-  const items = [];
-  const verticalDense = direction === "vertical" && (compact || options.steps.length >= 4);
-  let horizontalBandMaxHeight = 0;
-  let horizontalBandMinHeight = 0;
-  let hasRichHorizontalCard = false;
-  options.steps.forEach((step, index) => {
-    const statusColor = toneColor(step.status, "text.primary");
-    const iconFill = statusColor === "text.primary" ? "surface.subtle" : statusColor;
-    const accentColor = typeof step.accentColor === "string" && step.accentColor.trim() ? step.accentColor.trim() : statusColor === "text.primary" ? "brand.primary" : statusColor === "text.muted" ? "divider" : statusColor;
-    const richHorizontalCard = direction === "horizontal" && cardVariant && (Boolean(step.bullets && step.bullets.length) || Boolean(step.owner || step.time) || Boolean(step.body && (step.body.length > 28 || step.body.includes("\n"))));
-    if (richHorizontalCard)
-      hasRichHorizontalCard = true;
-    const stepAlign = cardVariant ? "start" : "center";
-    const textAlign = cardVariant ? "left" : "center";
-    const horizontalMaxHeight = richHorizontalCard ? spread === "fill" ? 5.6 : spread === "balanced" ? 4.9 : 4.45 : cardVariant ? spread === "fill" ? dense ? 4.2 : 4.6 : spread === "balanced" ? dense ? 3.65 : 3.9 : dense ? 3.2 : 3.5 : dense ? 2.5 : 3.1;
-    const horizontalMinHeight = richHorizontalCard ? spread === "fill" ? 3.85 : spread === "balanced" ? 3.65 : 3.25 : cardVariant ? spread === "fill" ? dense ? 2.85 : 3.15 : spread === "balanced" ? dense ? 2.45 : 2.75 : dense ? 2.25 : 2.55 : void 0;
-    const verticalMinHeight = verticalDense ? 1 : 1.4;
-    if (direction === "horizontal") {
-      horizontalBandMaxHeight = Math.max(horizontalBandMaxHeight, horizontalMaxHeight);
-      horizontalBandMinHeight = Math.max(horizontalBandMinHeight, horizontalMinHeight || 0);
-    }
-    const rawMarker = step.marker === "number" || step.marker === "dot" || step.marker === "icon" || step.marker === "none" ? step.marker : markerMode;
-    const resolvedMarker = (() => {
-      if (rawMarker !== "auto")
-        return rawMarker;
-      if (options.showNumbers === false)
-        return step.icon || step.iconSrc ? "icon" : "none";
-      if (step.icon || step.iconSrc)
-        return "icon";
-      if (options.showNumbers === true || cardVariant)
-        return "number";
-      return "none";
-    })();
-    const markerNode = (() => {
-      if (resolvedMarker === "none")
-        return void 0;
-      if (resolvedMarker === "icon" && step.iconSrc && step.iconSrc.trim()) {
-        return {
-          id: `${slideId}.${id}.step${index + 1}.icon`,
-          type: "image",
-          src: step.iconSrc.trim(),
-          alt: step.title,
-          fit: "contain",
-          fixedWidth: cardVariant ? 0.64 : 0.48,
-          fixedHeight: cardVariant ? 0.64 : 0.48,
-          align: stepAlign,
-          optional: true
-        };
-      }
-      if (resolvedMarker === "icon" && step.icon) {
-        return {
-          id: `${slideId}.${id}.step${index + 1}.icon`,
-          type: "shape",
-          preset: step.icon,
-          fill: iconFill,
-          line: statusColor,
-          fixedWidth: cardVariant ? 0.58 : 0.46,
-          fixedHeight: cardVariant ? 0.58 : 0.46,
-          align: stepAlign,
-          optional: true
-        };
-      }
-      if (resolvedMarker === "dot") {
-        return {
-          id: `${slideId}.${id}.step${index + 1}.marker`,
-          type: "shape",
-          preset: "ellipse",
-          fill: accentColor,
-          line: accentColor,
-          fixedWidth: cardVariant ? 0.34 : 0.28,
-          fixedHeight: cardVariant ? 0.34 : 0.28,
-          align: stepAlign,
-          optional: true
-        };
-      }
-      const label = (step.number || step.step || String(index + 1).padStart(options.steps.length >= 10 ? 2 : 2, "0")).trim();
-      return {
-        id: `${slideId}.${id}.step${index + 1}.number`,
-        type: "text",
-        text: label,
-        style: "label",
-        color: statusColor === "text.muted" ? "text.primary" : statusColor,
-        align: "center",
-        valign: "middle",
-        fill: "surface.subtle",
-        line: accentColor,
-        fixedWidth: dense || verticalDense ? 0.68 : 0.78,
-        fixedHeight: dense || verticalDense ? 0.42 : 0.5,
-        noWrap: true,
-        autoFit: "shrink",
-        cornerRadius: 0.16,
-        optional: true
-      };
-    })();
-    const stepNode = {
-      id: `${slideId}.${id}.step${index + 1}`,
-      type: "stack",
-      direction: "vertical",
-      gap: dense || verticalDense ? 0.08 : 0.18,
-      role: "process-step",
-      // For a vertical stack the cross axis is horizontal; align="center"
-      // centers the title/body horizontally inside the step. justify="center"
-      // centers the WHOLE step content vertically inside its assigned slot —
-      // without it, steps top-align in the slide content rect (~10cm) while
-      // the arrows are vertically centered, creating disconnected layouts
-      // (t25mft tang slide: steps at y=2.95, arrows at y=7.87).
-      align: stepAlign,
-      valign: "middle",
-      justify: cardVariant ? "start" : "center",
-      ...direction === "horizontal" ? { maxHeight: horizontalMaxHeight, ...horizontalMinHeight ? { minHeight: horizontalMinHeight } : {} } : { minHeight: verticalMinHeight },
-      children: [
-        ...cardVariant && stepAccent !== "none" && !richHorizontalCard ? [{
-          id: `${slideId}.${id}.step${index + 1}.accent`,
-          type: "shape",
-          preset: "rect",
-          fill: accentColor,
-          line: accentColor,
-          fixedHeight: dense || verticalDense ? 0.055 : 0.07,
-          optional: true
-        }] : [],
-        // umzrkm fix: step.title used brand.primary which fails 4.5:1 on
-        // agent themes with mid-saturation brand colors (teal 5B8A8A on
-        // E8F3F3 ≈ 3.4:1). Mirror the 2pmnxh fix that already moved
-        // timeline-step to text.primary. The arrow shape between steps
-        // still carries brand.primary so the visual claim is preserved.
-        ...markerNode ? [markerNode] : [],
-        { id: `${slideId}.${id}.step${index + 1}.title`, type: "text", text: step.title, style: "card-title", color: statusColor, align: textAlign, minHeight: dense || verticalDense ? 0.42 : 0.6, autoFit: "shrink" },
-        ...step.owner || step.time ? [{
-          id: `${slideId}.${id}.step${index + 1}.meta`,
-          type: "text",
-          text: [step.owner, step.time].filter(Boolean).join(" \xB7 "),
-          style: "label",
-          color: "text.muted",
-          align: textAlign,
-          minHeight: 0.28,
-          autoFit: "shrink",
-          optional: true
-        }] : [],
-        // 96vi8n slide 20: body minHeight 0.4 → 0.7 fits 2 lines instead
-        // of 1, matching typical step-description sentences. Body still
-        // optional so dense rows can drop it.
-        ...step.body && step.body.trim() ? [{
-          id: `${slideId}.${id}.step${index + 1}.body`,
-          type: "text",
-          text: step.body.trim(),
-          style: "caption",
-          align: textAlign,
-          valign: "top",
-          // Horizontal: use min/max so the body grows for 1-2 lines instead
-          // of being pinned to a fixed 0.9cm slot that forced autoFit:"shrink"
-          // to drop body font to ~8pt. minHeight floor keeps 2-line bodies
-          // (96vi8n regression: short bodies < 2 lines reverted to 0.4cm).
-          // Combined with the step's maxHeight cap above, the card now sizes
-          // to actual content instead of stretching the row.
-          ...direction === "horizontal" ? { minHeight: dense ? 0.5 : 0.9, maxHeight: dense ? 1.4 : 1.8 } : { minHeight: verticalDense ? 0.5 : 0.9 },
-          autoFit: "shrink",
-          optional: true
-        }] : [],
-        ...step.bullets && step.bullets.length ? [{ ...bulletList(slideId, `${id}.step${index + 1}.bullets`, step.bullets.slice(0, 3), "compact"), optional: true }] : []
-      ],
-      layoutWeight: 4,
-      ...cardVariant ? { fill: "surface", line: "divider", padding: richHorizontalCard ? 0.34 : dense || verticalDense ? 0.26 : 0.35, cornerRadius: 0.08 } : {}
-    };
-    items.push(cardVariant && options.stepSurface && typeof options.stepSurface === "object" ? applyAgentSurface(stepNode, options.stepSurface) : stepNode);
-    if (index < options.steps.length - 1) {
-      if (connectorMode === "none")
-        return;
-      const lineConnector = connectorMode === "line";
-      const chevronConnector = connectorMode === "chevron";
-      items.push(lineConnector ? {
-        id: `${slideId}.${id}.arrow${index + 1}`,
-        type: "shape",
-        role: "process-connector",
-        connector: "line",
-        preset: "line",
-        line: connectorColor,
-        lineWidth: cardVariant ? 0.035 : 0.025,
-        ...connectorDash ? { lineDash: connectorDash } : {},
-        fixedWidth: direction === "horizontal" ? dense ? 0.7 : 1 : 0.05,
-        fixedHeight: direction === "horizontal" ? 0.05 : verticalDense ? 0.46 : 0.6,
-        layoutWeight: 1
-      } : {
-        id: `${slideId}.${id}.arrow${index + 1}`,
-        type: "shape",
-        role: "process-connector",
-        connector: chevronConnector ? "chevron" : "arrow",
-        preset: chevronConnector && direction === "horizontal" ? "chevron" : arrow,
-        fill: connectorColor,
-        line: connectorColor,
-        fixedWidth: direction === "horizontal" ? dense ? 0.7 : chevronConnector ? 0.82 : 1.1 : verticalDense ? 0.55 : 0.7,
-        fixedHeight: direction === "horizontal" ? dense ? 0.5 : chevronConnector ? 0.62 : 0.7 : verticalDense ? 0.4 : 0.55,
-        layoutWeight: 1
-      });
-    }
-  });
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction,
-    gap: cardVariant && direction === "horizontal" ? dense ? 0.24 : 0.32 : dense || verticalDense ? 0.18 : 0.4,
-    role: "process-flow",
-    align: "center",
-    valign: "middle",
-    ...cardVariant && direction === "horizontal" && placement === "top" && horizontalBandMaxHeight > 0 && !(hasRichHorizontalCard && options.steps.length >= 4) ? {
-      minHeight: horizontalBandMinHeight || void 0,
-      maxHeight: horizontalBandMaxHeight
-    } : {},
-    children: items
-    // No outer fixedHeight: process-flow lets the container above decide.
-    // Layout falls back to vertical orientation when the cross-axis cell is
-    // too narrow (see autoOrientFlow in render.ts).
-  }, options);
-}
-function logoStrip(slideId, id, logos, options = {}) {
-  const columns = options.columns && options.columns > 0 ? options.columns : Math.min(6, logos.length);
-  const grid = {
-    id: `${slideId}.${id}.row`,
-    type: "grid",
-    columns,
-    gap: 0.6,
-    role: "logo-strip",
-    children: logos.map((logo, index) => ({
-      id: `${slideId}.${id}.logo${index + 1}`,
-      type: "image",
-      src: logo.src,
-      alt: logo.alt || `logo-${index + 1}`,
-      fit: "contain",
-      fixedHeight: 1.4
-    }))
-  };
-  if (!options.caption)
-    return grid;
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.25,
-    role: "logo-strip",
-    children: [
-      grid,
-      { id: `${slideId}.${id}.caption`, type: "text", text: options.caption, style: "caption", align: "center", color: "text.muted", minHeight: 0.4, autoFit: "shrink" }
-    ]
-  };
-}
-function pricingCard(slideId, id, options) {
-  const tone = options.tone === "brand" ? "brand" : "neutral";
-  const accent = tone === "brand" ? "brand.primary" : "text.primary";
-  const surface = tone === "brand" ? "brand.tint" : "surface";
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.3,
-    role: "pricing-card",
-    fill: surface,
-    line: tone === "brand" ? "brand.primary" : "divider",
-    padding: 0.55,
-    cornerRadius: 0.12,
-    children: [
-      { id: `${slideId}.${id}.plan`, type: "text", text: options.plan, style: "card-title", color: accent, minHeight: 0.6, autoFit: "shrink" },
-      {
-        id: `${slideId}.${id}.priceRow`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0.2,
-        align: "start",
-        valign: "bottom",
-        children: [
-          { id: `${slideId}.${id}.price`, type: "text", text: options.price, style: "metric-value", color: accent, align: "left", valign: "bottom", layoutWeight: 5 },
-          ...options.period ? [{ id: `${slideId}.${id}.period`, type: "text", text: options.period, style: "label", color: "text.muted", align: "left", valign: "bottom", minHeight: 0.45, autoFit: "shrink", layoutWeight: 2 }] : []
-        ],
-        fixedHeight: 1.4
-      },
-      {
-        id: `${slideId}.${id}.divider`,
-        type: "divider",
-        orientation: "horizontal",
-        line: tone === "brand" ? "brand.primary" : "divider",
-        fixedHeight: 0.05
-      },
-      checklist(slideId, `${id}-features`, options.features.map((text) => ({ text, status: "checked" })), "compact"),
-      ...options.ctaText ? [{ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "card-title", align: "center", valign: "middle", fill: tone === "brand" ? "brand.primary" : "surface.subtle", color: tone === "brand" ? "text.inverse" : "text.primary", cornerRadius: 0.3, fixedHeight: 1, role: "cta" }] : []
-    ]
-  };
-}
-function parsePercentValue(raw) {
-  const m = raw.match(/^\s*(-?\d+(?:\.\d+)?)\s*%\s*$/);
-  if (!m)
-    return null;
-  const n = Number(m[1]);
-  if (!Number.isFinite(n))
-    return null;
-  if (n < 0 || n > 100)
-    return null;
-  return n;
-}
-function heroStat(slideId, id, options) {
-  const tone = options.tone || "brand";
-  const valueColor = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : tone === "neutral" ? "text.primary" : "brand.primary";
-  const percent = parsePercentValue(options.value);
-  const inner = [
-    {
-      id: `${slideId}.${id}.value`,
-      type: "text",
-      text: options.value,
-      style: "metric-value",
-      size: "2xl",
-      color: valueColor,
-      align: "center",
-      valign: "middle",
-      autoFit: "shrink",
-      minHeight: 1.05
-    },
-    {
-      id: `${slideId}.${id}.label`,
-      type: "text",
-      text: options.label,
-      style: "card-title",
-      size: "md",
-      color: "text.primary",
-      align: "center",
-      valign: "top",
-      minHeight: 0.42,
-      autoFit: "shrink"
-    }
-  ];
-  if (percent !== null) {
-    const ratio = Math.max(1e-3, Math.min(1, percent / 100));
-    inner.push({
-      id: `${slideId}.${id}.progress`,
-      type: "stack",
-      direction: "horizontal",
-      gap: 0,
-      fixedHeight: 0.28,
-      fill: "surface.subtle",
-      cornerRadius: 0.5,
-      padding: 0,
-      role: "hero-stat-progress",
-      children: [
-        { id: `${slideId}.${id}.progress.fill`, type: "shape", preset: "roundRect", fill: valueColor, cornerRadius: 0.5, layoutWeight: ratio },
-        { id: `${slideId}.${id}.progress.spacer`, type: "spacer", layoutWeight: Math.max(1e-3, 1 - ratio) }
-      ],
-      optional: true
-    });
-  }
-  if (options.caption && options.caption.trim()) {
-    inner.push({
-      id: `${slideId}.${id}.caption`,
-      type: "text",
-      text: options.caption.trim(),
-      style: "caption",
-      align: "center",
-      valign: "top",
-      color: "text.muted",
-      minHeight: 0.34,
-      autoFit: "shrink",
-      optional: true
-    });
-  }
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.18,
-    role: "hero-stat",
-    align: "center",
-    justify: "center",
-    children: inner
-  };
-}
-function barListFillToken(tone) {
-  if (tone === "positive")
-    return "success";
-  if (tone === "warning")
-    return "warning";
-  if (tone === "danger")
-    return "danger";
-  if (tone === "neutral")
-    return "divider";
-  return "brand.primary";
-}
-function barList(slideId, id, options) {
-  const tone = options.tone || "brand";
-  const trackToken = "surface.subtle";
-  const declaredMax = options.items.reduce((m, item) => Math.max(m, item.max ?? item.value), 0);
-  const max = declaredMax > 0 ? declaredMax : 1;
-  const sort = options.sort || "none";
-  const sorted = sort === "none" ? options.items.slice() : options.items.slice().sort((a, b) => sort === "desc" ? b.value - a.value : a.value - b.value);
-  const compact = options.density === "compact" || sorted.length >= 5;
-  const labelHeight = compact ? 0.36 : 0.5;
-  const rowHeight = compact ? 0.34 : 0.5;
-  const trackHeight = compact ? 0.2 : 0.32;
-  const rowGap = compact ? 0.24 : 0.4;
-  const itemGap = compact ? 0.05 : 0.1;
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: compact ? 0.16 : 0.3,
-    role: "bar-list",
-    children: sorted.map((item, index) => {
-      const ratio = Math.max(1e-3, Math.min(1, item.value / max));
-      const valueLabel = item.valueLabel || `${item.value}`;
-      const fillToken = barListFillToken(item.tone || tone);
-      const valueWidthCm = Math.max(1, Math.min(3.6, 0.3 + Array.from(valueLabel).reduce((w, ch) => w + (/[\u4e00-\u9fff]/.test(ch) ? 0.34 : 0.18), 0)));
-      return {
-        id: `${slideId}.${id}.${index}`,
-        type: "stack",
-        direction: "vertical",
-        gap: itemGap,
-        children: [
-          // Label sits on its own row: full-width, left-aligned, no
-          // floating value to compete for attention.
-          { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle", fixedHeight: labelHeight, size: compact ? "sm" : "md", autoFit: "shrink" },
-          // Bar row: [track | value]. The value is a fixed-width column
-          // *immediately after* the track, so it visually anchors to the
-          // bar's right end zone — no longer floating at the slide's far
-          // right disconnected from the actual fill end (96vi8n slide
-          // 8/16/18). Value uses text.primary so it stays readable on
-          // light surfaces (LOW_CONTRAST auto-fix would otherwise rewrite
-          // a tone-colored value, breaking the bar↔number visual link).
-          {
-            id: `${slideId}.${id}.${index}.row`,
-            type: "stack",
-            direction: "horizontal",
-            gap: rowGap,
-            fixedHeight: rowHeight,
-            valign: "middle",
-            children: [
-              // Continuous-track progress bar (qtt7dd slide 11): single
-              // rounded backing + single rounded fill inside; no seam.
-              {
-                id: `${slideId}.${id}.${index}.track`,
-                type: "stack",
-                direction: "horizontal",
-                gap: 0,
-                fixedHeight: trackHeight,
-                fill: trackToken,
-                cornerRadius: 0.5,
-                padding: 0,
-                layoutWeight: 1,
-                children: [
-                  { id: `${slideId}.${id}.${index}.fill`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, basis: 0, minWidth: 0.02, layoutWeight: Math.max(1e-3, ratio) },
-                  { id: `${slideId}.${id}.${index}.spacer`, type: "spacer", basis: 0, minWidth: 0, layoutWeight: Math.max(1e-3, 1 - ratio) }
-                ]
-              },
-              { id: `${slideId}.${id}.${index}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", valign: "middle", fixedWidth: valueWidthCm, fixedHeight: rowHeight, size: compact ? "sm" : "md", bold: true, autoFit: "shrink" }
-            ]
-          }
-        ]
-      };
-    })
-  };
-}
-function keyTakeaway(slideId, id, options) {
-  const tone = options.tone || "brand";
-  const fillToken = tone === "brand" ? "brand.tint" : tone === "positive" ? "success.tint" : tone === "warning" ? "warning.tint" : tone === "neutral" ? "surface.subtle" : "danger.tint";
-  const accentToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "neutral" ? "divider" : "danger";
-  const headline = options.headline.trim();
-  const detail = textWithRichContent(options.detail?.trim() || "", options.content);
-  const detailPlain = detail.text || richTextPlain(detail.content);
-  const denseHeadline = options.density === "compact" || weightedTextLength(headline) > 36;
-  const denseDetail = weightedTextLength(detailPlain) > 44 || (options.bullets || []).length >= 4;
-  const compact = options.density === "compact" || denseHeadline || denseDetail;
-  const hasBullets = Boolean(options.bullets && options.bullets.length);
-  const compactBulletHeadline = compact && hasBullets;
-  const children = [
-    {
-      id: `${slideId}.${id}.accent`,
-      type: "shape",
-      preset: "rect",
-      fill: accentToken,
-      fixedHeight: 0.18,
-      fixedWidth: 3.2,
-      align: "start"
-    }
-  ];
-  if (headline) {
-    children.push({
-      id: `${slideId}.${id}.headline`,
-      type: "text",
-      text: headline,
-      style: compactBulletHeadline ? "card-title" : denseHeadline ? "lead" : "section-title",
-      size: compactBulletHeadline ? void 0 : denseHeadline ? "md" : "lg",
-      color: "text.primary",
-      align: "left",
-      autoFit: "shrink",
-      minHeight: estimateTakeawayHeadlineMinHeight(headline, compact, hasBullets)
-    });
-  }
-  if (detail.text || detail.content) {
-    children.push({
-      id: `${slideId}.${id}.detail`,
-      type: "text",
-      ...detail,
-      style: compact ? "paragraph" : "lead",
-      color: "text.primary",
-      align: "left",
-      valign: "top",
-      autoFit: "shrink",
-      minHeight: estimateTakeawayDetailMinHeight(detailPlain, compact),
-      optional: compact ? true : void 0
-    });
-  }
-  if (options.bullets && options.bullets.length) {
-    children.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets.slice(0, 5), compact ? "compact" : "comfortable"), spaceAfter: compact ? 1.2 : 2 });
-  }
-  const minimal = options.variant === "minimal";
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: compact ? 0.14 : 0.3,
-    role: "key-takeaway",
-    ...!minimal ? { fill: fillToken, line: accentToken, padding: compact ? 0.38 : options.variant === "banner" ? 0.55 : 0.7, cornerRadius: 0.12, elevation: "raised" } : {},
-    children
-  }, options);
-}
-function weightedTextLength(text) {
-  let length = 0;
-  for (const char of text) {
-    length += /[\u4e00-\u9fff]/.test(char) ? 1.05 : isWideVisualSymbol(char) ? 0.9 : 0.58;
-  }
-  return length;
-}
-function richTextPlain(content) {
-  if (!Array.isArray(content))
-    return "";
-  return content.map((run) => {
-    if (!run || typeof run !== "object")
-      return "";
-    const rec = run;
-    if (typeof rec.text === "string")
-      return rec.text;
-    if (rec.kind === "math")
-      return typeof rec.latex === "string" ? rec.latex : "";
-    if (rec.kind === "cite")
-      return "[cite]";
-    if (rec.kind === "footnoteRef")
-      return "[note]";
-    if (rec.kind === "token")
-      return String(rec.value ?? "");
-    if (rec.kind === "icon")
-      return typeof rec.alt === "string" ? rec.alt : "";
-    return "";
-  }).join("");
-}
-function estimateTakeawayDetailMinHeight(text, compact) {
-  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
-  const weighted = weightedTextLength(text);
-  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / (compact ? 46 : 40)));
-  const lineHeight = compact ? 0.46 : 0.58;
-  return Math.max(compact ? 0.68 : 0.82, Math.min(compact ? 2.1 : 2.6, estimatedLines * lineHeight + 0.14));
-}
-function estimateTakeawayHeadlineMinHeight(text, compact, hasBullets) {
-  if (!text.trim())
-    return void 0;
-  if (!compact)
-    return void 0;
-  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
-  const weighted = weightedTextLength(text);
-  const capacity = hasBullets ? 17 : 24;
-  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / capacity));
-  const lineHeight = hasBullets ? 0.54 : 0.62;
-  const min = hasBullets ? 0.72 : 0.62;
-  const max = hasBullets ? 1.7 : 1.85;
-  return Math.max(min, Math.min(max, estimatedLines * lineHeight + 0.14));
-}
-function numberedGrid(slideId, id, options) {
-  const tone = options.tone || "brand";
-  const accentColor = tone === "brand" ? "brand.primary" : "text.primary";
-  const chipStyle = options.numberStyle !== "plain";
-  const cols = options.columns && options.columns > 0 ? options.columns : options.items.length <= 4 ? options.items.length : options.items.length <= 6 ? 3 : 4;
-  const dense = options.items.length >= 5;
-  const twoByTwo = options.items.length === 4 && cols === 2;
-  const compactCell = dense || twoByTwo;
-  const bodyStyle = dense ? "caption" : "paragraph";
-  const chipSize = dense ? 0.54 : twoByTwo ? 0.78 : 1.15;
-  const cellGap = dense ? 0.1 : twoByTwo ? 0.16 : 0.25;
-  const gridGap = dense ? 0.32 : twoByTwo ? 0.4 : 0.55;
-  const titleMinHeight = dense ? 0.42 : twoByTwo ? 0.48 : 0.55;
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "grid",
-    columns: cols,
-    gap: gridGap,
-    role: "numbered-grid",
-    children: options.items.map((item, index) => {
-      const itemTone = item.tone || (tone === "brand" ? "brand" : "neutral");
-      const marker = dense && chipStyle ? null : decorationMarkerNode(slideId, `${id}.${index}.marker`, item.marker || options.marker, {
-        shape: "dot",
-        tone: itemTone,
-        variant: "tint",
-        size: compactCell ? "xs" : "sm"
-      });
-      const chipFill = dense ? toneAccentColor(itemTone, accentColor) : accentColor;
-      const chipTextColor = dense && (itemTone === "neutral" || itemTone === "muted") ? "text.primary" : "text.inverse";
-      const titleNode = {
-        id: `${slideId}.${id}.${index}.title`,
-        type: "text",
-        text: item.title,
-        style: "card-title",
-        color: "text.primary",
-        align: "left",
-        minHeight: titleMinHeight,
-        autoFit: "shrink",
-        layoutWeight: marker ? 1 : void 0
-      };
-      return {
-        id: `${slideId}.${id}.${index}`,
-        type: "stack",
-        direction: "vertical",
-        gap: cellGap,
-        role: "numbered-step",
-        // 96vi8n slide 23: chip was visually centered above a left-aligned
-        // title because the chip's own align:"center" (text-internal) was
-        // also being read as the cross-axis positional alignment. Wrap
-        // the chip in a left-anchored horizontal stack so the chip box
-        // sits at cell-x and the digit inside the chip stays centered.
-        align: "start",
-        children: [
-          chipStyle ? {
-            id: `${slideId}.${id}.${index}.num.wrap`,
-            type: "stack",
-            direction: "horizontal",
-            gap: 0,
-            align: "start",
-            valign: "top",
-            children: [
-              {
-                id: `${slideId}.${id}.${index}.num`,
-                type: "text",
-                text: String(index + 1),
-                // Dense 5+ grids use a small chip; canonical 2x2 grids
-                // use a medium chip. Single-row hero-style grids keep the
-                // larger chip for visual weight.
-                style: compactCell ? "label" : "card-title",
-                weight: "bold",
-                color: chipTextColor,
-                fill: chipFill,
-                align: "center",
-                valign: "middle",
-                cornerRadius: 0.5,
-                fixedWidth: chipSize,
-                fixedHeight: chipSize
-              },
-              { id: `${slideId}.${id}.${index}.num.flex`, type: "spacer", layoutWeight: 1 }
-            ]
-          } : {
-            id: `${slideId}.${id}.${index}.num`,
-            type: "text",
-            text: String(index + 1).padStart(2, "0"),
-            style: "metric-value",
-            color: accentColor,
-            align: "left",
-            valign: "bottom",
-            minHeight: compactCell ? 0.6 : 0.9,
-            autoFit: "shrink"
-          },
-          ...marker ? [{
-            id: `${slideId}.${id}.${index}.titleRow`,
-            type: "stack",
-            direction: "horizontal",
-            gap: compactCell ? 0.14 : 0.18,
-            valign: "middle",
-            fixedHeight: compactCell ? titleMinHeight : void 0,
-            children: [marker, titleNode]
-          }] : [titleNode],
-          ...item.body && item.body.trim() ? [{
-            id: `${slideId}.${id}.${index}.body`,
-            type: "text",
-            text: item.body.trim(),
-            style: bodyStyle,
-            align: "left",
-            valign: "top",
-            color: "text.muted",
-            minHeight: numberedGridBodyMinHeight(item.body.trim(), dense, twoByTwo),
-            layoutWeight: dense ? void 0 : 1.4,
-            autoFit: "shrink",
-            optional: dense
-          }] : []
-        ]
-      };
-    })
-  }, options);
-}
-function numberedGridBodyMinHeight(text, dense, twoByTwo = false) {
-  const explicitLines = text.split(/\n+/).map((line2) => line2.trim()).filter(Boolean).length;
-  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weightedTextLength(text) / (dense ? 44 : twoByTwo ? 40 : 32)));
-  const line = dense ? 0.32 : twoByTwo ? 0.42 : 0.5;
-  return Math.max(dense ? 0.5 : twoByTwo ? 0.72 : 1.05, Math.min(dense ? 0.95 : twoByTwo ? 1.35 : 2.15, estimatedLines * line + 0.18));
-}
-function statStrip(slideId, id, options) {
-  const stripTone = options.tone || "brand";
-  const items = [];
-  options.items.forEach((item, index) => {
-    const itemTone = item.tone || stripTone;
-    const valueColor = statStripToneColor(itemTone);
-    if (index > 0) {
-      items.push({
-        id: `${slideId}.${id}.sep${index}`,
-        type: "shape",
-        preset: "rect",
-        fill: "divider",
-        fixedWidth: 0.04,
-        fixedHeight: 1.35,
-        align: "center",
-        valign: "middle"
-      });
-    }
-    items.push({
-      id: `${slideId}.${id}.${index}`,
-      type: "stack",
-      direction: "vertical",
-      gap: 0.15,
-      align: "center",
-      justify: "center",
-      valign: "middle",
-      fixedHeight: 2.05,
-      layoutWeight: 4,
-      children: [
-        { id: `${slideId}.${id}.${index}.value`, type: "text", text: item.value, style: "metric-value", size: metricValueSize(item.value, false), color: valueColor, align: "center", valign: "bottom", autoFit: "shrink", minHeight: metricValueNeedsCompactScale(item.value) ? 1 : 0.9 },
-        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "metric-label", color: "text.muted", align: "center", valign: "top", uppercase: !/[\u4e00-\u9fff]/.test(item.label), letterSpacing: /[\u4e00-\u9fff]/.test(item.label) ? 0 : 60, autoFit: "shrink", minHeight: 0.36 }
-      ]
-    });
-  });
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "horizontal",
-    gap: 0.5,
-    role: "stat-strip",
-    align: "stretch",
-    valign: "middle",
-    minHeight: 2.05,
-    maxHeight: 2.35,
-    children: items
-  };
-}
-function statStripToneColor(tone) {
-  switch (tone) {
-    case "positive":
-      return "success";
-    case "warning":
-      return "warning";
-    case "danger":
-      return "danger";
-    case "neutral":
-      return "text.primary";
-    case "brand":
-    default:
-      return "brand.primary";
-  }
-}
-function legend(slideId, id, options) {
-  const direction = options.direction === "vertical" ? "vertical" : "horizontal";
-  const marker = options.marker === "square" || options.marker === "bar" ? options.marker : "dot";
-  const markerPreset2 = marker === "square" ? "rect" : marker === "bar" ? "rect" : "ellipse";
-  const markerWidth = marker === "bar" ? 0.85 : 0.55;
-  const markerHeight = marker === "bar" ? 0.22 : 0.55;
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction,
-    gap: direction === "horizontal" ? 0.6 : 0.28,
-    role: "legend",
-    align: "start",
-    valign: "middle",
-    children: options.items.map((item, index) => ({
-      id: `${slideId}.${id}.${index}`,
-      type: "stack",
-      direction: "horizontal",
-      gap: 0.25,
-      align: "start",
-      valign: "middle",
-      children: [
-        {
-          id: `${slideId}.${id}.${index}.dot`,
-          type: "shape",
-          preset: markerPreset2,
-          fill: item.color,
-          line: item.color,
-          cornerRadius: marker === "bar" ? 0.5 : marker === "square" ? 0.15 : void 0,
-          fixedWidth: markerWidth,
-          fixedHeight: markerHeight,
-          align: "center"
-        },
-        // Label color upgraded text.muted → text.primary so legend items
-        // read at the same priority as their colored markers. Muted gray
-        // labels disappeared next to vivid dots (yajush log).
-        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle", minHeight: 0.32, autoFit: "shrink" }
-      ]
-    }))
-  };
-}
-function badge(slideId, id, options) {
-  const tone = options.tone || "brand";
-  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "text.muted";
-  const intrinsic = textChipWidthCm(options.text, { min: 1.6, max: 6, padding: 0.9, cjk: 0.55, latin: 0.18 });
-  return {
-    id: `${slideId}.${id}`,
-    type: "text",
-    text: options.text,
-    style: "label",
-    size: "sm",
-    weight: "bold",
-    uppercase: true,
-    letterSpacing: 80,
-    color: "text.inverse",
-    fill: fillToken,
-    align: "center",
-    valign: "middle",
-    cornerRadius: 0.5,
-    fixedHeight: 0.7,
-    fixedWidth: intrinsic,
-    autoFit: "shrink",
-    noWrap: true,
-    role: "badge"
-  };
-}
-function flowArrow(slideId, id, options) {
-  const tone = options.tone || "brand";
-  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
-  const direction = options.direction === "down" ? "down" : "right";
-  const preset = direction === "down" ? "arrow-down" : "arrow-right";
-  const children = [
-    {
-      id: `${slideId}.${id}.arrow`,
-      type: "shape",
-      preset,
-      fill: fillToken,
-      line: fillToken,
-      fixedWidth: direction === "right" ? 2.2 : 1.4,
-      fixedHeight: direction === "right" ? 0.9 : 1.6,
-      align: "center"
-    }
-  ];
-  if (options.label && options.label.trim()) {
-    children.push({
-      id: `${slideId}.${id}.label`,
-      type: "text",
-      text: options.label.trim(),
-      style: "label",
-      color: fillToken,
-      align: "center",
-      valign: "middle",
-      uppercase: true,
-      letterSpacing: 80,
-      minHeight: 0.5,
-      autoFit: "shrink"
-    });
-  }
-  const labelWidth = options.label && options.label.trim() ? Math.max(3.5, Math.min(8, options.label.trim().length * 0.6)) : 0;
-  const arrowWidth = direction === "right" ? 2.2 : 1.4;
-  const clusterWidth = direction === "right" ? arrowWidth + 0.4 + labelWidth : Math.max(arrowWidth, labelWidth);
-  return {
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: direction === "right" ? "horizontal" : "vertical",
-    gap: 0.18,
-    role: "flow-arrow",
-    align: "center",
-    valign: "middle",
-    justify: "center",
-    fixedWidth: clusterWidth,
-    children
-  };
-}
-function tagList(slideId, id, options) {
-  const defaultTone = options.tone || "neutral";
-  const toneFill = (tone) => {
-    if (tone === "brand")
-      return { fill: "brand.tint", color: "brand.primary" };
-    if (tone === "positive")
-      return { fill: "success.tint", color: "success" };
-    if (tone === "warning")
-      return { fill: "warning.tint", color: "warning" };
-    if (tone === "danger")
-      return { fill: "danger.tint", color: "danger" };
-    return { fill: "surface", color: "text.muted" };
-  };
-  const itemCount = options.items.length;
-  const columns = options.columns && options.columns > 0 ? options.columns : Math.min(6, Math.max(2, itemCount <= 4 ? itemCount : 4));
-  return {
-    id: `${slideId}.${id}`,
-    type: "grid",
-    columns,
-    gap: 0.3,
-    role: "tag-list",
-    children: options.items.map((item, index) => {
-      const text = typeof item === "string" ? item : item && typeof item.text === "string" ? item.text : "";
-      const tone = typeof item === "string" ? defaultTone : item.tone || defaultTone;
-      const { fill, color: color2 } = toneFill(tone);
-      return {
-        id: `${slideId}.${id}.${index}`,
-        type: "text",
-        text,
-        style: "label",
-        size: "sm",
-        color: color2,
-        fill,
-        align: "center",
-        valign: "middle",
-        cornerRadius: 0.4,
-        minHeight: 0.55,
-        autoFit: "shrink"
-      };
-    })
-  };
-}
-function statComparison(slideId, id, options) {
-  const trend = options.trend || "up";
-  const trendColor = trend === "up" ? "success" : trend === "down" ? "danger" : "text.muted";
-  const arrow = trend === "up" ? "arrow-right" : trend === "down" ? "arrow-down" : "rect";
-  return {
-    id: `${slideId}.${id}`,
-    type: "grid",
-    columns: 3,
-    columnWeights: [0.42, 0.16, 0.42],
-    gap: 0.3,
-    role: "stat-comparison",
-    children: [
-      {
-        id: `${slideId}.${id}.before`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.18,
-        align: "center",
-        valign: "middle",
-        children: [
-          { id: `${slideId}.${id}.before.label`, type: "text", text: options.beforeLabel, style: "label", color: "text.muted", align: "center", minHeight: 0.42, autoFit: "shrink" },
-          { id: `${slideId}.${id}.before.value`, type: "text", text: options.beforeValue, style: "metric-value", color: "text.primary", align: "center", valign: "middle" }
-        ]
-      },
-      {
-        id: `${slideId}.${id}.delta`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.15,
-        align: "center",
-        valign: "middle",
-        children: [
-          { id: `${slideId}.${id}.delta.arrow`, type: "shape", preset: arrow, fill: trendColor, line: trendColor, fixedHeight: 0.7, fixedWidth: 1.2 },
-          ...options.deltaLabel ? [{ id: `${slideId}.${id}.delta.label`, type: "text", text: options.deltaLabel, style: "label", color: trendColor, align: "center", minHeight: 0.42, autoFit: "shrink" }] : []
-        ]
-      },
-      {
-        id: `${slideId}.${id}.after`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.18,
-        align: "center",
-        valign: "middle",
-        children: [
-          { id: `${slideId}.${id}.after.label`, type: "text", text: options.afterLabel, style: "label", color: trendColor, align: "center", minHeight: 0.42, autoFit: "shrink" },
-          { id: `${slideId}.${id}.after.value`, type: "text", text: options.afterValue, style: "metric-value", color: trendColor, align: "center", valign: "middle" }
-        ]
-      }
-    ]
-  };
-}
-function quizCard(slideId, id, options) {
-  const tone = options.tone || "tinted";
-  const fillToken = tone === "brand" ? "brand.tint" : tone === "neutral" ? "surface" : "surface.subtle";
-  const accentToken = "brand.primary";
-  const items = (options.items || options.options || []).slice(0, 6);
-  const useLetterChips = options.correct !== void 0 && options.correct !== null && options.correct !== "";
-  const letters = ["A", "B", "C", "D", "E", "F"];
-  const correctIndex = (() => {
-    if (options.correct === void 0 || options.correct === null || options.correct === "")
-      return null;
-    if (typeof options.correct === "number" && Number.isInteger(options.correct))
-      return options.correct;
-    if (typeof options.correct === "string") {
-      const trimmed = options.correct.trim();
-      if (/^[A-Fa-f]$/.test(trimmed))
-        return trimmed.toUpperCase().charCodeAt(0) - 65;
-      const n = Number(trimmed);
-      if (Number.isInteger(n))
-        return n;
-    }
-    return null;
-  })();
-  const stemPrefix = (() => {
-    const parts = [];
-    if (options.number)
-      parts.push(options.number);
-    if (options.questionType)
-      parts.push(options.questionType);
-    return parts.join(" \xB7 ");
-  })();
-  const stemText = stemPrefix ? `${stemPrefix} \u2014 ${options.question}` : options.question;
-  const itemRows = items.map((text, idx) => {
-    const isCorrect = correctIndex !== null && correctIndex === idx;
-    const marker = useLetterChips ? {
-      id: `${slideId}.${id}.item${idx}.marker`,
-      type: "text",
-      text: letters[idx],
-      style: "label",
-      weight: "bold",
-      color: isCorrect ? "text.inverse" : "text.primary",
-      fill: isCorrect ? "success" : "surface",
-      align: "center",
-      valign: "middle",
-      fixedWidth: 0.6,
-      fixedHeight: 0.6,
-      cornerRadius: 0.3
-    } : {
-      // Bullet dot — small filled circle; muted unless this item is
-      // marked correct (still works without letter chips, e.g. when
-      // `correct` was passed as an index alongside non-MCQ items).
-      id: `${slideId}.${id}.item${idx}.marker`,
-      type: "shape",
-      preset: "ellipse",
-      fill: isCorrect ? "success" : "text.muted",
-      line: isCorrect ? "success" : "text.muted",
-      fixedWidth: 0.18,
-      fixedHeight: 0.18,
-      align: "center"
-    };
-    return {
-      id: `${slideId}.${id}.item${idx}`,
-      type: "stack",
-      direction: "horizontal",
-      gap: useLetterChips ? 0.25 : 0.3,
-      role: "quiz-item",
-      align: "start",
-      valign: "middle",
-      children: [
-        marker,
-        {
-          id: `${slideId}.${id}.item${idx}.text`,
-          type: "text",
-          text,
-          style: "paragraph",
-          color: isCorrect ? "success" : "text.primary",
-          weight: isCorrect ? "semibold" : void 0,
-          align: "left",
-          valign: "middle",
-          layoutWeight: 1,
-          minHeight: 0.45,
-          autoFit: "shrink"
-        }
-      ]
-    };
-  });
-  const explanationNodes = options.explanation && options.explanation.trim() ? [
-    {
-      id: `${slideId}.${id}.divider`,
-      type: "shape",
-      preset: "rect",
-      fill: "divider",
-      fixedHeight: 0.02,
-      align: "stretch"
-    },
-    {
-      id: `${slideId}.${id}.explanation`,
-      type: "text",
-      text: options.explanation.trim(),
-      style: "paragraph",
-      color: "text.muted",
-      align: "left",
-      valign: "top",
-      minHeight: 0.5,
-      autoFit: "shrink"
-    }
-  ] : [];
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.18,
-    role: "quiz-card",
-    fill: fillToken,
-    line: accentToken,
-    lineWidth: 0.02,
-    cornerRadius: 0.12,
-    padding: 0.5,
-    children: [
-      {
-        id: `${slideId}.${id}.stem`,
-        type: "text",
-        text: stemText,
-        style: "h2",
-        color: "text.primary",
-        align: "left",
-        minHeight: 0.7,
-        autoFit: "shrink"
-      },
-      ...itemRows,
-      ...explanationNodes
-    ]
-  }, options);
-}
-function takeawayList(slideId, id, options) {
-  const baseTone = options.tone || "brand";
-  const items = (options.items || []).slice(0, 6);
-  const dense = items.length >= 4;
-  const detailedGrid = dense && items.some((item) => item.detail && item.detail.trim());
-  const itemNodes = items.map((item, idx) => {
-    const tone = item.tone || baseTone;
-    const accent = tone === "brand" ? "brand.primary" : toneAccentColor(tone, "brand.primary");
-    const marker = decorationMarkerNode(slideId, `${id}.${idx}.marker`, item.marker || options.marker, {
-      shape: "side-bar",
-      tone,
-      variant: tone === "neutral" ? "outline" : "solid",
-      size: dense ? "sm" : "md",
-      valign: "top"
-    });
-    const children2 = [
-      marker || {
-        // Accent bar uses fixedWidth only — its height is decided by the
-        // row's allocated cross-axis. Setting fixedHeight made every row
-        // demand at least that much, blocking dense (5+) layouts.
-        // 96vi8n slides 2/22: dense=0.14cm read as a hairline at slide
-        // distance. Both modes bumped to 0.18cm — visible without
-        // dominating, and dense rows can absorb the extra 0.04cm with
-        // no FALLBACK_FAILED.
-        id: `${slideId}.${id}.${idx}.bar`,
-        type: "shape",
-        preset: "rect",
-        fill: accent,
-        fixedWidth: 0.18,
-        align: "start"
-      },
-      {
-        id: `${slideId}.${id}.${idx}.text`,
-        type: "stack",
-        direction: "vertical",
-        gap: dense ? 0.04 : 0.1,
-        valign: "top",
-        layoutWeight: 1,
-        children: [
-          {
-            id: `${slideId}.${id}.${idx}.headline`,
-            type: "text",
-            text: item.headline,
-            style: dense ? "card-title" : "h2",
-            color: "text.primary",
-            align: "left",
-            minHeight: dense ? 0.45 : 0.55,
-            autoFit: "shrink"
-          },
-          ...item.detail && item.detail.trim() ? [{
-            id: `${slideId}.${id}.${idx}.detail`,
-            type: "text",
-            text: item.detail.trim(),
-            style: dense ? "caption" : "paragraph",
-            color: "text.muted",
-            align: "left",
-            valign: "top",
-            minHeight: estimateTakeawayDetailMinHeight(item.detail.trim(), dense),
-            autoFit: "shrink",
-            optional: true
-          }] : []
-        ]
-      }
-    ];
-    return {
-      id: `${slideId}.${id}.${idx}`,
-      type: "stack",
-      direction: "horizontal",
-      gap: 0.26,
-      role: "takeaway-item",
-      align: "start",
-      valign: "top",
-      children: children2
-    };
-  });
-  const listNode = {
-    id: `${slideId}.${id}.items`,
-    type: detailedGrid ? "grid" : "stack",
-    ...detailedGrid ? { columns: 2 } : { direction: "vertical" },
-    gap: detailedGrid ? 0.32 : dense ? 0.25 : 0.5,
-    role: "takeaway-list-items",
-    children: itemNodes
-  };
-  const title = options.title?.trim();
-  const children = title ? [
-    {
-      id: `${slideId}.${id}.title`,
-      type: "text",
-      text: title,
-      style: "card-title",
-      color: baseTone === "neutral" ? "text.primary" : toneAccentColor(baseTone, "brand.primary"),
-      minHeight: dense ? 0.38 : 0.48,
-      autoFit: "shrink"
-    },
-    listNode
-  ] : [listNode];
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: title ? 0.16 : 0,
-    role: "takeaway-list",
-    children
-  }, options);
-}
-function outline(slideId, id, options) {
-  const baseTone = options.tone || "brand";
-  const accentToken = baseTone === "brand" ? "brand.primary" : "text.primary";
-  const items = (options.items || []).slice(0, 12);
-  const showPages = options.showPages === true;
-  const density = options.density === "comfortable" || options.density === "compact" ? options.density : items.length >= 10 ? "compact" : items.length >= 6 ? "compact" : "comfortable";
-  const veryCompact = items.length >= 10;
-  const compact = density === "compact";
-  const anyNumbered = items.some((it) => typeof it.number === "string" && it.number.trim() !== "");
-  const itemNodes = items.map((item, idx) => {
-    const numberText = typeof item.number === "string" ? item.number.trim() : "";
-    const tone = item.tone;
-    const numberColor = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : accentToken;
-    const rowChildren = [];
-    if (anyNumbered) {
-      rowChildren.push({
-        id: `${slideId}.${id}.${idx}.num`,
-        type: "text",
-        text: numberText,
-        style: veryCompact ? "label" : "metric-label",
-        weight: "bold",
-        color: numberColor,
-        align: "left",
-        valign: "top",
-        fixedWidth: veryCompact ? 0.8 : compact ? 1 : 1.4,
-        fixedHeight: veryCompact ? 0.6 : compact ? 0.8 : 1,
-        autoFit: "shrink"
-      });
-    }
-    const titleStack = {
-      id: `${slideId}.${id}.${idx}.col`,
-      type: "stack",
-      direction: "vertical",
-      gap: veryCompact ? 0.02 : compact ? 0.06 : 0.08,
-      valign: "top",
-      layoutWeight: 1,
-      children: [
-        {
-          id: `${slideId}.${id}.${idx}.title`,
-          type: "text",
-          text: item.title,
-          // very-compact (10-12 items) drops to label style + minimal
-          // height so each row fits in ~0.7cm.
-          style: veryCompact ? "label" : compact ? "card-title" : "h2",
-          color: "text.primary",
-          align: "left",
-          minHeight: veryCompact ? 0.4 : compact ? 0.5 : 0.54,
-          autoFit: "shrink"
-        },
-        ...!veryCompact && item.body && item.body.trim() ? [{
-          id: `${slideId}.${id}.${idx}.body`,
-          type: "text",
-          text: item.body.trim(),
-          style: compact ? "caption" : "paragraph",
-          color: "text.muted",
-          align: "left",
-          valign: "top",
-          minHeight: 0.42,
-          autoFit: "shrink",
-          optional: true
-        }] : []
-      ]
-    };
-    rowChildren.push(titleStack);
-    if (showPages && (item.page !== void 0 && item.page !== null && item.page !== "")) {
-      rowChildren.push({
-        id: `${slideId}.${id}.${idx}.page`,
-        type: "text",
-        text: `p.${String(item.page)}`,
-        style: "caption",
-        color: "text.muted",
-        align: "right",
-        valign: "top",
-        fixedWidth: 1.4,
-        autoFit: "shrink"
-      });
-    }
-    return {
-      id: `${slideId}.${id}.${idx}`,
-      type: "stack",
-      direction: "horizontal",
-      gap: compact ? 0.3 : 0.5,
-      role: "outline-item",
-      align: "start",
-      valign: "top",
-      children: rowChildren
-    };
-  });
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    // very-compact (10-12 items): 0.12cm gap → 12 × 0.4 + 11 × 0.12 ≈ 6.1cm fits 8cm
-    gap: veryCompact ? 0.12 : compact ? 0.25 : 0.45,
-    role: "outline",
-    children: itemNodes
-  }, options);
-}
-function glossary(slideId, id, options) {
-  const items = (options.items || []).slice(0, 16);
-  const layout = options.layout === "two-column" ? "two-column" : "list";
-  const veryDense = items.length >= 12;
-  const dense = !veryDense && items.length >= 8;
-  const renderItem = (item, idx) => ({
-    id: `${slideId}.${id}.${idx}`,
-    type: "stack",
-    direction: "vertical",
-    gap: veryDense ? 0.02 : dense ? 0.05 : 0.1,
-    role: "glossary-item",
-    children: [
-      {
-        id: `${slideId}.${id}.${idx}.term`,
-        type: "text",
-        text: item.term,
-        style: veryDense ? "label" : dense ? "card-title" : "h2",
-        weight: "bold",
-        color: "brand.primary",
-        align: "left",
-        minHeight: veryDense ? 0.32 : dense ? 0.45 : 0.55,
-        autoFit: "shrink"
-      },
-      {
-        id: `${slideId}.${id}.${idx}.def`,
-        type: "text",
-        text: item.definition,
-        style: veryDense ? "caption" : dense ? "caption" : "paragraph",
-        color: "text.primary",
-        align: "left",
-        valign: "top",
-        minHeight: veryDense ? 0.32 : dense ? 0.45 : 0.55,
-        autoFit: "shrink",
-        optional: true
-      }
-    ]
-  });
-  if (layout === "two-column") {
-    return applyAgentSurface({
-      id: `${slideId}.${id}`,
-      type: "grid",
-      columns: 2,
-      gap: veryDense ? 0.18 : dense ? 0.35 : 0.55,
-      role: "glossary",
-      children: items.map(renderItem)
-    }, options);
-  }
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: veryDense ? 0.1 : dense ? 0.22 : 0.35,
-    role: "glossary",
-    children: items.map(renderItem)
-  }, options);
-}
-function qAndA(slideId, id, options) {
-  const items = (options.items || []).slice(0, 6);
-  const dense = options.density === "compact" || items.length >= 4;
-  const veryDense = items.length >= 5;
-  const ultraDense = false;
-  const itemNodes = items.flatMap((item, idx) => [
-    {
-      id: `${slideId}.${id}.${idx}.q`,
-      type: "stack",
-      direction: "horizontal",
-      gap: 0.25,
-      align: "start",
-      valign: "top",
-      role: "qa-question",
-      children: [
-        {
-          id: `${slideId}.${id}.${idx}.q.chip`,
-          type: "text",
-          text: "Q",
-          style: "label",
-          weight: "bold",
-          color: "text.inverse",
-          fill: "brand.primary",
-          align: "center",
-          valign: "middle",
-          fixedWidth: ultraDense ? 0.4 : veryDense ? 0.45 : dense ? 0.55 : 0.7,
-          fixedHeight: ultraDense ? 0.4 : veryDense ? 0.45 : dense ? 0.55 : 0.7,
-          cornerRadius: 0.5
-        },
-        {
-          id: `${slideId}.${id}.${idx}.q.text`,
-          type: "text",
-          text: item.q,
-          style: ultraDense ? "label" : veryDense ? "label" : dense ? "card-title" : "h2",
-          weight: "bold",
-          color: "text.primary",
-          align: "left",
-          valign: "middle",
-          layoutWeight: 1,
-          minHeight: ultraDense ? 0.38 : veryDense ? 0.45 : dense ? 0.5 : 0.6,
-          autoFit: "shrink"
-        }
-      ]
-    },
-    {
-      id: `${slideId}.${id}.${idx}.a`,
-      type: "stack",
-      direction: "horizontal",
-      gap: 0.25,
-      align: "start",
-      valign: "top",
-      role: "qa-answer",
-      children: [
-        {
-          id: `${slideId}.${id}.${idx}.a.chip`,
-          type: "text",
-          text: "A",
-          style: "label",
-          weight: "bold",
-          color: "text.inverse",
-          fill: "text.muted",
-          align: "center",
-          valign: "middle",
-          fixedWidth: ultraDense ? 0.4 : veryDense ? 0.45 : dense ? 0.55 : 0.7,
-          fixedHeight: ultraDense ? 0.4 : veryDense ? 0.45 : dense ? 0.55 : 0.7,
-          cornerRadius: 0.5
-        },
-        {
-          id: `${slideId}.${id}.${idx}.a.text`,
-          type: "text",
-          text: item.a,
-          style: dense ? "caption" : "paragraph",
-          color: "text.primary",
-          align: "left",
-          valign: "top",
-          layoutWeight: 1,
-          minHeight: ultraDense ? 0.38 : veryDense ? 0.42 : dense ? 0.5 : 0.7,
-          autoFit: "shrink",
-          // Answer is optional in ultra-dense (7+ pairs) so layout can drop
-          // it for the densest pages where Q-only summaries still help.
-          optional: veryDense
-        }
-      ]
-    }
-  ]);
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: ultraDense ? 0.08 : veryDense ? 0.15 : dense ? 0.25 : 0.45,
-    role: "q-and-a",
-    children: itemNodes
-  }, options);
-}
-function comparisonTable(slideId, id, options) {
-  const features = (options.features || []).slice(0, 8);
-  const opts = (options.options || []).slice(0, 4);
-  const colCount = opts.length + 1;
-  const headerRow = [
-    {
-      id: `${slideId}.${id}.h0`,
-      type: "spacer",
-      fixedHeight: 0.9
-    },
-    ...opts.map((opt, idx) => ({
-      id: `${slideId}.${id}.h${idx + 1}`,
-      type: "stack",
-      direction: "vertical",
-      gap: 0.08,
-      align: "center",
-      valign: "middle",
-      fixedHeight: 0.9,
-      fill: opt.recommended ? "brand.tint" : void 0,
-      cornerRadius: opt.recommended ? 0.08 : void 0,
-      children: [
-        ...opt.recommended ? [{
-          id: `${slideId}.${id}.h${idx + 1}.badge`,
-          type: "text",
-          text: "RECOMMENDED",
-          style: "label",
-          weight: "bold",
-          color: "text.primary",
-          align: "center",
-          tracking: "wide",
-          minHeight: 0.32,
-          autoFit: "shrink"
-        }] : [],
-        {
-          id: `${slideId}.${id}.h${idx + 1}.name`,
-          type: "text",
-          text: opt.name,
-          style: "card-title",
-          weight: "bold",
-          color: "text.primary",
-          align: "center",
-          minHeight: 0.5,
-          autoFit: "shrink"
-        }
-      ]
-    }))
-  ];
-  const featureRows = features.flatMap((feature, fIdx) => {
-    const cells = [
-      {
-        id: `${slideId}.${id}.r${fIdx}.f`,
-        type: "text",
-        text: feature,
-        style: "card-title",
-        weight: "semibold",
-        color: "text.primary",
-        align: "left",
-        valign: "middle",
-        fill: "surface.subtle",
-        minHeight: 0.7,
-        autoFit: "shrink"
-      },
-      ...opts.map((opt, oIdx) => {
-        const raw = opt.values[fIdx];
-        const cellText = raw === void 0 || raw === null || raw === "" ? "\u2014" : String(raw);
-        const isCheck = /^(✓|yes|true|是|有)$/i.test(cellText);
-        const isCross = /^(✗|×|no|false|否|无)$/i.test(cellText);
-        return {
-          id: `${slideId}.${id}.r${fIdx}.o${oIdx}`,
-          type: "text",
-          text: cellText,
-          style: "paragraph",
-          color: isCheck ? "success" : isCross ? "danger" : "text.primary",
-          weight: isCheck || isCross ? "bold" : void 0,
-          align: "center",
-          valign: "middle",
-          fill: opt.recommended ? "brand.tint" : void 0,
-          minHeight: 0.7,
-          autoFit: "shrink"
-        };
-      })
-    ];
-    return cells;
-  });
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "grid",
-    columns: colCount,
-    gap: 0.04,
-    role: "comparison-table",
-    children: [...headerRow, ...featureRows]
-  }, options);
-}
-function scorecard(slideId, id, options) {
-  const items = (options.items || []).slice(0, 8);
-  const cols = options.columns && options.columns > 0 ? options.columns : Math.min(4, Math.max(2, items.length));
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "grid",
-    columns: cols,
-    gap: 0.4,
-    role: "scorecard",
-    children: items.map((item, idx) => {
-      const status = item.status || "neutral";
-      const accent = status === "good" ? "success" : status === "warning" ? "warning" : status === "danger" ? "danger" : "text.muted";
-      const valueColor = status === "good" ? "success" : status === "warning" ? "warning" : status === "danger" ? "danger" : "text.primary";
-      const deltaColor = item.trend === "up" ? "success" : item.trend === "down" ? "danger" : "text.muted";
-      return {
-        id: `${slideId}.${id}.${idx}`,
-        type: "card",
-        role: "scorecard-item",
-        accent: "left",
-        accentColor: accent,
-        padding: 0.4,
-        elevation: "raised",
-        children: [{
-          id: `${slideId}.${id}.${idx}.stack`,
-          type: "stack",
-          direction: "vertical",
-          gap: 0.12,
-          children: [
-            { id: `${slideId}.${id}.${idx}.label`, type: "text", text: item.label, style: "metric-label", color: "text.muted", align: "left", minHeight: 0.4, autoFit: "shrink" },
-            { id: `${slideId}.${id}.${idx}.value`, type: "text", text: item.value, style: "metric-value", color: valueColor, align: "left", autoFit: "shrink", minHeight: 0.85 },
-            ...item.delta && item.delta.trim() ? [{
-              id: `${slideId}.${id}.${idx}.delta`,
-              type: "text",
-              text: (item.trend === "up" ? "\u25B2 " : item.trend === "down" ? "\u25BC " : "") + item.delta.trim(),
-              style: "label",
-              color: deltaColor,
-              align: "left",
-              minHeight: 0.32,
-              autoFit: "shrink",
-              optional: true
-            }] : []
-          ]
-        }]
-      };
-    })
-  }, options);
-}
-function gauge(slideId, id, options) {
-  const max = options.max && options.max > 0 ? options.max : 100;
-  const value = Math.max(0, Math.min(max, options.value || 0));
-  const ratio = value / max;
-  const thresholds = options.thresholds && options.thresholds.length > 0 ? options.thresholds.slice().sort((a, b) => a.upTo - b.upTo) : [{ upTo: max, tone: "brand" }];
-  const activeThreshold = thresholds.find((t) => value <= t.upTo) || thresholds[thresholds.length - 1];
-  const valueTone = activeThreshold.tone;
-  const valueColor = valueTone === "danger" ? "danger" : valueTone === "warning" ? "warning" : valueTone === "positive" ? "success" : "brand.primary";
-  const TRACK_HEIGHT = 0.45;
-  let prevUpTo = 0;
-  const trackChildren = thresholds.map((t, idx) => {
-    const widthRatio = Math.max(1e-3, (t.upTo - prevUpTo) / max);
-    const tToken = t.tone === "danger" ? "danger.tint" : t.tone === "warning" ? "warning.tint" : t.tone === "positive" ? "success.tint" : "brand.tint";
-    prevUpTo = t.upTo;
-    return {
-      id: `${slideId}.${id}.t${idx}`,
-      type: "shape",
-      preset: "rect",
-      fill: tToken,
-      layoutWeight: Math.max(1, Math.round(widthRatio * 100)),
-      fixedHeight: TRACK_HEIGHT
-    };
-  });
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.2,
-    role: "gauge",
-    children: [
-      {
-        id: `${slideId}.${id}.value`,
-        type: "text",
-        text: `${value}${options.unit || ""}`,
-        style: "metric-value",
-        color: valueColor,
-        align: "center",
-        autoFit: "shrink",
-        fixedHeight: 1.4
-      },
-      {
-        id: `${slideId}.${id}.label`,
-        type: "text",
-        text: options.label,
-        style: "metric-label",
-        color: "text.muted",
-        align: "center",
-        autoFit: "shrink",
-        fixedHeight: 0.5
-      },
-      {
-        id: `${slideId}.${id}.track`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0.04,
-        fixedHeight: TRACK_HEIGHT,
-        children: trackChildren
-      },
-      // Pointer / marker showing where the value falls on the track. The
-      // triangle is positioned via flanking spacers whose layoutWeights sum
-      // to 100. Integer weights are honored more precisely than fractional
-      // values by the layout solver.
-      {
-        id: `${slideId}.${id}.pointer-row`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0,
-        fixedHeight: 0.4,
-        children: [
-          // No fixedHeight on the spacers — they need to be pure flex for
-          // layoutWeight to act as the sole sizing signal. With fixedHeight,
-          // the layout solver was capping the weight contribution.
-          { id: `${slideId}.${id}.pointer.l`, type: "spacer", layoutWeight: Math.max(1, Math.round(ratio * 100)) },
-          { id: `${slideId}.${id}.pointer.tick`, type: "shape", preset: "triangle", fill: valueColor, line: valueColor, fixedWidth: 0.4, fixedHeight: 0.4 },
-          { id: `${slideId}.${id}.pointer.r`, type: "spacer", layoutWeight: Math.max(1, Math.round((1 - ratio) * 100)) }
-        ]
-      }
-    ]
-  }, options);
-}
-function heatmap(slideId, id, options) {
-  const xLabels = (options.xLabels || []).slice(0, 12);
-  const yLabels = (options.yLabels || []).slice(0, 12);
-  const palette = options.palette === "warm" ? "warm" : options.palette === "diverging" ? "diverging" : "cool";
-  const values = options.values || [];
-  const flat = values.flat().filter((v) => typeof v === "number");
-  const min = flat.length ? Math.min(...flat) : 0;
-  const max = flat.length ? Math.max(...flat) : 1;
-  const range = max - min || 1;
-  const showValues = options.showValues !== false && xLabels.length <= 8 && yLabels.length <= 8;
-  const cellGap = 0.04;
-  const headerRow = [
-    { id: `${slideId}.${id}.h0`, type: "spacer", fixedHeight: 0.45 },
-    ...xLabels.map((lbl, x) => ({
-      id: `${slideId}.${id}.hx${x}`,
-      type: "text",
-      text: lbl,
-      style: "label",
-      color: "text.muted",
-      align: "center",
-      valign: "middle",
-      autoFit: "shrink",
-      minHeight: 0.4
-    }))
-  ];
-  const dataRows = [];
-  for (let y = 0; y < yLabels.length; y++) {
-    dataRows.push({
-      id: `${slideId}.${id}.r${y}.lbl`,
-      type: "text",
-      text: yLabels[y],
-      style: "label",
-      color: "text.muted",
-      align: "right",
-      valign: "middle",
-      autoFit: "shrink",
-      minHeight: 0.4
-    });
-    for (let x = 0; x < xLabels.length; x++) {
-      const v = values[y]?.[x] ?? 0;
-      const t = (v - min) / range;
-      const fill = heatmapColor(palette, t);
-      dataRows.push(showValues ? {
-        id: `${slideId}.${id}.c${y}.${x}`,
-        type: "text",
-        text: String(v),
-        style: "caption",
-        color: t > 0.6 ? "text.inverse" : "text.primary",
-        fill,
-        align: "center",
-        valign: "middle",
-        cornerRadius: 0.05,
-        minHeight: 0.5,
-        autoFit: "shrink"
-      } : {
-        id: `${slideId}.${id}.c${y}.${x}`,
-        type: "shape",
-        preset: "rect",
-        fill,
-        line: fill,
-        cornerRadius: 0.05
-      });
-    }
-  }
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "grid",
-    columns: xLabels.length + 1,
-    gap: cellGap,
-    role: "heatmap",
-    children: [...headerRow, ...dataRows]
-  }, options);
-}
-function heatmapColor(palette, t) {
-  t = Math.max(0, Math.min(1, t));
-  const lerp = (a, b) => Math.round(a + (b - a) * t);
-  const hex = (r, g, b) => [r, g, b].map((n) => n.toString(16).padStart(2, "0").toUpperCase()).join("");
-  if (palette === "warm") {
-    return hex(lerp(255, 178), lerp(247, 24), lerp(220, 43));
-  }
-  if (palette === "diverging") {
-    if (t < 0.5) {
-      const u2 = t * 2;
-      const lerp22 = (a, b) => Math.round(a + (b - a) * u2);
-      return hex(lerp22(33, 247), lerp22(102, 247), lerp22(172, 247));
-    }
-    const u = (t - 0.5) * 2;
-    const lerp2 = (a, b) => Math.round(a + (b - a) * u);
-    return hex(lerp2(247, 178), lerp2(247, 24), lerp2(247, 43));
-  }
-  return hex(lerp(247, 33), lerp(252, 102), lerp(253, 172));
-}
-function matrix2x2(slideId, id, options) {
-  const items = options.items || [];
-  const compact = options.density !== "comfortable";
-  const rootGap = compact ? 0.1 : 0.18;
-  const gridGap = compact ? 0.16 : 0.25;
-  const cellPadding = compact ? 0.24 : 0.4;
-  const cellGap = compact ? 0.1 : 0.15;
-  const labelMinHeight = compact ? 0.38 : 0.52;
-  const itemMinHeight = compact ? 0.34 : 0.45;
-  const axisMinHeight = compact ? 0.28 : 0.36;
-  const showXAxis = options.showXAxis !== false;
-  const showYAxis = options.showYAxis !== false;
-  const quadrants = { tl: [], tr: [], bl: [], br: [] };
-  for (const it of items) {
-    const key = `${it.y === "high" ? "t" : "b"}${it.x === "low" ? "l" : "r"}`;
-    const tone = it.tone || "brand";
-    quadrants[key].push({ label: it.label, tone });
-  }
-  const ql = options.quadrantLabels || {};
-  const qt = options.quadrantTones || {};
-  const labelOnly = items.length === 0;
-  const tintFor = (tone) => {
-    if (tone === "positive")
-      return { fill: "success.tint", ink: "success", line: "success" };
-    if (tone === "warning")
-      return { fill: "warning.tint", ink: "warning", line: "warning" };
-    if (tone === "danger")
-      return { fill: "danger.tint", ink: "danger", line: "danger" };
-    if (tone === "neutral")
-      return { fill: "surface.subtle", ink: "text.primary", line: "divider" };
-    if (tone === "brand")
-      return { fill: "brand.tint", ink: "brand.primary", line: "brand.primary" };
-    return { fill: "surface.subtle", ink: "text.primary", line: "divider" };
-  };
-  const defaultLabelTone = {
-    tl: "warning",
-    tr: "positive",
-    bl: "neutral",
-    br: "warning"
-  };
-  const renderQuadrant = (key, qLabel) => {
-    const cellTone = qt[key] || (labelOnly ? defaultLabelTone[key] : void 0);
-    const tint = labelOnly ? tintFor(cellTone) : { fill: "surface.subtle", ink: "text.primary", line: "divider" };
-    return {
-      id: `${slideId}.${id}.${key}`,
-      type: "card",
-      fill: tint.fill,
-      line: tint.line,
-      padding: cellPadding,
-      elevation: "flat",
-      children: [{
-        id: `${slideId}.${id}.${key}.stack`,
-        type: "stack",
-        direction: "vertical",
-        gap: cellGap,
-        align: labelOnly ? "center" : "start",
-        valign: labelOnly ? "middle" : "top",
-        children: [
-          ...qLabel ? [{
-            id: `${slideId}.${id}.${key}.qlabel`,
-            type: "text",
-            text: qLabel,
-            style: labelOnly ? "card-title" : "label",
-            color: labelOnly ? tint.ink : "text.muted",
-            tracking: labelOnly ? void 0 : "wide",
-            weight: labelOnly ? "semibold" : void 0,
-            align: labelOnly ? "center" : "left",
-            minHeight: labelOnly ? labelMinHeight : 0.3,
-            autoFit: "shrink"
-          }] : [],
-          ...quadrants[key].map((it, idx) => {
-            const tone = it.tone;
-            const fill = tone === "positive" ? "success.tint" : tone === "warning" ? "warning.tint" : tone === "danger" ? "danger.tint" : "brand.tint";
-            const color2 = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "brand.primary";
-            return {
-              id: `${slideId}.${id}.${key}.${idx}`,
-              type: "text",
-              text: it.label,
-              style: "label",
-              weight: "semibold",
-              color: color2,
-              fill,
-              align: "left",
-              cornerRadius: 0.08,
-              minHeight: itemMinHeight,
-              autoFit: "shrink"
-            };
-          })
-        ]
-      }]
-    };
-  };
-  const yAxisBand = (text, idSuffix) => ({
-    id: `${slideId}.${id}.${idSuffix}`,
-    type: "panel",
-    fill: "surface.subtle",
-    line: "divider",
-    cornerRadius: 0.08,
-    padding: compact ? 0.06 : 0.1,
-    children: [{
-      id: `${slideId}.${id}.${idSuffix}.text`,
-      type: "text",
-      text,
-      style: "label",
-      weight: "semibold",
-      color: "text.primary",
-      align: "center",
-      tracking: "wide",
-      minHeight: axisMinHeight,
-      autoFit: "shrink"
-    }]
-  });
-  const grid = {
-    id: `${slideId}.${id}.grid`,
-    type: "grid",
-    columns: 2,
-    gap: gridGap,
-    layoutWeight: 1,
-    children: [
-      renderQuadrant("tl", ql.tl),
-      renderQuadrant("tr", ql.tr),
-      renderQuadrant("bl", ql.bl),
-      renderQuadrant("br", ql.br)
-    ]
-  };
-  const xAxisRow = {
-    id: `${slideId}.${id}.x-axis`,
-    type: "stack",
-    direction: "horizontal",
-    gap: compact ? 0.28 : 0.4,
-    children: [
-      { id: `${slideId}.${id}.xlo`, type: "text", text: options.xAxis.low, style: "label", color: "text.muted", align: "left", tracking: "wide", layoutWeight: 1, minHeight: compact ? 0.28 : 0.32, autoFit: "shrink" },
-      { id: `${slideId}.${id}.xhi`, type: "text", text: options.xAxis.high, style: "label", color: "text.muted", align: "right", tracking: "wide", layoutWeight: 1, minHeight: compact ? 0.28 : 0.32, autoFit: "shrink" }
-    ]
-  };
-  const children = [
-    ...showYAxis ? [yAxisBand(options.yAxis.high, "yhi")] : [],
-    grid,
-    ...showYAxis ? [yAxisBand(options.yAxis.low, "ylo")] : [],
-    ...showXAxis ? [xAxisRow] : []
-  ];
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: rootGap,
-    role: "matrix-2x2",
-    children
-  }, options);
-}
-function trendLine(slideId, id, options) {
-  const values = (options.values || []).slice(0, 24);
-  const max = values.length ? Math.max(...values) : 1;
-  const min = values.length ? Math.min(...values) : 0;
-  const range = max - min || 1;
-  const tone = options.tone || "brand";
-  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
-  const height = typeof options.height === "number" && options.height > 0 ? options.height : 1;
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "horizontal",
-    gap: 0.05,
-    role: "trend-line",
-    fixedHeight: height,
-    align: "stretch",
-    valign: "bottom",
-    children: values.map((v, idx) => {
-      const ratio = Math.max(0.05, (v - min) / range);
-      return {
-        id: `${slideId}.${id}.${idx}`,
-        type: "shape",
-        preset: "rect",
-        fill: fillToken,
-        line: fillToken,
-        layoutWeight: 1,
-        fixedHeight: Math.max(0.1, height * ratio)
-      };
-    })
-  }, options);
-}
-function statFlow(slideId, id, options) {
-  const steps = (options.steps || []).slice(0, 10);
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "horizontal",
-    gap: 0.3,
-    role: "stat-flow",
-    align: "center",
-    valign: "middle",
-    children: steps.map((step, idx) => {
-      if ("connector" in step) {
-        return {
-          id: `${slideId}.${id}.${idx}.connector`,
-          type: "text",
-          text: step.connector,
-          style: "card-title",
-          color: "text.muted",
-          align: "center",
-          valign: "middle",
-          fixedWidth: Math.max(1.2, step.connector.length * 0.4),
-          autoFit: "shrink"
-        };
-      }
-      const tone = step.tone || "neutral";
-      const valueColor = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : tone === "brand" ? "brand.primary" : "text.primary";
-      return {
-        id: `${slideId}.${id}.${idx}`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.08,
-        align: "center",
-        valign: "middle",
-        layoutWeight: 1,
-        children: [
-          { id: `${slideId}.${id}.${idx}.value`, type: "text", text: step.value, style: "metric-value", color: valueColor, align: "center", autoFit: "shrink", minHeight: 0.85 },
-          { id: `${slideId}.${id}.${idx}.label`, type: "text", text: step.label, style: "metric-label", color: "text.muted", align: "center", minHeight: 0.32, autoFit: "shrink", optional: true }
-        ]
-      };
-    })
-  }, options);
-}
-function donutSummary(slideId, id, options) {
-  const primary = options.primary;
-  const others = (options.others || []).slice(0, 5);
-  const unit = options.unit || "";
-  const tone = options.tone || "brand";
-  const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
-  const allValues = [primary.value, ...others.map((o) => o.value)];
-  const total = allValues.reduce((a, b) => a + b, 0) || 1;
-  const entries = [primary, ...others];
-  const palette = [
-    accent,
-    "text.muted",
-    "brand.tint",
-    "warning.tint",
-    "success.tint",
-    "danger.tint"
-  ];
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "grid",
-    columns: 2,
-    gap: 0.5,
-    role: "donut-summary",
-    children: [
-      // Left: ring with center number
-      {
-        id: `${slideId}.${id}.ring`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.12,
-        align: "center",
-        valign: "middle",
-        children: [
-          {
-            id: `${slideId}.${id}.chart`,
-            type: "chart",
-            chartType: "doughnut",
-            labels: entries.map((entry) => entry.label),
-            series: [{ name: primary.label, values: entries.map((entry) => entry.value) }],
-            colors: palette.slice(0, entries.length),
-            showLegend: false,
-            showValues: false,
-            layoutWeight: 1,
-            minHeight: 2.2
-          },
-          { id: `${slideId}.${id}.value`, type: "text", text: `${Math.round(primary.value / total * 100)}%`, style: "hero", color: accent, align: "center", autoFit: "shrink", minHeight: 0.95 },
-          { id: `${slideId}.${id}.label`, type: "text", text: primary.label, style: "card-title", color: "text.primary", align: "center", autoFit: "shrink", minHeight: 0.55 },
-          ...unit ? [{ id: `${slideId}.${id}.unit`, type: "text", text: unit, style: "source-note", color: "text.muted", align: "center", autoFit: "shrink", optional: true }] : []
-        ]
-      },
-      // Right: legend of primary + others
-      {
-        id: `${slideId}.${id}.legend`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.18,
-        valign: "middle",
-        children: entries.map((entry, idx) => {
-          const isPrimary = idx === 0;
-          const dotColor = isPrimary ? accent : palette[idx % palette.length];
-          const pct = Math.round(entry.value / total * 100);
-          return {
-            id: `${slideId}.${id}.legend.${idx}`,
-            type: "stack",
-            direction: "horizontal",
-            gap: 0.25,
-            align: "start",
-            valign: "middle",
-            children: [
-              { id: `${slideId}.${id}.legend.${idx}.dot`, type: "shape", preset: "ellipse", fill: dotColor, line: dotColor, fixedWidth: 0.4, fixedHeight: 0.4 },
-              { id: `${slideId}.${id}.legend.${idx}.label`, type: "text", text: `${entry.label} \xB7 ${pct}%`, style: "label", color: "text.primary", align: "left", layoutWeight: 1, valign: "middle", autoFit: "shrink" }
-            ]
-          };
-        })
-      }
-    ]
-  }, options);
-}
-function rangePlot(slideId, id, options) {
-  const items = (options.items || []).slice(0, 8);
-  const globalMin = items.length ? Math.min(...items.map((i) => i.min)) : 0;
-  const globalMax = items.length ? Math.max(...items.map((i) => i.max)) : 1;
-  const range = globalMax - globalMin || 1;
-  const tone = options.tone || "brand";
-  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.35,
-    role: "range-plot",
-    children: items.map((item, idx) => {
-      const startRatio = (item.min - globalMin) / range;
-      const widthRatio = (item.max - item.min) / range;
-      const beforeRatio = startRatio;
-      const afterRatio = Math.max(1e-3, 1 - startRatio - widthRatio);
-      const pointRatio = typeof item.point === "number" ? (item.point - globalMin) / range : -1;
-      return {
-        id: `${slideId}.${id}.${idx}`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.08,
-        children: [
-          { id: `${slideId}.${id}.${idx}.label`, type: "text", text: `${item.label}: ${item.min}\u2013${item.max}${item.unit || ""}${typeof item.point === "number" ? ` (mid ${item.point}${item.unit || ""})` : ""}`, style: "label", color: "text.primary", align: "left", minHeight: 0.4, autoFit: "shrink" },
-          {
-            id: `${slideId}.${id}.${idx}.bar`,
-            type: "stack",
-            direction: "horizontal",
-            gap: 0,
-            fixedHeight: 0.3,
-            children: [
-              { id: `${slideId}.${id}.${idx}.b.before`, type: "spacer", layoutWeight: Math.max(1, Math.round(beforeRatio * 100)) },
-              { id: `${slideId}.${id}.${idx}.b.range`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, layoutWeight: Math.max(5, Math.round(widthRatio * 100)), fixedHeight: 0.3 },
-              { id: `${slideId}.${id}.${idx}.b.after`, type: "spacer", layoutWeight: Math.max(1, Math.round(afterRatio * 100)) }
-            ]
-          },
-          ...pointRatio >= 0 ? [{
-            id: `${slideId}.${id}.${idx}.pointer-row`,
-            type: "stack",
-            direction: "horizontal",
-            gap: 0,
-            fixedHeight: 0.18,
-            children: [
-              { id: `${slideId}.${id}.${idx}.p.l`, type: "spacer", layoutWeight: Math.max(1, Math.round(pointRatio * 100)) },
-              { id: `${slideId}.${id}.${idx}.p.dot`, type: "shape", preset: "ellipse", fill: "text.primary", line: "text.primary", fixedWidth: 0.18, fixedHeight: 0.18 },
-              { id: `${slideId}.${id}.${idx}.p.r`, type: "spacer", layoutWeight: Math.max(1, Math.round((1 - pointRatio) * 100)) }
-            ]
-          }] : []
-        ]
-      };
-    })
-  }, options);
-}
-function calloutMarker(slideId, id, options) {
-  const tone = options.tone || "brand";
-  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "surface";
-  const fgToken = tone === "neutral" ? "text.primary" : "text.inverse";
-  const width = Number.isFinite(options.width) && (options.width || 0) > 0 ? Math.max(2.4, Math.min(8, options.width)) : textChipWidthCm(options.text, { min: 3.2, max: 7, padding: 0.9, latin: 0.2, cjk: 0.34 });
-  const height = Number.isFinite(options.height) && (options.height || 0) > 0 ? Math.max(0.8, Math.min(4, options.height)) : estimateCalloutMarkerHeightCm(options.text, width);
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "text",
-    text: options.text,
-    style: "label",
-    weight: "bold",
-    color: fgToken,
-    fill: fillToken,
-    align: "center",
-    valign: "middle",
-    autoFit: "shrink",
-    cornerRadius: 0.15,
-    role: "callout-marker",
-    anchor: options.anchor || "top-right",
-    width,
-    height
-  }, options);
-}
-function estimateCalloutMarkerHeightCm(text, widthCm) {
-  const capacity = Math.max(8, Math.floor((Math.max(2.4, widthCm) - 0.8) / 0.32));
-  const lines = String(text || "").split(/\r?\n/).reduce((sum3, line) => sum3 + Math.max(1, Math.ceil(weightedTextLength(line.trim() || " ") / capacity)), 0);
-  return Math.max(1.05, Math.min(3.2, 0.6 + lines * 0.42));
-}
-function decorationGrid(slideId, id, options) {
-  const pattern = options.pattern === "diagonal-lines" || options.pattern === "grid" ? options.pattern : "dots";
-  const density = options.density === "sparse" ? "sparse" : options.density === "dense" ? "dense" : "normal";
-  const rows = options.rows && options.rows > 0 ? options.rows : density === "sparse" ? 5 : density === "dense" ? 12 : 8;
-  const cols = options.columns && options.columns > 0 ? options.columns : density === "sparse" ? 8 : density === "dense" ? 18 : 12;
-  const tone = options.tone === "brand" ? "brand.tint" : "divider";
-  const dotSize = pattern === "dots" ? density === "sparse" ? 0.12 : density === "dense" ? 0.08 : 0.1 : pattern === "diagonal-lines" ? 0.04 : 0.08;
-  const dotPreset = pattern === "dots" ? "ellipse" : pattern === "diagonal-lines" ? "line" : "rect";
-  const cells = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      cells.push({
-        id: `${slideId}.${id}.${r}.${c}`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0,
-        align: "center",
-        valign: "middle",
-        optional: true,
-        children: [{
-          id: `${slideId}.${id}.${r}.${c}.dot`,
-          type: "shape",
-          preset: dotPreset,
-          fill: tone,
-          line: tone,
-          fixedWidth: pattern === "diagonal-lines" ? 0.6 : dotSize,
-          fixedHeight: pattern === "diagonal-lines" ? 0.04 : dotSize
-        }]
-      });
-    }
-  }
-  const grid = {
-    id: `${slideId}.${id}`,
-    type: "grid",
-    columns: cols,
-    gap: density === "sparse" ? 0.5 : density === "dense" ? 0.2 : 0.32,
-    role: "decoration-grid",
-    children: cells
-  };
-  const isBackground = options.asBackground !== false;
-  if (isBackground) {
-    grid.anchor = "top-left";
-    grid.offsetX = 0;
-    grid.offsetY = 0;
-    grid.fillSlide = true;
-    grid.zIndex = -1;
-  }
-  return applyAgentSurface(grid, options);
-}
-function decorativeShapes(slideId, id, options) {
-  const motif = options.motif || "bubbles";
-  const anchor = options.anchor || "top-right";
-  const tone = options.tone || "muted";
-  const count = Math.max(3, Math.min(40, Math.floor(options.count || (anchor === "full" ? 24 : motif === "corner-blobs" ? 6 : 12))));
-  const columns = anchor === "full" ? Math.ceil(Math.sqrt(count * 1.7)) : Math.ceil(Math.sqrt(count * 1.4));
-  const rows = Math.ceil(count / columns);
-  const palette = decorativePalette(tone);
-  const children = Array.from({ length: count }, (_, index) => {
-    const preset = decorativePreset(motif, index);
-    const size = decorativeSize(motif, index);
-    const token = palette[index % palette.length];
-    const rotation = motif === "confetti" ? (index % 5 - 2) * 17 : motif === "sparkles" ? index % 2 * 18 : void 0;
-    return {
-      id: `${slideId}.${id}.${index}`,
-      type: "stack",
-      direction: "vertical",
-      gap: 0,
-      align: "center",
-      valign: "middle",
-      optional: true,
-      children: [{
-        id: `${slideId}.${id}.${index}.mark`,
-        type: "shape",
-        preset,
-        fill: preset === "line" ? void 0 : token,
-        line: token,
-        lineWidth: preset === "line" ? 0.035 : 0.018,
-        fixedWidth: preset === "line" ? size * 1.8 : size,
-        fixedHeight: preset === "line" ? 0.04 : size,
-        ...rotation !== void 0 ? { rotation } : {}
-      }]
-    };
-  });
-  const isFull = anchor === "full";
-  const asBackground = options.asBackground !== false;
-  const node = {
-    id: `${slideId}.${id}`,
-    type: "grid",
-    columns,
-    rows,
-    gap: motif === "corner-blobs" ? 0.1 : anchor === "full" ? 0.35 : 0.22,
-    role: "decorative-shapes",
-    children,
-    anchor: isFull ? "top-left" : anchor,
-    width: isFull ? void 0 : options.width || 5.2,
-    height: isFull ? void 0 : options.height || 3.4,
-    offsetX: isFull ? 0 : 0.35,
-    offsetY: isFull ? 0 : 0.35,
-    ...isFull ? { fillSlide: true } : {},
-    zIndex: asBackground ? -1 : 2
-  };
-  return applyAgentSurface(node, options);
-}
-function decorativePalette(tone) {
-  if (tone === "brand")
-    return ["brand.primary", "brand.tint", "divider"];
-  if (tone === "accent")
-    return ["accent", "brand.primary", "success", "warning"];
-  if (tone === "warning")
-    return ["warning", "danger", "accent"];
-  return ["divider", "text.muted", "surface.subtle"];
-}
-function decorativePreset(motif, index) {
-  if (motif === "confetti")
-    return ["rect", "triangle", "line", "star-5"][index % 4];
-  if (motif === "sparkles")
-    return index % 3 === 0 ? "star-5" : "ellipse";
-  if (motif === "molecule")
-    return index % 4 === 3 ? "line" : "ellipse";
-  if (motif === "corner-blobs")
-    return index % 5 === 0 ? "cloud" : "ellipse";
-  return "ellipse";
-}
-function decorativeSize(motif, index) {
-  if (motif === "corner-blobs")
-    return [1.1, 0.75, 0.55, 0.9, 0.42, 0.65][index % 6];
-  if (motif === "confetti")
-    return [0.22, 0.3, 0.45, 0.26][index % 4];
-  if (motif === "sparkles")
-    return [0.32, 0.16, 0.22][index % 3];
-  if (motif === "molecule")
-    return [0.28, 0.18, 0.24, 0.5][index % 4];
-  return [0.22, 0.34, 0.16, 0.42][index % 4];
-}
-function cornerMark(slideId, id, options) {
-  const tone = options.tone || "warning";
-  const fillToken = tone === "brand" ? "brand.primary" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "text.muted";
-  const corner = options.corner || "top-right";
-  const style = options.style || "tag";
-  const renderedText = style !== "ribbon" ? options.text.toUpperCase() : options.text;
-  const width = textChipWidthCm(renderedText, { min: 2, max: 7.2, padding: 0.9, latin: 0.24, cjk: 0.48 });
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "text",
-    text: options.text,
-    style: "label",
-    weight: "bold",
-    uppercase: style !== "ribbon",
-    letterSpacing: 80,
-    color: "text.inverse",
-    fill: fillToken,
-    align: "center",
-    valign: "middle",
-    autoFit: "shrink",
-    noWrap: true,
-    cornerRadius: style === "ribbon" ? 0 : style === "stamp" ? 0.2 : 0.08,
-    width,
-    height: style === "ribbon" ? 0.76 : 0.72,
-    role: "corner-mark",
-    anchor: corner
-  }, options);
-}
-function brandMark(slideId, id, options) {
-  const corner = options.corner || "bottom-right";
-  const tone = options.tone || "muted";
-  const color2 = tone === "inverse" ? "text.inverse" : tone === "brand" ? "brand.primary" : tone === "neutral" ? "text.secondary" : "text.muted";
-  const align = corner.endsWith("-right") ? "right" : "left";
-  const width = options.width ?? textChipWidthCm(options.text, { min: 2.4, max: 6.4, padding: 0.75, latin: 0.19, cjk: 0.36 });
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "text",
-    text: options.text,
-    style: "label",
-    color: color2,
-    align,
-    valign: "middle",
-    autoFit: "shrink",
-    noWrap: true,
-    role: "brand-mark",
-    anchor: corner,
-    width,
-    height: options.height || 0.58,
-    offsetX: options.offsetX ?? 0.75,
-    offsetY: options.offsetY ?? 0.55,
-    zIndex: 5
-  }, options);
-}
-function bracket(slideId, id, options) {
-  const direction = options.direction === "right" || options.direction === "top" || options.direction === "bottom" ? options.direction : "left";
-  const tone = options.tone || "brand";
-  const lineColor = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
-  const isHorizontal = direction === "top" || direction === "bottom";
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: isHorizontal ? "vertical" : "horizontal",
-    gap: 0.25,
-    role: "bracket",
-    align: "center",
-    valign: "middle",
-    children: [
-      {
-        id: `${slideId}.${id}.line`,
-        type: "shape",
-        preset: "rect",
-        fill: lineColor,
-        line: lineColor,
-        cornerRadius: 0.5,
-        ...isHorizontal ? { fixedHeight: 0.06, fixedWidth: 5 } : { fixedWidth: 0.06, fixedHeight: 5 }
-      },
-      ...options.label && options.label.trim() ? [{
-        id: `${slideId}.${id}.label`,
-        type: "text",
-        text: options.label.trim(),
-        style: "label",
-        // The bracket LINE carries the tone; the label stays
-        // text.primary so it always reads on light surfaces. Tone-
-        // colored labels (success/warning/brand on light bg) repeatedly
-        // failed 4.5:1 and got LOW_CONTRAST'd to a sibling accent,
-        // disconnecting the label from the bracket. Same pattern as
-        // bar-list / progressBar value fix.
-        color: "text.primary",
-        align: isHorizontal ? "center" : "left",
-        valign: "middle",
-        minHeight: 0.4,
-        autoFit: "shrink"
-      }] : []
-    ]
-  }, options);
-}
-function arrowLink(slideId, id, options) {
-  const tone = options.tone || "brand";
-  const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
-  const direction = options.direction === "down" ? "down" : "right";
-  const arrowPreset = direction === "down" ? "arrow-down" : "arrow-right";
-  const children = [];
-  if (options.fromLabel) {
-    children.push({
-      id: `${slideId}.${id}.from`,
-      type: "text",
-      text: options.fromLabel,
-      style: "card-title",
-      color: "text.primary",
-      align: direction === "right" ? "right" : "center",
-      valign: "middle",
-      autoFit: "shrink",
-      minHeight: 0.5,
-      layoutWeight: 1
-    });
-  }
-  children.push({
-    id: `${slideId}.${id}.arrow`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.04,
-    align: "center",
-    valign: "middle",
-    children: [
-      ...options.label ? [{
-        id: `${slideId}.${id}.label`,
-        type: "text",
-        text: options.label,
-        style: "label",
-        color: accent,
-        align: "center",
-        autoFit: "shrink",
-        minHeight: 0.32
-      }] : [],
-      {
-        id: `${slideId}.${id}.shape`,
-        type: "shape",
-        preset: arrowPreset,
-        fill: accent,
-        line: accent,
-        fixedWidth: direction === "right" ? 2 : 0.8,
-        fixedHeight: direction === "right" ? 0.6 : 1.2
-      }
-    ]
-  });
-  if (options.toLabel) {
-    children.push({
-      id: `${slideId}.${id}.to`,
-      type: "text",
-      text: options.toLabel,
-      style: "card-title",
-      color: "text.primary",
-      align: direction === "right" ? "left" : "center",
-      valign: "middle",
-      autoFit: "shrink",
-      minHeight: 0.5,
-      layoutWeight: 1
-    });
-  }
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: direction === "right" ? "horizontal" : "vertical",
-    gap: 0.3,
-    role: "arrow-link",
-    align: "center",
-    valign: "middle",
-    children
-  }, options);
-}
-function pointerArrow(slideId, id, options) {
-  const direction = options.direction || "right";
-  const tone = options.tone || "brand";
-  const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
-  const horizontal = direction === "right" || direction === "left";
-  const labelText = (options.label ?? "").trim();
-  const hasLabel = Boolean(labelText);
-  const labelWidth = hasLabel ? textChipWidthCm(labelText, {
-    min: horizontal ? 2.2 : 1.4,
-    max: horizontal ? 6.8 : 3.2,
-    padding: 0.75,
-    latin: 0.2,
-    cjk: 0.34
-  }) : 0;
-  const defaultWidth = horizontal ? Math.max(3.4, labelWidth) : Math.max(1.6, Math.min(3.2, labelWidth || 1.6));
-  const width = Math.max(options.width || defaultWidth, horizontal ? hasLabel ? 2.2 : 1.8 : 1.2);
-  const height = Math.max(options.height || (horizontal ? hasLabel ? 1.1 : 0.75 : 2.4), horizontal ? hasLabel ? 1.4 : 0.85 : hasLabel ? 2.8 : 2.1);
-  const arrowPreset = horizontal ? "arrow-right" : "arrow-down";
-  const arrow = {
-    id: `${slideId}.${id}.shape`,
-    type: "shape",
-    preset: arrowPreset,
-    fill: accent,
-    line: accent,
-    lineWidth: 0.035,
-    ...options.style === "dashed" ? { lineDash: "dash" } : {},
-    fixedWidth: horizontal ? Math.max(1.2, width - 0.3) : 0.8,
-    fixedHeight: horizontal ? 0.55 : Math.max(1.2, height - (hasLabel ? 0.72 : 0.3)),
-    ...direction === "left" ? { flipH: true } : {},
-    ...direction === "up" ? { flipV: true } : {}
-  };
-  const label = hasLabel ? {
-    id: `${slideId}.${id}.label`,
-    type: "text",
-    text: labelText,
-    style: "label",
-    weight: "bold",
-    color: accent,
-    align: "center",
-    valign: "middle",
-    autoFit: "shrink",
-    noWrap: true,
-    minHeight: 0.35
-  } : null;
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.08,
-    role: "pointer-arrow",
-    align: "center",
-    valign: "middle",
-    anchor: options.anchor || "middle-center",
-    offsetX: options.offsetX || 0,
-    offsetY: options.offsetY || 0,
-    width,
-    height,
-    zIndex: 3,
-    children: label ? [label, arrow] : [arrow]
-  }, options);
-}
-function watermark(slideId, id, options) {
-  const tone = options.tone || "muted";
-  const colorToken = tone === "danger" ? "danger" : tone === "warning" ? "warning" : tone === "brand" ? "brand.primary" : "text.muted";
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "text",
-    text: options.text,
-    style: "hero",
-    weight: "bold",
-    uppercase: true,
-    letterSpacing: 200,
-    color: colorToken,
-    align: "center",
-    valign: "middle",
-    role: "watermark",
-    anchor: "middle-center",
-    width: 18,
-    height: 4,
-    autoFit: "shrink"
-  }, options);
-}
-function bigPageNumber(slideId, id, options) {
-  const corner = options.corner || "top-right";
-  const tone = options.tone || "brand";
-  const colorToken = tone === "brand" ? "brand.primary" : "text.muted";
-  const text = options.total !== void 0 && options.total !== null && options.total !== "" ? `${String(options.current).padStart(2, "0")} / ${String(options.total).padStart(2, "0")}` : String(options.current).padStart(2, "0");
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "text",
-    text,
-    style: "hero",
-    weight: "bold",
-    color: colorToken,
-    align: "center",
-    valign: "middle",
-    role: "big-page-number",
-    anchor: corner,
-    width: 4.5,
-    height: 1.6,
-    autoFit: "shrink"
-  }, options);
-}
-function timelineAxisBar(slideId, id, options) {
-  const sections = (options.sections || []).slice(0, 8);
-  const current = Math.max(0, Math.min(sections.length - 1, options.current || 0));
-  const tone = options.tone || "brand";
-  const accent = tone === "brand" ? "brand.primary" : "text.primary";
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "horizontal",
-    gap: 0.3,
-    role: "timeline-axis-bar",
-    align: "stretch",
-    valign: "middle",
-    fixedHeight: 0.85,
-    children: sections.map((label, idx) => {
-      const isActive = idx === current;
-      const isPast = idx < current;
-      const dotColor = isActive ? accent : isPast ? accent : "divider";
-      const labelColor = isActive ? accent : "text.muted";
-      return {
-        id: `${slideId}.${id}.${idx}`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.1,
-        align: "center",
-        valign: "middle",
-        layoutWeight: 1,
-        children: [
-          { id: `${slideId}.${id}.${idx}.dot`, type: "shape", preset: "ellipse", fill: dotColor, line: dotColor, fixedWidth: isActive ? 0.4 : 0.25, fixedHeight: isActive ? 0.4 : 0.25 },
-          { id: `${slideId}.${id}.${idx}.lbl`, type: "text", text: label, style: "label", weight: isActive ? "bold" : "normal", color: labelColor, align: "center", autoFit: "shrink", minHeight: 0.32 }
-        ]
-      };
-    })
-  }, options);
-}
-function scaleBar(slideId, id, options) {
-  const min = options.min || 0;
-  const max = options.max;
-  const tickCount = options.ticks && options.ticks >= 2 ? options.ticks : 5;
-  const tone = options.tone || "neutral";
-  const lineColor = tone === "brand" ? "brand.primary" : "text.muted";
-  const labels = [];
-  for (let i = 0; i < tickCount; i++) {
-    const v = min + (max - min) * i / (tickCount - 1);
-    labels.push(`${Math.round(v * 100) / 100}${options.unit || ""}`);
-  }
-  return applyAgentSurface({
-    id: `${slideId}.${id}`,
-    type: "stack",
-    direction: "vertical",
-    gap: 0.08,
-    role: "scale-bar",
-    children: [
-      // tick row: short vertical bars
-      {
-        id: `${slideId}.${id}.ticks`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0,
-        fixedHeight: 0.3,
-        children: Array.from({ length: tickCount }, (_, i) => ({
-          id: `${slideId}.${id}.tick${i}`,
-          type: "stack",
-          direction: "vertical",
-          gap: 0,
-          layoutWeight: 1,
-          align: "center",
-          children: [
-            { id: `${slideId}.${id}.tick${i}.bar`, type: "shape", preset: "rect", fill: lineColor, line: lineColor, fixedWidth: 0.04, fixedHeight: 0.3 }
-          ]
-        }))
-      },
-      // base line
-      { id: `${slideId}.${id}.line`, type: "shape", preset: "rect", fill: lineColor, line: lineColor, fixedHeight: 0.04 },
-      // labels
-      {
-        id: `${slideId}.${id}.labels`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0,
-        children: labels.map((lbl, i) => ({
-          id: `${slideId}.${id}.lbl${i}`,
-          type: "text",
-          text: lbl,
-          style: "caption",
-          color: "text.muted",
-          align: i === 0 ? "left" : i === labels.length - 1 ? "right" : "center",
-          autoFit: "shrink",
-          minHeight: 0.32,
-          layoutWeight: 1
-        }))
-      }
-    ]
-  }, options);
-}
-function companyOverviewLayout(options) {
-  return {
-    id: `${options.slideId}.overviewLayout`,
-    type: "grid",
-    area: "content",
-    columns: 2,
-    gap: 0.55,
-    role: "company-overview-layout",
-    children: [
-      {
-        id: `${options.slideId}.narrativeColumn`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.3,
-        children: [
-          paragraphText(options.slideId, "company-summary", options.summary),
-          bulletList(options.slideId, "business-lines", options.businessLines, "compact")
-        ]
-      },
-      {
-        id: `${options.slideId}.visualColumn`,
-        type: "stack",
-        direction: "vertical",
-        gap: 0.35,
-        children: [
-          imageBlock(options.slideId, "hero-visual", options.visualSrc, "Company visual", "cover"),
-          {
-            id: `${options.slideId}.metricGrid`,
-            type: "grid",
-            columns: 3,
-            gap: 0.25,
-            children: options.metrics.map((metric) => metricCard(options.slideId, metric.name, metric.value, metric.label))
-          }
-        ]
-      }
-    ]
-  };
-}
-
 // slideml2/dist/theme.js
 var COMPONENT_TEXT_STYLE_DERIVATIONS = {
   "timeline-time": {
@@ -20508,6 +15165,7 @@ function stripHexPrefix(value) {
 function mergeTheme(base, brandPrimary, override, prebuiltColors, prebuiltColorAlphas) {
   const flatColors = prebuiltColors ?? flattenColorOverrides(override?.colors);
   const flatColorAlphas = prebuiltColorAlphas ?? flattenColorOverrideAlphas(override?.colors);
+  const layoutOverride = override?.layout || {};
   const colors = { ...base.colors, ...derivedBrandPalette(brandPrimary), ...flatColors };
   if (flatColors["text.secondary"] && !flatColors["text.muted"]) {
     colors["text.muted"] = flatColors["text.secondary"];
@@ -20522,7 +15180,12 @@ function mergeTheme(base, brandPrimary, override, prebuiltColors, prebuiltColorA
     text: mergeTextStyles(base.text, override?.text),
     component: mergeComponentStyles(base.component, override?.component),
     tone: { ...base.tone, ...override?.tone || {} },
-    layout: { ...base.layout, ...override?.layout || {}, areas: { ...base.layout.areas, ...override?.layout?.areas || {} } },
+    layout: {
+      ...base.layout,
+      ...layoutOverride,
+      areas: { ...base.layout.areas, ...layoutOverride.areas || {} },
+      regionBudget: { ...base.layout.regionBudget, ...layoutOverride.regionBudget || {} }
+    },
     fonts: mergeFonts(base.fonts, override?.fonts),
     chart: { series: override?.chart?.series ?? base.chart.series },
     guidance: {
@@ -21359,7 +16022,18 @@ function defaultBase(brandPrimary) {
       defaultGap: 0.5,
       columnGap: 0.7,
       cardPadding: 0.55,
-      areas: {}
+      areas: {},
+      regionBudget: {
+        headingScale: 0.62,
+        leadScale: 0.72,
+        bodyScale: 0.7,
+        keyTakeawayDetailScale: 0.76,
+        bulletScale: 0.74,
+        bulletMinPt: 7.8,
+        keyTakeawayMinCm: 3.05,
+        keyTakeawayMaxCm: 4.25,
+        keyTakeawayMaxAvailableRatio: 0.42
+      }
     },
     chart: {
       series: ["brand.primary", "brand.primary.shade", "brand.primary.tint", "success", "warning", "danger"]
@@ -28308,7 +22982,7 @@ var HeuristicTextMeasurer = class {
       return fontPt * PT_TO_CM * 1.02;
     if (/\s/.test(ch))
       return this.averageLatinAdvance(fontPt, weight) * 0.45;
-    if (isWideVisualSymbol2(ch))
+    if (isWideVisualSymbol(ch))
       return fontPt * PT_TO_CM * 0.9;
     if (/[ilI1|.,:;]/.test(ch))
       return this.averageLatinAdvance(fontPt, weight) * 0.55;
@@ -28436,7 +23110,7 @@ var MetricPackTextMeasurer = class {
       return face.buckets?.cjk ?? 1;
     if (/\s/.test(ch))
       return face.buckets?.space ?? 0.28;
-    if (isWideVisualSymbol2(ch))
+    if (isWideVisualSymbol(ch))
       return face.buckets?.symbol ?? 0.9;
     if (/[0-9]/.test(ch))
       return face.buckets?.digit ?? face.buckets?.latin ?? 0.55;
@@ -28449,9 +23123,119 @@ var MetricPackTextMeasurer = class {
 };
 var fontMetricFaces = FONT_METRICS_PACK.faces;
 var fontMetricAliases = FONT_METRICS_PACK.aliases;
+var WORD_JOINER = "\u2060";
 var LATIN_BREAK_AFTER = /* @__PURE__ */ new Set(["-", "/", "\\", "_", "@", ".", ":", "+", "="]);
-var PROHIBITED_LINE_START = /* @__PURE__ */ new Set(["\uFF0C", "\u3002", "\u3001", "\uFF1B", "\uFF1A", "\uFF01", "\uFF1F", "\uFF09", "\u3011", "\u300B", "\u300D", "\u300F", "\u3009", ")", "]", "}", ",", ".", ";", ":", "!", "?"]);
-var PROHIBITED_LINE_END = /* @__PURE__ */ new Set(["\uFF08", "\u3010", "\u300A", "\u300C", "\u300E", "\u3008", "(", "[", "{"]);
+var PROHIBITED_LINE_START = /* @__PURE__ */ new Set(["\uFF0C", "\u3002", "\u3001", "\uFF1B", "\uFF1A", "\uFF01", "\uFF1F", "\uFF09", "\u3011", "\u3015", "\u300B", "\u300D", "\u300F", "\u3009", "\u201D", "\u2019", ")", "]", "}", ",", ".", ";", ":", "!", "?"]);
+var PROHIBITED_LINE_END = /* @__PURE__ */ new Set(["\uFF08", "\u3010", "\u3014", "\u300A", "\u300C", "\u300E", "\u3008", "\u201C", "\u2018", "(", "[", "{"]);
+var CJK_PUNCTUATION = /* @__PURE__ */ new Set([
+  "\uFF0C",
+  "\u3002",
+  "\u3001",
+  "\uFF1B",
+  "\uFF1A",
+  "\uFF01",
+  "\uFF1F",
+  "\uFF08",
+  "\uFF09",
+  "\u3010",
+  "\u3011",
+  "\u3014",
+  "\u3015",
+  "\u300A",
+  "\u300B",
+  "\u300C",
+  "\u300D",
+  "\u300E",
+  "\u300F",
+  "\u3008",
+  "\u3009",
+  "\u201C",
+  "\u201D",
+  "\u2018",
+  "\u2019"
+]);
+function protectCjkLineBreakPunctuation(text, context = {}) {
+  const chars = [...String(text || "")];
+  if (chars.length === 0)
+    return "";
+  let out = "";
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+    const previous = previousVisibleChar(chars, i) ?? context.previous;
+    if (PROHIBITED_LINE_START.has(ch) && shouldJoinCjkPunctuation(previous, ch) && !out.endsWith(WORD_JOINER)) {
+      out += WORD_JOINER;
+    }
+    out += ch;
+    const next = nextVisibleChar(chars, i) ?? context.next;
+    if (PROHIBITED_LINE_END.has(ch) && chars[i + 1] !== WORD_JOINER && shouldJoinCjkPunctuation(ch, next)) {
+      out += WORD_JOINER;
+    }
+  }
+  return out;
+}
+function hasCjkLineStartPunctuationRisk(text, fontPt, weight, maxWidthCm, measurer) {
+  const usable = Math.max(0.25, maxWidthCm);
+  const guardWidth = usable * 0.965;
+  for (const line of String(text || "").split(/\r?\n/)) {
+    if (!containsCjkOrFullWidth(line))
+      continue;
+    const wrap = measureWrappedText(line, fontPt, weight, usable, measurer);
+    if (wrap.lines > 2)
+      continue;
+    if (wrap.widthCm <= guardWidth)
+      continue;
+    if (wrap.widthCm > usable * 2.08)
+      continue;
+    const chars = [...line];
+    let prefix = "";
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i];
+      if (ch === WORD_JOINER)
+        continue;
+      const previous = previousVisibleChar(chars, i);
+      if (PROHIBITED_LINE_START.has(ch) && shouldJoinCjkPunctuation(previous, ch)) {
+        const beforeWidth = measurer.textWidth(prefix, fontPt, weight);
+        const punctWidth = measurer.textWidth(ch, fontPt, weight);
+        if (beforeWidth <= usable && beforeWidth + punctWidth > guardWidth)
+          return true;
+        const lineIndex = Math.floor(beforeWidth / usable);
+        if (lineIndex > 0) {
+          const residual = beforeWidth - lineIndex * usable;
+          const edgeBand = Math.max(0.08, punctWidth * 1.25);
+          if (residual > usable - edgeBand && residual + punctWidth > guardWidth)
+            return true;
+        }
+      }
+      prefix += ch;
+    }
+  }
+  return false;
+}
+function previousVisibleChar(chars, index) {
+  for (let i = index - 1; i >= 0; i--) {
+    const ch = chars[i];
+    if (ch !== WORD_JOINER)
+      return ch;
+  }
+  return void 0;
+}
+function nextVisibleChar(chars, index) {
+  for (let i = index + 1; i < chars.length; i++) {
+    const ch = chars[i];
+    if (ch !== WORD_JOINER)
+      return ch;
+  }
+  return void 0;
+}
+function shouldJoinCjkPunctuation(left, right2) {
+  if (!left || !right2)
+    return false;
+  if (left === WORD_JOINER || right2 === WORD_JOINER)
+    return false;
+  if (/\s/.test(left) || /\s/.test(right2))
+    return false;
+  return isCjkOrFullWidth(left) || isCjkOrFullWidth(right2) || CJK_PUNCTUATION.has(left) || CJK_PUNCTUATION.has(right2);
+}
 function measureWrappedText(text, fontPt, weight, maxWidthCm, measurer) {
   const usable = Math.max(0.25, maxWidthCm * wrapSafetyFactor(text, weight));
   const hardLines = String(text || "").split(/\r?\n/);
@@ -28581,7 +23365,7 @@ function containsCjkOrFullWidth(text) {
   }
   return false;
 }
-function isWideVisualSymbol2(ch) {
+function isWideVisualSymbol(ch) {
   return /[\u2605\u2606\u2713\u2714\u2717\u2715\u2716\u26a0\u25cf\u25cb\u25c6\u25c7\u25a0\u25a1\u25b2\u25b3\u25b6\u25b7\u25bc\u25bd]/.test(ch);
 }
 function normalizeFontAlias(value) {
@@ -28594,6 +23378,5483 @@ function normalizedNaturalLineHeightCm(fontPt, _family, metrics, hasCjkText) {
   const raw = Math.max(0.01, metrics.ascentCm + metrics.descentCm);
   const cap = fontPt * PT_TO_CM * (hasCjkText ? 1.12 : 1.16);
   return Math.min(raw, cap);
+}
+
+// slideml2/dist/emitter/text-protection.js
+function protectTextRunsForCjkLineBreaks(runs) {
+  let changed = false;
+  const protectedRuns = runs.map((run, index) => {
+    if (!run.text || run.mathOmml)
+      return run;
+    const text = protectCjkLineBreakPunctuation(run.text, {
+      previous: previousRunChar(runs, index),
+      next: nextRunChar(runs, index)
+    });
+    if (text === run.text)
+      return run;
+    changed = true;
+    return { ...run, text };
+  });
+  return changed ? protectedRuns : runs;
+}
+function previousRunChar(runs, index) {
+  for (let i = index - 1; i >= 0; i--) {
+    const run = runs[i];
+    if (run.breakLine)
+      return void 0;
+    const ch = lastVisibleChar(run.mathOmml ? "" : run.text);
+    if (ch)
+      return ch;
+  }
+  return void 0;
+}
+function nextRunChar(runs, index) {
+  if (runs[index]?.breakLine)
+    return void 0;
+  for (let i = index + 1; i < runs.length; i++) {
+    const run = runs[i];
+    const ch = firstVisibleChar(run.mathOmml ? "" : run.text);
+    if (ch)
+      return ch;
+    if (run.breakLine)
+      return void 0;
+  }
+  return void 0;
+}
+function firstVisibleChar(text) {
+  for (const ch of String(text || "")) {
+    if (ch !== WORD_JOINER)
+      return ch;
+  }
+  return void 0;
+}
+function lastVisibleChar(text) {
+  const chars = [...String(text || "")];
+  for (let i = chars.length - 1; i >= 0; i--) {
+    const ch = chars[i];
+    if (ch !== WORD_JOINER)
+      return ch;
+  }
+  return void 0;
+}
+
+// slideml2/dist/emitter/text.js
+var DEFAULT_TEXT_MARGIN_EMU = 91440;
+function txBody(shape, rels) {
+  const margin = shape.margin ?? {};
+  const lIns = margin.l ?? DEFAULT_TEXT_MARGIN_EMU;
+  const tIns = margin.t ?? DEFAULT_TEXT_MARGIN_EMU;
+  const rIns = margin.r ?? DEFAULT_TEXT_MARGIN_EMU;
+  const bIns = margin.b ?? DEFAULT_TEXT_MARGIN_EMU;
+  const anchor = shape.valign === "middle" ? "ctr" : shape.valign === "bottom" ? "b" : "t";
+  const autoFitChild = shape.autoFit === "shrink" ? `<a:normAutofit/>` : shape.autoFit === "resize" ? `<a:spAutoFit/>` : "";
+  const bodyPrAttrs = attr("wrap", shape.wrap ?? "square") + attr("lIns", lIns) + attr("tIns", tIns) + attr("rIns", rIns) + attr("bIns", bIns) + attr("anchor", anchor);
+  const bodyPr = autoFitChild ? `<a:bodyPr${bodyPrAttrs}>${autoFitChild}</a:bodyPr>` : `<a:bodyPr${bodyPrAttrs}/>`;
+  const lstStyle = `<a:lstStyle/>`;
+  const paragraphs = shape.paragraphs.length > 0 ? shape.paragraphs.map((p) => paragraphXml(p, rels)).join("") : `<a:p><a:endParaRPr lang="en-US"/></a:p>`;
+  return `<p:txBody>${bodyPr}${lstStyle}${paragraphs}</p:txBody>`;
+}
+function paragraphXml(p, rels) {
+  const pPr = paragraphPropsXml(p);
+  const protectedRuns = protectTextRunsForCjkLineBreaks(p.runs);
+  const runs = protectedRuns.length > 0 ? protectedRuns.map((r, i) => runXml(r, i === protectedRuns.length - 1, rels)).join("") : "";
+  const endRPr = protectedRuns.length === 0 ? `<a:endParaRPr lang="en-US"/>` : "";
+  return `<a:p>${pPr}${runs}${endRPr}</a:p>`;
+}
+function paragraphPropsXml(p) {
+  const algn = p.align === "center" ? "ctr" : p.align === "right" ? "r" : p.align === "justify" ? "just" : void 0;
+  const lvl = p.indentLevel && p.indentLevel > 0 ? p.indentLevel : void 0;
+  const lnSpc = p.lineSpacingHalfPt ? `<a:lnSpc><a:spcPts val="${Math.round(p.lineSpacingHalfPt * 50)}"/></a:lnSpc>` : "";
+  const spcAft = p.spaceAfterHalfPt ? `<a:spcAft><a:spcPts val="${Math.round(p.spaceAfterHalfPt * 50)}"/></a:spcAft>` : "";
+  let bullet = "";
+  if (p.bullet && "auto" in p.bullet && p.bullet.auto) {
+    bullet = `<a:buChar char="\u2022"/>`;
+  } else if (p.bullet && "number" in p.bullet && p.bullet.number) {
+    bullet = `<a:buAutoNum type="arabicPeriod"/>`;
+  } else if (p.bullet && "char" in p.bullet && typeof p.bullet.char === "string" && p.bullet.char.length > 0) {
+    const buClr = typeof p.bullet.color === "string" ? `<a:buClr><a:srgbClr val="${p.bullet.color.toUpperCase()}"/></a:buClr>` : "";
+    const sizeRaw = typeof p.bullet.sizePct === "number" ? p.bullet.sizePct : 0;
+    const sizeClamped = sizeRaw > 0 ? Math.max(0.25, Math.min(4, sizeRaw)) : 0;
+    const buSz = sizeClamped > 0 ? `<a:buSzPct val="${Math.round(sizeClamped * 1e5)}"/>` : "";
+    const buFont = typeof p.bullet.font === "string" && p.bullet.font.length > 0 ? `<a:buFont typeface="${xmlEscape(p.bullet.font)}"/>` : "";
+    bullet = `${buClr}${buSz}${buFont}<a:buChar char="${xmlEscape(p.bullet.char)}"/>`;
+  } else if (!p.bullet) {
+    bullet = `<a:buNone/>`;
+  }
+  const marginLeft = typeof p.marginLeft === "number" ? Math.max(0, Math.round(p.marginLeft)) : void 0;
+  const hanging = typeof p.hanging === "number" ? Math.round(p.hanging) : void 0;
+  const attrs = attr("marL", marginLeft ?? (lvl ? lvl * 285750 : void 0)) + attr("lvl", lvl) + attr("indent", hanging ?? (lvl ? -285750 : void 0)) + attr("algn", algn) + attr("eaLnBrk", "1") + attr("latinLnBrk", "0") + attr("hangingPunct", "1");
+  const inner = `${lnSpc}${spcAft}${bullet}`;
+  return `<a:pPr${attrs}>${inner}</a:pPr>`;
+}
+function runXml(run, isLast, rels) {
+  if (run.mathOmml) {
+    if (run.color)
+      assertHex(run.color, "TextRun.color");
+    const mathOmml = run.color ? mathOmmlWithRunColor(run.mathOmml, run.color) : run.mathOmml;
+    const softBreak2 = run.breakLine && !isLast ? `<a:br><a:rPr lang="en-US"/></a:br>` : "";
+    return `<a14:m xmlns:a14="http://schemas.microsoft.com/office/drawing/2010/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${mathOmml}</a14:m>${softBreak2}`;
+  }
+  if (run.color)
+    assertHex(run.color, "TextRun.color");
+  const szValue = run.sizeHalfPt !== void 0 ? Math.round(run.sizeHalfPt * 50) : void 0;
+  const underlined = run.underline ?? !!run.hyperlink;
+  const baselineValue = typeof run.baseline === "number" && run.baseline !== 0 ? Math.round(run.baseline * 1e3) : void 0;
+  const rPrAttrs = attr("lang", "en-US") + attr("sz", szValue) + attr("b", run.bold) + attr("i", run.italic) + (underlined ? ` u="sng"` : "") + (run.strike ? ` strike="sngStrike"` : "") + attr("baseline", baselineValue) + attr("spc", typeof run.letterSpacing === "number" ? Math.round(run.letterSpacing) : void 0) + attr("dirty", "0");
+  const fillXml = run.color ? `<a:solidFill><a:srgbClr val="${run.color.toUpperCase()}"/></a:solidFill>` : "";
+  const highlightXml = run.highlight ? (assertHex(run.highlight, "TextRun.highlight"), `<a:highlight><a:srgbClr val="${run.highlight.toUpperCase()}"/></a:highlight>`) : "";
+  let fontsXml = "";
+  if (run.fontFace || run.cjk || run.mono) {
+    const latinFace = xmlEscape(run.fontFace ?? "Calibri");
+    const eaFace = run.cjk ? xmlEscape(run.eastAsianFontFace ?? run.fontFace ?? "PingFang SC") : void 0;
+    const csFace = run.mono ? xmlEscape(run.complexScriptFontFace ?? run.fontFace ?? "Menlo") : void 0;
+    fontsXml += `<a:latin typeface="${latinFace}"/>`;
+    if (eaFace !== void 0)
+      fontsXml += `<a:ea typeface="${eaFace}"/>`;
+    if (csFace !== void 0)
+      fontsXml += `<a:cs typeface="${csFace}"/>`;
+  }
+  let hlinkXml = "";
+  if (run.hyperlink && rels) {
+    const rId = rels.addHyperlink(run.hyperlink);
+    const action = isInternalSlideLink(run.hyperlink) ? ` action="ppaction://hlinksldjump"` : "";
+    hlinkXml = `<a:hlinkClick xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${rId}"${action}/>`;
+  }
+  const rPr = `<a:rPr${rPrAttrs}>${fillXml}${highlightXml}${fontsXml}${hlinkXml}</a:rPr>`;
+  const softBreak = run.breakLine && !isLast ? `<a:br><a:rPr lang="en-US"/></a:br>` : "";
+  const text = `<a:t xml:space="preserve">${escapeText(run.text)}</a:t>`;
+  return `<a:r>${rPr}${text}</a:r>${softBreak}`;
+}
+function mathOmmlWithRunColor(omml, hex) {
+  const colorPr = `<w:rPr><w:color w:val="${hex.toUpperCase()}"/></w:rPr>`;
+  return omml.replace(/<m:r>(<m:rPr>[\s\S]*?<\/m:rPr>)?(<w:rPr>[\s\S]*?<\/w:rPr>)?/g, (_match, mathPr = "", wordPr = "") => {
+    if (!wordPr)
+      return `<m:r>${mathPr}${colorPr}`;
+    const patchedWordPr = /<w:color\b/.test(wordPr) ? wordPr.replace(/<w:color\b[^>]*\/>/, `<w:color w:val="${hex.toUpperCase()}"/>`) : wordPr.replace("</w:rPr>", `<w:color w:val="${hex.toUpperCase()}"/></w:rPr>`);
+    return `<m:r>${mathPr}${patchedWordPr}`;
+  });
+}
+function isInternalSlideLink(target) {
+  return /^#?slide\d+$/i.test(target.trim()) || /^slide:\d+$/i.test(target.trim());
+}
+
+// slideml2/dist/emitter/table.js
+var URI_TABLE = "http://schemas.openxmlformats.org/drawingml/2006/table";
+var DEFAULT_BORDER_COLOR = "BFBFBF";
+var DEFAULT_TABLE_STYLE_ID = "{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}";
+var TABLE_STYLE_ALIASES = {
+  lightgridaccent1: "{5940675A-B579-460E-94D1-54222C63F5DA}",
+  mediumgridaccent1: DEFAULT_TABLE_STYLE_ID
+};
+var KNOWN_TABLE_STYLE_IDS = /* @__PURE__ */ new Set([
+  DEFAULT_TABLE_STYLE_ID,
+  ...Object.values(TABLE_STYLE_ALIASES)
+]);
+function tableGraphicFrameXml(shape) {
+  const nvGFP = `<p:nvGraphicFramePr><p:cNvPr id="${shape.id}" name="${shape.name ?? `Table ${shape.id}`}"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>`;
+  const xfrm2 = `<p:xfrm><a:off x="${Math.round(shape.xfrm.x)}" y="${Math.round(shape.xfrm.y)}"/><a:ext cx="${Math.round(shape.xfrm.cx)}" cy="${Math.round(shape.xfrm.cy)}"/></p:xfrm>`;
+  const tbl = tblXml(shape);
+  const graphic = `<a:graphic><a:graphicData uri="${URI_TABLE}">` + tbl + `</a:graphicData></a:graphic>`;
+  return `<p:graphicFrame>${nvGFP}${xfrm2}${graphic}</p:graphicFrame>`;
+}
+function tblXml(shape) {
+  const tableStyleId = normalizeTableStyleId(shape.tableStyleId);
+  const tblPr = `<a:tblPr firstRow="${shape.firstRowHeader ? 1 : 0}" bandRow="${shape.bandRows === false ? 0 : 1}" bandCol="${shape.bandCols ? 1 : 0}" firstCol="${shape.firstCol ? 1 : 0}" lastCol="${shape.lastCol ? 1 : 0}" lastRow="${shape.lastRow ? 1 : 0}"><a:tableStyleId>${xmlEscape2(tableStyleId)}</a:tableStyleId></a:tblPr>`;
+  const tblGrid = `<a:tblGrid>` + shape.colWidths.map((w) => `<a:gridCol w="${Math.round(w)}"/>`).join("") + `</a:tblGrid>`;
+  const rows = shape.cells.map((row, ri) => rowXml(row, shape.rowHeights[ri] ?? 0, shape, ri)).join("");
+  return `<a:tbl>${tblPr}${tblGrid}${rows}</a:tbl>`;
+}
+function normalizeTableStyleId(value) {
+  if (!value)
+    return DEFAULT_TABLE_STYLE_ID;
+  const trimmed = value.trim();
+  if (/^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$/.test(trimmed)) {
+    const upper = trimmed.toUpperCase();
+    return KNOWN_TABLE_STYLE_IDS.has(upper) ? upper : DEFAULT_TABLE_STYLE_ID;
+  }
+  return TABLE_STYLE_ALIASES[trimmed.replace(/[\s_-]+/g, "").toLowerCase()] ?? DEFAULT_TABLE_STYLE_ID;
+}
+function rowXml(cells, height, shape, rowIndex) {
+  const cellsXml = cells.map((c) => cellXml(c, shape, rowIndex)).join("");
+  return `<a:tr h="${Math.round(height)}">${cellsXml}</a:tr>`;
+}
+function cellXml(cell, shape, rowIndex) {
+  const isHeader = !!shape.firstRowHeader && rowIndex === 0;
+  const align = cell.align ?? (isHeader ? "left" : "left");
+  const algn = align === "center" ? "ctr" : align === "right" ? "r" : "l";
+  const valign = cell.valign ?? "middle";
+  const anchor = valign === "middle" ? "ctr" : valign === "bottom" ? "b" : "t";
+  const padding = { ...shape.cellPadding, ...cell.padding };
+  const bodyInsets = ` lIns="${Math.round(padding.l ?? 91440)}" tIns="${Math.round(padding.t ?? 45720)}" rIns="${Math.round(padding.r ?? 91440)}" bIns="${Math.round(padding.b ?? 45720)}"`;
+  const rotation = cell.textRotation === 90 ? ` rot="5400000"` : cell.textRotation === 270 ? ` rot="16200000"` : cell.textRotation === "vertical" ? ` vert="vert"` : "";
+  const attrs = [
+    cell.colspan && cell.colspan > 1 ? `gridSpan="${Math.floor(cell.colspan)}"` : "",
+    cell.rowspan && cell.rowspan > 1 ? `rowSpan="${Math.floor(cell.rowspan)}"` : "",
+    cell.hMerge ? `hMerge="1"` : "",
+    cell.vMerge ? `vMerge="1"` : ""
+  ].filter(Boolean).join(" ");
+  const attrText = attrs ? ` ${attrs}` : "";
+  const fill = cell.fill ?? (isHeader ? void 0 : void 0);
+  const protectedRuns = protectTextRunsForCjkLineBreaks(cell.runs);
+  const txBody2 = `<a:txBody><a:bodyPr wrap="square"${bodyInsets} anchor="${anchor}"${rotation}/><a:lstStyle/><a:p><a:pPr algn="${algn}" eaLnBrk="1" latinLnBrk="0" hangingPunct="1"/>` + protectedRuns.map((r) => runXml2(r)).join("") + (protectedRuns.length === 0 ? `<a:endParaRPr lang="en-US"/>` : "") + `</a:p></a:txBody>`;
+  const tcPr = tcPrXml(fill, shape, cell, isHeader);
+  return `<a:tc${attrText}>${txBody2}${tcPr}</a:tc>`;
+}
+function tcPrXml(fill, shape, cell, isHeader) {
+  if (shape.borderColor)
+    assertHex(shape.borderColor, "TableShape.borderColor");
+  const fillXml = fillXmlOf(fill, isHeader);
+  return `<a:tcPr>` + tableLineXml("left", shape, cell) + tableLineXml("right", shape, cell) + tableLineXml("top", shape, cell) + tableLineXml("bottom", shape, cell) + fillXml + `</a:tcPr>`;
+}
+function tableLineXml(side, shape, cell) {
+  const tag = side === "left" ? "lnL" : side === "right" ? "lnR" : side === "top" ? "lnT" : "lnB";
+  const spec = borderForSide(side, shape, cell);
+  if (spec === "none")
+    return `<a:${tag}><a:noFill/></a:${tag}>`;
+  const borderColor = (spec.color ?? shape.borderColor ?? DEFAULT_BORDER_COLOR).toUpperCase();
+  assertHex(borderColor, `TableCell.border.${side}.color`);
+  const borderWidth = Math.max(1, Math.round(spec.width ?? shape.borderWidth ?? 6350));
+  const dash = spec.dash ?? shape.borderDash ?? "solid";
+  const alphaXml = spec.alpha !== void 0 && spec.alpha < 1 ? `<a:alpha val="${Math.round(spec.alpha * 1e5)}"/>` : "";
+  const dashXml = dash && dash !== "solid" ? `<a:prstDash val="${dash}"/>` : `<a:prstDash val="solid"/>`;
+  const lnW = `w="${borderWidth}" cap="flat" cmpd="sng" algn="ctr"`;
+  const lnFill = `<a:solidFill><a:srgbClr val="${borderColor}">${alphaXml}</a:srgbClr></a:solidFill>${dashXml}<a:round/>`;
+  const headLnEnd = `<a:headEnd type="none" w="med" len="med"/><a:tailEnd type="none" w="med" len="med"/>`;
+  return `<a:${tag} ${lnW}>${lnFill}${headLnEnd}</a:${tag}>`;
+}
+function borderForSide(side, shape, cell) {
+  const merged = mergeBorderSpec(side, shape.borders);
+  const cellSpec = mergeBorderSpec(side, cell.border);
+  return cellSpec ?? merged ?? { color: shape.borderColor, width: shape.borderWidth, dash: shape.borderDash };
+}
+function mergeBorderSpec(side, value) {
+  if (!value || typeof value !== "object")
+    return void 0;
+  const rec = value;
+  const sideValue = rec[side];
+  if (sideValue === "none")
+    return "none";
+  const base = {};
+  if (typeof rec.color === "string")
+    base.color = rec.color;
+  if (typeof rec.width === "number")
+    base.width = rec.width;
+  if (rec.dash === "solid" || rec.dash === "dash" || rec.dash === "dashDot" || rec.dash === "dot")
+    base.dash = rec.dash;
+  if (typeof rec.alpha === "number")
+    base.alpha = rec.alpha;
+  if (sideValue && typeof sideValue === "object") {
+    const s = sideValue;
+    if (typeof s.color === "string")
+      base.color = s.color;
+    if (typeof s.width === "number")
+      base.width = s.width;
+    if (s.dash === "solid" || s.dash === "dash" || s.dash === "dashDot" || s.dash === "dot")
+      base.dash = s.dash;
+    if (typeof s.alpha === "number")
+      base.alpha = s.alpha;
+  }
+  return base;
+}
+function fillXmlOf(fill, isHeader) {
+  if (!fill && !isHeader)
+    return "";
+  if (!fill || fill.type === "none")
+    return "";
+  if (fill.type === "gradient") {
+    const stops = fill.stops || [];
+    if (stops.length === 0)
+      return "";
+    const avg = stops.map((s) => s.color);
+    const r = Math.round(avg.reduce((acc, c) => acc + parseInt(c.slice(0, 2), 16), 0) / avg.length);
+    const g = Math.round(avg.reduce((acc, c) => acc + parseInt(c.slice(2, 4), 16), 0) / avg.length);
+    const b = Math.round(avg.reduce((acc, c) => acc + parseInt(c.slice(4, 6), 16), 0) / avg.length);
+    const hex = [r, g, b].map((n) => n.toString(16).padStart(2, "0").toUpperCase()).join("");
+    return `<a:solidFill><a:srgbClr val="${hex}"/></a:solidFill>`;
+  }
+  assertHex(fill.color, "TableCell.fill.color");
+  const alphaXml = fill.alpha !== void 0 && fill.alpha < 1 ? `<a:alpha val="${Math.round(fill.alpha * 1e5)}"/>` : "";
+  return `<a:solidFill><a:srgbClr val="${fill.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:solidFill>`;
+}
+function runXml2(run) {
+  if (run.color)
+    assertHex(run.color, "TableCell.runs[].color");
+  if (run.highlight)
+    assertHex(run.highlight, "TableCell.runs[].highlight");
+  const sz = run.sizeHalfPt !== void 0 ? ` sz="${Math.round(run.sizeHalfPt * 50)}"` : "";
+  const b = run.bold ? ` b="1"` : "";
+  const i = run.italic ? ` i="1"` : "";
+  const u = run.underline ? ` u="sng"` : "";
+  const strike = run.strike ? ` strike="sngStrike"` : "";
+  const baseline = typeof run.baseline === "number" ? ` baseline="${Math.round(run.baseline * 1e3)}"` : "";
+  const spc = typeof run.letterSpacing === "number" ? ` spc="${Math.round(run.letterSpacing)}"` : "";
+  const fill = run.color ? `<a:solidFill><a:srgbClr val="${run.color.toUpperCase()}"/></a:solidFill>` : "";
+  const highlight = run.highlight ? `<a:highlight><a:srgbClr val="${run.highlight.toUpperCase()}"/></a:highlight>` : "";
+  let fonts = "";
+  if (run.fontFace || run.cjk || run.mono) {
+    const latinFace = xmlEscape2(run.fontFace ?? "Calibri");
+    const eaFace = run.cjk ? xmlEscape2(run.eastAsianFontFace ?? run.fontFace ?? "PingFang SC") : void 0;
+    const csFace = run.mono ? xmlEscape2(run.complexScriptFontFace ?? run.fontFace ?? "Menlo") : void 0;
+    fonts += `<a:latin typeface="${latinFace}"/>`;
+    if (eaFace)
+      fonts += `<a:ea typeface="${eaFace}"/>`;
+    if (csFace)
+      fonts += `<a:cs typeface="${csFace}"/>`;
+  }
+  const rPr = `<a:rPr lang="en-US"${sz}${b}${i}${u}${strike}${baseline}${spc} dirty="0">${fill}${highlight}${fonts}</a:rPr>`;
+  return `<a:r>${rPr}<a:t xml:space="preserve">${escapeText(run.text)}</a:t></a:r>`;
+}
+function xmlEscape2(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[c] ?? c);
+}
+
+// slideml2/dist/emitter/shapes.js
+var PRESET_TO_GEOM = {
+  rect: "rect",
+  roundRect: "roundRect",
+  ellipse: "ellipse",
+  line: "line",
+  triangle: "triangle",
+  rightTriangle: "rtTriangle",
+  pentagon: "pentagon",
+  diamond: "diamond",
+  hexagon: "hexagon",
+  octagon: "octagon",
+  plus: "plus",
+  trapezoid: "trapezoid",
+  leftBracket: "leftBracket",
+  rightBracket: "rightBracket",
+  leftBrace: "leftBrace",
+  rightBrace: "rightBrace",
+  "arrow-right": "rightArrow",
+  "arrow-left": "leftArrow",
+  "arrow-up": "upArrow",
+  "arrow-down": "downArrow",
+  leftRightArrow: "leftRightArrow",
+  upDownArrow: "upDownArrow",
+  bentArrow: "bentUpArrow",
+  elbowConnector: "bentConnector2",
+  orthogonalConnector: "bentConnector3",
+  curvedConnector: "curvedConnector3",
+  straightConnector: "straightConnector1",
+  callout: "wedgeRectCallout",
+  chevron: "chevron",
+  "star-5": "star5",
+  "star-8": "star8",
+  parallelogram: "parallelogram",
+  flowChartProcess: "flowChartProcess",
+  flowChartDecision: "flowChartDecision",
+  flowChartData: "flowChartData",
+  flowChartTerminator: "flowChartTerminator",
+  flowChartDocument: "flowChartDocument",
+  cylinder: "can",
+  cube: "cube",
+  gear6: "gear6",
+  heart: "heart",
+  lightningBolt: "lightningBolt",
+  cloud: "cloud"
+};
+function shapeXml(shape, slidePart, rels, context = {}) {
+  switch (shape.type) {
+    case "text":
+      return textShapeXml(shape, rels);
+    case "shape":
+      return presetShapeXml(shape, rels, context);
+    case "image":
+      return imageShapeXml(shape, slidePart, rels);
+    case "chart":
+      return chartShapeXml(shape, rels);
+    case "table":
+      return tableShapeXml(shape);
+    case "group":
+      return groupShapeXml(shape, slidePart, rels, context);
+  }
+}
+function tableShapeXml(shape) {
+  return tableGraphicFrameXml(shape);
+}
+function textShapeXml(shape, rels) {
+  const isRoundRect = shape.cornerRadius !== void 0;
+  const nvSpPr = nvSpPrXml(shape.id, shape.name ?? `Text ${shape.id}`, true);
+  const adjustments = isRoundRect ? `<a:avLst><a:gd name="adj" fmla="val ${Math.round(Math.max(0, Math.min(0.5, shape.cornerRadius)) * 5e4)}"/></a:avLst>` : void 0;
+  const spPr = spPrXml(shape.xfrm, isRoundRect ? "roundRect" : "rect", adjustments, shape.fill, shape.line);
+  const runRels = runRelsForSlide(rels);
+  return `<p:sp>${nvSpPr}${spPr}${txBody(shape, runRels)}</p:sp>`;
+}
+function presetShapeXml(shape, rels, context) {
+  if (isConnectorShape(shape))
+    return connectorShapeXml(shape, context);
+  const nvSpPr = nvSpPrXml(shape.id, shape.name ?? `${shape.preset} ${shape.id}`);
+  const geom = PRESET_TO_GEOM[shape.preset];
+  const adjustments = shape.preset === "roundRect" && shape.cornerRadius !== void 0 ? `<a:avLst><a:gd name="adj" fmla="val ${Math.round(Math.max(0, Math.min(0.5, shape.cornerRadius)) * 5e4)}"/></a:avLst>` : `<a:avLst/>`;
+  const spPr = spPrXml(shape.xfrm, geom, adjustments, shape.fill, shape.line, shape.shadow);
+  const body = shape.paragraphs ? txBody({
+    type: "text",
+    id: shape.id,
+    name: shape.name,
+    xfrm: shape.xfrm,
+    paragraphs: shape.paragraphs,
+    margin: shape.margin,
+    valign: shape.valign,
+    wrap: shape.wrap,
+    autoFit: shape.autoFit
+  }, runRelsForSlide(rels)) : `<p:txBody><a:bodyPr wrap="square" rtlCol="0" anchor="ctr"/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody>`;
+  return `<p:sp>${nvSpPr}${spPr}${body}</p:sp>`;
+}
+function isConnectorShape(shape) {
+  return Boolean(shape.connection) && (shape.preset === "straightConnector" || shape.preset === "elbowConnector" || shape.preset === "orthogonalConnector" || shape.preset === "curvedConnector" || shape.preset === "line");
+}
+function connectorShapeXml(shape, context) {
+  const connection = resolveConnectorBinding(shape.connection, context);
+  const nvCxnSpPr = `<p:nvCxnSpPr><p:cNvPr id="${shape.id}" name="${shape.name ?? `${shape.preset} ${shape.id}`}"/><p:cNvCxnSpPr>${connection}</p:cNvCxnSpPr><p:nvPr/></p:nvCxnSpPr>`;
+  const geom = PRESET_TO_GEOM[shape.preset];
+  const spPr = spPrXml(shape.xfrm, geom, `<a:avLst/>`, { type: "none" }, shape.line, shape.shadow);
+  const emptyStyle = `<p:style><a:lnRef idx="2"><a:schemeClr val="accent1"/></a:lnRef><a:fillRef idx="0"><a:schemeClr val="accent1"/></a:fillRef><a:effectRef idx="0"><a:schemeClr val="accent1"/></a:effectRef><a:fontRef idx="minor"><a:schemeClr val="tx1"/></a:fontRef></p:style>`;
+  return `<p:cxnSp>${nvCxnSpPr}${spPr}${emptyStyle}</p:cxnSp>`;
+}
+function resolveConnectorBinding(connection, context) {
+  if (!connection)
+    return "";
+  const startId = connection.startShapeId ?? (connection.startShapeName ? context.shapeIdByName?.get(connection.startShapeName) : void 0);
+  const endId = connection.endShapeId ?? (connection.endShapeName ? context.shapeIdByName?.get(connection.endShapeName) : void 0);
+  const start = startId !== void 0 ? `<a:stCxn id="${Math.round(startId)}" idx="${Math.max(0, Math.round(connection.startIdx ?? 2))}"/>` : "";
+  const end = endId !== void 0 ? `<a:endCxn id="${Math.round(endId)}" idx="${Math.max(0, Math.round(connection.endIdx ?? 0))}"/>` : "";
+  return `${start}${end}`;
+}
+function groupShapeXml(shape, slidePart, rels, context) {
+  const nvGrpSpPr = `<p:nvGrpSpPr><p:cNvPr id="${shape.id}" name="${shape.name ?? `Group ${shape.id}`}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>`;
+  const grpSpPr = `<p:grpSpPr><a:xfrm><a:off x="${Math.round(shape.xfrm.x)}" y="${Math.round(shape.xfrm.y)}"/><a:ext cx="${Math.round(shape.xfrm.cx)}" cy="${Math.round(shape.xfrm.cy)}"/><a:chOff x="0" y="0"/><a:chExt cx="${Math.round(shape.xfrm.cx)}" cy="${Math.round(shape.xfrm.cy)}"/></a:xfrm></p:grpSpPr>`;
+  const children = shape.children.map((child) => shapeXml(child, slidePart, rels, context)).join("");
+  return `<p:grpSp>${nvGrpSpPr}${grpSpPr}${children}</p:grpSp>`;
+}
+function runRelsForSlide(rels) {
+  return {
+    addHyperlink(target) {
+      const rId = nextRelId(rels);
+      const slideTarget = internalSlideTarget(target);
+      if (slideTarget) {
+        rels.entries.push({
+          id: rId,
+          type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide",
+          target: slideTarget
+        });
+      } else {
+        rels.entries.push({
+          id: rId,
+          type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+          target,
+          targetMode: "External"
+        });
+      }
+      return rId;
+    }
+  };
+}
+function nextRelId(rels) {
+  return `rId${rels.entries.length + 2}`;
+}
+function internalSlideTarget(target) {
+  const trimmed = target.trim();
+  const match = /^(?:#?slide|slide:)(\d+)$/i.exec(trimmed);
+  if (!match)
+    return void 0;
+  const index = Math.max(1, Math.floor(Number(match[1])));
+  return `../slides/slide${index}.xml`;
+}
+function chartShapeXml(shape, rels) {
+  const rId = nextRelId(rels);
+  rels.entries.push({
+    id: rId,
+    type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart",
+    // Placeholder target; package emitter rewrites to the actual chart filename.
+    target: `../charts/__chart_${shape.id}__.xml`
+  });
+  const nvGFP = `<p:nvGraphicFramePr><p:cNvPr id="${shape.id}" name="${shape.name ?? `Chart ${shape.id}`}"/><p:cNvGraphicFramePr><a:graphicFrameLocks noGrp="1"/></p:cNvGraphicFramePr><p:nvPr/></p:nvGraphicFramePr>`;
+  const xfrm2 = `<p:xfrm><a:off x="${Math.round(shape.xfrm.x)}" y="${Math.round(shape.xfrm.y)}"/><a:ext cx="${Math.round(shape.xfrm.cx)}" cy="${Math.round(shape.xfrm.cy)}"/></p:xfrm>`;
+  const graphic = `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"><c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="${rId}"/></a:graphicData></a:graphic>`;
+  return `<p:graphicFrame>${nvGFP}${xfrm2}${graphic}</p:graphicFrame>`;
+}
+function imageShapeXml(shape, _slidePart, rels) {
+  const rId = nextRelId(rels);
+  rels.entries.push({
+    id: rId,
+    type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
+    target: `../media/${shape.name ?? `image${shape.id}`}.png`,
+    // package emitter rewrites filename
+    role: "shape-image",
+    assetSrc: shape.src
+  });
+  const nvPicPr = `<p:nvPicPr><p:cNvPr id="${shape.id}" name="${shape.name ?? `Picture ${shape.id}`}"` + (shape.altText ? attr("descr", shape.altText) : "") + `/><p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>`;
+  const blipInner = [];
+  if (shape.opacity !== void 0 && shape.opacity < 1) {
+    blipInner.push(`<a:alphaModFix amt="${Math.round(Math.max(0, Math.min(1, shape.opacity)) * 1e5)}"/>`);
+  }
+  if (shape.blur !== void 0 && shape.blur > 0) {
+    blipInner.push(`<a:blur rad="${Math.round(shape.blur)}" grow="0"/>`);
+  }
+  if (shape.duotone) {
+    blipInner.push(`<a:duotone><a:srgbClr val="${shape.duotone.dark.toUpperCase()}"/><a:srgbClr val="${shape.duotone.light.toUpperCase()}"/></a:duotone>`);
+  }
+  if (shape.grayscale) {
+    blipInner.push(`<a:grayscl/>`);
+  }
+  if (shape.brightness !== void 0 && shape.brightness !== 0) {
+    const bright = Math.round(Math.max(-1, Math.min(1, shape.brightness)) * 1e5);
+    blipInner.push(`<a:lum bright="${bright}"/>`);
+  }
+  const blipXml = blipInner.length > 0 ? `<a:blip r:embed="${rId}">${blipInner.join("")}</a:blip>` : `<a:blip r:embed="${rId}"/>`;
+  const fit = shape.fit ?? "cover";
+  const explicitCrop = shape.crop;
+  const autoCover = !explicitCrop && fit === "cover" && shape.sourceDimensions ? coverCrop(shape.sourceDimensions.width, shape.sourceDimensions.height, shape.xfrm.cx, shape.xfrm.cy) : void 0;
+  const containInsets = !explicitCrop && fit === "contain" && shape.sourceDimensions ? containFill(shape.sourceDimensions.width, shape.sourceDimensions.height, shape.xfrm.cx, shape.xfrm.cy) : void 0;
+  const cropToUse = explicitCrop ?? autoCover;
+  const srcRectXml = cropToUse ? `<a:srcRect l="${Math.round(Math.max(0, Math.min(1, cropToUse.left ?? 0)) * 1e5)}" r="${Math.round(Math.max(0, Math.min(1, cropToUse.right ?? 0)) * 1e5)}" t="${Math.round(Math.max(0, Math.min(1, cropToUse.top ?? 0)) * 1e5)}" b="${Math.round(Math.max(0, Math.min(1, cropToUse.bottom ?? 0)) * 1e5)}"/>` : "";
+  const fillRectXml = containInsets ? `<a:fillRect l="${Math.round(containInsets.left * 1e5)}" r="${Math.round(containInsets.right * 1e5)}" t="${Math.round(containInsets.top * 1e5)}" b="${Math.round(containInsets.bottom * 1e5)}"/>` : `<a:fillRect/>`;
+  const blipFill = `<p:blipFill>${blipXml}${srcRectXml}<a:stretch>${fillRectXml}</a:stretch></p:blipFill>`;
+  const clip = shape.clip ?? "square";
+  const geom = clip === "circle" ? "ellipse" : clip === "rounded" ? "roundRect" : "rect";
+  const adjustments = clip === "rounded" && shape.cornerRadius !== void 0 ? `<a:avLst><a:gd name="adj" fmla="val ${Math.round(Math.max(0, Math.min(0.5, shape.cornerRadius)) * 5e4)}"/></a:avLst>` : `<a:avLst/>`;
+  const lineXml = shape.border ? lineXmlOf(shape.border) : "";
+  const effectParts = [];
+  if (shape.shadow) {
+    const sh = shape.shadow;
+    const blurEmu = Math.round(sh.blur ?? 76200);
+    const dx = Math.round(sh.dx ?? 0);
+    const dy = Math.round(sh.dy ?? 38100);
+    const dist = Math.round(Math.sqrt(dx * dx + dy * dy));
+    const dirDeg = dist === 0 ? 0 : Math.round(Math.atan2(dy, dx) * 180 / Math.PI * 6e4);
+    const alphaXml = sh.alpha !== void 0 && sh.alpha < 1 ? `<a:alpha val="${Math.round(sh.alpha * 1e5)}"/>` : "";
+    effectParts.push(`<a:outerShdw blurRad="${blurEmu}" dist="${dist}" dir="${dirDeg}" algn="tl" rotWithShape="0"><a:srgbClr val="${sh.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:outerShdw>`);
+  }
+  if (shape.softEdge !== void 0 && shape.softEdge > 0) {
+    const shorter = Math.min(shape.xfrm.cx, shape.xfrm.cy);
+    const rad = Math.round(Math.max(0, Math.min(0.5, shape.softEdge)) * shorter);
+    effectParts.push(`<a:softEdge rad="${rad}"/>`);
+  }
+  const effectLstXml = effectParts.length > 0 ? `<a:effectLst>${effectParts.join("")}</a:effectLst>` : "";
+  const spPr = `<p:spPr>` + xfrmXml(shape.xfrm) + `<a:prstGeom prst="${geom}">${adjustments}</a:prstGeom>` + lineXml + effectLstXml + `</p:spPr>`;
+  let out = `<p:pic>${nvPicPr}${blipFill}${spPr}</p:pic>`;
+  if (shape.overlay) {
+    const ov = shape.overlay;
+    const alphaXml = ov.alpha !== void 0 && ov.alpha < 1 ? `<a:alpha val="${Math.round(ov.alpha * 1e5)}"/>` : "";
+    const overlayId = shape.id + 1e5;
+    const overlayNvSpPr = nvSpPrXml(overlayId, `Overlay ${overlayId}`);
+    const overlaySpPr = `<p:spPr>` + xfrmXml(shape.xfrm) + `<a:prstGeom prst="${geom}">${adjustments}</a:prstGeom><a:solidFill><a:srgbClr val="${ov.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:solidFill><a:ln><a:noFill/></a:ln></p:spPr>`;
+    const emptyTxBody = `<p:txBody><a:bodyPr wrap="square" rtlCol="0" anchor="ctr"/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody>`;
+    out += `<p:sp>${overlayNvSpPr}${overlaySpPr}${emptyTxBody}</p:sp>`;
+  }
+  return out;
+}
+function nvSpPrXml(id, name, isTextBox = false) {
+  const cNvSpPr = isTextBox ? `<p:cNvSpPr txBox="1"/>` : `<p:cNvSpPr/>`;
+  return `<p:nvSpPr><p:cNvPr id="${id}" name="${name}"/>` + cNvSpPr + `<p:nvPr/></p:nvSpPr>`;
+}
+function spPrXml(xfrm2, geom, adjustments, fill, line, shadow) {
+  const fillXml = fillXmlOf2(fill);
+  const lineXml = lineXmlOf(line);
+  const geomXml = `<a:prstGeom prst="${geom}">${adjustments ?? `<a:avLst/>`}</a:prstGeom>`;
+  const effectLstXml = shadow ? buildShadowEffectLst(shadow) : "";
+  return `<p:spPr>${xfrmXml(xfrm2)}${geomXml}${fillXml}${lineXml}${effectLstXml}</p:spPr>`;
+}
+function buildShadowEffectLst(sh) {
+  const blurEmu = Math.round(sh.blur ?? 76200);
+  const dx = Math.round(sh.dx ?? 0);
+  const dy = Math.round(sh.dy ?? 38100);
+  const dist = Math.round(Math.sqrt(dx * dx + dy * dy));
+  const dirDeg = dist === 0 ? 0 : Math.round(Math.atan2(dy, dx) * 180 / Math.PI * 6e4);
+  const alphaXml = sh.alpha !== void 0 && sh.alpha < 1 ? `<a:alpha val="${Math.round(sh.alpha * 1e5)}"/>` : "";
+  return `<a:effectLst><a:outerShdw blurRad="${blurEmu}" dist="${dist}" dir="${dirDeg}" algn="tl" rotWithShape="0"><a:srgbClr val="${sh.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:outerShdw></a:effectLst>`;
+}
+function xfrmXml(xfrm2) {
+  const rotAttr = xfrm2.rot ? attr("rot", Math.round(xfrm2.rot)) : "";
+  const flipAttr = (xfrm2.flipH ? ` flipH="1"` : "") + (xfrm2.flipV ? ` flipV="1"` : "");
+  return `<a:xfrm${rotAttr}${flipAttr}><a:off x="${Math.round(xfrm2.x)}" y="${Math.round(xfrm2.y)}"/><a:ext cx="${Math.round(xfrm2.cx)}" cy="${Math.round(xfrm2.cy)}"/></a:xfrm>`;
+}
+function coverCrop(srcW, srcH, tgtW, tgtH) {
+  if (srcW <= 0 || srcH <= 0 || tgtW <= 0 || tgtH <= 0)
+    return void 0;
+  const srcAspect = srcW / srcH;
+  const tgtAspect = tgtW / tgtH;
+  const EPS = 5e-3;
+  if (Math.abs(srcAspect - tgtAspect) < EPS)
+    return void 0;
+  if (srcAspect > tgtAspect) {
+    const visibleFraction2 = tgtAspect / srcAspect;
+    const totalCrop2 = (1 - visibleFraction2) / 2;
+    return { left: totalCrop2, right: totalCrop2, top: 0, bottom: 0 };
+  }
+  const visibleFraction = srcAspect / tgtAspect;
+  const totalCrop = (1 - visibleFraction) / 2;
+  return { left: 0, right: 0, top: totalCrop, bottom: totalCrop };
+}
+function containFill(srcW, srcH, tgtW, tgtH) {
+  if (srcW <= 0 || srcH <= 0 || tgtW <= 0 || tgtH <= 0)
+    return void 0;
+  const srcAspect = srcW / srcH;
+  const tgtAspect = tgtW / tgtH;
+  const EPS = 5e-3;
+  if (Math.abs(srcAspect - tgtAspect) < EPS)
+    return void 0;
+  if (srcAspect > tgtAspect) {
+    const drawnHeight = tgtW / srcAspect;
+    const totalInset2 = (tgtH - drawnHeight) / tgtH / 2;
+    return { left: 0, right: 0, top: totalInset2, bottom: totalInset2 };
+  }
+  const drawnWidth = tgtH * srcAspect;
+  const totalInset = (tgtW - drawnWidth) / tgtW / 2;
+  return { left: totalInset, right: totalInset, top: 0, bottom: 0 };
+}
+function fillXmlOf2(fill) {
+  if (!fill || fill.type === "none")
+    return `<a:noFill/>`;
+  if (fill.type === "gradient")
+    return gradientFillXml(fill, "Shape.fill");
+  assertHex(fill.color, "Shape.fill.color");
+  const alphaXml = fill.alpha !== void 0 && fill.alpha < 1 ? `<a:alpha val="${Math.round(fill.alpha * 1e5)}"/>` : "";
+  return `<a:solidFill><a:srgbClr val="${fill.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:solidFill>`;
+}
+function gradientFillXml(fill, ownerLabel) {
+  const stops = fill.stops && fill.stops.length >= 2 ? fill.stops : null;
+  if (!stops)
+    return `<a:noFill/>`;
+  const stopXml = stops.slice().sort((a, b) => a.position - b.position).map((stop) => {
+    assertHex(stop.color, `${ownerLabel}.stop.color`);
+    const alphaXml = stop.alpha !== void 0 && stop.alpha < 1 ? `<a:alpha val="${Math.round(stop.alpha * 1e5)}"/>` : "";
+    const pos = Math.max(0, Math.min(100, stop.position));
+    return `<a:gs pos="${Math.round(pos * 1e3)}"><a:srgbClr val="${stop.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:gs>`;
+  }).join("");
+  if (fill.kind === "radial") {
+    return `<a:gradFill flip="none" rotWithShape="1"><a:gsLst>${stopXml}</a:gsLst><a:path path="circle"><a:fillToRect l="50000" t="50000" r="50000" b="50000"/></a:path></a:gradFill>`;
+  }
+  const cssAngle = typeof fill.angle === "number" ? fill.angle : 180;
+  const ooxmlAngle = ((cssAngle - 90) % 360 + 360) % 360;
+  const angleAttr = Math.round(ooxmlAngle * 6e4);
+  return `<a:gradFill flip="none" rotWithShape="1"><a:gsLst>${stopXml}</a:gsLst><a:lin ang="${angleAttr}" scaled="0"/></a:gradFill>`;
+}
+function lineXmlOf(line) {
+  if (!line)
+    return `<a:ln><a:noFill/></a:ln>`;
+  assertHex(line.color, "Shape.line.color");
+  const dashXml = line.dash && line.dash !== "solid" ? `<a:prstDash val="${line.dash}"/>` : "";
+  const compound = lineCompoundXml(line.compound);
+  const compoundXml = compound ? ` cmpd="${compound}"` : "";
+  const alphaXml = line.alpha !== void 0 && line.alpha < 1 ? `<a:alpha val="${Math.round(line.alpha * 1e5)}"/>` : "";
+  const headEnd = lineEndXml("headEnd", line.headEnd);
+  const tailEnd = lineEndXml("tailEnd", line.tailEnd);
+  return `<a:ln w="${Math.round(line.width)}"${compoundXml}><a:solidFill><a:srgbClr val="${line.color.toUpperCase()}">${alphaXml}</a:srgbClr></a:solidFill>` + dashXml + headEnd + tailEnd + `</a:ln>`;
+}
+function lineCompoundXml(value) {
+  switch (value) {
+    case "double":
+      return "dbl";
+    case "thickThin":
+      return "thickThin";
+    case "thinThick":
+      return "thinThick";
+    case "triple":
+      return "tri";
+    case "single":
+    default:
+      return void 0;
+  }
+}
+function lineEndXml(tag, end) {
+  if (!end)
+    return "";
+  const type = end.type === "arrow" ? "triangle" : end.type ?? "none";
+  const width = end.width ?? "med";
+  const length = end.length ?? "med";
+  return `<a:${tag} type="${type}" w="${width}" len="${length}"/>`;
+}
+
+// slideml2/dist/emitter/slide.js
+var SLIDE_NS2 = ` xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"`;
+function slideXml(slide, slidePart) {
+  const rels = { entries: [] };
+  const bgXml = backgroundXml(slide, rels);
+  const groupHeader = `<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>`;
+  const shapeIdByName = collectShapeIds(slide.shapes);
+  const shapesXml = slide.shapes.map((s) => shapeXml(s, slidePart, rels, { shapeIdByName })).join("");
+  const spTree = `<p:spTree>${groupHeader}${shapesXml}</p:spTree>`;
+  const cSld = `<p:cSld>${bgXml}${spTree}</p:cSld>`;
+  const clrMapOvr = `<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>`;
+  const transition = transitionXml(slide);
+  const body = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld${SLIDE_NS2}>${cSld}${clrMapOvr}${transition}</p:sld>`;
+  return { body, rels };
+}
+function collectShapeIds(shapes, out = /* @__PURE__ */ new Map()) {
+  for (const shape of shapes) {
+    if (typeof shape.name === "string" && shape.name && !out.has(shape.name))
+      out.set(shape.name, shape.id);
+    if (shape.type === "group")
+      collectShapeIds(shape.children, out);
+  }
+  return out;
+}
+function transitionXml(slide) {
+  const t = slide.transition;
+  if (!t || t.type === "none")
+    return "";
+  const speed = transitionSpeed(t.durationMs);
+  const speedAttr = speed ? ` spd="${speed}"` : "";
+  const dir = t.direction === "left" ? "l" : t.direction === "right" ? "r" : t.direction === "up" ? "u" : t.direction === "down" ? "d" : void 0;
+  const dirAttr = dir ? ` dir="${dir}"` : "";
+  switch (t.type) {
+    case "push":
+      return `<p:transition${speedAttr}><p:push${dirAttr}/></p:transition>`;
+    case "wipe":
+      return `<p:transition${speedAttr}><p:wipe${dirAttr}/></p:transition>`;
+    case "split":
+      return `<p:transition${speedAttr}><p:split orient="horz"/></p:transition>`;
+    case "cover":
+      return `<p:transition${speedAttr}><p:cover${dirAttr}/></p:transition>`;
+    case "uncover":
+      return `<p:transition${speedAttr}><p:uncover${dirAttr}/></p:transition>`;
+    case "fade":
+    default:
+      return `<p:transition${speedAttr}><p:fade/></p:transition>`;
+  }
+}
+function transitionSpeed(durationMs) {
+  if (typeof durationMs !== "number" || !Number.isFinite(durationMs))
+    return void 0;
+  const ms = Math.max(0, durationMs);
+  if (ms <= 500)
+    return "fast";
+  if (ms <= 1e3)
+    return "med";
+  return "slow";
+}
+function backgroundXml(slide, rels) {
+  if (!slide.background)
+    return "";
+  if (slide.background.type === "solid") {
+    assertHex(slide.background.color, "Slide.background.color");
+    return `<p:bg><p:bgPr><a:solidFill><a:srgbClr val="${slide.background.color.toUpperCase()}"/></a:solidFill><a:effectLst/></p:bgPr></p:bg>`;
+  }
+  if (slide.background.type === "gradient") {
+    return `<p:bg><p:bgPr>` + gradientFillXml(slide.background, "Slide.background") + `<a:effectLst/></p:bgPr></p:bg>`;
+  }
+  const rId = `rId${rels.entries.length + 2}`;
+  rels.entries.push({
+    id: rId,
+    type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
+    target: `../media/__background-${slide.background.src}`,
+    // package emitter rewrites
+    role: "background-image",
+    assetSrc: slide.background.src
+  });
+  return `<p:bg><p:bgPr><a:blipFill dpi="0" rotWithShape="1"><a:blip r:embed="${rId}"/><a:srcRect/><a:stretch><a:fillRect/></a:stretch></a:blipFill><a:effectLst/></p:bgPr></p:bg>`;
+}
+function slideRelsXml(rels, slideLayoutRId) {
+  const layoutRel = `<Relationship Id="${slideLayoutRId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>`;
+  const otherRels = rels.entries.map((e) => {
+    const tm = e.targetMode ? ` TargetMode="${xmlEscape(e.targetMode)}"` : "";
+    const target = xmlEscape(e.target);
+    return `<Relationship Id="${xmlEscape(e.id)}" Type="${xmlEscape(e.type)}" Target="${target}"${tm}/>`;
+  }).join("");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${layoutRel}${otherRels}</Relationships>`;
+}
+
+// slideml2/dist/units.js
+var EMU_PER_INCH = 914400;
+var EMU_PER_CM2 = 36e4;
+var EMU_PER_PT = 12700;
+var inch = (n) => Math.round(n * EMU_PER_INCH);
+function ptToCm(n) {
+  return n * EMU_PER_PT / EMU_PER_CM2;
+}
+function parseLayoutDimensionCm(raw) {
+  if (typeof raw === "number" && Number.isFinite(raw))
+    return raw;
+  if (typeof raw !== "string")
+    return void 0;
+  const value = raw.trim().replace(/,/g, "");
+  if (!value)
+    return void 0;
+  const match = value.match(/^(-?\d+(?:\.\d+)?)(?:\s*(cm|mm|in|pt|px))?$/i);
+  if (!match)
+    return void 0;
+  const amount = Number.parseFloat(match[1] || "");
+  if (!Number.isFinite(amount))
+    return void 0;
+  const unit = (match[2] || "").toLowerCase();
+  if (unit === "cm")
+    return amount;
+  if (unit === "mm")
+    return amount / 10;
+  if (unit === "in")
+    return amount * 2.54;
+  if (unit === "pt")
+    return amount * 2.54 / 72;
+  if (unit === "px")
+    return amount * 2.54 / 96;
+  return amount > 3 && amount <= 96 ? amount * 2.54 / 96 : amount;
+}
+function normalizeStrokeCm(raw, fallbackCm, options = {}) {
+  const minCm = options.minCm ?? 5e-3;
+  const maxCm = options.maxCm ?? 0.18;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
+    return clampNumber(fallbackCm, minCm, maxCm);
+  }
+  const cmValue = raw > 0.3 ? ptToCm(raw) : raw;
+  return clampNumber(cmValue, minCm, maxCm);
+}
+function emuToCm(emu) {
+  return emu / EMU_PER_CM2;
+}
+var SLIDE_SIZES = {
+  "16x9": { width: inch(10), height: inch(5.625) },
+  "16x10": { width: inch(10), height: inch(6.25) },
+  "4x3": { width: inch(10), height: inch(7.5) },
+  "wide": { width: inch(13.333), height: inch(7.5) }
+};
+function clampNumber(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+// slideml2/dist/emitter/package.js
+async function internOrAnnotate(assets, src, context) {
+  try {
+    await assets.intern(src);
+  } catch (err) {
+    const original = err instanceof Error ? err.message : String(err);
+    throw new Error(`${context}: failed to load image "${src}" \u2014 ${original}`);
+  }
+}
+var OFFICE_FALLBACK_COLORS = {
+  dk2: "44546A",
+  lt2: "E7E6E6",
+  accent1: "4472C4",
+  accent2: "ED7D31",
+  accent3: "A5A5A5",
+  accent4: "FFC000",
+  accent5: "5B9BD5",
+  accent6: "70AD47",
+  hlink: "0563C1",
+  folHlink: "954F72"
+};
+var OFFICE_FALLBACK_FONTS = {
+  majorLatin: "Calibri Light",
+  minorLatin: "Calibri"
+};
+async function emitPackage(deck, themeOxml) {
+  if (deck.slides.length === 0) {
+    throw new Error("emitPackage: deck has no slides");
+  }
+  const zip = new import_jszip2.default();
+  const dims = SLIDE_SIZES[deck.size];
+  const author = deck.author ?? "SlideML";
+  const title = deck.title ?? "Presentation";
+  const lang = deck.language ?? "en-US";
+  const chartCount = deck.slides.reduce((acc, slide) => acc + slide.shapes.filter((s) => s.type === "chart").length, 0);
+  const notesIndices = [];
+  deck.slides.forEach((s, i) => {
+    if (s.notes && s.notes.trim().length > 0)
+      notesIndices.push(i + 1);
+  });
+  const hasNotes = notesIndices.length > 0;
+  const assets = new Assets();
+  for (let i = 0; i < deck.slides.length; i++) {
+    const slide = deck.slides[i];
+    const slideNum = i + 1;
+    if (slide.background?.type === "image") {
+      await internOrAnnotate(assets, slide.background.src, `slides[${slideNum}].background`);
+    }
+    for (const shape of slide.shapes) {
+      if (shape.type === "image") {
+        await internOrAnnotate(assets, shape.src, `slides[${slideNum}] image shape "${shape.name ?? shape.id}"`);
+        const entry = assets.get(shape.src);
+        if (entry?.resolved.dimensions && !shape.sourceDimensions) {
+          shape.sourceDimensions = { ...entry.resolved.dimensions };
+        }
+      }
+    }
+  }
+  zip.file("[Content_Types].xml", contentTypesXml(deck.slides.length, assets.extensions(), chartCount, notesIndices));
+  zip.file("_rels/.rels", rootRelsXml());
+  zip.file("docProps/app.xml", appXml(deck.slides.length));
+  zip.file("docProps/core.xml", coreXml(title, author));
+  zip.file("ppt/theme/theme1.xml", themeXml(themeOxml));
+  zip.file("ppt/slideMasters/slideMaster1.xml", slideMasterXml(deck.master));
+  zip.file("ppt/slideMasters/_rels/slideMaster1.xml.rels", slideMasterRelsXml());
+  zip.file("ppt/slideLayouts/slideLayout1.xml", slideLayoutXml(deck.master));
+  zip.file("ppt/slideLayouts/_rels/slideLayout1.xml.rels", slideLayoutRelsXml());
+  if (hasNotes) {
+    zip.file("ppt/notesMasters/notesMaster1.xml", notesMasterXml());
+    zip.file("ppt/notesMasters/_rels/notesMaster1.xml.rels", notesMasterRelsXml());
+    zip.file("ppt/theme/theme2.xml", themeXml());
+  }
+  zip.file("ppt/presentation.xml", presentationXml(deck.slides.length, dims, lang, hasNotes));
+  zip.file("ppt/_rels/presentation.xml.rels", presentationRelsXml(deck.slides.length, hasNotes));
+  zip.file("ppt/presProps.xml", presPropsXml());
+  zip.file("ppt/viewProps.xml", viewPropsXml());
+  zip.file("ppt/tableStyles.xml", tableStylesXml());
+  for (const entry of assets.entries()) {
+    zip.file(`ppt/media/${entry.filename}`, entry.resolved.bytes);
+  }
+  let nextChartIndex = 1;
+  for (let i = 0; i < deck.slides.length; i++) {
+    const slide = deck.slides[i];
+    const slideNum = i + 1;
+    const slidePart = `ppt/slides/slide${slideNum}.xml`;
+    const built = slideXml(slide, slidePart);
+    let imgRelIdx = 0;
+    let chartRelIdx = 0;
+    const imageShapes = slide.shapes.filter((s) => s.type === "image");
+    const chartShapes2 = slide.shapes.filter((s) => s.type === "chart");
+    const slideChartFilenames = [];
+    for (const _chart of chartShapes2) {
+      const chartFilename = `chart${nextChartIndex++}.xml`;
+      slideChartFilenames.push(chartFilename);
+      const workbookFilename = `Microsoft_Excel_Worksheet${nextChartIndex - 1}.xlsx`;
+      zip.file(`ppt/charts/${chartFilename}`, chartXml(_chart, { embeddedWorkbookRelId: "rId1" }));
+      zip.file(`ppt/embeddings/${workbookFilename}`, await chartWorkbookXlsx(_chart));
+      zip.file(`ppt/charts/_rels/${chartFilename}.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/package" Target="../embeddings/${workbookFilename}"/>
+</Relationships>`);
+    }
+    const bgImageSrc = slide.background?.type === "image" ? slide.background.src : void 0;
+    let bgRelConsumed = false;
+    built.rels.entries = built.rels.entries.map((rel) => {
+      if (rel.type.endsWith("/image")) {
+        const explicitSrc = rel.assetSrc;
+        const src = explicitSrc || (bgImageSrc && !bgRelConsumed ? bgImageSrc : imageShapes[imgRelIdx++]?.src);
+        if (rel.role === "background-image" || src === bgImageSrc && !bgRelConsumed) {
+          bgRelConsumed = true;
+        }
+        if (!src)
+          throw new Error(`slides[${slideNum}] image relationship ${rel.id} has no source asset`);
+        const entry = assets.get(src);
+        if (!entry)
+          throw new Error(`slides[${slideNum}] image relationship ${rel.id} references uninterned asset "${src}"`);
+        return { ...rel, target: `../media/${entry.filename}` };
+      }
+      if (rel.type.endsWith("/chart")) {
+        const filename = slideChartFilenames[chartRelIdx++];
+        return { ...rel, target: `../charts/${filename}` };
+      }
+      return rel;
+    });
+    if (slide.notes && slide.notes.trim().length > 0) {
+      const notesFilename = `notesSlide${slideNum}.xml`;
+      zip.file(`ppt/notesSlides/${notesFilename}`, notesSlideXml(slide.notes, slideNum));
+      zip.file(`ppt/notesSlides/_rels/${notesFilename}.rels`, notesSlideRelsXml(slideNum));
+      const nextRId = `rId${built.rels.entries.length + 2}`;
+      built.rels.entries.push({
+        id: nextRId,
+        type: "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide",
+        target: `../notesSlides/${notesFilename}`
+      });
+    }
+    zip.file(slidePart, built.body);
+    zip.file(`ppt/slides/_rels/slide${slideNum}.xml.rels`, slideRelsXml(built.rels, "rId1"));
+  }
+  for (const path of Object.keys(zip.files)) {
+    if (zip.files[path].dir)
+      delete zip.files[path];
+  }
+  return await zip.generateAsync({
+    type: "nodebuffer",
+    compression: "DEFLATE"
+  });
+}
+function contentTypesXml(slideCount, imageExts, chartCount, notesIndices) {
+  const overrides = [
+    `<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>`,
+    `<Override PartName="/ppt/presProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presProps+xml"/>`,
+    `<Override PartName="/ppt/viewProps.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml"/>`,
+    `<Override PartName="/ppt/tableStyles.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml"/>`,
+    `<Override PartName="/ppt/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>`,
+    `<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/>`,
+    `<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>`,
+    `<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>`,
+    `<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>`
+  ];
+  for (let i = 1; i <= slideCount; i++) {
+    overrides.push(`<Override PartName="/ppt/slides/slide${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`);
+  }
+  for (let i = 1; i <= chartCount; i++) {
+    overrides.push(`<Override PartName="/ppt/charts/chart${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`);
+    overrides.push(`<Override PartName="/ppt/embeddings/Microsoft_Excel_Worksheet${i}.xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>`);
+  }
+  if (notesIndices.length > 0) {
+    overrides.push(`<Override PartName="/ppt/notesMasters/notesMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml"/>`);
+    overrides.push(`<Override PartName="/ppt/theme/theme2.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>`);
+    for (const i of notesIndices) {
+      overrides.push(`<Override PartName="/ppt/notesSlides/notesSlide${i}.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/>`);
+    }
+  }
+  const defaults = [
+    `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`,
+    `<Default Extension="xml" ContentType="application/xml"/>`
+  ];
+  if (chartCount > 0) {
+    defaults.push(`<Default Extension="xlsx" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"/>`);
+  }
+  const allExts = /* @__PURE__ */ new Set([...imageExts, "png", "jpg"]);
+  for (const ext of allExts) {
+    const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+    defaults.push(`<Default Extension="${ext}" ContentType="${mime}"/>`);
+  }
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">${defaults.join("")}${overrides.join("")}</Types>`;
+}
+function rootRelsXml() {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>`;
+}
+function appXml(slideCount) {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+<TotalTime>0</TotalTime>
+<Words>0</Words>
+<Application>SlideML</Application>
+<PresentationFormat>Custom</PresentationFormat>
+<Paragraphs>0</Paragraphs>
+<Slides>${slideCount}</Slides>
+<Notes>0</Notes>
+<HiddenSlides>0</HiddenSlides>
+<MMClips>0</MMClips>
+<ScaleCrop>false</ScaleCrop>
+<HeadingPairs><vt:vector size="2" baseType="variant"><vt:variant><vt:lpstr>Slides</vt:lpstr></vt:variant><vt:variant><vt:i4>${slideCount}</vt:i4></vt:variant></vt:vector></HeadingPairs>
+<TitlesOfParts><vt:vector size="${slideCount}" baseType="lpstr">${"<vt:lpstr>Slide</vt:lpstr>".repeat(slideCount)}</vt:vector></TitlesOfParts>
+<LinksUpToDate>false</LinksUpToDate>
+<SharedDoc>false</SharedDoc>
+<HyperlinksChanged>false</HyperlinksChanged>
+<AppVersion>1.0</AppVersion>
+</Properties>`;
+}
+function coreXml(title, author) {
+  const now = STABLE_OOXML_TIMESTAMP;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<dc:title>${escapeForXml(title)}</dc:title>
+<dc:creator>${escapeForXml(author)}</dc:creator>
+<cp:lastModifiedBy>${escapeForXml(author)}</cp:lastModifiedBy>
+<cp:revision>1</cp:revision>
+<dcterms:created xsi:type="dcterms:W3CDTF">${now}</dcterms:created>
+<dcterms:modified xsi:type="dcterms:W3CDTF">${now}</dcterms:modified>
+</cp:coreProperties>`;
+}
+function themeXml(themeOxml) {
+  const themeName = themeOxml?.name ?? "Office Theme";
+  const c = themeOxml?.colors ?? OFFICE_FALLBACK_COLORS;
+  const f = themeOxml?.fonts ?? OFFICE_FALLBACK_FONTS;
+  const dk1 = c.dk1 ? `<a:srgbClr val="${c.dk1.toUpperCase()}"/>` : `<a:sysClr val="windowText" lastClr="000000"/>`;
+  const lt1 = c.lt1 ? `<a:srgbClr val="${c.lt1.toUpperCase()}"/>` : `<a:sysClr val="window" lastClr="FFFFFF"/>`;
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:theme xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" name="${escapeForXml(themeName)}">
+<a:themeElements>
+<a:clrScheme name="${escapeForXml(themeName)}">
+<a:dk1>${dk1}</a:dk1>
+<a:lt1>${lt1}</a:lt1>
+<a:dk2><a:srgbClr val="${c.dk2.toUpperCase()}"/></a:dk2>
+<a:lt2><a:srgbClr val="${c.lt2.toUpperCase()}"/></a:lt2>
+<a:accent1><a:srgbClr val="${c.accent1.toUpperCase()}"/></a:accent1>
+<a:accent2><a:srgbClr val="${c.accent2.toUpperCase()}"/></a:accent2>
+<a:accent3><a:srgbClr val="${c.accent3.toUpperCase()}"/></a:accent3>
+<a:accent4><a:srgbClr val="${c.accent4.toUpperCase()}"/></a:accent4>
+<a:accent5><a:srgbClr val="${c.accent5.toUpperCase()}"/></a:accent5>
+<a:accent6><a:srgbClr val="${c.accent6.toUpperCase()}"/></a:accent6>
+<a:hlink><a:srgbClr val="${c.hlink.toUpperCase()}"/></a:hlink>
+<a:folHlink><a:srgbClr val="${c.folHlink.toUpperCase()}"/></a:folHlink>
+</a:clrScheme>
+<a:fontScheme name="${escapeForXml(themeName)}">
+<a:majorFont><a:latin typeface="${escapeForXml(f.majorLatin)}"/><a:ea typeface=""/><a:cs typeface=""/></a:majorFont>
+<a:minorFont><a:latin typeface="${escapeForXml(f.minorLatin)}"/><a:ea typeface=""/><a:cs typeface=""/></a:minorFont>
+</a:fontScheme>
+<a:fmtScheme name="Office">
+<a:fillStyleLst>
+<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+</a:fillStyleLst>
+<a:lnStyleLst>
+<a:ln w="6350" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln>
+<a:ln w="12700" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln>
+<a:ln w="19050" cap="flat" cmpd="sng" algn="ctr"><a:solidFill><a:schemeClr val="phClr"/></a:solidFill><a:prstDash val="solid"/></a:ln>
+</a:lnStyleLst>
+<a:effectStyleLst>
+<a:effectStyle><a:effectLst/></a:effectStyle>
+<a:effectStyle><a:effectLst/></a:effectStyle>
+<a:effectStyle><a:effectLst/></a:effectStyle>
+</a:effectStyleLst>
+<a:bgFillStyleLst>
+<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>
+</a:bgFillStyleLst>
+</a:fmtScheme>
+</a:themeElements>
+<a:objectDefaults/>
+<a:extraClrSchemeLst/>
+</a:theme>`;
+}
+function slideMasterXml(master) {
+  const placeholders = placeholderShapesXml(master, 10);
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldMaster xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:cSld>
+<p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg>
+<p:spTree>
+<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+${placeholders}
+</p:spTree>
+</p:cSld>
+<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2" accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"/>
+<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst>
+<p:txStyles>
+<p:titleStyle><a:lvl1pPr algn="ctr"><a:defRPr sz="4400"/></a:lvl1pPr></p:titleStyle>
+<p:bodyStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:bodyStyle>
+<p:otherStyle><a:lvl1pPr><a:defRPr sz="1800"/></a:lvl1pPr></p:otherStyle>
+</p:txStyles>
+</p:sldMaster>`;
+}
+function slideMasterRelsXml() {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="../theme/theme1.xml"/>
+</Relationships>`;
+}
+function slideLayoutXml(master) {
+  const placeholders = placeholderShapesXml(master, 100);
+  const layoutName = escapeForXml(master?.layout ?? "Blank");
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sldLayout xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" type="blank" preserve="1">
+<p:cSld name="${layoutName}">
+<p:spTree>
+<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/><a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>
+${placeholders}
+</p:spTree>
+</p:cSld>
+<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>
+</p:sldLayout>`;
+}
+function placeholderShapesXml(master, startId) {
+  const entries = Object.entries(master?.placeholders ?? {});
+  return entries.map(([name, ph], index) => {
+    const id = startId + index;
+    const type = placeholderType(ph.type);
+    const idxAttr = ` idx="${index + 1}"`;
+    const x = Math.round(ph.x);
+    const y = Math.round(ph.y);
+    const w = Math.round(ph.w);
+    const h = Math.round(ph.h);
+    return `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="${escapeForXml(name)}"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="${type}"${idxAttr}/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="${x}" y="${y}"/><a:ext cx="${w}" cy="${h}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp>`;
+  }).join("");
+}
+function placeholderType(type) {
+  switch (type) {
+    case "title":
+      return "title";
+    case "footer":
+      return "ftr";
+    case "image":
+      return "pic";
+    case "chart":
+    case "table":
+    case "body":
+    default:
+      return "body";
+  }
+}
+function slideLayoutRelsXml() {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="../slideMasters/slideMaster1.xml"/>
+</Relationships>`;
+}
+function presentationXml(slideCount, dims, lang, hasNotes) {
+  const sldIdEntries = [];
+  for (let i = 0; i < slideCount; i++) {
+    sldIdEntries.push(`<p:sldId id="${256 + i}" r:id="rId${2 + i}"/>`);
+  }
+  const sldSzType = sizeTypeFor(dims);
+  const notesMasterRId = hasNotes ? `rId${1 + slideCount + 4 + 1}` : null;
+  const notesMasterLst = notesMasterRId ? `<p:notesMasterIdLst><p:notesMasterId r:id="${notesMasterRId}"/></p:notesMasterIdLst>` : "";
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentation xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" saveSubsetFonts="1">
+<p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/></p:sldMasterIdLst>
+${notesMasterLst}
+<p:sldIdLst>${sldIdEntries.join("")}</p:sldIdLst>
+<p:sldSz cx="${dims.width}" cy="${dims.height}" type="${sldSzType}"/>
+<p:notesSz cx="6858000" cy="9144000"/>
+<p:defaultTextStyle>${defaultTextStyleXml(lang)}</p:defaultTextStyle>
+</p:presentation>`;
+}
+function sizeTypeFor(dims) {
+  if (dims.width === 9144e3 && dims.height === 5143500)
+    return "screen16x9";
+  if (dims.width === 9144e3 && dims.height === 5715e3)
+    return "screen16x10";
+  if (dims.width === 9144e3 && dims.height === 6858e3)
+    return "screen4x3";
+  return "custom";
+}
+function defaultTextStyleXml(lang) {
+  const escapedLang = lang.replace(/"/g, "&quot;");
+  const lvl = (n, marL) => `<a:lvl${n}pPr marL="${marL}" algn="l" defTabSz="914400" rtl="0" eaLnBrk="1" latinLnBrk="0" hangingPunct="1"><a:defRPr sz="1800" kern="1200"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill><a:latin typeface="+mn-lt"/><a:ea typeface="+mn-ea"/><a:cs typeface="+mn-cs"/></a:defRPr></a:lvl${n}pPr>`;
+  const indents = [0, 457200, 914400, 1371600, 1828800, 2286e3, 2743200, 3200400, 3657600];
+  const levels = indents.map((m, i) => lvl(i + 1, m)).join("");
+  return `<a:defPPr><a:defRPr lang="${escapedLang}"/></a:defPPr>${levels}`;
+}
+function presentationRelsXml(slideCount, hasNotes) {
+  const slideRels = [];
+  for (let i = 1; i <= slideCount; i++) {
+    slideRels.push(`<Relationship Id="rId${1 + i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i}.xml"/>`);
+  }
+  const finalIds = {
+    master: 1,
+    presProps: 2 + slideCount,
+    viewProps: 3 + slideCount,
+    theme: 4 + slideCount,
+    tableStyles: 5 + slideCount,
+    notesMaster: 6 + slideCount
+  };
+  const notesMasterRel = hasNotes ? `
+<Relationship Id="rId${finalIds.notesMaster}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster" Target="notesMasters/notesMaster1.xml"/>` : "";
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId${finalIds.master}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideMaster" Target="slideMasters/slideMaster1.xml"/>
+${slideRels.join("\n")}
+<Relationship Id="rId${finalIds.presProps}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/presProps" Target="presProps.xml"/>
+<Relationship Id="rId${finalIds.viewProps}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/viewProps" Target="viewProps.xml"/>
+<Relationship Id="rId${finalIds.theme}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>
+<Relationship Id="rId${finalIds.tableStyles}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/tableStyles" Target="tableStyles.xml"/>${notesMasterRel}
+</Relationships>`;
+}
+function presPropsXml() {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentationPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"/>`;
+}
+function viewPropsXml() {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:viewPr xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:normalViewPr><p:restoredLeft sz="15620"/><p:restoredTop sz="94660"/></p:normalViewPr>
+<p:slideViewPr><p:cSldViewPr snapToGrid="0"><p:cViewPr varScale="1"><p:scale><a:sx n="100" d="100"/><a:sy n="100" d="100"/></p:scale><p:origin x="0" y="0"/></p:cViewPr><p:guideLst/></p:cSldViewPr></p:slideViewPr>
+<p:notesTextViewPr><p:cViewPr><p:scale><a:sx n="100" d="100"/><a:sy n="100" d="100"/></p:scale><p:origin x="0" y="0"/></p:cViewPr></p:notesTextViewPr>
+<p:gridSpacing cx="76200" cy="76200"/>
+</p:viewPr>`;
+}
+function tableStylesXml() {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<a:tblStyleLst xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" def="{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}"/>`;
+}
+function escapeForXml(s) {
+  return xmlEscape(s);
+}
+
+// slideml2/dist/components.js
+var DECORATION_MARKER_SHAPES = /* @__PURE__ */ new Set([
+  "dot",
+  "ring",
+  "square",
+  "rounded-square",
+  "diamond",
+  "side-bar",
+  "slash",
+  "index-chip"
+]);
+function decorationMarkerNode(slideId, id, marker, defaults = {}) {
+  const spec = normalizeDecorationMarker(marker, defaults);
+  if (!spec)
+    return void 0;
+  const dims = decorationMarkerDimensionsCm(spec.shape, markerSizeCm(spec.size), spec.content);
+  return {
+    id: `${slideId}.${id}`,
+    type: "shape",
+    role: "item-marker",
+    marker: spec,
+    fixedWidth: dims.w,
+    fixedHeight: dims.h,
+    align: "start",
+    valign: defaults.valign || "middle",
+    optional: true,
+    ...spec.content ? {
+      text: spec.content,
+      style: "label",
+      bold: true,
+      color: decorationMarkerContentColor(spec.tone, spec.variant),
+      autoFit: "shrink",
+      noWrap: true
+    } : {}
+  };
+}
+function normalizeDecorationMarker(marker, defaults) {
+  if (marker === void 0)
+    return null;
+  const rawShape = typeof marker === "string" ? marker : marker?.shape ?? marker?.marker ?? marker?.preset ?? marker?.type ?? defaults.shape;
+  const shape = normalizeDecorationMarkerShape(rawShape);
+  const explicitContent = typeof marker === "object" ? marker.content ?? marker.glyph ?? marker.text : void 0;
+  const content = normalizeDecorationMarkerContent(explicitContent ?? (shape ? void 0 : rawShape));
+  const fallbackShape = normalizeDecorationMarkerShape(defaults.shape) || "rounded-square";
+  const resolvedShape = shape || (content ? fallbackShape : null);
+  if (!resolvedShape)
+    return null;
+  const explicitVariant = typeof marker === "object" ? marker.variant : void 0;
+  return {
+    shape: resolvedShape,
+    tone: (typeof marker === "object" ? marker.tone : void 0) || defaults.tone || "brand",
+    variant: explicitVariant || (content ? "badge" : defaults.variant) || "tint",
+    size: (typeof marker === "object" ? marker.size : void 0) || defaults.size || "sm",
+    ...content ? { content } : {}
+  };
+}
+function normalizeDecorationMarkerShape(value) {
+  if (typeof value !== "string")
+    return null;
+  const normalized = value === "rect" ? "square" : value === "roundRect" || value === "roundedSquare" || value === "round-square" || value === "rounded-rect" ? "rounded-square" : value === "ellipse" ? "dot" : value === "bar" || value === "stripe" || value === "side-rail" ? "side-bar" : value === "chip" || value === "index" ? "index-chip" : value;
+  return DECORATION_MARKER_SHAPES.has(normalized) ? normalized : null;
+}
+function normalizeDecorationMarkerContent(value) {
+  if (typeof value !== "string")
+    return void 0;
+  const trimmed = value.trim();
+  if (!trimmed)
+    return void 0;
+  const glyphs = Array.from(trimmed);
+  if (glyphs.length > 3)
+    return void 0;
+  return trimmed;
+}
+function decorationMarkerContentColor(tone, variant) {
+  if (tone === "neutral" || tone === "muted")
+    return "text.primary";
+  if (variant === "solid" || variant === "badge")
+    return "text.inverse";
+  if (tone === "positive")
+    return "success";
+  if (tone === "warning")
+    return "warning";
+  if (tone === "danger")
+    return "danger";
+  return "brand.primary";
+}
+function markerSizeCm(value) {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0)
+    return Math.max(0.12, Math.min(0.9, value));
+  if (value === "xs")
+    return 0.18;
+  if (value === "sm")
+    return 0.28;
+  if (value === "lg")
+    return 0.52;
+  if (value === "xl")
+    return 0.68;
+  return 0.38;
+}
+function decorationMarkerDimensionsCm(shape, size, content) {
+  if (content) {
+    const glyphSize = Math.max(0.42, size);
+    const widthMultiplier = Math.max(1, Math.min(1.6, Array.from(content).length * 0.62));
+    return { w: glyphSize * widthMultiplier, h: glyphSize };
+  }
+  if (shape === "side-bar")
+    return { w: Math.max(0.06, size * 0.22), h: Math.max(0.55, size * 1.9) };
+  if (shape === "slash")
+    return { w: Math.max(0.5, size * 1.55), h: Math.max(0.16, size * 0.32) };
+  if (shape === "index-chip")
+    return { w: size * 1.35, h: size };
+  return { w: size, h: size };
+}
+function textChipWidthCm(text, options = {}) {
+  const min = options.min ?? 1;
+  const max = options.max ?? 4.2;
+  const padding = options.padding ?? 0.62;
+  const cjk = options.cjk ?? 0.34;
+  const latin = options.latin ?? 0.18;
+  let width = padding;
+  for (const ch of text) {
+    if (/\s/.test(ch))
+      width += latin * 0.55;
+    else
+      width += /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? cjk : isWideVisualSymbol2(ch) ? cjk * 1.06 : latin;
+  }
+  return Math.max(min, Math.min(max, width));
+}
+function isWideVisualSymbol2(ch) {
+  return /[\u2605\u2606\u2713\u2714\u2717\u2715\u2716\u26a0\u25cf\u25cb\u25c6\u25c7\u25a0\u25a1\u25b2\u25b3\u25b6\u25b7\u25bc\u25bd]/.test(ch);
+}
+function applyAgentSurface(node, options = {}) {
+  const merged = { ...options, ...options.surface || {} };
+  const out = { ...node };
+  if (typeof merged.fill === "string")
+    out.fill = merged.fill;
+  if (typeof merged.fillOpacity === "number")
+    out.fillOpacity = merged.fillOpacity;
+  if (typeof merged.line === "string")
+    out.line = merged.line;
+  if (typeof merged.lineOpacity === "number")
+    out.lineOpacity = merged.lineOpacity;
+  if (typeof merged.lineWidth === "number")
+    out.lineWidth = merged.lineWidth;
+  if (merged.lineDash) {
+    out.lineDash = merged.lineDash;
+    if (merged.lineDash === "solid")
+      delete out.dash;
+    else
+      out.dash = merged.lineDash;
+  }
+  if (typeof merged.borderColor === "string")
+    out.line = merged.borderColor;
+  if (typeof merged.borderWidth === "number")
+    out.lineWidth = merged.borderWidth;
+  if (merged.borderStyle) {
+    out.borderStyle = merged.borderStyle;
+    if (merged.borderStyle === "solid")
+      delete out.dash;
+    else
+      out.dash = merged.borderStyle;
+  }
+  if (typeof merged.cornerRadius === "number")
+    out.cornerRadius = merged.cornerRadius;
+  if (merged.border && typeof merged.border === "object") {
+    if (typeof merged.border.color === "string")
+      out.line = merged.border.color;
+    if (typeof merged.border.width === "number")
+      out.lineWidth = merged.border.width;
+    if (merged.border.style) {
+      out.borderStyle = merged.border.style;
+      if (merged.border.style === "solid")
+        delete out.dash;
+      else
+        out.dash = merged.border.style;
+    }
+    if (typeof merged.border.cornerRadius === "number")
+      out.cornerRadius = merged.border.cornerRadius;
+  } else if (typeof merged.border === "string") {
+    out.line = merged.border;
+  }
+  if (typeof merged.padding === "number")
+    out.padding = merged.padding;
+  if (merged.elevation)
+    out.elevation = merged.elevation;
+  if (merged.shadow && typeof merged.shadow === "object")
+    out.shadow = merged.shadow;
+  if (merged.gradient && typeof merged.gradient === "object")
+    out.gradient = merged.gradient;
+  if (merged.accent === "none" || merged.accent === "left" || merged.accent === "top")
+    out.accent = merged.accent;
+  if (typeof merged.accentColor === "string")
+    out.accentColor = merged.accentColor;
+  if (typeof merged.accentWidth === "number")
+    out.accentWidth = merged.accentWidth;
+  return out;
+}
+function richContent(value) {
+  if (!Array.isArray(value))
+    return void 0;
+  const runs = value.filter((run) => {
+    if (!run || typeof run !== "object" || Array.isArray(run))
+      return false;
+    const rec = run;
+    if (typeof rec.text === "string")
+      return true;
+    return rec.kind === "math" || rec.kind === "cite" || rec.kind === "footnoteRef" || rec.kind === "icon" || rec.kind === "token";
+  });
+  return runs.length ? runs : void 0;
+}
+function textWithRichContent(text, content) {
+  const runs = richContent(content);
+  return runs ? { text, content: runs } : { text };
+}
+function toneColor(tone, fallback = "brand.primary") {
+  if (tone === "positive" || tone === "success" || tone === "good")
+    return "success";
+  if (tone === "warning" || tone === "caution" || tone === "warn")
+    return "warning";
+  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative")
+    return "danger";
+  if (tone === "neutral" || tone === "muted")
+    return "text.muted";
+  if (tone === "flat")
+    return "text.muted";
+  return fallback;
+}
+function toneAccentColor(tone, fallback = "brand.primary") {
+  if (tone === "positive" || tone === "success" || tone === "good")
+    return "success.accent";
+  if (tone === "warning" || tone === "caution" || tone === "warn")
+    return "warning.accent";
+  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative")
+    return "danger.accent";
+  if (tone === "neutral" || tone === "muted" || tone === "flat")
+    return "divider";
+  return fallback;
+}
+function titleText(slideId, id, text) {
+  return { id: `${slideId}.${id}`, type: "slide-title", text, align: "left" };
+}
+function paragraphText(slideId, id, text) {
+  return { id: `${slideId}.${id}`, type: "text", text, align: "left", style: "paragraph" };
+}
+function bulletList(slideId, id, items, density = "comfortable") {
+  return { id: `${slideId}.${id}`, type: "bullets", items, density };
+}
+function imageBlock(slideId, id, src, alt, fit = "cover") {
+  return { id: `${slideId}.${id}`, type: "image", src, alt, fit };
+}
+function imageWithCaptionPanel(slideId, imageSrc, imageTitle) {
+  const image = { ...imageBlock(slideId, "brief-image", imageSrc, imageTitle, "contain"), caption: imageTitle };
+  return {
+    id: `${slideId}.visualPanel`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.3,
+    role: "image-with-caption",
+    children: [
+      { ...image, layoutWeight: 1, minHeight: 6.8 }
+    ]
+  };
+}
+function metricCard(slideId, id, value, label, options = {}) {
+  const trend = options.trend;
+  const unit = options.unit && options.unit.trim() ? options.unit.trim() : "";
+  const statusColor = toneColor(options.status, "");
+  const valueColor = statusColor || (trend === "up" ? "success" : trend === "down" ? "danger" : trend === "flat" ? "text.muted" : "brand.primary");
+  const labelColor = statusColor || (trend === "up" ? "success" : trend === "down" ? "danger" : "text.muted");
+  const dense = options.density === "compact" || options.variant === "compact";
+  const content = unit ? [{ text: value, color: valueColor }, { text: ` ${unit}`, color: "text.muted" }] : [];
+  const valueSize = metricValueSize(value, dense);
+  const peerAligned = options.peerAligned === true;
+  const valueBandHeight = peerAligned ? dense ? 0.74 : 1.65 : void 0;
+  const labelBandHeight = peerAligned ? dense ? 0.34 : 1.05 : void 0;
+  const deltaBandHeight = peerAligned ? dense ? 0.3 : 0.36 : void 0;
+  const valueNode = {
+    id: `${slideId}.${id}.value`,
+    type: "text",
+    text: value,
+    style: "metric-value",
+    color: valueColor,
+    align: "center",
+    valign: "bottom",
+    autoFit: "shrink",
+    noWrap: true,
+    ...valueSize ? { size: valueSize } : {},
+    ...dense && peerAligned ? { fontScale: 0.82 } : {},
+    ...content.length > 0 ? { content } : {}
+  };
+  const valueWrap = {
+    id: `${slideId}.${id}.value-wrap`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0,
+    align: "center",
+    valign: "bottom",
+    ...valueBandHeight !== void 0 ? { fixedHeight: valueBandHeight, maxHeight: valueBandHeight } : { maxHeight: dense ? 1.55 : metricValueNeedsCompactScale(value) ? 1.85 : 2.4, layoutWeight: 2 },
+    children: [valueNode]
+  };
+  const spark = (options.sparkline || []).map((v) => typeof v === "number" ? v : Number.parseFloat(String(v))).filter((v) => Number.isFinite(v));
+  const sparkMax = Math.max(1, ...spark);
+  const sparkNodes = spark.slice(0, 12).map((v, idx) => ({
+    id: `${slideId}.${id}.spark.${idx}`,
+    type: "shape",
+    preset: "rect",
+    fill: valueColor,
+    line: valueColor,
+    layoutWeight: 1,
+    fixedHeight: Math.max(0.1, Math.min(0.42, v / sparkMax * 0.42)),
+    valign: "bottom"
+  }));
+  const children = [
+    valueWrap,
+    {
+      id: `${slideId}.${id}.label`,
+      type: "text",
+      text: label,
+      style: "metric-label",
+      color: labelColor,
+      align: "center",
+      valign: "top",
+      ...labelBandHeight !== void 0 ? { fixedHeight: labelBandHeight } : { layoutWeight: 1 },
+      autoFit: "shrink",
+      optional: true
+    }
+  ];
+  if (options.delta || options.comparison) {
+    children.push({
+      id: `${slideId}.${id}.delta`,
+      type: "text",
+      text: [options.delta, options.comparison].filter(Boolean).join(" \xB7 "),
+      style: "label",
+      color: valueColor,
+      align: "center",
+      ...deltaBandHeight !== void 0 ? { fixedHeight: deltaBandHeight } : { minHeight: dense ? 0.25 : 0.35 },
+      autoFit: "shrink",
+      optional: true
+    });
+  }
+  if (sparkNodes.length >= 2) {
+    children.push({
+      id: `${slideId}.${id}.spark`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0.04,
+      align: "center",
+      valign: "bottom",
+      fixedHeight: 0.45,
+      optional: true,
+      children: sparkNodes
+    });
+  }
+  if (options.source) {
+    children.push({ id: `${slideId}.${id}.source`, type: "text", text: options.source, style: "caption", color: "text.muted", align: "center", minHeight: 0.25, autoFit: "shrink", optional: true });
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: dense ? 0.1 : 0.18,
+    role: "metric-card",
+    valign: "middle",
+    ...options.variant === "card" ? { fill: "surface", line: "divider", padding: 0.45, cornerRadius: 0.1 } : {},
+    children
+  }, options);
+}
+function metricValueNeedsCompactScale(value) {
+  const weighted = weightedTextLength(value);
+  const cjkCount = Array.from(value).filter((char) => /[\u4e00-\u9fff]/.test(char)).length;
+  return weighted >= 4.2 || cjkCount >= 2 && weighted >= 3 || /^[-+]/.test(value.trim());
+}
+function metricValueSize(value, dense) {
+  if (dense)
+    return "xs";
+  return metricValueNeedsCompactScale(value) ? "sm" : void 0;
+}
+function stepCard(slideId, id, step, title, body, options = {}) {
+  const dense = options.density === "compact" || options.variant === "compact";
+  const status = toneColor(options.status, "text.primary");
+  const iconFill = status === "text.primary" ? "surface.subtle" : status;
+  const meta = [options.owner, options.time].filter(Boolean).join(" \xB7 ");
+  const marker = decorationMarkerNode(slideId, `${id}.marker`, options.marker, {
+    shape: "dot",
+    tone: options.status || "brand",
+    variant: "tint",
+    size: dense ? "xs" : "sm"
+  });
+  const titleRowChildren = [
+    ...marker ? [marker] : options.icon ? [{ id: `${slideId}.${id}.icon`, type: "shape", preset: options.icon, fill: iconFill, line: status, fixedWidth: 0.55, fixedHeight: 0.55, align: "start" }] : [],
+    { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", minHeight: 0.65, autoFit: "shrink", layoutWeight: 1 }
+  ];
+  const children = [
+    { id: `${slideId}.${id}.step`, type: "text", text: step, style: "numbered-step", color: status, minHeight: 0.42, autoFit: "shrink" },
+    {
+      id: `${slideId}.${id}.titleRow`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0.2,
+      valign: "middle",
+      children: titleRowChildren
+    }
+  ];
+  if (meta)
+    children.push({ id: `${slideId}.${id}.meta`, type: "text", text: meta, style: "label", color: "text.muted", minHeight: 0.35, autoFit: "shrink", optional: true });
+  if (body || richContent(options.content)) {
+    children.push({ id: `${slideId}.${id}.body`, type: "text", ...textWithRichContent(body, options.content), style: "caption", valign: "top", autoFit: "shrink", optional: dense });
+  }
+  if (options.bullets && options.bullets.length)
+    children.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets.slice(0, 4), "compact"), optional: true });
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: dense ? 0.14 : 0.25,
+    role: "step-card",
+    ...options.variant === "card" ? { fill: "surface", line: "divider", padding: 0.5, cornerRadius: 0.1 } : {},
+    children
+  }, options);
+}
+function comparisonCard(slideId, id, title, points, options = {}) {
+  const dense = options.density === "compact" || options.variant === "compact";
+  const crowded = points.length + (options.pros?.length || 0) + (options.cons?.length || 0) + (options.metrics?.length || 0) + (options.body ? 1 : 0) + (options.score ? 1 : 0) > 8;
+  const visiblePoints = points.slice(0, crowded ? 3 : 6);
+  const children = [
+    ...options.badge ? [{ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", uppercase: true, color: options.winner ? "text.inverse" : "text.primary", fill: options.winner ? "brand.primary" : "surface.subtle", cornerRadius: 0.18, align: "center", fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1.2, max: 4.6, padding: 0.6 }), autoFit: "shrink", noWrap: true }] : [],
+    { id: `${slideId}.${id}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.6, autoFit: "shrink" },
+    ...options.subtitle && !crowded ? [{ id: `${slideId}.${id}.subtitle`, type: "text", text: options.subtitle, style: "label", color: "text.muted", minHeight: 0.32, autoFit: "shrink" }] : []
+  ];
+  if (options.score)
+    children.push({ id: `${slideId}.${id}.score`, type: "text", text: options.score, style: crowded ? "label" : "metric-value", color: options.winner ? "brand.primary" : "text.primary", align: "left", minHeight: crowded ? 0.34 : 0.7, autoFit: "shrink" });
+  if ((options.body || richContent(options.content)) && !crowded)
+    children.push({ id: `${slideId}.${id}.body`, type: "text", ...textWithRichContent(options.body || "", options.content), style: "caption", color: "text.primary", autoFit: "shrink", minHeight: 0.45 });
+  if (visiblePoints.length)
+    children.push({ ...bulletList(slideId, `${id}-points`, visiblePoints, "compact"), maxHeight: crowded ? 1.55 : void 0 });
+  if (options.metrics && options.metrics.length) {
+    children.push({
+      id: `${slideId}.${id}.metrics`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0.2,
+      fixedHeight: 0.5,
+      children: options.metrics.slice(0, crowded ? 2 : 3).map((m, index) => ({
+        id: `${slideId}.${id}.metric${index + 1}`,
+        type: "text",
+        text: `${m.label}: ${m.value}`,
+        style: "label",
+        color: toneColor(m.tone, "text.primary"),
+        fill: "surface.subtle",
+        cornerRadius: 0.12,
+        align: "center",
+        valign: "middle",
+        autoFit: "shrink",
+        layoutWeight: 1
+      }))
+    });
+  }
+  if (options.pros && options.pros.length || options.cons && options.cons.length) {
+    const prosText = (options.pros || []).slice(0, crowded ? 1 : 2).join(" / ");
+    const consText = (options.cons || []).slice(0, crowded ? 1 : 2).join(" / ");
+    children.push({
+      id: `${slideId}.${id}.tradeoff`,
+      type: "grid",
+      columns: 2,
+      gap: 0.2,
+      fixedHeight: crowded ? 0.48 : 0.72,
+      children: [
+        { id: `${slideId}.${id}.pros`, type: "text", text: prosText ? `+ ${prosText}` : "+", style: "caption", color: "success", autoFit: "shrink", valign: "middle" },
+        { id: `${slideId}.${id}.cons`, type: "text", text: consText ? `- ${consText}` : "-", style: "caption", color: "danger", autoFit: "shrink", valign: "middle" }
+      ]
+    });
+  }
+  if (options.footer && !crowded)
+    children.push({ id: `${slideId}.${id}.footer`, type: "text", text: options.footer, style: "caption", color: "text.muted", minHeight: 0.35, autoFit: "shrink" });
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: dense ? 0.16 : 0.25,
+    role: "comparison-card",
+    ...options.variant === "card" || options.winner ? { fill: options.winner ? "brand.tint" : "surface", line: options.winner ? "brand.primary" : "divider", padding: 0.5, cornerRadius: 0.1 } : {},
+    children
+  }, options);
+}
+function insightCallout(slideId, id, text) {
+  return { id: `${slideId}.${id}`, type: "text", text, style: "callout", role: "callout", minHeight: 1, autoFit: "shrink" };
+}
+function numberedListItem(item) {
+  if (typeof item === "string")
+    return item.trim();
+  const title = String(item.title ?? item.headline ?? item.label ?? item.name ?? item.text ?? "").trim();
+  const body = String(item.body ?? item.detail ?? item.description ?? "").trim();
+  if (title && body) {
+    const separator = /[\u4e00-\u9fff\uff00-\uffef]$/.test(title) ? "\uFF1A" : ": ";
+    return {
+      text: `${title}${separator}${body}`,
+      runs: [
+        { text: title, marks: ["bold"] },
+        { text: `${separator}${body}` }
+      ]
+    };
+  }
+  if (title)
+    return { text: title, runs: [{ text: title, marks: ["bold"] }] };
+  return body;
+}
+function numberedList(slideId, id, items, density = "comfortable") {
+  return { id: `${slideId}.${id}`, type: "bullets", items: items.map(numberedListItem).filter(Boolean), density, numbered: true };
+}
+function quoteBlock(slideId, id, text, source, opts = {}) {
+  const textWeight = weightedTextLength(text);
+  const hasSource = Boolean(source && source.trim());
+  const compact = textWeight > 42 || hasSource && textWeight > 32;
+  const veryCompact = textWeight > 64;
+  const quotePadding = veryCompact ? 0.28 : compact ? 0.36 : 0.48;
+  const quoteFontScale = veryCompact ? 0.72 : compact ? 0.82 : void 0;
+  const quoteMinHeight = veryCompact ? hasSource ? 2 : 1.55 : compact ? hasSource ? 1.75 : 1.35 : hasSource ? 1.55 : 1.15;
+  const wantOrnament = opts.ornament !== false;
+  const children = [];
+  if (wantOrnament) {
+    children.push({
+      id: `${slideId}.${id}.ornament`,
+      type: "text",
+      text: "\u201C",
+      // Display-tier glyph in muted accent — visually subordinate to the
+      // quote text itself.
+      style: "hero",
+      color: "brand.primary",
+      align: "left",
+      valign: "top",
+      layer: "behind",
+      autoFit: "shrink",
+      optional: true
+    });
+  }
+  children.push({
+    id: `${slideId}.${id}.text`,
+    type: "text",
+    text: `\u201C${text}\u201D`,
+    style: "quote",
+    align: "left",
+    valign: "middle",
+    autoFit: "shrink",
+    autoGrow: true,
+    layoutWeight: 1,
+    maxFontScale: veryCompact ? 1.14 : compact ? 1.34 : 1.52,
+    minHeight: compact ? 0.62 : 0.75,
+    ...quoteFontScale ? { fontScale: quoteFontScale } : {}
+  });
+  if (hasSource) {
+    children.push({ id: `${slideId}.${id}.source`, type: "text", text: `\u2014 ${source.trim()}`, style: "quote-source", align: "left", minHeight: 0.32, autoFit: "shrink", optional: true });
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.12,
+    role: "quote",
+    padding: quotePadding,
+    minHeight: quoteMinHeight,
+    children
+  }, opts);
+}
+function iconText(slideId, id, options) {
+  const iconPreset = options.icon || "ellipse";
+  const iconColor = options.iconColor || "brand.primary";
+  const iconBackground = options.iconBackground || "brand.tint";
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: 0.4,
+    role: "icon-text",
+    align: "start",
+    valign: "middle",
+    children: [
+      {
+        id: `${slideId}.${id}.icon`,
+        type: "shape",
+        preset: iconPreset,
+        fill: iconBackground,
+        line: iconColor,
+        fixedWidth: 1.15,
+        fixedHeight: 1.15
+      },
+      { id: `${slideId}.${id}.text`, type: "text", text: options.text, style: "card-title", align: "left", valign: "middle", color: options.tone || "text.primary" }
+    ]
+  };
+}
+function timelineBlock(slideId, id, options) {
+  const requested = options.direction === "horizontal" ? "horizontal" : "vertical";
+  const items = options.items;
+  const itemCount = items.length;
+  const simpleItems = items.every((item) => !item.content);
+  const richCount = items.filter((item) => item.content).length;
+  const rowGap = typeof options.gap === "number" && Number.isFinite(options.gap) ? Math.max(0, Math.min(1.4, options.gap)) : 0.52;
+  if (simpleItems && itemCount > 6) {
+    const columns = 4;
+    const rows = [];
+    for (let start = 0; start < itemCount; start += columns) {
+      const rowIndex = Math.floor(start / columns);
+      const rowItems = items.slice(start, start + columns);
+      rows.push(timelineHorizontalRow(slideId, id, rowItems, start, columns, `${slideId}.${id}.row${rowIndex}`));
+    }
+    return {
+      id: `${slideId}.${id}`,
+      type: "stack",
+      direction: "vertical",
+      gap: rowGap,
+      role: "timeline",
+      children: rows
+    };
+  }
+  if (requested === "horizontal" && richCount > 0 && itemCount > 5) {
+    return {
+      id: `${slideId}.${id}`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.22,
+      role: "timeline",
+      children: items.map((item, index) => timelineStep(slideId, id, index, item, "vertical"))
+    };
+  }
+  if (requested === "horizontal") {
+    return timelineHorizontalRow(slideId, id, items, 0, Math.max(1, Math.min(6, itemCount)), `${slideId}.${id}`, "timeline");
+  }
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.22,
+    role: "timeline",
+    children: items.map((item, index) => timelineStep(slideId, id, index, item, "vertical"))
+  };
+}
+function timelineHorizontalRow(slideId, id, items, startIndex, columns, nodeId, role = "timeline-row") {
+  const markerGridId = role === "timeline" ? `${slideId}.${id}.markers` : `${nodeId}.markers`;
+  const textGridId = role === "timeline" ? `${slideId}.${id}.items` : `${nodeId}.items`;
+  return {
+    id: nodeId,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.02,
+    role,
+    children: [
+      {
+        id: markerGridId,
+        type: "grid",
+        columns,
+        gap: 0,
+        role: "timeline-marker-row",
+        minHeight: 1.2,
+        children: items.map((item, localIndex) => timelineHorizontalMarker(slideId, id, startIndex + localIndex, item))
+      },
+      {
+        id: textGridId,
+        type: "grid",
+        columns,
+        gap: columns >= 5 ? 0.2 : 0.3,
+        role: "timeline-item-row",
+        children: items.map((item, localIndex) => timelineStep(slideId, id, startIndex + localIndex, item, "horizontal"))
+      }
+    ]
+  };
+}
+function timelineHorizontalMarker(slideId, id, index, item) {
+  const toneToken = timelineToneToken(item.tone);
+  const shapePreset = item.shape || "ellipse";
+  const visualChildren = [{
+    id: `${slideId}.${id}.${index}.halo`,
+    type: "shape",
+    preset: shapePreset,
+    fill: "surface",
+    line: toneToken,
+    lineWidth: 0.018,
+    fixedWidth: 0.7,
+    fixedHeight: 0.7,
+    optional: true
+  }];
+  const iconLayer = timelineIconLayer(slideId, id, index, item, toneToken, 0.44);
+  if (iconLayer)
+    visualChildren.push(iconLayer);
+  return {
+    id: `${slideId}.${id}.${index}.marker`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.02,
+    role: "timeline-marker",
+    align: "center",
+    valign: "bottom",
+    children: [
+      {
+        id: `${slideId}.${id}.${index}.visual`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0.08,
+        justify: "center",
+        align: "center",
+        valign: "middle",
+        fixedHeight: 0.72,
+        children: visualChildren
+      },
+      {
+        id: `${slideId}.${id}.${index}.leader`,
+        type: "shape",
+        preset: "rect",
+        fill: "divider",
+        line: "divider",
+        fixedWidth: 0.04,
+        fixedHeight: 0.16,
+        optional: true
+      },
+      {
+        id: `${slideId}.${id}.${index}.axis`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0,
+        role: "timeline-axis-node",
+        valign: "middle",
+        fixedHeight: 0.2,
+        children: [
+          {
+            id: `${slideId}.${id}.${index}.railLeft`,
+            type: "shape",
+            preset: "rect",
+            fill: "brand.primary",
+            line: "brand.primary",
+            fixedHeight: 0.04,
+            layoutWeight: 1
+          },
+          {
+            id: `${slideId}.${id}.${index}.dot`,
+            type: "shape",
+            preset: "ellipse",
+            fill: "surface",
+            line: toneToken,
+            lineWidth: 0.035,
+            fixedWidth: 0.18,
+            fixedHeight: 0.18,
+            optional: true
+          },
+          {
+            id: `${slideId}.${id}.${index}.railRight`,
+            type: "shape",
+            preset: "rect",
+            fill: "brand.primary",
+            line: "brand.primary",
+            fixedHeight: 0.04,
+            layoutWeight: 1
+          }
+        ]
+      }
+    ]
+  };
+}
+function timelineToneToken(tone) {
+  switch (tone) {
+    case "positive":
+      return "success";
+    case "warning":
+      return "warning";
+    case "danger":
+      return "danger";
+    case "neutral":
+      return "text.muted";
+    default:
+      return "brand.primary";
+  }
+}
+function timelineIconLayer(slideId, id, index, item, toneToken, size) {
+  const iconSrc = item.iconSrc?.trim();
+  const iconPreset = item.icon?.trim();
+  if (!iconSrc && !iconPreset)
+    return null;
+  return {
+    id: `${slideId}.${id}.${index}.iconLayer`,
+    type: "stack",
+    direction: "horizontal",
+    justify: "center",
+    align: "center",
+    valign: "middle",
+    layer: "above",
+    children: [
+      iconSrc ? {
+        id: `${slideId}.${id}.${index}.icon`,
+        type: "image",
+        src: iconSrc,
+        alt: item.title || item.time || "timeline icon",
+        fit: "contain",
+        fixedWidth: size,
+        fixedHeight: size,
+        optional: true
+      } : {
+        id: `${slideId}.${id}.${index}.icon`,
+        type: "shape",
+        preset: iconPreset || "ellipse",
+        fill: toneToken,
+        line: toneToken,
+        lineWidth: 0.018,
+        fixedWidth: size * 0.73,
+        fixedHeight: size * 0.73,
+        optional: true
+      }
+    ]
+  };
+}
+function timelineStep(slideId, id, index, item, direction) {
+  const toneToken = timelineToneToken(item.tone);
+  const content = item.content && typeof item.content === "object" ? {
+    ...item.content,
+    id: typeof item.content.id === "string" && item.content.id ? item.content.id : `${slideId}.${id}.${index}.content`
+  } : null;
+  if (direction === "horizontal") {
+    const children = [];
+    if (item.time && item.time.trim()) {
+      children.push({
+        id: `${slideId}.${id}.${index}.time`,
+        type: "text",
+        text: item.time.trim(),
+        style: "timeline-time",
+        color: item.tone ? toneToken : void 0,
+        align: "center",
+        minHeight: 0.3,
+        autoFit: "shrink",
+        optional: true
+      });
+    }
+    if (item.title && item.title.trim()) {
+      children.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title.trim(), style: "timeline-title", color: "text.primary", align: "center", minHeight: 0.48, autoFit: "shrink" });
+    }
+    if (content) {
+      children.push(content);
+    } else if (item.body && item.body.trim()) {
+      children.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "timeline-body", align: "center", valign: "top", minHeight: estimateTimelineBodyMinHeight(item.body, "horizontal"), autoFit: "shrink", optional: true });
+    }
+    return {
+      id: `${slideId}.${id}.${index}`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.08,
+      role: "timeline-step",
+      children
+    };
+  }
+  const rightColChildren = [];
+  if (item.title && item.title.trim()) {
+    rightColChildren.push({ id: `${slideId}.${id}.${index}.title`, type: "text", text: item.title.trim(), style: "timeline-title", color: "text.primary", minHeight: 0.5, autoFit: "shrink" });
+  }
+  if (content) {
+    rightColChildren.push(content);
+  } else if (item.body && item.body.trim()) {
+    rightColChildren.push({ id: `${slideId}.${id}.${index}.body`, type: "text", text: item.body.trim(), style: "timeline-body", valign: "top", minHeight: estimateTimelineBodyMinHeight(item.body, "vertical"), autoFit: "shrink", optional: true });
+  }
+  if (rightColChildren.length === 0) {
+    rightColChildren.push({ id: `${slideId}.${id}.${index}.placeholder`, type: "spacer", fixedHeight: 0.1 });
+  }
+  const rowChildren = [];
+  if (item.time && item.time.trim()) {
+    rowChildren.push({
+      id: `${slideId}.${id}.${index}.time`,
+      type: "text",
+      text: item.time.trim(),
+      style: "timeline-time",
+      align: "right",
+      valign: "top",
+      // Fixed width keeps time labels aligned across rows. 2.5cm fits
+      // most date strings ("2024 Q3", "March 2024", "公元前 221 年").
+      fixedWidth: 2.5,
+      minHeight: 0.4,
+      autoFit: "shrink"
+    });
+  }
+  const verticalIconLayer = timelineIconLayer(slideId, id, index, item, toneToken, 0.3);
+  const verticalDot = {
+    id: `${slideId}.${id}.${index}.dot`,
+    type: "shape",
+    preset: "ellipse",
+    fill: verticalIconLayer ? "surface" : toneToken,
+    line: toneToken,
+    fixedWidth: verticalIconLayer ? 0.36 : 0.24,
+    fixedHeight: verticalIconLayer ? 0.36 : 0.24
+  };
+  const verticalMarker = verticalIconLayer ? {
+    id: `${slideId}.${id}.${index}.marker`,
+    type: "stack",
+    direction: "horizontal",
+    justify: "center",
+    align: "center",
+    valign: "middle",
+    fixedWidth: 0.4,
+    fixedHeight: 0.4,
+    children: [verticalDot, verticalIconLayer]
+  } : verticalDot;
+  rowChildren.push({
+    id: `${slideId}.${id}.${index}.spine`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0,
+    role: "timeline-spine",
+    align: "center",
+    valign: "top",
+    fixedWidth: 0.4,
+    children: [
+      verticalMarker,
+      {
+        id: `${slideId}.${id}.${index}.line`,
+        type: "shape",
+        preset: "rect",
+        // Per-row spine segment tracks the row's tone for visual coherence —
+        // a danger row's dot+line are both red, not red dot + blue line.
+        fill: toneToken,
+        line: toneToken,
+        fixedWidth: 0.03,
+        layoutWeight: 1
+      }
+    ]
+  });
+  rowChildren.push({
+    id: `${slideId}.${id}.${index}.col`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.1,
+    valign: "top",
+    layoutWeight: 1,
+    children: rightColChildren
+  });
+  return {
+    id: `${slideId}.${id}.${index}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: 0.35,
+    role: "timeline-step",
+    align: "start",
+    valign: "top",
+    children: rowChildren
+  };
+}
+function estimateTimelineBodyMinHeight(text, direction) {
+  const explicitLines = text.split(/\n+/).filter((line) => line.trim()).length;
+  const weighted = weightedTextLength(text);
+  const charsPerLine = direction === "horizontal" ? 22 : 46;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / charsPerLine));
+  const lineHeight = direction === "horizontal" ? 0.29 : 0.34;
+  return Math.max(direction === "horizontal" ? 0.46 : 0.42, Math.min(direction === "horizontal" ? 1.2 : 1.2, estimatedLines * lineHeight + 0.12));
+}
+function profileCard(slideId, id, options) {
+  const children = [
+    { id: `${slideId}.${id}.photo`, type: "image", src: options.image, alt: options.name, clip: "circle", fit: "cover", fixedWidth: 2.8, fixedHeight: 2.8 },
+    { id: `${slideId}.${id}.name`, type: "text", text: options.name, style: "card-title", align: "center", minHeight: 0.6, autoFit: "shrink" }
+  ];
+  if (options.role && options.role.trim()) {
+    children.push({ id: `${slideId}.${id}.role`, type: "text", text: options.role.trim(), style: "label", color: "text.muted", align: "center", minHeight: 0.42, autoFit: "shrink", tracking: "wide" });
+  }
+  if (options.bio && options.bio.trim()) {
+    children.push({ id: `${slideId}.${id}.bio`, type: "text", text: options.bio.trim(), style: "caption", align: "center", valign: "top", minHeight: 0.45, autoFit: "shrink" });
+  }
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.25,
+    role: "profile-card",
+    align: "center",
+    children
+  };
+}
+function kpiGrid(slideId, id, metrics, columns, options = {}) {
+  const cols = Math.max(1, columns || Math.min(4, metrics.length));
+  const dense = options.density === "compact" || options.variant === "compact" || metrics.length >= 5;
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: cols,
+    gap: dense ? 0.32 : 0.5,
+    role: "kpi-grid",
+    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable", peerAligned: true }))
+  }, options);
+}
+function sectionBreak(slideId, id, options) {
+  const children = [];
+  const tone = options.tone || "brand";
+  const ruleColor = tone === "neutral" ? "divider" : tone === "inverse" ? "text.inverse" : "brand.primary";
+  children.push({
+    id: `${slideId}.${id}.rule`,
+    type: "shape",
+    preset: "rect",
+    fill: ruleColor,
+    line: ruleColor,
+    fixedHeight: 0.08,
+    fixedWidth: 4,
+    align: "start"
+  });
+  const accentText = (options.accent || "").trim();
+  const isToneKeyword = /^(brand|primary|secondary|tertiary|neutral|positive|negative|warning|danger|caution|success|error|muted|subtle|info|inverse|tone|color)$/i.test(accentText);
+  if (accentText && !isToneKeyword) {
+    children.push({ id: `${slideId}.${id}.accent`, type: "text", text: accentText, style: "label", color: "text.primary", align: "left", minHeight: 0.42, autoFit: "shrink", tracking: "wide" });
+  }
+  children.push({ id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "deck-title", align: "left", color: "text.primary" });
+  if (options.subtitle && options.subtitle.trim()) {
+    children.push({ id: `${slideId}.${id}.subtitle`, type: "text", text: options.subtitle.trim(), style: "lead", align: "left", color: "text.muted" });
+  }
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.32,
+    role: "section-break",
+    area: "content",
+    // valign+justify both centered: section-break content was previously
+    // top-aligned at y=3 leaving 5.5cm empty at the bottom (96vi8n slides
+    // 4/9/13/17/21). justify:"center" centers the stack in the content
+    // rect along its own main axis, valign:"middle" was effectively
+    // unused for vertical stacks and stays for cross-axis alignment.
+    justify: "center",
+    valign: "middle",
+    align: "start",
+    children
+  };
+}
+function swotMatrix(slideId, id, options) {
+  const quadrant = (qid, title, points, color2) => ({
+    id: `${slideId}.${id}.${qid}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.12,
+    role: "swot-quadrant",
+    children: [
+      { id: `${slideId}.${id}.${qid}.title`, type: "text", text: title, style: "card-title", color: color2, minHeight: 0.46, autoFit: "shrink" },
+      { ...bulletList(slideId, `${id}-${qid}`, points, "compact"), spaceAfter: 1 }
+    ]
+  });
+  return {
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: 2,
+    gap: 0.5,
+    role: "swot-matrix",
+    children: [
+      quadrant("strengths", "Strengths", options.strengths, "success"),
+      quadrant("weaknesses", "Weaknesses", options.weaknesses, "warning"),
+      quadrant("opportunities", "Opportunities", options.opportunities, "brand.primary"),
+      quadrant("threats", "Threats", options.threats, "danger")
+    ]
+  };
+}
+function ctaButton(slideId, id, options) {
+  const tone = options.tone || "brand";
+  const fill = tone === "neutral" ? "surface" : tone === "brand" ? "brand.primary" : tone;
+  const fg = tone === "neutral" ? "text.primary" : "text.inverse";
+  const content = options.link ? [{ text: options.text, link: options.link }] : void 0;
+  return {
+    id: `${slideId}.${id}`,
+    type: "text",
+    text: options.text,
+    style: "card-title",
+    align: "center",
+    valign: "middle",
+    fill,
+    color: fg,
+    cornerRadius: 0.3,
+    fixedHeight: 1.15,
+    autoFit: "shrink",
+    role: "cta",
+    ...content ? { content } : {}
+  };
+}
+function featureCard(slideId, id, options) {
+  const dense = options.density === "compact" || options.variant === "compact";
+  const layout = options.layout === "horizontal" || options.layout !== "vertical" && dense ? "horizontal" : "vertical";
+  const semanticTone = featureSemanticTone(options.tone);
+  const iconColor = options.iconColor || featureAccentColor(semanticTone);
+  const iconBackground = options.iconBackground || featureTintColor(semanticTone);
+  const explicitTitleMarker = options.decoration?.kind === "marker" && layout === "vertical" ? featureMarkerInput(options.decoration.marker || options.decoration.shape || "rounded-square") : void 0;
+  const titleMarkerBase = decorationMarkerNode(slideId, `${id}.marker`, options.marker || explicitTitleMarker, {
+    shape: "rounded-square",
+    tone: options.decoration?.tone || markerToneFromFeatureTone(semanticTone),
+    variant: options.decoration?.variant || "tint",
+    size: options.decoration?.size || (dense ? "xs" : "sm")
+  });
+  const titleMarker = titleMarkerBase ? { ...titleMarkerBase, optional: false, __featureCardSemanticChild: true } : void 0;
+  const decorationNode = featureCardDecorationNode(slideId, id, options, {
+    layout,
+    dense,
+    semanticTone,
+    iconColor,
+    iconBackground,
+    hasLegacyTitleMarker: !!titleMarker
+  });
+  const titleNode = { id: `${slideId}.${id}.title`, type: "text", text: options.title, style: "card-title", align: "left", color: options.titleColor || featureTitleColor(options.tone), minHeight: dense ? 0.42 : 0.5, autoFit: "shrink", layoutWeight: titleMarker ? 1 : void 0 };
+  const titleRow = titleMarker ? {
+    id: `${slideId}.${id}.titleRow`,
+    type: "stack",
+    direction: "horizontal",
+    gap: dense ? 0.14 : 0.18,
+    valign: "middle",
+    children: [titleMarker, titleNode]
+  } : titleNode;
+  const leadingChildren = [];
+  if (options.badge) {
+    leadingChildren.push({ id: `${slideId}.${id}.badge`, type: "text", text: options.badge, style: "label", color: "text.primary", fill: "surface.subtle", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(options.badge, { min: 1, max: 4.8, padding: 0.62 }), align: "center", autoFit: "shrink", noWrap: true });
+  }
+  const textChildren = [
+    ...leadingChildren,
+    titleRow
+  ];
+  const body = textWithRichContent(options.body?.trim() || "", options.content);
+  if (body.text || body.content) {
+    textChildren.push({
+      id: `${slideId}.${id}.body`,
+      type: "text",
+      ...body,
+      style: "caption",
+      align: "left",
+      valign: "top",
+      minHeight: estimateFeatureBodyMinHeight(body.text, dense),
+      autoFit: "shrink",
+      __featureCardSemanticChild: true
+    });
+  }
+  if (options.metric) {
+    textChildren.push({ ...featureMetricNode(slideId, id, options.metric, dense), optional: true });
+  }
+  if (options.proof) {
+    textChildren.push({ id: `${slideId}.${id}.proof`, type: "text", text: options.proof, style: "label", color: "text.muted", minHeight: 0.34, autoFit: "shrink", optional: true });
+  }
+  if (options.tags && options.tags.length) {
+    textChildren.push({ id: `${slideId}.${id}.tags`, type: "stack", direction: "horizontal", gap: 0.12, optional: true, children: options.tags.slice(0, 4).map((tag, index) => ({ id: `${slideId}.${id}.tag${index}`, type: "text", text: String(tag), style: "label", fill: "surface.subtle", color: "text.muted", cornerRadius: 0.16, fixedHeight: 0.42, autoFit: "shrink", layoutWeight: 1 })) });
+  }
+  if (options.ctaText) {
+    textChildren.push({ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "label", color: "text.inverse", fill: "brand.primary", cornerRadius: 0.2, align: "center", valign: "middle", fixedHeight: 0.46, autoFit: "shrink", optional: true });
+  }
+  const children = layout === "horizontal" && decorationNode ? [
+    decorationNode,
+    {
+      id: `${slideId}.${id}.content`,
+      type: "stack",
+      direction: "vertical",
+      gap: dense ? 0.09 : 0.14,
+      layoutWeight: 1,
+      valign: "top",
+      children: textChildren
+    }
+  ] : [
+    ...decorationNode ? [decorationNode] : [],
+    ...textChildren
+  ];
+  const defaultSurface = featureCardDefaultSurface(options, dense);
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: layout,
+    gap: layout === "horizontal" ? dense ? 0.28 : 0.36 : dense ? 0.1 : 0.16,
+    role: "feature-card",
+    valign: "top",
+    ...defaultSurface,
+    children
+  }, options);
+}
+function featureCardDefaultSurface(options, dense) {
+  const hasSurface = !!options.surface || typeof options.fill === "string" || typeof options.line === "string" || options.border !== void 0 || typeof options.borderColor === "string" || typeof options.elevation === "string" || options.shadow !== void 0 || options.gradient !== void 0;
+  if (options.variant === "card") {
+    return { fill: "surface", line: "divider", padding: dense ? 0.32 : 0.42, cornerRadius: 0.1 };
+  }
+  if (options.variant === "compact" || hasSurface) {
+    return { padding: dense ? 0.28 : 0.36, cornerRadius: 0.08 };
+  }
+  return {};
+}
+function featureCardDecorationNode(slideId, id, options, ctx) {
+  const spec = options.decoration;
+  const explicitKind = spec?.kind;
+  if (explicitKind === "none")
+    return void 0;
+  const tone = spec?.tone || markerToneFromFeatureTone(ctx.semanticTone);
+  const size = featureDecorationSizeCm(spec?.size, ctx.dense, ctx.layout);
+  if (explicitKind === "marker") {
+    if (ctx.layout === "vertical")
+      return void 0;
+    const markerNode = decorationMarkerNode(slideId, `${id}.decoration`, featureMarkerInput(spec?.marker || spec?.shape || "rounded-square"), {
+      shape: "rounded-square",
+      tone,
+      variant: spec?.variant || "tint",
+      size: spec?.size || (ctx.dense ? "sm" : "md"),
+      valign: "top"
+    });
+    return markerNode ? { ...markerNode, optional: false, __featureCardSemanticChild: true } : void 0;
+  }
+  const src = spec?.src || spec?.iconSrc || options.iconSrc;
+  if (explicitKind === "image" || src) {
+    if (!src)
+      return void 0;
+    return {
+      id: `${slideId}.${id}.icon`,
+      type: "image",
+      src,
+      fit: "contain",
+      fixedWidth: size,
+      fixedHeight: size,
+      align: "start",
+      valign: "top",
+      optional: true
+    };
+  }
+  if (ctx.hasLegacyTitleMarker && !spec)
+    return void 0;
+  const shape = spec?.shape || spec?.icon || options.icon || "ellipse";
+  if (shape === "none")
+    return void 0;
+  return {
+    id: `${slideId}.${id}.icon`,
+    type: "shape",
+    preset: shape,
+    fill: spec?.background || ctx.iconBackground,
+    line: spec?.color || ctx.iconColor,
+    lineWidth: 0.04,
+    fixedWidth: size,
+    fixedHeight: size,
+    align: "start",
+    valign: "top",
+    optional: true
+  };
+}
+function featureMarkerInput(value) {
+  return value;
+}
+function featureDecorationSizeCm(size, dense, layout) {
+  if (typeof size === "number" && Number.isFinite(size) && size > 0)
+    return Math.max(0.24, Math.min(1.6, size));
+  if (size === "xs")
+    return 0.52;
+  if (size === "sm")
+    return 0.68;
+  if (size === "lg")
+    return 1.12;
+  if (size === "xl")
+    return 1.36;
+  if (size === "md")
+    return 0.9;
+  if (layout === "horizontal")
+    return dense ? 0.76 : 0.94;
+  return dense ? 0.82 : 1.02;
+}
+function featureSemanticTone(tone) {
+  if (tone === "positive" || tone === "success" || tone === "good")
+    return "positive";
+  if (tone === "warning" || tone === "caution" || tone === "warn")
+    return "warning";
+  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative")
+    return "danger";
+  if (tone === "neutral" || tone === "muted" || tone === "flat")
+    return "neutral";
+  return "brand";
+}
+function markerToneFromFeatureTone(tone) {
+  return tone === "muted" ? "neutral" : tone;
+}
+function featureTitleColor(tone) {
+  if (tone === void 0 || tone === null || tone === "")
+    return "text.primary";
+  if (tone === "brand")
+    return "brand.primary";
+  if (tone === "positive" || tone === "success" || tone === "good")
+    return "success.accent";
+  if (tone === "warning" || tone === "caution" || tone === "warn")
+    return "warning.accent";
+  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative")
+    return "danger.accent";
+  if (tone === "neutral")
+    return "text.primary";
+  if (tone === "muted" || tone === "flat")
+    return "text.muted";
+  return String(tone);
+}
+function featureAccentColor(tone) {
+  if (tone === "brand")
+    return "brand.primary";
+  if (tone === "positive" || tone === "success" || tone === "good")
+    return "success";
+  if (tone === "warning" || tone === "caution" || tone === "warn")
+    return "warning";
+  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative")
+    return "danger";
+  if (tone === "neutral")
+    return "text.primary";
+  if (tone === "muted" || tone === "flat")
+    return "text.muted";
+  return typeof tone === "string" && tone.trim() ? tone : "brand.primary";
+}
+function featureTintColor(tone) {
+  if (tone === "positive" || tone === "success" || tone === "good")
+    return "success.tint";
+  if (tone === "warning" || tone === "caution" || tone === "warn")
+    return "warning.tint";
+  if (tone === "danger" || tone === "error" || tone === "bad" || tone === "negative")
+    return "danger.tint";
+  if (tone === "neutral" || tone === "muted" || tone === "flat")
+    return "surface.subtle";
+  return "brand.tint";
+}
+function estimateFeatureBodyMinHeight(text, dense) {
+  const explicitLines = text.split(/\n+/).filter((line) => line.trim()).length;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weightedTextLength(text) / (dense ? 24 : 20)));
+  return Math.max(dense ? 0.42 : 0.5, Math.min(dense ? 0.85 : 1.1, estimatedLines * (dense ? 0.34 : 0.4) + 0.14));
+}
+function featureMetricNode(slideId, id, metric, dense) {
+  if (isConciseNumericMetric(metric.value)) {
+    return metricCard(slideId, `${id}.metric`, metric.value, metric.label, { variant: "compact", status: metric.tone });
+  }
+  const tone = featureAccentColor(metric.tone || "brand");
+  const ratingLike = isRatingLikeMetric(metric.value);
+  const valueLines = Math.max(1, Math.ceil(weightedTextLength(metric.value) / (dense ? 22 : 26)));
+  return {
+    id: `${slideId}.${id}.metric`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.06,
+    fill: "surface.subtle",
+    line: "divider",
+    padding: dense ? 0.14 : 0.18,
+    cornerRadius: 0.08,
+    children: [
+      {
+        id: `${slideId}.${id}.metric.value`,
+        type: "text",
+        text: metric.value,
+        style: dense || ratingLike ? "label" : "card-title",
+        color: tone,
+        minHeight: Math.max(dense ? 0.32 : 0.42, Math.min(dense ? 0.78 : 0.95, valueLines * (dense ? 0.28 : 0.34) + 0.1)),
+        autoFit: "shrink"
+      },
+      ...metric.label ? [{
+        id: `${slideId}.${id}.metric.label`,
+        type: "text",
+        text: metric.label,
+        style: "caption",
+        color: "text.muted",
+        minHeight: dense ? 0.28 : 0.32,
+        autoFit: "shrink"
+      }] : []
+    ]
+  };
+}
+function isConciseNumericMetric(value) {
+  const text = value.trim();
+  if (!text || isRatingLikeMetric(text))
+    return false;
+  if (text.length > 14)
+    return false;
+  if (!/[0-9]/.test(text))
+    return false;
+  return /^[+\-~≈¥$€£]?\s*\d[\d,.]*(?:\s*[-–]\s*\d[\d,.]*)?(?:\s*(?:%|x|X|k|K|m|M|b|B|万|亿|千|百|倍|人|家|项|年|月|天|小时|ms|s|秒|pt|pts))?\+?$/.test(text);
+}
+function isRatingLikeMetric(value) {
+  return /[\u2605\u2606]/.test(value);
+}
+function checklist(slideId, id, items, density = "comfortable", opts = {}) {
+  const compact = density === "compact";
+  const chipStyle = opts.markStyle !== "plain";
+  const markSize = compact ? 0.55 : 0.7;
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: compact ? 0.1 : 0.18,
+    role: "checklist",
+    children: items.map((item, index) => {
+      const status = item.status === "warning" ? "warning" : item.status === "unchecked" ? "unchecked" : "checked";
+      const mark2 = status === "checked" ? "\u2713" : status === "warning" ? "!" : "\u2717";
+      const markColor = status === "checked" ? "success" : status === "warning" ? "warning" : "danger";
+      const markNode = chipStyle ? {
+        id: `${slideId}.${id}.${index}.mark`,
+        type: "text",
+        text: mark2,
+        style: compact ? "label" : "card-title",
+        color: "text.inverse",
+        fill: markColor,
+        align: "center",
+        valign: "middle",
+        fixedWidth: markSize,
+        fixedHeight: markSize,
+        cornerRadius: 0.18,
+        weight: "bold"
+      } : {
+        id: `${slideId}.${id}.${index}.mark`,
+        type: "text",
+        text: mark2,
+        style: compact ? "label" : "card-title",
+        color: markColor,
+        align: "center",
+        valign: "middle",
+        fixedWidth: compact ? 0.5 : 0.7,
+        weight: "bold"
+      };
+      return {
+        id: `${slideId}.${id}.${index}`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0.3,
+        role: "checklist-item",
+        align: "start",
+        valign: "middle",
+        fixedHeight: compact ? 0.6 : void 0,
+        children: [
+          markNode,
+          { id: `${slideId}.${id}.${index}.text`, type: "text", text: item.text, style: compact ? "caption" : "paragraph", align: "left", valign: "middle", layoutWeight: 1, autoFit: compact ? "shrink" : void 0 }
+        ]
+      };
+    })
+  };
+}
+function progressBar(slideId, id, options) {
+  const max = options.max && options.max > 0 ? options.max : 100;
+  const ratio = Math.max(0, Math.min(1, options.value / max));
+  const tone = options.tone || "brand";
+  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const trackToken = "surface.subtle";
+  const valueLabel = options.valueLabel || `${Math.round(ratio * 100)}%`;
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.18,
+    role: "progress-bar",
+    children: [
+      {
+        id: `${slideId}.${id}.header`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0.3,
+        children: [
+          { id: `${slideId}.${id}.label`, type: "text", text: options.label, style: "label", align: "left", layoutWeight: 5, minHeight: 0.32, autoFit: "shrink" },
+          { id: `${slideId}.${id}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", layoutWeight: 1, bold: true, minHeight: 0.32, autoFit: "shrink" }
+        ],
+        fixedHeight: 0.5
+      },
+      {
+        id: `${slideId}.${id}.track`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0,
+        fixedHeight: 0.4,
+        fill: trackToken,
+        cornerRadius: 0.5,
+        padding: 0,
+        children: [
+          { id: `${slideId}.${id}.fill`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, layoutWeight: Math.max(1e-3, ratio) },
+          { id: `${slideId}.${id}.spacer`, type: "spacer", layoutWeight: Math.max(1e-3, 1 - ratio) }
+        ]
+      }
+    ]
+  };
+}
+function prosCons(slideId, id, options) {
+  return {
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: 2,
+    gap: 0.5,
+    role: "pros-cons",
+    children: [
+      {
+        id: `${slideId}.${id}.pros`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.25,
+        role: "pros-column",
+        children: [
+          { id: `${slideId}.${id}.pros.title`, type: "text", text: options.prosTitle || "Pros", style: "card-title", color: "success", minHeight: 0.55, autoFit: "shrink" },
+          checklist(slideId, `${id}-pros`, options.pros.map((text) => ({ text, status: "checked" })))
+        ]
+      },
+      {
+        id: `${slideId}.${id}.cons`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.25,
+        role: "cons-column",
+        children: [
+          { id: `${slideId}.${id}.cons.title`, type: "text", text: options.consTitle || "Cons", style: "card-title", color: "danger", minHeight: 0.55, autoFit: "shrink" },
+          checklist(slideId, `${id}-cons`, options.cons.map((text) => ({ text, status: "unchecked" })))
+        ]
+      }
+    ]
+  };
+}
+function processFlow(slideId, id, options) {
+  const direction = options.direction === "vertical" ? "vertical" : "horizontal";
+  const arrow = direction === "horizontal" ? "arrow-right" : "arrow-down";
+  const compact = options.density === "compact";
+  const dense = compact || options.steps.length >= 5;
+  const cardVariant = options.variant === "cards";
+  const markerMode = options.marker === "number" || options.marker === "dot" || options.marker === "icon" || options.marker === "none" ? options.marker : "auto";
+  const connectorMode = options.connector === "chevron" || options.connector === "line" || options.connector === "none" ? options.connector : "arrow";
+  const connectorDash = options.connectorDash === "dash" || options.connectorDash === "dot" ? options.connectorDash : void 0;
+  const connectorColor = typeof options.connectorColor === "string" && options.connectorColor.trim() ? options.connectorColor.trim() : "brand.primary";
+  const placement = options.placement === "center" || options.placement === "top" ? options.placement : cardVariant ? "top" : "center";
+  const spread = options.spread === "fill" || options.spread === "compact" || options.spread === "balanced" ? options.spread : cardVariant ? "balanced" : "compact";
+  const stepAccent = options.stepAccent === "none" ? "none" : "top";
+  const items = [];
+  const verticalDense = direction === "vertical" && (compact || options.steps.length >= 4);
+  let horizontalBandMaxHeight = 0;
+  let horizontalBandMinHeight = 0;
+  let hasRichHorizontalCard = false;
+  options.steps.forEach((step, index) => {
+    const statusColor = toneColor(step.status, "text.primary");
+    const iconFill = statusColor === "text.primary" ? "surface.subtle" : statusColor;
+    const accentColor = typeof step.accentColor === "string" && step.accentColor.trim() ? step.accentColor.trim() : statusColor === "text.primary" ? "brand.primary" : statusColor === "text.muted" ? "divider" : statusColor;
+    const richHorizontalCard = direction === "horizontal" && cardVariant && (Boolean(step.bullets && step.bullets.length) || Boolean(step.owner || step.time) || Boolean(step.body && (step.body.length > 28 || step.body.includes("\n"))));
+    if (richHorizontalCard)
+      hasRichHorizontalCard = true;
+    const stepAlign = cardVariant ? "start" : "center";
+    const textAlign = cardVariant ? "left" : "center";
+    const horizontalMaxHeight = richHorizontalCard ? spread === "fill" ? 5.6 : spread === "balanced" ? 4.9 : 4.45 : cardVariant ? spread === "fill" ? dense ? 4.2 : 4.6 : spread === "balanced" ? dense ? 3.65 : 3.9 : dense ? 3.2 : 3.5 : dense ? 2.5 : 3.1;
+    const horizontalMinHeight = richHorizontalCard ? spread === "fill" ? 3.85 : spread === "balanced" ? 3.65 : 3.25 : cardVariant ? spread === "fill" ? dense ? 2.85 : 3.15 : spread === "balanced" ? dense ? 2.45 : 2.75 : dense ? 2.25 : 2.55 : void 0;
+    const verticalMinHeight = verticalDense ? 1 : 1.4;
+    if (direction === "horizontal") {
+      horizontalBandMaxHeight = Math.max(horizontalBandMaxHeight, horizontalMaxHeight);
+      horizontalBandMinHeight = Math.max(horizontalBandMinHeight, horizontalMinHeight || 0);
+    }
+    const rawMarker = step.marker === "number" || step.marker === "dot" || step.marker === "icon" || step.marker === "none" ? step.marker : markerMode;
+    const resolvedMarker = (() => {
+      if (rawMarker !== "auto")
+        return rawMarker;
+      if (options.showNumbers === false)
+        return step.icon || step.iconSrc ? "icon" : "none";
+      if (step.icon || step.iconSrc)
+        return "icon";
+      if (options.showNumbers === true || cardVariant)
+        return "number";
+      return "none";
+    })();
+    const markerNode = (() => {
+      if (resolvedMarker === "none")
+        return void 0;
+      if (resolvedMarker === "icon" && step.iconSrc && step.iconSrc.trim()) {
+        return {
+          id: `${slideId}.${id}.step${index + 1}.icon`,
+          type: "image",
+          src: step.iconSrc.trim(),
+          alt: step.title,
+          fit: "contain",
+          fixedWidth: cardVariant ? 0.64 : 0.48,
+          fixedHeight: cardVariant ? 0.64 : 0.48,
+          align: stepAlign,
+          optional: true
+        };
+      }
+      if (resolvedMarker === "icon" && step.icon) {
+        return {
+          id: `${slideId}.${id}.step${index + 1}.icon`,
+          type: "shape",
+          preset: step.icon,
+          fill: iconFill,
+          line: statusColor,
+          fixedWidth: cardVariant ? 0.58 : 0.46,
+          fixedHeight: cardVariant ? 0.58 : 0.46,
+          align: stepAlign,
+          optional: true
+        };
+      }
+      if (resolvedMarker === "dot") {
+        return {
+          id: `${slideId}.${id}.step${index + 1}.marker`,
+          type: "shape",
+          preset: "ellipse",
+          fill: accentColor,
+          line: accentColor,
+          fixedWidth: cardVariant ? 0.34 : 0.28,
+          fixedHeight: cardVariant ? 0.34 : 0.28,
+          align: stepAlign,
+          optional: true
+        };
+      }
+      const label = (step.number || step.step || String(index + 1).padStart(options.steps.length >= 10 ? 2 : 2, "0")).trim();
+      return {
+        id: `${slideId}.${id}.step${index + 1}.number`,
+        type: "text",
+        text: label,
+        style: "label",
+        color: statusColor === "text.muted" ? "text.primary" : statusColor,
+        align: "center",
+        valign: "middle",
+        fill: "surface.subtle",
+        line: accentColor,
+        fixedWidth: dense || verticalDense ? 0.68 : 0.78,
+        fixedHeight: dense || verticalDense ? 0.42 : 0.5,
+        noWrap: true,
+        autoFit: "shrink",
+        cornerRadius: 0.16,
+        optional: true
+      };
+    })();
+    const stepNode = {
+      id: `${slideId}.${id}.step${index + 1}`,
+      type: "stack",
+      direction: "vertical",
+      gap: dense || verticalDense ? 0.08 : 0.18,
+      role: "process-step",
+      // For a vertical stack the cross axis is horizontal; align="center"
+      // centers the title/body horizontally inside the step. justify="center"
+      // centers the WHOLE step content vertically inside its assigned slot —
+      // without it, steps top-align in the slide content rect (~10cm) while
+      // the arrows are vertically centered, creating disconnected layouts
+      // (t25mft tang slide: steps at y=2.95, arrows at y=7.87).
+      align: stepAlign,
+      valign: "middle",
+      justify: cardVariant ? "start" : "center",
+      ...direction === "horizontal" ? { maxHeight: horizontalMaxHeight, ...horizontalMinHeight ? { minHeight: horizontalMinHeight } : {} } : { minHeight: verticalMinHeight },
+      children: [
+        ...cardVariant && stepAccent !== "none" && !richHorizontalCard ? [{
+          id: `${slideId}.${id}.step${index + 1}.accent`,
+          type: "shape",
+          preset: "rect",
+          fill: accentColor,
+          line: accentColor,
+          fixedHeight: dense || verticalDense ? 0.055 : 0.07,
+          optional: true
+        }] : [],
+        // umzrkm fix: step.title used brand.primary which fails 4.5:1 on
+        // agent themes with mid-saturation brand colors (teal 5B8A8A on
+        // E8F3F3 ≈ 3.4:1). Mirror the 2pmnxh fix that already moved
+        // timeline-step to text.primary. The arrow shape between steps
+        // still carries brand.primary so the visual claim is preserved.
+        ...markerNode ? [markerNode] : [],
+        { id: `${slideId}.${id}.step${index + 1}.title`, type: "text", text: step.title, style: "card-title", color: statusColor, align: textAlign, minHeight: dense || verticalDense ? 0.42 : 0.6, autoFit: "shrink" },
+        ...step.owner || step.time ? [{
+          id: `${slideId}.${id}.step${index + 1}.meta`,
+          type: "text",
+          text: [step.owner, step.time].filter(Boolean).join(" \xB7 "),
+          style: "label",
+          color: "text.muted",
+          align: textAlign,
+          minHeight: 0.28,
+          autoFit: "shrink",
+          optional: true
+        }] : [],
+        // 96vi8n slide 20: body minHeight 0.4 → 0.7 fits 2 lines instead
+        // of 1, matching typical step-description sentences. Body still
+        // optional so dense rows can drop it.
+        ...step.body && step.body.trim() ? [{
+          id: `${slideId}.${id}.step${index + 1}.body`,
+          type: "text",
+          text: step.body.trim(),
+          style: "caption",
+          align: textAlign,
+          valign: "top",
+          // Horizontal: use min/max so the body grows for 1-2 lines instead
+          // of being pinned to a fixed 0.9cm slot that forced autoFit:"shrink"
+          // to drop body font to ~8pt. minHeight floor keeps 2-line bodies
+          // (96vi8n regression: short bodies < 2 lines reverted to 0.4cm).
+          // Combined with the step's maxHeight cap above, the card now sizes
+          // to actual content instead of stretching the row.
+          ...direction === "horizontal" ? { minHeight: dense ? 0.5 : 0.9, maxHeight: dense ? 1.4 : 1.8 } : { minHeight: verticalDense ? 0.5 : 0.9 },
+          autoFit: "shrink",
+          optional: true
+        }] : [],
+        ...step.bullets && step.bullets.length ? [{ ...bulletList(slideId, `${id}.step${index + 1}.bullets`, step.bullets.slice(0, 3), "compact"), optional: true }] : []
+      ],
+      layoutWeight: 4,
+      ...cardVariant ? { fill: "surface", line: "divider", padding: richHorizontalCard ? 0.34 : dense || verticalDense ? 0.26 : 0.35, cornerRadius: 0.08 } : {}
+    };
+    items.push(cardVariant && options.stepSurface && typeof options.stepSurface === "object" ? applyAgentSurface(stepNode, options.stepSurface) : stepNode);
+    if (index < options.steps.length - 1) {
+      if (connectorMode === "none")
+        return;
+      const lineConnector = connectorMode === "line";
+      const chevronConnector = connectorMode === "chevron";
+      items.push(lineConnector ? {
+        id: `${slideId}.${id}.arrow${index + 1}`,
+        type: "shape",
+        role: "process-connector",
+        connector: "line",
+        preset: "line",
+        line: connectorColor,
+        lineWidth: cardVariant ? 0.035 : 0.025,
+        ...connectorDash ? { lineDash: connectorDash } : {},
+        fixedWidth: direction === "horizontal" ? dense ? 0.7 : 1 : 0.05,
+        fixedHeight: direction === "horizontal" ? 0.05 : verticalDense ? 0.46 : 0.6,
+        layoutWeight: 1
+      } : {
+        id: `${slideId}.${id}.arrow${index + 1}`,
+        type: "shape",
+        role: "process-connector",
+        connector: chevronConnector ? "chevron" : "arrow",
+        preset: chevronConnector && direction === "horizontal" ? "chevron" : arrow,
+        fill: connectorColor,
+        line: connectorColor,
+        fixedWidth: direction === "horizontal" ? dense ? 0.7 : chevronConnector ? 0.82 : 1.1 : verticalDense ? 0.55 : 0.7,
+        fixedHeight: direction === "horizontal" ? dense ? 0.5 : chevronConnector ? 0.62 : 0.7 : verticalDense ? 0.4 : 0.55,
+        layoutWeight: 1
+      });
+    }
+  });
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction,
+    gap: cardVariant && direction === "horizontal" ? dense ? 0.24 : 0.32 : dense || verticalDense ? 0.18 : 0.4,
+    role: "process-flow",
+    align: "center",
+    valign: "middle",
+    ...cardVariant && direction === "horizontal" && placement === "top" && horizontalBandMaxHeight > 0 && !(hasRichHorizontalCard && options.steps.length >= 4) ? {
+      minHeight: horizontalBandMinHeight || void 0,
+      maxHeight: horizontalBandMaxHeight
+    } : {},
+    children: items
+    // No outer fixedHeight: process-flow lets the container above decide.
+    // Layout falls back to vertical orientation when the cross-axis cell is
+    // too narrow (see autoOrientFlow in render.ts).
+  }, options);
+}
+function logoStrip(slideId, id, logos, options = {}) {
+  const columns = options.columns && options.columns > 0 ? options.columns : Math.min(6, logos.length);
+  const grid = {
+    id: `${slideId}.${id}.row`,
+    type: "grid",
+    columns,
+    gap: 0.6,
+    role: "logo-strip",
+    children: logos.map((logo, index) => ({
+      id: `${slideId}.${id}.logo${index + 1}`,
+      type: "image",
+      src: logo.src,
+      alt: logo.alt || `logo-${index + 1}`,
+      fit: "contain",
+      fixedHeight: 1.4
+    }))
+  };
+  if (!options.caption)
+    return grid;
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.25,
+    role: "logo-strip",
+    children: [
+      grid,
+      { id: `${slideId}.${id}.caption`, type: "text", text: options.caption, style: "caption", align: "center", color: "text.muted", minHeight: 0.4, autoFit: "shrink" }
+    ]
+  };
+}
+function pricingCard(slideId, id, options) {
+  const tone = options.tone === "brand" ? "brand" : "neutral";
+  const accent = tone === "brand" ? "brand.primary" : "text.primary";
+  const surface = tone === "brand" ? "brand.tint" : "surface";
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.3,
+    role: "pricing-card",
+    fill: surface,
+    line: tone === "brand" ? "brand.primary" : "divider",
+    padding: 0.55,
+    cornerRadius: 0.12,
+    children: [
+      { id: `${slideId}.${id}.plan`, type: "text", text: options.plan, style: "card-title", color: accent, minHeight: 0.6, autoFit: "shrink" },
+      {
+        id: `${slideId}.${id}.priceRow`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0.2,
+        align: "start",
+        valign: "bottom",
+        children: [
+          { id: `${slideId}.${id}.price`, type: "text", text: options.price, style: "metric-value", color: accent, align: "left", valign: "bottom", layoutWeight: 5 },
+          ...options.period ? [{ id: `${slideId}.${id}.period`, type: "text", text: options.period, style: "label", color: "text.muted", align: "left", valign: "bottom", minHeight: 0.45, autoFit: "shrink", layoutWeight: 2 }] : []
+        ],
+        fixedHeight: 1.4
+      },
+      {
+        id: `${slideId}.${id}.divider`,
+        type: "divider",
+        orientation: "horizontal",
+        line: tone === "brand" ? "brand.primary" : "divider",
+        fixedHeight: 0.05
+      },
+      checklist(slideId, `${id}-features`, options.features.map((text) => ({ text, status: "checked" })), "compact"),
+      ...options.ctaText ? [{ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "card-title", align: "center", valign: "middle", fill: tone === "brand" ? "brand.primary" : "surface.subtle", color: tone === "brand" ? "text.inverse" : "text.primary", cornerRadius: 0.3, fixedHeight: 1, role: "cta" }] : []
+    ]
+  };
+}
+function parsePercentValue(raw) {
+  const m = raw.match(/^\s*(-?\d+(?:\.\d+)?)\s*%\s*$/);
+  if (!m)
+    return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n))
+    return null;
+  if (n < 0 || n > 100)
+    return null;
+  return n;
+}
+function heroStat(slideId, id, options) {
+  const tone = options.tone || "brand";
+  const valueColor = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : tone === "neutral" ? "text.primary" : "brand.primary";
+  const percent = parsePercentValue(options.value);
+  const inner = [
+    {
+      id: `${slideId}.${id}.value`,
+      type: "text",
+      text: options.value,
+      style: "metric-value",
+      size: "2xl",
+      color: valueColor,
+      align: "center",
+      valign: "middle",
+      autoFit: "shrink",
+      minHeight: 1.05
+    },
+    {
+      id: `${slideId}.${id}.label`,
+      type: "text",
+      text: options.label,
+      style: "card-title",
+      size: "md",
+      color: "text.primary",
+      align: "center",
+      valign: "top",
+      minHeight: 0.42,
+      autoFit: "shrink"
+    }
+  ];
+  if (percent !== null) {
+    const ratio = Math.max(1e-3, Math.min(1, percent / 100));
+    inner.push({
+      id: `${slideId}.${id}.progress`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0,
+      fixedHeight: 0.28,
+      fill: "surface.subtle",
+      cornerRadius: 0.5,
+      padding: 0,
+      role: "hero-stat-progress",
+      children: [
+        { id: `${slideId}.${id}.progress.fill`, type: "shape", preset: "roundRect", fill: valueColor, cornerRadius: 0.5, layoutWeight: ratio },
+        { id: `${slideId}.${id}.progress.spacer`, type: "spacer", layoutWeight: Math.max(1e-3, 1 - ratio) }
+      ],
+      optional: true
+    });
+  }
+  if (options.caption && options.caption.trim()) {
+    inner.push({
+      id: `${slideId}.${id}.caption`,
+      type: "text",
+      text: options.caption.trim(),
+      style: "caption",
+      align: "center",
+      valign: "top",
+      color: "text.muted",
+      minHeight: 0.34,
+      autoFit: "shrink",
+      optional: true
+    });
+  }
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.18,
+    role: "hero-stat",
+    align: "center",
+    justify: "center",
+    children: inner
+  };
+}
+function barListFillToken(tone) {
+  if (tone === "positive")
+    return "success";
+  if (tone === "warning")
+    return "warning";
+  if (tone === "danger")
+    return "danger";
+  if (tone === "neutral")
+    return "divider";
+  return "brand.primary";
+}
+function barList(slideId, id, options) {
+  const tone = options.tone || "brand";
+  const trackToken = "surface.subtle";
+  const declaredMax = options.items.reduce((m, item) => Math.max(m, item.max ?? item.value), 0);
+  const max = declaredMax > 0 ? declaredMax : 1;
+  const sort = options.sort || "none";
+  const sorted = sort === "none" ? options.items.slice() : options.items.slice().sort((a, b) => sort === "desc" ? b.value - a.value : a.value - b.value);
+  const compact = options.density === "compact" || sorted.length >= 5;
+  const labelHeight = compact ? 0.36 : 0.5;
+  const rowHeight = compact ? 0.34 : 0.5;
+  const trackHeight = compact ? 0.2 : 0.32;
+  const rowGap = compact ? 0.24 : 0.4;
+  const itemGap = compact ? 0.05 : 0.1;
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: compact ? 0.16 : 0.3,
+    role: "bar-list",
+    children: sorted.map((item, index) => {
+      const ratio = Math.max(1e-3, Math.min(1, item.value / max));
+      const valueLabel = item.valueLabel || `${item.value}`;
+      const fillToken = barListFillToken(item.tone || tone);
+      const valueWidthCm = Math.max(1, Math.min(3.6, 0.3 + Array.from(valueLabel).reduce((w, ch) => w + (/[\u4e00-\u9fff]/.test(ch) ? 0.34 : 0.18), 0)));
+      return {
+        id: `${slideId}.${id}.${index}`,
+        type: "stack",
+        direction: "vertical",
+        gap: itemGap,
+        children: [
+          // Label sits on its own row: full-width, left-aligned, no
+          // floating value to compete for attention.
+          { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle", fixedHeight: labelHeight, size: compact ? "sm" : "md", autoFit: "shrink" },
+          // Bar row: [track | value]. The value is a fixed-width column
+          // *immediately after* the track, so it visually anchors to the
+          // bar's right end zone — no longer floating at the slide's far
+          // right disconnected from the actual fill end (96vi8n slide
+          // 8/16/18). Value uses text.primary so it stays readable on
+          // light surfaces (LOW_CONTRAST auto-fix would otherwise rewrite
+          // a tone-colored value, breaking the bar↔number visual link).
+          {
+            id: `${slideId}.${id}.${index}.row`,
+            type: "stack",
+            direction: "horizontal",
+            gap: rowGap,
+            fixedHeight: rowHeight,
+            valign: "middle",
+            children: [
+              // Continuous-track progress bar (qtt7dd slide 11): single
+              // rounded backing + single rounded fill inside; no seam.
+              {
+                id: `${slideId}.${id}.${index}.track`,
+                type: "stack",
+                direction: "horizontal",
+                gap: 0,
+                fixedHeight: trackHeight,
+                fill: trackToken,
+                cornerRadius: 0.5,
+                padding: 0,
+                layoutWeight: 1,
+                children: [
+                  { id: `${slideId}.${id}.${index}.fill`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, basis: 0, minWidth: 0.02, layoutWeight: Math.max(1e-3, ratio) },
+                  { id: `${slideId}.${id}.${index}.spacer`, type: "spacer", basis: 0, minWidth: 0, layoutWeight: Math.max(1e-3, 1 - ratio) }
+                ]
+              },
+              { id: `${slideId}.${id}.${index}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", valign: "middle", fixedWidth: valueWidthCm, fixedHeight: rowHeight, size: compact ? "sm" : "md", bold: true, autoFit: "shrink" }
+            ]
+          }
+        ]
+      };
+    })
+  };
+}
+function keyTakeaway(slideId, id, options) {
+  const tone = options.tone || "brand";
+  const fillToken = tone === "brand" ? "brand.tint" : tone === "positive" ? "success.tint" : tone === "warning" ? "warning.tint" : tone === "neutral" ? "surface.subtle" : "danger.tint";
+  const accentToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "neutral" ? "divider" : "danger";
+  const headline = options.headline.trim();
+  const detail = textWithRichContent(options.detail?.trim() || "", options.content);
+  const detailPlain = detail.text || richTextPlain(detail.content);
+  const denseHeadline = options.density === "compact" || weightedTextLength(headline) > 36;
+  const denseDetail = weightedTextLength(detailPlain) > 44 || (options.bullets || []).length >= 4;
+  const compact = options.density === "compact" || denseHeadline || denseDetail;
+  const hasBullets = Boolean(options.bullets && options.bullets.length);
+  const compactBulletHeadline = compact && hasBullets;
+  const children = [
+    {
+      id: `${slideId}.${id}.accent`,
+      type: "shape",
+      preset: "rect",
+      fill: accentToken,
+      fixedHeight: 0.18,
+      fixedWidth: 3.2,
+      align: "start"
+    }
+  ];
+  if (headline) {
+    children.push({
+      id: `${slideId}.${id}.headline`,
+      type: "text",
+      text: headline,
+      style: compactBulletHeadline ? "card-title" : denseHeadline ? "lead" : "section-title",
+      size: compactBulletHeadline ? void 0 : denseHeadline ? "md" : "lg",
+      color: "text.primary",
+      align: "left",
+      autoFit: "shrink",
+      minHeight: estimateTakeawayHeadlineMinHeight(headline, compact, hasBullets)
+    });
+  }
+  if (detail.text || detail.content) {
+    children.push({
+      id: `${slideId}.${id}.detail`,
+      type: "text",
+      ...detail,
+      style: compact ? "paragraph" : "lead",
+      color: "text.primary",
+      align: "left",
+      valign: "top",
+      autoFit: "shrink",
+      layoutWeight: 1,
+      minHeight: estimateTakeawayDetailMinHeight(detailPlain, compact),
+      optional: compact ? true : void 0
+    });
+  }
+  if (options.bullets && options.bullets.length) {
+    children.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets.slice(0, 5), compact ? "compact" : "comfortable"), spaceAfter: compact ? 1.2 : 2 });
+  }
+  const minimal = options.variant === "minimal";
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: compact ? 0.14 : 0.3,
+    role: "key-takeaway",
+    ...!minimal ? { fill: fillToken, line: accentToken, padding: compact ? 0.38 : options.variant === "banner" ? 0.55 : 0.7, cornerRadius: 0.12, elevation: "raised" } : {},
+    children
+  }, options);
+}
+function weightedTextLength(text) {
+  let length = 0;
+  for (const char of text) {
+    length += /[\u4e00-\u9fff]/.test(char) ? 1.05 : isWideVisualSymbol2(char) ? 0.9 : 0.58;
+  }
+  return length;
+}
+function richTextPlain(content) {
+  if (!Array.isArray(content))
+    return "";
+  return content.map((run) => {
+    if (!run || typeof run !== "object")
+      return "";
+    const rec = run;
+    if (typeof rec.text === "string")
+      return rec.text;
+    if (rec.kind === "math")
+      return typeof rec.latex === "string" ? rec.latex : "";
+    if (rec.kind === "cite")
+      return "[cite]";
+    if (rec.kind === "footnoteRef")
+      return "[note]";
+    if (rec.kind === "token")
+      return String(rec.value ?? "");
+    if (rec.kind === "icon")
+      return typeof rec.alt === "string" ? rec.alt : "";
+    return "";
+  }).join("");
+}
+function estimateTakeawayDetailMinHeight(text, compact) {
+  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const weighted = weightedTextLength(text);
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / (compact ? 46 : 40)));
+  const lineHeight = compact ? 0.46 : 0.58;
+  return Math.max(compact ? 0.68 : 0.82, Math.min(compact ? 2.1 : 2.6, estimatedLines * lineHeight + 0.14));
+}
+function estimateTakeawayHeadlineMinHeight(text, compact, hasBullets) {
+  if (!text.trim())
+    return void 0;
+  if (!compact)
+    return void 0;
+  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const weighted = weightedTextLength(text);
+  const capacity = hasBullets ? 17 : 24;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / capacity));
+  const lineHeight = hasBullets ? 0.54 : 0.62;
+  const min = hasBullets ? 0.72 : 0.62;
+  const max = hasBullets ? 1.7 : 1.85;
+  return Math.max(min, Math.min(max, estimatedLines * lineHeight + 0.14));
+}
+function numberedGrid(slideId, id, options) {
+  const tone = options.tone || "brand";
+  const accentColor = tone === "brand" ? "brand.primary" : "text.primary";
+  const chipStyle = options.numberStyle !== "plain";
+  const cols = options.columns && options.columns > 0 ? options.columns : options.items.length <= 4 ? options.items.length : options.items.length <= 6 ? 3 : 4;
+  const dense = options.items.length >= 5;
+  const twoByTwo = options.items.length === 4 && cols === 2;
+  const compactCell = dense || twoByTwo;
+  const bodyStyle = dense ? "caption" : "paragraph";
+  const chipSize = dense ? 0.54 : twoByTwo ? 0.78 : 1.15;
+  const cellGap = dense ? 0.1 : twoByTwo ? 0.16 : 0.25;
+  const gridGap = dense ? 0.32 : twoByTwo ? 0.4 : 0.55;
+  const titleMinHeight = dense ? 0.42 : twoByTwo ? 0.48 : 0.55;
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: cols,
+    gap: gridGap,
+    role: "numbered-grid",
+    children: options.items.map((item, index) => {
+      const itemTone = item.tone || (tone === "brand" ? "brand" : "neutral");
+      const marker = dense && chipStyle ? null : decorationMarkerNode(slideId, `${id}.${index}.marker`, item.marker || options.marker, {
+        shape: "dot",
+        tone: itemTone,
+        variant: "tint",
+        size: compactCell ? "xs" : "sm"
+      });
+      const chipFill = dense ? toneAccentColor(itemTone, accentColor) : accentColor;
+      const chipTextColor = dense && (itemTone === "neutral" || itemTone === "muted") ? "text.primary" : "text.inverse";
+      const titleNode = {
+        id: `${slideId}.${id}.${index}.title`,
+        type: "text",
+        text: item.title,
+        style: "card-title",
+        color: "text.primary",
+        align: "left",
+        minHeight: titleMinHeight,
+        autoFit: "shrink",
+        layoutWeight: marker ? 1 : void 0
+      };
+      return {
+        id: `${slideId}.${id}.${index}`,
+        type: "stack",
+        direction: "vertical",
+        gap: cellGap,
+        role: "numbered-step",
+        // 96vi8n slide 23: chip was visually centered above a left-aligned
+        // title because the chip's own align:"center" (text-internal) was
+        // also being read as the cross-axis positional alignment. Wrap
+        // the chip in a left-anchored horizontal stack so the chip box
+        // sits at cell-x and the digit inside the chip stays centered.
+        align: "start",
+        children: [
+          chipStyle ? {
+            id: `${slideId}.${id}.${index}.num.wrap`,
+            type: "stack",
+            direction: "horizontal",
+            gap: 0,
+            align: "start",
+            valign: "top",
+            children: [
+              {
+                id: `${slideId}.${id}.${index}.num`,
+                type: "text",
+                text: String(index + 1),
+                // Dense 5+ grids use a small chip; canonical 2x2 grids
+                // use a medium chip. Single-row hero-style grids keep the
+                // larger chip for visual weight.
+                style: compactCell ? "label" : "card-title",
+                weight: "bold",
+                color: chipTextColor,
+                fill: chipFill,
+                align: "center",
+                valign: "middle",
+                cornerRadius: 0.5,
+                fixedWidth: chipSize,
+                fixedHeight: chipSize
+              },
+              { id: `${slideId}.${id}.${index}.num.flex`, type: "spacer", layoutWeight: 1 }
+            ]
+          } : {
+            id: `${slideId}.${id}.${index}.num`,
+            type: "text",
+            text: String(index + 1).padStart(2, "0"),
+            style: "metric-value",
+            color: accentColor,
+            align: "left",
+            valign: "bottom",
+            minHeight: compactCell ? 0.6 : 0.9,
+            autoFit: "shrink"
+          },
+          ...marker ? [{
+            id: `${slideId}.${id}.${index}.titleRow`,
+            type: "stack",
+            direction: "horizontal",
+            gap: compactCell ? 0.14 : 0.18,
+            valign: "middle",
+            fixedHeight: compactCell ? titleMinHeight : void 0,
+            children: [marker, titleNode]
+          }] : [titleNode],
+          ...item.body && item.body.trim() ? [{
+            id: `${slideId}.${id}.${index}.body`,
+            type: "text",
+            text: item.body.trim(),
+            style: bodyStyle,
+            align: "left",
+            valign: "top",
+            color: "text.muted",
+            minHeight: numberedGridBodyMinHeight(item.body.trim(), dense, twoByTwo),
+            layoutWeight: dense ? void 0 : 1.4,
+            autoFit: "shrink",
+            optional: dense
+          }] : []
+        ]
+      };
+    })
+  }, options);
+}
+function numberedGridBodyMinHeight(text, dense, twoByTwo = false) {
+  const explicitLines = text.split(/\n+/).map((line2) => line2.trim()).filter(Boolean).length;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weightedTextLength(text) / (dense ? 44 : twoByTwo ? 40 : 32)));
+  const line = dense ? 0.32 : twoByTwo ? 0.42 : 0.5;
+  return Math.max(dense ? 0.5 : twoByTwo ? 0.72 : 1.05, Math.min(dense ? 0.95 : twoByTwo ? 1.35 : 2.15, estimatedLines * line + 0.18));
+}
+function statStrip(slideId, id, options) {
+  const stripTone = options.tone || "brand";
+  const compact = options.items.length >= 4 || options.items.some((item) => item.label.includes("\n"));
+  const valueBandHeight = Math.max(...options.items.map((item) => statStripValueMinHeight(item.value, compact)), compact ? 0.78 : 0.9);
+  const labelBandHeight = Math.max(...options.items.map((item) => statStripLabelMinHeight(item.label)), 0.36);
+  const items = [];
+  options.items.forEach((item, index) => {
+    const itemTone = item.tone || stripTone;
+    const valueColor = statStripToneColor(itemTone);
+    if (index > 0) {
+      items.push({
+        id: `${slideId}.${id}.sep${index}`,
+        type: "shape",
+        preset: "rect",
+        fill: "divider",
+        fixedWidth: 0.04,
+        fixedHeight: compact ? 1.2 : 1.35,
+        align: "center",
+        valign: "middle"
+      });
+    }
+    items.push({
+      id: `${slideId}.${id}.${index}`,
+      type: "stack",
+      direction: "vertical",
+      gap: compact ? 0.08 : 0.15,
+      align: "center",
+      justify: "center",
+      valign: "middle",
+      fixedHeight: 2.05,
+      layoutWeight: 4,
+      children: [
+        { id: `${slideId}.${id}.${index}.value`, type: "text", text: item.value, style: "metric-value", size: statStripValueSize(item.value, compact), color: valueColor, align: "center", valign: "bottom", autoFit: "shrink", fixedHeight: valueBandHeight, minHeight: valueBandHeight, maxHeight: valueBandHeight },
+        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "metric-label", color: "text.muted", align: "center", valign: "top", uppercase: !/[\u4e00-\u9fff]/.test(item.label), letterSpacing: /[\u4e00-\u9fff]/.test(item.label) ? 0 : 60, autoFit: "shrink", fixedHeight: labelBandHeight, minHeight: labelBandHeight }
+      ]
+    });
+  });
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: 0.5,
+    role: "stat-strip",
+    align: "stretch",
+    valign: "middle",
+    minHeight: 2.05,
+    maxHeight: 2.35,
+    children: items
+  };
+}
+function statStripValueSize(value, compact) {
+  if (compact)
+    return "xs";
+  return metricValueSize(value, false);
+}
+function statStripValueMinHeight(value, compact) {
+  if (compact)
+    return metricValueNeedsCompactScale(value) ? 0.86 : 0.78;
+  return metricValueNeedsCompactScale(value) ? 1 : 0.9;
+}
+function statStripLabelMinHeight(label) {
+  const explicitLines = label.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weightedTextLength(label) / 12));
+  return Math.max(0.36, Math.min(0.84, estimatedLines * 0.28 + 0.08));
+}
+function statStripToneColor(tone) {
+  switch (tone) {
+    case "positive":
+      return "success";
+    case "warning":
+      return "warning";
+    case "danger":
+      return "danger";
+    case "neutral":
+      return "text.primary";
+    case "brand":
+    default:
+      return "brand.primary";
+  }
+}
+function legend(slideId, id, options) {
+  const direction = options.direction === "vertical" ? "vertical" : "horizontal";
+  const marker = options.marker === "square" || options.marker === "bar" ? options.marker : "dot";
+  const markerPreset2 = marker === "square" ? "rect" : marker === "bar" ? "rect" : "ellipse";
+  const markerWidth = marker === "bar" ? 0.85 : 0.55;
+  const markerHeight = marker === "bar" ? 0.22 : 0.55;
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction,
+    gap: direction === "horizontal" ? 0.6 : 0.28,
+    role: "legend",
+    align: "start",
+    valign: "middle",
+    children: options.items.map((item, index) => ({
+      id: `${slideId}.${id}.${index}`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0.25,
+      align: "start",
+      valign: "middle",
+      children: [
+        {
+          id: `${slideId}.${id}.${index}.dot`,
+          type: "shape",
+          preset: markerPreset2,
+          fill: item.color,
+          line: item.color,
+          cornerRadius: marker === "bar" ? 0.5 : marker === "square" ? 0.15 : void 0,
+          fixedWidth: markerWidth,
+          fixedHeight: markerHeight,
+          align: "center"
+        },
+        // Label color upgraded text.muted → text.primary so legend items
+        // read at the same priority as their colored markers. Muted gray
+        // labels disappeared next to vivid dots (yajush log).
+        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle", minHeight: 0.32, autoFit: "shrink" }
+      ]
+    }))
+  };
+}
+function badge(slideId, id, options) {
+  const tone = options.tone || "brand";
+  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "text.muted";
+  const intrinsic = textChipWidthCm(options.text, { min: 1.6, max: 6, padding: 0.9, cjk: 0.55, latin: 0.18 });
+  return {
+    id: `${slideId}.${id}`,
+    type: "text",
+    text: options.text,
+    style: "label",
+    size: "sm",
+    weight: "bold",
+    uppercase: true,
+    letterSpacing: 80,
+    color: "text.inverse",
+    fill: fillToken,
+    align: "center",
+    valign: "middle",
+    cornerRadius: 0.5,
+    fixedHeight: 0.7,
+    fixedWidth: intrinsic,
+    autoFit: "shrink",
+    noWrap: true,
+    role: "badge"
+  };
+}
+function flowArrow(slideId, id, options) {
+  const tone = options.tone || "brand";
+  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const direction = options.direction === "down" ? "down" : "right";
+  const preset = direction === "down" ? "arrow-down" : "arrow-right";
+  const children = [
+    {
+      id: `${slideId}.${id}.arrow`,
+      type: "shape",
+      preset,
+      fill: fillToken,
+      line: fillToken,
+      fixedWidth: direction === "right" ? 2.2 : 1.4,
+      fixedHeight: direction === "right" ? 0.9 : 1.6,
+      align: "center"
+    }
+  ];
+  if (options.label && options.label.trim()) {
+    children.push({
+      id: `${slideId}.${id}.label`,
+      type: "text",
+      text: options.label.trim(),
+      style: "label",
+      color: fillToken,
+      align: "center",
+      valign: "middle",
+      uppercase: true,
+      letterSpacing: 80,
+      minHeight: 0.5,
+      autoFit: "shrink"
+    });
+  }
+  const labelWidth = options.label && options.label.trim() ? Math.max(3.5, Math.min(8, options.label.trim().length * 0.6)) : 0;
+  const arrowWidth = direction === "right" ? 2.2 : 1.4;
+  const clusterWidth = direction === "right" ? arrowWidth + 0.4 + labelWidth : Math.max(arrowWidth, labelWidth);
+  return {
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: direction === "right" ? "horizontal" : "vertical",
+    gap: 0.18,
+    role: "flow-arrow",
+    align: "center",
+    valign: "middle",
+    justify: "center",
+    fixedWidth: clusterWidth,
+    children
+  };
+}
+function tagList(slideId, id, options) {
+  const defaultTone = options.tone || "neutral";
+  const toneFill = (tone) => {
+    if (tone === "brand")
+      return { fill: "brand.tint", color: "brand.primary" };
+    if (tone === "positive")
+      return { fill: "success.tint", color: "success" };
+    if (tone === "warning")
+      return { fill: "warning.tint", color: "warning" };
+    if (tone === "danger")
+      return { fill: "danger.tint", color: "danger" };
+    return { fill: "surface", color: "text.muted" };
+  };
+  const itemCount = options.items.length;
+  const columns = options.columns && options.columns > 0 ? options.columns : Math.min(6, Math.max(2, itemCount <= 4 ? itemCount : 4));
+  return {
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns,
+    gap: 0.3,
+    role: "tag-list",
+    children: options.items.map((item, index) => {
+      const text = typeof item === "string" ? item : item && typeof item.text === "string" ? item.text : "";
+      const tone = typeof item === "string" ? defaultTone : item.tone || defaultTone;
+      const { fill, color: color2 } = toneFill(tone);
+      return {
+        id: `${slideId}.${id}.${index}`,
+        type: "text",
+        text,
+        style: "label",
+        size: "sm",
+        color: color2,
+        fill,
+        align: "center",
+        valign: "middle",
+        cornerRadius: 0.4,
+        minHeight: 0.55,
+        autoFit: "shrink"
+      };
+    })
+  };
+}
+function statComparison(slideId, id, options) {
+  const trend = options.trend || "up";
+  const trendColor = trend === "up" ? "success" : trend === "down" ? "danger" : "text.muted";
+  const arrow = trend === "up" ? "arrow-right" : trend === "down" ? "arrow-down" : "rect";
+  return {
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: 3,
+    columnWeights: [0.42, 0.16, 0.42],
+    gap: 0.3,
+    role: "stat-comparison",
+    children: [
+      {
+        id: `${slideId}.${id}.before`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.18,
+        align: "center",
+        valign: "middle",
+        children: [
+          { id: `${slideId}.${id}.before.label`, type: "text", text: options.beforeLabel, style: "label", color: "text.muted", align: "center", minHeight: 0.42, autoFit: "shrink" },
+          { id: `${slideId}.${id}.before.value`, type: "text", text: options.beforeValue, style: "metric-value", color: "text.primary", align: "center", valign: "middle" }
+        ]
+      },
+      {
+        id: `${slideId}.${id}.delta`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.15,
+        align: "center",
+        valign: "middle",
+        children: [
+          { id: `${slideId}.${id}.delta.arrow`, type: "shape", preset: arrow, fill: trendColor, line: trendColor, fixedHeight: 0.7, fixedWidth: 1.2 },
+          ...options.deltaLabel ? [{ id: `${slideId}.${id}.delta.label`, type: "text", text: options.deltaLabel, style: "label", color: trendColor, align: "center", minHeight: 0.42, autoFit: "shrink" }] : []
+        ]
+      },
+      {
+        id: `${slideId}.${id}.after`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.18,
+        align: "center",
+        valign: "middle",
+        children: [
+          { id: `${slideId}.${id}.after.label`, type: "text", text: options.afterLabel, style: "label", color: trendColor, align: "center", minHeight: 0.42, autoFit: "shrink" },
+          { id: `${slideId}.${id}.after.value`, type: "text", text: options.afterValue, style: "metric-value", color: trendColor, align: "center", valign: "middle" }
+        ]
+      }
+    ]
+  };
+}
+function quizCard(slideId, id, options) {
+  const tone = options.tone || "tinted";
+  const fillToken = tone === "brand" ? "brand.tint" : tone === "neutral" ? "surface" : "surface.subtle";
+  const accentToken = "brand.primary";
+  const items = (options.items || options.options || []).slice(0, 6);
+  const useLetterChips = options.correct !== void 0 && options.correct !== null && options.correct !== "";
+  const letters = ["A", "B", "C", "D", "E", "F"];
+  const correctIndex = (() => {
+    if (options.correct === void 0 || options.correct === null || options.correct === "")
+      return null;
+    if (typeof options.correct === "number" && Number.isInteger(options.correct))
+      return options.correct;
+    if (typeof options.correct === "string") {
+      const trimmed = options.correct.trim();
+      if (/^[A-Fa-f]$/.test(trimmed))
+        return trimmed.toUpperCase().charCodeAt(0) - 65;
+      const n = Number(trimmed);
+      if (Number.isInteger(n))
+        return n;
+    }
+    return null;
+  })();
+  const stemPrefix = (() => {
+    const parts = [];
+    if (options.number)
+      parts.push(options.number);
+    if (options.questionType)
+      parts.push(options.questionType);
+    return parts.join(" \xB7 ");
+  })();
+  const stemText = stemPrefix ? `${stemPrefix} \u2014 ${options.question}` : options.question;
+  const itemRows = items.map((text, idx) => {
+    const isCorrect = correctIndex !== null && correctIndex === idx;
+    const marker = useLetterChips ? {
+      id: `${slideId}.${id}.item${idx}.marker`,
+      type: "text",
+      text: letters[idx],
+      style: "label",
+      weight: "bold",
+      color: isCorrect ? "text.inverse" : "text.primary",
+      fill: isCorrect ? "success" : "surface",
+      align: "center",
+      valign: "middle",
+      fixedWidth: 0.6,
+      fixedHeight: 0.6,
+      cornerRadius: 0.3
+    } : {
+      // Bullet dot — small filled circle; muted unless this item is
+      // marked correct (still works without letter chips, e.g. when
+      // `correct` was passed as an index alongside non-MCQ items).
+      id: `${slideId}.${id}.item${idx}.marker`,
+      type: "shape",
+      preset: "ellipse",
+      fill: isCorrect ? "success" : "text.muted",
+      line: isCorrect ? "success" : "text.muted",
+      fixedWidth: 0.18,
+      fixedHeight: 0.18,
+      align: "center"
+    };
+    return {
+      id: `${slideId}.${id}.item${idx}`,
+      type: "stack",
+      direction: "horizontal",
+      gap: useLetterChips ? 0.25 : 0.3,
+      role: "quiz-item",
+      align: "start",
+      valign: "middle",
+      children: [
+        marker,
+        {
+          id: `${slideId}.${id}.item${idx}.text`,
+          type: "text",
+          text,
+          style: "paragraph",
+          color: isCorrect ? "success" : "text.primary",
+          weight: isCorrect ? "semibold" : void 0,
+          align: "left",
+          valign: "middle",
+          layoutWeight: 1,
+          minHeight: 0.45,
+          autoFit: "shrink"
+        }
+      ]
+    };
+  });
+  const explanationNodes = options.explanation && options.explanation.trim() ? [
+    {
+      id: `${slideId}.${id}.divider`,
+      type: "shape",
+      preset: "rect",
+      fill: "divider",
+      fixedHeight: 0.02,
+      align: "stretch"
+    },
+    {
+      id: `${slideId}.${id}.explanation`,
+      type: "text",
+      text: options.explanation.trim(),
+      style: "paragraph",
+      color: "text.muted",
+      align: "left",
+      valign: "top",
+      minHeight: 0.5,
+      autoFit: "shrink"
+    }
+  ] : [];
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.18,
+    role: "quiz-card",
+    fill: fillToken,
+    line: accentToken,
+    lineWidth: 0.02,
+    cornerRadius: 0.12,
+    padding: 0.5,
+    children: [
+      {
+        id: `${slideId}.${id}.stem`,
+        type: "text",
+        text: stemText,
+        style: "h2",
+        color: "text.primary",
+        align: "left",
+        minHeight: 0.7,
+        autoFit: "shrink"
+      },
+      ...itemRows,
+      ...explanationNodes
+    ]
+  }, options);
+}
+function takeawayList(slideId, id, options) {
+  const baseTone = options.tone || "brand";
+  const items = (options.items || []).slice(0, 6);
+  const dense = items.length >= 4;
+  const detailedGrid = dense && items.some((item) => item.detail && item.detail.trim());
+  const itemNodes = items.map((item, idx) => {
+    const tone = item.tone || baseTone;
+    const accent = tone === "brand" ? "brand.primary" : toneAccentColor(tone, "brand.primary");
+    const marker = decorationMarkerNode(slideId, `${id}.${idx}.marker`, item.marker || options.marker, {
+      shape: "side-bar",
+      tone,
+      variant: tone === "neutral" ? "outline" : "solid",
+      size: dense ? "sm" : "md",
+      valign: "top"
+    });
+    const children2 = [
+      marker || {
+        // Accent bar uses fixedWidth only — its height is decided by the
+        // row's allocated cross-axis. Setting fixedHeight made every row
+        // demand at least that much, blocking dense (5+) layouts.
+        // 96vi8n slides 2/22: dense=0.14cm read as a hairline at slide
+        // distance. Both modes bumped to 0.18cm — visible without
+        // dominating, and dense rows can absorb the extra 0.04cm with
+        // no FALLBACK_FAILED.
+        id: `${slideId}.${id}.${idx}.bar`,
+        type: "shape",
+        preset: "rect",
+        fill: accent,
+        fixedWidth: 0.18,
+        align: "start"
+      },
+      {
+        id: `${slideId}.${id}.${idx}.text`,
+        type: "stack",
+        direction: "vertical",
+        gap: dense ? 0.04 : 0.1,
+        valign: "top",
+        layoutWeight: 1,
+        children: [
+          {
+            id: `${slideId}.${id}.${idx}.headline`,
+            type: "text",
+            text: item.headline,
+            style: dense ? "card-title" : "h2",
+            color: "text.primary",
+            align: "left",
+            minHeight: dense ? 0.45 : 0.55,
+            autoFit: "shrink"
+          },
+          ...item.detail && item.detail.trim() ? [{
+            id: `${slideId}.${id}.${idx}.detail`,
+            type: "text",
+            text: item.detail.trim(),
+            style: dense ? "caption" : "paragraph",
+            color: "text.muted",
+            align: "left",
+            valign: "top",
+            minHeight: estimateTakeawayDetailMinHeight(item.detail.trim(), dense),
+            autoFit: "shrink",
+            optional: true
+          }] : []
+        ]
+      }
+    ];
+    return {
+      id: `${slideId}.${id}.${idx}`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0.26,
+      role: "takeaway-item",
+      align: "start",
+      valign: "top",
+      children: children2
+    };
+  });
+  const listNode = {
+    id: `${slideId}.${id}.items`,
+    type: detailedGrid ? "grid" : "stack",
+    ...detailedGrid ? { columns: 2 } : { direction: "vertical" },
+    gap: detailedGrid ? 0.32 : dense ? 0.25 : 0.5,
+    role: "takeaway-list-items",
+    children: itemNodes
+  };
+  const title = options.title?.trim();
+  const children = title ? [
+    {
+      id: `${slideId}.${id}.title`,
+      type: "text",
+      text: title,
+      style: "card-title",
+      color: baseTone === "neutral" ? "text.primary" : toneAccentColor(baseTone, "brand.primary"),
+      minHeight: dense ? 0.38 : 0.48,
+      autoFit: "shrink"
+    },
+    listNode
+  ] : [listNode];
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: title ? 0.16 : 0,
+    role: "takeaway-list",
+    children
+  }, options);
+}
+function outline(slideId, id, options) {
+  const baseTone = options.tone || "brand";
+  const accentToken = baseTone === "brand" ? "brand.primary" : "text.primary";
+  const items = (options.items || []).slice(0, 12);
+  const showPages = options.showPages === true;
+  const density = options.density === "comfortable" || options.density === "compact" ? options.density : items.length >= 10 ? "compact" : items.length >= 6 ? "compact" : "comfortable";
+  const veryCompact = items.length >= 10;
+  const compact = density === "compact";
+  const anyNumbered = items.some((it) => typeof it.number === "string" && it.number.trim() !== "");
+  const itemNodes = items.map((item, idx) => {
+    const numberText = typeof item.number === "string" ? item.number.trim() : "";
+    const tone = item.tone;
+    const numberColor = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : accentToken;
+    const rowChildren = [];
+    if (anyNumbered) {
+      rowChildren.push({
+        id: `${slideId}.${id}.${idx}.num`,
+        type: "text",
+        text: numberText,
+        style: veryCompact ? "label" : "metric-label",
+        weight: "bold",
+        color: numberColor,
+        align: "left",
+        valign: "top",
+        fixedWidth: veryCompact ? 0.8 : compact ? 1 : 1.4,
+        fixedHeight: veryCompact ? 0.6 : compact ? 0.8 : 1,
+        autoFit: "shrink"
+      });
+    }
+    const titleStack = {
+      id: `${slideId}.${id}.${idx}.col`,
+      type: "stack",
+      direction: "vertical",
+      gap: veryCompact ? 0.02 : compact ? 0.06 : 0.08,
+      valign: "top",
+      layoutWeight: 1,
+      children: [
+        {
+          id: `${slideId}.${id}.${idx}.title`,
+          type: "text",
+          text: item.title,
+          // very-compact (10-12 items) drops to label style + minimal
+          // height so each row fits in ~0.7cm.
+          style: veryCompact ? "label" : compact ? "card-title" : "h2",
+          color: "text.primary",
+          align: "left",
+          minHeight: veryCompact ? 0.4 : compact ? 0.5 : 0.54,
+          autoFit: "shrink"
+        },
+        ...!veryCompact && item.body && item.body.trim() ? [{
+          id: `${slideId}.${id}.${idx}.body`,
+          type: "text",
+          text: item.body.trim(),
+          style: compact ? "caption" : "paragraph",
+          color: "text.muted",
+          align: "left",
+          valign: "top",
+          minHeight: 0.42,
+          autoFit: "shrink",
+          optional: true
+        }] : []
+      ]
+    };
+    rowChildren.push(titleStack);
+    if (showPages && (item.page !== void 0 && item.page !== null && item.page !== "")) {
+      rowChildren.push({
+        id: `${slideId}.${id}.${idx}.page`,
+        type: "text",
+        text: `p.${String(item.page)}`,
+        style: "caption",
+        color: "text.muted",
+        align: "right",
+        valign: "top",
+        fixedWidth: 1.4,
+        autoFit: "shrink"
+      });
+    }
+    return {
+      id: `${slideId}.${id}.${idx}`,
+      type: "stack",
+      direction: "horizontal",
+      gap: compact ? 0.3 : 0.5,
+      role: "outline-item",
+      align: "start",
+      valign: "top",
+      children: rowChildren
+    };
+  });
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    // very-compact (10-12 items): 0.12cm gap → 12 × 0.4 + 11 × 0.12 ≈ 6.1cm fits 8cm
+    gap: veryCompact ? 0.12 : compact ? 0.25 : 0.45,
+    role: "outline",
+    children: itemNodes
+  }, options);
+}
+function glossary(slideId, id, options) {
+  const items = (options.items || []).slice(0, 16);
+  const layout = options.layout === "two-column" ? "two-column" : "list";
+  const veryDense = items.length >= 12;
+  const dense = !veryDense && items.length >= 8;
+  const renderItem = (item, idx) => ({
+    id: `${slideId}.${id}.${idx}`,
+    type: "stack",
+    direction: "vertical",
+    gap: veryDense ? 0.02 : dense ? 0.05 : 0.1,
+    role: "glossary-item",
+    children: [
+      {
+        id: `${slideId}.${id}.${idx}.term`,
+        type: "text",
+        text: item.term,
+        style: veryDense ? "label" : dense ? "card-title" : "h2",
+        weight: "bold",
+        color: "brand.primary",
+        align: "left",
+        minHeight: veryDense ? 0.32 : dense ? 0.45 : 0.55,
+        autoFit: "shrink"
+      },
+      {
+        id: `${slideId}.${id}.${idx}.def`,
+        type: "text",
+        text: item.definition,
+        style: veryDense ? "caption" : dense ? "caption" : "paragraph",
+        color: "text.primary",
+        align: "left",
+        valign: "top",
+        minHeight: veryDense ? 0.32 : dense ? 0.45 : 0.55,
+        autoFit: "shrink",
+        optional: true
+      }
+    ]
+  });
+  if (layout === "two-column") {
+    return applyAgentSurface({
+      id: `${slideId}.${id}`,
+      type: "grid",
+      columns: 2,
+      gap: veryDense ? 0.18 : dense ? 0.35 : 0.55,
+      role: "glossary",
+      children: items.map(renderItem)
+    }, options);
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: veryDense ? 0.1 : dense ? 0.22 : 0.35,
+    role: "glossary",
+    children: items.map(renderItem)
+  }, options);
+}
+function qAndA(slideId, id, options) {
+  const items = (options.items || []).slice(0, 6);
+  const dense = options.density === "compact" || items.length >= 4;
+  const veryDense = items.length >= 5;
+  const ultraDense = false;
+  const itemNodes = items.flatMap((item, idx) => [
+    {
+      id: `${slideId}.${id}.${idx}.q`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0.25,
+      align: "start",
+      valign: "top",
+      role: "qa-question",
+      children: [
+        {
+          id: `${slideId}.${id}.${idx}.q.chip`,
+          type: "text",
+          text: "Q",
+          style: "label",
+          weight: "bold",
+          color: "text.inverse",
+          fill: "brand.primary",
+          align: "center",
+          valign: "middle",
+          fixedWidth: ultraDense ? 0.4 : veryDense ? 0.45 : dense ? 0.55 : 0.7,
+          fixedHeight: ultraDense ? 0.4 : veryDense ? 0.45 : dense ? 0.55 : 0.7,
+          cornerRadius: 0.5
+        },
+        {
+          id: `${slideId}.${id}.${idx}.q.text`,
+          type: "text",
+          text: item.q,
+          style: ultraDense ? "label" : veryDense ? "label" : dense ? "card-title" : "h2",
+          weight: "bold",
+          color: "text.primary",
+          align: "left",
+          valign: "middle",
+          layoutWeight: 1,
+          minHeight: ultraDense ? 0.38 : veryDense ? 0.45 : dense ? 0.5 : 0.6,
+          autoFit: "shrink"
+        }
+      ]
+    },
+    {
+      id: `${slideId}.${id}.${idx}.a`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0.25,
+      align: "start",
+      valign: "top",
+      role: "qa-answer",
+      children: [
+        {
+          id: `${slideId}.${id}.${idx}.a.chip`,
+          type: "text",
+          text: "A",
+          style: "label",
+          weight: "bold",
+          color: "text.inverse",
+          fill: "text.muted",
+          align: "center",
+          valign: "middle",
+          fixedWidth: ultraDense ? 0.4 : veryDense ? 0.45 : dense ? 0.55 : 0.7,
+          fixedHeight: ultraDense ? 0.4 : veryDense ? 0.45 : dense ? 0.55 : 0.7,
+          cornerRadius: 0.5
+        },
+        {
+          id: `${slideId}.${id}.${idx}.a.text`,
+          type: "text",
+          text: item.a,
+          style: dense ? "caption" : "paragraph",
+          color: "text.primary",
+          align: "left",
+          valign: "top",
+          layoutWeight: 1,
+          minHeight: ultraDense ? 0.38 : veryDense ? 0.42 : dense ? 0.5 : 0.7,
+          autoFit: "shrink",
+          // Answer is optional in ultra-dense (7+ pairs) so layout can drop
+          // it for the densest pages where Q-only summaries still help.
+          optional: veryDense
+        }
+      ]
+    }
+  ]);
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: ultraDense ? 0.08 : veryDense ? 0.15 : dense ? 0.25 : 0.45,
+    role: "q-and-a",
+    children: itemNodes
+  }, options);
+}
+function comparisonTable(slideId, id, options) {
+  const features = (options.features || []).slice(0, 8);
+  const opts = (options.options || []).slice(0, 4);
+  const colCount = opts.length + 1;
+  const headerRow = [
+    {
+      id: `${slideId}.${id}.h0`,
+      type: "spacer",
+      fixedHeight: 0.9
+    },
+    ...opts.map((opt, idx) => ({
+      id: `${slideId}.${id}.h${idx + 1}`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.08,
+      align: "center",
+      valign: "middle",
+      fixedHeight: 0.9,
+      fill: opt.recommended ? "brand.tint" : void 0,
+      cornerRadius: opt.recommended ? 0.08 : void 0,
+      children: [
+        ...opt.recommended ? [{
+          id: `${slideId}.${id}.h${idx + 1}.badge`,
+          type: "text",
+          text: "RECOMMENDED",
+          style: "label",
+          weight: "bold",
+          color: "text.primary",
+          align: "center",
+          tracking: "wide",
+          minHeight: 0.32,
+          autoFit: "shrink"
+        }] : [],
+        {
+          id: `${slideId}.${id}.h${idx + 1}.name`,
+          type: "text",
+          text: opt.name,
+          style: "card-title",
+          weight: "bold",
+          color: "text.primary",
+          align: "center",
+          minHeight: 0.5,
+          autoFit: "shrink"
+        }
+      ]
+    }))
+  ];
+  const featureRows = features.flatMap((feature, fIdx) => {
+    const cells = [
+      {
+        id: `${slideId}.${id}.r${fIdx}.f`,
+        type: "text",
+        text: feature,
+        style: "card-title",
+        weight: "semibold",
+        color: "text.primary",
+        align: "left",
+        valign: "middle",
+        fill: "surface.subtle",
+        minHeight: 0.7,
+        autoFit: "shrink"
+      },
+      ...opts.map((opt, oIdx) => {
+        const raw = opt.values[fIdx];
+        const cellText = raw === void 0 || raw === null || raw === "" ? "\u2014" : String(raw);
+        const isCheck = /^(✓|yes|true|是|有)$/i.test(cellText);
+        const isCross = /^(✗|×|no|false|否|无)$/i.test(cellText);
+        return {
+          id: `${slideId}.${id}.r${fIdx}.o${oIdx}`,
+          type: "text",
+          text: cellText,
+          style: "paragraph",
+          color: isCheck ? "success" : isCross ? "danger" : "text.primary",
+          weight: isCheck || isCross ? "bold" : void 0,
+          align: "center",
+          valign: "middle",
+          fill: opt.recommended ? "brand.tint" : void 0,
+          minHeight: 0.7,
+          autoFit: "shrink"
+        };
+      })
+    ];
+    return cells;
+  });
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: colCount,
+    gap: 0.04,
+    role: "comparison-table",
+    children: [...headerRow, ...featureRows]
+  }, options);
+}
+function scorecard(slideId, id, options) {
+  const items = (options.items || []).slice(0, 8);
+  const cols = options.columns && options.columns > 0 ? options.columns : Math.min(4, Math.max(2, items.length));
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: cols,
+    gap: 0.4,
+    role: "scorecard",
+    children: items.map((item, idx) => {
+      const status = item.status || "neutral";
+      const accent = status === "good" ? "success" : status === "warning" ? "warning" : status === "danger" ? "danger" : "text.muted";
+      const valueColor = status === "good" ? "success" : status === "warning" ? "warning" : status === "danger" ? "danger" : "text.primary";
+      const deltaColor = item.trend === "up" ? "success" : item.trend === "down" ? "danger" : "text.muted";
+      return {
+        id: `${slideId}.${id}.${idx}`,
+        type: "card",
+        role: "scorecard-item",
+        accent: "left",
+        accentColor: accent,
+        padding: 0.4,
+        elevation: "raised",
+        children: [{
+          id: `${slideId}.${id}.${idx}.stack`,
+          type: "stack",
+          direction: "vertical",
+          gap: 0.12,
+          children: [
+            { id: `${slideId}.${id}.${idx}.label`, type: "text", text: item.label, style: "metric-label", color: "text.muted", align: "left", minHeight: 0.4, autoFit: "shrink" },
+            { id: `${slideId}.${id}.${idx}.value`, type: "text", text: item.value, style: "metric-value", color: valueColor, align: "left", autoFit: "shrink", minHeight: 0.85 },
+            ...item.delta && item.delta.trim() ? [{
+              id: `${slideId}.${id}.${idx}.delta`,
+              type: "text",
+              text: (item.trend === "up" ? "\u25B2 " : item.trend === "down" ? "\u25BC " : "") + item.delta.trim(),
+              style: "label",
+              color: deltaColor,
+              align: "left",
+              minHeight: 0.32,
+              autoFit: "shrink",
+              optional: true
+            }] : []
+          ]
+        }]
+      };
+    })
+  }, options);
+}
+function gauge(slideId, id, options) {
+  const max = options.max && options.max > 0 ? options.max : 100;
+  const value = Math.max(0, Math.min(max, options.value || 0));
+  const ratio = value / max;
+  const thresholds = options.thresholds && options.thresholds.length > 0 ? options.thresholds.slice().sort((a, b) => a.upTo - b.upTo) : [{ upTo: max, tone: "brand" }];
+  const activeThreshold = thresholds.find((t) => value <= t.upTo) || thresholds[thresholds.length - 1];
+  const valueTone = activeThreshold.tone;
+  const valueColor = valueTone === "danger" ? "danger" : valueTone === "warning" ? "warning" : valueTone === "positive" ? "success" : "brand.primary";
+  const TRACK_HEIGHT = 0.45;
+  let prevUpTo = 0;
+  const trackChildren = thresholds.map((t, idx) => {
+    const widthRatio = Math.max(1e-3, (t.upTo - prevUpTo) / max);
+    const tToken = t.tone === "danger" ? "danger.tint" : t.tone === "warning" ? "warning.tint" : t.tone === "positive" ? "success.tint" : "brand.tint";
+    prevUpTo = t.upTo;
+    return {
+      id: `${slideId}.${id}.t${idx}`,
+      type: "shape",
+      preset: "rect",
+      fill: tToken,
+      layoutWeight: Math.max(1, Math.round(widthRatio * 100)),
+      fixedHeight: TRACK_HEIGHT
+    };
+  });
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.2,
+    role: "gauge",
+    children: [
+      {
+        id: `${slideId}.${id}.value`,
+        type: "text",
+        text: `${value}${options.unit || ""}`,
+        style: "metric-value",
+        color: valueColor,
+        align: "center",
+        autoFit: "shrink",
+        fixedHeight: 1.4
+      },
+      {
+        id: `${slideId}.${id}.label`,
+        type: "text",
+        text: options.label,
+        style: "metric-label",
+        color: "text.muted",
+        align: "center",
+        autoFit: "shrink",
+        fixedHeight: 0.5
+      },
+      {
+        id: `${slideId}.${id}.track`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0.04,
+        fixedHeight: TRACK_HEIGHT,
+        children: trackChildren
+      },
+      // Pointer / marker showing where the value falls on the track. The
+      // triangle is positioned via flanking spacers whose layoutWeights sum
+      // to 100. Integer weights are honored more precisely than fractional
+      // values by the layout solver.
+      {
+        id: `${slideId}.${id}.pointer-row`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0,
+        fixedHeight: 0.4,
+        children: [
+          // No fixedHeight on the spacers — they need to be pure flex for
+          // layoutWeight to act as the sole sizing signal. With fixedHeight,
+          // the layout solver was capping the weight contribution.
+          { id: `${slideId}.${id}.pointer.l`, type: "spacer", layoutWeight: Math.max(1, Math.round(ratio * 100)) },
+          { id: `${slideId}.${id}.pointer.tick`, type: "shape", preset: "triangle", fill: valueColor, line: valueColor, fixedWidth: 0.4, fixedHeight: 0.4 },
+          { id: `${slideId}.${id}.pointer.r`, type: "spacer", layoutWeight: Math.max(1, Math.round((1 - ratio) * 100)) }
+        ]
+      }
+    ]
+  }, options);
+}
+function heatmap(slideId, id, options) {
+  const xLabels = (options.xLabels || []).slice(0, 12);
+  const yLabels = (options.yLabels || []).slice(0, 12);
+  const palette = options.palette === "warm" ? "warm" : options.palette === "diverging" ? "diverging" : "cool";
+  const values = options.values || [];
+  const flat = values.flat().filter((v) => typeof v === "number");
+  const min = flat.length ? Math.min(...flat) : 0;
+  const max = flat.length ? Math.max(...flat) : 1;
+  const range = max - min || 1;
+  const showValues = options.showValues !== false && xLabels.length <= 8 && yLabels.length <= 8;
+  const cellGap = 0.04;
+  const headerRow = [
+    { id: `${slideId}.${id}.h0`, type: "spacer", fixedHeight: 0.45 },
+    ...xLabels.map((lbl, x) => ({
+      id: `${slideId}.${id}.hx${x}`,
+      type: "text",
+      text: lbl,
+      style: "label",
+      color: "text.muted",
+      align: "center",
+      valign: "middle",
+      autoFit: "shrink",
+      minHeight: 0.4
+    }))
+  ];
+  const dataRows = [];
+  for (let y = 0; y < yLabels.length; y++) {
+    dataRows.push({
+      id: `${slideId}.${id}.r${y}.lbl`,
+      type: "text",
+      text: yLabels[y],
+      style: "label",
+      color: "text.muted",
+      align: "right",
+      valign: "middle",
+      autoFit: "shrink",
+      minHeight: 0.4
+    });
+    for (let x = 0; x < xLabels.length; x++) {
+      const v = values[y]?.[x] ?? 0;
+      const t = (v - min) / range;
+      const fill = heatmapColor(palette, t);
+      dataRows.push(showValues ? {
+        id: `${slideId}.${id}.c${y}.${x}`,
+        type: "text",
+        text: String(v),
+        style: "caption",
+        color: t > 0.6 ? "text.inverse" : "text.primary",
+        fill,
+        align: "center",
+        valign: "middle",
+        cornerRadius: 0.05,
+        minHeight: 0.5,
+        autoFit: "shrink"
+      } : {
+        id: `${slideId}.${id}.c${y}.${x}`,
+        type: "shape",
+        preset: "rect",
+        fill,
+        line: fill,
+        cornerRadius: 0.05
+      });
+    }
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: xLabels.length + 1,
+    gap: cellGap,
+    role: "heatmap",
+    children: [...headerRow, ...dataRows]
+  }, options);
+}
+function heatmapColor(palette, t) {
+  t = Math.max(0, Math.min(1, t));
+  const lerp = (a, b) => Math.round(a + (b - a) * t);
+  const hex = (r, g, b) => [r, g, b].map((n) => n.toString(16).padStart(2, "0").toUpperCase()).join("");
+  if (palette === "warm") {
+    return hex(lerp(255, 178), lerp(247, 24), lerp(220, 43));
+  }
+  if (palette === "diverging") {
+    if (t < 0.5) {
+      const u2 = t * 2;
+      const lerp22 = (a, b) => Math.round(a + (b - a) * u2);
+      return hex(lerp22(33, 247), lerp22(102, 247), lerp22(172, 247));
+    }
+    const u = (t - 0.5) * 2;
+    const lerp2 = (a, b) => Math.round(a + (b - a) * u);
+    return hex(lerp2(247, 178), lerp2(247, 24), lerp2(247, 43));
+  }
+  return hex(lerp(247, 33), lerp(252, 102), lerp(253, 172));
+}
+function matrix2x2(slideId, id, options) {
+  const items = options.items || [];
+  const compact = options.density !== "comfortable";
+  const rootGap = compact ? 0.1 : 0.18;
+  const gridGap = compact ? 0.16 : 0.25;
+  const cellPadding = compact ? 0.24 : 0.4;
+  const cellGap = compact ? 0.1 : 0.15;
+  const labelMinHeight = compact ? 0.38 : 0.52;
+  const itemMinHeight = compact ? 0.34 : 0.45;
+  const axisMinHeight = compact ? 0.28 : 0.36;
+  const showXAxis = options.showXAxis !== false;
+  const showYAxis = options.showYAxis !== false;
+  const quadrants = { tl: [], tr: [], bl: [], br: [] };
+  for (const it of items) {
+    const key = `${it.y === "high" ? "t" : "b"}${it.x === "low" ? "l" : "r"}`;
+    const tone = it.tone || "brand";
+    quadrants[key].push({ label: it.label, tone });
+  }
+  const ql = options.quadrantLabels || {};
+  const qt = options.quadrantTones || {};
+  const labelOnly = items.length === 0;
+  const tintFor = (tone) => {
+    if (tone === "positive")
+      return { fill: "success.tint", ink: "success", line: "success" };
+    if (tone === "warning")
+      return { fill: "warning.tint", ink: "warning", line: "warning" };
+    if (tone === "danger")
+      return { fill: "danger.tint", ink: "danger", line: "danger" };
+    if (tone === "neutral")
+      return { fill: "surface.subtle", ink: "text.primary", line: "divider" };
+    if (tone === "brand")
+      return { fill: "brand.tint", ink: "brand.primary", line: "brand.primary" };
+    return { fill: "surface.subtle", ink: "text.primary", line: "divider" };
+  };
+  const defaultLabelTone = {
+    tl: "warning",
+    tr: "positive",
+    bl: "neutral",
+    br: "warning"
+  };
+  const renderQuadrant = (key, qLabel) => {
+    const cellTone = qt[key] || (labelOnly ? defaultLabelTone[key] : void 0);
+    const tint = labelOnly ? tintFor(cellTone) : { fill: "surface.subtle", ink: "text.primary", line: "divider" };
+    return {
+      id: `${slideId}.${id}.${key}`,
+      type: "card",
+      fill: tint.fill,
+      line: tint.line,
+      padding: cellPadding,
+      elevation: "flat",
+      children: [{
+        id: `${slideId}.${id}.${key}.stack`,
+        type: "stack",
+        direction: "vertical",
+        gap: cellGap,
+        align: labelOnly ? "center" : "start",
+        valign: labelOnly ? "middle" : "top",
+        children: [
+          ...qLabel ? [{
+            id: `${slideId}.${id}.${key}.qlabel`,
+            type: "text",
+            text: qLabel,
+            style: labelOnly ? "card-title" : "label",
+            color: labelOnly ? tint.ink : "text.muted",
+            tracking: labelOnly ? void 0 : "wide",
+            weight: labelOnly ? "semibold" : void 0,
+            align: labelOnly ? "center" : "left",
+            minHeight: labelOnly ? labelMinHeight : 0.3,
+            autoFit: "shrink"
+          }] : [],
+          ...quadrants[key].map((it, idx) => {
+            const tone = it.tone;
+            const fill = tone === "positive" ? "success.tint" : tone === "warning" ? "warning.tint" : tone === "danger" ? "danger.tint" : "brand.tint";
+            const color2 = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "brand.primary";
+            return {
+              id: `${slideId}.${id}.${key}.${idx}`,
+              type: "text",
+              text: it.label,
+              style: "label",
+              weight: "semibold",
+              color: color2,
+              fill,
+              align: "left",
+              cornerRadius: 0.08,
+              minHeight: itemMinHeight,
+              autoFit: "shrink"
+            };
+          })
+        ]
+      }]
+    };
+  };
+  const yAxisBand = (text, idSuffix) => ({
+    id: `${slideId}.${id}.${idSuffix}`,
+    type: "panel",
+    fill: "surface.subtle",
+    line: "divider",
+    cornerRadius: 0.08,
+    padding: compact ? 0.06 : 0.1,
+    children: [{
+      id: `${slideId}.${id}.${idSuffix}.text`,
+      type: "text",
+      text,
+      style: "label",
+      weight: "semibold",
+      color: "text.primary",
+      align: "center",
+      tracking: "wide",
+      minHeight: axisMinHeight,
+      autoFit: "shrink"
+    }]
+  });
+  const grid = {
+    id: `${slideId}.${id}.grid`,
+    type: "grid",
+    columns: 2,
+    gap: gridGap,
+    layoutWeight: 1,
+    children: [
+      renderQuadrant("tl", ql.tl),
+      renderQuadrant("tr", ql.tr),
+      renderQuadrant("bl", ql.bl),
+      renderQuadrant("br", ql.br)
+    ]
+  };
+  const xAxisRow = {
+    id: `${slideId}.${id}.x-axis`,
+    type: "stack",
+    direction: "horizontal",
+    gap: compact ? 0.28 : 0.4,
+    children: [
+      { id: `${slideId}.${id}.xlo`, type: "text", text: options.xAxis.low, style: "label", color: "text.muted", align: "left", tracking: "wide", layoutWeight: 1, minHeight: compact ? 0.28 : 0.32, autoFit: "shrink" },
+      { id: `${slideId}.${id}.xhi`, type: "text", text: options.xAxis.high, style: "label", color: "text.muted", align: "right", tracking: "wide", layoutWeight: 1, minHeight: compact ? 0.28 : 0.32, autoFit: "shrink" }
+    ]
+  };
+  const children = [
+    ...showYAxis ? [yAxisBand(options.yAxis.high, "yhi")] : [],
+    grid,
+    ...showYAxis ? [yAxisBand(options.yAxis.low, "ylo")] : [],
+    ...showXAxis ? [xAxisRow] : []
+  ];
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: rootGap,
+    role: "matrix-2x2",
+    children
+  }, options);
+}
+function trendLine(slideId, id, options) {
+  const values = (options.values || []).slice(0, 24);
+  const max = values.length ? Math.max(...values) : 1;
+  const min = values.length ? Math.min(...values) : 0;
+  const range = max - min || 1;
+  const tone = options.tone || "brand";
+  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const height = typeof options.height === "number" && options.height > 0 ? options.height : 1;
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: 0.05,
+    role: "trend-line",
+    fixedHeight: height,
+    align: "stretch",
+    valign: "bottom",
+    children: values.map((v, idx) => {
+      const ratio = Math.max(0.05, (v - min) / range);
+      return {
+        id: `${slideId}.${id}.${idx}`,
+        type: "shape",
+        preset: "rect",
+        fill: fillToken,
+        line: fillToken,
+        layoutWeight: 1,
+        fixedHeight: Math.max(0.1, height * ratio)
+      };
+    })
+  }, options);
+}
+function statFlow(slideId, id, options) {
+  const steps = (options.steps || []).slice(0, 10);
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: 0.3,
+    role: "stat-flow",
+    align: "center",
+    valign: "middle",
+    children: steps.map((step, idx) => {
+      if ("connector" in step) {
+        return {
+          id: `${slideId}.${id}.${idx}.connector`,
+          type: "text",
+          text: step.connector,
+          style: "card-title",
+          color: "text.muted",
+          align: "center",
+          valign: "middle",
+          fixedWidth: Math.max(1.2, step.connector.length * 0.4),
+          autoFit: "shrink"
+        };
+      }
+      const tone = step.tone || "neutral";
+      const valueColor = tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : tone === "brand" ? "brand.primary" : "text.primary";
+      return {
+        id: `${slideId}.${id}.${idx}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.08,
+        align: "center",
+        valign: "middle",
+        layoutWeight: 1,
+        children: [
+          { id: `${slideId}.${id}.${idx}.value`, type: "text", text: step.value, style: "metric-value", color: valueColor, align: "center", autoFit: "shrink", minHeight: 0.85 },
+          { id: `${slideId}.${id}.${idx}.label`, type: "text", text: step.label, style: "metric-label", color: "text.muted", align: "center", minHeight: 0.32, autoFit: "shrink", optional: true }
+        ]
+      };
+    })
+  }, options);
+}
+function donutSummary(slideId, id, options) {
+  const primary = options.primary;
+  const others = (options.others || []).slice(0, 5);
+  const unit = options.unit || "";
+  const tone = options.tone || "brand";
+  const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const allValues = [primary.value, ...others.map((o) => o.value)];
+  const total = allValues.reduce((a, b) => a + b, 0) || 1;
+  const entries = [primary, ...others];
+  const palette = [
+    accent,
+    "text.muted",
+    "brand.tint",
+    "warning.tint",
+    "success.tint",
+    "danger.tint"
+  ];
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: 2,
+    gap: 0.5,
+    role: "donut-summary",
+    children: [
+      // Left: ring with center number
+      {
+        id: `${slideId}.${id}.ring`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.12,
+        align: "center",
+        valign: "middle",
+        children: [
+          {
+            id: `${slideId}.${id}.chart`,
+            type: "chart",
+            chartType: "doughnut",
+            labels: entries.map((entry) => entry.label),
+            series: [{ name: primary.label, values: entries.map((entry) => entry.value) }],
+            colors: palette.slice(0, entries.length),
+            showLegend: false,
+            showValues: false,
+            layoutWeight: 1,
+            minHeight: 2.2
+          },
+          { id: `${slideId}.${id}.value`, type: "text", text: `${Math.round(primary.value / total * 100)}%`, style: "hero", color: accent, align: "center", autoFit: "shrink", minHeight: 0.95 },
+          { id: `${slideId}.${id}.label`, type: "text", text: primary.label, style: "card-title", color: "text.primary", align: "center", autoFit: "shrink", minHeight: 0.55 },
+          ...unit ? [{ id: `${slideId}.${id}.unit`, type: "text", text: unit, style: "source-note", color: "text.muted", align: "center", autoFit: "shrink", optional: true }] : []
+        ]
+      },
+      // Right: legend of primary + others
+      {
+        id: `${slideId}.${id}.legend`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.18,
+        valign: "middle",
+        children: entries.map((entry, idx) => {
+          const isPrimary = idx === 0;
+          const dotColor = isPrimary ? accent : palette[idx % palette.length];
+          const pct = Math.round(entry.value / total * 100);
+          return {
+            id: `${slideId}.${id}.legend.${idx}`,
+            type: "stack",
+            direction: "horizontal",
+            gap: 0.25,
+            align: "start",
+            valign: "middle",
+            children: [
+              { id: `${slideId}.${id}.legend.${idx}.dot`, type: "shape", preset: "ellipse", fill: dotColor, line: dotColor, fixedWidth: 0.4, fixedHeight: 0.4 },
+              { id: `${slideId}.${id}.legend.${idx}.label`, type: "text", text: `${entry.label} \xB7 ${pct}%`, style: "label", color: "text.primary", align: "left", layoutWeight: 1, valign: "middle", autoFit: "shrink" }
+            ]
+          };
+        })
+      }
+    ]
+  }, options);
+}
+function rangePlot(slideId, id, options) {
+  const items = (options.items || []).slice(0, 8);
+  const globalMin = items.length ? Math.min(...items.map((i) => i.min)) : 0;
+  const globalMax = items.length ? Math.max(...items.map((i) => i.max)) : 1;
+  const range = globalMax - globalMin || 1;
+  const tone = options.tone || "brand";
+  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.35,
+    role: "range-plot",
+    children: items.map((item, idx) => {
+      const startRatio = (item.min - globalMin) / range;
+      const widthRatio = (item.max - item.min) / range;
+      const beforeRatio = startRatio;
+      const afterRatio = Math.max(1e-3, 1 - startRatio - widthRatio);
+      const pointRatio = typeof item.point === "number" ? (item.point - globalMin) / range : -1;
+      return {
+        id: `${slideId}.${id}.${idx}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.08,
+        children: [
+          { id: `${slideId}.${id}.${idx}.label`, type: "text", text: `${item.label}: ${item.min}\u2013${item.max}${item.unit || ""}${typeof item.point === "number" ? ` (mid ${item.point}${item.unit || ""})` : ""}`, style: "label", color: "text.primary", align: "left", minHeight: 0.4, autoFit: "shrink" },
+          {
+            id: `${slideId}.${id}.${idx}.bar`,
+            type: "stack",
+            direction: "horizontal",
+            gap: 0,
+            fixedHeight: 0.3,
+            children: [
+              { id: `${slideId}.${id}.${idx}.b.before`, type: "spacer", layoutWeight: Math.max(1, Math.round(beforeRatio * 100)) },
+              { id: `${slideId}.${id}.${idx}.b.range`, type: "shape", preset: "roundRect", fill: fillToken, cornerRadius: 0.5, layoutWeight: Math.max(5, Math.round(widthRatio * 100)), fixedHeight: 0.3 },
+              { id: `${slideId}.${id}.${idx}.b.after`, type: "spacer", layoutWeight: Math.max(1, Math.round(afterRatio * 100)) }
+            ]
+          },
+          ...pointRatio >= 0 ? [{
+            id: `${slideId}.${id}.${idx}.pointer-row`,
+            type: "stack",
+            direction: "horizontal",
+            gap: 0,
+            fixedHeight: 0.18,
+            children: [
+              { id: `${slideId}.${id}.${idx}.p.l`, type: "spacer", layoutWeight: Math.max(1, Math.round(pointRatio * 100)) },
+              { id: `${slideId}.${id}.${idx}.p.dot`, type: "shape", preset: "ellipse", fill: "text.primary", line: "text.primary", fixedWidth: 0.18, fixedHeight: 0.18 },
+              { id: `${slideId}.${id}.${idx}.p.r`, type: "spacer", layoutWeight: Math.max(1, Math.round((1 - pointRatio) * 100)) }
+            ]
+          }] : []
+        ]
+      };
+    })
+  }, options);
+}
+function calloutMarker(slideId, id, options) {
+  const tone = options.tone || "brand";
+  const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "surface";
+  const fgToken = tone === "neutral" ? "text.primary" : "text.inverse";
+  const width = Number.isFinite(options.width) && (options.width || 0) > 0 ? Math.max(2.4, Math.min(8, options.width)) : textChipWidthCm(options.text, { min: 3.2, max: 7, padding: 0.9, latin: 0.2, cjk: 0.34 });
+  const height = Number.isFinite(options.height) && (options.height || 0) > 0 ? Math.max(0.8, Math.min(4, options.height)) : estimateCalloutMarkerHeightCm(options.text, width);
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "text",
+    text: options.text,
+    style: "label",
+    weight: "bold",
+    color: fgToken,
+    fill: fillToken,
+    align: "center",
+    valign: "middle",
+    autoFit: "shrink",
+    cornerRadius: 0.15,
+    role: "callout-marker",
+    anchor: options.anchor || "top-right",
+    width,
+    height
+  }, options);
+}
+function estimateCalloutMarkerHeightCm(text, widthCm) {
+  const capacity = Math.max(8, Math.floor((Math.max(2.4, widthCm) - 0.8) / 0.32));
+  const lines = String(text || "").split(/\r?\n/).reduce((sum3, line) => sum3 + Math.max(1, Math.ceil(weightedTextLength(line.trim() || " ") / capacity)), 0);
+  return Math.max(1.05, Math.min(3.2, 0.6 + lines * 0.42));
+}
+function decorationGrid(slideId, id, options) {
+  const pattern = options.pattern === "diagonal-lines" || options.pattern === "grid" ? options.pattern : "dots";
+  const density = options.density === "sparse" ? "sparse" : options.density === "dense" ? "dense" : "normal";
+  const rows = options.rows && options.rows > 0 ? options.rows : density === "sparse" ? 5 : density === "dense" ? 12 : 8;
+  const cols = options.columns && options.columns > 0 ? options.columns : density === "sparse" ? 8 : density === "dense" ? 18 : 12;
+  const tone = options.tone === "brand" ? "brand.tint" : "divider";
+  const dotSize = pattern === "dots" ? density === "sparse" ? 0.12 : density === "dense" ? 0.08 : 0.1 : pattern === "diagonal-lines" ? 0.04 : 0.08;
+  const dotPreset = pattern === "dots" ? "ellipse" : pattern === "diagonal-lines" ? "line" : "rect";
+  const cells = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      cells.push({
+        id: `${slideId}.${id}.${r}.${c}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0,
+        align: "center",
+        valign: "middle",
+        optional: true,
+        children: [{
+          id: `${slideId}.${id}.${r}.${c}.dot`,
+          type: "shape",
+          preset: dotPreset,
+          fill: tone,
+          line: tone,
+          fixedWidth: pattern === "diagonal-lines" ? 0.6 : dotSize,
+          fixedHeight: pattern === "diagonal-lines" ? 0.04 : dotSize
+        }]
+      });
+    }
+  }
+  const grid = {
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns: cols,
+    gap: density === "sparse" ? 0.5 : density === "dense" ? 0.2 : 0.32,
+    role: "decoration-grid",
+    children: cells
+  };
+  const isBackground = options.asBackground !== false;
+  if (isBackground) {
+    grid.anchor = "top-left";
+    grid.offsetX = 0;
+    grid.offsetY = 0;
+    grid.fillSlide = true;
+    grid.zIndex = -1;
+  }
+  return applyAgentSurface(grid, options);
+}
+function decorativeShapes(slideId, id, options) {
+  const motif = options.motif || "bubbles";
+  const anchor = options.anchor || "top-right";
+  const tone = options.tone || "muted";
+  const count = Math.max(3, Math.min(40, Math.floor(options.count || (anchor === "full" ? 24 : motif === "corner-blobs" ? 6 : 12))));
+  const columns = anchor === "full" ? Math.ceil(Math.sqrt(count * 1.7)) : Math.ceil(Math.sqrt(count * 1.4));
+  const rows = Math.ceil(count / columns);
+  const palette = decorativePalette(tone);
+  const children = Array.from({ length: count }, (_, index) => {
+    const preset = decorativePreset(motif, index);
+    const size = decorativeSize(motif, index);
+    const token = palette[index % palette.length];
+    const rotation = motif === "confetti" ? (index % 5 - 2) * 17 : motif === "sparkles" ? index % 2 * 18 : void 0;
+    return {
+      id: `${slideId}.${id}.${index}`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0,
+      align: "center",
+      valign: "middle",
+      optional: true,
+      children: [{
+        id: `${slideId}.${id}.${index}.mark`,
+        type: "shape",
+        preset,
+        fill: preset === "line" ? void 0 : token,
+        line: token,
+        lineWidth: preset === "line" ? 0.035 : 0.018,
+        fixedWidth: preset === "line" ? size * 1.8 : size,
+        fixedHeight: preset === "line" ? 0.04 : size,
+        ...rotation !== void 0 ? { rotation } : {}
+      }]
+    };
+  });
+  const isFull = anchor === "full";
+  const asBackground = options.asBackground !== false;
+  const node = {
+    id: `${slideId}.${id}`,
+    type: "grid",
+    columns,
+    rows,
+    gap: motif === "corner-blobs" ? 0.1 : anchor === "full" ? 0.35 : 0.22,
+    role: "decorative-shapes",
+    children,
+    anchor: isFull ? "top-left" : anchor,
+    width: isFull ? void 0 : options.width || 5.2,
+    height: isFull ? void 0 : options.height || 3.4,
+    offsetX: isFull ? 0 : 0.35,
+    offsetY: isFull ? 0 : 0.35,
+    ...isFull ? { fillSlide: true } : {},
+    zIndex: asBackground ? -1 : 2
+  };
+  return applyAgentSurface(node, options);
+}
+function decorativePalette(tone) {
+  if (tone === "brand")
+    return ["brand.primary", "brand.tint", "divider"];
+  if (tone === "accent")
+    return ["accent", "brand.primary", "success", "warning"];
+  if (tone === "warning")
+    return ["warning", "danger", "accent"];
+  return ["divider", "text.muted", "surface.subtle"];
+}
+function decorativePreset(motif, index) {
+  if (motif === "confetti")
+    return ["rect", "triangle", "line", "star-5"][index % 4];
+  if (motif === "sparkles")
+    return index % 3 === 0 ? "star-5" : "ellipse";
+  if (motif === "molecule")
+    return index % 4 === 3 ? "line" : "ellipse";
+  if (motif === "corner-blobs")
+    return index % 5 === 0 ? "cloud" : "ellipse";
+  return "ellipse";
+}
+function decorativeSize(motif, index) {
+  if (motif === "corner-blobs")
+    return [1.1, 0.75, 0.55, 0.9, 0.42, 0.65][index % 6];
+  if (motif === "confetti")
+    return [0.22, 0.3, 0.45, 0.26][index % 4];
+  if (motif === "sparkles")
+    return [0.32, 0.16, 0.22][index % 3];
+  if (motif === "molecule")
+    return [0.28, 0.18, 0.24, 0.5][index % 4];
+  return [0.22, 0.34, 0.16, 0.42][index % 4];
+}
+function cornerMark(slideId, id, options) {
+  const tone = options.tone || "warning";
+  const fillToken = tone === "brand" ? "brand.primary" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "text.muted";
+  const corner = options.corner || "top-right";
+  const style = options.style || "tag";
+  const renderedText = style !== "ribbon" ? options.text.toUpperCase() : options.text;
+  const width = textChipWidthCm(renderedText, { min: 2, max: 7.2, padding: 0.9, latin: 0.24, cjk: 0.48 });
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "text",
+    text: options.text,
+    style: "label",
+    weight: "bold",
+    uppercase: style !== "ribbon",
+    letterSpacing: 80,
+    color: "text.inverse",
+    fill: fillToken,
+    align: "center",
+    valign: "middle",
+    autoFit: "shrink",
+    noWrap: true,
+    cornerRadius: style === "ribbon" ? 0 : style === "stamp" ? 0.2 : 0.08,
+    width,
+    height: style === "ribbon" ? 0.76 : 0.72,
+    role: "corner-mark",
+    anchor: corner
+  }, options);
+}
+function brandMark(slideId, id, options) {
+  const corner = options.corner || "bottom-right";
+  const tone = options.tone || "muted";
+  const color2 = tone === "inverse" ? "text.inverse" : tone === "brand" ? "brand.primary" : tone === "neutral" ? "text.secondary" : "text.muted";
+  const align = corner.endsWith("-right") ? "right" : "left";
+  const width = options.width ?? textChipWidthCm(options.text, { min: 2.4, max: 6.4, padding: 0.75, latin: 0.19, cjk: 0.36 });
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "text",
+    text: options.text,
+    style: "label",
+    color: color2,
+    align,
+    valign: "middle",
+    autoFit: "shrink",
+    noWrap: true,
+    role: "brand-mark",
+    anchor: corner,
+    width,
+    height: options.height || 0.58,
+    offsetX: options.offsetX ?? 0.75,
+    offsetY: options.offsetY ?? 0.55,
+    zIndex: 5
+  }, options);
+}
+function bracket(slideId, id, options) {
+  const direction = options.direction === "right" || options.direction === "top" || options.direction === "bottom" ? options.direction : "left";
+  const tone = options.tone || "brand";
+  const lineColor = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const isHorizontal = direction === "top" || direction === "bottom";
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: isHorizontal ? "vertical" : "horizontal",
+    gap: 0.25,
+    role: "bracket",
+    align: "center",
+    valign: "middle",
+    children: [
+      {
+        id: `${slideId}.${id}.line`,
+        type: "shape",
+        preset: "rect",
+        fill: lineColor,
+        line: lineColor,
+        cornerRadius: 0.5,
+        ...isHorizontal ? { fixedHeight: 0.06, fixedWidth: 5 } : { fixedWidth: 0.06, fixedHeight: 5 }
+      },
+      ...options.label && options.label.trim() ? [{
+        id: `${slideId}.${id}.label`,
+        type: "text",
+        text: options.label.trim(),
+        style: "label",
+        // The bracket LINE carries the tone; the label stays
+        // text.primary so it always reads on light surfaces. Tone-
+        // colored labels (success/warning/brand on light bg) repeatedly
+        // failed 4.5:1 and got LOW_CONTRAST'd to a sibling accent,
+        // disconnecting the label from the bracket. Same pattern as
+        // bar-list / progressBar value fix.
+        color: "text.primary",
+        align: isHorizontal ? "center" : "left",
+        valign: "middle",
+        minHeight: 0.4,
+        autoFit: "shrink"
+      }] : []
+    ]
+  }, options);
+}
+function arrowLink(slideId, id, options) {
+  const tone = options.tone || "brand";
+  const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const direction = options.direction === "down" ? "down" : "right";
+  const arrowPreset = direction === "down" ? "arrow-down" : "arrow-right";
+  const children = [];
+  if (options.fromLabel) {
+    children.push({
+      id: `${slideId}.${id}.from`,
+      type: "text",
+      text: options.fromLabel,
+      style: "card-title",
+      color: "text.primary",
+      align: direction === "right" ? "right" : "center",
+      valign: "middle",
+      autoFit: "shrink",
+      minHeight: 0.5,
+      layoutWeight: 1
+    });
+  }
+  children.push({
+    id: `${slideId}.${id}.arrow`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.04,
+    align: "center",
+    valign: "middle",
+    children: [
+      ...options.label ? [{
+        id: `${slideId}.${id}.label`,
+        type: "text",
+        text: options.label,
+        style: "label",
+        color: accent,
+        align: "center",
+        autoFit: "shrink",
+        minHeight: 0.32
+      }] : [],
+      {
+        id: `${slideId}.${id}.shape`,
+        type: "shape",
+        preset: arrowPreset,
+        fill: accent,
+        line: accent,
+        fixedWidth: direction === "right" ? 2 : 0.8,
+        fixedHeight: direction === "right" ? 0.6 : 1.2
+      }
+    ]
+  });
+  if (options.toLabel) {
+    children.push({
+      id: `${slideId}.${id}.to`,
+      type: "text",
+      text: options.toLabel,
+      style: "card-title",
+      color: "text.primary",
+      align: direction === "right" ? "left" : "center",
+      valign: "middle",
+      autoFit: "shrink",
+      minHeight: 0.5,
+      layoutWeight: 1
+    });
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: direction === "right" ? "horizontal" : "vertical",
+    gap: 0.3,
+    role: "arrow-link",
+    align: "center",
+    valign: "middle",
+    children
+  }, options);
+}
+function pointerArrow(slideId, id, options) {
+  const direction = options.direction || "right";
+  const tone = options.tone || "brand";
+  const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const horizontal = direction === "right" || direction === "left";
+  const labelText = (options.label ?? "").trim();
+  const hasLabel = Boolean(labelText);
+  const labelWidth = hasLabel ? textChipWidthCm(labelText, {
+    min: horizontal ? 2.2 : 1.4,
+    max: horizontal ? 6.8 : 3.2,
+    padding: 0.75,
+    latin: 0.2,
+    cjk: 0.34
+  }) : 0;
+  const defaultWidth = horizontal ? Math.max(3.4, labelWidth) : Math.max(1.6, Math.min(3.2, labelWidth || 1.6));
+  const width = Math.max(options.width || defaultWidth, horizontal ? hasLabel ? 2.2 : 1.8 : 1.2);
+  const height = Math.max(options.height || (horizontal ? hasLabel ? 1.1 : 0.75 : 2.4), horizontal ? hasLabel ? 1.4 : 0.85 : hasLabel ? 2.8 : 2.1);
+  const arrowPreset = horizontal ? "arrow-right" : "arrow-down";
+  const arrow = {
+    id: `${slideId}.${id}.shape`,
+    type: "shape",
+    preset: arrowPreset,
+    fill: accent,
+    line: accent,
+    lineWidth: 0.035,
+    ...options.style === "dashed" ? { lineDash: "dash" } : {},
+    fixedWidth: horizontal ? Math.max(1.2, width - 0.3) : 0.8,
+    fixedHeight: horizontal ? 0.55 : Math.max(1.2, height - (hasLabel ? 0.72 : 0.3)),
+    ...direction === "left" ? { flipH: true } : {},
+    ...direction === "up" ? { flipV: true } : {}
+  };
+  const label = hasLabel ? {
+    id: `${slideId}.${id}.label`,
+    type: "text",
+    text: labelText,
+    style: "label",
+    weight: "bold",
+    color: accent,
+    align: "center",
+    valign: "middle",
+    autoFit: "shrink",
+    noWrap: true,
+    minHeight: 0.35
+  } : null;
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.08,
+    role: "pointer-arrow",
+    align: "center",
+    valign: "middle",
+    anchor: options.anchor || "middle-center",
+    offsetX: options.offsetX || 0,
+    offsetY: options.offsetY || 0,
+    width,
+    height,
+    zIndex: 3,
+    children: label ? [label, arrow] : [arrow]
+  }, options);
+}
+function watermark(slideId, id, options) {
+  const tone = options.tone || "muted";
+  const colorToken = tone === "danger" ? "danger" : tone === "warning" ? "warning" : tone === "brand" ? "brand.primary" : "text.muted";
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "text",
+    text: options.text,
+    style: "hero",
+    weight: "bold",
+    uppercase: true,
+    letterSpacing: 200,
+    color: colorToken,
+    align: "center",
+    valign: "middle",
+    role: "watermark",
+    anchor: "middle-center",
+    width: 18,
+    height: 4,
+    autoFit: "shrink"
+  }, options);
+}
+function bigPageNumber(slideId, id, options) {
+  const corner = options.corner || "top-right";
+  const tone = options.tone || "brand";
+  const colorToken = tone === "brand" ? "brand.primary" : "text.muted";
+  const text = options.total !== void 0 && options.total !== null && options.total !== "" ? `${String(options.current).padStart(2, "0")} / ${String(options.total).padStart(2, "0")}` : String(options.current).padStart(2, "0");
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "text",
+    text,
+    style: "hero",
+    weight: "bold",
+    color: colorToken,
+    align: "center",
+    valign: "middle",
+    role: "big-page-number",
+    anchor: corner,
+    width: 4.5,
+    height: 1.6,
+    autoFit: "shrink"
+  }, options);
+}
+function timelineAxisBar(slideId, id, options) {
+  const sections = (options.sections || []).slice(0, 8);
+  const current = Math.max(0, Math.min(sections.length - 1, options.current || 0));
+  const tone = options.tone || "brand";
+  const accent = tone === "brand" ? "brand.primary" : "text.primary";
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: 0.3,
+    role: "timeline-axis-bar",
+    align: "stretch",
+    valign: "middle",
+    fixedHeight: 0.85,
+    children: sections.map((label, idx) => {
+      const isActive = idx === current;
+      const isPast = idx < current;
+      const dotColor = isActive ? accent : isPast ? accent : "divider";
+      const labelColor = isActive ? accent : "text.muted";
+      return {
+        id: `${slideId}.${id}.${idx}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.1,
+        align: "center",
+        valign: "middle",
+        layoutWeight: 1,
+        children: [
+          { id: `${slideId}.${id}.${idx}.dot`, type: "shape", preset: "ellipse", fill: dotColor, line: dotColor, fixedWidth: isActive ? 0.4 : 0.25, fixedHeight: isActive ? 0.4 : 0.25 },
+          { id: `${slideId}.${id}.${idx}.lbl`, type: "text", text: label, style: "label", weight: isActive ? "bold" : "normal", color: labelColor, align: "center", autoFit: "shrink", minHeight: 0.32 }
+        ]
+      };
+    })
+  }, options);
+}
+function scaleBar(slideId, id, options) {
+  const min = options.min || 0;
+  const max = options.max;
+  const tickCount = options.ticks && options.ticks >= 2 ? options.ticks : 5;
+  const tone = options.tone || "neutral";
+  const lineColor = tone === "brand" ? "brand.primary" : "text.muted";
+  const labels = [];
+  for (let i = 0; i < tickCount; i++) {
+    const v = min + (max - min) * i / (tickCount - 1);
+    labels.push(`${Math.round(v * 100) / 100}${options.unit || ""}`);
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.08,
+    role: "scale-bar",
+    children: [
+      // tick row: short vertical bars
+      {
+        id: `${slideId}.${id}.ticks`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0,
+        fixedHeight: 0.3,
+        children: Array.from({ length: tickCount }, (_, i) => ({
+          id: `${slideId}.${id}.tick${i}`,
+          type: "stack",
+          direction: "vertical",
+          gap: 0,
+          layoutWeight: 1,
+          align: "center",
+          children: [
+            { id: `${slideId}.${id}.tick${i}.bar`, type: "shape", preset: "rect", fill: lineColor, line: lineColor, fixedWidth: 0.04, fixedHeight: 0.3 }
+          ]
+        }))
+      },
+      // base line
+      { id: `${slideId}.${id}.line`, type: "shape", preset: "rect", fill: lineColor, line: lineColor, fixedHeight: 0.04 },
+      // labels
+      {
+        id: `${slideId}.${id}.labels`,
+        type: "stack",
+        direction: "horizontal",
+        gap: 0,
+        children: labels.map((lbl, i) => ({
+          id: `${slideId}.${id}.lbl${i}`,
+          type: "text",
+          text: lbl,
+          style: "caption",
+          color: "text.muted",
+          align: i === 0 ? "left" : i === labels.length - 1 ? "right" : "center",
+          autoFit: "shrink",
+          minHeight: 0.32,
+          layoutWeight: 1
+        }))
+      }
+    ]
+  }, options);
+}
+function companyOverviewLayout(options) {
+  return {
+    id: `${options.slideId}.overviewLayout`,
+    type: "grid",
+    area: "content",
+    columns: 2,
+    gap: 0.55,
+    role: "company-overview-layout",
+    children: [
+      {
+        id: `${options.slideId}.narrativeColumn`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.3,
+        children: [
+          paragraphText(options.slideId, "company-summary", options.summary),
+          bulletList(options.slideId, "business-lines", options.businessLines, "compact")
+        ]
+      },
+      {
+        id: `${options.slideId}.visualColumn`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.35,
+        children: [
+          imageBlock(options.slideId, "hero-visual", options.visualSrc, "Company visual", "cover"),
+          {
+            id: `${options.slideId}.metricGrid`,
+            type: "grid",
+            columns: 3,
+            gap: 0.25,
+            children: options.metrics.map((metric) => metricCard(options.slideId, metric.name, metric.value, metric.label))
+          }
+        ]
+      }
+    ]
+  };
 }
 
 // slideml2/dist/m3-rich-inline.js
@@ -31520,9 +31781,29 @@ function withComponentRoot(source, expanded) {
   const scaled = scale < 0.999 ? applyComponentScale(styled, scale) : styled;
   return {
     ...scaled,
+    ...componentCohortMetadata(source, componentName),
     ...layoutProps(source),
     id: source.id || expanded.id
   };
+}
+function componentCohortMetadata(source, componentName) {
+  if (!componentName)
+    return {};
+  const metadata = {
+    __cohortSourceType: componentName
+  };
+  for (const [sourceKey, targetKey] of [
+    ["variant", "__cohortSourceVariant"],
+    ["density", "__cohortSourceDensity"],
+    ["cohortGroup", "__cohortGroup"],
+    ["cohortScope", "__cohortScope"],
+    ["cohortSlot", "__cohortSlot"]
+  ]) {
+    const value = source[sourceKey];
+    if (typeof value === "string" && value.trim())
+      metadata[targetKey] = value.trim();
+  }
+  return metadata;
 }
 function componentScaleFactor(value) {
   if (typeof value === "number" && Number.isFinite(value))
@@ -38534,7 +38815,20 @@ function sideRailNode(slideId, name, node) {
   const body = stringValue(node.body, "");
   const children = [
     ...title ? [{ id: `${slideId}.${name}.title`, type: "text", text: title, style: "card-title", color: tone.fg || "text.primary", minHeight: 0.55, autoFit: "shrink" }] : [],
-    ...body ? [{ id: `${slideId}.${name}.body`, type: "text", text: body, style: "caption", color: "text.primary", valign: "top" }] : [],
+    ...body ? [{
+      id: `${slideId}.${name}.body`,
+      type: "text",
+      text: body,
+      style: "paragraph",
+      color: "text.primary",
+      valign: "top",
+      autoFit: "shrink",
+      autoGrow: true,
+      layoutWeight: 1,
+      maxFontScale: 1.12,
+      lineHeight: 1.42,
+      minHeight: 1.6
+    }] : [],
     ...node.children || []
   ];
   return {
@@ -42898,7 +43192,7 @@ function findBodyHeroTitle(nodes) {
       found = true;
       if (typeof node.title === "string" && node.title.trim())
         titles.push(node.title);
-    } else if (node.type === "deck-title" || node.type === "slide-title") {
+    } else if (componentName === "deck-title" || componentName === "slide-title" || componentName === "h1") {
       found = true;
       if (typeof node.text === "string" && node.text.trim())
         titles.push(node.text);
@@ -42907,7 +43201,7 @@ function findBodyHeroTitle(nodes) {
       if (typeof node.text === "string" && node.text.trim())
         titles.push(node.text);
     }
-    const inner = node.children || [];
+    const inner = nestedDomChildren(node);
     if (inner.length) {
       const nested = findBodyHeroTitle(inner);
       found = found || nested.found;
@@ -42924,11 +43218,48 @@ function hasMetadataHeroComponent(nodes) {
     const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
     if (typeof componentName === "string" && METADATA_HERO_COMPONENTS.has(componentName))
       return true;
-    const inner = node.children || [];
+    const inner = nestedDomChildren(node);
     if (inner.length && hasMetadataHeroComponent(inner))
       return true;
   }
   return false;
+}
+function nestedDomChildren(node) {
+  const rec = node;
+  return [
+    ...domNodesFromValue(rec.children),
+    ...domNodesFromValue(rec.left),
+    ...domNodesFromValue(rec.right),
+    ...domNodesFromValue(rec.primary),
+    ...domNodesFromValue(rec.secondary),
+    ...domNodesFromValue(rec.main),
+    ...domNodesFromValue(rec.side),
+    ...domNodesFromValue(rec.sidecar),
+    ...domNodesFromValue(rec.top),
+    ...domNodesFromValue(rec.bottom),
+    ...domNodesFromValue(rec.header),
+    ...domNodesFromValue(rec.footer),
+    ...domNodesFromValue(rec.content)
+  ];
+}
+function domNodesFromValue(value) {
+  if (Array.isArray(value))
+    return value.filter(isDomNodeLike2);
+  if (!value || typeof value !== "object")
+    return [];
+  const rec = value;
+  const out = [];
+  if (isDomNodeLike2(value))
+    out.push(value);
+  if (Array.isArray(rec.children))
+    out.push(...rec.children.filter(isDomNodeLike2));
+  return out;
+}
+function isDomNodeLike2(value) {
+  if (!value || typeof value !== "object")
+    return false;
+  const rec = value;
+  return typeof rec.type === "string" || typeof rec.component === "string";
 }
 function bodyHeroTitleMatchesSlideTitle(slideTitle, bodyTitles) {
   const normalizedSlideTitle = normalizeHeroTitle(slideTitle);
@@ -44009,7 +44340,7 @@ function plainTextRun(theme, text, style, bold, colorHex, options = {}) {
 function normalizeTextForPpt(text, literal = false) {
   if (literal || !text)
     return text;
-  return text.replace(/([^\s\u2060])([，。！？；：、）》」』】〕〉》])/g, "$1\u2060$2");
+  return protectCjkLineBreakPunctuation(text);
 }
 var layoutDecisionsBySlide = /* @__PURE__ */ new Map();
 var TEXT_SHAPE_MARGIN_X_CM = 0.1;
@@ -44891,9 +45222,10 @@ function measureDeck(deck) {
   layoutDecisionsBySlide.clear();
   return deck.slides.map((slide) => {
     const dom = materializeAndCompactify(slide.dom, slide.id, theme);
-    const layout = layoutSlide(theme, dom);
-    detectCollisionsForSlide(slide.id, layout.measured, dom);
-    detectComponentLayoutQuality(theme, slide.id, layout.measured, dom);
+    const measuredDom = prepareDomForMeasuredSemanticCohorts(theme, dom, slide.id);
+    const layout = layoutSlide(theme, measuredDom);
+    detectCollisionsForSlide(slide.id, layout.measured, measuredDom);
+    detectComponentLayoutQuality(theme, slide.id, layout.measured, measuredDom);
     return { slideId: slide.id, nodes: layout.measured };
   });
 }
@@ -45475,7 +45807,7 @@ function detectMetricTextInkOverflow(slideId, measured, slideDom) {
     });
   }
 }
-var STRICT_METRIC_TEXT_INK_OVERFLOW_CM = 0.06;
+var STRICT_METRIC_TEXT_INK_OVERFLOW_CM = 0.1;
 function isMetricTextNode(node) {
   if (node.type !== "text")
     return false;
@@ -46032,7 +46364,7 @@ function detectMetricCollectionCapacity(slideId, root, node, measured, slideDom,
   const metricRole = role === "kpi-grid" ? "metric-card" : "";
   const items = measured.filter((item) => item.parentId === root.id && (metricRole ? findNodeById(slideDom, item.id)?.role === metricRole : !/\.sep\d+$/.test(item.id)));
   const count = role === "kpi-grid" ? items.length : Math.max(0, items.length);
-  if (count < (role === "kpi-grid" ? 4 : 5))
+  if (count < (role === "kpi-grid" ? 3 : 5))
     return;
   const perMetricWidth = count > 0 ? Math.min(...items.map((item) => item.rect.w)) : 0;
   const perMetricHeight = count > 0 ? Math.min(...items.map((item) => item.rect.h)) : 0;
@@ -46192,7 +46524,7 @@ function findCollisionConstrainingAncestor(slideDom, a, b, overlap) {
 function materializeAndCompactify(slideDom, slideId, theme) {
   const materialized = materializeNode(slideDom, slideId, theme);
   const compactedChildren = (materialized.children || []).flatMap((child) => child.type === "fragment" ? child.children || [] : [child]).map(compactifyNode).filter((c) => c !== null);
-  return { ...materialized, children: compactedChildren };
+  return normalizeAuthoredSemanticCohorts(theme, { ...materialized, children: compactedChildren });
 }
 var currentSlideId = "";
 var ancestorStack = [];
@@ -46365,6 +46697,60 @@ function layoutSlide(theme, slideDom) {
   }
   return { measured, rectsById };
 }
+function prepareDomForMeasuredSemanticCohorts(theme, slideDom, slideId) {
+  return withSuppressedRenderDiagnostics(() => {
+    const maxPasses = 6;
+    let current = slideDom;
+    const seen = /* @__PURE__ */ new Set([semanticCohortStateFingerprint(current)]);
+    for (let pass = 0; pass < maxPasses; pass++) {
+      const layout = layoutSlide(theme, cloneDomTree(current));
+      const next = normalizeMeasuredSemanticCohorts(theme, current, layout.rectsById, slideId);
+      if (next === current)
+        return current;
+      const fingerprint = semanticCohortStateFingerprint(next);
+      if (seen.has(fingerprint)) {
+        recordDecision(slideId, slideDom.id, { notes: [`semantic-cohort:stopped-after-cycle,pass=${pass + 1}`] });
+        return next;
+      }
+      seen.add(fingerprint);
+      current = next;
+    }
+    recordDecision(slideId, slideDom.id, { notes: [`semantic-cohort:not-converged,maxPasses=${maxPasses}`] });
+    return current;
+  });
+}
+function cloneDomTree(node) {
+  return {
+    ...node,
+    ...Array.isArray(node.children) ? { children: node.children.map(cloneDomTree) } : {}
+  };
+}
+function semanticCohortStateFingerprint(root) {
+  const parts = [];
+  const visit = (node) => {
+    const role = semanticCohortRole(node);
+    const slot = semanticTextSlot(node);
+    if (role || slot || node.__semanticCohortBaseFontSize !== void 0 || node.__semanticCohortBasePadding !== void 0) {
+      parts.push([
+        node.id,
+        `role=${role}`,
+        `slot=${slot || ""}`,
+        `font=${numberSetting(node.fontSize)}`,
+        `minH=${numberSetting(node.minHeight)}`,
+        `pad=${numberSetting(node.padding)}`,
+        `gap=${numberSetting(node.gap)}`,
+        `weight=${numberSetting(node.layoutWeight)}`,
+        `baseFont=${numberSetting(node.__semanticCohortBaseFontSize)}`,
+        `basePad=${numberSetting(node.__semanticCohortBasePadding)}`,
+        `baseGap=${numberSetting(node.__semanticCohortBaseGap)}`
+      ].join(";"));
+    }
+    for (const child of node.children || [])
+      visit(child);
+  };
+  visit(root);
+  return parts.join("|");
+}
 function rectForAnchorToOverlay(node, rectsById) {
   const targetId = typeof node.anchorTo === "string" ? node.anchorTo : "";
   if (!targetId)
@@ -46497,7 +46883,8 @@ function estimateInkRect(theme, node, rect) {
     return placeInkRect(node, rect, { w: neededW, h: neededH });
   }
   if (node.type === "bullets") {
-    const neededH = bulletsIntrinsicHeight(theme, node, rect.w);
+    const style = fitBulletsStyleForReadableFit(theme, node, bulletsAuthoredStyle(theme, node), rect, { emitDiagnostics: false });
+    const neededH = bulletsIntrinsicHeight(theme, node, rect.w, style);
     return placeInkRect({ ...node, align: "left", valign: "top" }, rect, { w: rect.w, h: neededH });
   }
   if (node.type === "shape") {
@@ -46715,14 +47102,15 @@ function rectFromAnchor(theme, node) {
   return { x, y, w, h };
 }
 function renderSlide(theme, slideDom, ids, slideId) {
-  const layout = layoutSlide(theme, slideDom);
-  detectCollisionsForSlide(slideId, layout.measured, slideDom);
-  detectComponentLayoutQuality(theme, slideId, layout.measured, slideDom);
+  const measuredDom = prepareDomForMeasuredSemanticCohorts(theme, slideDom, slideId);
+  const layout = layoutSlide(theme, measuredDom);
+  detectCollisionsForSlide(slideId, layout.measured, measuredDom);
+  detectComponentLayoutQuality(theme, slideId, layout.measured, measuredDom);
   const previous = currentSlideId;
   currentSlideId = slideId;
   try {
-    const flow = flowChildren(slideDom);
-    const overlays = overlayChildren(slideDom);
+    const flow = flowChildren(measuredDom);
+    const overlays = overlayChildren(measuredDom);
     const flowShapes = [];
     for (const child of flow) {
       const rect = layout.rectsById.get(child.id);
@@ -47470,42 +47858,67 @@ function renderPptxGroup(theme, node, rect, rectsById, ids, slideId) {
   }];
 }
 function assembleLayeredContainer(theme, node, rect, rectsById, ids, slideId, layoutFn) {
-  const inner = contentRect(theme, node, rect);
-  const placements = layoutFn(theme, node, inner);
-  const parentCornerRadius = optionalCornerRadiusProp(node);
-  const behind = [];
-  const flow = [];
-  const above = [];
-  for (const { node: child, rect: childRect } of placements) {
-    const isLayeredImage = child.type === "image" && (child.layer === "behind" || child.layer === "above");
-    const shouldInheritClip = isLayeredImage && typeof parentCornerRadius === "number" && parentCornerRadius > 0 && child.clip === void 0;
-    if (shouldInheritClip) {
-      const clipped = { ...child, clip: "rounded", cornerRadius: parentCornerRadius };
-      rectsById.set(clipped.id, childRect);
-      const shapes2 = renderNode(theme, clipped, childRect, rectsById, ids, slideId);
-      const layer2 = clipped.layer === "behind" ? "behind" : "above";
-      if (layer2 === "behind")
-        behind.push(...shapes2);
+  return withAncestor(node, () => {
+    const inner = contentRect(theme, node, rect);
+    const placements = shouldReuseMeasuredContainerPlacements(node) ? measuredContainerPlacements(node, rectsById) ?? layoutFn(theme, node, inner) : layoutFn(theme, node, inner);
+    const parentCornerRadius = optionalCornerRadiusProp(node);
+    const behind = [];
+    const flow = [];
+    const above = [];
+    for (const { node: child, rect: childRect } of placements) {
+      const isLayeredImage = child.type === "image" && (child.layer === "behind" || child.layer === "above");
+      const shouldInheritClip = isLayeredImage && typeof parentCornerRadius === "number" && parentCornerRadius > 0 && child.clip === void 0;
+      if (shouldInheritClip) {
+        const clipped = { ...child, clip: "rounded", cornerRadius: parentCornerRadius };
+        rectsById.set(clipped.id, childRect);
+        const shapes2 = renderNode(theme, clipped, childRect, rectsById, ids, slideId);
+        const layer2 = clipped.layer === "behind" ? "behind" : "above";
+        if (layer2 === "behind")
+          behind.push(...shapes2);
+        else
+          above.push(...shapes2);
+        continue;
+      }
+      rectsById.set(child.id, childRect);
+      const shapes = renderNode(theme, child, childRect, rectsById, ids, slideId);
+      const layer = child.layer === "behind" ? "behind" : child.layer === "above" ? "above" : "flow";
+      if (layer === "behind")
+        behind.push(...shapes);
+      else if (layer === "above")
+        above.push(...shapes);
       else
-        above.push(...shapes2);
-      continue;
+        flow.push(...shapes);
     }
-    rectsById.set(child.id, childRect);
-    const shapes = renderNode(theme, child, childRect, rectsById, ids, slideId);
-    const layer = child.layer === "behind" ? "behind" : child.layer === "above" ? "above" : "flow";
-    if (layer === "behind")
-      behind.push(...shapes);
-    else if (layer === "above")
-      above.push(...shapes);
-    else
-      flow.push(...shapes);
+    return [
+      ...containerBackgroundShape(theme, node, rect, ids),
+      ...behind,
+      ...flow,
+      ...above
+    ];
+  });
+}
+function measuredContainerPlacements(node, rectsById) {
+  const children = node.children || [];
+  if (children.length === 0)
+    return [];
+  const placements = [];
+  for (const child of children) {
+    const rect = rectsById.get(child.id);
+    if (!rect || !isFiniteRect(rect))
+      return void 0;
+    placements.push({ node: child, rect });
   }
-  return [
-    ...containerBackgroundShape(theme, node, rect, ids),
-    ...behind,
-    ...flow,
-    ...above
-  ];
+  return placements;
+}
+function shouldReuseMeasuredContainerPlacements(node) {
+  if (node.type === "grid")
+    return false;
+  if (isNarrativeSplitRegion(node))
+    return true;
+  if (node.semanticBudget === "narrative" || node.layoutBudget === "narrative")
+    return true;
+  const role = typeof node.role === "string" ? node.role.trim() : "";
+  return role.length > 0 && SEMANTIC_BUDGET_REGION_ROLES.has(role);
 }
 function renderChrome(theme, deck, slideIndex, ids, slideBgHex) {
   const out = [];
@@ -47577,7 +47990,8 @@ function textShape(theme, node, rect, ids) {
   const kind = textStyleKey(node);
   const baseStyle = effectiveTextStyle(theme, node, "paragraph");
   const effectiveAutoFit = node.autoFit ?? defaultAutoFitForStyle(kind);
-  const style = effectiveAutoFit === "shrink" ? autoShrinkStyle(theme, node, baseStyle, rect, kind) : shouldPreShrinkTextForReadableFit(node, kind) ? autoShrinkStyle(theme, node, baseStyle, rect, kind, { warnOnAnyShrink: true, diagnosticReason: "pre-shrunk" }) : baseStyle;
+  const fittedStyle = effectiveAutoFit === "shrink" ? autoShrinkStyle(theme, node, baseStyle, rect, kind) : shouldPreShrinkTextForReadableFit(node, kind) ? autoShrinkStyle(theme, node, baseStyle, rect, kind, { warnOnAnyShrink: true, diagnosticReason: "pre-shrunk" }) : baseStyle;
+  const style = shouldAutoGrowText(node, kind) ? autoGrowStyleForReadableFill(theme, node, fittedStyle, rect, kind) : fittedStyle;
   const paragraphs = buildParagraphs(theme, node, style);
   const autoFit = effectiveAutoFit === "shrink" || effectiveAutoFit === "resize" ? effectiveAutoFit : void 0;
   if (!autoFit)
@@ -47613,6 +48027,48 @@ function shouldPreShrinkTextForReadableFit(node, styleKey) {
     return false;
   return styleKey === "paragraph" || styleKey === "article" || styleKey === "lead" || styleKey === "caption" || styleKey === "figure-caption" || styleKey === "footnote";
 }
+function shouldAutoGrowText(node, styleKey) {
+  if (node.autoGrow !== true && node.autoFit !== "grow" && node.autoFit !== "grow-shrink")
+    return false;
+  if (node.autoFit === "none" || node.autoFit === false)
+    return false;
+  if (styleKey === "code")
+    return false;
+  if (node.role === "item-marker")
+    return false;
+  return true;
+}
+function autoGrowStyleForReadableFill(theme, node, style, rect, styleKey) {
+  const maxScale = optionalNumberProp(node, "maxFontScale") ?? (styleKey === "quote" ? 1.45 : 1.18);
+  const maxFontSize = optionalNumberProp(node, "maxFontSize");
+  const hardMaxPt = Math.min(maxFontSize ?? style.fontSize * maxScale, style.fontSize * Math.max(1, maxScale));
+  if (!Number.isFinite(hardMaxPt) || hardMaxPt <= style.fontSize + 0.25)
+    return style;
+  const current = measureTextFitAtFont(theme, node, style, rect, styleKey, style.fontSize);
+  if (!current.fits)
+    return style;
+  if (current.heightAvailable <= 0 || current.heightNeeded > current.heightAvailable * 0.82)
+    return style;
+  let lo = style.fontSize;
+  let hi = hardMaxPt;
+  let fitted = style.fontSize;
+  for (let iter = 0; iter < 12; iter++) {
+    const mid = (lo + hi) / 2;
+    const evidence = measureTextFitAtFont(theme, node, style, rect, styleKey, mid);
+    if (evidence.fits) {
+      fitted = mid;
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  const rounded = Math.round(fitted * 2) / 2;
+  const roundedFits = measureTextFitAtFont(theme, node, style, rect, styleKey, rounded).fits;
+  fitted = roundedFits ? rounded : Math.floor(fitted * 2) / 2;
+  if (fitted <= style.fontSize + 0.25)
+    return style;
+  return { ...style, fontSize: fitted };
+}
 function buildParagraphs(theme, node, style) {
   if (Array.isArray(node.paragraphs) && node.paragraphs.length > 0) {
     return node.paragraphs.map((rawPara) => {
@@ -47628,9 +48084,10 @@ function buildParagraphs(theme, node, style) {
             return parsed.runs.map((r) => richRunToTextRun(theme, r, styleColor, isStyleBold(paraStyle.weight)));
           }
         }
-        const face = pickRunFontFace(theme, text, paraStyle);
+        const runText = normalizeTextForPpt(text);
+        const face = pickRunFontFace(theme, runText, paraStyle);
         return [{
-          text,
+          text: runText,
           sizeHalfPt: paraStyle.fontSize * 2,
           bold: isStyleBold(paraStyle.weight),
           italic: paraStyle.italic === true,
@@ -47644,7 +48101,7 @@ function buildParagraphs(theme, node, style) {
         }];
       })();
       const para2 = {
-        runs: runs2,
+        runs: protectTextRunsForCjkLineBreaks(runs2),
         align: paragraphAlign(rec.align ?? node.align)
       };
       if (typeof rec.indentLevel === "number" && rec.indentLevel > 0)
@@ -47662,7 +48119,7 @@ function buildParagraphs(theme, node, style) {
   const runs = textRuns(theme, node, style);
   const para = {
     align: paragraphAlign(node.align),
-    runs
+    runs: protectTextRunsForCjkLineBreaks(runs)
   };
   if (typeof node.indentLevel === "number" && node.indentLevel > 0)
     para.indentLevel = node.indentLevel;
@@ -47750,9 +48207,7 @@ var BULLET_MARKER_GLYPHS = {
 };
 function bulletsShape(theme, node, rect, ids) {
   const rawItems = Array.isArray(node.items) ? node.items : [];
-  const baseStyle = textStyle(theme, node.density === "compact" ? "bullet-compact" : "bullet", "paragraph");
-  const mult = sizeMultiplier(theme, node.size);
-  const authoredStyle = mult === 1 ? baseStyle : { ...baseStyle, fontSize: baseStyle.fontSize * mult };
+  const authoredStyle = bulletsAuthoredStyle(theme, node);
   const style = fitBulletsStyleForReadableFit(theme, node, authoredStyle, rect);
   const title = typeof node.title === "string" && node.title.trim() ? node.title.trim() : "";
   const numbered = node.numbered === true;
@@ -47798,6 +48253,18 @@ function bulletsShape(theme, node, rect, ids) {
     ],
     margin: { l: cm(0.2), r: cm(0.1), t: cm(0.08), b: cm(0.08) }
   };
+}
+function bulletsAuthoredStyle(theme, node) {
+  const baseStyle = textStyle(theme, node.density === "compact" ? "bullet-compact" : "bullet", "paragraph");
+  const mult = sizeMultiplier(theme, node.size);
+  const out = mult === 1 ? { ...baseStyle } : { ...baseStyle, fontSize: baseStyle.fontSize * mult };
+  if (typeof node.fontSize === "number" && Number.isFinite(node.fontSize) && node.fontSize > 0)
+    out.fontSize = node.fontSize;
+  if (typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0)
+    out.fontSize = Math.max(5.5, out.fontSize * node.fontScale);
+  if (typeof node.lineHeight === "number" && Number.isFinite(node.lineHeight) && node.lineHeight > 0)
+    out.lineHeight = node.lineHeight;
+  return out;
 }
 function bulletHangingIndent(node) {
   if (node.numbered === true) {
@@ -48496,7 +48963,7 @@ function makeTableCell(theme, raw, isHeader, defaultAlign, defaults = {}) {
     const parsedRuns2 = !customRuns && cell.markdown !== false ? parseMarkdownInline(text2) : null;
     const runs = customRuns ? customRuns.map((r) => richRunToTextRun(theme, r, style, bold)) : parsedRuns2?.matched ? parsedRuns2.runs.map((r) => richRunToTextRun(theme, r, effectiveStyle, bold)) : [plainTextRun(theme, text2, style, bold, color(theme, colorToken, style.color))];
     return {
-      runs,
+      runs: protectTextRunsForCjkLineBreaks(runs),
       fill: tableCellFill(theme, fillToken),
       align,
       valign,
@@ -48510,7 +48977,7 @@ function makeTableCell(theme, raw, isHeader, defaultAlign, defaults = {}) {
   const text = String(raw ?? "");
   const parsedRuns = parseMarkdownInline(text);
   return {
-    runs: parsedRuns.matched ? parsedRuns.runs.map((r) => richRunToTextRun(theme, r, style, isStyleBold(style.weight))) : [plainTextRun(theme, text, style, isStyleBold(style.weight), color(theme, void 0, style.color))],
+    runs: protectTextRunsForCjkLineBreaks(parsedRuns.matched ? parsedRuns.runs.map((r) => richRunToTextRun(theme, r, style, isStyleBold(style.weight))) : [plainTextRun(theme, text, style, isStyleBold(style.weight), color(theme, void 0, style.color))]),
     fill: tableCellFill(theme, isHeader ? defaults.headerFill || "surface.subtle" : defaults.bodyFill),
     align: isHeader ? "center" : defaultAlign,
     valign: "middle"
@@ -48748,11 +49215,14 @@ function chartShape(theme, node, rect, ids, rectsById) {
   const showLegend = typeof node.showLegend === "boolean" ? node.showLegend : safeSeries.length > 1;
   const pieLike = resolvedChartType === "pie" || resolvedChartType === "doughnut";
   const showValues = typeof node.showValues === "boolean" ? node.showValues : pieLike;
-  const dataLabels = normalizeChartDataLabels(node.dataLabels, { pieLike, showValues });
+  const dataLabels = normalizeChartDataLabels(node.dataLabels, { pieLike, showValues }, theme);
   const annotations = normalizeChartAnnotations(node.annotations);
   pushChartFitDiagnostics(node, rect, resolvedChartType, safeLabels.length, safeSeries.length, showLegend, semanticOuterRectForBody(node.id, "chart", rectsById));
   pushChartLabelDiagnostics(node, rect, resolvedChartType, dataLabels);
   const barLike = resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "combo";
+  const chartTextColor = color(theme, typeof node.textColor === "string" ? node.textColor : "text.primary");
+  const axisTextColor = color(theme, typeof node.axisTextColor === "string" ? node.axisTextColor : "text.muted");
+  const dataLabelColor = color(theme, typeof node.dataLabelColor === "string" ? node.dataLabelColor : "text.primary");
   return {
     type: "chart",
     id: ids.nextId++,
@@ -48766,6 +49236,11 @@ function chartShape(theme, node, rect, ids, rectsById) {
     showValues,
     orientation: node.orientation === "horizontal" ? "horizontal" : "vertical",
     dataLabels,
+    textColor: chartTextColor,
+    axisTextColor,
+    dataLabelColor,
+    titleColor: color(theme, typeof node.titleColor === "string" ? node.titleColor : chartTextColor),
+    legendTextColor: color(theme, typeof node.legendTextColor === "string" ? node.legendTextColor : axisTextColor),
     xAxis: normalizeChartAxis(theme, node.xAxis ?? node.axis),
     yAxis: normalizeChartAxis(theme, node.yAxis),
     secondaryYAxis: normalizeChartAxis(theme, node.secondaryYAxis ?? node.secondaryAxis),
@@ -49022,7 +49497,7 @@ function pushMissingDataBindingSourceDiagnostic(node, noun) {
     suggestion: "Keep the component and repair bind.source to an existing deck.dataSources id, or remove bind and provide explicit chart/table data."
   });
 }
-function normalizeChartDataLabels(value, defaults) {
+function normalizeChartDataLabels(value, defaults, theme) {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const rec = value;
     const out = defaults.pieLike ? {
@@ -49037,6 +49512,8 @@ function normalizeChartDataLabels(value, defaults) {
       out.show = rec.show;
     if (rec.position === "bestFit" || rec.position === "center" || rec.position === "insideEnd" || rec.position === "insideBase" || rec.position === "outsideEnd")
       out.position = rec.position;
+    if (typeof rec.color === "string")
+      out.color = theme ? color(theme, rec.color) : rec.color;
     if (typeof rec.showValue === "boolean")
       out.showValue = rec.showValue;
     if (typeof rec.showCategoryName === "boolean")
@@ -49285,6 +49762,10 @@ function normalizeChartAxis(theme, value) {
     axis.title = rec.name;
   if (typeof rec.show === "boolean")
     axis.show = rec.show;
+  if (typeof rec.color === "string")
+    axis.color = color(theme, rec.color);
+  if (typeof rec.titleColor === "string")
+    axis.titleColor = color(theme, rec.titleColor);
   for (const key of ["min", "max", "majorUnit", "minorUnit"]) {
     const v = rec[key];
     if (typeof v === "number" && Number.isFinite(v))
@@ -49786,6 +50267,11 @@ function effectiveContentPaddingCm(theme, node, rect) {
   if (base <= 0 || !rect)
     return base;
   const role = typeof node.role === "string" ? node.role : "";
+  if (node.type === "stack" && node.direction !== "horizontal" && SEMANTIC_COHORT_PRESSURE_PADDING_ROLES.has(role)) {
+    const pressure = semanticCohortPressurePaddingCm(theme, node, rect, base, void 0);
+    if (pressure !== void 0)
+      return Math.min(base, pressure);
+  }
   if (role !== "quote")
     return base;
   const heightCap = rect.h * 0.12;
@@ -50032,18 +50518,27 @@ function layoutStackChildren(theme, node, rect) {
     return [];
   const isLayered = (c) => c.layer === "behind" || c.layer === "above";
   const flowOnly = allChildren.filter((c) => !isLayered(c));
+  const cohortFlowOnly = normalizeRepeatedSemanticCohorts(theme, node, flowOnly, {
+    kind: "stack",
+    direction,
+    containerRect: rect,
+    slideId: currentSlideId || void 0
+  });
   const layered = allChildren.filter(isLayered);
   const savedChildren = node.children;
-  node.children = flowOnly;
-  const initialChildren = flowOnly;
-  if (initialChildren.length === 0) {
+  node.children = cohortFlowOnly;
+  let children;
+  try {
+    const initialChildren = cohortFlowOnly;
+    if (initialChildren.length === 0) {
+      return layered.map((c) => ({ node: c, rect }));
+    }
+    const initialAvailable = Math.max(0, mainSize);
+    applyFallbackLadder(theme, node, direction, initialAvailable, crossSize);
+    children = node.children || [];
+  } finally {
     node.children = savedChildren;
-    return layered.map((c) => ({ node: c, rect }));
   }
-  const initialAvailable = Math.max(0, mainSize);
-  applyFallbackLadder(theme, node, direction, initialAvailable, crossSize);
-  const children = node.children || [];
-  node.children = savedChildren;
   if (children.length === 0) {
     return layered.map((c) => ({ node: c, rect }));
   }
@@ -50061,7 +50556,9 @@ function layoutStackChildren(theme, node, rect) {
       grow: true
     };
   });
-  const { specs: childSpecs, glues: layoutGlues } = applyLayoutGlueSpecs(theme, node, children, rawChildSpecs, direction);
+  const glueAdjusted = applyLayoutGlueSpecs(theme, node, children, rawChildSpecs, direction);
+  const childSpecs = applySemanticRegionBudgetSpecs(theme, node, children, glueAdjusted.specs, direction, availableMain, crossSize);
+  const layoutGlues = glueAdjusted.glues;
   const layoutGlueByIndex = new Map(layoutGlues.map((glue) => [glue.index, glue]));
   if (currentSlideId) {
     children.forEach((child, index) => {
@@ -50277,6 +50774,8 @@ function isFiniteRect(rect) {
 }
 function pushCassowaryPressureDiagnostics(parent, pressures) {
   for (const pressure of pressures) {
+    if (isBenignCassowaryPressure(pressure))
+      continue;
     pushDiagnostic({
       severity: "warn",
       code: "OVERFLOW",
@@ -50292,6 +50791,13 @@ function pushCassowaryPressureDiagnostics(parent, pressures) {
       }
     });
   }
+}
+function isBenignCassowaryPressure(pressure) {
+  if (pressure.actual <= pressure.expected)
+    return false;
+  if (!/\.value-wrap$/.test(pressure.nodeId))
+    return false;
+  return pressure.constraint === "maxH" || pressure.constraint === "fixedH";
 }
 function childCrossRect(theme, child, parentCrossStart, parentCrossSize, parent, mainSize, parentDirection) {
   const isHorizontal = parentDirection === "horizontal";
@@ -50560,8 +51066,15 @@ function layoutGridChildren(theme, node, rect) {
   return [...flowOut, ...layered.map((c) => ({ node: c, rect }))];
 }
 function prepareGridChildrenForLayout(theme, node, children, columns, colWidths, gap, rect) {
-  const flowChildren2 = normalizeSingleColumnShapeFlowChildren(children, columns, colWidths[0] || 6);
-  if (node.role !== "kpi-grid" || flowChildren2.length === 0)
+  const flowChildren2 = normalizeRepeatedSemanticCohorts(theme, node, normalizeSingleColumnShapeFlowChildren(children, columns, colWidths[0] || 6), {
+    kind: "grid",
+    columns,
+    colWidths,
+    gap,
+    containerRect: rect,
+    slideId: currentSlideId || void 0
+  });
+  if (flowChildren2.length === 0)
     return flowChildren2;
   children = flowChildren2;
   const placements = computeGridPlacements(children, columns);
@@ -50606,14 +51119,584 @@ function prepareGridChildrenForLayout(theme, node, children, columns, colWidths,
       valueTextMinHeight: textMinHeight2,
       labelBandHeight: labelMinHeight === void 0 ? void 0 : labelBandHeight,
       labelTextMinHeight: labelMinHeight,
-      cardHeight: cardHeightById.get(child.id)
+      cardHeight: cardHeightById.get(child.id),
+      cohortSize: valueMinById.size
     });
   });
+}
+var SEMANTIC_COHORT_EXCLUDED_ROLES = /* @__PURE__ */ new Set([
+  "badge",
+  "bullets",
+  "eyebrow",
+  "kpi-grid",
+  "legend",
+  "logo-strip",
+  "metric-card",
+  "progress-bar",
+  "source-note",
+  "tag-list",
+  "text",
+  "timeline-item-row",
+  "timeline-step"
+]);
+var SLIDE_WIDE_SEMANTIC_COHORT_ROLES = /* @__PURE__ */ new Set([
+  "callout",
+  "comparison-card",
+  "definition-card",
+  "explanation-block",
+  "feature-card",
+  "hero-stat",
+  "icon-text",
+  "insight-card",
+  "key-takeaway",
+  "numbered-step",
+  "pricing-card",
+  "profile-card",
+  "quote",
+  "region-card",
+  "roadmap-item",
+  "scorecard-item",
+  "step-card",
+  "takeaway-item",
+  "warning-list"
+]);
+var SEMANTIC_COHORT_PRESSURE_PADDING_ROLES = /* @__PURE__ */ new Set([
+  "callout",
+  "definition-card",
+  "explanation-block",
+  "feature-card",
+  "insight-card",
+  "key-takeaway",
+  "quote",
+  "region-card",
+  "takeaway-item",
+  "warning-list"
+]);
+var SEMANTIC_COHORT_BODY_SLOTS = /* @__PURE__ */ new Set(["body", "bullets", "detail", "description", "quote", "summary", "text"]);
+function normalizeAuthoredSemanticCohorts(theme, root) {
+  return normalizeSemanticCohortsInTree(theme, root);
+}
+function normalizeMeasuredSemanticCohorts(theme, root, rectsById, slideId) {
+  const groups = /* @__PURE__ */ new Map();
+  collectMeasuredSemanticCohortMembers(root, rectsById, groups);
+  const replacements = /* @__PURE__ */ new Map();
+  for (const members of groups.values()) {
+    const role = semanticCohortRole(members[0].node);
+    if (members.length < 2 || members.length > 12 || !SLIDE_WIDE_SEMANTIC_COHORT_ROLES.has(role))
+      continue;
+    const normalized = normalizeSemanticCohortMembers(theme, role, members, { kind: "slide", rectsById, slideId });
+    for (const [id, node] of normalized)
+      replacements.set(id, node);
+  }
+  return replacements.size > 0 ? rewriteDomNodesById(root, replacements) : root;
+}
+function normalizeSemanticCohortsInTree(theme, node) {
+  if (!Array.isArray(node.children) || node.children.length === 0)
+    return node;
+  let childChanged = false;
+  const children = node.children.map((child) => {
+    const next = normalizeSemanticCohortsInTree(theme, child);
+    if (next !== child)
+      childChanged = true;
+    return next;
+  });
+  const normalized = normalizeRepeatedSemanticCohorts(theme, node, children, { kind: "slide", slideId: currentSlideId || void 0 });
+  return normalized === children && !childChanged ? node : { ...node, children: normalized };
+}
+function collectMeasuredSemanticCohortMembers(node, rectsById, groups) {
+  collectDirectMeasuredSemanticCohortMembers(node, rectsById, groups);
+  collectStructuralPeerSemanticCohortMembers(node, rectsById, groups);
+  for (const child of node.children || []) {
+    if (semanticCohortRole(child))
+      continue;
+    collectMeasuredSemanticCohortMembers(child, rectsById, groups);
+  }
+}
+function collectDirectMeasuredSemanticCohortMembers(node, rectsById, groups) {
+  for (const child of flowChildren(node)) {
+    const role = semanticCohortRole(child);
+    if (!role || !SLIDE_WIDE_SEMANTIC_COHORT_ROLES.has(role) || componentElasticityClass(child, role) !== "elastic")
+      continue;
+    addMeasuredSemanticCohortMember(groups, `direct:${node.id}|${role}|${semanticCohortSettingsKey(child)}`, child, rectsById);
+  }
+}
+function collectStructuralPeerSemanticCohortMembers(node, rectsById, groups) {
+  const regions = flowChildren(node).filter((child) => !semanticCohortRole(child) && flowChildren(child).length > 0);
+  if (regions.length < 2)
+    return;
+  const regionGroups = /* @__PURE__ */ new Map();
+  for (const region of regions) {
+    const key = `${semanticPeerRegionKey(region)};footprint=${semanticPeerRegionFootprintKey(rectsById.get(region.id))}`;
+    const group = regionGroups.get(key) || [];
+    group.push(region);
+    regionGroups.set(key, group);
+  }
+  for (const [regionKey, peerRegions] of regionGroups) {
+    if (peerRegions.length < 2)
+      continue;
+    for (const region of peerRegions) {
+      const slots = [];
+      collectSemanticPeerSlots(region, slots);
+      for (const slot of slots) {
+        const role = semanticCohortRole(slot.node);
+        if (!role || !SLIDE_WIDE_SEMANTIC_COHORT_ROLES.has(role) || componentElasticityClass(slot.node, role) !== "elastic")
+          continue;
+        addMeasuredSemanticCohortMember(groups, `slot:${node.id}|${regionKey}|${slot.path}|${role}|${semanticCohortSettingsKey(slot.node)}`, slot.node, rectsById);
+      }
+    }
+  }
+}
+function addMeasuredSemanticCohortMember(groups, key, node, rectsById) {
+  const rect = rectsById.get(node.id);
+  if (!rect)
+    return;
+  const group = groups.get(key) || [];
+  group.push({ node, rect });
+  groups.set(key, group);
+}
+function semanticPeerRegionKey(node) {
+  return [
+    `type=${node.type}`,
+    `role=${stringSetting(regionCapacityRole(node))}`,
+    `direction=${stringSetting(node.direction)}`,
+    `area=${stringSetting(node.area)}`,
+    `anchor=${stringSetting(node.anchor)}`,
+    `cohortScope=${stringSetting(node.cohortScope ?? node.__cohortScope)}`,
+    `layoutWeight=${numberSetting(node.layoutWeight)}`,
+    `width=${numberSetting(node.width)}`,
+    `height=${numberSetting(node.height)}`,
+    `fixedWidth=${numberSetting(node.fixedWidth)}`,
+    `fixedHeight=${numberSetting(node.fixedHeight)}`,
+    `minWidth=${numberSetting(node.minWidth)}`,
+    `minHeight=${numberSetting(node.minHeight)}`,
+    `colSpan=${numberSetting(node.colSpan)}`,
+    `rowSpan=${numberSetting(node.rowSpan)}`,
+    `at=${tupleSetting(node.at)}`
+  ].join(";");
+}
+function semanticPeerRegionFootprintKey(rect) {
+  if (!rect)
+    return "unmeasured";
+  const bucket = (value) => String(Math.round(Math.max(0, value) * 10) / 10);
+  return `w=${bucket(rect.w)};h=${bucket(rect.h)}`;
+}
+function collectSemanticPeerSlots(node, out, depth = 0, counters = /* @__PURE__ */ new Map()) {
+  if (depth > 8)
+    return;
+  for (const child of flowChildren(node)) {
+    const role = semanticCohortRole(child);
+    if (role) {
+      const explicit = semanticCohortAuthoredSlot(child);
+      const base = explicit || `${role}|${semanticCohortSettingsKey(child)}`;
+      const index = counters.get(base) || 0;
+      counters.set(base, index + 1);
+      out.push({ path: explicit || `${base}#${index}`, node: child });
+      continue;
+    }
+    if (flowChildren(child).length > 0)
+      collectSemanticPeerSlots(child, out, depth + 1, counters);
+  }
+}
+function normalizeRepeatedSemanticCohorts(theme, parent, children, context) {
+  if (children.length < 2)
+    return children;
+  const rects = estimateSemanticCohortMemberRects(theme, parent, children, context);
+  const groups = /* @__PURE__ */ new Map();
+  for (const child of children) {
+    const role = semanticCohortRole(child);
+    if (!role || componentElasticityClass(child, role) !== "elastic")
+      continue;
+    const member = { node: child, rect: rects.get(child.id) };
+    const groupKey = `${role}|${semanticCohortSettingsKey(child)}`;
+    const group = groups.get(groupKey) || [];
+    group.push(member);
+    groups.set(groupKey, group);
+  }
+  const replacements = /* @__PURE__ */ new Map();
+  for (const members of groups.values()) {
+    const role = semanticCohortRole(members[0].node);
+    if (members.length < 2)
+      continue;
+    const normalized = normalizeSemanticCohortMembers(theme, role, members, context);
+    for (const [id, node] of normalized)
+      replacements.set(id, node);
+  }
+  if (replacements.size === 0)
+    return children;
+  return children.map((child) => replacements.get(child.id) || child);
+}
+function semanticCohortRole(node) {
+  const role = regionCapacityRole(node);
+  if (!role || SEMANTIC_COHORT_EXCLUDED_ROLES.has(role))
+    return "";
+  if (!TEXT_FIRST_REGION_ROLES.has(role))
+    return "";
+  if (node.type === "text" || node.type === "bullets" || node.type === "spacer" || node.type === "divider")
+    return "";
+  return role;
+}
+function estimateSemanticCohortMemberRects(theme, parent, children, context) {
+  const out = /* @__PURE__ */ new Map();
+  const rect = context.containerRect;
+  if (!rect || children.length === 0)
+    return out;
+  if (context.kind === "grid") {
+    const columns = Math.max(1, context.columns || 1);
+    const gap = Math.max(0, context.gap || 0);
+    const colWidths = context.colWidths && context.colWidths.length > 0 ? context.colWidths : new Array(columns).fill(Math.max(0, (rect.w - gap * (columns - 1)) / columns));
+    const placements = computeGridPlacements(children, columns);
+    const declaredRows = Math.max(0, Math.floor(numberProp(parent, "rows", 0)));
+    const usedRows = placements.reduce((max, placement) => Math.max(max, placement.row + placement.rowSpan), 0);
+    const rows = Math.max(1, declaredRows, usedRows);
+    const availableHeight = Math.max(0, rect.h - gap * (rows - 1));
+    const rowHeight = rows > 0 ? availableHeight / rows : 0;
+    for (const placement of placements) {
+      const w = spannedSize(colWidths, placement.col, placement.colSpan, gap) || colWidths[placement.col] || rect.w;
+      const h = rowHeight * placement.rowSpan + gap * Math.max(0, placement.rowSpan - 1);
+      out.set(placement.child.id, { x: rect.x, y: rect.y, w, h });
+    }
+    return out;
+  }
+  if (context.kind === "stack") {
+    const direction = context.direction === "horizontal" ? "horizontal" : "vertical";
+    const gap = totalStackGapCm(theme, parent, children);
+    const availableMain = Math.max(0, (direction === "horizontal" ? rect.w : rect.h) - gap);
+    const equalMain = children.length > 0 ? availableMain / children.length : 0;
+    for (const child of children) {
+      out.set(child.id, direction === "horizontal" ? { x: rect.x, y: rect.y, w: equalMain, h: rect.h } : { x: rect.x, y: rect.y, w: rect.w, h: equalMain });
+    }
+  }
+  return out;
+}
+function semanticCohortSettingsKey(node) {
+  const slots = [];
+  collectSemanticCohortSlots(node, slots);
+  return [
+    `sourceType=${stringSetting(node.__cohortSourceType ?? node.type)}`,
+    `variant=${stringSetting(node.__cohortSourceVariant ?? node.variant)}`,
+    `density=${stringSetting(node.__cohortSourceDensity ?? node.density)}`,
+    `cohortGroup=${stringSetting(node.__cohortGroup ?? node.cohortGroup)}`,
+    `cohortScope=${stringSetting(node.__cohortScope ?? node.cohortScope)}`,
+    `direction=${stringSetting(node.direction)}`,
+    `columns=${numberSetting(node.columns)}`,
+    `rows=${numberSetting(node.rows)}`,
+    `width=${numberSetting(node.width)}`,
+    `height=${numberSetting(node.height)}`,
+    `fixedWidth=${numberSetting(node.fixedWidth)}`,
+    `fixedHeight=${numberSetting(node.fixedHeight)}`,
+    `minWidth=${numberSetting(node.minWidth)}`,
+    `minHeight=${numberSetting(node.minHeight)}`,
+    `slots=${slots.join(",")}`
+  ].join(";");
+}
+function semanticCohortAuthoredSlot(node) {
+  const explicit = node.__cohortSlot ?? node.cohortSlot;
+  return typeof explicit === "string" && explicit.trim() ? explicit.trim() : "";
+}
+function collectSemanticCohortSlots(node, out) {
+  const slot = semanticTextSlot(node);
+  if (slot && (node.type === "text" || node.type === "bullets")) {
+    out.push(`${node.type}:${slot}`);
+    return;
+  }
+  for (const child of node.children || [])
+    collectSemanticCohortSlots(child, out);
+}
+function stringSetting(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : "-";
+}
+function numberSetting(value) {
+  return typeof value === "number" && Number.isFinite(value) ? String(Math.round(value * 100) / 100) : "-";
+}
+function tupleSetting(value) {
+  if (!Array.isArray(value) || value.length === 0)
+    return "-";
+  return value.map((item) => numberSetting(item)).join(",");
+}
+function normalizeSemanticCohortMembers(theme, role, members, context) {
+  const replacements = /* @__PURE__ */ new Map();
+  const slotFonts = semanticCohortSlotFonts(theme, members, context.rectsById);
+  if (slotFonts.size === 0)
+    return replacements;
+  const scale = semanticCohortCompressionScaleForMembers(theme, role, members);
+  const needsTypographyNormalization = Array.from(slotFonts.values()).some((font) => font.max > font.min + 0.25);
+  const needsUpdate = needsTypographyNormalization || scale < 0.985 || semanticCohortMembersNeedUpdate(theme, members, slotFonts, scale);
+  if (!needsUpdate)
+    return replacements;
+  for (const member of members) {
+    replacements.set(member.node.id, withSemanticCohortTypography(theme, member.node, slotFonts, scale, member.rect));
+  }
+  const decisionSlideId = context.slideId || currentSlideId;
+  if (decisionSlideId && replacements.size > 0) {
+    for (const member of members) {
+      recordDecision(decisionSlideId, member.node.id, {
+        notes: [`semantic-cohort:role=${role},count=${members.length},scale=${scale.toFixed(3)},scope=${context.kind}`]
+      });
+    }
+  }
+  return replacements;
+}
+function semanticCohortMembersNeedUpdate(theme, members, slotFonts, scale) {
+  let needs = false;
+  const visit = (node, rect) => {
+    if (needs)
+      return;
+    const slot = semanticTextSlot(node);
+    if (slot && (node.type === "text" || node.type === "bullets")) {
+      const target = semanticCohortTargetFontSize(theme, node, slot, slotFonts, scale);
+      const actual = semanticActualNodeFontSize(theme, node);
+      if (Math.abs(target - actual) > 0.2) {
+        needs = true;
+        return;
+      }
+    }
+    if (semanticCohortRole(node) && semanticCohortChromeNeedsUpdate(theme, node, scale, rect)) {
+      needs = true;
+      return;
+    }
+    for (const child of node.children || [])
+      visit(child);
+  };
+  for (const member of members)
+    visit(member.node, member.rect);
+  return needs;
+}
+function semanticCohortCompressionScaleForMembers(theme, role, members) {
+  let scale = 1;
+  for (const member of members) {
+    if (!member.rect || member.rect.w <= 0 || member.rect.h <= 0)
+      continue;
+    const needed = intrinsicMainSize(theme, member.node, "vertical", member.rect.w);
+    if (needed > member.rect.h + 0.04) {
+      scale = Math.min(scale, semanticCohortCompressionScale(role, member.rect.h, needed));
+    }
+  }
+  return scale;
+}
+function semanticCohortCompressionScale(role, availableHeight, neededHeight) {
+  if (!Number.isFinite(availableHeight) || !Number.isFinite(neededHeight) || neededHeight <= 0)
+    return 1;
+  const raw = availableHeight / neededHeight;
+  if (raw >= 0.76)
+    return clamp(1 - (1 - raw) * 0.45, 0.84, 1);
+  const floor = role === "quote" ? 0.74 : role === "metric-card" || role === "hero-stat" ? 0.72 : 0.785;
+  return clamp(raw, floor, 1);
+}
+function semanticCohortSlotFonts(theme, members, rectsById) {
+  const slots = /* @__PURE__ */ new Map();
+  const visit = (node) => {
+    const slot = semanticTextSlot(node);
+    if (slot) {
+      const fontSize = semanticNodeFontSize(theme, node, rectsById?.get(node.id));
+      if (fontSize > 0) {
+        const prev = slots.get(slot);
+        slots.set(slot, prev ? { min: Math.min(prev.min, fontSize), max: Math.max(prev.max, fontSize) } : { min: fontSize, max: fontSize });
+      }
+    }
+    for (const child of node.children || [])
+      visit(child);
+  };
+  for (const member of members)
+    visit(member.node);
+  return slots;
+}
+function semanticNodeFontSize(theme, node, rect) {
+  if (!rect)
+    return semanticActualNodeFontSize(theme, node);
+  const baseFontSize = semanticBaseNodeFontSize(theme, node);
+  if (node.type === "bullets") {
+    const base2 = { ...bulletsAuthoredStyle(theme, node), fontSize: baseFontSize };
+    return fitBulletsStyleForReadableFit(theme, node, base2, rect, { emitDiagnostics: false }).fontSize;
+  }
+  if (node.type !== "text")
+    return 0;
+  const base = { ...effectiveTextStyle(theme, node, "paragraph"), fontSize: baseFontSize };
+  return measuredTextStyleForInk(theme, node, rect, base).fontSize;
+}
+function semanticBaseNodeFontSize(theme, node) {
+  const recorded = optionalNumberProp(node, "__semanticCohortBaseFontSize");
+  if (recorded !== void 0 && recorded > 0)
+    return recorded;
+  return semanticActualNodeFontSize(theme, node);
+}
+function semanticActualNodeFontSize(theme, node) {
+  if (node.type === "bullets")
+    return bulletsAuthoredStyle(theme, node).fontSize;
+  if (node.type === "text")
+    return effectiveTextStyle(theme, node, "paragraph").fontSize;
+  return 0;
+}
+function semanticTextSlot(node) {
+  if (node.type === "bullets")
+    return "bullets";
+  if (node.type !== "text")
+    return void 0;
+  const explicit = typeof node.__cohortSlot === "string" ? node.__cohortSlot : typeof node.cohortSlot === "string" ? node.cohortSlot : typeof node.slot === "string" ? node.slot : "";
+  if (explicit.trim())
+    return explicit.trim();
+  const id = typeof node.id === "string" ? node.id.toLowerCase() : "";
+  const suffix = id.split(".").pop() || id;
+  if (/^(headline|heading|hero|h1)$/.test(suffix))
+    return "headline";
+  if (/^(title|titlerow|title-row|h2|question)$/.test(suffix))
+    return "title";
+  if (/^(subtitle|subhead|eyebrow|label|caption|source|footer|delta|status|proof|tag|badge|meta|unit)$/.test(suffix))
+    return suffix;
+  if (/^(value|metric|number|figure|stat)$/.test(suffix))
+    return "value";
+  if (/^(body|detail|description|summary|text|message|content|copy|lead|answer|quote)$/.test(suffix))
+    return suffix === "quote" ? "quote" : suffix === "description" ? "description" : suffix === "summary" ? "summary" : suffix === "detail" ? "detail" : "body";
+  const styleKey = textStyleKey(node);
+  if (styleKey === "metric-value")
+    return "value";
+  if (styleKey === "metric-label" || styleKey === "label" || styleKey === "caption" || styleKey === "source-note" || styleKey === "badge" || styleKey === "tag")
+    return styleKey;
+  if (styleKey === "section-title" || styleKey === "slide-title" || styleKey === "card-title" || styleKey === "title")
+    return "title";
+  if (styleKey === "quote" || styleKey === "callout" || styleKey === "lead" || BODY_LIKE_TEXT_STYLES.has(styleKey))
+    return "body";
+  return void 0;
+}
+function withSemanticCohortTypography(theme, node, slotFonts, scale, rect) {
+  const container = semanticCohortRole(node) ? withSemanticCohortChromeCompression(theme, node, scale, rect) : node;
+  const slot = semanticTextSlot(node);
+  if (slot && (node.type === "text" || node.type === "bullets")) {
+    const baseFont = semanticBaseNodeFontSize(theme, node);
+    const targetFont = semanticCohortTargetFontSize(theme, node, slot, slotFonts, scale);
+    const textScale = baseFont > 0 ? targetFont / baseFont : scale;
+    const minHeight = optionalNumberProp(node, "__semanticCohortBaseMinHeight") ?? optionalNumberProp(node, "minHeight");
+    const { fontScale: _fontScale, ...rest } = node;
+    return {
+      ...rest,
+      __semanticCohortBaseFontSize: baseFont,
+      ...minHeight !== void 0 ? { __semanticCohortBaseMinHeight: minHeight } : {},
+      fontSize: targetFont,
+      ...minHeight !== void 0 ? { minHeight: Math.max(0.3, minHeight * textScale) } : {},
+      ...SEMANTIC_COHORT_BODY_SLOTS.has(slot) && node.fixedHeight === void 0 && node.height === void 0 ? { layoutWeight: node.layoutWeight ?? 1 } : {}
+    };
+  }
+  if (!Array.isArray(container.children) || container.children.length === 0)
+    return container;
+  return {
+    ...container,
+    children: container.children.map((child) => withSemanticCohortTypography(theme, child, slotFonts, scale))
+  };
+}
+function semanticCohortTargetFontSize(theme, node, slot, slotFonts, scale) {
+  const baseFont = semanticBaseNodeFontSize(theme, node);
+  const slotFont = slotFonts.get(slot);
+  const targetBase = slotFont ? Math.min(baseFont, slotFont.min) : baseFont;
+  return Math.max(semanticCohortMinFontPt(node, slot), targetBase * scale);
+}
+function semanticCohortChromeTarget(theme, node, scale, rect) {
+  const role = semanticCohortRole(node);
+  const chromeScale = semanticCohortChromeScale(role, scale);
+  const currentPadding = optionalNumberProp(node, "padding");
+  const currentGap = optionalNumberProp(node, "gap");
+  const basePadding = optionalNumberProp(node, "__semanticCohortBasePadding") ?? currentPadding;
+  const baseGap = optionalNumberProp(node, "__semanticCohortBaseGap") ?? currentGap;
+  const targetGap = baseGap !== void 0 ? Math.min(baseGap, Math.max(0.05, baseGap * chromeScale)) : void 0;
+  const pressurePadding = basePadding !== void 0 ? semanticCohortPressurePaddingCm(theme, node, rect, basePadding, targetGap) : void 0;
+  return {
+    ...basePadding !== void 0 ? { padding: Math.min(basePadding, pressurePadding ?? Math.max(semanticCohortMinPaddingCm(role), basePadding * chromeScale)) } : {},
+    ...targetGap !== void 0 ? { gap: targetGap } : {}
+  };
+}
+function semanticCohortChromeScale(role, scale) {
+  if (scale >= 0.985)
+    return 1;
+  return role === "explanation-block" || role === "insight-card" || role === "feature-card" || role === "callout" ? Math.pow(scale, 1.75) : scale;
+}
+function semanticCohortChromeNeedsUpdate(theme, node, scale, rect) {
+  const target = semanticCohortChromeTarget(theme, node, scale, rect);
+  const padding = optionalNumberProp(node, "padding");
+  const gap = optionalNumberProp(node, "gap");
+  return target.padding !== void 0 && padding !== void 0 && Math.abs(target.padding - padding) > 0.01 || target.gap !== void 0 && gap !== void 0 && Math.abs(target.gap - gap) > 0.01;
+}
+function withSemanticCohortChromeCompression(theme, node, scale, rect) {
+  const padding = optionalNumberProp(node, "padding");
+  const gap = optionalNumberProp(node, "gap");
+  const target = semanticCohortChromeTarget(theme, node, scale, rect);
+  if (target.padding === void 0 && target.gap === void 0)
+    return node;
+  return {
+    ...node,
+    ...padding !== void 0 ? { __semanticCohortBasePadding: optionalNumberProp(node, "__semanticCohortBasePadding") ?? padding } : {},
+    ...gap !== void 0 ? { __semanticCohortBaseGap: optionalNumberProp(node, "__semanticCohortBaseGap") ?? gap } : {},
+    ...target.padding !== void 0 ? { padding: target.padding } : {},
+    ...target.gap !== void 0 ? { gap: target.gap } : {}
+  };
+}
+function semanticCohortPressurePaddingCm(theme, node, rect, basePadding, targetGap) {
+  if (!rect || rect.h <= 0 || rect.w <= 0 || basePadding <= 0)
+    return void 0;
+  if (node.direction === "horizontal")
+    return void 0;
+  const children = flowChildren(node);
+  if (children.length === 0)
+    return void 0;
+  const role = semanticCohortRole(node);
+  const minPadding = semanticCohortMinPaddingCm(role);
+  const innerWidth = Math.max(0.45, rect.w - minPadding * 2);
+  const contentFloor = children.reduce((sum3, child) => sum3 + semanticCohortChildHeightFloor(theme, child, innerWidth), 0);
+  const gapFloor = targetGap !== void 0 ? targetGap * Math.max(0, children.length - 1) : totalStackGapCm(theme, node, children);
+  const availablePadding = (rect.h - contentFloor - gapFloor) / 2;
+  if (!Number.isFinite(availablePadding) || availablePadding >= basePadding - 0.01)
+    return void 0;
+  return Math.max(minPadding, Math.min(basePadding, availablePadding));
+}
+function semanticCohortChildHeightFloor(theme, child, widthCm) {
+  const fixed = optionalNumberProp(child, "fixedHeight") ?? optionalNumberProp(child, "height");
+  if (fixed !== void 0)
+    return Math.max(0, fixed);
+  const explicit = optionalNumberProp(child, "__semanticCohortBaseMinHeight") ?? optionalNumberProp(child, "minHeight");
+  if (explicit !== void 0)
+    return Math.max(0, explicit);
+  return Math.max(0, intrinsicMinSize(theme, child, "vertical", widthCm));
+}
+function semanticCohortMinPaddingCm(role) {
+  if (role === "explanation-block" || role === "insight-card" || role === "feature-card")
+    return 0.24;
+  if (role === "callout" || role === "quote" || role === "key-takeaway")
+    return 0.2;
+  return 0.18;
+}
+function semanticCohortMinFontPt(node, slot) {
+  if (slot === "value")
+    return 9.5;
+  if (slot === "label" || slot === "caption" || slot === "source" || slot === "footer" || slot === "tag" || slot === "badge")
+    return 6.5;
+  if (slot === "headline" || slot === "title")
+    return 8;
+  if (node.type === "bullets")
+    return 7.5;
+  return 7.5;
+}
+function rewriteDomNodesById(node, replacements) {
+  const replacement = replacements.get(node.id);
+  if (replacement)
+    return replacement;
+  if (!Array.isArray(node.children) || node.children.length === 0)
+    return node;
+  let changed = false;
+  const children = node.children.map((child) => {
+    const next = rewriteDomNodesById(child, replacements);
+    if (next !== child)
+      changed = true;
+    return next;
+  });
+  return changed ? { ...node, children } : node;
 }
 var METRIC_CARD_REPAIR_MIN_PADDING_CM = 0.3;
 var METRIC_CARD_REPAIR_MIN_GAP_CM = 0.08;
 var METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM = 0.62;
 var METRIC_CARD_REPAIR_CAPACITY_TOLERANCE_CM = 0.03;
+var METRIC_CARD_COHORT_MICRO_PADDING_CM = 0.22;
+var METRIC_CARD_COHORT_MICRO_GAP_CM = 0.04;
+var METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM = 0.52;
+var METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM = 0.3;
+var METRIC_CARD_COHORT_MICRO_FONT_SCALE = 0.78;
+var METRIC_CARD_COHORT_MICRO_TOLERANCE_CM = 0.04;
 function measuredMetricBands(theme, metricCardNode, cellWidth) {
   const valueWrap = findMetricValueWrap(metricCardNode);
   const valueNode = findMetricValueNode(metricCardNode);
@@ -50669,10 +51752,14 @@ function measuredMetricLabelBand(theme, metricCardNode, cardContentWidth) {
 function withMeasuredMetricBands(theme, metricCardNode, overrides) {
   if (!Array.isArray(metricCardNode.children))
     return metricCardNode;
-  const plan = metricBandRepairPlan(theme, metricCardNode, overrides);
+  let plan = metricBandRepairPlan(theme, metricCardNode, overrides);
   if (overrides.cardHeight !== void 0 && plan.minCardHeight > overrides.cardHeight + METRIC_CARD_REPAIR_CAPACITY_TOLERANCE_CM) {
-    pushMetricBandRepairRejectedDiagnostic(metricCardNode, overrides.cardHeight, plan);
-    return metricCardNode;
+    const microPlan = metricCohortMicroRepairPlan(theme, metricCardNode, overrides);
+    if (!microPlan) {
+      pushMetricBandRepairRejectedDiagnostic(metricCardNode, overrides.cardHeight, plan);
+      return metricCardNode;
+    }
+    plan = microPlan;
   }
   return {
     ...metricCardNode,
@@ -50686,7 +51773,8 @@ function withMeasuredMetricBands(theme, metricCardNode, overrides) {
           fixedHeight: plan.labelBandHeight,
           minHeight: plan.labelTextMinHeight ?? plan.labelBandHeight,
           autoFit: child.autoFit ?? "shrink",
-          optional: false
+          optional: false,
+          ...plan.fontScale !== void 0 ? { fontScale: mergedFontScale(child.fontScale, plan.fontScale) } : {}
         };
       }
       if (!isMetricValueWrap(child) || plan.valueBandHeight === void 0)
@@ -50696,21 +51784,29 @@ function withMeasuredMetricBands(theme, metricCardNode, overrides) {
         fixedHeight: plan.valueBandHeight,
         maxHeight: plan.valueBandHeight,
         minHeight: plan.valueBandHeight,
-        children: (child.children || []).map((grandchild) => isMetricValueNode(grandchild) ? { ...grandchild, minHeight: plan.valueTextMinHeight ?? plan.valueBandHeight, wrapMinHeight: true } : grandchild)
+        children: (child.children || []).map((grandchild) => isMetricValueNode(grandchild) ? {
+          ...grandchild,
+          minHeight: plan.valueTextMinHeight ?? plan.valueBandHeight,
+          wrapMinHeight: true,
+          ...plan.fontScale !== void 0 ? { fontScale: mergedFontScale(grandchild.fontScale, plan.fontScale) } : {}
+        } : grandchild)
       };
     })
   };
 }
-function metricBandRepairPlan(theme, metricCardNode, overrides) {
+function metricBandRepairPlan(theme, metricCardNode, overrides, options = {}) {
+  const minPadding = options.minPaddingCm ?? METRIC_CARD_REPAIR_MIN_PADDING_CM;
+  const minGap = options.minGapCm ?? METRIC_CARD_REPAIR_MIN_GAP_CM;
+  const minValueBand = options.minValueBandCm ?? METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM;
   const labelNode = findMetricLabelNode(metricCardNode);
   const existingLabelHeight = labelNode ? optionalNumberProp(labelNode, "fixedHeight") ?? 0 : 0;
   const needsLabelRepair = (overrides.labelBandHeight ?? 0) > existingLabelHeight + 0.04;
   const explicitPadding = optionalNumberProp(metricCardNode, "padding") !== void 0;
   const explicitGap = optionalNumberProp(metricCardNode, "gap") !== void 0;
-  const padding = needsLabelRepair && !explicitPadding ? METRIC_CARD_REPAIR_MIN_PADDING_CM : paddingCm(theme, metricCardNode);
-  const gap = needsLabelRepair && !explicitGap ? METRIC_CARD_REPAIR_MIN_GAP_CM : gapCm(theme, metricCardNode);
-  const valueBandHeight = overrides.valueBandHeight === void 0 ? void 0 : Math.max(overrides.valueBandHeight, METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM);
-  const valueTextMinHeight = overrides.valueTextMinHeight === void 0 ? void 0 : Math.max(overrides.valueTextMinHeight, Math.min(valueBandHeight ?? overrides.valueTextMinHeight, METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM));
+  const padding = needsLabelRepair && !explicitPadding ? minPadding : paddingCm(theme, metricCardNode);
+  const gap = needsLabelRepair && !explicitGap ? minGap : gapCm(theme, metricCardNode);
+  const valueBandHeight = overrides.valueBandHeight === void 0 ? void 0 : Math.max(overrides.valueBandHeight, minValueBand);
+  const valueTextMinHeight = overrides.valueTextMinHeight === void 0 ? void 0 : Math.max(overrides.valueTextMinHeight, Math.min(valueBandHeight ?? overrides.valueTextMinHeight, minValueBand));
   const minCardHeight = metricCardRepairMinHeight(theme, metricCardNode, {
     padding,
     gap,
@@ -50728,8 +51824,62 @@ function metricBandRepairPlan(theme, metricCardNode, overrides) {
     minCardHeight,
     needsLabelRepair,
     explicitPadding,
-    explicitGap
+    explicitGap,
+    diagnosticMinPaddingCm: minPadding,
+    diagnosticMinGapCm: minGap,
+    diagnosticMinValueBandCm: minValueBand
   };
+}
+function metricCohortMicroRepairPlan(theme, metricCardNode, overrides) {
+  const available = overrides.cardHeight;
+  if (available === void 0)
+    return void 0;
+  if (!metricCardEligibleForCohortMicroRepair(metricCardNode, overrides.cohortSize ?? 1))
+    return void 0;
+  const valueBandHeight = overrides.valueBandHeight === void 0 ? void 0 : clamp(overrides.valueBandHeight * 0.86, METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM, overrides.valueBandHeight);
+  const labelBandHeight = overrides.labelBandHeight === void 0 ? void 0 : clamp(overrides.labelBandHeight * 0.9, METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM, overrides.labelBandHeight);
+  const valueTextMinHeight = overrides.valueTextMinHeight === void 0 || valueBandHeight === void 0 ? overrides.valueTextMinHeight : Math.min(overrides.valueTextMinHeight, Math.max(METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM, valueBandHeight - 0.02));
+  const labelTextMinHeight = overrides.labelTextMinHeight === void 0 || labelBandHeight === void 0 ? overrides.labelTextMinHeight : Math.min(overrides.labelTextMinHeight, Math.max(METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM, labelBandHeight - 0.01));
+  const plan = metricBandRepairPlan(theme, metricCardNode, {
+    ...overrides,
+    valueBandHeight,
+    valueTextMinHeight,
+    labelBandHeight,
+    labelTextMinHeight
+  }, {
+    minPaddingCm: METRIC_CARD_COHORT_MICRO_PADDING_CM,
+    minGapCm: METRIC_CARD_COHORT_MICRO_GAP_CM,
+    minValueBandCm: METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM
+  });
+  if (plan.minCardHeight > available + METRIC_CARD_COHORT_MICRO_TOLERANCE_CM)
+    return void 0;
+  return {
+    ...plan,
+    fontScale: METRIC_CARD_COHORT_MICRO_FONT_SCALE,
+    adaptiveMode: "cohort-micro"
+  };
+}
+function metricCardEligibleForCohortMicroRepair(metricCardNode, cohortSize) {
+  if (cohortSize < 3)
+    return false;
+  const valueNode = findMetricValueNode(metricCardNode);
+  const labelNode = findMetricLabelNode(metricCardNode);
+  if (!valueNode || !labelNode)
+    return false;
+  const children = metricCardNode.children || [];
+  if (children.some((child) => !isMetricValueWrap(child) && !isMetricLabelNode(child) && child.optional !== true))
+    return false;
+  const value = renderedTextContent(valueNode).trim();
+  const label = renderedTextContent(labelNode).trim();
+  if (!metricValueLooksNumeric(value))
+    return false;
+  return weightedTextLength3(label) <= 18;
+}
+function metricValueLooksNumeric(value) {
+  return new RegExp("^[~\u2248<>\u2264\u2265+\\-\u2212]?\\s*(?:[$\u20AC\xA3\xA5])?\\s*\\d[\\d,]*(?:\\.\\d+)?\\s*(?:[%\u2030x\xD7:+/\\-\u2013\u2014]|\\p{L}){0,12}$", "u").test(value);
+}
+function mergedFontScale(existing, target) {
+  return Math.min(typeof existing === "number" && Number.isFinite(existing) ? existing : 1, target);
 }
 function metricCardRepairMinHeight(theme, metricCardNode, plan) {
   const requiredChildren = (metricCardNode.children || []).filter((child) => child.optional !== true || isMetricValueWrap(child) || isMetricLabelNode(child));
@@ -50785,6 +51935,330 @@ function isMetricLabelNode(node) {
 }
 function resolveMainSizes(theme, children, direction, availableMain, crossSize) {
   return solveSizes(children.map((child) => childMainSpec(theme, child, direction, crossSize)), availableMain);
+}
+function applySemanticRegionBudgetSpecs(theme, parent, children, specs, direction, availableMain, crossSize) {
+  if (direction !== "vertical" || children.length < 2)
+    return specs;
+  if (!isNarrativeSplitRegion(parent))
+    return specs;
+  const items = collectSemanticRegionBudgetItems(theme, parent, children, specs, crossSize, availableMain);
+  const preferredTotal = items.reduce((sum3, item) => sum3 + item.preferred, 0);
+  const floorTotal = items.reduce((sum3, item) => sum3 + item.floor, 0);
+  const projected = solveSizes(specs, availableMain, false);
+  const starvingCritical = items.some((item) => item.priority >= SEMANTIC_CRITICAL_PRIORITY && (projected[item.index] ?? 0) + 0.08 < item.floor);
+  const overCapacity = preferredTotal > availableMain + 0.06;
+  if (!overCapacity && !starvingCritical)
+    return specs;
+  const targetSizes = resolveSemanticRegionBudgetTargets(items, availableMain);
+  if (floorTotal > availableMain + 0.04) {
+    pushSemanticRegionBudgetInfeasibleDiagnostic(parent, children, items, targetSizes, availableMain, preferredTotal, floorTotal);
+  }
+  if (targetSizes.every((target, index) => Math.abs(target - items[index].preferred) <= 0.03 && items[index].floor >= specs[index].min - 0.03)) {
+    return specs;
+  }
+  return applySemanticRegionBudgetTargets(parent, children, specs, items, targetSizes);
+}
+function collectSemanticRegionBudgetItems(theme, parent, children, specs, crossSize, availableMain) {
+  return children.map((child, index) => semanticRegionBudgetItem(theme, parent, child, specs[index], index, crossSize, availableMain));
+}
+function applySemanticRegionBudgetTargets(parent, children, specs, items, targetSizes) {
+  const next = specs.slice();
+  for (const item of items) {
+    const index = item.index;
+    const child = children[index];
+    const spec = item.spec;
+    if (spec.fixed)
+      continue;
+    const target = targetSizes[index] ?? item.preferred;
+    const floor = Math.min(target, item.floor);
+    const compressed = target < item.preferred - 0.04;
+    next[index] = {
+      ...spec,
+      min: Math.max(0, floor),
+      basis: Math.max(0, target),
+      fixed: false,
+      grow: false,
+      weight: Math.max(spec.weight, semanticGrowthWeight(item.priority)),
+      shrinkWeight: Math.max(spec.shrinkWeight ?? 0, semanticShrinkWeight(item.priority))
+    };
+    if (compressed && child.type === "bullets" && child.density !== "compact")
+      child.density = "compact";
+    if (compressed && (child.type === "text" || child.type === "bullets") && child.autoFit !== "shrink") {
+      child.autoFit = "shrink";
+      child.__fallbackAutoFitShrink = true;
+    }
+    if (currentSlideId) {
+      const belowFloor = target + 0.03 < item.floor;
+      recordDecision(currentSlideId, child.id, {
+        notes: [`semantic-budget:preferred=${item.preferred.toFixed(2)},floor=${item.floor.toFixed(2)},target=${target.toFixed(2)},priority=${item.priority}${belowFloor ? ",belowFloor=true" : ""}`]
+      });
+    }
+  }
+  return next;
+}
+var SEMANTIC_CRITICAL_PRIORITY = 90;
+function semanticRegionBudgetItem(theme, parent, child, spec, index, crossSize, availableMain) {
+  const priority = semanticLayoutPriority(child, parent);
+  const preferred = semanticPreferredMain(spec);
+  const floor = spec.fixed ? preferred : Math.min(preferred, semanticRegionFloor(theme, parent, child, spec, priority, crossSize, availableMain));
+  return { index, spec, priority, preferred, floor };
+}
+function semanticPreferredMain(spec) {
+  return clamp(spec.basis, Math.max(0, spec.min), Math.max(Math.max(0, spec.min), spec.max));
+}
+function resolveSemanticRegionBudgetTargets(items, availableMain) {
+  const targets = items.map((item) => item.preferred);
+  let overflow = targets.reduce((sum3, target) => sum3 + target, 0) - Math.max(0, availableMain);
+  let shrinkable = items.map((item, index) => ({ item, index })).filter(({ item, index }) => !item.spec.fixed && targets[index] > item.floor + 1e-3);
+  while (overflow > 1e-3 && shrinkable.length > 0) {
+    const factors = shrinkable.map(({ item, index }) => Math.max(0, targets[index] - item.floor) * semanticCompressionFactor(item.priority));
+    const totalFactor = factors.reduce((sum3, factor) => sum3 + factor, 0);
+    if (totalFactor <= 1e-3)
+      break;
+    let consumed = 0;
+    shrinkable.forEach(({ item, index }, factorIndex) => {
+      const capacity = Math.max(0, targets[index] - item.floor);
+      const reduction = Math.min(capacity, overflow * (factors[factorIndex] / totalFactor));
+      targets[index] -= reduction;
+      consumed += reduction;
+    });
+    if (consumed <= 1e-3)
+      break;
+    overflow = targets.reduce((sum3, target) => sum3 + target, 0) - Math.max(0, availableMain);
+    shrinkable = shrinkable.filter(({ item, index }) => targets[index] > item.floor + 1e-3);
+  }
+  if (overflow > 1e-3) {
+    const flexible = items.map((item, index) => ({ item, index })).filter(({ item, index }) => !item.spec.fixed && targets[index] > 0.04);
+    const flexibleTotal = flexible.reduce((sum3, { index }) => sum3 + targets[index], 0);
+    if (flexibleTotal > 1e-3) {
+      const fixedTotal = targets.reduce((sum3, target, index) => sum3 + (items[index].spec.fixed ? target : 0), 0);
+      const flexibleAvailable = Math.max(0, availableMain - fixedTotal);
+      const scale = Math.min(1, flexibleAvailable / flexibleTotal);
+      flexible.forEach(({ index }) => {
+        targets[index] *= scale;
+      });
+    }
+  }
+  return targets;
+}
+function pushSemanticRegionBudgetInfeasibleDiagnostic(parent, children, items, targetSizes, availableMain, preferredTotal, floorTotal) {
+  pushDiagnostic({
+    severity: "warn",
+    code: "REGION_BUDGET_INFEASIBLE",
+    slideId: currentSlideId || void 0,
+    nodeId: parent.id,
+    message: `Narrative region '${parent.id}' cannot keep all children above their readable floors within ${roundCm(availableMain)}cm.`,
+    suggestion: "Reduce copy, split the region, or lower the priority/floor of less important items; the renderer will share compression and may go below readable floors.",
+    measured: {
+      available: roundCm(availableMain),
+      needed: roundCm(floorTotal),
+      deltaCm: roundCm(Math.max(0, floorTotal - availableMain)),
+      preferredTotalCm: roundCm(preferredTotal),
+      floorTotalCm: roundCm(floorTotal),
+      targetTotalCm: roundCm(targetSizes.reduce((sum3, target) => sum3 + target, 0)),
+      budgetDeficitCm: roundCm(Math.max(0, floorTotal - availableMain)),
+      budgetStrategy: "shared-compression-below-floor",
+      budgetItems: items.map((item) => {
+        const child = children[item.index];
+        return {
+          nodeId: child.id,
+          role: regionCapacityRole(child),
+          preferredCm: roundCm(item.preferred),
+          floorCm: roundCm(item.floor),
+          targetCm: roundCm(targetSizes[item.index] ?? item.preferred),
+          priority: item.priority
+        };
+      })
+    }
+  });
+}
+function roundCm(value) {
+  return Math.round(value * 1e3) / 1e3;
+}
+function isNarrativeSplitRegion(parent) {
+  if (parent.semanticBudget === false || parent.layoutBudget === "none")
+    return false;
+  if (parent.semanticBudget === "narrative" || parent.layoutBudget === "narrative")
+    return true;
+  const role = typeof parent.role === "string" ? parent.role.trim() : "";
+  if (role && SEMANTIC_BUDGET_REGION_ROLES.has(role))
+    return true;
+  if (!isSemanticBudgetCandidateContainer(parent))
+    return false;
+  return ancestorStack.some((ancestor) => ancestor !== parent && (ancestor.__loweredFromSplit === true || ancestor.role === "evidence-layout" || ancestor.role === "chart-with-rail" || ancestor.role === "main-effect-comparison"));
+}
+var SEMANTIC_BUDGET_REGION_ROLES = /* @__PURE__ */ new Set([
+  "callout",
+  "executive-summary",
+  "explanation-block",
+  "insight-card",
+  "insight-region",
+  "key-takeaway",
+  "quote",
+  "region-card",
+  "side-rail",
+  "takeaway-list",
+  "warning-list"
+]);
+function isSemanticBudgetCandidateContainer(parent) {
+  const role = typeof parent.role === "string" ? parent.role.trim() : "";
+  if (role && !SEMANTIC_BUDGET_REGION_ROLES.has(role))
+    return false;
+  if (parent.type !== "stack" && parent.type !== "panel" && parent.type !== "card" && parent.type !== "inset")
+    return false;
+  const children = parent.children || [];
+  if (children.length < 2)
+    return false;
+  let narrativeCount = 0;
+  let hardCount = 0;
+  for (const child of children) {
+    const childRole = regionCapacityRole(child);
+    if (child.type === "text" || child.type === "bullets" || child.type === "spacer" || child.type === "divider" || SEMANTIC_BUDGET_REGION_ROLES.has(childRole)) {
+      narrativeCount += 1;
+      continue;
+    }
+    if (componentElasticityClass(child, childRole) === "hard")
+      hardCount += 1;
+  }
+  return narrativeCount >= 2 && hardCount === 0;
+}
+function semanticLayoutPriority(node, parent) {
+  const role = regionCapacityRole(node);
+  if (role === "key-takeaway")
+    return isFinalSemanticSibling(parent, node) ? 100 : 88;
+  if (role === "executive-summary")
+    return 95;
+  if (role === "insight-card" || role === "explanation-block")
+    return 86;
+  if (parent?.role === "key-takeaway" && node.type === "text" && /\.detail$/.test(String(node.id || "")))
+    return 76;
+  if (role === "quote")
+    return 64;
+  if (node.type === "bullets")
+    return 42;
+  if (node.type === "text") {
+    const styleKey = textStyleKey(node);
+    if (styleKey === "slide-title" || styleKey === "section-title")
+      return 70;
+    if (styleKey === "card-title" || styleKey === "lead")
+      return 58;
+    return 40;
+  }
+  if (node.type === "spacer" || node.type === "divider" || node.type === "shape")
+    return 8;
+  if (componentElasticityClass(node, role) === "hard")
+    return 76;
+  return 52;
+}
+function isFinalSemanticSibling(parent, node) {
+  const siblings = (parent?.children || []).filter((child) => !isOverlayChild(child) && child.type !== "spacer" && child.type !== "divider");
+  return siblings.length > 0 && siblings[siblings.length - 1] === node;
+}
+function semanticRegionFloor(theme, parent, node, spec, priority, crossSize, availableMain) {
+  const role = regionCapacityRole(node);
+  if (role === "key-takeaway")
+    return keyTakeawayRegionFloor(theme, node, crossSize, spec, availableMain);
+  if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") {
+    const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "vertical", crossSize));
+    return clamp(Math.max(spec.min, natural * 0.52), spec.min, Math.min(availableMain * 0.46, 3.8));
+  }
+  if (node.type === "text")
+    return Math.max(semanticCompressionMainFloor(theme, node, "vertical", crossSize, spec), semanticTextReadableFloor(theme, parent, node, crossSize, priority));
+  if (node.type === "bullets")
+    return Math.max(semanticCompressionMainFloor(theme, node, "vertical", crossSize, spec), semanticBulletsReadableFloor(theme, node, crossSize));
+  return semanticCompressionMainFloor(theme, node, "vertical", crossSize, spec);
+}
+function keyTakeawayRegionFloor(theme, node, widthCm, spec, availableMain) {
+  const children = (node.children || []).filter((child) => !isOverlayChild(child));
+  const hasDetail = children.some((child) => child.type === "text" && /\.detail$/.test(String(child.id || "")));
+  const structural = children.reduce((sum3, child) => {
+    if (child.type === "shape")
+      return sum3 + (optionalNumberProp(child, "fixedHeight") ?? optionalNumberProp(child, "height") ?? optionalNumberProp(child, "minHeight") ?? 0.12);
+    if (child.type === "text") {
+      const explicit = optionalNumberProp(child, "minHeight");
+      const readable = semanticTextReadableFloor(theme, node, child, widthCm, semanticLayoutPriority(child, node));
+      return sum3 + Math.max(explicit ?? 0, readable);
+    }
+    return sum3 + intrinsicMinSize(theme, child, "vertical", widthCm);
+  }, 0) + totalStackGapCm(theme, node, children);
+  const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "vertical", widthCm));
+  const budget = theme.layout.regionBudget;
+  const minimum = hasDetail ? budget.keyTakeawayMinCm : 1.75;
+  const maximum = hasDetail ? budget.keyTakeawayMaxCm : 2.75;
+  const fraction = hasDetail ? 0.46 : 0.48;
+  return clamp(Math.max(spec.min, structural, natural * fraction, minimum), spec.min, Math.min(maximum, Math.max(spec.min, availableMain * budget.keyTakeawayMaxAvailableRatio)));
+}
+function semanticTextReadableFloor(theme, parent, node, widthCm, priority) {
+  const styleKey = textStyleKey(node);
+  const baseStyle = effectiveTextStyle(theme, node, "paragraph");
+  const targetPt = semanticTargetTextFontPt(theme, parent, node, styleKey, baseStyle.fontSize, priority);
+  const fitNode = { ...node, autoFit: "shrink", __fallbackAutoFitShrink: true };
+  const evidence = measureTextFitAtFont(theme, fitNode, baseStyle, { x: 0, y: 0, w: Math.max(0.45, widthCm), h: 10 }, styleKey, targetPt);
+  return Math.max(textSquashMinHeight(theme, fitNode, { x: 0, y: 0, w: widthCm, h: 10 }), evidence.heightNeeded + (evidence.wrappedLines > 1 ? 0.12 : 0.04));
+}
+function semanticTargetTextFontPt(theme, parent, node, styleKey, originalPt, priority) {
+  const minPt = autoShrinkMinFontPt({ ...node, autoFit: "shrink" }, styleKey, originalPt);
+  const parentRole = typeof parent.role === "string" ? parent.role : "";
+  const budget = theme.layout.regionBudget;
+  const roleScale = parentRole === "key-takeaway" && /\.detail$/.test(String(node.id || "")) ? budget.keyTakeawayDetailScale : isHeadingTextStyle(styleKey) ? budget.headingScale : priority >= 58 ? budget.leadScale : budget.bodyScale;
+  return Math.max(minPt, originalPt * roleScale);
+}
+function semanticBulletsReadableFloor(theme, node, widthCm) {
+  const compactNode = { ...node, density: "compact", autoFit: "shrink", __fallbackAutoFitShrink: true };
+  const baseStyle = bulletsAuthoredStyle(theme, compactNode);
+  const budget = theme.layout.regionBudget;
+  const style = { ...baseStyle, fontSize: Math.max(budget.bulletMinPt, baseStyle.fontSize * budget.bulletScale) };
+  const evidence = measureBulletsFit(theme, compactNode, { x: 0, y: 0, w: widthCm, h: 10 }, style);
+  return Math.max(bulletsSquashMinHeight(theme, compactNode, { x: 0, y: 0, w: widthCm, h: 10 }), evidence.needed);
+}
+function semanticCompressionMainFloor(theme, node, direction, crossSize, spec) {
+  if (direction !== "vertical")
+    return spec.min;
+  if (node.type === "bullets") {
+    const compactNode = { ...node, density: "compact", autoFit: "shrink", __fallbackAutoFitShrink: true };
+    const compact = bulletsIntrinsicHeight(theme, compactNode, crossSize);
+    const squash = bulletsSquashMinHeight(theme, compactNode, { x: 0, y: 0, w: crossSize, h: 10 });
+    return clamp(Math.max(squash, compact * 0.62), 0.72, Math.max(0.72, spec.min));
+  }
+  if (node.type === "text") {
+    const squash = textSquashMinHeight(theme, node, { x: 0, y: 0, w: crossSize, h: 10 });
+    const ratio = isHeadingTextStyle(textStyleKey(node)) ? 0.7 : 0.58;
+    return clamp(Math.max(squash, spec.basis * ratio), 0.36, Math.max(0.36, spec.min));
+  }
+  if (node.type === "spacer")
+    return 0;
+  return spec.min;
+}
+function semanticShrinkWeight(priority) {
+  if (priority <= 20)
+    return 8;
+  if (priority <= 45)
+    return 5;
+  if (priority <= 60)
+    return 3;
+  return 1.6;
+}
+function semanticCompressionFactor(priority) {
+  if (priority >= 95)
+    return 1.25;
+  if (priority >= 85)
+    return 1.45;
+  if (priority >= 70)
+    return 1.7;
+  if (priority >= 58)
+    return 2.1;
+  if (priority >= 42)
+    return 2.5;
+  return 3;
+}
+function semanticGrowthWeight(priority) {
+  if (priority >= 95)
+    return 1.4;
+  if (priority >= 70)
+    return 1.15;
+  if (priority >= 42)
+    return 0.9;
+  return 0.7;
 }
 function applyLayoutGlueSpecs(theme, parent, children, specs, direction) {
   const glues = children.map((child, index) => layoutGlueSpecForChild(theme, parent, children, child, index, direction)).filter((glue) => glue !== void 0);
@@ -51451,6 +52925,9 @@ function gridIntrinsicHeight(theme, node, widthCm) {
   return total + gap * Math.max(0, rows - 1);
 }
 function resolveGridRowHeights(theme, placements, rows, availableHeight, colWidths, gap, rowWeightsValue) {
+  const uniform = uniformSemanticGridRowHeights(placements, rows, availableHeight, rowWeightsValue);
+  if (uniform)
+    return uniform;
   return resolveGridRowTracks({
     count: rows,
     available: availableHeight,
@@ -51458,6 +52935,31 @@ function resolveGridRowHeights(theme, placements, rows, availableHeight, colWidt
     defaultMin: 0.4,
     contributions: gridRowContributions(theme, placements, colWidths, gap)
   });
+}
+function uniformSemanticGridRowHeights(placements, rows, availableHeight, rowWeightsValue) {
+  if (rowWeightsValue !== void 0)
+    return void 0;
+  if (rows < 2 || placements.length < 2)
+    return void 0;
+  const roles = /* @__PURE__ */ new Set();
+  for (const placement of placements) {
+    const role = semanticCohortRole(placement.child);
+    if (!role || placement.rowSpan !== 1 || placement.colSpan !== 1 || componentElasticityClass(placement.child, role) !== "elastic")
+      return void 0;
+    roles.add(role);
+  }
+  if (roles.size !== 1)
+    return void 0;
+  const counts = new Array(rows).fill(0);
+  for (const placement of placements) {
+    if (placement.row < 0 || placement.row >= rows)
+      return void 0;
+    counts[placement.row] += 1;
+  }
+  if (!counts.every((count) => count === counts[0]))
+    return void 0;
+  const size = rows > 0 ? availableHeight / rows : 0;
+  return new Array(rows).fill(Math.max(0, size));
 }
 function gridRowContributions(theme, placements, colWidths, gap) {
   return placements.map((placement) => {
@@ -51633,7 +53135,8 @@ function measureBulletsFit(theme, node, rect, style) {
     itemCount: items.length
   };
 }
-function fitBulletsStyleForReadableFit(theme, node, style, rect) {
+function fitBulletsStyleForReadableFit(theme, node, style, rect, options = {}) {
+  const emitDiagnostics = options.emitDiagnostics !== false;
   const initial = measureBulletsFit(theme, node, rect, style);
   if (initial.needed <= initial.available + 0.08)
     return style;
@@ -51658,27 +53161,29 @@ function fitBulletsStyleForReadableFit(theme, node, style, rect) {
     return style;
   const severe = fitted < 7.5 || fitted <= style.fontSize * 0.65;
   const finalEvidence = measureBulletsFit(theme, node, rect, { ...style, fontSize: fitted });
-  pushDiagnostic({
-    severity: severe ? "error" : "warn",
-    code: "TRUNCATED",
-    slideId: currentSlideId || void 0,
-    nodeId: node.id,
-    message: `Bullets '${nodeLabel(node)}' were pre-shrunk from ${style.fontSize.toFixed(1)}pt to ${fitted.toFixed(1)}pt to fit the assigned list box.`,
-    suggestion: severe ? "This bullet list is no longer presentation-readable. Use fewer bullets, shorten items, increase the region, or split the list across slides." : "The rendered list was repaired by a small font reduction. If the visual review looks crowded, shorten one bullet or give the list more height.",
-    measured: {
-      available: finalEvidence.available,
-      needed: initial.needed,
-      deltaCm: Math.max(0, initial.needed - finalEvidence.available),
-      rect,
-      originalFontSize: style.fontSize,
-      finalFontSize: fitted,
-      lineHeightCm: finalEvidence.lineHeightCm,
-      wrappedLines: finalEvidence.wrappedLines,
-      availableLines: finalEvidence.availableLines,
-      itemCount: finalEvidence.itemCount,
-      fitMethod: "pre-shrink"
-    }
-  });
+  if (emitDiagnostics) {
+    pushDiagnostic({
+      severity: severe ? "error" : "warn",
+      code: "TRUNCATED",
+      slideId: currentSlideId || void 0,
+      nodeId: node.id,
+      message: `Bullets '${nodeLabel(node)}' were pre-shrunk from ${style.fontSize.toFixed(1)}pt to ${fitted.toFixed(1)}pt to fit the assigned list box.`,
+      suggestion: severe ? "This bullet list is no longer presentation-readable. Use fewer bullets, shorten items, increase the region, or split the list across slides." : "The rendered list was repaired by a small font reduction. If the visual review looks crowded, shorten one bullet or give the list more height.",
+      measured: {
+        available: finalEvidence.available,
+        needed: initial.needed,
+        deltaCm: Math.max(0, initial.needed - finalEvidence.available),
+        rect,
+        originalFontSize: style.fontSize,
+        finalFontSize: fitted,
+        lineHeightCm: finalEvidence.lineHeightCm,
+        wrappedLines: finalEvidence.wrappedLines,
+        availableLines: finalEvidence.availableLines,
+        itemCount: finalEvidence.itemCount,
+        fitMethod: "pre-shrink"
+      }
+    });
+  }
   return { ...style, fontSize: fitted };
 }
 function bulletReadableHeightFloor(itemCount, hasTitle) {
@@ -51992,7 +53497,7 @@ function measureTextFitAtFont(theme, node, style, rect, styleKey, fontPt) {
   const lines = textLinesForFit(rawText);
   const text = lines.join("\n");
   if (!text) {
-    return { fits: true, widthNeeded: 0, heightNeeded: 0, heightAvailable: Math.max(0, rect.h), unbreakableNeeded: 0, wrappedLines: 0, availableLines: 0, lineHeightCm: 0, fontPt, innerWidthCm: Math.max(0, rect.w) };
+    return { fits: true, widthNeeded: 0, heightNeeded: 0, heightAvailable: Math.max(0, rect.h), unbreakableNeeded: 0, punctuationRisk: false, wrappedLines: 0, availableLines: 0, lineHeightCm: 0, fontPt, innerWidthCm: Math.max(0, rect.w) };
   }
   const compactMarkerText = node.role === "item-marker";
   const inner = Math.max(compactMarkerText ? 0.08 : 0.1, rect.w - (compactMarkerText ? 0.06 : 0.35));
@@ -52002,6 +53507,7 @@ function measureTextFitAtFont(theme, node, style, rect, styleKey, fontPt) {
   const measurer = createTextMeasurer(theme);
   let widthNeeded = 0;
   let unbreakableNeeded = 0;
+  let punctuationRisk = false;
   let wrappedLines = 0;
   for (const line of textLines) {
     if (noWrap) {
@@ -52014,6 +53520,8 @@ function measureTextFitAtFont(theme, node, style, rect, styleKey, fontPt) {
       widthNeeded = Math.max(widthNeeded, metrics.widthCm);
       unbreakableNeeded = Math.max(unbreakableNeeded, metrics.unbreakableCm);
       wrappedLines += metrics.lines;
+      if (!punctuationRisk)
+        punctuationRisk = hasCjkLineStartPunctuationRisk(line, fontPt, style.weight, inner, measurer);
     }
   }
   const measuredStyle = { ...style, fontSize: fontPt };
@@ -52025,7 +53533,7 @@ function measureTextFitAtFont(theme, node, style, rect, styleKey, fontPt) {
   const mustFitSingleLineHeight = wrappedLines > 1 || singleLineAutoFitHeightPressure || (styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") && rect.h <= 0.5;
   const heightSensitive = mustFitSingleLineHeight || isTextFirstRole(nearestSemanticRole(node)) && heightNeeded > innerHeight + 0.06;
   const heightAvailableForFit = wrappedLines <= 1 ? Math.max(0, rect.h) : innerHeight;
-  const fitsWidth = noWrap ? widthNeeded <= inner : containsCjk(text) ? true : unbreakableNeeded <= inner;
+  const fitsWidth = noWrap ? widthNeeded <= inner : containsCjk(text) ? !punctuationRisk : unbreakableNeeded <= inner;
   const fitsHeight = !heightSensitive || heightNeeded <= heightAvailableForFit + 0.08;
   return {
     fits: fitsWidth && fitsHeight,
@@ -52033,6 +53541,7 @@ function measureTextFitAtFont(theme, node, style, rect, styleKey, fontPt) {
     heightNeeded,
     heightAvailable: heightAvailableForFit,
     unbreakableNeeded,
+    punctuationRisk,
     wrappedLines,
     availableLines: lineHeightCm > 0 ? heightAvailableForFit / lineHeightCm : 0,
     lineHeightCm,
@@ -52072,12 +53581,13 @@ function autoShrinkStyle(theme, node, style, rect, styleKey, options = {}) {
   fitted = computeFit(rounded).fits ? rounded : Math.floor(fitted * 2) / 2;
   if (fitted >= style.fontSize - 0.25)
     return style;
-  if (options.warnOnAnyShrink && fitted > style.fontSize * 0.92)
+  const punctuationGuardShrink = initial.punctuationRisk === true;
+  if (options.warnOnAnyShrink && !punctuationGuardShrink && fitted > style.fontSize * 0.92)
     return style;
   const severe = isSevereTextShrink(node, styleKey, style.fontSize, fitted);
-  if (emitDiagnostics && (options.warnOnAnyShrink || severe || fitted <= 9 || fitted <= style.fontSize * 0.78)) {
+  if (emitDiagnostics && (!punctuationGuardShrink && options.warnOnAnyShrink || severe || fitted <= 9 || fitted <= style.fontSize * 0.78)) {
     const finalEvidence = computeFit(fitted);
-    const reason = options.diagnosticReason || (initial.wrappedLines > lines.length ? "wrapped and auto-shrunk" : "auto-shrunk");
+    const reason = options.diagnosticReason || (initial.punctuationRisk ? "guarded against CJK punctuation orphaning" : initial.wrappedLines > lines.length ? "wrapped and auto-shrunk" : "auto-shrunk");
     pushDiagnostic({
       severity: severe ? "error" : "warn",
       code: "TRUNCATED",
@@ -52324,7 +53834,7 @@ function applyChartSeriesStyle(theme, series, record) {
     series.marker = marker;
   if (typeof record.smooth === "boolean")
     series.smooth = record.smooth;
-  const dataLabels = normalizeChartDataLabels(record.dataLabels, { pieLike: false, showValues: false });
+  const dataLabels = normalizeChartDataLabels(record.dataLabels, { pieLike: false, showValues: false }, theme);
   if (dataLabels)
     series.dataLabels = dataLabels;
 }
