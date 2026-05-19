@@ -18,6 +18,7 @@
     "snapshot:png": "pnpm exec jiti tools/render-snapshot.ts --png"
   },
   "dependencies": {
+    "@lume/kiwi": "^0.4.4",
     "jpeg-js": "^0.4.4",
     "jszip": "^3.10.1"
   },

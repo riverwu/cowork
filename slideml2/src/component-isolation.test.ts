@@ -31,7 +31,6 @@ const BLOCKING_CODES: ReadonlySet<LayoutDiagnostic["code"]> = new Set<LayoutDiag
   "COLLISION",
   "TINY_RECT",
   "SQUASHED",
-  "LOW_CONTRAST",
   "UNKNOWN_COLOR",
   "UNKNOWN_STYLE",
 ]);
@@ -94,10 +93,11 @@ function valuesForField(componentName: string, fieldName: string, fieldSchema: R
     if (componentName === "code-block" && fieldName === "highlightLines") return profile === "dense" ? [2, { start: 4, end: 6 }] : [1];
     return arrayValueFor(componentName, fieldName, count);
   }
-  if (fieldType === "object") {
-    if (fieldName === "data" && componentName === "chart-card") return { labels: ["A", "B", "C"], series: [{ name: "Series", values: [10, 20, 30] }] };
-    if (fieldName === "data" && componentName === "table-card") return { headers: ["Name", "Value"], rows: [["A", "1"], ["B", "2"]] };
-    if (fieldName === "left") return { id: "iso.left", type: "text", text: "Left", style: "paragraph" };
+	  if (fieldType === "object") {
+	    if (fieldName === "data" && componentName === "chart-card") return { labels: ["A", "B", "C"], series: [{ name: "Series", values: [10, 20, 30] }] };
+	    if (fieldName === "data" && componentName === "table-card") return { headers: ["Name", "Value"], rows: [["A", "1"], ["B", "2"]] };
+	    if (fieldName === "primary" && componentName === "donut-summary") return { label: "主要部分", value: 62 };
+	    if (fieldName === "left") return { id: "iso.left", type: "text", text: "Left", style: "paragraph" };
     if (fieldName === "right") return { id: "iso.right", type: "text", text: "Right", style: "paragraph" };
     if (fieldName === "hero") return { id: "iso.hero", type: "key-takeaway", headline: "核心主张", detail: "主区域负责承载页面的中心判断。" };
     if (fieldName === "evidence") return { id: "iso.evidence", type: "image-card", src: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiPjxyZWN0IHdpZHRoPSIyNDAiIGhlaWdodD0iOTYiIGZpbGw9IiMyNTYzZWIiLz48L3N2Zz4=", title: "Evidence" };
@@ -224,14 +224,45 @@ function arrayValueFor(componentName: string, fieldName: string, count: number):
     const n = Math.min(count, 3);
     return Array.from({ length: n }, (_, r) => Array.from({ length: n }, (_, c) => ({ text: `${r + 1}-${c + 1}`, tone: (r + c) % 3 === 0 ? "positive" : "neutral" })));
   }
-  if (componentName === "failure-taxonomy" && fieldName === "items") {
-    return Array.from({ length: Math.min(count, 3) }, (_, i) => ({ title: `失败类型 ${i + 1}`, rate: `${(i + 1) * 12}%`, examples: [`案例 ${i + 1}.1`, `案例 ${i + 1}.2`] }));
-  }
-  if (componentName === "hero-and-support" && (fieldName === "supports" || fieldName === "items")) {
+	  if (componentName === "failure-taxonomy" && fieldName === "items") {
+	    return Array.from({ length: Math.min(count, 3) }, (_, i) => ({ title: `失败类型 ${i + 1}`, rate: `${(i + 1) * 12}%`, examples: [`案例 ${i + 1}.1`, `案例 ${i + 1}.2`] }));
+	  }
+	  if (componentName === "gauge" && fieldName === "thresholds") {
+	    return [
+	      { upTo: 40, tone: "danger", label: "低" },
+	      { upTo: 75, tone: "warning", label: "中" },
+	      { upTo: 100, tone: "positive", label: "高" },
+	    ].slice(0, Math.min(count, 3));
+	  }
+	  if (componentName === "heatmap" && fieldName === "values") {
+	    const n = Math.min(count, 6);
+	    return Array.from({ length: n }, (_, r) => Array.from({ length: n }, (_, c) => (r + 1) * (c + 2)));
+	  }
+	  if (componentName === "trend-line" && fieldName === "values") {
+	    return Array.from({ length: count }, (_, i) => (i + 1) * 12);
+	  }
+	  if (componentName === "donut-summary" && fieldName === "others") {
+	    return Array.from({ length: Math.min(count, 5) }, (_, i) => ({ label: `其他 ${i + 1}`, value: 8 + i * 3 }));
+	  }
+	  if (componentName === "range-plot" && fieldName === "items") {
+	    return Array.from({ length: count }, (_, i) => ({ label: `区间 ${i + 1}`, min: i * 10, max: i * 10 + 30, point: i * 10 + 18 }));
+	  }
+	  if (componentName === "hero-and-support" && (fieldName === "supports" || fieldName === "items")) {
     return Array.from({ length: Math.min(count, 4) }, (_, i) => ({ title: `支撑点 ${i + 1}`, body: bodyAt(i), tone: i % 2 === 0 ? "brand" : "neutral" }));
   }
   if (componentName === "chart-with-rail" && fieldName === "items") {
     return Array.from({ length: Math.min(count, 4) }, (_, i) => `解读 ${i + 1}`);
+  }
+  if (componentName === "comparison-table" && fieldName === "features") {
+    return Array.from({ length: Math.min(count, 4) }, (_, i) => `维度 ${i + 1}`);
+  }
+  if (componentName === "comparison-table" && fieldName === "options") {
+    const features = Math.min(count, 4);
+    return Array.from({ length: Math.min(count, 3) }, (_, i) => ({
+      name: `方案 ${i + 1}`,
+      values: Array.from({ length: features }, (__, j) => (i + j) % 2 === 0 ? "Yes" : "No"),
+      recommended: i === 0,
+    }));
   }
   if (componentName === "snapshot-callouts" && (fieldName === "callouts" || fieldName === "items")) {
     return Array.from({ length: Math.min(count, 4) }, (_, i) => ({ title: `标注 ${i + 1}`, body: bodyAt(i), tone: i % 2 === 0 ? "brand" : "neutral" }));
@@ -322,6 +353,9 @@ function isMinimumOneOf(componentName: string, fieldName: string): boolean {
   if (componentName === "article" && fieldName === "text") return true;
   if (componentName === "label" && fieldName === "text") return true;
   if (componentName === "callout" && fieldName === "text") return true;
+  if (componentName === "key-takeaway" && fieldName === "headline") return true;
+  if (componentName === "chart-with-rail" && fieldName === "evidence") return true;
+  if (componentName === "comparison-table" && (fieldName === "features" || fieldName === "options")) return true;
   // matrix-2x2 needs items OR quadrantLabels — exercise items in the
   // minimum fixture so the validator's "either-or" rule passes.
   if (componentName === "matrix-2x2" && fieldName === "items") return true;
@@ -335,6 +369,8 @@ function optionalShouldBeIncluded(componentName: string, fieldName: string): boo
   // article without text/paragraphs is not a useful fixture; opt the typical
   // profile in too so the test exercises the actual flow.
   if (componentName === "article" && fieldName === "text") return true;
+  if (componentName === "chart-with-rail" && (fieldName === "evidence" || fieldName === "railBody")) return true;
+  if (componentName === "comparison-table" && (fieldName === "features" || fieldName === "options")) return true;
   // matrix-2x2 schema accepts items OR quadrantLabels (label-only mode); the
   // typical profile must include items so the validator passes.
   if (componentName === "matrix-2x2" && fieldName === "items") return true;
@@ -396,7 +432,7 @@ function buildSourceDeck(slideId: string, child: DomNode, fillContent = true, th
 }
 
 function blockingDiagnostics(diags: LayoutDiagnostic[]): LayoutDiagnostic[] {
-  return diags.filter((d) => BLOCKING_CODES.has(d.code) && d.severity !== "info");
+  return diags.filter((d) => d.severity === "error" || (BLOCKING_CODES.has(d.code) && d.severity !== "info"));
 }
 
 function describeFailure(componentName: string, profile: Profile["name"], deck: Slideml2SourceDeck, diags: LayoutDiagnostic[], validationErrors: string[] = []): string {

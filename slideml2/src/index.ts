@@ -20,6 +20,12 @@ export { sliceIconSheet, normalizeIconRequests, normalizeGridSpec } from "./icon
 export type { IconGridSpec, IconManifest, IconRequest, SliceIconSheetOptions } from "./icon-sheet.js";
 export { inspectLayout } from "./layout-inspect.js";
 export type { InspectedLayoutNode, InspectedSlideLayout } from "./layout-inspect.js";
+export { solveConstraintLayout } from "./layout/constraint-layout.js";
+export type { ConstraintLayoutNode, ConstraintLayoutPressure, ConstraintLayoutResult } from "./layout/constraint-layout.js";
+export { domNodeToConstraintLayoutNode, solveDomConstraintLayout } from "./layout/dom-constraint-layout.js";
+export type { DomConstraintLayoutOptions, DomConstraintLayoutResult } from "./layout/dom-constraint-layout.js";
+export { CassowaryLayoutSolver } from "./layout/constraint-solver.js";
+export type { GridConstraintOptions, GridTrackItem, LayoutAxis, LayoutBox, LayoutStrength, SizePreference, SplitConstraintOptions, StackConstraintOptions } from "./layout/constraint-solver.js";
 export { buildDom, getSlide } from "./layouts.js";
 export { renderToAst, renderToPptx } from "./render.js";
 export { buildTheme } from "./theme.js";
@@ -42,10 +48,10 @@ export { describeDeck } from "./deck-disclosure.js";
 export type { DeckDescription, DeckFieldDescription } from "./deck-disclosure.js";
 export { listTextKinds, describeTextKind } from "./text-kinds.js";
 export { describeNodeType, listNodeTypes } from "./node-types.js";
-export { DECK_SIZE_VALUES, VALIDATION_MODE_VALUES, DATA_SOURCE_TYPE_VALUES, DATA_AGGREGATE_OP_VALUES, DATA_COLUMN_TYPE_VALUES, DATA_COLUMN_ALIGN_VALUES, DATA_BIND_FIELDS, DATA_ENCODING_FIELDS } from "./schema.js";
+export { DECK_SIZE_VALUES, VALIDATION_MODE_VALUES, DATA_SOURCE_TYPE_VALUES, DATA_AGGREGATE_OP_VALUES, DATA_COLUMN_TYPE_VALUES, DATA_COLUMN_ALIGN_VALUES, DATA_BIND_FIELDS, DATA_ENCODING_FIELDS, DENSITY_PROFILE_VALUES } from "./schema.js";
 export type { ValidationMode } from "./schema.js";
 export { resolveDataBindings, resolveDataSourceRows, resolveDataSources } from "./data-binding.js";
-export { listPaletteColors, listSizeNames, listThemes } from "./theme.js";
+export { listDensityProfiles, listPaletteColors, listSizeNames, listThemes } from "./theme.js";
 export type { PaletteColorName, SizeName } from "./theme.js";
 export { createDeck, setDeckProps, appendSlide, insertSlide, replaceSlide, deleteSlide, validateDeckPath, renderDeck, readDeck, writeDeck } from "./deck-ops.js";
 export { createSourceDeck, normalizeSlide, sourceToRenderedDeck } from "./source-deck.js";
@@ -66,6 +72,7 @@ export type {
   DataEncodingSpec,
   DataSourceKind,
   DataSourceSpec,
+  DensityProfileName,
   DomNode,
   EditOp,
   FootnoteSpec,

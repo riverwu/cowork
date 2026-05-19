@@ -116,6 +116,7 @@ export function buildAgentPromptPack(options: AgentPromptPackOptions = {}): stri
     lines.push("", "Emphasis hierarchy:");
     for (const r of deck.emphasisHierarchy) lines.push(`- ${r}`);
     lines.push("", "Density:");
+    lines.push(`- Theme density profiles: ${deck.densityProfiles.available.join(", ")}. Use deck.themeOverride.densityProfile='analytical' for charts/tables/prose and 'dense' for compact dashboards/tables/code; editorial is the large-title default.`);
     for (const r of deck.densityRules) lines.push(`- ${r}`);
     lines.push("", "Fallback ladder (these are the layout failure modes you should avoid; if you see them in diagnostics, restructure rather than tweak sizes):");
     for (const r of deck.fallbackLadder.stages) lines.push(`- ${r}`);

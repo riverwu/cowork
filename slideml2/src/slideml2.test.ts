@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyEdits,
   auditDeck,
+  buildTheme,
   buildDom,
   buildAgentPromptPack,
   clearRenderDiagnostics,
@@ -28,6 +29,7 @@ import {
   insertSlide,
   listNodeTypesForTest,
   listComponents,
+  listDensityProfiles,
   listTextKinds,
   listThemes,
   measureDeck,
@@ -611,6 +613,7 @@ describe("slideml2 MVP", () => {
 
   it("exposes complete component, text kind, and theme registries", () => {
     expect(listThemes()).toEqual(["default"]);
+    expect(listDensityProfiles()).toEqual(["editorial", "analytical", "dense"]);
     expect(listTextKinds().map((item) => item.kind)).toEqual(expect.arrayContaining(["slide-title", "lead", "metric-value", "table-cell", "code"]));
     const componentNames = listComponents().map((item) => item.name);
     expect(componentNames).toEqual(expect.arrayContaining([
@@ -676,11 +679,60 @@ describe("slideml2 MVP", () => {
     expect(describeComponents(["unknown-component"]).missing).toEqual(["unknown-component"]);
   });
 
+  it("applies density profiles before explicit theme overrides", () => {
+    const editorial = buildTheme({}, "default", { densityProfile: "editorial" });
+    const analytical = buildTheme({}, "default", { densityProfile: "analytical" });
+    const dense = buildTheme({}, "default", { densityProfile: "dense" });
+    expect(analytical.densityProfile).toBe("analytical");
+    expect(analytical.text["slide-title"]!.fontSize).toBeLessThan(editorial.text["slide-title"]!.fontSize);
+    expect(analytical.layout.contentTop).toBeLessThan(editorial.layout.contentTop);
+    expect(dense.component.card.padding).toBeLessThan(analytical.component.card.padding);
+    const override = buildTheme({}, "default", { densityProfile: "dense", text: { "slide-title": { fontSize: 31 } } });
+    expect(override.text["slide-title"]!.fontSize).toBe(31);
+  });
+
+  it("keeps peer table-card typography in the same semantic cohort", () => {
+    const rows = [
+      ["Metric", "Value"],
+      ["North America enterprise pipeline with renewals", "$12.4m"],
+      ["International expansion", "$8.1m"],
+      ["SMB self-serve", "$3.8m"],
+      ["Partner channel", "$2.9m"],
+      ["Services attach", "$1.4m"],
+    ];
+    const deck = sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", themeOverride: { densityProfile: "analytical" } },
+      slides: [{
+        id: "table-cohort",
+        children: [{
+          id: "table-cohort.grid",
+          type: "grid",
+          area: "content",
+          columns: 2,
+          gap: 0.35,
+          fixedHeight: 3.25,
+          semanticBudget: "narrative",
+          children: [
+            { id: "table-cohort.left", type: "component", component: "table-card", title: "Current plan", rows },
+            { id: "table-cohort.right", type: "component", component: "table-card", title: "Scenario plan", rows: rows.map((row, index) => index === 1 ? [row[0], "$14.0m"] : row) },
+          ],
+        }],
+      }],
+    } as never);
+    const ast = renderToAst(deck);
+    const tables = ast.slides[0]!.shapes.filter((shape) => shape.type === "table") as Array<{ cells?: Array<Array<{ runs?: Array<{ sizeHalfPt?: number }> }>> }>;
+    expect(tables).toHaveLength(2);
+    const bodySizes = tables.map((table) => table.cells?.[1]?.[0]?.runs?.[0]?.sizeHalfPt);
+    expect(bodySizes[0]).toBeDefined();
+    expect(bodySizes[0]).toBe(bodySizes[1]);
+  });
+
   it("exposes copyable schema examples that validate after normalization", () => {
     const names = listComponents().map((item) => item.name);
     const described = describeComponents(names).found;
     const failures: Array<{ name: string; codes: string[] }> = [];
-    const blockingCodes = new Set(["FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "LOW_CONTRAST", "UNKNOWN_COLOR", "UNKNOWN_STYLE"]);
+    const blockingCodes = new Set(["FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "UNKNOWN_COLOR", "UNKNOWN_STYLE"]);
     for (const [name, detail] of Object.entries(described)) {
       for (const [index, example] of (detail.examples || []).entries()) {
         const slide = normalizeSlide({ id: `example-${name}-${index}`, children: [example as never] } as never);
@@ -2365,8 +2417,8 @@ describe("slideml2 MVP", () => {
     expect(bodyShape.paragraphs[0]!.runs[0]!.color).toBe("FF6B6B");
   });
 
-  it("validateSlide flags DUPLICATE_HERO_TITLE for conflicting body hero titles but allows matching metadata titles", () => {
-    const withSectionBreak = validateSlide({
+  it("validateSlide warns for mismatched metadata hero titles but errors on competing text hero titles", () => {
+    const sectionBreakSlide = {
       id: "cover",
       title: "智能竞争雷达 v2",
       children: [{
@@ -2376,8 +2428,16 @@ describe("slideml2 MVP", () => {
         title: "智能竞争雷达",
         subtitle: "多源竞争情报系统",
       }],
+    } as const;
+    const withSectionBreak = validateSlide(sectionBreakSlide as never);
+    expect(withSectionBreak.errors.map((e) => e.code)).not.toContain("DUPLICATE_HERO_TITLE");
+    expect(withSectionBreak.warnings.map((e) => e.code)).toContain("DUPLICATE_HERO_TITLE");
+    const renderedSectionBreak = sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [sectionBreakSlide as never],
     });
-    expect(withSectionBreak.errors.map((e) => e.code)).toContain("DUPLICATE_HERO_TITLE");
+    expect(findNodeForTest(renderedSectionBreak.slides[0]!.dom, "cover.title")).toBeNull();
 
     const matchingDeckTitleSlide = {
       id: "cover2",
@@ -2402,6 +2462,46 @@ describe("slideml2 MVP", () => {
     });
     expect(findNodeForTest(renderedMatching.slides[0]!.dom, "cover2.title")).toBeNull();
     expect(findNodeForTest(renderedMatching.slides[0]!.dom, "cover2.hero")?.text).toBe("Deck title");
+
+    const matchingBodyH1Slide = {
+      id: "body-h1",
+      title: "对撞机：能量前沿",
+      children: [{
+        id: "body-h1.content",
+        type: "two-column",
+        area: "content",
+        left: { children: [{ id: "body-h1.body", type: "text", style: "paragraph", text: "正文" }] },
+        right: { children: [{ id: "body-h1.h", type: "h1", text: "对撞机：能量前沿" }] },
+      }],
+    } as const;
+    const renderedMatchingH1 = sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [matchingBodyH1Slide as never],
+    });
+    expect(findNodeForTest(renderedMatchingH1.slides[0]!.dom, "body-h1.title")).toBeNull();
+    const matchingH1TwoColumn = renderedMatchingH1.slides[0]!.dom.children?.[0] as { right?: { children?: Array<{ id?: string; text?: string }> } };
+    expect(matchingH1TwoColumn.right?.children?.find((node) => node.id === "body-h1.h")?.text).toBe("对撞机：能量前沿");
+
+    const differentBodyH1Slide = {
+      id: "body-h1-different",
+      title: "对撞机：能量前沿",
+      children: [{
+        id: "body-h1-different.content",
+        type: "stack",
+        area: "content",
+        children: [
+          { id: "body-h1-different.h", type: "h1", text: "把粒子撞向光速" },
+          { id: "body-h1-different.body", type: "text", style: "paragraph", text: "正文" },
+        ],
+      }],
+    } as const;
+    const renderedDifferentH1 = sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", brand: { primary: "2563EB" } },
+      slides: [differentBodyH1Slide as never],
+    });
+    expect(findNodeForTest(renderedDifferentH1.slides[0]!.dom, "body-h1-different.title")?.text).toBe("对撞机：能量前沿");
 
     const conflictingDeckTitleText = validateSlide({
       id: "cover3",
@@ -2726,6 +2826,34 @@ describe("slideml2 MVP", () => {
       preset: "straightConnector",
       line: { color: "333333", dash: "dash", tailEnd: { type: "triangle" } },
     });
+  });
+
+  it("auto-fits one-column raw shape flow grids instead of stretching every shape full-width", () => {
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "shape-flow-grid",
+        children: [{
+          id: "shape-flow-grid.grid",
+          type: "grid",
+          columns: 1,
+          gap: 0.55,
+          children: [
+            { id: "shape-flow-grid.n1", type: "shape", preset: "flowChartProcess", fill: "0F766E", text: { text: "Telemetry Ingest", color: "FFFFFF" } },
+            { id: "shape-flow-grid.c1", type: "shape", preset: "straightConnector", fill: "none", line: { color: "0F766E", width: 1.5 }, tailEnd: { type: "triangle" } },
+            { id: "shape-flow-grid.n2", type: "shape", preset: "flowChartDecision", fill: "FEF9C3", text: { text: "Schema Check?", color: "92400E" } },
+          ],
+        }],
+      }],
+    } as never));
+    const node = ast.slides[0]!.shapes.find((item) => item.name === "shape-flow-grid.n1");
+    const connector = ast.slides[0]!.shapes.find((item) => item.name === "shape-flow-grid.c1");
+    const cm = (emu: number | undefined) => (emu ?? 0) / 360000;
+    expect(cm(node?.xfrm.cx)).toBeLessThan(9);
+    expect(cm(node?.xfrm.cy)).toBeGreaterThan(0.9);
+    expect(cm(connector?.xfrm.cx)).toBeLessThan(0.4);
+    expect(cm(connector?.xfrm.cy)).toBeGreaterThan(0.28);
   });
 
   it("treats direct slide x/y/w/h fields as slide-relative absolute placement", () => {

@@ -7,7 +7,7 @@ import {
   THEME_LAYOUT_FIELDS,
   VALIDATION_MODE_VALUES,
 } from "./schema.js";
-import { sourceSlideToRendered } from "./source-deck.js";
+import { sourceSlideToRendered, sourceToRenderedDeck } from "./source-deck.js";
 import { validateDeck } from "./validate.js";
 import type { Slideml2SourceDeck } from "./types.js";
 
@@ -124,7 +124,7 @@ describe("M1 schema contract", () => {
     expect(report.errors.find((issue) => issue.code === "UNKNOWN_LAYOUT_AREA_REFERENCE")?.path).toBe("children[1].area");
   });
 
-  it("rejects theme areas that redefine built-in area names", () => {
+  it("accepts theme areas that override built-in area names", () => {
     const report = validateDeck(baseDeck({
       themeOverride: {
         layout: {
@@ -137,7 +137,7 @@ describe("M1 schema contract", () => {
     }));
 
     const codes = report.errors.map((issue) => issue.code);
-    expect(codes.filter((code) => code === "RESERVED_THEME_LAYOUT_AREA_NAME")).toHaveLength(2);
+    expect(codes).not.toContain("RESERVED_THEME_LAYOUT_AREA_NAME");
   });
 
   it("accepts named CSS theme text weights used by agents", () => {
@@ -147,11 +147,70 @@ describe("M1 schema contract", () => {
           "section-title": { fontSize: 20, fontWeight: "semibold" },
           "card-title": { fontSize: 14, weight: "medium" },
           "table-header": { fontSize: 11, fontWeight: 600 },
+          "metric-value": { fontSize: 32, fontWeight: "700" },
         },
       },
     }));
 
     expect(report.errors.map((issue) => issue.code)).not.toContain("INVALID_THEME_TEXT_WEIGHT");
+  });
+
+  it("treats split cover-composition title content as the visible hero title", () => {
+    const deck = baseDeck({}, [{
+      id: "cover.hero",
+      type: "cover-composition",
+      title: "2025年上半年",
+      content: [{ text: "人力数据分析", marks: ["bold"] }],
+    }]);
+    deck.slides[0]!.id = "cover";
+    deck.slides[0]!.title = "2025年上半年人力数据分析";
+
+    const report = validateDeck(deck);
+    expect(report.errors.map((issue) => issue.code)).not.toContain("DUPLICATE_HERO_TITLE");
+
+    const rendered = sourceToRenderedDeck(deck);
+    expect(rendered.slides[0]!.dom.children?.some((node) => node.id === "cover.title")).toBe(false);
+  });
+
+  it("accepts key-takeaway panels whose takeaway content is carried by bullets", () => {
+    const deck = baseDeck({}, [{
+      id: "s.takeaway",
+      type: "key-takeaway",
+      variant: "panel",
+      bullets: ["线下经销是最大效率黑洞", "抖音与达播 ROI 改善明显"],
+    }]);
+    const report = validateDeck(deck);
+
+    expect(report.errors.map((issue) => issue.code)).not.toContain("MISSING_REQUIRED_FIELD");
+    expect(JSON.stringify(sourceToRenderedDeck(deck).slides[0]!.dom)).not.toContain("s.takeaway.headline");
+  });
+
+  it("accepts neutral key-takeaway tone as a semantic low-emphasis verdict", () => {
+    const deck = baseDeck({}, [{
+      id: "s.takeaway",
+      type: "key-takeaway",
+      headline: "Appendix note remains useful but not urgent",
+      tone: "neutral",
+    }]);
+    const report = validateDeck(deck);
+
+    expect(report.errors.map((issue) => issue.code)).not.toContain("INVALID_FIELD_USAGE");
+    expect(report.errors.map((issue) => issue.code)).not.toContain("INVALID_COMPONENT_ENUM");
+  });
+
+  it("accepts common layout unit strings for spacing and padding", () => {
+    const deck = baseDeck({}, [{
+      id: "s.stack",
+      type: "stack",
+      gap: "12px",
+      padding: "8pt",
+      children: [{ id: "s.copy", type: "text", text: "ok", spaceAfter: "6pt" }],
+    } as never]);
+    const report = validateDeck(deck);
+
+    expect(report.errors.map((issue) => issue.code)).not.toContain("INVALID_LAYOUT_GAP");
+    expect(report.errors.map((issue) => issue.code)).not.toContain("INVALID_LAYOUT_PADDING");
+    expect(report.errors.map((issue) => issue.code)).not.toContain("INVALID_POINT_SPACING");
   });
 
   it("accepts single font-face strings in theme font chains", () => {

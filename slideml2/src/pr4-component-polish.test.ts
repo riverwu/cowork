@@ -233,6 +233,14 @@ describe("PR4: checklist chip markers", () => {
     expect(mark.fill).toBeUndefined();
     expect(mark.color).toBe("success");
   });
+
+  it("omitted status renders a neutral marker instead of a completed checkmark", () => {
+    const node = checklist("s", "ck", [{ text: "待确认" }]) as DomNode;
+    const mark = ((node.children || [])[0]!.children || []).find((c) => c.id === "s.ck.0.mark")!;
+    expect(mark.text).toBe("•");
+    expect(mark.fill).toBe("surface.subtle");
+    expect(mark.color).toBe("text.muted");
+  });
 });
 
 describe("PR4: end-to-end render of upgraded components", () => {

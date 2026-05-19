@@ -57,6 +57,32 @@ export function ptToCm(n: number): number {
 }
 
 /**
+ * Parse author-facing layout dimensions into centimeters.
+ *
+ * SlideML2's canonical layout unit is cm, but agents commonly emit CSS/PPT-like
+ * strings such as "12px", "8pt", "0.4cm", or numeric strings. Bare string
+ * numbers above normal slide-layout ranges are treated as px because "12" is
+ * far more often CSS padding than a deliberate 12cm inset.
+ */
+export function parseLayoutDimensionCm(raw: unknown): number | undefined {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw !== "string") return undefined;
+  const value = raw.trim().replace(/,/g, "");
+  if (!value) return undefined;
+  const match = value.match(/^(-?\d+(?:\.\d+)?)(?:\s*(cm|mm|in|pt|px))?$/i);
+  if (!match) return undefined;
+  const amount = Number.parseFloat(match[1] || "");
+  if (!Number.isFinite(amount)) return undefined;
+  const unit = (match[2] || "").toLowerCase();
+  if (unit === "cm") return amount;
+  if (unit === "mm") return amount / 10;
+  if (unit === "in") return amount * 2.54;
+  if (unit === "pt") return amount * 2.54 / 72;
+  if (unit === "px") return amount * 2.54 / 96;
+  return amount > 3 && amount <= 96 ? amount * 2.54 / 96 : amount;
+}
+
+/**
  * Normalize visual stroke thickness to cm for the renderer.
  *
  * Contract:

@@ -2,10 +2,14 @@ import { describeComponents, getComponentName, isComponentName, isComponentTyped
 import {
   DECK_SIZE_VALUES,
   DATA_AGGREGATE_OP_VALUES,
+  DATA_BIND_FIELD_ALIASES,
   DATA_BIND_FIELDS,
   DATA_COLUMN_ALIGN_VALUES,
   DATA_COLUMN_TYPE_VALUES,
+  DENSITY_PROFILE_VALUES,
+  DATA_ENCODING_FIELD_ALIASES,
   DATA_ENCODING_FIELDS,
+  DATA_FIELD_SYNONYM_GROUPS,
   DATA_SOURCE_TYPE_VALUES,
   isDeckSize,
   normalizeValidationMode,
@@ -25,17 +29,16 @@ const LAYOUT_CONTAINERS = new Set(["stack", "grid", "split", "panel", "card", "b
 import { buildTheme, parseCssColor, textStyle } from "./theme.js";
 import { resolveDataSourceRowsById, type DataBindingOptions } from "./data-binding.js";
 import { inferTextKind } from "./text-normalizer.js";
-import type { DeckValidationSpec, DomNode, RenderedDeck, RenderedSlide, Slideml2SourceDeck, SlideV2, ThemeLayoutArea, ThemeOverride } from "./types.js";
+import type { DeckValidationSpec, DomNode, RenderedDeck, RenderedSlide, Slideml2SourceDeck, SlideV2, ThemeLayoutArea, ThemeOverride, ThemeRegionBudgetOverride } from "./types.js";
 import { measureDeck } from "./render.js";
 import { normalizeSlide, sourceSlideToRendered, sourceToRenderedDeck } from "./source-deck.js";
-import { emuToCm, SLIDE_SIZES } from "./units.js";
+import { emuToCm, parseLayoutDimensionCm, SLIDE_SIZES } from "./units.js";
 import { unsupportedLatexCommands } from "./latex-omml.js";
 import { meaningfulSourceOverlap, rectContains, rectFromAbsoluteRectSpec, rectFromNodePlacement } from "./layout/geometry.js";
 import { SOURCE_VALIDATION_CODE } from "./diagnostic-codes.js";
 import { describeInvalidSlideTransition } from "./transition.js";
 
 const RAW_HEX_RE = /^[0-9A-Fa-f]{6}$/;
-const RESERVED_LAYOUT_AREAS = new Set(["content", "full"]);
 const THEME_FONT_WEIGHT_NAMES = new Set([
   "thin",
   "hairline",
@@ -61,6 +64,7 @@ const REQUIRED_CHILD_CONTAINERS = new Set(["stack", "grid", "split", "fragment"]
 const MAX_VALIDATION_NODE_DEPTH = 80;
 const MAX_VALIDATION_NODES_PER_SLIDE = 5000;
 const MAX_TEXT_LENGTH_ISSUES_PER_SLIDE = 80;
+const METADATA_HERO_COMPONENTS = new Set(["cover-composition", "section-break", "title-lockup", "chapter-divider"]);
 const TEXT_VALUE_KEYS = new Set([
   "text", "content", "title", "subtitle", "headline", "body", "detail", "description",
   "label", "name", "caption", "eyebrow", "kicker", "summary", "quote",
@@ -138,9 +142,14 @@ export function validateSlide(slide: SlideV2, deck?: Pick<Slideml2SourceDeck, "d
   if (issues.some((item) => item.level === "error")) return report(issues);
   const bodyHeroTitle = Array.isArray(slide.children) ? findBodyHeroTitle(slide.children) : { found: false, titles: [] };
   if (typeof slide.title === "string" && slide.title.trim() && bodyHeroTitle.found && !bodyHeroTitleMatchesSlideTitle(slide.title, bodyHeroTitle.titles)) {
-    issues.push(issue("error", "DUPLICATE_HERO_TITLE", "slide.title is set AND the body already carries a hero title (cover-composition / section-break / deck-title / slide-title text). Only one — drop slide.title for cover/section pages, or remove the body title for ordinary pages.", {
+    const metadataHero = hasMetadataHeroComponent(slide.children || []);
+    issues.push(issue(metadataHero ? "warning" : "error", "DUPLICATE_HERO_TITLE", metadataHero
+      ? "slide.title differs from the visible cover/section component title. The component title will be rendered; slide.title is treated as navigation metadata."
+      : "slide.title is set AND the body already carries a hero title (deck-title / slide-title text). Only one visible hero title is allowed for ordinary pages.", {
       slideId: slide.id,
-      suggestedFix: "If this is a cover or chapter divider, either make slide.title match the body hero title exactly so it is treated as metadata, or drop slide.title and let the body's section-break/deck-title text be the headline.",
+      suggestedFix: metadataHero
+        ? "For cleaner navigation, align slide.title with the visible cover/section/chapter title. Do not add a second visible title."
+        : "For ordinary pages, remove slide.title or remove the visible deck-title/slide-title text node so the renderer does not create competing headings.",
     }));
   }
   if (issues.some((item) => item.level === "error")) return report(issues);
@@ -516,7 +525,11 @@ function validateNode(
     return;
   }
   if (!node || typeof node !== "object") {
-    issues.push(issue("error", "INVALID_NODE", `${path} must be a node object.`, { slideId, path }));
+    issues.push(issue("error", "INVALID_NODE", `${path} must be a node object.`, {
+      slideId,
+      path,
+      suggestedFix: "Replace this entry with a full node object such as {id:'body', type:'text', text:'...'} or {id:'group', type:'stack', children:[...]}. Do not put bare strings/numbers/null directly in children.",
+    }));
     return;
   }
   if (isTwoColumnRegionShorthand(node, parent, path)) {
@@ -739,26 +752,27 @@ function validatePrimitiveGap(node: DomNode, path: string, slideId: string, issu
   if (!("gap" in node)) return;
   if (!(node.type === "stack" || node.type === "grid" || node.type === "split")) return;
   const rawGap = node.gap;
-  if (typeof rawGap !== "number" || !Number.isFinite(rawGap) || rawGap < 0) {
-    issues.push(issue("error", "INVALID_LAYOUT_GAP", `${path}.gap must be a non-negative number in centimeters.`, {
+  const gapCm = parseLayoutDimensionCm(rawGap);
+  if (gapCm === undefined || gapCm < 0) {
+    issues.push(issue("error", "INVALID_LAYOUT_GAP", `${path}.gap must be a non-negative layout length.`, {
       slideId,
       path: `${path}.gap`,
       nodeName: node.id,
-      suggestedFix: "Use a cm value such as gap:0.3 or gap:0.6. Do not use CSS px values.",
+      suggestedFix: "Use a cm value such as gap:0.3, or an explicit unit string such as '12px', '8pt', '0.4cm', '4mm', or '0.16in'.",
     }));
     return;
   }
   const childCount = Array.isArray(node.children) ? node.children.length : 0;
   if (childCount <= 1 && node.type !== "split") return;
-  if (rawGap > 3) {
-    issues.push(issue("error", "LAYOUT_GAP_TOO_LARGE", `${path}.gap is ${rawGap}cm. gap uses centimeters; this usually means a px-style value was used and will collapse child regions.`, {
+  if (gapCm > 3) {
+    issues.push(issue("error", "LAYOUT_GAP_TOO_LARGE", `${path}.gap is ${gapCm.toFixed(2)}cm after unit normalization. This will collapse child regions.`, {
       slideId,
       path: `${path}.gap`,
       nodeName: node.id,
       suggestedFix: "Use gap around 0.25-0.8cm for ordinary grids/stacks. For intentional large whitespace, insert a spacer node with explicit fixedWidth/fixedHeight instead of making every child narrower.",
     }));
-  } else if (rawGap > 1.6) {
-    issues.push(issue("warning", "LAYOUT_GAP_LARGE", `${path}.gap is ${rawGap}cm, which is unusually large for a ${node.type}.`, {
+  } else if (gapCm > 1.6) {
+    issues.push(issue("warning", "LAYOUT_GAP_LARGE", `${path}.gap is ${gapCm.toFixed(2)}cm after unit normalization, which is unusually large for a ${node.type}.`, {
       slideId,
       path: `${path}.gap`,
       nodeName: node.id,
@@ -781,24 +795,25 @@ function validateNodePaddingUnits(node: DomNode, path: string, slideId: string, 
 }
 
 function validatePaddingValue(value: unknown, path: string, slideId: string, nodeName: string | undefined, issues: ValidationIssue[]): void {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    issues.push(issue("error", "INVALID_LAYOUT_PADDING", `${path} must be a non-negative number in centimeters.`, {
+  const paddingCm = parseLayoutDimensionCm(value);
+  if (paddingCm === undefined || paddingCm < 0) {
+    issues.push(issue("error", "INVALID_LAYOUT_PADDING", `${path} must be a non-negative layout length.`, {
       slideId,
       path,
       nodeName,
-      suggestedFix: "Use a cm value such as padding:0.3 or padding:0.6. Do not use CSS px values.",
+      suggestedFix: "Use a cm value such as padding:0.3, or an explicit unit string such as '12px', '8pt', '0.4cm', '4mm', or '0.16in'.",
     }));
     return;
   }
-  if (value > 3) {
-    issues.push(issue("error", "LAYOUT_PADDING_TOO_LARGE", `${path} is ${value}cm. padding uses centimeters; this usually means a px-style value was used and will leave no usable content area.`, {
+  if (paddingCm > 3) {
+    issues.push(issue("error", "LAYOUT_PADDING_TOO_LARGE", `${path} is ${paddingCm.toFixed(2)}cm after unit normalization; this will leave no usable content area.`, {
       slideId,
       path,
       nodeName,
       suggestedFix: "Use padding around 0.2-0.8cm for cards/panels. For deliberate whitespace, resize the region or add a spacer outside the component.",
     }));
-  } else if (value > 1.6) {
-    issues.push(issue("warning", "LAYOUT_PADDING_LARGE", `${path} is ${value}cm, which is unusually large for slide content.`, {
+  } else if (paddingCm > 1.6) {
+    issues.push(issue("warning", "LAYOUT_PADDING_LARGE", `${path} is ${paddingCm.toFixed(2)}cm after unit normalization, which is unusually large for slide content.`, {
       slideId,
       path,
       nodeName,
@@ -809,6 +824,10 @@ function validatePaddingValue(value: unknown, path: string, slideId: string, nod
 
 function validateCellPaddingValue(value: unknown, path: string, slideId: string, nodeName: string | undefined, issues: ValidationIssue[]): void {
   if (typeof value === "number") {
+    validatePaddingValue(tablePaddingNumberToCm(value), path, slideId, nodeName, issues);
+    return;
+  }
+  if (typeof value === "string") {
     validatePaddingValue(value, path, slideId, nodeName, issues);
     return;
   }
@@ -817,13 +836,19 @@ function validateCellPaddingValue(value: unknown, path: string, slideId: string,
       slideId,
       path,
       nodeName,
-      suggestedFix: "Use cellPadding:0.18 or cellPadding:{left:0.18,right:0.18,top:0.1,bottom:0.1}.",
+      suggestedFix: "Use cellPadding:0.18, cellPadding:'8pt', or cellPadding:{left:0.18,right:0.18,top:0.1,bottom:0.1}.",
     }));
     return;
   }
   for (const side of ["left", "right", "top", "bottom"] as const) {
-    if (side in value) validatePaddingValue((value as Record<string, unknown>)[side], `${path}.${side}`, slideId, nodeName, issues);
+    if (!(side in value)) continue;
+    const sideValue = (value as Record<string, unknown>)[side];
+    validatePaddingValue(typeof sideValue === "number" ? tablePaddingNumberToCm(sideValue) : sideValue, `${path}.${side}`, slideId, nodeName, issues);
   }
+}
+
+function tablePaddingNumberToCm(value: number): number {
+  return value > 1.6 ? value * 0.0352777778 : value;
 }
 
 function validateTextSpacingUnits(node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
@@ -866,23 +891,30 @@ function validateLineSpacingValue(value: unknown, path: string, slideId: string,
 }
 
 function validatePointSpacingValue(value: unknown, path: string, slideId: string, nodeName: string | undefined, issues: ValidationIssue[]): void {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    issues.push(issue("error", "INVALID_POINT_SPACING", `${path} must be a non-negative point value.`, {
+  const spacingPt = parsePointSpacingValue(value);
+  if (spacingPt === undefined || spacingPt < 0) {
+    issues.push(issue("error", "INVALID_POINT_SPACING", `${path} must be a non-negative point value or explicit length string.`, {
       slideId,
       path,
       nodeName,
-      suggestedFix: "Use points, e.g. spaceAfter:4 or spaceAfter:8. For inter-block layout spacing, prefer parent gap in centimeters.",
+      suggestedFix: "Use points, e.g. spaceAfter:4 or spaceAfter:'8pt'. For inter-block layout spacing, prefer parent gap in centimeters.",
     }));
     return;
   }
-  if (value > 60) {
-    issues.push(issue("warning", "POINT_SPACING_VERY_LARGE", `${path} is ${value}pt, which is unusually large for slide typography.`, {
+  if (spacingPt > 60) {
+    issues.push(issue("warning", "POINT_SPACING_VERY_LARGE", `${path} is ${spacingPt.toFixed(1)}pt after unit normalization, which is unusually large for slide typography.`, {
       slideId,
       path,
       nodeName,
       suggestedFix: "If this was meant as pixels or centimeters, use a parent gap/spacer instead. Typical paragraph spaceAfter is 2-10pt.",
     }));
   }
+}
+
+function parsePointSpacingValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const cmValue = parseLayoutDimensionCm(value);
+  return cmValue === undefined ? undefined : cmValue * 72 / 2.54;
 }
 
 function isTwoColumnRegionShorthand(node: DomNode, parent: DomNode | undefined, path: string): boolean {
@@ -893,7 +925,7 @@ function isTwoColumnRegionShorthand(node: DomNode, parent: DomNode | undefined, 
 }
 
 function withSyntheticNodeIds(node: DomNode, fallbackId: string): DomNode {
-  if (!node || typeof node !== "object" || Array.isArray(node)) return { id: fallbackId, type: "text", text: "" };
+  if (!node || typeof node !== "object" || Array.isArray(node)) return { id: fallbackId, type: "fragment", children: [] };
   const id = typeof node.id === "string" && node.id ? node.id : fallbackId;
   const children = Array.isArray(node.children)
     ? node.children.map((child, index) => withSyntheticNodeIds(child as DomNode, `${id}.${index + 1}`))
@@ -912,7 +944,7 @@ function withSyntheticNodeIds(node: DomNode, fallbackId: string): DomNode {
 }
 
 const SYNTHETIC_OBJECT_SLOT_KEYS = ["evidence", "rail", "left", "right", "hero", "insight"] as const;
-const SYNTHETIC_ARRAY_SLOT_KEYS = ["children", "annotations", "supports"] as const;
+const SYNTHETIC_ARRAY_SLOT_KEYS = ["children", "annotations", "supports", "railBody"] as const;
 
 function isDomNodeSlot(value: unknown): value is DomNode {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -1002,6 +1034,57 @@ function trimmedString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+type MatrixQuadrantKey = "tl" | "tr" | "bl" | "br";
+
+const MATRIX_QUADRANT_FIELD_ALIASES: Record<MatrixQuadrantKey, string[]> = {
+  tl: ["tl", "topLeft", "top_left", "top-left", "upperLeft", "upper_left", "leftTop", "left_top", "yHighXLow", "xLowYHigh"],
+  tr: ["tr", "topRight", "top_right", "top-right", "upperRight", "upper_right", "rightTop", "right_top", "yHighXHigh", "xHighYHigh"],
+  bl: ["bl", "bottomLeft", "bottom_left", "bottom-left", "lowerLeft", "lower_left", "leftBottom", "left_bottom", "yLowXLow", "xLowYLow"],
+  br: ["br", "bottomRight", "bottom_right", "bottom-right", "lowerRight", "lower_right", "rightBottom", "right_bottom", "yLowXHigh", "xHighYLow"],
+};
+
+function matrixItemHasRenderableLabel(item: unknown): boolean {
+  if (typeof item === "string" || typeof item === "number") return String(item).trim() !== "";
+  if (!isPlainObject(item)) return false;
+  return matrixTextValue(item, ["label", "title", "name", "text", "headline", "item", "summary"]) !== "";
+}
+
+function matrixHasQuadrantLabels(node: DomNode): boolean {
+  return matrixRecordHasQuadrantText(node.quadrantLabels)
+    || matrixRecordHasQuadrantText(node.labels)
+    || matrixRecordHasQuadrantText(node.quadrants)
+    || (Array.isArray(node.quadrants) && node.quadrants.some((raw) => {
+      if (!isPlainObject(raw)) return false;
+      return matrixTextValue(raw, ["label", "title", "name", "text", "headline", "summary"]) !== "";
+    }));
+}
+
+function matrixRecordHasQuadrantText(value: unknown): boolean {
+  if (!isPlainObject(value)) return false;
+  for (const aliases of Object.values(MATRIX_QUADRANT_FIELD_ALIASES)) {
+    for (const alias of aliases) {
+      if (matrixScalarText(value[alias])) return true;
+    }
+  }
+  return false;
+}
+
+function matrixTextValue(rec: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const text = matrixScalarText(rec[key]);
+    if (text) return text;
+  }
+  return "";
+}
+
+function matrixScalarText(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (isPlainObject(value)) return matrixTextValue(value, ["text", "label", "title", "name", "value", "body", "detail", "description", "summary"]);
+  return "";
+}
+
 /**
  * Map common typos / not-yet-implemented type names that LLMs reach for to
  * the canonical replacement. Returns a guidance string the agent can act on
@@ -1064,8 +1147,10 @@ function validateThemeOverride(deck: Slideml2SourceDeck, issues: ValidationIssue
     }
     const weight = style.weight ?? (style as Record<string, unknown>).fontWeight ?? ((style as Record<string, unknown>).bold === true ? "bold" : undefined);
     const namedWeight = typeof weight === "string" ? weight.trim().toLowerCase() : undefined;
+    const numericStringWeight = namedWeight && /^\d+$/.test(namedWeight) ? Number(namedWeight) : undefined;
     const validWeight = weight === undefined
       || (typeof weight === "number" && weight >= 100 && weight <= 900)
+      || (numericStringWeight !== undefined && numericStringWeight >= 100 && numericStringWeight <= 900)
       || (namedWeight !== undefined && THEME_FONT_WEIGHT_NAMES.has(namedWeight));
     if (!validWeight) {
       issues.push(issue("error", "INVALID_THEME_TEXT_WEIGHT", `${path}.weight/fontWeight must be a named CSS weight or a numeric 100..900 weight.`, {
@@ -1457,7 +1542,11 @@ function validateComputedDataSourceSpec(
   let baseRows: Record<string, unknown>[] = [];
   try {
     baseRows = resolveDataSourceRowsById(allSources, baseSource, options);
-  } catch {
+  } catch (error) {
+    issues.push(issue("error", "DATA_SOURCE_UNRESOLVABLE", `${path}.source could not resolve "${baseSource}": ${error instanceof Error ? error.message : String(error)}`, {
+      path: `${path}.source`,
+      suggestedFix: "Fix the referenced data source before validating computed columns or views.",
+    }));
     return;
   }
   const sourceFields = dataFieldSet(baseRows);
@@ -1592,8 +1681,11 @@ function validateNodeDataBinding(node: DomNode, path: string, slideId: string, s
         suggestedFix: "Repair the data source or bind.filter so the component receives at least one row; otherwise remove the bind and author explicit chart/table data.",
       }));
     }
-    if (rows && rows.length) validateDataFieldReferences(bind as Record<string, unknown>, encoding, rows, `${path}.bind`, slideId, node.id, issues);
-  }
+	    if (rows && rows.length) {
+	      validateDataFieldReferences(bind as Record<string, unknown>, encoding, rows, `${path}.bind`, slideId, node.id, issues);
+	      validateNumericDataBindingFields(node, bind as Record<string, unknown>, encoding, rows, `${path}.bind`, slideId, node.id, issues);
+	    }
+	  }
   node.children?.forEach((child, index) => validateNodeDataBinding(child, `${path}.children[${index}]`, slideId, sourceIds, sourceRows, issues, depth + 1));
   if (Array.isArray(node.items)) {
     node.items.forEach((item, index) => {
@@ -1620,6 +1712,7 @@ function validateDataFieldReferences(
   nodeName: unknown,
   issues: ValidationIssue[],
 ): void {
+  bind = canonicalDataBindRecord(bind);
   const sourceFields = dataFieldSet(rows);
   if (sourceFields.size === 0) return;
   const groupKeys = dataFieldList(bind.groupBy);
@@ -1650,11 +1743,128 @@ function validateDataFieldReferences(
     checkDataField(field, viewFields, `${path}.select`, "select", slideId, nodeName, issues);
   }
   if (encoding && typeof encoding === "object" && !Array.isArray(encoding)) {
-    const enc = encoding as Record<string, unknown>;
+    const enc = canonicalDataEncodingRecord(encoding as Record<string, unknown>);
     for (const [key, field] of encodingFieldRefs(enc)) {
       checkDataField(field, viewFields, `${path.replace(/\.bind$/, ".encoding")}.${key}`, "encoding", slideId, nodeName, issues);
     }
   }
+}
+
+function validateNumericDataBindingFields(
+  node: DomNode,
+  bind: Record<string, unknown>,
+  encoding: unknown,
+  rows: Record<string, unknown>[],
+  path: string,
+  slideId: string,
+  nodeName: unknown,
+  issues: ValidationIssue[],
+): void {
+  const kind = getComponentName(node) || node.type;
+  if (kind !== "chart-card" && kind !== "chart") return;
+  if (!encoding || typeof encoding !== "object" || Array.isArray(encoding)) return;
+  const enc = canonicalDataEncodingRecord(encoding as Record<string, unknown>);
+  const fields = dataFieldSet(rows);
+  const numericRefs = chartNumericFieldRefs(node, enc, rows, fields);
+  for (const [refPath, field] of numericRefs) {
+    const resolved = resolveDataFieldName(field, fields);
+    if (!resolved) continue;
+    checkNumericDataField(resolved, rows, `${path.replace(/\.bind$/, ".encoding")}.${refPath}`, slideId, nodeName, issues);
+  }
+  const aggregate = canonicalDataBindRecord(bind).aggregate;
+  if (aggregate && typeof aggregate === "object" && !Array.isArray(aggregate)) {
+    for (const ref of aggregateFieldRefs(aggregate)) {
+      if (!ref.input) continue;
+      const resolved = resolveDataFieldName(ref.input, dataFieldSet(rows));
+      if (resolved) checkNumericDataField(resolved, rows, `${path}.aggregate.${ref.output}`, slideId, nodeName, issues);
+    }
+  }
+}
+
+function chartNumericFieldRefs(node: DomNode, encoding: Record<string, unknown>, rows: Record<string, unknown>[], fields: Set<string>): Array<[string, string]> {
+  const seriesOptionRefs = chartSeriesOptionNumericRefs(encoding);
+  if (seriesOptionRefs.length) return seriesOptionRefs;
+  const xKey = firstNonEmptyString(encoding.x, encoding.label) || "label";
+  const yValues = Array.isArray(encoding.y) ? encoding.y : [firstNonEmptyString(encoding.y, encoding.value) || "value"];
+  const yRefs = yValues
+    .map((field, index) => typeof field === "string" && field.trim() ? [`y${Array.isArray(encoding.y) ? `[${index}]` : ""}`, field.trim()] as [string, string] : undefined)
+    .filter((item): item is [string, string] => Boolean(item));
+  const yField = yRefs[0]?.[1];
+  const seriesKey = typeof encoding.series === "string" && encoding.series.trim() ? encoding.series.trim() : undefined;
+  const xResolved = resolveDataFieldName(xKey, fields) || xKey;
+  const yResolved = yField ? resolveDataFieldName(yField, fields) || yField : undefined;
+  const chartKind = firstNonEmptyString(node.chartType, node.chart) || "bar";
+  if (!encoding.orientation && isBarLikeChartKind(chartKind) && yRefs.length === 1 && !seriesKey && xResolved && yResolved) {
+    if (dataFieldLooksNumeric(rows, xResolved) && !dataFieldLooksNumeric(rows, yResolved)) {
+      return [["x", xKey]];
+    }
+  }
+  return yRefs;
+}
+
+function chartSeriesOptionNumericRefs(encoding: Record<string, unknown>): Array<[string, string]> {
+  if (!encoding.seriesOptions || typeof encoding.seriesOptions !== "object" || Array.isArray(encoding.seriesOptions)) return [];
+  const refs: Array<[string, string]> = [];
+  for (const [key, raw] of Object.entries(encoding.seriesOptions as Record<string, unknown>)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const option = raw as Record<string, unknown>;
+    const field = firstNonEmptyString(option.y, option.field, option.key, option.value);
+    if (field) refs.push([`seriesOptions.${key}`, field]);
+  }
+  return refs;
+}
+
+function checkNumericDataField(field: string, rows: Record<string, unknown>[], path: string, slideId: string, nodeName: unknown, issues: ValidationIssue[]): void {
+  const invalid = rows
+    .map((row) => row[field])
+    .filter((value) => value !== undefined && value !== null && String(value).trim() !== "" && strictNumericValue(value) === null);
+  if (!invalid.length) return;
+  issues.push(issue("error", "NON_NUMERIC_DATA_FIELD", `${path} uses field "${field}" as a numeric measure, but ${invalid.length} row(s) contain non-numeric values.`, {
+    slideId,
+    path,
+    nodeName: typeof nodeName === "string" ? nodeName : undefined,
+    details: { field, examples: invalid.slice(0, 3).map((value) => String(value)) },
+    suggestedFix: `Clean deck.dataSources so ${field} contains only numbers, or change encoding so this field is used as a label/category instead of y/value.`,
+  }));
+}
+
+function dataFieldLooksNumeric(rows: Record<string, unknown>[], field: string): boolean {
+  const values = rows.map((row) => row[field]).filter((value) => value !== undefined && value !== null && String(value).trim() !== "");
+  if (!values.length) return false;
+  const numericCount = values.filter((value) => strictNumericValue(value) !== null).length;
+  return numericCount >= Math.max(1, values.length * 0.8);
+}
+
+function isBarLikeChartKind(kind: string): boolean {
+  return kind === "bar" || kind === "stacked-bar" || kind === "waterfall" || kind === "combo";
+}
+
+function canonicalDataBindRecord(rec: Record<string, unknown>): Record<string, unknown> {
+  return canonicalRecord(rec, DATA_BIND_FIELD_ALIASES);
+}
+
+function canonicalDataEncodingRecord(rec: Record<string, unknown>): Record<string, unknown> {
+  return canonicalRecord(rec, DATA_ENCODING_FIELD_ALIASES);
+}
+
+function canonicalRecord(rec: Record<string, unknown>, aliases: Record<string, readonly string[]>): Record<string, unknown> {
+  let out = rec;
+  const copy = () => out === rec ? { ...rec } : out;
+  for (const [canonical, aliasList] of Object.entries(aliases)) {
+    if (rec[canonical] !== undefined) continue;
+    for (const alias of aliasList) {
+      if (rec[alias] === undefined) continue;
+      out = copy();
+      out[canonical] = rec[alias];
+      break;
+    }
+  }
+  return out;
+}
+
+function isKnownDataFieldAlias(key: string, aliases: Record<string, readonly string[]>): boolean {
+  if (Object.prototype.hasOwnProperty.call(aliases, key)) return true;
+  return Object.values(aliases).some((items) => items.includes(key));
 }
 
 function dataFieldSet(rows: Record<string, unknown>[]): Set<string> {
@@ -1684,16 +1894,14 @@ function aggregateFieldRefs(value: unknown): Array<{ output: string; input?: str
       else out.push({ output });
       continue;
     }
-    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-      const spec = raw as Record<string, unknown>;
-      if (spec.op === "count" && spec.field === undefined) {
-        out.push({ output });
-      } else if (typeof spec.field === "string" && spec.field.trim()) {
-        out.push({ output, input: spec.field.trim() });
-      } else {
-        out.push({ output, input: output });
-      }
-    }
+	    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+	      const spec = raw as Record<string, unknown>;
+	      if (spec.op === "count" && spec.field === undefined) {
+	        out.push({ output });
+	      } else if (typeof spec.field === "string" && spec.field.trim()) {
+	        out.push({ output, input: spec.field.trim() });
+	      }
+	    }
   }
   return out;
 }
@@ -1752,6 +1960,23 @@ function encodingFieldRefs(encoding: Record<string, unknown>): Array<[string, st
       if (typeof field === "string" && field.trim()) refs.push([`y[${index}]`, field.trim()]);
     });
   }
+  if (encoding.y && typeof encoding.y === "object" && !Array.isArray(encoding.y)) {
+    for (const [key, raw] of Object.entries(encoding.y as Record<string, unknown>)) {
+      const field = key.trim();
+      if (!field) continue;
+      refs.push([`y.${field}`, field]);
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        pushSeriesOptionFieldRefs(refs, `y.${field}`, raw as Record<string, unknown>);
+      }
+    }
+  }
+  if (encoding.seriesOptions && typeof encoding.seriesOptions === "object" && !Array.isArray(encoding.seriesOptions)) {
+    for (const [key, raw] of Object.entries(encoding.seriesOptions as Record<string, unknown>)) {
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        pushSeriesOptionFieldRefs(refs, `seriesOptions.${key}`, raw as Record<string, unknown>);
+      }
+    }
+  }
   if (Array.isArray(encoding.columns)) {
     encoding.columns.forEach((column, index) => {
       if (typeof column === "string" && column.trim()) refs.push([`columns[${index}]`, column.trim()]);
@@ -1772,6 +1997,13 @@ function encodingFieldRefs(encoding: Record<string, unknown>): Array<[string, st
   return refs;
 }
 
+function pushSeriesOptionFieldRefs(refs: Array<[string, string]>, path: string, option: Record<string, unknown>): void {
+  for (const key of ["y", "field", "key", "value"] as const) {
+    const field = option[key];
+    if (typeof field === "string" && field.trim()) refs.push([`${path}.${key}`, field.trim()]);
+  }
+}
+
 function firstNonEmptyString(...values: unknown[]): string | undefined {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value.trim();
@@ -1780,13 +2012,37 @@ function firstNonEmptyString(...values: unknown[]): string | undefined {
 }
 
 function checkDataField(field: string, fields: Set<string>, path: string, role: string, slideId: string, nodeName: unknown, issues: ValidationIssue[]): void {
-  if (!field || fields.has(field)) return;
+  if (!field || resolveDataFieldName(field, fields)) return;
   issues.push(issue("error", "UNKNOWN_DATA_FIELD", `${path} references missing data field "${field}" for ${role}.`, {
     slideId,
     path,
     nodeName: typeof nodeName === "string" ? nodeName : undefined,
-    suggestedFix: `Use one of: ${Array.from(fields).slice(0, 12).join(", ")}.`,
+    suggestedFix: `Use one of: ${Array.from(fields).slice(0, 12).join(", ")}. Matching is case-insensitive and accepts common semantic aliases such as value/amount, label/name/category, percent/pct, and headcount/hc.`,
   }));
+}
+
+function resolveDataFieldName(field: string, fields: Set<string>): string | undefined {
+  if (!field) return undefined;
+  if (fields.has(field)) return field;
+  const normalized = dataFieldFingerprint(field);
+  const direct = Array.from(fields).find((candidate) => dataFieldFingerprint(candidate) === normalized);
+  if (direct) return direct;
+  const group = DATA_FIELD_SYNONYM_GROUPS.find((items) => items.some((item) => dataFieldFingerprint(item) === normalized));
+  if (!group) return undefined;
+  const matches = Array.from(fields).filter((candidate) => {
+    const candidateFp = dataFieldFingerprint(candidate);
+    return group.some((alias) => dataFieldFingerprint(alias) === candidateFp);
+  });
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function dataFieldFingerprint(field: string): string {
+  return String(field || "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s._-]+/g, "")
+    .replace(/[^a-z0-9\u4e00-\u9fff]/g, "");
 }
 
 function validateBindSpec(bind: unknown, path: string, slideId: string, nodeName: unknown, sourceIds: Set<string>, issues: ValidationIssue[]): void {
@@ -1799,14 +2055,15 @@ function validateBindSpec(bind: unknown, path: string, slideId: string, nodeName
     }));
     return;
   }
-  const rec = bind as Record<string, unknown>;
-  for (const key of Object.keys(rec)) {
-    if (!(DATA_BIND_FIELDS as readonly string[]).includes(key)) {
+  const rawRec = bind as Record<string, unknown>;
+  const rec = canonicalDataBindRecord(rawRec);
+  for (const key of Object.keys(rawRec)) {
+    if (!(DATA_BIND_FIELDS as readonly string[]).includes(key) && !isKnownDataFieldAlias(key, DATA_BIND_FIELD_ALIASES)) {
       issues.push(issue("error", "UNKNOWN_DATA_BIND_FIELD", `${path}.${key} is not a supported bind field.`, {
         slideId,
         path: `${path}.${key}`,
         nodeName: typeof nodeName === "string" ? nodeName : undefined,
-        suggestedFix: "Use source, select, filter, groupBy, aggregate, pivot, sort, or limit.",
+        suggestedFix: "Use source, select, filter, groupBy, aggregate, pivot, sort, or limit. Common aliases are accepted: dataSource/dataset/from, fields/columns, where, group/by, aggregates/measures, order/orderBy, top/take.",
       }));
     }
   }
@@ -1815,7 +2072,7 @@ function validateBindSpec(bind: unknown, path: string, slideId: string, nodeName
       slideId,
       path: `${path}.source`,
       nodeName: typeof nodeName === "string" ? nodeName : undefined,
-      suggestedFix: "Set bind.source to a data source id defined under deck.dataSources.",
+      suggestedFix: "Set bind.source (or dataSource/dataset/from) to a data source id defined under deck.dataSources.",
     }));
   } else if (!sourceIds.has(rec.source)) {
     issues.push(issue("error", "UNKNOWN_DATA_BIND_SOURCE", `${path}.source references missing data source "${rec.source}".`, {
@@ -1938,34 +2195,43 @@ function validateAggregateSpec(aggregate: unknown, path: string, slideId: string
         nodeName: typeof nodeName === "string" ? nodeName : undefined,
       }));
     }
-    if (spec.field !== undefined && (typeof spec.field !== "string" || !spec.field.trim())) {
-      issues.push(issue("error", "INVALID_DATA_BIND_AGGREGATE", `${aggregatePath}.field must be a non-empty field name when provided.`, {
-        slideId,
-        path: `${aggregatePath}.field`,
-        nodeName: typeof nodeName === "string" ? nodeName : undefined,
-      }));
-    }
-  }
-}
+	    if (spec.field !== undefined && (typeof spec.field !== "string" || !spec.field.trim())) {
+	      issues.push(issue("error", "INVALID_DATA_BIND_AGGREGATE", `${aggregatePath}.field must be a non-empty field name when provided.`, {
+	        slideId,
+	        path: `${aggregatePath}.field`,
+	        nodeName: typeof nodeName === "string" ? nodeName : undefined,
+	      }));
+	    } else if ((DATA_AGGREGATE_OP_VALUES as readonly string[]).includes(String(spec.op)) && spec.op !== "count" && spec.field === undefined) {
+	      issues.push(issue("error", "MISSING_DATA_AGGREGATE_FIELD", `${aggregatePath}.field is required for ${String(spec.op)} aggregates.`, {
+	        slideId,
+	        path: `${aggregatePath}.field`,
+	        nodeName: typeof nodeName === "string" ? nodeName : undefined,
+	        suggestedFix: `Use ${output}: { op: '${String(spec.op)}', field: 'sourceFieldName' }. The shorthand ${output}: '${String(spec.op)}' is only safe when the output field and input field intentionally have the same name.`,
+	      }));
+	    }
+	  }
+	}
 
 function validateEncodingSpec(encoding: unknown, path: string, slideId: string, nodeName: unknown, issues: ValidationIssue[]): void {
   if (!encoding || typeof encoding !== "object" || Array.isArray(encoding)) {
     issues.push(issue("error", "INVALID_DATA_ENCODING", `${path} must be an object.`, { slideId, path, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
     return;
   }
-  for (const key of Object.keys(encoding as Record<string, unknown>)) {
-    if (!(DATA_ENCODING_FIELDS as readonly string[]).includes(key)) {
+  const rawRec = encoding as Record<string, unknown>;
+  const rec = canonicalDataEncodingRecord(rawRec);
+  for (const key of Object.keys(rawRec)) {
+    if (!(DATA_ENCODING_FIELDS as readonly string[]).includes(key) && !isKnownDataFieldAlias(key, DATA_ENCODING_FIELD_ALIASES)) {
       issues.push(issue("error", "UNKNOWN_DATA_ENCODING_FIELD", `${path}.${key} is not a supported encoding field.`, {
         slideId,
         path: `${path}.${key}`,
         nodeName: typeof nodeName === "string" ? nodeName : undefined,
-        suggestedFix: "Use x, y, orientation, series, label, value, delta, columns, seriesName, or seriesOptions.",
+        suggestedFix: "Use x, y, orientation, series, label, value, delta, columns, seriesName, or seriesOptions. Common aliases are accepted: category/dimension, measure/metric, seriesBy/group, name/categoryLabel, amount, fields, seriesConfig.",
       }));
     }
   }
-  validateEncodingColumns((encoding as Record<string, unknown>).columns, `${path}.columns`, slideId, nodeName, issues);
-  validateEncodingItems((encoding as Record<string, unknown>).items, `${path}.items`, slideId, nodeName, issues);
-  validateEncodingSeriesOptions((encoding as Record<string, unknown>).seriesOptions, `${path}.seriesOptions`, slideId, nodeName, issues);
+  validateEncodingColumns(rec.columns, `${path}.columns`, slideId, nodeName, issues);
+  validateEncodingItems(rec.items, `${path}.items`, slideId, nodeName, issues);
+  validateEncodingSeriesOptions(rec.seriesOptions, `${path}.seriesOptions`, slideId, nodeName, issues);
 }
 
 function validateEncodingItems(items: unknown, path: string, slideId: string, nodeName: unknown, issues: ValidationIssue[]): void {
@@ -2035,13 +2301,17 @@ function validateEncodingSeriesOptions(options: unknown, path: string, slideId: 
   }
   for (const [key, raw] of Object.entries(options as Record<string, unknown>)) {
     const itemPath = `${path}.${key}`;
+    if (typeof raw === "string") continue;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      issues.push(issue("error", "INVALID_DATA_ENCODING_SERIES_OPTIONS", `${itemPath} must be an object.`, { slideId, path: itemPath, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
+      issues.push(issue("error", "INVALID_DATA_ENCODING_SERIES_OPTIONS", `${itemPath} must be an object or display-name string.`, { slideId, path: itemPath, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
       continue;
     }
     const rec = raw as Record<string, unknown>;
     if (rec.type !== undefined && rec.type !== "bar" && rec.type !== "line") {
       issues.push(issue("error", "INVALID_CHART_SERIES_OPTION", `${itemPath}.type must be bar or line.`, { slideId, path: `${itemPath}.type`, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
+    }
+    if (rec.chartType !== undefined && rec.chartType !== "bar" && rec.chartType !== "line") {
+      issues.push(issue("error", "INVALID_CHART_SERIES_OPTION", `${itemPath}.chartType must be bar or line.`, { slideId, path: `${itemPath}.chartType`, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
     }
     if (rec.axis !== undefined && rec.axis !== "primary" && rec.axis !== "secondary") {
       issues.push(issue("error", "INVALID_CHART_SERIES_OPTION", `${itemPath}.axis must be primary or secondary.`, { slideId, path: `${itemPath}.axis`, nodeName: typeof nodeName === "string" ? nodeName : undefined }));
@@ -2135,9 +2405,18 @@ function validateThemeOverrideTopLevel(override: Record<string, unknown>, issues
     if (!THEME_OVERRIDE_FIELD_SET.has(key)) {
       issues.push(issue("error", "UNKNOWN_THEME_OVERRIDE_FIELD", `deck.themeOverride.${key} is not a supported themeOverride field, so it would be ignored.`, {
         path: `deck.themeOverride.${key}`,
-        suggestedFix: "Use one of: colors, text, component, tone, layout, fonts, chart, chrome, imageGrowWeight, sizeScale, guidance.",
+        suggestedFix: "Use one of: densityProfile, colors, text, component, tone, layout, fonts, chart, chrome, imageGrowWeight, sizeScale, guidance.",
       }));
     }
+  }
+  if (
+    override.densityProfile !== undefined
+    && (typeof override.densityProfile !== "string" || !(DENSITY_PROFILE_VALUES as readonly string[]).includes(override.densityProfile))
+  ) {
+    issues.push(issue("error", "INVALID_THEME_DENSITY_PROFILE", "deck.themeOverride.densityProfile must be one of editorial, analytical, or dense.", {
+      path: "deck.themeOverride.densityProfile",
+      suggestedFix: "Use densityProfile:'editorial' for magazine pages, 'analytical' for charts/tables/prose, or 'dense' for compact operational/table/code pages.",
+    }));
   }
 }
 
@@ -2150,13 +2429,18 @@ function validateThemeLayout(deck: Slideml2SourceDeck, override: Record<string, 
     if (!THEME_LAYOUT_FIELD_SET.has(key)) {
       issues.push(issue("error", "UNKNOWN_THEME_LAYOUT_FIELD", `${path} is not a supported layout field, so it would not affect rendering.`, {
         path,
-        suggestedFix: "Use effective layout fields: pageMarginX, titleTop, titleHeight, contentTop, contentBottom, defaultGap, columnGap, cardPadding, slideWidthCm, slideHeightCm, areas. There is no pageMarginY.",
+        suggestedFix: "Use effective layout fields: pageMarginX, titleTop, titleHeight, contentTop, contentBottom, defaultGap, columnGap, cardPadding, slideWidthCm, slideHeightCm, areas, regionBudget. There is no pageMarginY.",
       }));
       continue;
     }
     if (key === "areas") {
       const areas = validateThemeLayoutAreas(value, path, issues);
       if (areas) safeLayout.areas = areas;
+      continue;
+    }
+    if (key === "regionBudget") {
+      const regionBudget = validateThemeRegionBudget(value, path, issues);
+      if (regionBudget) safeLayout.regionBudget = regionBudget;
       continue;
     }
     if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -2213,6 +2497,47 @@ function validateThemeLayout(deck: Slideml2SourceDeck, override: Record<string, 
   }
 }
 
+function validateThemeRegionBudget(value: unknown, path: string, issues: ValidationIssue[]): ThemeRegionBudgetOverride | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    issues.push(issue("error", "INVALID_THEME_REGION_BUDGET", `${path} must be an object of numeric budget controls.`, {
+      path,
+      suggestedFix: "Use layout.regionBudget:{bodyScale:0.76, keyTakeawayMinCm:2.7, bulletMinPt:7.6}.",
+    }));
+    return undefined;
+  }
+  const out: Record<string, number> = {};
+  const allowed = new Set([
+    "headingScale",
+    "leadScale",
+    "bodyScale",
+    "keyTakeawayDetailScale",
+    "bulletScale",
+    "bulletMinPt",
+    "keyTakeawayMinCm",
+    "keyTakeawayMaxCm",
+    "keyTakeawayMaxAvailableRatio",
+  ]);
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const fieldPath = `${path}.${key}`;
+    if (!allowed.has(key)) {
+      issues.push(issue("error", "UNKNOWN_THEME_REGION_BUDGET_FIELD", `${fieldPath} is not a supported region budget field.`, {
+        path: fieldPath,
+        suggestedFix: "Use headingScale, leadScale, bodyScale, keyTakeawayDetailScale, bulletScale, bulletMinPt, keyTakeawayMinCm, keyTakeawayMaxCm, or keyTakeawayMaxAvailableRatio.",
+      }));
+      continue;
+    }
+    if (typeof raw !== "number" || !Number.isFinite(raw)) {
+      issues.push(issue("error", "INVALID_THEME_REGION_BUDGET_VALUE", `${fieldPath} must be a finite number.`, {
+        path: fieldPath,
+        suggestedFix: "Use a numeric scale or centimeter value, e.g. bodyScale:0.76 or keyTakeawayMinCm:2.7.",
+      }));
+      continue;
+    }
+    out[key] = raw;
+  }
+  return out as ThemeRegionBudgetOverride;
+}
+
 function validateThemeLayoutAreas(value: unknown, path: string, issues: ValidationIssue[]): Record<string, ThemeLayoutArea> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     issues.push(issue("error", "INVALID_THEME_LAYOUT_AREAS", `${path} must be an object of named layout rectangles.`, {
@@ -2228,13 +2553,6 @@ function validateThemeLayoutAreas(value: unknown, path: string, issues: Validati
       issues.push(issue("error", "INVALID_THEME_LAYOUT_AREA_NAME", `${areaPath} must use a stable token name.`, {
         path: areaPath,
         suggestedFix: "Use names such as main, leftRail, evidence.panel, or figure1. Avoid spaces and leading numbers.",
-      }));
-      continue;
-    }
-    if (RESERVED_LAYOUT_AREAS.has(name)) {
-      issues.push(issue("error", "RESERVED_THEME_LAYOUT_AREA_NAME", `${areaPath} redefines a built-in layout area name.`, {
-        path: areaPath,
-        suggestedFix: `Rename this area. '${name}' is built in; use a specific name such as main, body, contentMain, or ornamentRail.`,
       }));
       continue;
     }
@@ -2488,11 +2806,78 @@ function hasExplicitBackgroundPlacement(child: DomNode): boolean {
 
 type ComponentFieldTypeError = { expected: string; actual: string; suggestedFix?: string };
 
+function validateComponentNumericFields(componentName: string, node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
+  if (componentName === "gauge" && Array.isArray(node.thresholds)) {
+    node.thresholds.forEach((raw, index) => {
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+      validateFiniteNumberField(rec.upTo, `${path}.thresholds[${index}].upTo`, slideId, node.id, issues, "Use {upTo:80, tone:'warning'}; threshold upTo must be a number.");
+    });
+  }
+  if (componentName === "heatmap" && Array.isArray(node.values)) {
+    node.values.forEach((row, rowIndex) => {
+      if (!Array.isArray(row)) {
+        issues.push(issue("error", "INVALID_FIELD_USAGE", `${path}.values[${rowIndex}] must be an array of numbers.`, {
+          slideId,
+          path: `${path}.values[${rowIndex}]`,
+          nodeName: node.id,
+          suggestedFix: "Use values as a rectangular number matrix, e.g. [[1,2,3],[2,3,4]].",
+        }));
+        return;
+      }
+      row.forEach((value, colIndex) => validateFiniteNumberField(value, `${path}.values[${rowIndex}][${colIndex}]`, slideId, node.id, issues, "Use only finite numeric heatmap cell values."));
+    });
+  }
+  if (componentName === "trend-line" && Array.isArray(node.values)) {
+    node.values.forEach((value, index) => validateFiniteNumberField(value, `${path}.values[${index}]`, slideId, node.id, issues, "Use values:[10,20,30] with finite numbers."));
+  }
+  if (componentName === "donut-summary") {
+    const primary = node.primary;
+    if (primary && typeof primary === "object" && !Array.isArray(primary)) {
+      validateFiniteNumberField((primary as Record<string, unknown>).value, `${path}.primary.value`, slideId, node.id, issues, "Use primary:{label:'...', value:62}; value must be a number.");
+    }
+    if (Array.isArray(node.others)) {
+      node.others.forEach((raw, index) => {
+        const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+        validateFiniteNumberField(rec.value, `${path}.others[${index}].value`, slideId, node.id, issues, "Use others entries like {label:'Other', value:38}; value must be a number.");
+      });
+    }
+  }
+  if (componentName === "range-plot" && Array.isArray(node.items)) {
+    node.items.forEach((raw, index) => {
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+      validateFiniteNumberField(rec.min, `${path}.items[${index}].min`, slideId, node.id, issues, "Use range items like {label:'A', min:10, max:60}; min/max must be numbers.");
+      validateFiniteNumberField(rec.max, `${path}.items[${index}].max`, slideId, node.id, issues, "Use range items like {label:'A', min:10, max:60}; min/max must be numbers.");
+      if (rec.point !== undefined) validateFiniteNumberField(rec.point, `${path}.items[${index}].point`, slideId, node.id, issues, "range-plot point must be a finite number when provided.");
+    });
+  }
+}
+
+function validateFiniteNumberField(value: unknown, path: string, slideId: string, nodeName: unknown, issues: ValidationIssue[], suggestedFix: string): void {
+  if (strictNumericValue(value) !== null) return;
+  issues.push(issue("error", "INVALID_FIELD_USAGE", `${path} must be a finite number.`, {
+    slideId,
+    path,
+    nodeName: typeof nodeName === "string" ? nodeName : undefined,
+    suggestedFix,
+  }));
+}
+
 function componentFieldTypeError(componentName: string, propName: string, prop: PropDefinition, value: unknown): ComponentFieldTypeError | null {
   if (value === undefined || value === null || value === "") return null;
   if (prop.type === "enum") return null;
   if (propName === "scale" && typeof value === "string" && ["xs", "sm", "small", "md"].includes(value.trim().toLowerCase())) return null;
   if (propName === "marker" && prop.type === "object" && typeof value === "string" && value.trim()) return null;
+  if (propName === "cellPadding" && prop.type === "object" && typeof value === "number" && Number.isFinite(value) && value >= 0) return null;
+  if (prop.valueTypes?.length) {
+    if (prop.valueTypes.some((type) => declaredValueTypeMatches(value, type))) return null;
+    return {
+      expected: declaredValueTypesDescription(prop.valueTypes),
+      actual: describeValueType(value),
+      suggestedFix: componentName === "chart-with-rail" && propName === "railBody"
+        ? "Use railBody:'Concise interpretation', railBody:[{type:'text',text:'...'},{type:'table-card',rows:[[...]]}], or rail:{type:'side-rail',children:[...]}."
+        : undefined,
+    };
+  }
   switch (prop.type) {
     case "string":
     case "image-ref":
@@ -2504,12 +2889,16 @@ function componentFieldTypeError(componentName: string, propName: string, prop: 
       return typeof value === "boolean" ? null : { expected: "a boolean", actual: describeValueType(value) };
     case "array":
       if (componentName === "two-column" && propName === "ratio" && typeof value === "number" && Number.isFinite(value) && value > 0) return null;
+      if (componentName === "cover-composition" && propName === "content" && value && typeof value === "object" && !Array.isArray(value) && Array.isArray((value as { runs?: unknown }).runs)) return null;
+      if (componentName === "matrix-2x2" && propName === "quadrants" && value && typeof value === "object" && !Array.isArray(value)) return null;
       return Array.isArray(value) ? null : {
         expected: "an array",
         actual: describeValueType(value),
-        suggestedFix: componentName === "chart-with-rail" && propName === "ratio"
-          ? "Use ratio:[0.72,0.28] for rail-right/rail-left or ratio:[0.68,0.32] for stacked. A scalar ratio is ignored by the renderer."
-          : undefined,
+        suggestedFix: componentName === "cover-composition" && propName === "content"
+          ? "Use content:[{text:'...'}] or content:{runs:[{text:'...',link:'#slide5'}]}."
+          : componentName === "chart-with-rail" && propName === "ratio"
+            ? "Use ratio:[0.72,0.28] for rail-right/rail-left or ratio:[0.68,0.32] for stacked. A scalar ratio is ignored by the renderer."
+            : undefined,
       };
     case "object":
       return value && typeof value === "object" && !Array.isArray(value) ? null : { expected: "an object", actual: describeValueType(value) };
@@ -2517,6 +2906,36 @@ function componentFieldTypeError(componentName: string, propName: string, prop: 
     case "chart":
       return null;
   }
+}
+
+function declaredValueTypeMatches(value: unknown, type: string): boolean {
+  switch (type) {
+    case "string":
+      return typeof value === "string";
+    case "DomNode":
+      return Boolean(value && typeof value === "object" && !Array.isArray(value) && typeof (value as Record<string, unknown>).type === "string");
+    case "DomNode[]":
+      return Array.isArray(value);
+    default:
+      return false;
+  }
+}
+
+function declaredValueTypesDescription(types: readonly string[]): string {
+  const labels = types.map((type) => {
+    switch (type) {
+      case "string":
+        return "a string";
+      case "DomNode":
+        return "a DomNode object";
+      case "DomNode[]":
+        return "an array of compact DomNode objects";
+      default:
+        return type;
+    }
+  });
+  if (labels.length <= 1) return labels[0] || "a supported value";
+  return `${labels.slice(0, -1).join(", ")} or ${labels[labels.length - 1]}`;
 }
 
 function validateComponentNode(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], options: EffectiveValidationOptions, parent?: DomNode): void {
@@ -2548,22 +2967,39 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       suggestedFix: "Use legacy {type:'callout', text:'...'} or a rich callout with title/body/content/bullets.",
     }));
   }
+  if (name === "key-takeaway" && !hasKeyTakeawayContent(node)) {
+    issues.push(issue("error", "MISSING_REQUIRED_FIELD", "key-takeaway requires headline, title, detail/body/content, or bullets/points.", {
+      slideId,
+      path,
+      nodeName: node.id,
+      suggestedFix: "Keep key-takeaway semantics and provide headline/title for a single conclusion, or bullets/points for a takeaway list.",
+    }));
+  }
   if (name === "freeform-group") validateFreeformGroupIntent(node, path, slideId, issues);
   if (name === "chapter-divider") validateChapterDividerUsage(node, path, slideId, issues, parent);
-  if (name === "matrix-2x2") {
+	  if (name === "matrix-2x2") {
     const itemsArr = Array.isArray(node.items) ? node.items : [];
-    const ql = node.quadrantLabels && typeof node.quadrantLabels === "object" ? node.quadrantLabels as Record<string, unknown> : null;
-    const hasQuadrantLabels = ql ? ["tl", "tr", "bl", "br"].some((key) => typeof ql[key] === "string" && String(ql[key]).trim() !== "") : false;
-    if (itemsArr.length === 0 && !hasQuadrantLabels) {
+    const hasRenderableItems = itemsArr.some((item) => matrixItemHasRenderableLabel(item));
+    const hasQuadrantLabels = matrixHasQuadrantLabels(node);
+    if (!hasRenderableItems && !hasQuadrantLabels) {
       issues.push(issue("error", "MISSING_REQUIRED_FIELD", "matrix-2x2 requires items or quadrantLabels.", {
         slideId,
         path,
         nodeName: node.id,
-        suggestedFix: "Either pass items[] (one entry per data point with x/y enum) or quadrantLabels {tl,tr,bl,br} for a label-only matrix.",
+        suggestedFix: "Either pass items[] with label/title/name/text plus x/y or quadrant, or pass quadrantLabels {tl,tr,bl,br} / quadrants[] for a label-only matrix.",
       }));
     }
+    itemsArr.forEach((item, index) => {
+      if (matrixItemHasRenderableLabel(item)) return;
+      issues.push(issue("error", "INVALID_FIELD_USAGE", `matrix-2x2.items[${index}] has no renderable label/title/name/text field.`, {
+        slideId,
+        path: `${path}.items[${index}]`,
+        nodeName: node.id,
+        suggestedFix: "Use {label:'...', x:'low|high', y:'low|high'} or aliases such as title/name/text and quadrant:'tl|tr|bl|br'.",
+      }));
+    });
   }
-  if (name === "numbered-list" && Array.isArray(node.items)) {
+	  if (name === "numbered-list" && Array.isArray(node.items)) {
     node.items.forEach((raw, index) => {
       if (typeof raw === "string") return;
       if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -2586,8 +3022,9 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
         }));
       }
     });
-  }
-  for (const [propName, prop] of Object.entries(definition.fields)) {
+	  }
+	  validateComponentNumericFields(String(name), node, path, slideId, issues);
+	  for (const [propName, prop] of Object.entries(definition.fields)) {
     if (prop.required) {
       const required = checkRequiredComponentField(String(name), propName, prop, node);
       if (!required.ok) {
@@ -2710,6 +3147,33 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
     for (const key of ["evidence", "rail"] as const) {
       validateComponentSlotNode(node, key, path, slideId, issues, options);
     }
+    validateChartWithRailRailBodyField(node, path, slideId, issues, options);
+    if (!hasChartWithRailEvidence(node)) {
+      issues.push(issue("error", "MISSING_REQUIRED_FIELD", "chart-with-rail requires evidence, or flat chartType plus labels/series/chartData.", {
+        slideId,
+        path,
+        nodeName: node.id,
+        suggestedFix: "Provide evidence:{type:'chart-card'|...} or use flat chart authoring: chartType, chartTitle, chartData:{labels,series}, plus railTitle/railBody.",
+      }));
+    }
+  }
+  if (name === "comparison-table") {
+    if (!hasComparisonTableFeatures(node)) {
+      issues.push(issue("error", "MISSING_REQUIRED_FIELD", "comparison-table requires features, or rows with feature/label/title/name fields.", {
+        slideId,
+        path,
+        nodeName: node.id,
+        suggestedFix: "Provide features:[...] or use row records such as rows:[{feature:'ARR', Gamma:'$1.02亿', Canva:'$35亿'}].",
+      }));
+    }
+    if (!hasComparisonTableOptions(node)) {
+      issues.push(issue("error", "MISSING_REQUIRED_FIELD", "comparison-table requires options, or rows with option-name columns.", {
+        slideId,
+        path,
+        nodeName: node.id,
+        suggestedFix: "Provide options:['Gamma','Canva'] or include option columns in each row record.",
+      }));
+    }
   }
   if (options.requireSources && (name === "chart-card" || name === "table-card") && !hasSourceMetadata(node)) {
     issues.push(issue("error", "MISSING_DATA_SOURCE", `${definition.name} requires source metadata by deck.validation.requireSources/strict mode.`, {
@@ -2719,6 +3183,79 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       suggestedFix: "Add source:'...' or caption:'Source: ...' to make the chart/table evidence traceable.",
     }));
   }
+}
+
+function validateChartWithRailRailBodyField(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], options: EffectiveValidationOptions): void {
+  const value = node.railBody;
+  if (!Array.isArray(value)) return;
+  value.forEach((content, index) => {
+    const itemPath = `${path}.railBody[${index}]`;
+    if (typeof content === "string") {
+      if (content.trim()) return;
+      issues.push(issue("error", "INVALID_FIELD_USAGE", `chart-with-rail.railBody[${index}] must not be an empty string.`, {
+        slideId,
+        path: itemPath,
+        nodeName: node.id,
+        suggestedFix: "Remove the empty entry, or use {type:'spacer', fixedHeight:0.2} when visual spacing is intentional.",
+      }));
+      return;
+    }
+    if (content && typeof content === "object" && !Array.isArray(content) && typeof (content as Record<string, unknown>).type === "string") {
+      validateNode(withSyntheticNodeIds(content as DomNode, componentSlotFallbackId(slideId, node, path, `railBody.${index + 1}`)), itemPath, slideId, issues, node, options);
+      return;
+    }
+    issues.push(issue("error", "INVALID_FIELD_USAGE", `chart-with-rail.railBody[${index}] must be a compact DomNode object with a type field, or a string note.`, {
+      slideId,
+      path: itemPath,
+      nodeName: node.id,
+      suggestedFix: "Use railBody:[{type:'text',text:'...'},{type:'table-card',density:'compact',rows:[[...]]}] for structured rail support, or use one railBody string for a short interpretation.",
+    }));
+  });
+}
+
+function hasKeyTakeawayContent(node: DomNode): boolean {
+  const fields = ["headline", "title", "detail", "body", "description", "text"];
+  if (fields.some((key) => typeof node[key] === "string" && String(node[key]).trim() !== "")) return true;
+  if (Array.isArray(node.content) && node.content.length > 0) return true;
+  if (node.content && typeof node.content === "object" && !Array.isArray(node.content)) {
+    const rec = node.content as Record<string, unknown>;
+    if (typeof rec.text === "string" && rec.text.trim()) return true;
+    if (Array.isArray(rec.runs) && rec.runs.length > 0) return true;
+  }
+  return Array.isArray(node.bullets) && node.bullets.length > 0
+    || Array.isArray(node.points) && node.points.length > 0;
+}
+
+function hasChartWithRailEvidence(node: DomNode): boolean {
+  const evidence = node.evidence;
+  if (evidence && typeof evidence === "object" && !Array.isArray(evidence)) return true;
+  const data = node.chartData && typeof node.chartData === "object" && !Array.isArray(node.chartData)
+    ? node.chartData as Record<string, unknown>
+    : node.data && typeof node.data === "object" && !Array.isArray(node.data)
+      ? node.data as Record<string, unknown>
+      : {};
+  const hasChartType = typeof node.chartType === "string" || typeof node.chart === "string";
+  const hasLabelsAndSeries = (Array.isArray(node.labels) || Array.isArray(data.labels)) && (Array.isArray(node.series) || Array.isArray(data.series));
+  return hasChartType && (hasLabelsAndSeries || hasDataBindSource(node.bind));
+}
+
+function hasComparisonTableFeatures(node: DomNode): boolean {
+  if (Array.isArray(node.features) && node.features.length > 0) return true;
+  return comparisonTableRows(node).some((row) => ["feature", "label", "title", "name", "term", "criteria", "criterion"].some((key) => typeof row[key] === "string" && String(row[key]).trim()));
+}
+
+function hasComparisonTableOptions(node: DomNode): boolean {
+  if (Array.isArray(node.options) && node.options.length > 0) return true;
+  const first = comparisonTableRows(node)[0];
+  if (!first) return false;
+  const excluded = new Set(["feature", "label", "name", "title", "term", "criteria", "criterion", "values", "row", "cells"]);
+  return Object.keys(first).some((key) => !excluded.has(key));
+}
+
+function comparisonTableRows(node: DomNode): Array<Record<string, unknown>> {
+  return Array.isArray(node.rows)
+    ? node.rows.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object" && !Array.isArray(row)))
+    : [];
 }
 
 function validateChapterDividerUsage(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], parent?: DomNode): void {
@@ -2806,7 +3343,8 @@ function checkRequiredComponentField(componentName: string, propName: string, pr
 
 function dataBindingSatisfiesRequired(componentName: string, propName: string, value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  if (typeof (value as Record<string, unknown>).source !== "string" || !String((value as Record<string, unknown>).source).trim()) return false;
+  const rec = canonicalDataBindRecord(value as Record<string, unknown>);
+  if (typeof rec.source !== "string" || !String(rec.source).trim()) return false;
   const boundRequiredFields: Record<string, Set<string>> = {
     "chart-card": new Set(["labels", "series"]),
     "table-card": new Set(["rows"]),
@@ -2853,11 +3391,18 @@ function describeValueType(value: unknown): string {
 }
 
 function isNumericString(value: unknown): boolean {
-  if (typeof value !== "string") return false;
+  return strictNumericValue(value) !== null;
+}
+
+function strictNumericValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
   const normalized = value.trim().replace(/,/g, "");
-  if (!normalized) return false;
+  if (!normalized) return null;
   const raw = normalized.endsWith("%") ? normalized.slice(0, -1) : normalized;
-  return raw.trim() !== "" && Number.isFinite(Number.parseFloat(raw));
+  if (!raw.trim()) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function valueAtPath(value: unknown, path: string): unknown {
@@ -2873,7 +3418,10 @@ function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[]
   for (const node of nodes) {
     if (!node || typeof node !== "object") continue;
     const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
-    if (componentName === "section-break" || componentName === "title-lockup" || componentName === "cover-composition" || componentName === "chapter-divider") {
+    if (componentName === "cover-composition") {
+      found = true;
+      titles.push(...coverCompositionTitleCandidates(node));
+    } else if (componentName === "section-break" || componentName === "title-lockup" || componentName === "chapter-divider") {
       found = true;
       if (typeof node.title === "string" && node.title.trim()) titles.push(node.title);
     } else if (node.type === "deck-title" || node.type === "slide-title") {
@@ -2893,13 +3441,51 @@ function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[]
   return { found, titles };
 }
 
+function hasMetadataHeroComponent(nodes: DomNode[]): boolean {
+  for (const node of nodes) {
+    if (!node || typeof node !== "object") continue;
+    const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
+    if (typeof componentName === "string" && METADATA_HERO_COMPONENTS.has(componentName)) return true;
+    const inner = (node.children as DomNode[] | undefined) || [];
+    if (inner.length && hasMetadataHeroComponent(inner)) return true;
+  }
+  return false;
+}
+
 function bodyHeroTitleMatchesSlideTitle(slideTitle: string, bodyTitles: string[]): boolean {
   const normalizedSlideTitle = normalizeHeroTitle(slideTitle);
   return bodyTitles.length > 0 && bodyTitles.every((title) => normalizeHeroTitle(title) === normalizedSlideTitle);
 }
 
 function normalizeHeroTitle(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return text.replace(/\s+/g, "").trim();
+}
+
+function coverCompositionTitleCandidates(node: DomNode): string[] {
+  const title = typeof node.title === "string" ? node.title.trim() : "";
+  const content = coverCompositionContentText(node.content).trim();
+  const visibleTitle = content ? [title, content].filter(Boolean).join("") : title;
+  return [visibleTitle]
+    .map((candidate) => candidate.trim())
+    .filter((candidate, index, list) => candidate && list.indexOf(candidate) === index);
+}
+
+function coverCompositionContentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map(coverCompositionRunText).join("");
+  if (content && typeof content === "object" && !Array.isArray(content)) {
+    const rec = content as Record<string, unknown>;
+    if (typeof rec.text === "string") return rec.text;
+    if (Array.isArray(rec.runs)) return rec.runs.map(coverCompositionRunText).join("");
+  }
+  return "";
+}
+
+function coverCompositionRunText(run: unknown): string {
+  if (typeof run === "string") return run;
+  if (!run || typeof run !== "object" || Array.isArray(run)) return "";
+  const rec = run as Record<string, unknown>;
+  return typeof rec.text === "string" ? rec.text : "";
 }
 
 /**
@@ -3067,6 +3653,8 @@ function topLevelExpandedOverlayItems(
 }
 
 function isSignificantMeasuredOverlayNode(id: string, type: string, rect: { w: number; h: number }): boolean {
+  if (type === "spacer" || type === "fragment" || type === "stack" || type === "grid" || type === "positioned-group" || type === "pptx-group") return false;
+  if (type === "divider") return false;
   if (type === "shape" && rect.h <= 0.08) return false;
   return rect.w >= 0.5 && rect.h >= 0.18;
 }
@@ -3083,6 +3671,7 @@ function isTopLevelRegionChild(node: DomNode): boolean {
 
 function isSignificantPositionedChild(node: DomNode): boolean {
   const rec = node as Record<string, unknown>;
+  if (node.type === "spacer" || node.type === "fragment" || node.type === "divider") return false;
   if (node.layer === "behind" || node.layer === "above") return false;
   if (typeof rec.zIndex === "number" && Number.isFinite(rec.zIndex) && rec.zIndex < 0) return false;
   if (isDecorativeTopLevelPositionedChild(node)) return false;
@@ -3097,6 +3686,7 @@ function isSignificantPositionedChild(node: DomNode): boolean {
 }
 
 function isDecorativeTopLevelPositionedChild(node: DomNode): boolean {
+  if (node.type === "divider" || node.type === "spacer") return true;
   if (node.type === "decoration-grid" || node.type === "decorative-shapes" || node.type === "watermark" || node.type === "pointer-arrow") return true;
   const id = typeof node.id === "string" ? node.id.toLowerCase() : "";
   if (id.includes(".decor") || id.includes("decoration") || id.includes("watermark") || id.includes("brand-mark") || id.endsWith(".scrim") || id.endsWith(".backdrop")) return true;

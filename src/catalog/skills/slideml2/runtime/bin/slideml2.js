@@ -5,9 +5,11 @@ import { basename, dirname, isAbsolute, resolve } from "node:path";
 import {
   clearRenderDiagnostics,
   createSourceDeck,
+  describeComponents,
   getRenderDiagnostics,
   isBlockingRenderDiagnostic,
   isQualityRenderDiagnostic,
+  listComponents,
   normalizeSlide,
   renderToAst,
   renderToPptx,
@@ -40,7 +42,7 @@ const HELP = {
   main: `SlideML2 CLI
 
 Usage:
-  slideml2 <command> [args] [--deck deck-config.json] [--out deck.pptx] [--write-source build/deck.json]
+  slideml2 <command> [args] [--deck deck-config.json] [--out deck.pptx]
 
 Commands:
   init-deck <args.json>          Create a deck configuration source; fails if it exists.
@@ -51,11 +53,13 @@ Commands:
   compose <manifest.json>        Compose ordered slide files into deck source and/or PPTX.
   slice-icons <sheet-image>      Slice an AI-generated PNG/JPEG icon sheet into PNG icons.
   help [command]                 Show command help.
+  help components                List public component types.
+  help component <name>          Show one component schema, examples, and pitfalls.
+  help <component-name>          Shortcut for help component <name>.
 
 Common flags:
   --deck <path>          Deck config source path. Default: ./deck-config.json.
   --out <path>           PPTX output path for compose.
-  --write-source <path>  Composed full deck JSON output path for compose.
   --icons <path>         Icon specs JSON for slice-icons.
   --out-dir <path>       Output directory for slice-icons.
   --dry-run              Run validation but do not write files.
@@ -89,12 +93,13 @@ fails, repair the same slide file and retry validate-slide.`,
 Validate manifest order, file existence, duplicate ids, id/file consistency,
 each referenced slide, and the composed deck source/render layout. Writes no
 PPTX and no deck source.`,
-  compose: `Usage: slideml2 compose <manifest.json> [--deck deck-config.json] --write-source build/deck.json --out build/deck.pptx
+  compose: `Usage: slideml2 compose <manifest.json> [--deck deck-config.json] --out build/deck.pptx
 
 Read deck config plus ordered slide files from manifest.json, validate the
-full composed deck, then atomically write the composed deck source and optional
-PPTX. Slide order comes only from manifest.json, not command history. At least
-one of --write-source or --out is required.`,
+full composed deck, then atomically write the PPTX plus sidecars:
+<out>.deck.json, <out>.render-tree.json, and <out>.diagnostics.json. Slide
+order comes only from manifest.json, not command history. --out is required
+and must end with .pptx. The old --write-source flag has been removed.`,
   "slice-icons": `Usage: slideml2 slice-icons <sheet-image> --icons icons.json --out-dir assets/icons [--manifest assets/icons/manifest.json] [--grid 3x3] [--output-size 768] [--no-transparent]
 
 Slice an AI-generated PNG or JPEG/JFIF icon sheet into individual square PNG
@@ -123,6 +128,279 @@ function printHelp(command) {
   });
 }
 
+const COMPONENT_HELP_OVERRIDES = {
+  "chart-card": {
+    requiredFields: ["chartType"],
+    requiredAnyOf: [
+      ["type:'chart-card'", "chartType", "labels", "series[].values"],
+      ["type:'chart-card'", "chartType", "data.labels", "data.series[].values"],
+      ["type:'chart-card'", "chartType", "bind.source", "encoding.x", "encoding.y"],
+    ],
+    acceptedAuthoringForms: [
+      {
+        name: "hand-authored top-level data",
+        required: ["chartType", "labels", "series[].values"],
+        example: { type: "chart-card", chartType: "bar", labels: ["2025", "2026"], series: [{ name: "Market", values: [75, 110] }] },
+      },
+      {
+        name: "hand-authored data bundle",
+        required: ["chartType", "data.labels", "data.series[].values"],
+        example: { type: "chart-card", chartType: "bar", data: { labels: ["2025", "2026"], series: [{ name: "Market", values: [75, 110] }] } },
+      },
+      {
+        name: "deck data binding",
+        required: ["chartType", "bind.source", "encoding.x", "encoding.y"],
+        example: { type: "chart-card", chartType: "bar", bind: { source: "marketSize" }, encoding: { x: "year", y: "value", seriesName: "Market" } },
+      },
+    ],
+    commonMistakes: [
+      "Do not use arbitrary series keys such as amount, yValues, dataset, or items; category chart values must be in series[].values, with series[].data accepted only as a Chart.js compatibility alias.",
+      "EMPTY_CHART_DATA means the renderer found no numeric values or scatter points. Keep the chart component and repair the data shape or binding fields.",
+      "Fix chart data first, then fix SQUASHED/capacity diagnostics; layout checks are less useful when the chart has no renderable data.",
+    ],
+  },
+  "chart-with-rail": {
+    requiredFields: [],
+    requiredAnyOf: [
+      ["type:'chart-with-rail'", "evidence:{type:'chart-card'|'table-card'|'image-card'|...}"],
+      ["type:'chart-with-rail'", "chartType", "chartData.labels", "chartData.series[].values"],
+    ],
+    acceptedAuthoringForms: [
+      {
+        name: "nested evidence object",
+        required: ["evidence"],
+        example: { type: "chart-with-rail", evidence: { type: "chart-card", chartType: "bar", labels: ["A", "B"], series: [{ name: "Series", values: [10, 20] }] }, rail: { title: "Readout", body: "The chart is the proof object." } },
+      },
+      {
+        name: "flat chart alias",
+        required: ["chartType", "chartData.labels", "chartData.series[].values"],
+        example: { type: "chart-with-rail", chartType: "bar", chartData: { labels: ["A", "B"], series: [{ name: "Series", values: [10, 20] }] }, railTitle: "Readout", railBody: "Concise interpretation." },
+      },
+    ],
+    commonMistakes: [
+      "For chart-with-rail flat mode, use chartData:{labels,series}; data:{labels,series} is the chart-card bundle, not the documented flat chart-with-rail key.",
+      "evidence must be a single object, not an array. Put one dominant chart/table/image in evidence and keep rail text concise.",
+      "If the chart is SQUASHED, increase evidence ratio/area or move secondary content to another slide before replacing the evidence component.",
+    ],
+  },
+  "table-card": {
+    requiredFields: [],
+    requiredAnyOf: [
+      ["type:'table-card'", "rows"],
+      ["type:'table-card'", "data.rows"],
+      ["type:'table-card'", "bind.source", "encoding.columns"],
+    ],
+    acceptedAuthoringForms: [
+      {
+        name: "hand-authored rows",
+        required: ["rows"],
+        example: { type: "table-card", columns: [{ key: "metric", label: "Metric" }, { key: "value", label: "Value" }], rows: [{ metric: "Revenue", value: "$10m" }] },
+      },
+      {
+        name: "data bundle",
+        required: ["data.rows"],
+        example: { type: "table-card", data: { headers: ["Metric", "Value"], rows: [["Revenue", "$10m"]] } },
+      },
+      {
+        name: "deck data binding",
+        required: ["bind.source", "encoding.columns"],
+        example: { type: "table-card", bind: { source: "sales", limit: 6 }, encoding: { columns: [{ key: "region", label: "Region" }, { key: "revenue", label: "Revenue", type: "currency" }] } },
+      },
+    ],
+    commonMistakes: [
+      "If object rows render empty, add encoding.columns with explicit key/label. Display headers can differ from object keys only when columns declare the key.",
+      "For dense business tables, use density:'compact' and paginate before deleting data.",
+    ],
+  },
+  "analytic-table": {
+    requiredFields: [],
+    requiredAnyOf: [
+      ["type:'analytic-table'", "columns", "rows"],
+      ["type:'analytic-table'", "columns", "data.rows"],
+      ["type:'analytic-table'", "bind.source", "encoding.columns"],
+    ],
+    commonMistakes: [
+      "Use analytic-table when cells need visual encodings such as progress, delta, badge, heat, sparkline, traffic-light, rank, range, or stacked bars.",
+      "Keep calculations upstream; rows should carry final values and columns[].visual should declare how to display them.",
+    ],
+  },
+};
+
+function printHelpTopic(args) {
+  const cleanArgs = args.filter((arg) => arg !== "--json-output" && arg !== "--help" && arg !== "-h");
+  const [topic, name, ...extra] = cleanArgs;
+  if (!topic || topic === "main") {
+    printHelp("main");
+    return;
+  }
+  if (topic === "components") {
+    printComponentsHelp();
+    return;
+  }
+  if (topic === "component") {
+    if (!name) {
+      printPayload({
+        ok: false,
+        command: "help",
+        stage: "help",
+        status: "usage-error",
+        deckModified: false,
+        error: "help component requires a component name.",
+        usage: "slideml2 help component <component-name>",
+        componentCount: listComponents().length,
+        nextAction: "Run slideml2 help components to list names, then run slideml2 help component chart-card.",
+      }, EXIT.usage);
+    }
+    if (extra.length > 0) usage(`help component accepts exactly one component name. Unexpected extra argument(s): ${extra.join(" ")}`);
+    printComponentHelp(name);
+    return;
+  }
+  if (HELP[topic]) {
+    if (name || extra.length > 0) usage(`help ${topic} does not accept extra argument(s): ${[name, ...extra].filter(Boolean).join(" ")}`);
+    printHelp(topic);
+    return;
+  }
+  if (name || extra.length > 0) usage(`Unknown help topic '${topic}'. For components use: slideml2 help component <name>.`);
+  printComponentHelp(topic);
+}
+
+function printComponentsHelp() {
+  const components = listComponents().sort((a, b) => a.name.localeCompare(b.name));
+  printPayload({
+    ok: true,
+    command: "help",
+    stage: "help",
+    status: "ok",
+    deckModified: false,
+    helpCommand: "components",
+    componentCount: components.length,
+    components,
+    nextAction: "Run slideml2 help component <name> to inspect requiredAnyOf, fields, examples, and component-specific pitfalls.",
+  });
+}
+
+function printComponentHelp(rawName) {
+  const requestedName = String(rawName || "").trim();
+  const normalizedName = normalizeComponentHelpName(requestedName);
+  const result = describeComponents([requestedName, normalizedName]);
+  const componentName = result.found[requestedName] ? requestedName : normalizedName;
+  const description = result.found[componentName];
+  if (!description) {
+    printPayload({
+      ok: false,
+      command: "help",
+      stage: "help",
+      status: "not-found",
+      deckModified: false,
+      helpCommand: "component",
+      componentName: requestedName,
+      error: `Unknown component '${requestedName}'.`,
+      suggestions: componentHelpSuggestions(requestedName),
+      nextAction: "Use one of the suggested component names, or run slideml2 help components to list all supported component types.",
+    }, EXIT.usage);
+  }
+  printPayload({
+    ok: true,
+    command: "help",
+    stage: "help",
+    status: "ok",
+    deckModified: false,
+    helpCommand: "component",
+    componentName,
+    component: componentHelpSchema(description),
+    nextAction: `Use type:'${componentName}' with one acceptedAuthoringForms entry, write the slide JSON, then run validate-slide on that same file.`,
+  });
+}
+
+function normalizeComponentHelpName(name) {
+  return String(name || "")
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/[_\s]+/g, "-")
+    .toLowerCase();
+}
+
+function componentHelpSchema(description) {
+  const override = COMPONENT_HELP_OVERRIDES[description.name] || {};
+  const fields = Object.fromEntries(Object.entries(description.fields || {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, prop]) => [key, cleanPropDefinition(prop)]));
+  const rawRequiredFields = Object.entries(fields).filter(([, prop]) => prop.required === true).map(([key]) => key);
+  const requiredFields = override.requiredFields || rawRequiredFields;
+  if (override.requiredAnyOf) {
+    for (const [key, prop] of Object.entries(fields)) {
+      if (prop.required === true && !requiredFields.includes(key)) {
+        prop.required = false;
+        prop.requiredInSomeForms = true;
+      }
+    }
+  }
+  const optionalFields = Object.keys(fields).filter((key) => !requiredFields.includes(key));
+  const defaultRequiredAnyOf = requiredFields.length ? [requiredFields] : [[]];
+  return {
+    name: description.name,
+    purpose: description.purpose,
+    category: description.category,
+    schema: {
+      type: "object",
+      typeField: description.name,
+      requiredAnyOf: override.requiredAnyOf || defaultRequiredAnyOf,
+      requiredFields,
+      optionalFields,
+      fields,
+      children: description.children,
+    },
+    acceptedAuthoringForms: override.acceptedAuthoringForms || [
+      { name: "canonical", required: requiredFields, example: description.examples?.[0] || { type: description.name } },
+    ],
+    examples: description.examples || [],
+    guidance: description.guidance || [],
+    commonMistakes: override.commonMistakes || [],
+    layoutBehavior: description.layoutBehavior,
+    renderBehavior: description.renderBehavior,
+  };
+}
+
+function cleanPropDefinition(prop) {
+  const out = {
+    type: prop.type,
+    required: prop.required === true,
+    description: prop.description,
+  };
+  if (prop.semantic !== undefined) out.semantic = prop.semantic;
+  if (prop.enum !== undefined) out.enum = prop.enum;
+  if (prop.values !== undefined) out.values = prop.values;
+  if (prop.min !== undefined) out.min = prop.min;
+  if (prop.max !== undefined) out.max = prop.max;
+  return out;
+}
+
+function componentHelpSuggestions(name) {
+  const normalized = normalizeComponentHelpName(name);
+  const candidates = listComponents().map((item) => item.name);
+  return candidates
+    .map((candidate) => ({ name: candidate, distance: levenshteinDistance(normalized, candidate) }))
+    .sort((a, b) => a.distance - b.distance || a.name.localeCompare(b.name))
+    .slice(0, 6)
+    .map(({ name }) => name);
+}
+
+function levenshteinDistance(a, b) {
+  const left = String(a || "");
+  const right = String(b || "");
+  const prev = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i += 1) {
+    const curr = [i];
+    for (let j = 1; j <= right.length; j += 1) {
+      curr[j] = left[i - 1] === right[j - 1]
+        ? prev[j - 1]
+        : Math.min(prev[j - 1], prev[j], curr[j - 1]) + 1;
+    }
+    prev.splice(0, prev.length, ...curr);
+  }
+  return prev[right.length];
+}
+
 function abs(path) {
   return isAbsolute(path) ? path : resolve(process.cwd(), path);
 }
@@ -135,14 +413,17 @@ function outputPathFrom(flags) {
   return flags.out ? abs(flags.out) : undefined;
 }
 
-function writeSourcePathFrom(flags) {
-  return flags["write-source"] ? abs(flags["write-source"]) : undefined;
+function sourcePathForOutput(outputPath) {
+  return `${outputPath}.deck.json`;
 }
 
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
-  const valueFlags = new Set(["deck", "out", "write-source", "icons", "out-dir", "manifest", "grid", "output-size"]);
+  const valueFlags = new Set(["deck", "out", "icons", "out-dir", "manifest", "grid", "output-size"]);
+  const removedFlags = new Map([
+    ["write-source", "--write-source was removed. compose now always writes the composed source sidecar to <out>.deck.json; pass only --out build/deck.pptx."],
+  ]);
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--help" || arg === "-h") {
@@ -157,10 +438,14 @@ function parseArgs(argv) {
       flags.transparent = true;
     } else if (arg === "--no-transparent") {
       flags.transparent = false;
+    } else if (arg.startsWith("--") && removedFlags.has(arg.slice(2))) {
+      usage(removedFlags.get(arg.slice(2)));
     } else if (arg.startsWith("--") && valueFlags.has(arg.slice(2))) {
+      const name = arg.slice(2);
+      if (Object.prototype.hasOwnProperty.call(flags, name)) usage(`Duplicate flag: ${arg}`);
       const value = argv[++i];
-      if (!value) usage(`Missing value for ${arg}`);
-      flags[arg.slice(2)] = value;
+      if (!value || value.startsWith("--")) usage(`Missing value for ${arg}`);
+      flags[name] = value;
     } else if (arg.startsWith("--")) {
       usage(`Unknown flag: ${arg}`);
     } else {
@@ -168,6 +453,45 @@ function parseArgs(argv) {
     }
   }
   return { positional, flags };
+}
+
+const COMMAND_POSITIONAL = {
+  "init-deck": "<args.json>",
+  "set-deck": "<deck-props.json>",
+  "validate-slide": "<slide.json>",
+  "validate-manifest": "<manifest.json>",
+  compose: "<manifest.json>",
+  "slice-icons": "<sheet-image>",
+};
+
+const COMMAND_ALLOWED_FLAGS = {
+  "init-deck": new Set(["deck", "dryRun", "strict", "jsonOutput", "help"]),
+  "set-deck": new Set(["deck", "dryRun", "strict", "jsonOutput", "help"]),
+  "validate-slide": new Set(["deck", "strict", "jsonOutput", "help"]),
+  "validate-manifest": new Set(["deck", "strict", "jsonOutput", "help"]),
+  compose: new Set(["deck", "out", "dryRun", "strict", "jsonOutput", "help"]),
+  "slice-icons": new Set(["icons", "out-dir", "manifest", "grid", "output-size", "transparent", "strict", "jsonOutput", "help"]),
+};
+
+function validateCommandFlags(command, flags) {
+  const allowed = COMMAND_ALLOWED_FLAGS[command];
+  if (!allowed) return;
+  for (const name of Object.keys(flags)) {
+    if (!allowed.has(name)) usage(`Flag --${name} is not valid for ${command}. Run slideml2 help ${command} for the accepted command shape.`);
+  }
+}
+
+function onePositional(command, positional) {
+  const label = COMMAND_POSITIONAL[command] || "<arg>";
+  if (positional.length === 0) usage(`${command} requires ${label}`);
+  if (positional.length > 1) {
+    usage(`${command} accepts exactly one positional argument (${label}). Unexpected extra argument(s): ${positional.slice(1).join(" ")}`);
+  }
+  return positional[0];
+}
+
+function assertExtension(path, extension, flag) {
+  if (!path.toLowerCase().endsWith(extension)) usage(`${flag} must point to a ${extension} file. Got: ${path}`);
 }
 
 function usage(message) {
@@ -184,13 +508,44 @@ function usage(message) {
 }
 
 async function readJson(path, label = "input") {
-  const text = path === "-" ? await readStdin() : await readFile(abs(path), "utf8");
   const file = path === "-" ? "stdin" : abs(path);
+  let text;
+  try {
+    text = path === "-" ? await readStdin() : await readFile(file, "utf8");
+  } catch (error) {
+    if (error && error.code === "ENOENT") throw missingJsonInputPayload(file, label);
+    throw error;
+  }
   try {
     return JSON.parse(text);
   } catch (error) {
     throw jsonParseErrorPayload(file, text, label, error);
   }
+}
+
+function missingJsonInputPayload(filePath, label) {
+  const diagnostic = {
+    code: "INPUT_FILE_MISSING",
+    severity: "error",
+    file: filePath,
+    message: `Could not read ${label} JSON from ${filePath}: file does not exist.`,
+    suggestion: "Create this JSON input file first, then rerun the same slideml2 command. For init-deck, write deck-init.json with title/theme/brand options before running init-deck; do not point at a not-yet-created path.",
+  };
+  const payload = {
+    ok: false,
+    command: undefined,
+    stage: "input",
+    status: "input-error",
+    deckModified: false,
+    error: "Input JSON file missing",
+    diagnostic,
+    diagnostics: { count: 1, summary: { INPUT_FILE_MISSING: 1 }, blockingCount: 1, blocking: [diagnostic] },
+    nextAction: "Create the referenced JSON file and rerun this exact command. If the deck config already exists, use set-deck for deck-level changes instead of rerunning init-deck.",
+  };
+  const out = new Error(diagnostic.message);
+  out.slideml2JsonParse = true;
+  out.payload = payload;
+  return out;
 }
 
 async function readStdin() {
@@ -387,7 +742,7 @@ function blockingDiagnostics(items) {
 }
 
 function qualityDiagnostics(items) {
-  return items.filter((item) => isQualityRenderDiagnostic(item.code));
+  return items.filter((item) => !isBlockingRenderDiagnostic(item.code, item.severity) && isQualityRenderDiagnostic(item.code));
 }
 
 function diagnosticsSummary(items) {
@@ -504,7 +859,7 @@ async function runInitDeck(command, inputPath, flags) {
       status: "target-exists",
       deckModified: false,
       deckPath,
-      nextAction: "Choose a new --deck path or intentionally edit the existing config with set-deck. Do not overwrite a deck in place.",
+      nextAction: "This deck config already exists. Continue with set-deck for deck-level changes, or choose a fresh --deck path inside the current run directory. Do not rerun init-deck against an existing target.",
     }), EXIT.target);
   }
   const input = await readJson(inputPath, "deck args");
@@ -753,7 +1108,14 @@ async function composeDeckFromManifest(deckPath, manifestPath) {
       }));
       continue;
     }
-    if (id && slide.id !== id) {
+    if (id && slide.id !== id && isPositionalSlideAlias(id, index)) {
+      issues.push(issue("warning", "MANIFEST_SLIDE_ID_ALIAS", `Manifest id '${id}' is treated as a positional alias for slide.id '${slide.id}'.`, {
+        path,
+        slideId: slide.id,
+        details: { file: filePath, manifestId: id, actualSlideId: slide.id },
+        suggestedFix: "Prefer matching manifest id and slide.id for deterministic repairs, but slideN aliases are accepted for internal links like #slide5.",
+      }));
+    } else if (id && slide.id !== id) {
       issues.push(issue("error", "MANIFEST_SLIDE_ID_MISMATCH", `Manifest id '${id}' does not match slide.id '${slide.id}'.`, {
         path,
         slideId: id,
@@ -778,6 +1140,12 @@ async function composeDeckFromManifest(deckPath, manifestPath) {
   candidate.slides = slides;
   const manifestValidation = report(issues);
   return { manifest, manifestPath: manifestAbs, manifestValidation, entries, deck: candidate };
+}
+
+function isPositionalSlideAlias(id, index) {
+  const match = /^slide(\d+)$/i.exec(id.trim());
+  if (!match) return false;
+  return Number(match[1]) === index + 1;
 }
 
 async function validateComposedDeck(deckPath, composed) {
@@ -821,7 +1189,7 @@ async function runValidateManifest(command, manifestPath, flags) {
     renderValidation: validated.renderValidation,
     diagnostics: validated.renderValidation?.diagnostics,
     nextAction: ok
-      ? "Manifest is valid. Run compose with --write-source and/or --out."
+      ? "Manifest is valid. Run compose with --out <deck.pptx>."
       : "Repair the named manifest or slide file diagnostics, then rerun validate-manifest. Do not append another copy of failed slides.",
   }), validated.exitCode);
 }
@@ -830,8 +1198,9 @@ async function runCompose(command, manifestPath, flags) {
   if (!manifestPath) usage("compose requires <manifest.json>");
   const deckPath = deckPathFrom(flags);
   const outputPath = outputPathFrom(flags);
-  const sourcePath = writeSourcePathFrom(flags);
-  if (!outputPath && !sourcePath) usage("compose requires --write-source and/or --out");
+  if (!outputPath) usage("compose requires --out <deck.pptx>");
+  assertExtension(outputPath, ".pptx", "--out");
+  const sourcePath = sourcePathForOutput(outputPath);
 
   const composed = await composeDeckFromManifest(deckPath, manifestPath);
   if (!composed.manifestValidation.ok) {
@@ -871,13 +1240,9 @@ async function runCompose(command, manifestPath, flags) {
 
   let tempRender;
   let renderValidation;
-  if (outputPath) {
-    await mkdir(dirname(outputPath), { recursive: true });
-    tempRender = await renderDeckToTemp(composed.deck, dirname(deckPath), outputPath);
-    renderValidation = tempRender.renderValidation;
-  } else {
-    renderValidation = await renderDiagnosticsForDeck(composed.deck, dirname(deckPath));
-  }
+  await mkdir(dirname(outputPath), { recursive: true });
+  tempRender = await renderDeckToTemp(composed.deck, dirname(deckPath), outputPath);
+  renderValidation = tempRender.renderValidation;
   if (!renderValidation.ok) {
     if (tempRender) {
       await rm(tempRender.tempOutputPath, { force: true });
@@ -904,21 +1269,17 @@ async function runCompose(command, manifestPath, flags) {
   let domPath;
   let diagnosticsPath;
   if (!flags.dryRun) {
-    if (sourcePath) await writeJsonAtomic(sourcePath, composed.deck);
-    if (outputPath && tempRender) {
-      await rename(tempRender.tempOutputPath, outputPath);
-      domPath = `${outputPath}.render-tree.json`;
-      await rename(tempRender.tempDomPath, domPath);
-      diagnosticsPath = `${outputPath}.diagnostics.json`;
-      await writeTextAtomic(diagnosticsPath, `${JSON.stringify(tempRender.diagnostics, null, 2)}\n`);
-    }
-  } else if (outputPath) {
+    await writeJsonAtomic(sourcePath, composed.deck);
+    await rename(tempRender.tempOutputPath, outputPath);
+    domPath = `${outputPath}.render-tree.json`;
+    await rename(tempRender.tempDomPath, domPath);
+    diagnosticsPath = `${outputPath}.diagnostics.json`;
+    await writeTextAtomic(diagnosticsPath, `${JSON.stringify(tempRender.diagnostics, null, 2)}\n`);
+  } else {
     domPath = `${outputPath}.render-tree.json`;
     diagnosticsPath = `${outputPath}.diagnostics.json`;
-    if (tempRender) {
-      await rm(tempRender.tempOutputPath, { force: true });
-      await rm(tempRender.tempDomPath, { force: true });
-    }
+    await rm(tempRender.tempOutputPath, { force: true });
+    await rm(tempRender.tempDomPath, { force: true });
   }
 
   printPayload(commandPayload(command, {
@@ -1007,7 +1368,7 @@ async function main() {
     }, EXIT.usage);
   }
   if (command === "help") {
-    printHelp(rest[0] || "main");
+    printHelpTopic(rest);
     return;
   }
   if (!COMMANDS.includes(command)) usage(`Unknown command: ${command}`);
@@ -1016,13 +1377,14 @@ async function main() {
     printHelp(command);
     return;
   }
+  validateCommandFlags(command, flags);
 
-  if (command === "init-deck") return runInitDeck(command, positional[0], flags);
-  if (command === "set-deck") return runSetDeck(command, positional[0], flags);
-  if (command === "validate-slide") return runValidateSlide(command, positional[0], flags);
-  if (command === "validate-manifest") return runValidateManifest(command, positional[0], flags);
-  if (command === "compose") return runCompose(command, positional[0], flags);
-  if (command === "slice-icons") return runSliceIcons(command, positional[0], flags);
+  if (command === "init-deck") return runInitDeck(command, onePositional(command, positional), flags);
+  if (command === "set-deck") return runSetDeck(command, onePositional(command, positional), flags);
+  if (command === "validate-slide") return runValidateSlide(command, onePositional(command, positional), flags);
+  if (command === "validate-manifest") return runValidateManifest(command, onePositional(command, positional), flags);
+  if (command === "compose") return runCompose(command, onePositional(command, positional), flags);
+  if (command === "slice-icons") return runSliceIcons(command, onePositional(command, positional), flags);
   usage(`Unknown command: ${command}`);
 }
 

@@ -31,6 +31,7 @@ export const RENDER_DIAGNOSTIC_CODES = [
   "DONUT_SUMMARY_OVER_CAPACITY",
   "PAGE_OVER_CAPACITY",
   "REGION_OVER_CAPACITY",
+  "REGION_BUDGET_INFEASIBLE",
   "ORG_OVERFLOW",
   "LOW_CONTRAST",
   "LOW_CONTRAST_FIXED",
@@ -72,7 +73,6 @@ export const BLOCKING_RENDER_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
   "EMPTY_CHART_DATA",
   "EMPTY_TABLE_DATA",
   "TINY_RECT",
-  "LOW_CONTRAST",
   "SHAPE_INVISIBLE",
   "UNKNOWN_COLOR",
   "UNKNOWN_STYLE",
@@ -86,6 +86,15 @@ export const QUALITY_RENDER_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
   "OVERFLOW",
   "DROP",
   "DEMOTED",
+  "COLLISION",
+  "STRUCTURAL_OVERLAP",
+  "SIBLING_INK_OVERLAP",
+  "OVERLAY_OCCLUDES_FLOW",
+  "TINY_RECT",
+  "FALLBACK_FAILED",
+  "FEATURE_CARD_OVER_CAPACITY",
+  "CODE_BLOCK_OVERFLOW",
+  "LOW_CONTRAST",
   "LOW_CONTRAST_FIXED",
   "SHAPE_INVISIBLE_FIXED",
   "DECORATIVE_OVERLAP",
@@ -102,11 +111,13 @@ export const QUALITY_RENDER_DIAGNOSTIC_CODES: ReadonlySet<string> = new Set([
   "DONUT_SUMMARY_OVER_CAPACITY",
   "PAGE_OVER_CAPACITY",
   "REGION_OVER_CAPACITY",
+  "REGION_BUDGET_INFEASIBLE",
   "ORG_OVERFLOW",
 ]);
 
 export function isBlockingRenderDiagnostic(code: unknown, severity?: unknown): boolean {
   if (severity === "error") return true;
+  if (severity === "warn" || severity === "warning" || severity === "info") return false;
   return typeof code === "string" && BLOCKING_RENDER_DIAGNOSTIC_CODES.has(code);
 }
 

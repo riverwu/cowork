@@ -39,6 +39,8 @@ export const OVERLAY_OCCLUSION_MIN_AREA_CM2 = 0.08;
 export const OVERLAY_OCCLUSION_MIN_TARGET_COVERAGE = 0.25;
 export const TITLE_OCCLUSION_MIN_AREA_CM2 = 0.5;
 export const TITLE_OCCLUSION_MIN_RATIO_OF_TITLE = 0.12;
+export const TITLE_OCCLUSION_MIN_WIDTH_CM = 0.4;
+export const TITLE_OCCLUSION_MIN_HEIGHT_CM = 0.12;
 
 function finiteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -152,7 +154,9 @@ export function meaningfulOverlayOcclusion(overlay: RectLike, target: RectLike):
 export function meaningfulTitleOcclusion(title: RectLike, cover: RectLike): OverlapMetrics | undefined {
   const metrics = overlapMetrics(title, cover);
   if (!metrics) return undefined;
-  if (metrics.ratioOfA < TITLE_OCCLUSION_MIN_RATIO_OF_TITLE && metrics.areaCm2 < TITLE_OCCLUSION_MIN_AREA_CM2) return undefined;
+  if (metrics.rect.w < TITLE_OCCLUSION_MIN_WIDTH_CM || metrics.rect.h < TITLE_OCCLUSION_MIN_HEIGHT_CM) return undefined;
+  if (metrics.ratioOfA < TITLE_OCCLUSION_MIN_RATIO_OF_TITLE) return undefined;
+  if (metrics.areaCm2 < TITLE_OCCLUSION_MIN_AREA_CM2) return undefined;
   return metrics;
 }
 

@@ -455,6 +455,10 @@ describe("emitter — package end-to-end", () => {
     expect(chartXml).toContain('<c:legendPos val="r"/>');
     expect(chartXml).toContain('<c:overlay val="1"/>');
     expect(chartXml).toContain("<c:manualLayout>");
+    expect(chartXml).toContain('<c:x val="0.12"/>');
+    expect(chartXml).toContain('<c:y val="0.08"/>');
+    expect(chartXml).toContain('<c:w val="0.78"/>');
+    expect(chartXml).toContain('<c:h val="0.78"/>');
     expect(chartXml).toContain("<c:max val=\"200\"/>");
     expect(chartXml).toContain("<c:majorUnit val=\"50\"/>");
     expect(chartXml).toContain("<c:majorGridlines>");
@@ -462,11 +466,50 @@ describe("emitter — package end-to-end", () => {
     expect(chartXml).toContain("<c:title>");
     expect(chartXml).toContain("Quarter");
     expect(chartXml).toContain("Revenue");
+    expect(chartXml).toContain('<a:bodyPr rot="-5400000"');
+    expect(chartXml.indexOf("<c:majorGridlines>")).toBeLessThan(chartXml.indexOf("<a:t>Revenue</a:t>"));
+    expect(chartXml.indexOf('<c:crossAx val="100000001"/>')).toBeLessThan(chartXml.indexOf('<c:majorUnit val="50"/>'));
     expect(chartXml).toContain('<a:ln w="38100">');
     expect(chartXml).toContain('<a:prstDash val="dash"/>');
     expect(chartXml).toContain('<c:symbol val="diamond"/>');
     expect(chartXml).toContain('<c:smooth val="1"/>');
     expect(chartXml).toContain('<c:showVal val="1"/>');
+    expect(chartXml).not.toContain('<c:dLblPos val="outEnd"/>');
+  });
+
+  it("emits readable chart text colors for dark themed charts", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "bar",
+          title: "Dark chart",
+          labels: ["Theory", "Observed"],
+          series: [{ name: "Mass", values: [1, 8] }],
+          showLegend: true,
+          showValues: true,
+          textColor: "F0EDE5",
+          axisTextColor: "B0B0B0",
+          dataLabelColor: "F0EDE5",
+          titleColor: "F0EDE5",
+          legendTextColor: "B0B0B0",
+          xAxis: { title: "Source" },
+          yAxis: { title: "Relative mass" },
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+
+    expect(chartXml).toContain('<c:showVal val="1"/>');
+    expect(chartXml).toContain('<a:srgbClr val="F0EDE5"/>');
+    expect(chartXml).toContain('<a:srgbClr val="B0B0B0"/>');
+    expect(chartXml).not.toContain('<a:srgbClr val="111827"/>');
+    expect(chartXml).toContain("<c:legend>");
+    expect(chartXml).toContain("<c:txPr>");
   });
 
   it("escapes chart number format attributes including ampersands", async () => {
@@ -489,7 +532,7 @@ describe("emitter — package end-to-end", () => {
     expect(chartXml).toContain('formatCode="0 &quot;A&amp;B&quot;"');
   });
 
-  it("keeps manual chart plot area within the chart frame", async () => {
+  it("accepts cm-like manual chart plot area and converts it to frame factors", async () => {
     const deck: DeckAst = {
       size: "16x9",
       slides: [{
@@ -506,10 +549,40 @@ describe("emitter — package end-to-end", () => {
     };
     const zip = await JSZip.loadAsync(await emitPackage(deck));
     const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
-    expect(chartXml).toContain('<c:x val="0.6"/>');
-    expect(chartXml).toContain('<c:y val="0.4"/>');
-    expect(chartXml).toContain('<c:w val="0.4"/>');
-    expect(chartXml).toContain('<c:h val="0.6"/>');
+    expect(chartXml).toContain('<c:x val="0.03"/>');
+    expect(chartXml).toContain('<c:y val="0.05"/>');
+    expect(chartXml).toContain('<c:w val="0.725"/>');
+    expect(chartXml).toContain('<c:h val="0.875"/>');
+  });
+
+  it("rotates primary and secondary value-axis titles in combo charts", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "combo",
+          labels: ["Launch", "Scale"],
+          yAxis: { title: "活跃客户数" },
+          secondaryYAxis: { title: "NPS" },
+          legend: { show: true, position: "right" },
+          series: [
+            { name: "活跃客户数", values: [18, 54], type: "bar" },
+            { name: "NPS", values: [42, 53], type: "line", axis: "secondary" },
+          ],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    expect(chartXml).toContain("活跃客户数");
+    expect(chartXml).toContain("NPS");
+    expect(chartXml).toContain('<a:bodyPr rot="-5400000"');
+    expect(chartXml).toContain('<a:bodyPr rot="5400000"');
+    expect(chartXml).toContain('<c:axPos val="r"/>');
+    expect(chartXml).toContain('<c:crosses val="max"/></c:valAx>');
   });
 
   it("emits table style controls: padding, per-side borders, banding, and rich cell text", async () => {
@@ -606,6 +679,8 @@ describe("emitter — package end-to-end", () => {
     expect(slideXml).toContain('prst="straightConnector1"');
     expect(slideXml).toContain('<a:tailEnd type="triangle" w="lg" len="lg"/>');
     expect(slideXml).toContain("<p:transition");
+    expect(slideXml).toContain('spd="fast"');
+    expect(slideXml).not.toContain(" dur=");
     expect(slideXml).toContain("<p:fade/>");
     expect(slideXml).toContain('action="ppaction://hlinksldjump"');
     expect(rels).toContain('Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"');
@@ -656,7 +731,57 @@ describe("emitter — package end-to-end", () => {
     expect(chartXml).toMatch(/<c:holeSize val="\d+"\/>/);
   });
 
-  it("emits pie/doughnut data labels in the series without a PowerPoint-repairing dLblPos", async () => {
+  it("emits pie data labels outside the chart with leader lines", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "pie",
+          labels: ["A", "B", "C"],
+          dataLabels: { show: true, position: "outsideEnd", showValue: true, showCategoryName: true },
+          series: [{ name: "Share", values: [40, 35, 25] }],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    expect(chartXml).toContain("<c:dLbls>");
+    expect(chartXml).not.toContain("<c:dLbl><c:idx val=\"0\"/>");
+    expect(chartXml).toContain('<c:dLblPos val="outEnd"/>');
+    expect(chartXml).toContain('<c:showLeaderLines val="1"/>');
+    expect(chartXml.indexOf("<c:dLbls>")).toBeGreaterThan(chartXml.indexOf("</c:ser>"));
+  });
+
+  it("suppresses tiny pie labels while keeping PowerPoint outside-label placement", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "chart",
+          id: 2,
+          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
+          chartType: "pie",
+          labels: ["Main", "Tiny A", "Tiny B", "Trace"],
+          dataLabels: { show: true, showCategoryName: true, showPercent: true },
+          series: [{ name: "Share", values: [826.7, 4.75, 4.67, 0.05] }],
+        }],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+
+    expect(chartXml).not.toContain('<c:dLbl><c:idx val="0"/><c:delete val="1"/></c:dLbl>');
+    expect(chartXml).toContain('<c:dLbl><c:idx val="1"/><c:delete val="1"/></c:dLbl>');
+    expect(chartXml).toContain('<c:dLbl><c:idx val="2"/><c:delete val="1"/></c:dLbl>');
+    expect(chartXml).toContain('<c:dLbl><c:idx val="3"/><c:delete val="1"/></c:dLbl>');
+    expect(chartXml).toContain('<c:dLblPos val="outEnd"/>');
+    expect(chartXml).toContain('<c:showLeaderLines val="1"/>');
+  });
+
+  it("does not emit native doughnut label positions that PowerPoint repairs", async () => {
     const deck: DeckAst = {
       size: "16x9",
       slides: [{
@@ -673,34 +798,9 @@ describe("emitter — package end-to-end", () => {
     };
     const zip = await JSZip.loadAsync(await emitPackage(deck));
     const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
-    expect(chartXml).toContain("<c:dLbls>");
-    expect(chartXml).toContain("<c:dLbl><c:idx val=\"0\"/>");
+    expect(chartXml).toContain("<c:doughnutChart>");
+    expect(chartXml).not.toContain("<c:dLbls>");
     expect(chartXml).not.toContain("<c:dLblPos");
-    expect(chartXml.indexOf("<c:dLbls>")).toBeLessThan(chartXml.indexOf("<c:cat>"));
-  });
-
-  it("suppresses tiny pie/doughnut slice labels while keeping major labels", async () => {
-    const deck: DeckAst = {
-      size: "16x9",
-      slides: [{
-        shapes: [{
-          type: "chart",
-          id: 2,
-          xfrm: { x: cm(2), y: cm(2), cx: cm(20), cy: cm(8) },
-          chartType: "doughnut",
-          labels: ["Main", "Tiny A", "Tiny B", "Trace"],
-          dataLabels: { show: true, showCategoryName: true, showPercent: true },
-          series: [{ name: "Share", values: [826.7, 4.75, 4.67, 0.05] }],
-        }],
-      }],
-    };
-    const zip = await JSZip.loadAsync(await emitPackage(deck));
-    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
-
-    expect(chartXml).toContain('<c:dLbl><c:idx val="0"/>');
-    expect(chartXml).toContain('<c:dLbl><c:idx val="1"/><c:delete val="1"/></c:dLbl>');
-    expect(chartXml).toContain('<c:dLbl><c:idx val="2"/><c:delete val="1"/></c:dLbl>');
-    expect(chartXml).toContain('<c:dLbl><c:idx val="3"/><c:delete val="1"/></c:dLbl>');
   });
 
   it("emits area as <c:areaChart> with translucent series fill", async () => {
@@ -850,5 +950,43 @@ describe("emitter — package end-to-end", () => {
     const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
     expect(slideXml).toContain("&#x201C;");
     expect(slideXml).toContain("&#x201D;");
+  });
+
+  it("protects CJK punctuation from becoming a standalone line in emitted text", async () => {
+    const deck: DeckAst = {
+      size: "16x9",
+      language: "zh-CN",
+      slides: [{
+        shapes: [
+          {
+            type: "text",
+            id: 2,
+            xfrm: { x: cm(2), y: cm(2), cx: cm(8), cy: cm(3) },
+            paragraphs: [{
+              runs: [
+                { text: "实验（", sizeHalfPt: 28, cjk: true, fontFace: "PingFang SC" },
+                { text: "理论）继续。", sizeHalfPt: 28, cjk: true, fontFace: "PingFang SC" },
+              ],
+            }],
+          },
+          {
+            type: "table",
+            id: 3,
+            xfrm: { x: cm(2), y: cm(6), cx: cm(8), cy: cm(2) },
+            colWidths: [cm(8)],
+            rowHeights: [cm(2)],
+            cells: [[{ runs: [{ text: "边界,继续", sizeHalfPt: 24, cjk: true, fontFace: "PingFang SC" }] }]],
+          },
+        ],
+      }],
+    };
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+
+    expect(slideXml).toContain("实验（\u2060");
+    expect(slideXml).toContain("理论\u2060）继续\u2060。");
+    expect(slideXml).toContain("边界\u2060,继续");
+    expect(slideXml).toContain('<a:pPr eaLnBrk="1" latinLnBrk="0" hangingPunct="1">');
+    expect(slideXml).toContain('<a:pPr algn="l" eaLnBrk="1" latinLnBrk="0" hangingPunct="1"/>');
   });
 });

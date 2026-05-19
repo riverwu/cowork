@@ -134,6 +134,7 @@ describe("component schema accepts tone aliases agents naturally use", () => {
         title: "AI 硬件",
         body: "收入恢复增长",
         tone: "success",
+        icon: "ellipse",
       } as never],
     };
     const report = validateDeck(deck(slide));

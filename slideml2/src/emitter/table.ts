@@ -13,6 +13,7 @@
 
 import { assertHex, escapeText } from "./xml.js";
 import type { FillSpec, HexColor, TableBorderLineSpec, TableBorderSide, TableCell, TableShape, TextRun } from "./types.js";
+import { protectTextRunsForCjkLineBreaks } from "./text-protection.js";
 
 const URI_TABLE = "http://schemas.openxmlformats.org/drawingml/2006/table";
 
@@ -22,6 +23,10 @@ const TABLE_STYLE_ALIASES: Record<string, string> = {
   lightgridaccent1: "{5940675A-B579-460E-94D1-54222C63F5DA}",
   mediumgridaccent1: DEFAULT_TABLE_STYLE_ID,
 };
+const KNOWN_TABLE_STYLE_IDS = new Set<string>([
+  DEFAULT_TABLE_STYLE_ID,
+  ...Object.values(TABLE_STYLE_ALIASES),
+]);
 
 /** Build the entire `<p:graphicFrame>` for a table shape. */
 export function tableGraphicFrameXml(shape: TableShape): string {
@@ -74,7 +79,8 @@ function normalizeTableStyleId(value: string | undefined): string {
   if (!value) return DEFAULT_TABLE_STYLE_ID;
   const trimmed = value.trim();
   if (/^\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}$/.test(trimmed)) {
-    return trimmed.toUpperCase();
+    const upper = trimmed.toUpperCase();
+    return KNOWN_TABLE_STYLE_IDS.has(upper) ? upper : DEFAULT_TABLE_STYLE_ID;
   }
   return TABLE_STYLE_ALIASES[trimmed.replace(/[\s_-]+/g, "").toLowerCase()] ?? DEFAULT_TABLE_STYLE_ID;
 }
@@ -116,14 +122,15 @@ function cellXml(cell: TableCell, shape: TableShape, rowIndex: number): string {
   const attrText = attrs ? ` ${attrs}` : "";
 
   const fill = cell.fill ?? (isHeader ? undefined : undefined);
+  const protectedRuns = protectTextRunsForCjkLineBreaks(cell.runs);
   const txBody =
     `<a:txBody>` +
     `<a:bodyPr wrap="square"${bodyInsets} anchor="${anchor}"${rotation}/>` +
     `<a:lstStyle/>` +
     `<a:p>` +
-    `<a:pPr algn="${algn}"/>` +
-    cell.runs.map((r) => runXml(r)).join("") +
-    (cell.runs.length === 0 ? `<a:endParaRPr lang="en-US"/>` : "") +
+    `<a:pPr algn="${algn}" eaLnBrk="1" latinLnBrk="0" hangingPunct="1"/>` +
+    protectedRuns.map((r) => runXml(r)).join("") +
+    (protectedRuns.length === 0 ? `<a:endParaRPr lang="en-US"/>` : "") +
     `</a:p>` +
     `</a:txBody>`;
 

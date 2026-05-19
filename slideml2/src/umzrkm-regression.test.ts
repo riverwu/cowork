@@ -146,16 +146,16 @@ describe("umzrkm: composite component title defaults are now contrast-safe", () 
 });
 
 describe("umzrkm: theme tokens count as theme-resolved (auto-fix tier extension)", () => {
-  it("a custom-branded text.color=brand.primary on bg fails contrast AND is auto-fixed", () => {
+  it("a readable custom-branded text.color=brand.primary warning is not auto-fixed", () => {
     const slide: SlideV2 = {
       id: "s",
       title: "x",
       children: [{
         id: "s.label",
         type: "text",
-        // Small body text using brand.primary token — would have stayed
-        // LOW_CONTRAST before this fix; now the active theme's brand.primary
-        // hex is in the auto-fix tier and gets rewritten to text.primary.
+        // Small label text using brand.primary is below WCAG but still above
+        // the perceptual unreadable floor. It should warn without changing
+        // the agent's branded color.
         text: "需要可读的文字",
         style: "label",
         color: "brand.primary",
@@ -165,8 +165,9 @@ describe("umzrkm: theme tokens count as theme-resolved (auto-fix tier extension)
     renderToAst(sourceToRenderedDeck(deck([slide])));
     const lc = getRenderDiagnostics().filter((d) => d.code === "LOW_CONTRAST");
     const fixed = getRenderDiagnostics().filter((d) => d.code === "LOW_CONTRAST_FIXED");
-    expect(lc).toEqual([]);
-    expect(fixed.length).toBeGreaterThan(0);
+    expect(lc.every((d) => d.severity === "warn")).toBe(true);
+    expect(lc.length).toBeGreaterThan(0);
+    expect(fixed).toHaveLength(0);
   });
 });
 

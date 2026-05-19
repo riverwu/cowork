@@ -17,6 +17,229 @@ function findNode(node: DomNode, id: string): DomNode | undefined {
 }
 
 describe("M2 data binding", () => {
+  it("accepts common bind/encoding aliases and semantic field names", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          sales: {
+            type: "inline-json",
+            rows: [
+              { Month: "Jan", Region: "US", Revenue: 10 },
+              { Month: "Feb", Region: "US", Revenue: 14 },
+              { Month: "Jan", Region: "EU", Revenue: 7 },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "alias-bind",
+        children: [{
+          id: "alias-bind.chart",
+          type: "chart-card",
+          chartType: "bar",
+          bind: {
+            dataset: "sales",
+            where: { region: "US" },
+            group: "month",
+            measures: { amount: { op: "sum", field: "revenue" } },
+            orderBy: "month",
+            top: 2,
+          },
+          encoding: { category: "month", measure: "amount", legendLabel: "Revenue" },
+        } as unknown as DomNode],
+      }],
+    };
+
+    const report = validateDeck(deck);
+    expect(report.errors).toEqual([]);
+    const rendered = sourceToRenderedDeck(deck);
+    const chart = findNode(rendered.slides[0]!.dom, "alias-bind.chart")!;
+    expect(chart.labels).toEqual(["Jan", "Feb"]);
+    expect(chart.series?.[0]?.values).toEqual([10, 14]);
+  });
+
+  it("reports malformed inline data sources before they degrade into empty chart data", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          malformedJson: { type: "inline-json", row: [{ label: "A", value: 1 }] } as unknown as DataSourceSpec,
+          malformedCsv: { type: "inline-csv", csv: "" },
+        },
+      },
+      slides: [],
+    };
+
+    const report = validateDeck(deck);
+    const messages = report.errors.map((item) => item.message).join("\n");
+    expect(messages).toContain("inline-json data source requires rows");
+    expect(messages).toContain("inline-csv data source requires a non-empty csv");
+  });
+
+  it("requires object-form aggregates to name their input field", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          sales: { type: "inline-json", rows: [{ month: "Jan", revenue: 10 }] },
+        },
+      },
+      slides: [{
+        id: "missing-aggregate-field",
+        children: [{
+          id: "missing-aggregate-field.chart",
+          type: "chart-card",
+          chartType: "bar",
+          bind: { source: "sales", groupBy: "month", aggregate: { Revenue: { op: "sum" } } },
+          encoding: { x: "month", y: "Revenue" },
+        } as unknown as DomNode],
+      }],
+    };
+
+    const report = validateDeck(deck);
+    expect(report.errors.map((item) => item.code)).toContain("MISSING_DATA_AGGREGATE_FIELD");
+  });
+
+  it("reports non-numeric bound chart measures instead of silently plotting them as zero", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          sales: {
+            type: "inline-json",
+            rows: [
+              { month: "Jan", revenue: 10 },
+              { month: "Feb", revenue: "not available" },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "bad-measure",
+        children: [{
+          id: "bad-measure.chart",
+          type: "chart-card",
+          chartType: "bar",
+          bind: { source: "sales" },
+          encoding: { x: "month", y: "revenue" },
+        } as unknown as DomNode],
+      }],
+    };
+
+    const report = validateDeck(deck);
+    const hit = report.errors.find((item) => item.code === "NON_NUMERIC_DATA_FIELD");
+    expect(hit?.message).toContain("revenue");
+  });
+
+  it("binds chart-card series from object-form encoding.y and display-keyed seriesOptions", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          releaseMetrics: {
+            type: "inline-json",
+            rows: [
+              { phase: "Alpha", clients: 18, nps: 21, latency: 920 },
+              { phase: "Beta", clients: 54, nps: 34, latency: 640 },
+              { phase: "RC", clients: 91, nps: 41, latency: 510 },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "object-y",
+        children: [{
+          id: "object-y.chart",
+          type: "chart-card",
+          chartType: "combo",
+          bind: { source: "releaseMetrics", groupBy: "phase" },
+          encoding: {
+            x: "phase",
+            y: {
+              clients: { seriesName: "活跃客户数", axis: "primary" },
+              nps: { seriesName: "NPS", axis: "secondary" },
+              latency: { seriesName: "P95 延迟 ms", axis: "primary" },
+            },
+            seriesOptions: {
+              "活跃客户数": { chartType: "bar", color: "0F766E" },
+              "P95 延迟 ms": { chartType: "line", color: "D97706", lineDash: "dash" },
+            },
+          },
+        } as unknown as DomNode],
+      }],
+    };
+
+    const report = validateDeck(deck);
+    expect(report.errors).toEqual([]);
+    const rendered = sourceToRenderedDeck(deck);
+    const chart = findNode(rendered.slides[0]!.dom, "object-y.chart")!;
+    expect(chart.labels).toEqual(["Alpha", "Beta", "RC"]);
+    expect(chart.series?.map((series) => series.name)).toEqual(["活跃客户数", "NPS", "P95 延迟 ms"]);
+    expect(chart.series?.[0]?.values).toEqual([18, 54, 91]);
+    expect(chart.series?.[0]?.type).toBe("bar");
+    expect(chart.series?.[2]?.type).toBe("line");
+    expect(chart.series?.[2]?.lineDash).toBe("dash");
+  });
+
+  it("validates object-form encoding.y and seriesOptions data field refs", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          releaseMetrics: {
+            type: "inline-json",
+            rows: [
+              { phase: "Alpha", clients: 18, nps: 21 },
+              { phase: "Beta", clients: 54, nps: 34 },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "bad-object-y",
+        children: [{
+          id: "bad-object-y.chart",
+          type: "chart-card",
+          chartType: "combo",
+          bind: { source: "releaseMetrics" },
+          encoding: {
+            x: "phase",
+            y: {
+              missingClients: { seriesName: "Clients" },
+              nps: { y: "missingNps", seriesName: "NPS" },
+            },
+            seriesOptions: {
+              Clients: { y: "missingSeriesField", chartType: "line" },
+              NPS: "NPS score",
+            },
+          },
+        } as unknown as DomNode],
+      }],
+    };
+
+    const validation = validateDeck(deck);
+    expect(validation.errors.map((item) => item.code)).toEqual(expect.arrayContaining(["UNKNOWN_DATA_FIELD"]));
+    expect(validation.errors.map((item) => item.path)).toEqual(expect.arrayContaining([
+      "slides[0].children[0].encoding.y.missingClients",
+      "slides[0].children[0].encoding.y.nps.y",
+      "slides[0].children[0].encoding.seriesOptions.Clients.y",
+    ]));
+    expect(validation.errors.map((item) => item.path)).not.toContain("slides[0].children[0].encoding.seriesOptions.NPS");
+  });
+
   it("resolves one inline-json source into chart, table, stat strip, and metric components", () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,
@@ -98,6 +321,44 @@ describe("M2 data binding", () => {
     expect(metric).toMatchObject({ value: "20", label: "Plus" });
 
     expect(() => renderToAst(rendered)).not.toThrow();
+  });
+
+  it("binds pie-like charts from label/value encoding aliases", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          platforms: {
+            type: "inline-json",
+            rows: [
+              { platform: "Windows", pct: 78 },
+              { platform: "Mac ARM", pct: 12 },
+              { platform: "Mobile", pct: 5 },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "pie-alias",
+        children: [{
+          id: "pie-alias.chart",
+          type: "chart-card",
+          chartType: "doughnut",
+          bind: { source: "platforms", sort: "-pct" },
+          encoding: { label: "platform", value: "pct", seriesName: "下载占比" },
+        }] as unknown as DomNode[],
+      }],
+    };
+
+    const validation = validateDeck(deck);
+    expect(validation.errors, validation.errors.map((item) => item.message).join("\n")).toHaveLength(0);
+
+    const rendered = sourceToRenderedDeck(deck);
+    const chart = findNode(rendered.slides[0]!.dom, "pie-alias.chart");
+    expect(chart?.labels).toEqual(["Windows", "Mac ARM", "Mobile"]);
+    expect(chart?.series).toEqual([{ name: "下载占比", values: [78, 12, 5] }]);
   });
 
   it("binds stat-strip items from multiple fields on the selected data row", () => {
@@ -357,6 +618,53 @@ describe("M2 data binding", () => {
     ]);
   });
 
+  it("keeps avg aggregates numeric when all values are empty", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          survey: {
+            type: "inline-json",
+            rows: [
+              { region: "US", score: "" },
+              { region: "US", score: null },
+              { region: "EU", score: "n/a" },
+            ],
+          },
+        },
+      },
+      slides: [{
+        id: "avg-empty",
+        children: [{
+          id: "avg-empty.table",
+          type: "table-card",
+          bind: {
+            source: "survey",
+            groupBy: "region",
+            aggregate: {
+              AvgScore: { op: "avg", field: "score" },
+              SumScore: { op: "sum", field: "score" },
+            },
+            sort: "region",
+          },
+          encoding: { columns: ["region", "AvgScore", "SumScore"] },
+        } as unknown as DomNode],
+      }],
+    };
+
+    const validation = validateDeck(deck);
+    expect(validation.errors, validation.errors.map((item) => item.message).join("\n")).toHaveLength(0);
+
+    const rendered = sourceToRenderedDeck(deck);
+    const table = findNode(rendered.slides[0]!.dom, "avg-empty.table");
+    expect(table?.resolvedData?.rows).toEqual([
+      { region: "EU", AvgScore: 0, SumScore: 0 },
+      { region: "US", AvgScore: 0, SumScore: 0 },
+    ]);
+  });
+
   it("pivots long-form rows into wide table and chart data", () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,
@@ -611,6 +919,31 @@ describe("M2 data binding", () => {
       "UNKNOWN_DATA_FIELD",
       "INVALID_DATA_COMPUTED_FIELD_TYPE",
       "INVALID_COMPUTED_EXPRESSION",
+    ]));
+  });
+
+  it("reports computed data sources whose base source cannot be resolved", () => {
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        dataSources: {
+          a: { type: "computed", source: "b", computed: { value: { op: "field", value: "value" } } },
+          b: { type: "computed", source: "a", computed: { value: { op: "field", value: "value" } } },
+        },
+      },
+      slides: [{
+        id: "cyclic-computed",
+        children: [{ id: "cyclic-computed.table", type: "table-card", bind: { source: "a" }, encoding: { columns: ["value"] } }] as unknown as DomNode[],
+      }],
+    };
+
+    const validation = validateDeck(deck);
+    expect(validation.errors.map((item) => item.code)).toEqual(expect.arrayContaining(["DATA_SOURCE_UNRESOLVABLE"]));
+    expect(validation.errors.map((item) => item.path)).toEqual(expect.arrayContaining([
+      "deck.dataSources.a.source",
+      "deck.dataSources.b.source",
     ]));
   });
 

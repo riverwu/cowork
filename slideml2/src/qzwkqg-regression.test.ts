@@ -36,11 +36,10 @@ function blockingAfterRender(deck: Slideml2SourceDeck): LayoutDiagnostic[] {
     "COLLISION",
     "TINY_RECT",
     "SQUASHED",
-    "LOW_CONTRAST",
     "UNKNOWN_COLOR",
     "UNKNOWN_STYLE",
   ]);
-  return getRenderDiagnostics().filter((d) => blocking.has(d.code) && d.severity !== "info");
+  return getRenderDiagnostics().filter((d) => d.severity === "error" || (blocking.has(d.code) && d.severity !== "info"));
 }
 
 describe("themeOverride.colors flattening (P0)", () => {
@@ -77,7 +76,7 @@ describe("themeOverride.colors flattening (P0)", () => {
     expect(blocking, blocking.map((d) => d.message).join("\n")).toHaveLength(0);
   });
 
-  it("auto-fixes themeOverride text.muted metric labels on light surfaces", () => {
+  it("keeps readable themeOverride text.muted metric labels non-blocking on light surfaces", () => {
     const slide: SlideV2 = {
       id: "rg-muted-metric",
       children: [{

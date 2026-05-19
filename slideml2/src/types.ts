@@ -127,9 +127,29 @@ export interface DataBindSpec {
 
 export type DataViewSpec = Omit<DataBindSpec, "source">;
 
+export interface DataSeriesEncodingOptionSpec {
+  name?: string;
+  seriesName?: string;
+  y?: string;
+  field?: string;
+  key?: string;
+  value?: string;
+  type?: "bar" | "line";
+  chartType?: "bar" | "line";
+  axis?: "primary" | "secondary";
+  color?: string;
+  lineWidth?: number;
+  lineDash?: "solid" | "dash" | "dashDot" | "dot";
+  smooth?: boolean;
+  marker?: unknown;
+  dataLabels?: unknown;
+  trendLine?: { type?: "linear" | "exp" | "log" | "poly"; order?: number; label?: string } | boolean;
+  errorBars?: { type?: "fixed" | "percent" | "stdDev" | "stdErr"; value?: number; direction?: "x" | "y" | "both" };
+}
+
 export interface DataEncodingSpec {
   x?: string;
-  y?: string | string[];
+  y?: string | string[] | Record<string, string | DataSeriesEncodingOptionSpec>;
   /** Optional orientation for bar-like bound charts. When omitted, SlideML2 can infer horizontal bars from x=numeric and y=categorical. */
   orientation?: "vertical" | "horizontal";
   series?: string;
@@ -139,19 +159,7 @@ export interface DataEncodingSpec {
   items?: DataStatItemEncodingSpec[];
   columns?: Array<string | DataColumnEncodingSpec>;
   seriesName?: string;
-  seriesOptions?: Record<string, {
-    name?: string;
-    type?: "bar" | "line";
-    axis?: "primary" | "secondary";
-    color?: string;
-    lineWidth?: number;
-    lineDash?: "solid" | "dash" | "dashDot" | "dot";
-    smooth?: boolean;
-    marker?: unknown;
-    dataLabels?: unknown;
-    trendLine?: { type?: "linear" | "exp" | "log" | "poly"; order?: number; label?: string } | boolean;
-    errorBars?: { type?: "fixed" | "percent" | "stdDev" | "stdErr"; value?: number; direction?: "x" | "y" | "both" };
-  }>;
+  seriesOptions?: Record<string, DataSeriesEncodingOptionSpec>;
 }
 
 export type ThemeLayoutArea =
@@ -171,6 +179,20 @@ export type ThemeTextWeight =
   | number;
 
 export type ThemeFontChain = string | string[];
+
+export type DensityProfileName = "editorial" | "analytical" | "dense";
+
+export interface ThemeRegionBudgetOverride {
+  headingScale?: number;
+  leadScale?: number;
+  bodyScale?: number;
+  keyTakeawayDetailScale?: number;
+  bulletScale?: number;
+  bulletMinPt?: number;
+  keyTakeawayMinCm?: number;
+  keyTakeawayMaxCm?: number;
+  keyTakeawayMaxAvailableRatio?: number;
+}
 
 export interface SurfaceShadowOverride {
   color?: string;
@@ -250,6 +272,13 @@ export interface DeckSpec {
  *  ever sees them. */
 type ColorOverrideValue = string | { [k: string]: ColorOverrideValue };
 export interface ThemeOverride {
+  /**
+   * Built-in density preset applied before explicit themeOverride fields.
+   * - editorial: large-title, magazine-style default.
+   * - analytical: more usable area for charts/tables and business prose.
+   * - dense: compact dashboards, tables, code, and operational pages.
+   */
+  densityProfile?: DensityProfileName;
   colors?: Record<string, ColorOverrideValue>;
   text?: Record<string, {
     fontSize?: number;
@@ -276,7 +305,7 @@ export interface ThemeOverride {
   }>;
   component?: Record<string, Omit<SurfaceOverride, "accent"> & { accent?: string | SurfaceOverride["accent"]; surface?: SurfaceOverride }>;
   tone?: Record<string, { fg: string; bg: string; line: string }>;
-  layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number; areas: Record<string, ThemeLayoutArea> }>;
+  layout?: Partial<{ slideWidthCm: number; slideHeightCm: number; pageMarginX: number; titleTop: number; titleHeight: number; contentTop: number; contentBottom: number; defaultGap: number; columnGap: number; cardPadding: number; areas: Record<string, ThemeLayoutArea>; regionBudget: ThemeRegionBudgetOverride }>;
   /** Per-script font chains. `latin` and `cjk` accept either a single
    *  font face, a string[] chain (doubles as text + display), or
    *  `{ display?, text? }` for separate display + text faces. `mono`

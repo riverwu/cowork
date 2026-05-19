@@ -4,6 +4,7 @@ import { isDeckSize } from "./schema.js";
 import { resolveDataBindings, type DataBindingOptions } from "./data-binding.js";
 import { resolveScientificReferences } from "./m3-references.js";
 import { rectFromNodePlacement } from "./layout/geometry.js";
+import { parseLayoutDimensionCm } from "./units.js";
 
 export function createSourceDeck(options: {
   title?: string;
@@ -51,8 +52,9 @@ export function sourceToRenderedDeck(source: Slideml2SourceDeck, options: DataBi
       master: source.deck.master,
     },
     slides: source.slides
+      .map((slide, index) => normalizeSlide(slide, `slide-${index + 1}`))
       .flatMap((slide) => expandArticleSlide(slide, pageWeight))
-      .map((slide) => sourceSlideToRendered(normalizeSlide(slide))),
+      .map((slide) => sourceSlideToRendered(normalizeSlide(slide, slide.id))),
   };
 }
 
@@ -111,6 +113,7 @@ function shouldRenderSlideTitle(slide: SlideV2): boolean {
   if (typeof slide.title !== "string" || !slide.title.trim()) return false;
   const bodyHeroTitle = findBodyHeroTitle(slide.children || []);
   if (!bodyHeroTitle.found) return true;
+  if (hasMetadataHeroComponent(slide.children || [])) return false;
   return !bodyHeroTitleMatchesSlideTitle(slide.title, bodyHeroTitle.titles);
 }
 
@@ -120,17 +123,20 @@ function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[]
   for (const node of nodes) {
     if (!node || typeof node !== "object") continue;
     const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
-    if (componentName === "section-break" || componentName === "title-lockup" || componentName === "cover-composition" || componentName === "chapter-divider") {
+    if (componentName === "cover-composition") {
+      found = true;
+      titles.push(...coverCompositionTitleCandidates(node));
+    } else if (componentName === "section-break" || componentName === "title-lockup" || componentName === "chapter-divider") {
       found = true;
       if (typeof node.title === "string" && node.title.trim()) titles.push(node.title);
-    } else if (node.type === "deck-title" || node.type === "slide-title") {
+    } else if (componentName === "deck-title" || componentName === "slide-title" || componentName === "h1") {
       found = true;
       if (typeof node.text === "string" && node.text.trim()) titles.push(node.text);
     } else if (node.type === "text" && (node.style === "deck-title" || node.style === "slide-title" || node.style === "section-title")) {
       found = true;
       if (typeof node.text === "string" && node.text.trim()) titles.push(node.text);
     }
-    const inner = (node.children as DomNode[] | undefined) || [];
+    const inner = nestedDomChildren(node);
     if (inner.length) {
       const nested = findBodyHeroTitle(inner);
       found = found || nested.found;
@@ -140,13 +146,88 @@ function findBodyHeroTitle(nodes: DomNode[]): { found: boolean; titles: string[]
   return { found, titles };
 }
 
+const METADATA_HERO_COMPONENTS = new Set(["cover-composition", "section-break", "title-lockup", "chapter-divider"]);
+
+function hasMetadataHeroComponent(nodes: DomNode[]): boolean {
+  for (const node of nodes) {
+    if (!node || typeof node !== "object") continue;
+    const componentName = node.type === "component" && typeof node.component === "string" ? node.component : node.type;
+    if (typeof componentName === "string" && METADATA_HERO_COMPONENTS.has(componentName)) return true;
+    const inner = nestedDomChildren(node);
+    if (inner.length && hasMetadataHeroComponent(inner)) return true;
+  }
+  return false;
+}
+
+function nestedDomChildren(node: DomNode): DomNode[] {
+  const rec = node as Record<string, unknown>;
+  return [
+    ...domNodesFromValue(rec.children),
+    ...domNodesFromValue(rec.left),
+    ...domNodesFromValue(rec.right),
+    ...domNodesFromValue(rec.primary),
+    ...domNodesFromValue(rec.secondary),
+    ...domNodesFromValue(rec.main),
+    ...domNodesFromValue(rec.side),
+    ...domNodesFromValue(rec.sidecar),
+    ...domNodesFromValue(rec.top),
+    ...domNodesFromValue(rec.bottom),
+    ...domNodesFromValue(rec.header),
+    ...domNodesFromValue(rec.footer),
+    ...domNodesFromValue(rec.content),
+  ];
+}
+
+function domNodesFromValue(value: unknown): DomNode[] {
+  if (Array.isArray(value)) return value.filter(isDomNodeLike) as DomNode[];
+  if (!value || typeof value !== "object") return [];
+  const rec = value as Record<string, unknown>;
+  const out: DomNode[] = [];
+  if (isDomNodeLike(value)) out.push(value as DomNode);
+  if (Array.isArray(rec.children)) out.push(...rec.children.filter(isDomNodeLike) as DomNode[]);
+  return out;
+}
+
+function isDomNodeLike(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const rec = value as Record<string, unknown>;
+  return typeof rec.type === "string" || typeof rec.component === "string";
+}
+
 function bodyHeroTitleMatchesSlideTitle(slideTitle: string, bodyTitles: string[]): boolean {
   const normalizedSlideTitle = normalizeHeroTitle(slideTitle);
   return bodyTitles.length > 0 && bodyTitles.every((title) => normalizeHeroTitle(title) === normalizedSlideTitle);
 }
 
 function normalizeHeroTitle(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return text.replace(/\s+/g, "").trim();
+}
+
+function coverCompositionTitleCandidates(node: DomNode): string[] {
+  const title = typeof node.title === "string" ? node.title.trim() : "";
+  const content = coverCompositionContentText(node.content).trim();
+  const visibleTitle = content ? [title, content].filter(Boolean).join("") : title;
+  return [visibleTitle]
+    .map((candidate) => candidate.trim())
+    .filter((candidate, index, list) => candidate && list.indexOf(candidate) === index);
+}
+
+function coverCompositionContentText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map(coverCompositionRunText).join("");
+  if (content && typeof content === "object" && !Array.isArray(content)) {
+    const rec = content as Record<string, unknown>;
+    if (typeof rec.text === "string") return rec.text;
+    if (Array.isArray(rec.runs)) return rec.runs.map(coverCompositionRunText).join("");
+  }
+  return "";
+}
+
+function coverCompositionRunText(run: unknown): string {
+  if (typeof run === "string") return run;
+  if (!run || typeof run !== "object" || Array.isArray(run)) return "";
+  const rec = run as Record<string, unknown>;
+  return typeof rec.text === "string" ? rec.text : "";
 }
 
 /**
@@ -185,8 +266,8 @@ function resolveSlideBackground(slide: SlideV2): unknown {
   return explicit || "background";
 }
 
-export function normalizeSlide(slide: SlideV2): SlideV2 {
-  const safeId = typeof slide?.id === "string" && slide.id ? slide.id : `slide-${Date.now()}`;
+export function normalizeSlide(slide: SlideV2, fallbackId = "slide"): SlideV2 {
+  const safeId = typeof slide?.id === "string" && slide.id ? slide.id : fallbackId;
   const safeChildren = Array.isArray(slide?.children) ? slide.children : [];
   return {
     ...slide,
@@ -268,13 +349,15 @@ function aliasDimensionFields(node: DomNode): DomNode {
     || Boolean(rectFromNodePlacement(node));
   let mutated = node;
   if (!skipAlias) {
-    if (typeof node.height === "number" && node.fixedHeight === undefined) {
+    const heightCm = parseLayoutDimensionCm(node.height);
+    if (heightCm !== undefined && node.fixedHeight === undefined) {
       mutated = { ...mutated };
-      mutated.fixedHeight = node.height;
+      mutated.fixedHeight = heightCm;
     }
-    if (typeof node.width === "number" && node.fixedWidth === undefined) {
+    const widthCm = parseLayoutDimensionCm(node.width);
+    if (widthCm !== undefined && node.fixedWidth === undefined) {
       if (mutated === node) mutated = { ...mutated };
-      mutated.fixedWidth = node.width;
+      mutated.fixedWidth = widthCm;
     }
   }
   if (Array.isArray(node.children)) {
@@ -298,9 +381,15 @@ const TEXT_STYLE_TYPE_ALIASES = new Set([
 
 const NODE_OBJECT_SLOT_KEYS = ["evidence", "rail", "left", "right", "hero", "insight"] as const;
 const NODE_ARRAY_SLOT_KEYS = ["annotations", "supports"] as const;
+const AUTHORING_LAYOUT_LENGTH_FIELDS = new Set([
+  "gap", "padding", "fixedWidth", "fixedHeight", "width", "height",
+  "minWidth", "minHeight", "maxWidth", "maxHeight", "basis",
+  "x", "y", "w", "h", "offsetX", "offsetY", "imageWidth", "lockupWidth", "lockupHeight",
+]);
 
 function normalizeAuthoringAliases(node: DomNode): DomNode {
   let normalized = node;
+  normalized = normalizeLayoutLengthFields(normalized);
   if (typeof normalized.type === "string" && TEXT_STYLE_TYPE_ALIASES.has(normalized.type)) {
     normalized = {
       ...normalized,
@@ -313,6 +402,38 @@ function normalizeAuthoringAliases(node: DomNode): DomNode {
     normalized = { ...normalized, ratio: scalarRatioToPair(scalarRatio) };
   }
   return normalized;
+}
+
+function normalizeLayoutLengthFields(node: DomNode): DomNode {
+  let out = node;
+  const copy = () => out === node ? { ...node } : out;
+  for (const key of AUTHORING_LAYOUT_LENGTH_FIELDS) {
+    const value = node[key];
+    if (typeof value !== "string") continue;
+    const cm = parseLayoutDimensionCm(value);
+    if (cm === undefined) continue;
+    out = copy();
+    out[key] = cm;
+  }
+  const surface = node.surface;
+  if (surface && typeof surface === "object" && !Array.isArray(surface)) {
+    const padding = (surface as Record<string, unknown>).padding;
+    if (typeof padding === "string") {
+      const cm = parseLayoutDimensionCm(padding);
+      if (cm !== undefined) {
+        out = copy();
+        out.surface = { ...(surface as Record<string, unknown>), padding: cm };
+      }
+    }
+  }
+  if (Array.isArray(node.at)) {
+    const normalizedAt = node.at.map((item) => typeof item === "string" ? parseLayoutDimensionCm(item) ?? item : item);
+    if (normalizedAt.some((item, index) => item !== node.at![index])) {
+      out = copy();
+      out.at = normalizedAt as DomNode["at"];
+    }
+  }
+  return out;
 }
 
 function scalarRatioToPair(value: number): [number, number] {
@@ -344,6 +465,7 @@ function ensureContentArea(slideId: string, children: DomNode[], hasSlideTitle =
         area: "content",
         direction: "vertical",
         gap: 0.35,
+        __autoNoTitleContent: !hasSlideTitle,
         children: flow,
       },
       ...explicitAreas,
@@ -362,6 +484,7 @@ function ensureContentArea(slideId: string, children: DomNode[], hasSlideTitle =
       area: "content",
       direction: "vertical",
       gap: 0.35,
+      __autoNoTitleContent: !hasSlideTitle,
       children: flow,
     },
     ...overlays,
@@ -373,7 +496,7 @@ function isExplicitAreaChild(node: DomNode): boolean {
 }
 
 function normalizeNode(slideId: string, node: DomNode, fallbackId: string): DomNode {
-  if (!node || typeof node !== "object") return { id: fallbackId, type: "text", text: "" };
+  if (!node || typeof node !== "object") return { id: fallbackId, type: "fragment", children: [] };
   const raw = node as DomNode & { component?: unknown };
   void raw;
   const aliased = normalizeAuthoringAliases(aliasDimensionFields(node));

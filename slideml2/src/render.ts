@@ -4,8 +4,12 @@ import { dirname, extname } from "node:path";
 import { emitPackage } from "./emitter/package.js";
 import type { ChartAnnotation, ChartAxisSpec, ChartDataLabels, ChartLegendSpec, ChartMarkerSpec, ChartNumberFormat, ChartPlotAreaSpec, ChartSeries, ChartType, DeckAst, FillSpec, ImageShape, LineSpec, Paragraph, ShapeList, SlideAst, TableBorderLineSpec, TableBorderSide, TableCell, TextRun, ShapePreset } from "./emitter/types.js";
 import { expandComponent, isComponentTypedNode } from "./component-registry.js";
-import { clearRenderDiagnostics, contrastRatio, contrastThreshold, getRenderDiagnostics, pushDiagnostic, relativeLuminance } from "./diagnostics.js";
+import { clearRenderDiagnostics, contrastRatio, contrastThreshold, getRenderDiagnostics, pushDiagnostic, relativeLuminance, withSuppressedRenderDiagnostics, type LayoutDiagnostic } from "./diagnostics.js";
 import { coverageRatio, meaningfulOverlap, meaningfulOverlayOcclusion, meaningfulStructuralOverlap, meaningfulTitleOcclusion, rectFromNodePlacement, type OverlapMetrics } from "./layout/geometry.js";
+import { solveDomConstraintLayout } from "./layout/dom-constraint-layout.js";
+import type { SizePreference } from "./layout/constraint-solver.js";
+import { resolveFlexMainTargets, type FlexMainSpec } from "./layout/flex-sizing.js";
+import { normalizeTrackWeights, resolveGridColumnTracks, resolveGridRowTracks, type GridTrackContribution } from "./layout/grid-track-sizing.js";
 import { inferTextKind } from "./text-normalizer.js";
 import type { AnchorPoint, DomNode, RenderedDeck } from "./types.js";
 import type { Slideml2SourceDeck } from "./types.js";
@@ -15,11 +19,12 @@ import { buildTheme, color, normalizeCornerRadius, preferredFont, resolveEmphasi
 import { parseMarkdownInline, splitNumericRun } from "./markdown-inline.js";
 import { formatRichToken, latexToMathText, richInlinePlainText, richRunsPlainText } from "./m3-rich-inline.js";
 import { latexToOmml } from "./latex-omml.js";
-import { emuToCm, normalizeStrokeCm, SLIDE_SIZES } from "./units.js";
+import { emuToCm, normalizeStrokeCm, parseLayoutDimensionCm, SLIDE_SIZES } from "./units.js";
 import { isDeckSize } from "./schema.js";
-import { createTextMeasurer, PT_TO_CM } from "./text-measure.js";
+import { containsCjkOrFullWidth, createTextMeasurer, hasCjkLineStartPunctuationRisk, protectCjkLineBreakPunctuation, PT_TO_CM } from "./text-measure.js";
 import { probeImageDimensions } from "./emitter/image-dim.js";
 import { normalizeSlideTransition } from "./transition.js";
+import { protectTextRunsForCjkLineBreaks } from "./emitter/text-protection.js";
 
 /** Resolve a TextStyle's weight (string or numeric) into the boolean
  *  emitter flag. Anything ≥ 600 reads as bold so the OOXML `b` attribute
@@ -81,7 +86,7 @@ function plainTextRun(theme: SimpleTheme, text: string, style: TextStyle, bold: 
 
 function normalizeTextForPpt(text: string, literal = false): string {
   if (literal || !text) return text;
-  return text.replace(/([^\s\u2060])([，。！？；：、）》」』】〕〉》])/g, "$1\u2060$2");
+  return protectCjkLineBreakPunctuation(text);
 }
 
 export interface LayoutDecision {
@@ -134,6 +139,9 @@ const SHAPE_PRESETS: Set<string> = new Set([
   "flowChartProcess", "flowChartDecision", "flowChartData", "flowChartTerminator", "flowChartDocument",
   "cylinder", "cube", "gear6", "heart", "lightningBolt", "cloud",
 ]);
+const CONNECTOR_SHAPE_PRESETS: Set<string> = new Set([
+  "straightConnector", "elbowConnector", "orthogonalConnector", "curvedConnector", "line",
+]);
 
 interface Rect {
   x: number;
@@ -171,47 +179,54 @@ export async function renderSourceDeckToPptx(deck: Slideml2SourceDeck, outputPat
 
 export function renderToAst(deck: RenderedDeck): DeckAst {
   clearRenderDiagnostics();
-  const { theme, size } = buildThemeForDeck(deck);
   layoutDecisionsBySlide.clear();
   squashedWarnings.clear();
-  // umzrkm fix: pass the active theme's resolved palette into the contrast
-  // check so an agent's brand.primary / accent / success / warning / danger
-  // hex values count as "theme-resolved" — auto-fix can then rewrite them
-  // when contrast fails. Without this, agents who rebrand to a mid-saturation
-  // teal (5B8A8A) leak that color into text.color="brand.primary" callsites
-  // and the contrast check refuses to repair, treating it as user intent.
-  themeAccentHexesForContrast = collectThemeAccentHexes(theme);
-  themeMutedHexesForContrast = collectThemeMutedHexes(theme);
-  const slides: SlideAst[] = deck.slides.map((slide, index) => {
-    const dom = materializeAndCompactify(slide.dom, slide.id, theme);
-    const ids = { nextId: 2 };
-    const shapes = renderSlide(theme, dom, ids, slide.id);
-    const resolvedBackground = resolveSlideBackground(theme, dom.background);
-    const slideBgHex = pickContrastBackgroundColor(resolvedBackground);
-    shapes.push(...renderChrome(theme, deck, index, ids, slideBgHex));
-    const slideAst = {
-      shapes,
-      background: resolvedBackground,
-      transition: normalizeSlideTransition(dom.transition),
-      layout: typeof dom.layout === "string" ? dom.layout : undefined,
-      notes: typeof dom.notes === "string" ? dom.notes : undefined,
-    };
-    const flatSlideAst = { ...slideAst, shapes: flattenShapeList(slideAst.shapes) };
-    runTitleOcclusionCheck(slide.id, dom, flatSlideAst);
-    runContrastCheck(slide.id, flatSlideAst, theme);
-    runShapeVisibilityCheck(slide.id, flatSlideAst, theme);
-    return slideAst;
-  });
   themeAccentHexesForContrast = null;
   themeMutedHexesForContrast = null;
-  return {
-    size,
-    language: "zh-CN",
-    title: "SlideML2 MVP",
-    author: "SlideML2",
-    master: normalizeDeckMaster(deck.deck.master),
-    slides,
-  };
+  const { theme, size } = buildThemeForDeck(deck);
+  try {
+    // umzrkm fix: pass the active theme's resolved palette into the contrast
+    // check so an agent's brand.primary / accent / success / warning / danger
+    // hex values count as "theme-resolved" — auto-fix can then rewrite them
+    // when contrast fails. Without this, agents who rebrand to a mid-saturation
+    // teal (5B8A8A) leak that color into text.color="brand.primary" callsites
+    // and the contrast check refuses to repair, treating it as user intent.
+    themeAccentHexesForContrast = collectThemeAccentHexes(theme);
+    themeMutedHexesForContrast = collectThemeMutedHexes(theme);
+    const slides: SlideAst[] = deck.slides.map((slide, index) => {
+      const dom = materializeAndCompactify(slide.dom, slide.id, theme);
+      const ids = { nextId: 2 };
+      const shapes = renderSlide(theme, dom, ids, slide.id);
+      const resolvedBackground = resolveSlideBackground(theme, dom.background);
+      const slideBgHex = pickContrastBackgroundColor(resolvedBackground);
+      shapes.push(...renderChrome(theme, deck, index, ids, slideBgHex));
+      const slideAst = {
+        shapes,
+        background: resolvedBackground,
+        transition: normalizeSlideTransition(dom.transition),
+        layout: typeof dom.layout === "string" ? dom.layout : undefined,
+        notes: typeof dom.notes === "string" ? dom.notes : undefined,
+      };
+      const flatSlideAst = { ...slideAst, shapes: flattenShapeList(slideAst.shapes) };
+      runTitleOcclusionCheck(slide.id, dom, flatSlideAst);
+      runContrastCheck(slide.id, flatSlideAst, theme);
+      runShapeVisibilityCheck(slide.id, flatSlideAst, theme);
+      return slideAst;
+    });
+    return {
+      size,
+      language: "zh-CN",
+      title: "SlideML2 MVP",
+      author: "SlideML2",
+      master: normalizeDeckMaster(deck.deck.master),
+      slides,
+    };
+  } finally {
+    themeAccentHexesForContrast = null;
+    themeMutedHexesForContrast = null;
+    layoutDecisionsBySlide.clear();
+    squashedWarnings.clear();
+  }
 }
 
 function flattenShapeList(shapes: ShapeList, offsetX = 0, offsetY = 0): ShapeList {
@@ -393,6 +408,19 @@ function isScrimLikeShapeName(name: unknown): boolean {
   return typeof name === "string" && /(^|[.:-])(scrim|overlay|backdrop|veil|shade)([.:-]|$)/i.test(name);
 }
 
+function blendHexOver(fgHex: string, bgHex: string, alpha: number): string {
+  const fg = fgHex.replace(/^#/, "");
+  const bg = bgHex.replace(/^#/, "");
+  if (!/^[0-9A-Fa-f]{6}$/.test(fg) || !/^[0-9A-Fa-f]{6}$/.test(bg)) return fg.toUpperCase();
+  const a = clamp(alpha, 0, 1);
+  const parts = [0, 2, 4].map((offset) => {
+    const f = parseInt(fg.slice(offset, offset + 2), 16);
+    const b = parseInt(bg.slice(offset, offset + 2), 16);
+    return Math.round(f * a + b * (1 - a)).toString(16).padStart(2, "0").toUpperCase();
+  });
+  return parts.join("");
+}
+
 /**
  * Hex values that match common "muted" theme tokens (text.muted, text.secondary,
  * default body grays). When body text resolves to one of these and the surface
@@ -482,6 +510,8 @@ function collectThemeMutedHexes(theme: SimpleTheme): Set<string> {
     "text.secondary",
     "text.tertiary",
     "text.subtle",
+    "muted",
+    "text.caption",
     "chart.neutral",
     "neutral",
   ];
@@ -642,6 +672,65 @@ function pickShadedVariantForContrast(srcHex: string, bgHex: string, threshold: 
   return null;
 }
 
+interface ContrastReadabilityAssessment {
+  severity: "warn" | "error";
+  perceptualContrastLc: number;
+  readableFloorLc: number;
+  targetLc: number;
+}
+
+function assessLowContrastReadability(hit: { fg: string; bg: string; ratio: number; fontPt: number; bold: boolean }): ContrastReadabilityAssessment {
+  const perceptualContrastLc = perceptualContrastLcForHex(hit.fg, hit.bg);
+  const readableFloorLc = unreadablePerceptualFloorLc(hit.fontPt, hit.bold);
+  const targetLc = targetPerceptualLc(hit.fontPt, hit.bold);
+  if (hit.fg.toUpperCase() === hit.bg.toUpperCase()) {
+    return { severity: "error", perceptualContrastLc, readableFloorLc, targetLc };
+  }
+  if (perceptualContrastLc < readableFloorLc) {
+    return { severity: "error", perceptualContrastLc, readableFloorLc, targetLc };
+  }
+  const ratioFloor = hit.fontPt < 10 ? 2.35 : hit.fontPt < 13 ? 2.0 : hit.fontPt >= 18 || hit.bold ? 1.65 : 1.8;
+  if (hit.ratio < ratioFloor && perceptualContrastLc < targetLc * 0.65) {
+    return { severity: "error", perceptualContrastLc, readableFloorLc, targetLc };
+  }
+  return { severity: "warn", perceptualContrastLc, readableFloorLc, targetLc };
+}
+
+function perceptualContrastLcForHex(fgHex: string, bgHex: string): number {
+  const fgY = clamp(relativeLuminance(fgHex), 0, 1);
+  const bgY = clamp(relativeLuminance(bgHex), 0, 1);
+  const lc = bgY >= fgY
+    ? (Math.pow(bgY, 0.56) - Math.pow(fgY, 0.57)) * 100
+    : (Math.pow(bgY, 0.65) - Math.pow(fgY, 0.62)) * 100;
+  return Math.abs(Number.isFinite(lc) ? lc : 0);
+}
+
+function unreadablePerceptualFloorLc(fontPt: number, bold: boolean): number {
+  if (fontPt >= 28 || (fontPt >= 24 && bold)) return 14;
+  if (fontPt >= 18 || (fontPt >= 14 && bold)) return 18;
+  if (fontPt >= 13) return 24;
+  if (fontPt >= 10) return 30;
+  return 36;
+}
+
+function targetPerceptualLc(fontPt: number, bold: boolean): number {
+  if (fontPt >= 28 || (fontPt >= 24 && bold)) return 28;
+  if (fontPt >= 18 || (fontPt >= 14 && bold)) return 36;
+  if (fontPt >= 13) return 45;
+  if (fontPt >= 10) return 55;
+  return 65;
+}
+
+function shouldAutoFixLowContrast(
+  hit: { fg: string; bg: string; ratio: number; fontPt: number; bold: boolean },
+  assessment: ContrastReadabilityAssessment,
+  fgIsThemeResolved: boolean,
+): boolean {
+  if (hit.fg.toUpperCase() === hit.bg.toUpperCase()) return true;
+  if (assessment.severity !== "error") return false;
+  if (fgIsThemeResolved) return true;
+  return hit.ratio < 1.25 || assessment.perceptualContrastLc < 10;
+}
 
 function runContrastCheck(slideId: string, slide: { shapes: ShapeList; background?: { type: string; color?: string; stops?: Array<{ color: string }> } }, theme?: SimpleTheme): void {
   const slideBg = pickContrastBackgroundColor(slide.background);
@@ -669,15 +758,19 @@ function runContrastCheck(slideId: string, slide: { shapes: ShapeList; backgroun
       let picked: { color: string; nodeId?: string } | null = null;
       let pickedImageSurface = false;
       if (shape.fill && shape.fill.type === "solid" && typeof shape.fill.color === "string") {
-        bg = shape.fill.color;
-        picked = { color: shape.fill.color, nodeId: shape.name };
+        bg = shape.fill.alpha !== undefined && shape.fill.alpha < 1 && !slideBgIsImage
+          ? blendHexOver(shape.fill.color, slideBg, shape.fill.alpha)
+          : shape.fill.color;
+        picked = { color: bg, nodeId: shape.name };
       } else {
         for (let i = surfaceCovers.length - 1; i >= 0; i--) {
           const f = surfaceCovers[i]!;
           if (fillCoversText(f, trect)) {
             if (f.kind === "solid" && f.color) {
-              bg = f.color;
-              picked = { color: f.color, nodeId: f.nodeId };
+              bg = f.alpha !== undefined && f.alpha < 1 && !slideBgIsImage
+                ? blendHexOver(f.color, slideBg, f.alpha)
+                : f.color;
+              picked = { color: bg, nodeId: f.nodeId };
             } else {
               pickedImageSurface = true;
             }
@@ -738,49 +831,34 @@ function runContrastCheck(slideId: string, slide: { shapes: ShapeList; backgroun
     const isLarge = head.fontPt >= 18;
     const surfaceLabel = head.bg.toUpperCase();
     const fgLabel = head.fg.toUpperCase();
-    // Auto-fix tiers, ordered by confidence:
-    //   1. fg ≡ bg (text is literally invisible — always rewrite)
-    //   2. small body text < 3.0 AND fg is a known muted token hex
-    //      (text.muted defaults across themes) — token resolved poorly,
-    //      rewriting preserves agent intent for explicit colors.
-    //   3. medium text (13 ≤ fontPt < 18) at < 2.5:1 — clearly unreadable.
-    //   4. medium text < 3.0:1 AND fg is a known muted token hex.
-    //   5. large text < 3.0 AND fg is a known semantic accent (success/
-    //      warning/danger/brand defaults) that fails on the picked surface.
-    //      These are theme-resolved colors, not user picks; rewriting them
-    //      avoids invisible KPI values on dark themes.
-    //   6. large text < 2.5:1 unconditionally (egregiously unreadable
-    //      headline — even a custom accent should be fixed).
     const repairs: string[] = [];
-    const isBodyText = head.fontPt < 13;
-    const isMediumText = head.fontPt >= 13 && head.fontPt < 18;
     const isLargeText = head.fontPt >= 18;
-    const fgEqualsBg = head.fg.toUpperCase() === head.bg.toUpperCase();
     const fgIsMutedDefault = isLikelyMutedToken(head.fg);
     const fgIsSemanticAccent = isLikelySemanticAccent(head.fg);
     const fgIsThemeResolved = fgIsMutedDefault || fgIsSemanticAccent;
-    const shouldAutoFix = fgEqualsBg
-      // Body text (caption, label, footnote, metric-label, quote-source)
-      // below WCAG: rewrite when fg is a theme-resolved default (muted token
-      // or semantic accent). User accent colors that happen to fall short
-      // are NOT touched here — they're agent intent.
-      || (isBodyText && head.ratio < 4.5 && fgIsThemeResolved)
-      || (isMediumText && head.ratio < 2.5)
-      || (isMediumText && head.ratio < 4.5 && fgIsThemeResolved)
-      || (isLargeText && head.ratio < 3.0 && fgIsThemeResolved)
-      || (isLargeText && head.ratio < 2.5);
+    const assessment = assessLowContrastReadability(head);
+    // Auto-fix only when text is effectively unreadable and the renderer can
+    // preserve intent (same/near-same color, theme-resolved text token, or
+    // an extreme contrast miss). Borderline muted editorial text is reported
+    // but left exactly as the agent authored it.
+    const shouldAutoFix = shouldAutoFixLowContrast(head, assessment, fgIsThemeResolved);
     if (shouldAutoFix) {
       for (const hit of group) {
         const fixed = autoFixLowContrast(slide, hit, theme);
         if (fixed) repairs.push(`${hit.nodeId}→#${fixed}`);
       }
     }
-    const repairTrail = repairs.length > 0 ? ` Renderer auto-fixed (text invisible against same-color surface): ${repairs.slice(0, 5).join(", ")}${repairs.length > 5 ? ` and ${repairs.length - 5} more` : ""}.` : "";
-    const baseMessage = `Text "${head.sample}" has contrast ${head.ratio.toFixed(2)}:1 (fg ${fgLabel} on ${surfaceLabel}; need ≥ ${head.threshold.toFixed(1)}:1${isLarge ? " for large" : ""}).`;
+    const uniqueNodeIds = new Set(group.map((h) => h.nodeId));
+    const fullyFixed = repairs.length >= uniqueNodeIds.size;
+    const severity = fullyFixed ? "warn" : assessment.severity;
+    const repairTrail = repairs.length > 0 ? ` Renderer auto-fixed unreadable text: ${repairs.slice(0, 5).join(", ")}${repairs.length > 5 ? ` and ${repairs.length - 5} more` : ""}.` : "";
+    const baseMessage = `Text "${head.sample}" has contrast ${head.ratio.toFixed(2)}:1 (fg ${fgLabel} on ${surfaceLabel}; WCAG target ≥ ${head.threshold.toFixed(1)}:1${isLarge ? " for large" : ""}; perceptual Lc ${assessment.perceptualContrastLc.toFixed(1)}, unreadable floor ${assessment.readableFloorLc.toFixed(1)}).`;
     const message = others.length > 0
       ? `${baseMessage} Same root cause affects ${others.length + 1} text nodes.${repairTrail}`
       : `${baseMessage}${repairTrail}`;
-    const suggestion = `Surface trail: ${head.surfaceTrail.join(" → ")}. Pick a fg token with sufficient contrast against ${surfaceLabel} (e.g. text.primary on light fills, text.inverse on dark fills). If the mismatch is systemic, fix the deck theme token rather than each slide.`;
+    const suggestion = severity === "warn"
+      ? `Surface trail: ${head.surfaceTrail.join(" → ")}. This is below the accessibility target but above the unreadable floor; if muted/secondary editorial text is intentional and visually readable, no blocking fix is required. For accessibility-sensitive slides, choose a stronger fg token against ${surfaceLabel}.`
+      : `Surface trail: ${head.surfaceTrail.join(" → ")}. Pick a fg token with sufficient contrast against ${surfaceLabel} (e.g. text.primary on light fills, text.inverse on dark fills). If the mismatch is systemic, fix the deck theme token rather than each slide.`;
     // When auto-fix actually rewrote every distinct text node in the cluster,
     // demote the diagnostic to LOW_CONTRAST_FIXED — the rendered PPTX is now
     // readable so this should not block the agent. The diagnostic is still
@@ -788,16 +866,21 @@ function runContrastCheck(slideId: string, slide: { shapes: ShapeList; backgroun
     // systemic. We compare repaired-count against UNIQUE nodeIds in the
     // group (multiple paragraph runs share one shape; one rewrite covers
     // them all).
-    const uniqueNodeIds = new Set(group.map((h) => h.nodeId));
-    const fullyFixed = repairs.length >= uniqueNodeIds.size;
     pushDiagnostic({
-      severity: "warn",
+      severity,
       code: fullyFixed ? "LOW_CONTRAST_FIXED" : "LOW_CONTRAST",
       slideId,
       nodeId: head.nodeId,
       message,
       suggestion,
-      measured: { rect: head.rect },
+      measured: {
+        rect: head.rect,
+        contrastRatio: head.ratio,
+        wcagThreshold: head.threshold,
+        perceptualContrastLc: assessment.perceptualContrastLc,
+        perceptualReadableFloorLc: assessment.readableFloorLc,
+        perceptualTargetLc: assessment.targetLc,
+      },
       surfaceTrail: head.surfaceTrail,
       ...(others.length > 0
         ? { aggregated: { count: group.length, affectedNodes: group.map((h) => ({ nodeId: h.nodeId, sample: h.sample })) } }
@@ -972,7 +1055,7 @@ function runShapeVisibilityCheck(slideId: string, slide: { shapes: ShapeList; ba
     }
     const fixed = repaired || borderAdded;
     pushDiagnostic({
-      severity: "warn",
+      severity: fixed ? "warn" : "error",
       code: fixed ? "SHAPE_INVISIBLE_FIXED" : "SHAPE_INVISIBLE",
       slideId,
       nodeId: shape.name,
@@ -1061,9 +1144,10 @@ export function measureDeck(deck: RenderedDeck): Array<{ slideId: string; nodes:
   layoutDecisionsBySlide.clear();
   return deck.slides.map((slide) => {
     const dom = materializeAndCompactify(slide.dom, slide.id, theme);
-    const layout = layoutSlide(theme, dom);
-    detectCollisionsForSlide(slide.id, layout.measured, dom);
-    detectComponentLayoutQuality(theme, slide.id, layout.measured, dom);
+    const measuredDom = prepareDomForMeasuredSemanticCohorts(theme, dom, slide.id);
+    const layout = layoutSlide(theme, measuredDom);
+    detectCollisionsForSlide(slide.id, layout.measured, measuredDom);
+    detectComponentLayoutQuality(theme, slide.id, layout.measured, measuredDom);
     return { slideId: slide.id, nodes: layout.measured };
   });
 }
@@ -1074,6 +1158,7 @@ function detectCollisionsForSlide(slideId: string, measured: MeasuredNode[], sli
   const layeredIds = collectLayeredIds(slideDom);
   const containerIds = collectContainerIds(slideDom);
   const measuredParentById = collectMeasuredParentIds(measured);
+  const paintOrderById = collectPaintOrderIds(measured);
   detectSiblingContainerOverlaps(slideId, measured, slideDom, overlayIds, layeredIds, containerIds);
   detectOverlayOcclusions(slideId, measured, slideDom, overlayIds);
   const candidates = measured.filter((node) =>
@@ -1091,6 +1176,7 @@ function detectCollisionsForSlide(slideId: string, measured: MeasuredNode[], sli
       if (!aRect || !bRect) continue;
       const overlap = meaningfulOverlap(aRect, bRect);
       if (!overlap) continue;
+      if (isBackingSurfaceOverlap(a, b, overlap, paintOrderById)) continue;
       const sibling = a.parentId && a.parentId === b.parentId;
       const code = isDecorativeMeasuredNode(a) || isDecorativeMeasuredNode(b)
         ? "DECORATIVE_OVERLAP"
@@ -1161,7 +1247,8 @@ function detectOverlayOcclusions(
     for (const target of flow) {
       const targetRect = collisionRect(target);
       if (!targetRect) continue;
-      const overlap = meaningfulOverlayOcclusion(overlayRect, targetRect);
+      const overlap = meaningfulOverlayOcclusion(overlayRect, targetRect)
+        || textClearanceOverlap(overlayRect, target, targetRect);
       if (!overlap) continue;
       pushCollisionDiagnostic(
         slideId,
@@ -1176,6 +1263,21 @@ function detectOverlayOcclusions(
   }
 }
 
+function textClearanceOverlap(overlayRect: Rect, target: MeasuredNode, targetRect: Rect): OverlapMetrics | undefined {
+  if (target.visualRole !== "text") return undefined;
+  const padded = padRect(targetRect, 0.04, 0.14);
+  return meaningfulOverlap(overlayRect, padded, { minAreaCm2: 0.05 });
+}
+
+function padRect(rect: Rect, dx: number, dy: number): Rect {
+  return {
+    x: rect.x - dx,
+    y: rect.y - dy,
+    w: Math.max(0.001, rect.w + dx * 2),
+    h: Math.max(0.001, rect.h + dy * 2),
+  };
+}
+
 function pushCollisionDiagnostic(
   slideId: string,
   code: "COLLISION" | "SIBLING_INK_OVERLAP" | "STRUCTURAL_OVERLAP" | "DECORATIVE_OVERLAP" | "OVERLAY_OCCLUDES_FLOW",
@@ -1186,8 +1288,9 @@ function pushCollisionDiagnostic(
   slideDom?: DomNode,
 ): void {
   const constrainedBy = slideDom ? findCollisionConstrainingAncestor(slideDom, a, b, overlap) : undefined;
+  const severity = collisionSeverity(code, a, b, overlap);
   pushDiagnostic({
-    severity: code === "STRUCTURAL_OVERLAP" ? "error" : code === "DECORATIVE_OVERLAP" ? "info" : "warn",
+    severity,
     code,
     slideId,
     nodeId: a.id,
@@ -1218,10 +1321,123 @@ function pushCollisionDiagnostic(
   });
 }
 
+function collisionSeverity(
+  code: "COLLISION" | "SIBLING_INK_OVERLAP" | "STRUCTURAL_OVERLAP" | "DECORATIVE_OVERLAP" | "OVERLAY_OCCLUDES_FLOW",
+  a: MeasuredNode,
+  b: MeasuredNode,
+  overlap: OverlapMetrics,
+): "info" | "warn" | "error" {
+  if (code === "DECORATIVE_OVERLAP") return "info";
+  if ((code === "COLLISION" || code === "SIBLING_INK_OVERLAP") && isTinyTextOverlap(a, b, overlap)) return "warn";
+  if (code === "SIBLING_INK_OVERLAP" && isAttributionSiblingOverlap(a, b, overlap)) return "warn";
+  if (code === "STRUCTURAL_OVERLAP" && isThinStructuralOverlap(overlap)) return "warn";
+  if (code === "OVERLAY_OCCLUDES_FLOW" && isLowImpactTextClearanceOverlap(a, b, overlap)) return "warn";
+  return "error";
+}
+
+function isTinyTextOverlap(a: MeasuredNode, b: MeasuredNode, overlap: OverlapMetrics): boolean {
+  const involvesText = a.visualRole === "text" || b.visualRole === "text";
+  if (!involvesText) return false;
+  // Adjacent full-width text boxes can produce a very thin estimated ink
+  // intersection: the height is visually negligible, but the area grows with
+  // line width. Prefer vertical depth and coverage over area alone.
+  return overlap.rect.h <= 0.08
+    && overlap.areaCm2 <= 0.40
+    && overlap.ratioOfSmaller <= 0.10;
+}
+
+function isAttributionSiblingOverlap(a: MeasuredNode, b: MeasuredNode, overlap: OverlapMetrics): boolean {
+  const ids = [a.id, b.id];
+  const hasBody = ids.some((id) => /\.text$/.test(id));
+  const hasSource = ids.some((id) => /\.source$/.test(id));
+  if (!hasBody || !hasSource) return false;
+  const baseIds = ids.map((id) => id.replace(/\.(text|source)$/, ""));
+  if (baseIds[0] !== baseIds[1]) return false;
+  return overlap.rect.h <= 0.24 && overlap.ratioOfSmaller <= 0.55;
+}
+
+function isThinStructuralOverlap(overlap: OverlapMetrics): boolean {
+  return (overlap.rect.h <= 0.08 || overlap.rect.w <= 0.08)
+    && overlap.areaCm2 <= 0.35
+    && overlap.ratioOfSmaller <= 0.18;
+}
+
+function isLowImpactTextClearanceOverlap(a: MeasuredNode, b: MeasuredNode, overlap: OverlapMetrics): boolean {
+  const involvesText = a.visualRole === "text" || b.visualRole === "text";
+  if (!involvesText) return false;
+  return overlap.areaCm2 <= 0.16 || overlap.ratioOfSmaller <= 0.10;
+}
+
 function collisionRect(node: MeasuredNode): Rect | undefined {
+  if (node.type === "spacer") return undefined;
   const rect = node.visualRect || node.inkRect || node.rect;
   if (!rect || rect.w <= 0.01 || rect.h <= 0.01) return undefined;
   return rect;
+}
+
+function isBackingSurfaceOverlap(
+  a: MeasuredNode,
+  b: MeasuredNode,
+  overlap: OverlapMetrics,
+  paintOrderById: Map<string, number>,
+): boolean {
+  const aRect = collisionRect(a);
+  const bRect = collisionRect(b);
+  if (!aRect || !bRect) return false;
+  if (isBackingSurfaceBehind(a, b, aRect, bRect, overlap, paintOrderById)) return true;
+  return isBackingSurfaceBehind(b, a, bRect, aRect, overlap, paintOrderById);
+}
+
+function isBackingSurfaceBehind(
+  surface: MeasuredNode,
+  target: MeasuredNode,
+  surfaceRect: Rect,
+  targetRect: Rect,
+  overlap: OverlapMetrics,
+  paintOrderById: Map<string, number>,
+): boolean {
+  if (!isVisualBackingSurface(surface)) return false;
+  const surfaceOrder = paintOrderById.get(surface.id);
+  const targetOrder = paintOrderById.get(target.id);
+  if (surfaceOrder === undefined || targetOrder === undefined || surfaceOrder >= targetOrder) return false;
+  // A backing surface can overlap content because it is the content's local
+  // background. If it does not materially cover the target, fall through to
+  // the normal collision path: partial overlap between real objects is still
+  // useful feedback.
+  if (!rectContainsWithTolerance(surfaceRect, targetRect, 0.04) && overlap.ratioOfSmaller < 0.72) return false;
+  return true;
+}
+
+function isVisualBackingSurface(node: MeasuredNode): boolean {
+  if (node.visualRole === "text" || node.visualRole === "table-body" || node.visualRole === "chart-body") return false;
+  if (node.relation === "caption-of" || node.relation === "annotation-of") return false;
+  if (node.type === "spacer" || node.type === "divider") return false;
+  // Empty surface primitives frequently carry a scrim, highlight strip, or
+  // shape backing. When painted before text/content they should affect
+  // readability checks, not produce geometry collisions against the content
+  // that intentionally sits on top of them.
+  return node.type === "shape"
+    || node.type === "image"
+    || node.type === "band"
+    || node.type === "panel"
+    || node.type === "card"
+    || node.type === "frame"
+    || node.type === "inset"
+    || node.visualRole === "shape"
+    || node.visualRole === "image";
+}
+
+function rectContainsWithTolerance(outer: Rect, inner: Rect, toleranceCm: number): boolean {
+  return inner.x >= outer.x - toleranceCm
+    && inner.y >= outer.y - toleranceCm
+    && inner.x + inner.w <= outer.x + outer.w + toleranceCm
+    && inner.y + inner.h <= outer.y + outer.h + toleranceCm;
+}
+
+function collectPaintOrderIds(measured: MeasuredNode[]): Map<string, number> {
+  const order = new Map<string, number>();
+  measured.forEach((node, index) => order.set(node.id, index));
+  return order;
 }
 
 function isUnderAnyRoot(id: string, roots: Set<string>): boolean {
@@ -1233,6 +1449,10 @@ function isUnderAnyRoot(id: string, roots: Set<string>): boolean {
 
 function isDecorativeMeasuredNode(node: MeasuredNode): boolean {
   const id = node.id.toLowerCase();
+  const rect = node.visualRect || node.inkRect || node.rect;
+  if (node.relation === "marker-of") return true;
+  if ((node.type === "shape" || node.type === "divider") && rect && (rect.h <= 0.08 || rect.w <= 0.08)) return true;
+  if ((node.type === "shape" || node.type === "divider") && node.alpha !== undefined && node.alpha < 0.25) return true;
   return id.includes(".decor")
     || id.includes("decoration")
     || id.includes("watermark")
@@ -1355,6 +1575,8 @@ function findNodePathById(root: DomNode, id: string, path: DomNode[] = []): DomN
 }
 
 function detectComponentLayoutQuality(theme: SimpleTheme, slideId: string, measured: MeasuredNode[], slideDom: DomNode): void {
+  detectMetricTextInkOverflow(slideId, measured, slideDom);
+  detectComponentElasticBudgets(theme, slideId, measured, slideDom);
   detectPageComponentCapacity(theme, slideId, measured, slideDom);
   detectLocalRegionCapacity(theme, slideId, measured, slideDom);
   const byId = new Map(measured.map((node) => [node.id, node]));
@@ -1386,11 +1608,270 @@ function detectComponentLayoutQuality(theme: SimpleTheme, slideId: string, measu
   }
 }
 
+function detectComponentElasticBudgets(theme: SimpleTheme, slideId: string, measured: MeasuredNode[], slideDom: DomNode): void {
+  const byId = new Map(measured.map((node) => [node.id, node]));
+  const parentById = collectMeasuredParentIds(measured);
+  for (const item of measured) {
+    const node = findNodeById(slideDom, item.id);
+    if (!node || !isComponentBudgetCandidate(node)) continue;
+    if (hasMeasuredAncestorWithSameBudget(parentById, slideDom, item.id)) continue;
+    const role = regionCapacityRole(node);
+    const className = componentElasticityClass(node, role);
+    if (className !== "elastic") continue;
+    if (role === "metric-card") continue;
+    const budget = componentElasticBudget(theme, node, item.rect, byId);
+    if (!budget) continue;
+    if (item.rect.h + COMPONENT_ELASTIC_BUDGET_TOLERANCE_CM >= budget.minHeight) continue;
+    pushFitDiagnostic({
+      kind: "container",
+      severity: "error",
+      code: "FALLBACK_FAILED",
+      slideId,
+      nodeId: item.id,
+      message: `Component '${item.id}' exceeded its elastic compression budget (needs ${budget.minHeight.toFixed(2)}cm minimum readable height, has ${item.rect.h.toFixed(2)}cm).`,
+      suggestion: componentElasticBudgetSuggestion(className, role),
+      measured: {
+        available: item.rect.h,
+        needed: budget.minHeight,
+        deltaCm: Math.max(0, budget.minHeight - item.rect.h),
+        minHeightCm: budget.minHeight,
+        readableNeeded: budget.preferredHeight,
+        capacityRatio: budget.minHeight / Math.max(0.001, item.rect.h),
+        fitMethod: "component-elastic-budget",
+        components: budget.children,
+      },
+    });
+  }
+}
+
+const COMPONENT_ELASTIC_BUDGET_TOLERANCE_CM = 0.04;
+
+interface ComponentElasticBudget {
+  minHeight: number;
+  preferredHeight: number;
+  children?: ComponentBudgetChild[];
+}
+
+type ComponentBudgetChild = NonNullable<NonNullable<LayoutDiagnostic["measured"]>["components"]>[number];
+
+function isComponentBudgetCandidate(node: DomNode): boolean {
+  if (!Array.isArray(node.children) || node.children.length === 0) return false;
+  const role = regionCapacityRole(node);
+  if (typeof node.role !== "string" || !node.role.trim()) return false;
+  if (!role || role === "stack" || role === "grid" || role === "slide") return false;
+  if (role.endsWith("-bg") || role.endsWith("-connector-stub") || role.endsWith("-connector-port")) return false;
+  return node.type === "stack" || node.type === "grid" || node.type === "card" || node.type === "panel" || node.type === "band" || node.type === "frame" || node.type === "inset";
+}
+
+function hasMeasuredAncestorWithSameBudget(parentById: Map<string, string>, slideDom: DomNode, nodeId: string): boolean {
+  let current = parentById.get(nodeId);
+  const seen = new Set<string>();
+  while (current) {
+    if (seen.has(current)) return false;
+    seen.add(current);
+    const ancestor = findNodeById(slideDom, current);
+    if (ancestor && isComponentBudgetCandidate(ancestor)) {
+      const role = regionCapacityRole(ancestor);
+      if (componentElasticityClass(ancestor, role) !== "decorative") return true;
+    }
+    current = parentById.get(current);
+  }
+  return false;
+}
+
+function componentElasticBudget(theme: SimpleTheme, node: DomNode, rect: Rect, byId: Map<string, MeasuredNode>): ComponentElasticBudget | undefined {
+  const role = regionCapacityRole(node);
+  const className = componentElasticityClass(node, role);
+  if (className !== "elastic") return undefined;
+  const content = contentRect(theme, node, rect);
+  const minHeight = componentRequiredMinHeight(theme, node, Math.max(0.45, content.w), byId, 0) + Math.max(0, rect.h - content.h);
+  if (!Number.isFinite(minHeight) || minHeight <= 0.05) return undefined;
+  const preferredHeight = Math.max(minHeight, Math.min(intrinsicMainSize(theme, node, "vertical", Math.max(0.45, rect.w)), rect.h + Math.max(0, minHeight - rect.h)));
+  const children = componentBudgetChildren(theme, node, Math.max(0.45, content.w), byId);
+  return { minHeight, preferredHeight, ...(children.length ? { children } : {}) };
+}
+
+function componentRequiredMinHeight(
+  theme: SimpleTheme,
+  node: DomNode,
+  widthCm: number,
+  byId: Map<string, MeasuredNode>,
+  depth: number,
+): number {
+  if (depth > 5) return Math.min(intrinsicMainSize(theme, node, "vertical", widthCm), 1.2);
+  if (node.type === "text") return textSquashMinHeight(theme, node, { x: 0, y: 0, w: widthCm, h: 10 });
+  if (node.type === "bullets") return bulletsSquashMinHeight(theme, node, { x: 0, y: 0, w: widthCm, h: 10 });
+  if (node.type === "spacer") return optionalNumberProp(node, "fixedHeight") ?? optionalNumberProp(node, "minHeight") ?? 0;
+  if (node.type === "divider") return normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.02;
+  if (node.type === "shape") return optionalNumberProp(node, "fixedHeight") ?? optionalNumberProp(node, "height") ?? optionalNumberProp(node, "minHeight") ?? 0.08;
+  if (node.type === "image") return Math.min(1.25, Math.max(0.5, widthCm * 0.18));
+  if (node.type === "chart") return Math.min(3.0, Math.max(1.6, widthCm * 0.36));
+  if (node.type === "table") return Math.min(4.5, Math.max(0.9, tableIntrinsicHeight(theme, node, widthCm) * 0.72));
+
+  const children = componentBudgetFlowChildren(node);
+  if (children.length === 0) return Math.min(intrinsicMainSize(theme, node, "vertical", widthCm), 0.9);
+  const role = regionCapacityRole(node);
+  const className = componentElasticityClass(node, role);
+  const requiredChildren = children.filter((child) => componentBudgetChildCounts(child, className));
+  if (requiredChildren.length === 0) return 0;
+  if (node.type === "grid") return gridRequiredMinHeight(theme, node, requiredChildren, widthCm, byId, depth + 1);
+  if (node.type === "stack" && node.direction === "horizontal") {
+    const gap = totalStackGapCm(theme, node, requiredChildren);
+    const availableWidth = Math.max(0.45, widthCm - gap);
+    const childWidth = Math.max(0.45, availableWidth / requiredChildren.length);
+    return Math.max(...requiredChildren.map((child) => componentRequiredMinHeight(theme, child, childWidth, byId, depth + 1)));
+  }
+  const contentHeight = requiredChildren.reduce((sum, child) => sum + componentRequiredMinHeight(theme, child, widthCm, byId, depth + 1), 0);
+  return contentHeight + totalStackGapCm(theme, node, requiredChildren);
+}
+
+function gridRequiredMinHeight(
+  theme: SimpleTheme,
+  node: DomNode,
+  children: DomNode[],
+  widthCm: number,
+  byId: Map<string, MeasuredNode>,
+  depth: number,
+): number {
+  const columns = Math.max(1, numberProp(node, "columns", Math.min(2, children.length || 1)));
+  const gap = gridGapCm(theme, node, children, columns);
+  const colWidths = gridColumnTrackTargets(node, columns, Math.max(0, widthCm - gap * (columns - 1)));
+  const placements = computeGridPlacements(children, columns);
+  const rows = Math.max(1, placements.reduce((max, placement) => Math.max(max, placement.row + placement.rowSpan), 0));
+  const rowHeights = new Array<number>(rows).fill(0);
+  for (const placement of placements) {
+    const childWidth = spannedSize(colWidths, placement.col, placement.colSpan, gap) || Math.max(0.45, widthCm / columns);
+    const childMin = componentRequiredMinHeight(theme, placement.child, childWidth, byId, depth + 1) / Math.max(1, placement.rowSpan);
+    for (let row = placement.row; row < placement.row + placement.rowSpan && row < rows; row++) {
+      rowHeights[row] = Math.max(rowHeights[row] ?? 0, childMin);
+    }
+  }
+  return rowHeights.reduce((sum, height) => sum + height, 0) + gap * Math.max(0, rows - 1);
+}
+
+function componentBudgetFlowChildren(node: DomNode): DomNode[] {
+  return (node.children || []).filter((child) => !isOverlayChild(child) && child.layer !== "behind" && child.layer !== "above");
+}
+
+function componentBudgetChildCounts(child: DomNode, parentClass: ComponentElasticityClass): boolean {
+  if (child.optional === true && parentClass === "elastic") return false;
+  const role = regionCapacityRole(child);
+  const childClass = componentElasticityClass(child, role);
+  if (childClass === "decorative" && child.optional === true) return false;
+  return true;
+}
+
+function componentBudgetChildren(
+  theme: SimpleTheme,
+  node: DomNode,
+  widthCm: number,
+  byId: Map<string, MeasuredNode>,
+): ComponentBudgetChild[] {
+  return componentBudgetFlowChildren(node)
+    .filter((child) => componentBudgetChildCounts(child, componentElasticityClass(node, regionCapacityRole(node))))
+    .slice(0, 8)
+    .map((child) => {
+      const measured = byId.get(child.id);
+      const needed = componentRequiredMinHeight(theme, child, widthCm, byId, 1);
+      return {
+        nodeId: child.id,
+        role: regionCapacityRole(child),
+        assignedHeightCm: measured?.rect.h ?? 0,
+        neededHeightCm: needed,
+        capacityMode: componentElasticityClass(child, regionCapacityRole(child)) === "hard" ? "hard" : "elastic",
+      };
+    });
+}
+
+function componentElasticBudgetSuggestion(className: ComponentElasticityClass, role: string): string {
+  if (className === "hard") {
+    return `The ${role} component has hard geometry/data constraints. Increase its region, reduce item/series/row count, use an explicit compact scale only for mild pressure, or split the component across slides.`;
+  }
+  return `The ${role} component has used all of its elastic space. Keep the component semantics, but increase its region, reduce optional copy/items, choose a compact scale/density for mild pressure, or split the content instead of squeezing padding or text below readable minima.`;
+}
+
+function detectMetricTextInkOverflow(slideId: string, measured: MeasuredNode[], slideDom: DomNode): void {
+  const byId = new Map(measured.map((node) => [node.id, node]));
+  const parentById = collectMeasuredParentIds(measured);
+  const seen = new Set<string>();
+  for (const item of measured) {
+    if (item.type !== "text" || !item.visualRect || !item.parentId) continue;
+    const node = findNodeById(slideDom, item.id);
+    if (!node) continue;
+    if (!isMetricTextNode(node)) continue;
+    const metricAncestor = nearestMetricMeasuredAncestor(parentById, slideDom, item.id);
+    if (!metricAncestor) continue;
+    const parent = byId.get(item.parentId);
+    const boundary = metricAncestor.role === "metric-card"
+      ? byId.get(metricAncestor.id)
+      : parent;
+    if (!boundary?.rect) continue;
+    const overflow = rectEscapeAmountCm(item.visualRect, boundary.rect);
+    if (overflow <= STRICT_METRIC_TEXT_INK_OVERFLOW_CM) continue;
+    const key = `${slideId}/${item.id}/${boundary.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pushDiagnostic({
+      severity: "error",
+      code: "OVERFLOW",
+      slideId,
+      nodeId: item.id,
+      message: `Metric text '${item.id}' paints ${overflow.toFixed(2)}cm outside '${boundary.id}'.`,
+      suggestion: "Keep the KPI semantics but give the metric card more height, reduce columns, shorten the label, or let the metric-card compact its value band/padding before accepting the render.",
+      measured: {
+        deltaCm: overflow,
+        rect: item.rect,
+        outerRect: item.visualRect,
+        other: { ...boundary.rect, nodeId: boundary.id },
+        parentId: boundary.id,
+        relationship: `metric-ink-escape:${metricAncestor.id}`,
+      },
+    });
+  }
+}
+
+const STRICT_METRIC_TEXT_INK_OVERFLOW_CM = 0.10;
+
+function isMetricTextNode(node: DomNode): boolean {
+  if (node.type !== "text") return false;
+  const styleKey = textStyleKey(node);
+  if (styleKey === "metric-value" || styleKey === "metric-label") return true;
+  const id = String(node.id || "");
+  return /\.(?:value|label|delta)$/.test(id);
+}
+
+function nearestMetricMeasuredAncestor(parentById: Map<string, string>, slideDom: DomNode, nodeId: string): { id: string; role: string } | undefined {
+  const seen = new Set<string>();
+  let current = parentById.get(nodeId);
+  while (current) {
+    if (seen.has(current)) return undefined;
+    seen.add(current);
+    const node = findNodeById(slideDom, current);
+    const role = typeof node?.role === "string" ? node.role : "";
+    if (role === "metric-card" || role === "kpi-grid" || role === "stat-strip") return { id: current, role };
+    current = parentById.get(current);
+  }
+  return undefined;
+}
+
+function rectEscapeAmountCm(inner: Rect, outer: Rect): number {
+  return Math.max(
+    0,
+    outer.x - inner.x,
+    outer.y - inner.y,
+    (inner.x + inner.w) - (outer.x + outer.w),
+    (inner.y + inner.h) - (outer.y + outer.h),
+  );
+}
+
 interface ComponentCapacityDemand {
   nodeId: string;
   role: string;
   assignedHeightCm: number;
   neededHeightCm: number;
+  preferredHeightCm?: number;
+  hardMinHeightCm?: number;
+  capacityMode?: "hard" | "elastic";
 }
 
 function detectPageComponentCapacity(theme: SimpleTheme, slideId: string, measured: MeasuredNode[], slideDom: DomNode): void {
@@ -1415,9 +1896,8 @@ function detectPageComponentCapacity(theme: SimpleTheme, slideId: string, measur
     .slice(0, 4)
     .map((item) => `${item.role}#${item.nodeId} needs ~${item.neededHeightCm.toFixed(1)}cm`)
     .join("; ");
-  const severity = capacityRatio >= 1.08 ? "error" : "warn";
   pushDiagnostic({
-    severity,
+    severity: "warn",
     code: "PAGE_OVER_CAPACITY",
     slideId,
     nodeId: content.id,
@@ -1438,7 +1918,7 @@ function detectPageComponentCapacity(theme: SimpleTheme, slideId: string, measur
 
 function detectLocalRegionCapacity(theme: SimpleTheme, slideId: string, measured: MeasuredNode[], slideDom: DomNode): void {
   const byId = new Map(measured.map((item) => [item.id, item]));
-  const candidates: Array<{ node: DomNode; item: MeasuredNode; demands: ComponentCapacityDemand[]; available: number; needed: number; capacityRatio: number; splitRegion: boolean }> = [];
+  const candidates: Array<{ node: DomNode; item: MeasuredNode; demands: ComponentCapacityDemand[]; available: number; needed: number; capacityRatio: number; splitRegion: boolean; comfortPressure: number; hardComponentCount: number }> = [];
   const walk = (node: DomNode) => {
     if (node.type === "stack" && node.direction !== "horizontal" && Array.isArray(node.children) && node.children.length >= 3) {
       const item = byId.get(node.id);
@@ -1457,13 +1937,20 @@ function detectLocalRegionCapacity(theme: SimpleTheme, slideId: string, measured
         const demands = children.map((child) => regionChildCapacityDemand(theme, child, direction, crossSize, byId)).filter((d): d is ComponentCapacityDemand => Boolean(d));
         const meaningful = demands.filter((d) => d.neededHeightCm >= 0.55);
         const largeCount = meaningful.filter((d) => d.neededHeightCm >= 1.2).length;
+        const hardComponentCount = meaningful.filter((d) => d.capacityMode !== "elastic").length;
+        const comfortPressure = meaningful.reduce((sum, demand) =>
+          sum + Math.max(0, (demand.preferredHeightCm ?? demand.neededHeightCm) - Math.max(demand.assignedHeightCm, demand.neededHeightCm)), 0);
         const contentBlocks = meaningful.length;
         if (contentBlocks >= 3 && (item.rect.w <= 11.5 || largeCount >= 2)) {
-          const gap = gapCm(theme, node) * Math.max(0, children.length - 1);
-          const needed = meaningful.reduce((sum, demand) => sum + demand.neededHeightCm, 0) + gap;
+          const gap = totalStackGapCm(theme, node, children);
+          const hardNeeded = meaningful.reduce((sum, demand) => sum + demand.neededHeightCm, 0) + gap;
+          const mixedHardTextPressure = hardComponentCount > 0
+            && contentBlocks >= 4
+            && comfortPressure >= Math.max(0.65, available * 0.10);
+          const needed = hardNeeded + (mixedHardTextPressure ? Math.min(1.0, comfortPressure * 0.45) : 0);
           const capacityRatio = needed / Math.max(0.001, available);
           if (capacityRatio >= 1.04 && needed - available >= 0.25) {
-            candidates.push({ node, item, demands: meaningful, available, needed, capacityRatio, splitRegion });
+            candidates.push({ node, item, demands: meaningful, available, needed, capacityRatio, splitRegion, comfortPressure, hardComponentCount });
           }
         }
       }
@@ -1484,13 +1971,16 @@ function detectLocalRegionCapacity(theme: SimpleTheme, slideId: string, measured
       .map((item) => `${item.role}#${item.nodeId} ~${item.neededHeightCm.toFixed(1)}cm`)
       .join("; ");
     const context = candidate.splitRegion ? "split/rail region" : "local region";
+    const comfortClause = candidate.comfortPressure > 0.05
+      ? ` This includes ${candidate.comfortPressure.toFixed(2)}cm of elastic text comfort pressure; concrete text failures, if any, are reported on the child nodes.`
+      : "";
     pushDiagnostic({
       severity: "warn",
       code: "REGION_OVER_CAPACITY",
       slideId,
       nodeId: candidate.item.id,
-      message: `Region '${candidate.item.id}' combines ${candidate.demands.length} content block(s) whose estimated readable height is ${candidate.needed.toFixed(2)}cm against ${candidate.available.toFixed(2)}cm of ${context} height.`,
-      suggestion: `Treat this as a region-level capacity issue, not a child-component bug: keep one primary object in this ${context}, move secondary equation/quote/citation/source-note/detail blocks to a follow-up slide or wider region, or rebalance the split before squeezing text/components. Estimates: ${primary}.`,
+      message: `Region '${candidate.item.id}' combines ${candidate.demands.length} content block(s) whose estimated hard/readable height is ${candidate.needed.toFixed(2)}cm against ${candidate.available.toFixed(2)}cm of ${context} height.${comfortClause}`,
+      suggestion: `Treat this as region-level capacity guidance, not a child-component bug: keep one primary object in this ${context}, move secondary equation/quote/citation/source-note/detail blocks to a follow-up slide or wider region, or rebalance the split before squeezing text/components. Estimates: ${primary}.`,
       measured: {
         available: candidate.available,
         needed: candidate.needed,
@@ -1498,6 +1988,8 @@ function detectLocalRegionCapacity(theme: SimpleTheme, slideId: string, measured
         rect: candidate.item.rect,
         componentCount: candidate.demands.length,
         largeComponentCount: candidate.demands.filter((item) => item.neededHeightCm >= 1.2).length,
+        hardComponentCount: candidate.hardComponentCount,
+        comfortPressureCm: candidate.comfortPressure,
         capacityRatio: candidate.capacityRatio,
         relationship: candidate.splitRegion ? "split-region-capacity" : "region-capacity",
         components: candidate.demands,
@@ -1518,13 +2010,26 @@ function regionChildCapacityDemand(
   const role = regionCapacityRole(child);
   const assigned = direction === "vertical" ? item.rect.h : item.rect.w;
   const spec = childMainSpec(theme, child, direction, crossSize);
-  const needed = Math.max(spec.min, Math.min(spec.basis, spec.max));
+  const preferred = Math.max(spec.min, Math.min(spec.basis, spec.max));
+  const hardMin = Math.max(0, Math.min(preferred, spec.min));
+  const elastic = isElasticRegionCapacityChild(child, role);
+  // Region capacity is a planning diagnostic, not a second text renderer.
+  // Text-first semantic components can legitimately compress typography,
+  // padding, or optional chrome within their own renderer. For those, trust
+  // the actual assigned size once it clears the hard floor; exact text fit,
+  // overlap, and truncation diagnostics remain responsible for real failures.
+  const needed = elastic
+    ? Math.max(hardMin, Math.min(preferred, assigned))
+    : preferred;
   if (!Number.isFinite(needed) || needed <= 0.05) return undefined;
   return {
     nodeId: child.id,
     role,
     assignedHeightCm: assigned,
     neededHeightCm: needed,
+    preferredHeightCm: preferred,
+    hardMinHeightCm: hardMin,
+    capacityMode: elastic ? "elastic" : "hard",
   };
 }
 
@@ -1539,6 +2044,221 @@ function regionCapacityRole(node: DomNode): string {
   if (node.type === "stack" || node.type === "grid") return node.type;
   return node.type || "content";
 }
+
+function isElasticRegionCapacityChild(node: DomNode, role: string): boolean {
+  const className = componentElasticityClass(node, role);
+  if (className === "elastic") return true;
+  if (className === "hard" || className === "decorative") return false;
+  const children = node.children || [];
+  if (children.length === 0) return false;
+  return children.every((child) => {
+    const childRole = regionCapacityRole(child);
+    if (componentElasticityClass(child, childRole) !== "elastic") return false;
+    return isElasticRegionCapacityChild(child, childRole);
+  });
+}
+
+type ComponentElasticityClass = "elastic" | "hard" | "decorative";
+
+function componentElasticityClass(node: DomNode, role: string): ComponentElasticityClass {
+  if (DECORATIVE_REGION_ROLES.has(role) || DECORATIVE_REGION_NODE_TYPES.has(node.type)) return "decorative";
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role)) return "elastic";
+  if (HARD_REGION_ROLES.has(role) || HARD_REGION_NODE_TYPES.has(node.type)) return "hard";
+  if (node.type === "text" || node.type === "bullets" || node.type === "spacer" || node.type === "divider") return "elastic";
+  if (TEXT_FIRST_REGION_ROLES.has(role)) return "elastic";
+  const children = node.children || [];
+  if (children.some((child) => HARD_REGION_ROLES.has(regionCapacityRole(child)) || HARD_REGION_NODE_TYPES.has(child.type))) return "hard";
+  if (role && (node.type === "stack" || node.type === "grid" || node.type === "card" || node.type === "panel" || node.type === "band" || node.type === "frame" || node.type === "inset")) return "elastic";
+  return children.length > 0 && children.every((child) => componentElasticityClass(child, regionCapacityRole(child)) === "elastic")
+    ? "elastic"
+    : "hard";
+}
+
+const TEXT_FIRST_REGION_ROLES = new Set([
+  "annotation",
+  "architecture-layer",
+  "axis-ruler",
+  "axis-ruler-item",
+  "axis-ruler-row",
+  "bibliography",
+  "bar-list",
+  "badge",
+  "callout",
+  "checklist",
+  "checklist-item",
+  "comparison-card",
+  "comparison-list",
+  "comparison-table",
+  "cta",
+  "cycle-step",
+  "definition-card",
+  "eyebrow",
+  "executive-summary",
+  "explanation-block",
+  "fact-list",
+  "failure-taxonomy",
+  "feature-card",
+  "glossary",
+  "glossary-item",
+  "hero-stat",
+  "hero-stat-progress",
+  "hub",
+  "icon-text",
+  "insight-card",
+  "kanban-column",
+  "kanban-ticket",
+  "key-takeaway",
+  "kpi-grid",
+  "legend",
+  "logo-strip",
+  "main-effect-comparison",
+  "metric-card",
+  "numbered-grid",
+  "numbered-step",
+  "org-chart-person",
+  "outline",
+  "outline-item",
+  "pricing-card",
+  "profile-card",
+  "pros-cons",
+  "pros-column",
+  "cons-column",
+  "progress-bar",
+  "q-and-a",
+  "qa-answer",
+  "qa-question",
+  "quiz-card",
+  "quiz-item",
+  "region-card",
+  "roadmap-item",
+  "quote",
+  "range-plot",
+  "scorecard",
+  "scorecard-item",
+  "section-break",
+  "side-rail",
+  "source-note",
+  "stat-strip",
+  "stat-comparison",
+  "stat-flow",
+  "step-card",
+  "spoke",
+  "stakeholder-quadrant",
+  "swot-matrix",
+  "swot-quadrant",
+  "tag-list",
+  "takeaway-list",
+  "takeaway-list-items",
+  "takeaway-item",
+  "text",
+  "bullets",
+  "timeline-item-row",
+  "process-step",
+  "timeline-step",
+  "title-lockup",
+  "tree-chart-node",
+  "value-chain-stage",
+  "venn-set",
+  "warning-list",
+]);
+
+const HARD_REGION_ROLES = new Set([
+  "analytic-table",
+  "analytic-table-cell",
+  "analytic-table-grid",
+  "chart-card",
+  "chart-with-rail",
+  "chart",
+  "code-block",
+  "code-block-table",
+  "company-overview-layout",
+  "cycle-diagram",
+  "decision-tree",
+  "donut-summary",
+  "equation",
+  "evidence-layout",
+  "factorial-matrix",
+  "funnel",
+  "funnel-stage",
+  "funnel-stages",
+  "gantt-chart",
+  "hero-and-support",
+  "gauge",
+  "heatmap",
+  "hub-spoke",
+  "image-card",
+  "image-with-caption",
+  "image",
+  "kanban-board",
+  "matrix-2x2",
+  "org-chart",
+  "pyramid",
+  "probe-flow",
+  "process-flow",
+  "pyramid-levels",
+  "raci-matrix",
+  "roadmap-plan",
+  "sankey",
+  "sankey-stage",
+  "snapshot-callouts",
+  "stakeholder-map",
+  "table-card",
+  "table",
+  "timeline",
+  "tree-chart",
+  "two-column",
+  "value-chain",
+  "venn-diagram",
+]);
+
+const HARD_REGION_NODE_TYPES = new Set(["chart", "table", "image"]);
+
+const DECORATIVE_REGION_ROLES = new Set([
+  "accent-rule",
+  "analytic-table-bar-track",
+  "analytic-table-range-track",
+  "analytic-table-stack-track",
+  "arrow-link",
+  "big-page-number",
+  "bracket",
+  "brand-mark",
+  "callout-marker",
+  "corner-mark",
+  "decoration-grid",
+  "decorative-shapes",
+  "flow-arrow",
+  "gantt-bar-cell",
+  "item-marker",
+  "org-chart-connector",
+  "org-chart-person-avatar",
+  "org-chart-person-badge",
+  "org-chart-person-bg",
+  "org-chart-person-connector-port",
+  "org-chart-person-connector-stub",
+  "org-chart-person-icon",
+  "org-chart-tree",
+  "pointer-arrow",
+  "process-connector",
+  "scale-bar",
+  "sankey-link",
+  "sankey-link-column",
+  "sankey-node",
+  "timeline-axis-bar",
+  "timeline-axis-node",
+  "timeline-marker",
+  "timeline-marker-row",
+  "timeline-spine",
+  "trend-line",
+  "tree-chart-node-badge",
+  "tree-chart-node-bg",
+  "tree-chart-node-connector-port",
+  "tree-chart-node-connector-stub",
+  "tree-chart-node-icon",
+  "tree-chart-tree",
+  "watermark",
+]);
+
+const DECORATIVE_REGION_NODE_TYPES = new Set(["shape", "divider"]);
 
 function collectLargeComponentDemands(theme: SimpleTheme, measured: MeasuredNode[], slideDom: DomNode): ComponentCapacityDemand[] {
   const byId = new Map(measured.map((item) => [item.id, item]));
@@ -1628,10 +2348,9 @@ function detectEvidenceRegionBalance(slideId: string, root: MeasuredNode, node: 
   const ratio = evidenceMain / main;
   const recommended = direction === "vertical" ? 0.62 : 0.65;
   if (ratio >= recommended - 0.08) return;
-  const severe = ratio < 0.45;
   const rail = direct.find((item) => /\.rail(?:\.|$)|\.insight(?:\.|$)/.test(item.id));
   pushDiagnostic({
-    severity: severe ? "error" : "warn",
+    severity: "warn",
     code: "EVIDENCE_REGION_TOO_SMALL",
     slideId,
     nodeId: root.id,
@@ -1724,7 +2443,7 @@ function detectMetricCollectionCapacity(slideId: string, root: MeasuredNode, nod
   const metricRole = role === "kpi-grid" ? "metric-card" : "";
   const items = measured.filter((item) => item.parentId === root.id && (metricRole ? findNodeById(slideDom, item.id)?.role === metricRole : !/\.sep\d+$/.test(item.id)));
   const count = role === "kpi-grid" ? items.length : Math.max(0, items.length);
-  if (count < (role === "kpi-grid" ? 4 : 5)) return;
+  if (count < (role === "kpi-grid" ? 3 : 5)) return;
   const perMetricWidth = count > 0 ? Math.min(...items.map((item) => item.rect.w)) : 0;
   const perMetricHeight = count > 0 ? Math.min(...items.map((item) => item.rect.h)) : 0;
   const minWidth = role === "kpi-grid" ? 2.9 : 2.05;
@@ -1890,7 +2609,7 @@ function materializeAndCompactify(slideDom: DomNode, slideId: string, theme: Sim
     .flatMap((child) => child.type === "fragment" ? (child.children || []) : [child])
     .map(compactifyNode)
     .filter((c): c is DomNode => c !== null);
-  return { ...materialized, children: compactedChildren };
+  return normalizeAuthoredSemanticCohorts(theme, { ...materialized, children: compactedChildren });
 }
 
 interface LayoutResult {
@@ -2123,6 +2842,61 @@ function layoutSlide(theme: SimpleTheme, slideDom: DomNode): LayoutResult {
   return { measured, rectsById };
 }
 
+function prepareDomForMeasuredSemanticCohorts(theme: SimpleTheme, slideDom: DomNode, slideId: string): DomNode {
+  return withSuppressedRenderDiagnostics(() => {
+    const maxPasses = 6;
+    let current = slideDom;
+    const seen = new Set<string>([semanticCohortStateFingerprint(current)]);
+    for (let pass = 0; pass < maxPasses; pass++) {
+      const layout = layoutSlide(theme, cloneDomTree(current));
+      const next = normalizeMeasuredSemanticCohorts(theme, current, layout.rectsById, slideId);
+      if (next === current) return current;
+      const fingerprint = semanticCohortStateFingerprint(next);
+      if (seen.has(fingerprint)) {
+        recordDecision(slideId, slideDom.id, { notes: [`semantic-cohort:stopped-after-cycle,pass=${pass + 1}`] });
+        return next;
+      }
+      seen.add(fingerprint);
+      current = next;
+    }
+    recordDecision(slideId, slideDom.id, { notes: [`semantic-cohort:not-converged,maxPasses=${maxPasses}`] });
+    return current;
+  });
+}
+
+function cloneDomTree(node: DomNode): DomNode {
+  return {
+    ...node,
+    ...(Array.isArray(node.children) ? { children: node.children.map(cloneDomTree) } : {}),
+  };
+}
+
+function semanticCohortStateFingerprint(root: DomNode): string {
+  const parts: string[] = [];
+  const visit = (node: DomNode): void => {
+    const role = semanticCohortRole(node);
+    const slot = semanticTextSlot(node);
+    if (role || slot || node.__semanticCohortBaseFontSize !== undefined || node.__semanticCohortBasePadding !== undefined) {
+      parts.push([
+        node.id,
+        `role=${role}`,
+        `slot=${slot || ""}`,
+        `font=${numberSetting(node.fontSize)}`,
+        `minH=${numberSetting(node.minHeight)}`,
+        `pad=${numberSetting(node.padding)}`,
+        `gap=${numberSetting(node.gap)}`,
+        `weight=${numberSetting(node.layoutWeight)}`,
+        `baseFont=${numberSetting(node.__semanticCohortBaseFontSize)}`,
+        `basePad=${numberSetting(node.__semanticCohortBasePadding)}`,
+        `baseGap=${numberSetting(node.__semanticCohortBaseGap)}`,
+      ].join(";"));
+    }
+    for (const child of node.children || []) visit(child);
+  };
+  visit(root);
+  return parts.join("|");
+}
+
 /**
  * Resolve an `anchorTo` overlay's rect against its target's rect.
  * Returns null when the target id isn't found — caller skips emission.
@@ -2257,19 +3031,22 @@ function estimateInkRect(theme: SimpleTheme, node: DomNode, rect: Rect): Rect | 
     return placeInkRect(node, rect, { w: neededW, h: neededH });
   }
   if (node.type === "bullets") {
-    const neededH = bulletsIntrinsicHeight(theme, node, rect.w);
+    const style = fitBulletsStyleForReadableFit(theme, node, bulletsAuthoredStyle(theme, node), rect, { emitDiagnostics: false });
+    const neededH = bulletsIntrinsicHeight(theme, node, rect.w, style);
     return placeInkRect({ ...node, align: "left", valign: "top" }, rect, { w: rect.w, h: neededH });
   }
   if (node.type === "shape") {
+    const shapeRect = authoredShapeRect(rect, node);
     const preset = typeof node.preset === "string" ? node.preset : "";
     if (preset === "line") {
       const thickness = normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.04;
-      return rect.w >= rect.h
-        ? { x: rect.x, y: rect.y + Math.max(0, (rect.h - thickness) / 2), w: rect.w, h: Math.min(rect.h, thickness) }
-        : { x: rect.x + Math.max(0, (rect.w - thickness) / 2), y: rect.y, w: Math.min(rect.w, thickness), h: rect.h };
+      return shapeRect.w >= shapeRect.h
+        ? { x: shapeRect.x, y: shapeRect.y + Math.max(0, (shapeRect.h - thickness) / 2), w: shapeRect.w, h: Math.min(shapeRect.h, thickness) }
+        : { x: shapeRect.x + Math.max(0, (shapeRect.w - thickness) / 2), y: shapeRect.y, w: Math.min(shapeRect.w, thickness), h: shapeRect.h };
     }
-    if (preset === "ellipse") return insetRect(rect, 0.08, 0.08);
-    if (preset === "diamond" || preset === "triangle" || preset === "rightTriangle") return insetRect(rect, 0.14, 0.12);
+    if (preset === "ellipse") return insetRect(shapeRect, 0.08, 0.08);
+    if (preset === "diamond" || preset === "triangle" || preset === "rightTriangle") return insetRect(shapeRect, 0.14, 0.12);
+    return shapeRect;
   }
   if (node.type === "divider") {
     const thickness = normalizeStrokeCm(node.thickness, 0.025, { minCm: 0.01, maxCm: 0.18 }) + 0.04;
@@ -2388,12 +3165,14 @@ function directSlideTitleNode(slideDom: DomNode): DomNode | null {
   return null;
 }
 
-function protectedContentRect(theme: SimpleTheme, slideDom: DomNode): Rect {
+function protectedContentRect(theme: SimpleTheme, slideDom: DomNode, contentNode?: DomNode): Rect {
   const title = directSlideTitleNode(slideDom);
-  const minTop = title
-    ? theme.layout.titleTop + theme.layout.titleHeight + 0.25
-    : theme.layout.contentTop;
-  const y = Math.max(theme.layout.contentTop, minTop);
+  const autoNoTitleContent = contentNode && (contentNode as { __autoNoTitleContent?: unknown }).__autoNoTitleContent === true;
+  const y = title
+    ? Math.max(theme.layout.contentTop, theme.layout.titleTop + theme.layout.titleHeight + 0.25)
+    : autoNoTitleContent
+      ? Math.max(0.15, Math.min(theme.layout.contentTop, theme.layout.titleTop))
+      : theme.layout.contentTop;
   const footerChrome = theme.chrome.pageNumber || Boolean(theme.chrome.footerText);
   const footerTop = theme.layout.slideHeightCm - (theme.chrome.footerHeight + 0.2);
   const bottom = footerChrome ? Math.min(theme.layout.contentBottom, footerTop) : theme.layout.contentBottom;
@@ -2446,7 +3225,7 @@ function rectForSlideChild(theme: SimpleTheme, node: DomNode, slideDom?: DomNode
   const areaName = stringProp(node, "area", "");
   if (areaName === "content") {
     return slideDom
-      ? protectedContentRect(theme, slideDom)
+      ? protectedContentRect(theme, slideDom, node)
       : { x: theme.layout.pageMarginX, y: theme.layout.contentTop, w: theme.layout.slideWidthCm - theme.layout.pageMarginX * 2, h: theme.layout.contentBottom - theme.layout.contentTop };
   }
   if (areaName === "full" || areaName === "") return fullRect(theme);
@@ -2492,14 +3271,15 @@ function rectFromAnchor(theme: SimpleTheme, node: DomNode): Rect {
 }
 
 function renderSlide(theme: SimpleTheme, slideDom: DomNode, ids: { nextId: number }, slideId: string): ShapeList {
-  const layout = layoutSlide(theme, slideDom);
-  detectCollisionsForSlide(slideId, layout.measured, slideDom);
-  detectComponentLayoutQuality(theme, slideId, layout.measured, slideDom);
+  const measuredDom = prepareDomForMeasuredSemanticCohorts(theme, slideDom, slideId);
+  const layout = layoutSlide(theme, measuredDom);
+  detectCollisionsForSlide(slideId, layout.measured, measuredDom);
+  detectComponentLayoutQuality(theme, slideId, layout.measured, measuredDom);
   const previous = currentSlideId;
   currentSlideId = slideId;
   try {
-    const flow = flowChildren(slideDom);
-    const overlays = overlayChildren(slideDom);
+    const flow = flowChildren(measuredDom);
+    const overlays = overlayChildren(measuredDom);
     const flowShapes: ShapeList = [];
     for (const child of flow) {
       const rect = layout.rectsById.get(child.id);
@@ -2524,7 +3304,7 @@ function renderSlide(theme: SimpleTheme, slideDom: DomNode, ids: { nextId: numbe
 }
 
 function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Map<string, Rect>, ids: { nextId: number }, slideId: string): ShapeList {
-  pushSquashedDiagnostic(theme, node, rect, slideId);
+  pushNodeSquashDiagnostic(theme, node, rect, slideId);
   if (node.type === "stack") return renderStack(theme, node, rect, rectsById, ids, slideId);
   if (node.type === "grid") return renderGrid(theme, node, rect, rectsById, ids, slideId);
   if (node.type === "positioned-group") return renderPositionedGroup(theme, node, rect, rectsById, ids, slideId);
@@ -2547,13 +3327,16 @@ function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   const tinyThreshold = node.type === "divider" || node.type === "spacer" || node.type === "shape" || isDividerLikeBand ? 0.02 : 0.18;
   if (rect.h < tinyThreshold || rect.w < tinyThreshold) {
     layoutDropWarnings.add(`${slideId}/${node.id}:${rect.w.toFixed(2)}x${rect.h.toFixed(2)}`);
+    const tinySeverity = node.type === "text" && textStyleKey(node) === "slide-title" ? "warn" : "error";
     pushDiagnostic({
-      severity: "error",
+      severity: tinySeverity,
       code: "TINY_RECT",
       slideId,
       nodeId: node.id,
       message: `Node assigned an unrenderable rect ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm; rendering skipped.`,
-      suggestion: "Reduce sibling fixed sizes, drop optional siblings, or split this slide.",
+      suggestion: tinySeverity === "warn"
+        ? "Slide-level title chrome is too small; keep the content title inside the primary component or increase theme.layout.titleHeight if a page title must render."
+        : "Reduce sibling fixed sizes, drop optional siblings, or split this slide.",
       measured: { rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h } },
     });
     recordDecision(slideId, node.id, { applied: "drop", notes: [`tiny rect ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}`] });
@@ -2564,7 +3347,7 @@ function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
   if (node.type === "bullets") return [bulletsShape(theme, node, rect, ids)];
   if (node.type === "image") return captionedShapes(theme, node, rect, ids, (bodyRect) => imageShape(theme, node, bodyRect, ids));
   if (node.type === "table") return captionedShapes(theme, node, rect, ids, (bodyRect) => [tableShape(theme, node, bodyRect, ids, rectsById)]);
-  if (node.type === "chart") return captionedShapes(theme, node, rect, ids, (bodyRect) => [chartShape(theme, node, bodyRect, ids, rectsById)]);
+  if (node.type === "chart") return captionedShapes(theme, node, rect, ids, (bodyRect) => chartShapes(theme, node, bodyRect, ids, rectsById));
   if (node.type === "shape") return [presetShape(theme, node, rect, ids)];
   if (node.type === "panel") return renderPanel(theme, node, rect, rectsById, ids, slideId);
   if (node.type === "card") return renderCard(theme, node, rect, rectsById, ids, slideId);
@@ -2576,8 +3359,60 @@ function renderNode(theme: SimpleTheme, node: DomNode, rect: Rect, rectsById: Ma
 
 const squashedWarnings = new Set<string>();
 const SQUASHED_HEIGHT_TOLERANCE_CM = 0.04;
+const MILD_TEXT_SQUASH_DELTA_CM = 0.16;
+const VERY_MILD_TEXT_SQUASH_DELTA_CM = 0.06;
+const MIN_READABLE_TEXT_BOX_HEIGHT_CM = 0.6;
+const MIN_READABLE_SHORT_TEXT_BOX_HEIGHT_CM = 0.38;
 
-function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, slideId: string): void {
+type SquashedDiagnosticSubject = "node" | "chart" | "table";
+type SquashedSeverityContext =
+  | { kind: "node"; node: DomNode; rect: Rect; minHeight: number }
+  | { kind: "chart"; role: string | undefined; hardTooSmall: boolean; mildHardTooSmall: boolean; tooFlat: boolean; mildFlatness: boolean };
+
+interface SquashedDiagnosticInput {
+  subject: SquashedDiagnosticSubject;
+  slideId?: string;
+  nodeId?: string;
+  severityContext?: SquashedSeverityContext;
+  severity?: LayoutDiagnostic["severity"];
+  rect?: Rect;
+  message: string | ((severity: LayoutDiagnostic["severity"]) => string);
+  suggestion: string | ((severity: LayoutDiagnostic["severity"]) => string);
+  measured?: LayoutDiagnostic["measured"];
+}
+
+function pushSquashedDiagnostic(input: SquashedDiagnosticInput): void {
+  pushDiagnostic(createSquashedDiagnostic(input));
+}
+
+function createSquashedDiagnostic(input: SquashedDiagnosticInput): LayoutDiagnostic {
+  const severity = input.severity || squashedSeverity(input.severityContext);
+  return {
+    severity,
+    code: "SQUASHED",
+    slideId: input.slideId,
+    nodeId: input.nodeId,
+    message: typeof input.message === "function" ? input.message(severity) : input.message,
+    suggestion: typeof input.suggestion === "function" ? input.suggestion(severity) : input.suggestion,
+    measured: {
+      ...(input.rect ? { rect: { x: input.rect.x, y: input.rect.y, w: input.rect.w, h: input.rect.h } } : {}),
+      ...(input.measured || {}),
+    },
+  };
+}
+
+function squashedSeverity(context: SquashedSeverityContext | undefined): LayoutDiagnostic["severity"] {
+  if (!context) return "error";
+  if (context.kind === "chart") {
+    return context.role === "chart-card" && ((context.hardTooSmall && !context.mildHardTooSmall) || (context.tooFlat && !context.mildFlatness))
+      ? "error"
+      : "warn";
+  }
+  if (context.node.type === "text" && textStyleKey(context.node) === "slide-title") return "warn";
+  return mildTextSquash(context.node, context.rect, context.minHeight) ? "warn" : "error";
+}
+
+function pushNodeSquashDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, slideId: string): void {
   if (node.optional === true) return;
   if (node.type === "spacer" || node.type === "divider" || node.type === "shape") return;
   if (node.role === "timeline-spine") return;
@@ -2600,24 +3435,93 @@ function pushSquashedDiagnostic(theme: SimpleTheme, node: DomNode, rect: Rect, s
     const visibleInkHeight = textVisibleInkHeight(theme, node, rect.w, style);
     if (visibleInkHeight <= rect.h + 0.04) return;
   }
-  const minHeight = node.type === "text" ? textSquashMinHeight(theme, node, rect) : node.type === "bullets" ? 1.0 : 0.5;
+  const minHeight = node.type === "text" ? textSquashMinHeight(theme, node, rect) : node.type === "bullets" ? bulletsSquashMinHeight(theme, node, rect) : 0.5;
   const shortContent = (node.type === "text" || node.type === "bullets") && rect.h + SQUASHED_HEIGHT_TOLERANCE_CM < minHeight;
   const narrowContent = node.type === "bullets" && rect.w < 1.4;
   if (!shortContent && !narrowContent) return;
+  const severityContext: SquashedSeverityContext = { kind: "node", node, rect, minHeight };
+  const severity = squashedSeverity(severityContext);
+  if (severity !== "error") return;
   squashedWarnings.add(key);
-  pushDiagnostic({
-    severity: "error",
-    code: "SQUASHED",
+  pushSquashedDiagnostic({
+    subject: "node",
     slideId,
     nodeId: node.id,
+    severity,
+    rect,
     message: `Node '${node.id}' was assigned a compressed rect ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm; it may technically render but is not visually usable.`,
     suggestion: capacitySuggestion(node, "Re-author the slide while preserving the current component's semantics: increase its region, adjust split/grid ratio, reduce sibling content, lower columns, or move supporting content to another slide. Do not rely on squeezed cards or tiny labels."),
     measured: {
-      rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
       minHeightCm: minHeight,
       ...(node.type === "bullets" ? { minWidthCm: 1.4 } : {}),
     },
   });
+}
+
+function mildTextSquash(node: DomNode, rect: Rect, minHeight: number): boolean {
+  if (node.type !== "text") return false;
+  const delta = minHeight - rect.h;
+  if (delta <= 0) return true;
+  if (isTextFirstRole(nearestSemanticRole(node)) && node.autoFit === "shrink" && rect.h >= 0.30 && delta <= Math.max(0.22, rect.h * 0.45)) return true;
+  if (textStyleKey(node) === "metric-value" && node.autoFit === "shrink" && metricValueRemainsReadable(node, rect, delta)) return true;
+  if (isHeadingTextStyle(textStyleKey(node)) && rect.h >= 0.34 && delta <= 0.22) return true;
+  if (rect.h >= 0.50 && delta <= 0.18) return true;
+  if (rect.w >= 4 && rect.h >= 0.52 && delta <= 0.30) return true;
+  if (rect.h >= MIN_READABLE_TEXT_BOX_HEIGHT_CM && delta <= MILD_TEXT_SQUASH_DELTA_CM) return true;
+  return rect.h >= MIN_READABLE_SHORT_TEXT_BOX_HEIGHT_CM && delta <= VERY_MILD_TEXT_SQUASH_DELTA_CM;
+}
+
+function metricValueRemainsReadable(node: DomNode, rect: Rect, delta: number): boolean {
+  const rawText = renderedTextContent(node).trim();
+  // KPI/stat-strip numerals are display text, not paragraph body. The real
+  // failure modes are unreadably tiny glyphs, truncation, or overlap; a
+  // conservative line-box target alone should not block a slide when the
+  // assigned box still visibly contains the number.
+  const compactNumeric = /^[+\-−]?(?:\d[\d,.\s]*|\d[\d,.\s]*%|[<>≈~]?\d[\d,.\s]*[KMBTkmbt%]?)(?:\s*[a-zA-Z%]+)?$/.test(rawText);
+  const shortDisplay = compactNumeric || rawText.length <= 6;
+  if (!shortDisplay) return false;
+  if (rect.h < 0.72 || rect.w < 1.05) return false;
+  return delta <= Math.max(0.36, rect.h * 0.34);
+}
+
+type FitDiagnosticKind = "container" | "text" | "bullets" | "table";
+
+interface FitDiagnosticInput {
+  kind: FitDiagnosticKind;
+  severity?: LayoutDiagnostic["severity"];
+  code?: LayoutDiagnostic["code"];
+  slideId?: string;
+  nodeId?: string;
+  message: string;
+  suggestion: string;
+  measured?: LayoutDiagnostic["measured"];
+  constrainedBy?: LayoutDiagnostic["constrainedBy"];
+}
+
+function pushFitDiagnostic(input: FitDiagnosticInput): void {
+  pushDiagnostic(createFitDiagnostic(input));
+}
+
+function createFitDiagnostic(input: FitDiagnosticInput): LayoutDiagnostic {
+  const severity = input.severity || "error";
+  return {
+    severity,
+    code: input.code || (severity === "error" ? "FALLBACK_FAILED" : "OVERFLOW"),
+    slideId: input.slideId,
+    nodeId: input.nodeId,
+    message: input.message,
+    suggestion: input.suggestion,
+    measured: input.measured,
+    ...(input.constrainedBy ? { constrainedBy: input.constrainedBy } : {}),
+  };
+}
+
+function isHeadingTextStyle(styleKey: string): boolean {
+  return styleKey === "section-title" || styleKey === "card-title" || styleKey === "h1" || styleKey === "h2";
+}
+
+function isTextFirstRole(role: string | undefined): boolean {
+  return typeof role === "string" && TEXT_FIRST_REGION_ROLES.has(role);
 }
 
 function nearestSemanticRole(node?: DomNode): string | undefined {
@@ -2674,6 +3578,10 @@ function textSquashMinHeight(theme: SimpleTheme, node: DomNode, rect?: Rect): nu
   const style = rect ? measuredTextStyleForInk(theme, node, rect, baseStyle) : baseStyle;
   const metrics = textLineMetrics(theme, style, undefined, renderedTextContent(node));
   return Math.max(0.32, metrics.naturalHeightCm * 0.85 + textInkVerticalReserveCm(theme, node, style));
+}
+
+function bulletsSquashMinHeight(theme: SimpleTheme, node: DomNode, rect: Rect): number {
+  return Math.max(0.36, Math.min(1.0, bulletsIntrinsicHeight(theme, node, rect.w)));
 }
 
 /** Decorative wrapper renderers. Each paints chrome and delegates layout to its
@@ -3247,44 +4155,65 @@ function assembleLayeredContainer(
   slideId: string,
   layoutFn: (theme: SimpleTheme, node: DomNode, rect: Rect) => Array<{ node: DomNode; rect: Rect }>,
 ): ShapeList {
-  const inner = contentRect(theme, node, rect);
-  const placements = layoutFn(theme, node, inner);
-  // If the parent container declares a cornerRadius (panel/card-like
-  // round shape) and a layered image child has no explicit clip, inherit
-  // the radius so the image fits the container's rounded corners. This
-  // is the lightweight clipping case — full container clipping for all
-  // child types is harder in OOXML and out of scope here.
-  const parentCornerRadius = optionalCornerRadiusProp(node);
-  const behind: ShapeList = [];
-  const flow: ShapeList = [];
-  const above: ShapeList = [];
-  for (const { node: child, rect: childRect } of placements) {
-    const isLayeredImage = child.type === "image" && (child.layer === "behind" || child.layer === "above");
-    const shouldInheritClip = isLayeredImage
-      && typeof parentCornerRadius === "number" && parentCornerRadius > 0
-      && child.clip === undefined;
-    if (shouldInheritClip) {
-      // Mutate a shallow clone — don't touch the source DOM.
-      const clipped: DomNode = { ...child, clip: "rounded", cornerRadius: parentCornerRadius };
-      rectsById.set(clipped.id, childRect);
-      const shapes = renderNode(theme, clipped, childRect, rectsById, ids, slideId);
-      const layer = clipped.layer === "behind" ? "behind" : "above";
-      if (layer === "behind") behind.push(...shapes); else above.push(...shapes);
-      continue;
+  return withAncestor(node, () => {
+    const inner = contentRect(theme, node, rect);
+    const placements = shouldReuseMeasuredContainerPlacements(node)
+      ? measuredContainerPlacements(node, rectsById) ?? layoutFn(theme, node, inner)
+      : layoutFn(theme, node, inner);
+    // If the parent container declares a cornerRadius (panel/card-like
+    // round shape) and a layered image child has no explicit clip, inherit
+    // the radius so the image fits the container's rounded corners. This
+    // is the lightweight clipping case — full container clipping for all
+    // child types is harder in OOXML and out of scope here.
+    const parentCornerRadius = optionalCornerRadiusProp(node);
+    const behind: ShapeList = [];
+    const flow: ShapeList = [];
+    const above: ShapeList = [];
+    for (const { node: child, rect: childRect } of placements) {
+      const isLayeredImage = child.type === "image" && (child.layer === "behind" || child.layer === "above");
+      const shouldInheritClip = isLayeredImage
+        && typeof parentCornerRadius === "number" && parentCornerRadius > 0
+        && child.clip === undefined;
+      if (shouldInheritClip) {
+        // Mutate a shallow clone — don't touch the source DOM.
+        const clipped: DomNode = { ...child, clip: "rounded", cornerRadius: parentCornerRadius };
+        rectsById.set(clipped.id, childRect);
+        const shapes = renderNode(theme, clipped, childRect, rectsById, ids, slideId);
+        const layer = clipped.layer === "behind" ? "behind" : "above";
+        if (layer === "behind") behind.push(...shapes); else above.push(...shapes);
+        continue;
+      }
+      rectsById.set(child.id, childRect);
+      const shapes = renderNode(theme, child, childRect, rectsById, ids, slideId);
+      const layer = child.layer === "behind" ? "behind" : child.layer === "above" ? "above" : "flow";
+      if (layer === "behind") behind.push(...shapes);
+      else if (layer === "above") above.push(...shapes);
+      else flow.push(...shapes);
     }
-    rectsById.set(child.id, childRect);
-    const shapes = renderNode(theme, child, childRect, rectsById, ids, slideId);
-    const layer = child.layer === "behind" ? "behind" : child.layer === "above" ? "above" : "flow";
-    if (layer === "behind") behind.push(...shapes);
-    else if (layer === "above") above.push(...shapes);
-    else flow.push(...shapes);
+    return [
+      ...containerBackgroundShape(theme, node, rect, ids),
+      ...behind,
+      ...flow,
+      ...above,
+    ];
+  });
+}
+
+function measuredContainerPlacements(node: DomNode, rectsById: Map<string, Rect>): Array<{ node: DomNode; rect: Rect }> | undefined {
+  const children = node.children || [];
+  if (children.length === 0) return [];
+  const placements: Array<{ node: DomNode; rect: Rect }> = [];
+  for (const child of children) {
+    const rect = rectsById.get(child.id);
+    if (!rect || !isFiniteRect(rect)) return undefined;
+    placements.push({ node: child, rect });
   }
-  return [
-    ...containerBackgroundShape(theme, node, rect, ids),
-    ...behind,
-    ...flow,
-    ...above,
-  ];
+  return placements;
+}
+
+function shouldReuseMeasuredContainerPlacements(node: DomNode): boolean {
+  if (node.type === "grid") return false;
+  return usesSemanticRegionBudget(node, node.direction === "horizontal" ? "horizontal" : "vertical");
 }
 
 function renderChrome(theme: SimpleTheme, deck: RenderedDeck, slideIndex: number, ids: { nextId: number }, slideBgHex?: string): ShapeList {
@@ -3375,10 +4304,17 @@ function textShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId:
   // because shrinking body text usually means the layout is wrong, not the
   // text being too long.
   const effectiveAutoFit = node.autoFit ?? defaultAutoFitForStyle(kind);
-  const style = effectiveAutoFit === "shrink" ? autoShrinkStyle(theme, node, baseStyle, rect, kind) : baseStyle;
+  const fittedStyle = effectiveAutoFit === "shrink"
+    ? autoShrinkStyle(theme, node, baseStyle, rect, kind)
+    : shouldPreShrinkTextForReadableFit(node, kind)
+      ? autoShrinkStyle(theme, node, baseStyle, rect, kind, { warnOnAnyShrink: true, diagnosticReason: "pre-shrunk" })
+      : baseStyle;
+  const style = shouldAutoGrowText(node, kind)
+    ? autoGrowStyleForReadableFill(theme, node, fittedStyle, rect, kind)
+    : fittedStyle;
   const paragraphs = buildParagraphs(theme, node, style);
   const autoFit = effectiveAutoFit === "shrink" || effectiveAutoFit === "resize" ? effectiveAutoFit : undefined;
-  if (!autoFit) pushTextFitDiagnostics(theme, node, rect, baseStyle);
+  if (!autoFit) pushTextFitDiagnostics(theme, node, rect, style);
   const fillToken = typeof node.fill === "string" ? node.fill : undefined;
   const lineToken = surfaceLineTokenForNode(node);
   const lineWidth = surfaceLineWidth(node, 0.02);
@@ -3404,6 +4340,63 @@ function textShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId:
   };
 }
 
+function shouldPreShrinkTextForReadableFit(node: DomNode, styleKey: string): boolean {
+  if (node.autoFit === "none" || node.autoFit === false) return false;
+  if (styleKey === "code") return false;
+  if (node.role === "item-marker") return false;
+  return styleKey === "paragraph"
+    || styleKey === "article"
+    || styleKey === "lead"
+    || styleKey === "caption"
+    || styleKey === "figure-caption"
+    || styleKey === "footnote";
+}
+
+function shouldAutoGrowText(node: DomNode, styleKey: string): boolean {
+  if (node.autoGrow !== true && node.autoFit !== "grow" && node.autoFit !== "grow-shrink") return false;
+  if (node.autoFit === "none" || node.autoFit === false) return false;
+  if (styleKey === "code") return false;
+  if (node.role === "item-marker") return false;
+  return true;
+}
+
+function autoGrowStyleForReadableFill(
+  theme: SimpleTheme,
+  node: DomNode,
+  style: ReturnType<typeof textStyle>,
+  rect: Rect,
+  styleKey: string,
+): ReturnType<typeof textStyle> {
+  const maxScale = optionalNumberProp(node, "maxFontScale") ?? (styleKey === "quote" ? 1.45 : 1.18);
+  const maxFontSize = optionalNumberProp(node, "maxFontSize");
+  const hardMaxPt = Math.min(
+    maxFontSize ?? style.fontSize * maxScale,
+    style.fontSize * Math.max(1, maxScale),
+  );
+  if (!Number.isFinite(hardMaxPt) || hardMaxPt <= style.fontSize + 0.25) return style;
+  const current = measureTextFitAtFont(theme, node, style, rect, styleKey, style.fontSize);
+  if (!current.fits) return style;
+  if (current.heightAvailable <= 0 || current.heightNeeded > current.heightAvailable * 0.82) return style;
+  let lo = style.fontSize;
+  let hi = hardMaxPt;
+  let fitted = style.fontSize;
+  for (let iter = 0; iter < 12; iter++) {
+    const mid = (lo + hi) / 2;
+    const evidence = measureTextFitAtFont(theme, node, style, rect, styleKey, mid);
+    if (evidence.fits) {
+      fitted = mid;
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  const rounded = Math.round(fitted * 2) / 2;
+  const roundedFits = measureTextFitAtFont(theme, node, style, rect, styleKey, rounded).fits;
+  fitted = roundedFits ? rounded : Math.floor(fitted * 2) / 2;
+  if (fitted <= style.fontSize + 0.25) return style;
+  return { ...style, fontSize: fitted };
+}
+
 function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<typeof textStyle>): Paragraph[] {
   if (Array.isArray(node.paragraphs) && node.paragraphs.length > 0) {
     return node.paragraphs.map((rawPara) => {
@@ -3424,9 +4417,10 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
                 return parsed.runs.map((r) => richRunToTextRun(theme, r, styleColor, isStyleBold(paraStyle.weight)));
               }
             }
-            const face = pickRunFontFace(theme, text, paraStyle);
+            const runText = normalizeTextForPpt(text);
+            const face = pickRunFontFace(theme, runText, paraStyle);
             return [{
-              text,
+              text: runText,
               sizeHalfPt: paraStyle.fontSize * 2,
               bold: isStyleBold(paraStyle.weight),
               italic: paraStyle.italic === true,
@@ -3440,7 +4434,7 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
             }];
           })();
       const para: Paragraph = {
-        runs,
+        runs: protectTextRunsForCjkLineBreaks(runs),
         align: paragraphAlign(rec.align ?? node.align),
       };
       if (typeof rec.indentLevel === "number" && rec.indentLevel > 0) para.indentLevel = rec.indentLevel;
@@ -3454,7 +4448,7 @@ function buildParagraphs(theme: SimpleTheme, node: DomNode, style: ReturnType<ty
   const runs = textRuns(theme, node, style);
   const para: Paragraph = {
     align: paragraphAlign(node.align),
-    runs,
+    runs: protectTextRunsForCjkLineBreaks(runs),
   };
   if (typeof node.indentLevel === "number" && node.indentLevel > 0) para.indentLevel = node.indentLevel;
   para.lineSpacingHalfPt = lineSpacingHalfPtForValue(node.lineSpacing, style) ?? lineSpacingHalfPtForStyle(style);
@@ -3474,7 +4468,10 @@ function lineSpacingHalfPtForValue(rawLineSpacing: unknown, style: ReturnType<ty
   // line spacing for backwards compatibility with earlier SlideML decks.
   const pointValue = rawLineSpacing <= 3 ? style.fontSize * rawLineSpacing : rawLineSpacing;
   const requestedHalfPt = pointValue * 2;
-  const naturalHalfPt = lineSpacingHalfPtForStyle(style);
+  // Explicit node/paragraph lineSpacing should override the theme's default
+  // lineHeight. Clamp only to the font's natural one-em box so agents can
+  // intentionally tighten editorial prose from a loose theme default.
+  const naturalHalfPt = style.fontSize * 2;
   return naturalHalfPt === undefined ? requestedHalfPt : Math.max(naturalHalfPt, requestedHalfPt);
 }
 
@@ -3565,10 +4562,8 @@ const BULLET_MARKER_GLYPHS: Record<string, string> = {
 
 function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }): ShapeList[number] {
   const rawItems = Array.isArray(node.items) ? node.items : [];
-  // Use the bullet style and apply node's size dial.
-  const baseStyle = textStyle(theme, node.density === "compact" ? "bullet-compact" : "bullet", "paragraph");
-  const mult = sizeMultiplier(theme, node.size);
-  const style = mult === 1 ? baseStyle : { ...baseStyle, fontSize: baseStyle.fontSize * mult };
+  const authoredStyle = bulletsAuthoredStyle(theme, node);
+  const style = fitBulletsStyleForReadableFit(theme, node, authoredStyle, rect);
   const title = typeof node.title === "string" && node.title.trim() ? node.title.trim() : "";
   const numbered = node.numbered === true;
   const defaultIndent = typeof node.indentLevel === "number" ? node.indentLevel : 0;
@@ -3602,7 +4597,7 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
     if (indent > 0) para.indentLevel = indent;
     return para;
   });
-  pushBulletsFitDiagnostics(theme, node, rect);
+  pushBulletsFitDiagnostics(theme, node, rect, style);
   return {
     type: "text",
     id: ids.nextId++,
@@ -3618,6 +4613,17 @@ function bulletsShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { next
     ],
     margin: { l: cm(0.2), r: cm(0.1), t: cm(0.08), b: cm(0.08) },
   };
+}
+
+function bulletsAuthoredStyle(theme: SimpleTheme, node: DomNode): ReturnType<typeof textStyle> {
+  // Use the bullet style and apply node's size dial.
+  const baseStyle = textStyle(theme, node.density === "compact" ? "bullet-compact" : "bullet", "paragraph");
+  const mult = sizeMultiplier(theme, node.size);
+  const out = mult === 1 ? { ...baseStyle } : { ...baseStyle, fontSize: baseStyle.fontSize * mult };
+  if (typeof node.fontSize === "number" && Number.isFinite(node.fontSize) && node.fontSize > 0) out.fontSize = node.fontSize;
+  if (typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0) out.fontSize = Math.max(5.5, out.fontSize * node.fontScale);
+  if (typeof node.lineHeight === "number" && Number.isFinite(node.lineHeight) && node.lineHeight > 0) out.lineHeight = node.lineHeight;
+  return out;
 }
 
 function bulletHangingIndent(node: DomNode): { marginLeft: number; hanging: number } {
@@ -3673,7 +4679,7 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
   const lineToken = isSurfaceLineDisabled(rawLineToken) ? undefined : surfaceLineToken(rawLineToken) ?? marker?.line;
   const fillAlpha = alphaProp(node.fillOpacity ?? fillRecord?.opacity ?? fillRecord?.alpha ?? node.opacity ?? marker?.fillOpacity);
   const lineAlpha = alphaProp(node.lineOpacity ?? lineRecord?.opacity ?? lineRecord?.alpha ?? node.opacity ?? marker?.lineOpacity);
-  const shapeRect = marker ? markerRect(rect, marker, node) : rect;
+  const shapeRect = marker ? markerRect(rect, marker, node) : authoredShapeRect(rect, node);
   const shapeNode = marker && typeof node.rotation !== "number" && typeof marker.rotation === "number"
     ? { ...node, rotation: marker.rotation }
     : node;
@@ -3691,12 +4697,13 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
     ...(connection ? { connection } : {}),
     ...(typeof node.cornerRadius === "number" ? { cornerRadius: normalizeCornerRadius(node.cornerRadius) } : marker?.cornerRadius !== undefined ? { cornerRadius: marker.cornerRadius } : {}),
   };
-  if (hasTextContent(node)) {
+  const textSourceNode = shapeTextSourceNode(node);
+  if (hasTextContent(textSourceNode)) {
     const shapeTextNode: DomNode = {
-      ...node,
-      style: typeof node.style === "string" && node.style.trim() ? node.style : "label",
-      align: node.align ?? "center",
-      autoFit: node.autoFit ?? "shrink",
+      ...textSourceNode,
+      style: typeof textSourceNode.style === "string" && textSourceNode.style.trim() ? textSourceNode.style : "label",
+      align: textSourceNode.align ?? "center",
+      autoFit: textSourceNode.autoFit ?? "shrink",
     };
     const styleKey = textStyleKey(shapeTextNode);
     const baseStyle = effectiveTextStyle(theme, shapeTextNode, "label");
@@ -3715,6 +4722,38 @@ function presetShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextI
   const shadow = surfaceShadow(theme, node);
   if (shadow) shape.shadow = shadow;
   return shape;
+}
+
+function shapeTextSourceNode(node: DomNode): DomNode {
+  const textObject = shapeTextObjectSourceNode(node);
+  if (textObject) return textObject;
+  if (hasDirectTextContent(node)) return node;
+  const paragraphs = shapeTextParagraphsFromChildren(node);
+  return paragraphs.length ? { ...node, paragraphs, children: undefined } : node;
+}
+
+function shapeTextObjectSourceNode(node: DomNode): DomNode | null {
+  if (!node.text || typeof node.text !== "object" || Array.isArray(node.text)) return null;
+  const rec = node.text as Record<string, unknown>;
+  const text = typeof rec.text === "string"
+    ? rec.text
+    : typeof rec.content === "string"
+      ? rec.content
+      : "";
+  const content = Array.isArray(rec.content)
+    ? rec.content
+    : Array.isArray(rec.runs)
+      ? rec.runs
+      : undefined;
+  const paragraphs = Array.isArray(rec.paragraphs) ? rec.paragraphs : undefined;
+  if (!text && !content && !paragraphs) return null;
+  return {
+    ...node,
+    ...rec,
+    ...(text ? { text } : { text: undefined }),
+    ...(content ? { content } : {}),
+    ...(paragraphs ? { paragraphs } : {}),
+  } as DomNode;
 }
 
 function connectorConnectionSpec(node: DomNode): Extract<ShapeList[number], { type: "shape" }>["connection"] | undefined {
@@ -3754,11 +4793,42 @@ function firstNumberProp(node: DomNode, ...keys: string[]): number | undefined {
 }
 
 function hasTextContent(node: DomNode): boolean {
+  if (hasDirectTextContent(node)) return true;
+  return shapeTextParagraphsFromChildren(node).length > 0;
+}
+
+function hasDirectTextContent(node: DomNode): boolean {
   if (typeof node.text === "string" && node.text.length > 0) return true;
+  if (shapeTextObjectSourceNode(node)) return true;
   if (typeof node.content === "string" && node.content.length > 0) return true;
   if (Array.isArray(node.content) && node.content.length > 0) return true;
   if (Array.isArray(node.paragraphs) && node.paragraphs.length > 0) return true;
   return false;
+}
+
+function shapeTextParagraphsFromChildren(node: DomNode): Array<Record<string, unknown>> {
+  if (!Array.isArray(node.children)) return [];
+  return node.children.flatMap((child) => {
+    if (!child || typeof child !== "object" || Array.isArray(child) || child.type !== "text") return [];
+    const text = typeof child.text === "string"
+      ? child.text
+      : typeof child.content === "string"
+        ? child.content
+        : "";
+    const runs = Array.isArray(child.content)
+      ? child.content
+      : Array.isArray(child.runs)
+        ? child.runs
+        : undefined;
+    if (!text && !runs) return [];
+    return [{
+      ...(text ? { text } : {}),
+      ...(runs ? { runs } : {}),
+      ...(typeof child.style === "string" ? { style: child.style } : {}),
+      ...(typeof child.align === "string" ? { align: child.align } : {}),
+      ...(typeof child.color === "string" ? { color: child.color } : {}),
+    }];
+  });
 }
 
 type MarkerVisualSpec = {
@@ -3891,6 +4961,19 @@ function markerToneTokens(theme: SimpleTheme, toneValue: unknown): { fill: strin
   return { fill: tone.fill || "brand.tint", accent: tone.accent || tone.line || "brand.primary" };
 }
 
+function authoredShapeRect(rect: Rect, node: DomNode): Rect {
+  const requestedW = optionalNumberProp(node, "fixedWidth");
+  const requestedH = optionalNumberProp(node, "fixedHeight");
+  if (requestedW === undefined && requestedH === undefined) return rect;
+  const w = requestedW === undefined ? rect.w : Math.min(rect.w, Math.max(0.02, requestedW));
+  const h = requestedH === undefined ? rect.h : Math.min(rect.h, Math.max(0.02, requestedH));
+  const align = node.align === "left" || node.align === "start" ? "start" : node.align === "right" || node.align === "end" ? "end" : "center";
+  const valign = node.valign === "top" || node.valign === "start" ? "start" : node.valign === "bottom" || node.valign === "end" ? "end" : "center";
+  const x = align === "start" ? rect.x : align === "end" ? rect.x + rect.w - w : rect.x + (rect.w - w) / 2;
+  const y = valign === "start" ? rect.y : valign === "end" ? rect.y + rect.h - h : rect.y + (rect.h - h) / 2;
+  return { x, y, w, h };
+}
+
 function markerRect(rect: Rect, marker: MarkerVisualSpec, node: DomNode): Rect {
   const w = Math.min(marker.w, rect.w);
   const h = Math.min(marker.h, rect.h);
@@ -3940,11 +5023,12 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   const colCount = Math.max(1, ...allRows.map((row) => row.length));
   const rowCount = Math.max(1, allRows.length);
   const cellAlign = node.align === "center" || node.align === "right" || node.align === "left" ? node.align : "left";
-  const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0;
+  const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0 || tableFirstRowLooksHeader(rawRows);
   const widthsInput = Array.isArray(node.colWidths) ? node.colWidths : (widthsFromColumns && widthsFromColumns.some((w) => w > 0) ? widthsFromColumns : undefined);
-  const colWidths = resolveTableColWidths(widthsInput, colCount, rect.w);
   const density = tableDensity(node.density);
-  const fontScale = typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0 ? node.fontScale : 1;
+  const colWidths = resolveTableColWidths(widthsInput, colCount, rect.w, { theme, rows: allRows, firstRowHeader, density });
+  const authoredFontScale = typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0 ? node.fontScale : 1;
+  const fontScale = effectiveTableFontScale(theme, node, rect, allRows, colWidths, firstRowHeader, density, authoredFontScale);
   const rowHeightsCm = resolveTableRowHeights(node.rowHeights, rowCount, rect.h, {
     theme,
     rows: allRows,
@@ -3960,7 +5044,7 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     fontScale,
   });
   pushEmptyTableDataDiagnostic(node, rect, sourceRows, rawRows, firstRowHeader);
-  pushTableFitDiagnostics(theme, node, rect, allRows, colWidths, rowHeightsCm, firstRowHeader, semanticOuterRectForBody(node.id, "table", rectsById));
+  pushTableFitDiagnostics(theme, node, rect, allRows, colWidths, rowHeightsCm, firstRowHeader, semanticOuterRectForBody(node.id, "table", rectsById), fontScale);
   const tablePadding = tablePaddingSpec(node.cellPadding ?? node.padding);
   const tableBorders = tableBorderSpec(theme, node.borders ?? node.border) ?? tableBorderSpec(theme, node.line) ?? tableBorderSpec(theme, node.borderColor);
   const tableBorderDash = dashValue(node.borderDash) ?? dashValue(node.lineDash);
@@ -4080,7 +5164,7 @@ function tableRowsFromNode(rowsValue: unknown, columnDefs: TableColumnDef[] | nu
     if (row && typeof row === "object" && Array.isArray((row as { cells?: unknown }).cells)) return (row as { cells: unknown[] }).cells;
     if (row && typeof row === "object" && columnDefs?.length) {
       const rec = row as Record<string, unknown>;
-      const mapped = columnDefs.map((column) => tableObjectCell(rec, column));
+      const mapped = columnDefs.map((column) => tableObjectCellWithOverrides(rec, column));
       if (mapped.some((item) => item.matched)) return mapped.map((item) => item.value);
       const ordered = tableOrderedObjectKeys(rec).map((key) => rec[key]);
       if (ordered.length >= columnDefs.length) return ordered.slice(0, columnDefs.length);
@@ -4088,6 +5172,54 @@ function tableRowsFromNode(rowsValue: unknown, columnDefs: TableColumnDef[] | nu
     }
     return [];
   }) : [];
+}
+
+function tableFirstRowLooksHeader(rows: unknown[][]): boolean {
+  if (rows.length < 2) return false;
+  const first = rows[0] || [];
+  if (first.length === 0) return false;
+  const nonEmpty = first.filter((cell) => tableCellText(cell).trim()).length;
+  if (nonEmpty < Math.max(1, first.length - 1)) return false;
+  return first.some((cell) => {
+    const rec = cell && typeof cell === "object" && !Array.isArray(cell) ? cell as Record<string, unknown> : {};
+    return rec.bold === true
+      || typeof rec.fill === "string"
+      || typeof rec.color === "string"
+      || rec.align === "center";
+  });
+}
+
+function tableObjectCellWithOverrides(row: Record<string, unknown>, column: TableColumnDef): { matched: boolean; value: unknown } {
+  const base = tableObjectCell(row, column);
+  const cells = row.cells && typeof row.cells === "object" && !Array.isArray(row.cells)
+    ? row.cells as Record<string, unknown>
+    : undefined;
+  if (!cells) return base;
+  const override = tableObjectCell(cells, column);
+  if (!override.matched) return base;
+  return {
+    matched: true,
+    value: mergeTableCellOverride(base.value, override.value),
+  };
+}
+
+function mergeTableCellOverride(base: unknown, override: unknown): unknown {
+  if (!override || typeof override !== "object" || Array.isArray(override)) return override;
+  const out = {
+    ...(base && typeof base === "object" && !Array.isArray(base) ? base as Record<string, unknown> : {}),
+    ...(override as Record<string, unknown>),
+  };
+  if (!tableCellHasAuthoredText(out) && base !== undefined && base !== null) out.text = tableCellText(base);
+  return out;
+}
+
+function tableCellHasAuthoredText(cell: Record<string, unknown>): boolean {
+  return typeof cell.text === "string"
+    || typeof cell.value === "string"
+    || typeof cell.value === "number"
+    || typeof cell.label === "string"
+    || typeof cell.title === "string"
+    || Array.isArray(cell.runs);
 }
 
 function tableObjectCell(row: Record<string, unknown>, column: TableColumnDef): { matched: boolean; value: unknown } {
@@ -4135,7 +5267,7 @@ function tableOrderedObjectKeys(row: Record<string, unknown>): string[] {
   return Object.keys(row).filter((key) => !TABLE_ROW_METADATA_KEYS.has(key));
 }
 
-const TABLE_ROW_METADATA_KEYS = new Set(["tone", "status", "color", "fill", "bold", "align", "valign", "style", "metadata", "className"]);
+const TABLE_ROW_METADATA_KEYS = new Set(["cells", "tone", "status", "color", "fill", "bold", "align", "valign", "style", "metadata", "className"]);
 const TABLE_KEY_SYNONYM_GROUPS = [
   ["metric", "label", "name", "title", "category", "item"],
   ["amount", "value", "val"],
@@ -4215,7 +5347,12 @@ function coveredTableCell(hMerge: boolean, vMerge: boolean): TableCell {
   };
 }
 
-function resolveTableColWidths(raw: unknown, colCount: number, totalCm: number): number[] {
+function resolveTableColWidths(
+  raw: unknown,
+  colCount: number,
+  totalCm: number,
+  context?: { theme: SimpleTheme; rows: unknown[][]; firstRowHeader: boolean; density: TableDensity },
+): number[] {
   if (Array.isArray(raw) && raw.length === colCount) {
     const nums = raw.map((v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
     const sum = nums.reduce((a, b) => a + b, 0);
@@ -4231,13 +5368,46 @@ function resolveTableColWidths(raw: unknown, colCount: number, totalCm: number):
         const weightSum = weights.reduce((a, b) => a + b, 0);
         return weights.map((n) => (n / weightSum) * totalCm);
       }
-      // Treat as widths if total is close to totalCm; otherwise as weights.
+      // Tables should fill the assigned table frame. Agents often provide
+      // readable cm-like weights such as [3,2,1.4,1.4,7]; leaving those as
+      // absolute widths creates a half-empty native table and forces ugly
+      // header wrapping. Preserve the proportions, then fit them to totalCm.
       const looksAbsolute = Math.abs(sum - totalCm) < totalCm * 0.5 && nums.every((n) => n >= 0.3);
-      if (looksAbsolute) return nums;
+      if (looksAbsolute && Math.abs(sum - totalCm) < totalCm * 0.04) return nums;
       return nums.map((n) => (n / sum) * totalCm);
     }
   }
+  if (context && context.rows.length > 0) return autoTableColWidths(context.theme, context.rows, colCount, totalCm, context.firstRowHeader, context.density);
   return Array.from({ length: colCount }, () => totalCm / colCount);
+}
+
+function autoTableColWidths(
+  theme: SimpleTheme,
+  rows: unknown[][],
+  colCount: number,
+  totalCm: number,
+  firstRowHeader: boolean,
+  density: TableDensity,
+): number[] {
+  const measurer = createTextMeasurer(theme);
+  const preferred = Array.from({ length: colCount }, (_, col) => {
+    let width = 0;
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      const raw = rows[rowIndex]?.[col] ?? "";
+      const text = tableCellText(raw).trim();
+      if (!text) continue;
+      const isHeader = rowIndex === 0 && firstRowHeader;
+      const style = tableTextStyle(theme, isHeader, density, 1);
+      const fontPt = tableCellEffectiveFontPt(raw, style.fontSize);
+      const measured = measurer.textWidth(text, fontPt, style.weight);
+      const contentPadding = density === "compact" ? 0.55 : 0.82;
+      width = Math.max(width, Math.min(8.5, measured + contentPadding));
+    }
+    return Math.max(1.25, width || 1.25);
+  });
+  const sum = preferred.reduce((a, b) => a + b, 0);
+  if (sum <= 0 || !Number.isFinite(sum)) return Array.from({ length: colCount }, () => totalCm / colCount);
+  return preferred.map((w) => (w / sum) * totalCm);
 }
 
 function resolveTableRowHeights(
@@ -4299,7 +5469,7 @@ function makeTableCell(
         ? parsedRuns.runs.map((r) => richRunToTextRun(theme, r, effectiveStyle, bold))
         : [plainTextRun(theme, text, style, bold, color(theme, colorToken, style.color))];
     return {
-      runs,
+      runs: protectTextRunsForCjkLineBreaks(runs),
       fill: tableCellFill(theme, fillToken),
       align,
       valign,
@@ -4313,9 +5483,9 @@ function makeTableCell(
   const text = String(raw ?? "");
   const parsedRuns = parseMarkdownInline(text);
   return {
-    runs: parsedRuns.matched
+    runs: protectTextRunsForCjkLineBreaks(parsedRuns.matched
       ? parsedRuns.runs.map((r) => richRunToTextRun(theme, r, style, isStyleBold(style.weight)))
-      : [plainTextRun(theme, text, style, isStyleBold(style.weight), color(theme, undefined, style.color))],
+      : [plainTextRun(theme, text, style, isStyleBold(style.weight), color(theme, undefined, style.color))]),
     fill: tableCellFill(theme, isHeader ? defaults.headerFill || "surface.subtle" : defaults.bodyFill),
     align: isHeader ? "center" : defaultAlign,
     valign: "middle",
@@ -4331,8 +5501,15 @@ function tableCellFill(theme: SimpleTheme, token: unknown): FillSpec | undefined
 
 function tablePaddingSpec(value: unknown): Partial<Record<"l" | "t" | "r" | "b", number>> | undefined {
   if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    const emu = cm(value);
+    const emu = cm(tablePaddingNumberToCm(value));
     return { l: emu, r: emu, t: emu, b: emu };
+  }
+  if (typeof value === "string") {
+    const parsed = parseLayoutDimensionCm(value);
+    if (parsed !== undefined && parsed >= 0) {
+      const emu = cm(parsed);
+      return { l: emu, r: emu, t: emu, b: emu };
+    }
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const rec = value as Record<string, unknown>;
@@ -4346,10 +5523,20 @@ function tablePaddingSpec(value: unknown): Partial<Record<"l" | "t" | "r" | "b",
   for (const [key, names] of aliases) {
     for (const name of names) {
       const v = rec[name];
-      if (typeof v === "number" && Number.isFinite(v) && v >= 0) out[key] = cm(v);
+      if (typeof v === "number" && Number.isFinite(v) && v >= 0) out[key] = cm(tablePaddingNumberToCm(v));
+      else if (typeof v === "string") {
+        const parsed = parseLayoutDimensionCm(v);
+        if (parsed !== undefined && parsed >= 0) out[key] = cm(parsed);
+      }
     }
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function tablePaddingNumberToCm(value: number): number {
+  // Agents commonly author table padding as PowerPoint/CSS-like points
+  // (`6`, `8`). Small decimals remain centimeter values for compatibility.
+  return value > 1.6 ? value * 0.0352777778 : value;
 }
 
 function tableBorderSpec(theme: SimpleTheme, value: unknown): TableCell["border"] | undefined {
@@ -4536,7 +5723,7 @@ function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   pushMissingDataBindingSourceDiagnostic(node, "Chart");
   const resolvedChartType = chartType(node.chartType);
   const hasRenderableData = chartHasRenderableData(resolvedChartType, labels, series);
-  if (!hasRenderableData) pushEmptyChartDataDiagnostic(node, labels, series);
+  if (!hasRenderableData) pushEmptyChartDataDiagnostic(node, labels, series, resolvedChartType);
   const safeLabels = hasRenderableData || labels.length > 0 ? labels : ["No data"];
   const safeSeries = alignChartSeriesToLabels(
     hasRenderableData && series.length > 0 ? series : [{ name: "No data", values: [0] }],
@@ -4550,11 +5737,14 @@ function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   const showLegend = typeof node.showLegend === "boolean" ? node.showLegend : safeSeries.length > 1;
   const pieLike = resolvedChartType === "pie" || resolvedChartType === "doughnut";
   const showValues = typeof node.showValues === "boolean" ? node.showValues : pieLike;
-  const dataLabels = normalizeChartDataLabels(node.dataLabels, { pieLike, showValues });
+  const dataLabels = normalizeChartDataLabels(node.dataLabels, { pieLike, showValues }, theme);
   const annotations = normalizeChartAnnotations(node.annotations);
   pushChartFitDiagnostics(node, rect, resolvedChartType, safeLabels.length, safeSeries.length, showLegend, semanticOuterRectForBody(node.id, "chart", rectsById));
   pushChartLabelDiagnostics(node, rect, resolvedChartType, dataLabels);
   const barLike = resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "combo";
+  const chartTextColor = color(theme, typeof node.textColor === "string" ? node.textColor : "text.primary");
+  const axisTextColor = color(theme, typeof node.axisTextColor === "string" ? node.axisTextColor : "text.muted");
+  const dataLabelColor = color(theme, typeof node.dataLabelColor === "string" ? node.dataLabelColor : "text.primary");
   return {
     type: "chart",
     id: ids.nextId++,
@@ -4568,6 +5758,11 @@ function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     showValues,
     orientation: node.orientation === "horizontal" ? "horizontal" : "vertical",
     dataLabels,
+    textColor: chartTextColor,
+    axisTextColor,
+    dataLabelColor,
+    titleColor: color(theme, typeof node.titleColor === "string" ? node.titleColor : chartTextColor),
+    legendTextColor: color(theme, typeof node.legendTextColor === "string" ? node.legendTextColor : axisTextColor),
     xAxis: normalizeChartAxis(theme, node.xAxis ?? node.axis),
     yAxis: normalizeChartAxis(theme, node.yAxis),
     secondaryYAxis: normalizeChartAxis(theme, node.secondaryYAxis ?? node.secondaryAxis),
@@ -4578,6 +5773,181 @@ function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     title: typeof node.title === "string" ? node.title : undefined,
     yFormat: chartNumberFormat(node.yFormat),
     annotations: annotations.length > 0 ? annotations : undefined,
+  };
+}
+
+function chartShapes(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }, rectsById?: Map<string, Rect>): ShapeList {
+  const chart = chartShape(theme, node, rect, ids, rectsById);
+  if (chart.type !== "chart" || chart.chartType !== "doughnut" || chart.dataLabels?.show === false) return [chart];
+  const overlay = doughnutExternalLabelOverlay(theme, chart, rect, ids);
+  if (!overlay) return [chart];
+  chart.xfrm = xfrm(overlay.plotRect);
+  chart.showLegend = false;
+  return [chart, ...overlay.shapes];
+}
+
+interface DoughnutExternalLabelItem {
+  index: number;
+  label: string;
+  value: number;
+  percent: number;
+  angle: number;
+  side: "left" | "right";
+  targetY: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  color: string;
+}
+
+function doughnutExternalLabelOverlay(
+  theme: SimpleTheme,
+  chart: Extract<ShapeList[number], { type: "chart" }>,
+  rect: Rect,
+  ids: { nextId: number },
+): { plotRect: Rect; shapes: ShapeList } | undefined {
+  const series = chart.series[0];
+  if (!series || chart.labels.length === 0) return undefined;
+  const values = series.values.map((value) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0);
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (total <= 0) return undefined;
+
+  const labelW = clamp(rect.w * 0.24, 1.45, 2.55);
+  const sideGap = clamp(rect.w * 0.035, 0.18, 0.38);
+  const plotSize = Math.min(rect.h - 0.25, rect.w - labelW * 2 - sideGap * 2 - 0.2);
+  if (!Number.isFinite(plotSize) || plotSize < 1.8) return undefined;
+  const plotRect = {
+    x: rect.x + (rect.w - plotSize) / 2,
+    y: rect.y + (rect.h - plotSize) / 2,
+    w: plotSize,
+    h: plotSize,
+  };
+  const cx = plotRect.x + plotRect.w / 2;
+  const cy = plotRect.y + plotRect.h / 2;
+  const radius = plotSize * 0.43;
+  const minPercent = chart.dataLabels?.minPercent ?? 0.03;
+  const items: DoughnutExternalLabelItem[] = [];
+  let cursor = 0;
+  values.forEach((value, index) => {
+    const percent = value / total;
+    const angle = -Math.PI / 2 + (cursor + value / 2) / total * Math.PI * 2;
+    cursor += value;
+    if (value <= 0 || percent < minPercent) return;
+    const side = Math.cos(angle) >= 0 ? "right" : "left";
+    const label = doughnutExternalLabelText(chart, index, value, percent);
+    if (!label) return;
+    const h = label.includes("\n") ? 0.92 : 0.56;
+    items.push({
+      index,
+      label,
+      value,
+      percent,
+      angle,
+      side,
+      targetY: cy + Math.sin(angle) * radius,
+      x: side === "right"
+        ? Math.min(rect.x + rect.w - labelW, plotRect.x + plotRect.w + sideGap)
+        : Math.max(rect.x, plotRect.x - labelW - sideGap),
+      y: 0,
+      w: labelW,
+      h,
+      color: chart.colors?.[index % (chart.colors.length || 1)] || color(theme, "divider"),
+    });
+  });
+  if (items.length === 0) return undefined;
+  distributeDoughnutLabels(items.filter((item) => item.side === "left"), rect);
+  distributeDoughnutLabels(items.filter((item) => item.side === "right"), rect);
+
+  const shapes: ShapeList = [];
+  for (const item of items) {
+    const edge = { x: cx + Math.cos(item.angle) * radius, y: cy + Math.sin(item.angle) * radius };
+    const elbow = {
+      x: item.side === "right" ? item.x - 0.08 : item.x + item.w + 0.08,
+      y: item.y + item.h / 2,
+    };
+    shapes.push(doughnutLeaderLineShape(theme, item, edge, elbow, ids));
+    shapes.push(textShape(theme, {
+      id: `doughnut.label.${chart.id}.${item.index}`,
+      type: "text",
+      text: item.label,
+      style: "legend-label",
+      align: item.side === "right" ? "left" : "right",
+      valign: "middle",
+      autoFit: "shrink",
+    }, { x: item.x, y: item.y, w: item.w, h: item.h }, ids));
+  }
+  return { plotRect, shapes };
+}
+
+function distributeDoughnutLabels(items: DoughnutExternalLabelItem[], rect: Rect): void {
+  if (items.length === 0) return;
+  const gap = 0.08;
+  const minY = rect.y + 0.05;
+  const maxY = rect.y + rect.h - 0.05;
+  items.sort((a, b) => a.targetY - b.targetY);
+  let cursor = minY;
+  for (const item of items) {
+    item.y = clamp(item.targetY - item.h / 2, cursor, maxY - item.h);
+    cursor = item.y + item.h + gap;
+  }
+  const overflow = cursor - gap - maxY;
+  if (overflow > 0) {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const nextY = i === items.length - 1 ? maxY - items[i]!.h : items[i + 1]!.y - gap - items[i]!.h;
+      items[i]!.y = Math.max(minY, Math.min(items[i]!.y - overflow, nextY));
+    }
+  }
+}
+
+function doughnutExternalLabelText(chart: Extract<ShapeList[number], { type: "chart" }>, index: number, value: number, percent: number): string {
+  const labels = chart.dataLabels;
+  const parts: string[] = [];
+  if (labels?.showCategoryName ?? true) parts.push(chart.labels[index] ?? "");
+  const metrics: string[] = [];
+  if (labels?.showValue === true) metrics.push(formatDoughnutValue(value));
+  if (labels?.showPercent ?? true) metrics.push(formatDoughnutPercent(percent));
+  if (metrics.length > 0) parts.push(metrics.join(" · "));
+  return parts.filter(Boolean).join("\n");
+}
+
+function formatDoughnutValue(value: number): string {
+  if (Math.abs(value) >= 1000) return Math.round(value).toLocaleString("en-US");
+  if (Math.abs(value - Math.round(value)) < 0.05) return String(Math.round(value));
+  return value.toFixed(1).replace(/\.0$/, "");
+}
+
+function formatDoughnutPercent(percent: number): string {
+  const pct = percent * 100;
+  return `${pct >= 10 || Math.abs(pct - Math.round(pct)) < 0.05 ? Math.round(pct).toString() : pct.toFixed(1).replace(/\.0$/, "")}%`;
+}
+
+function doughnutLeaderLineShape(
+  theme: SimpleTheme,
+  item: DoughnutExternalLabelItem,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  ids: { nextId: number },
+): ShapeList[number] {
+  const x = Math.min(start.x, end.x);
+  const y = Math.min(start.y, end.y);
+  const w = Math.max(0.01, Math.abs(end.x - start.x));
+  const h = Math.max(0.01, Math.abs(end.y - start.y));
+  return {
+    type: "shape",
+    id: ids.nextId++,
+    name: `doughnut.leader.${item.index}`,
+    preset: "line",
+    xfrm: {
+      x: cm(x),
+      y: cm(y),
+      cx: cm(w),
+      cy: cm(h),
+      ...(end.x < start.x ? { flipH: true } : {}),
+      ...(end.y < start.y ? { flipV: true } : {}),
+    },
+    fill: { type: "none" },
+    line: { color: item.color || color(theme, "divider"), width: cm(0.012), alpha: 0.78 },
   };
 }
 
@@ -4593,24 +5963,87 @@ function alignChartSeriesToLabels(series: ChartSeries[], labelCount: number, cha
     : { ...item, values: Array.from({ length: labelCount }, (_, index) => item.values[index] ?? 0) });
 }
 
-function pushEmptyChartDataDiagnostic(node: DomNode, labels: string[], series: ChartSeries[]): void {
+function pushEmptyChartDataDiagnostic(node: DomNode, labels: string[], series: ChartSeries[], chartTypeValue: ChartType): void {
   const rowCount = node.resolvedData && typeof node.resolvedData === "object" && Array.isArray((node.resolvedData as { rows?: unknown }).rows)
     ? (node.resolvedData as { rows: unknown[] }).rows.length
     : undefined;
+  const renderablePointCount = chartRenderablePointCount(series);
+  const context = emptyChartDataContext(node, labels, series, chartTypeValue, rowCount, renderablePointCount);
   pushDiagnostic({
     severity: "error",
     code: "EMPTY_CHART_DATA",
     slideId: currentSlideId || undefined,
     nodeId: nodeLabel(node),
-    message: `Chart '${nodeLabel(node)}' has no renderable data after binding/encoding.`,
-    suggestion: "Keep the chart component and repair its data path: verify bind.filter still returns rows, use array filters as inclusion lists or {in:[...]}, and ensure encoding maps category labels to a text field and values to numeric field(s). For horizontal ranked bars, use orientation:'horizontal' or x:numeric with y:category.",
+    message: `Chart '${nodeLabel(node)}' has no renderable data: ${context.reason}.`,
+    suggestion: context.suggestion,
     measured: {
-      available: series.reduce((count, item) => count + item.values.length + (item.points?.length || 0), 0),
+      available: renderablePointCount,
       needed: 1,
+      reason: context.reason,
+      dataMode: context.dataMode,
       renderedRows: rowCount,
       lineCount: labels.length,
+      labelCount: labels.length,
+      seriesCount: series.length,
+      rawSeriesCount: context.rawSeriesCount,
+      renderablePointCount,
     },
   });
+}
+
+function chartRenderablePointCount(series: ChartSeries[]): number {
+  return series.reduce((count, item) => count + item.values.length + (item.points?.length || 0), 0);
+}
+
+function emptyChartDataContext(
+  node: DomNode,
+  labels: string[],
+  series: ChartSeries[],
+  chartTypeValue: ChartType,
+  rowCount: number | undefined,
+  renderablePointCount: number,
+): { dataMode: string; rawSeriesCount: number; reason: string; suggestion: string } {
+  const rawSeries = Array.isArray(node.series) ? node.series : [];
+  const rawSeriesCount = rawSeries.length;
+  const rawSeriesKeys = chartSeriesKeys(rawSeries);
+  const bindingMode = Boolean(node.bind || node.encoding || node.dataLineage || rowCount !== undefined);
+  if (bindingMode) {
+    const reason = rowCount === 0
+      ? `binding resolved 0 rows; labels=${labels.length}, series=${series.length}, renderable points=${renderablePointCount}`
+      : `binding/encoding produced labels=${labels.length}, series=${series.length}, renderable points=${renderablePointCount}`;
+    return {
+      dataMode: "binding",
+      rawSeriesCount,
+      reason,
+      suggestion: "Keep the chart component and repair the data path: verify bind.source exists and bind.filter returns rows. Use encoding like {\"x\":\"categoryField\",\"y\":\"numericField\"} or {\"x\":\"categoryField\",\"y\":[\"revenue\",\"cost\"]}; every y field must resolve to numeric values. For a hand-authored replacement, use {\"data\":{\"labels\":[\"A\",\"B\"],\"series\":[{\"name\":\"Series\",\"values\":[10,20]}]}}.",
+    };
+  }
+  const labelsProblem = chartTypeValue !== "scatter" && labels.length === 0;
+  const seriesProblem = rawSeriesCount === 0;
+  const valueProblem = rawSeriesCount > 0 && renderablePointCount === 0;
+  const keyHint = rawSeriesKeys.length > 0 ? `; found series keys: ${rawSeriesKeys.join(", ")}` : "";
+  const reason = labelsProblem
+    ? `missing category labels; labels=0, series=${series.length}, renderable points=${renderablePointCount}${keyHint}`
+    : seriesProblem
+      ? `missing series; labels=${labels.length}, series=0`
+      : valueProblem
+        ? `series is present but contains no numeric values or scatter points${keyHint}`
+        : `labels=${labels.length}, series=${series.length}, renderable points=${renderablePointCount}${keyHint}`;
+  return {
+    dataMode: "hand-authored",
+    rawSeriesCount,
+    reason,
+    suggestion: "For hand-authored bar/line/pie charts, use {\"data\":{\"labels\":[\"2025\",\"2026\"],\"series\":[{\"name\":\"Market\",\"values\":[75,110]}]}} or top-level labels/series with the same shape. series[].data:[number] is accepted as a Chart.js compatibility alias for values, but arbitrary keys such as amount, yValues, or dataset are ignored. For scatter charts, use {\"data\":{\"series\":[{\"name\":\"Series\",\"points\":[{\"x\":1,\"y\":2}]}]}}; data:[{x,y}] is accepted as a compatibility alias for points.",
+  };
+}
+
+function chartSeriesKeys(series: unknown[]): string[] {
+  const keys = new Set<string>();
+  for (const item of series) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    for (const key of Object.keys(item as Record<string, unknown>)) keys.add(key);
+  }
+  return Array.from(keys).slice(0, 8);
 }
 
 function pushMissingDataBindingSourceDiagnostic(node: DomNode, noun: "Chart" | "Table"): void {
@@ -4632,12 +6065,25 @@ function pushMissingDataBindingSourceDiagnostic(node: DomNode, noun: "Chart" | "
 function normalizeChartDataLabels(
   value: unknown,
   defaults: { pieLike: boolean; showValues: boolean },
+  theme?: SimpleTheme,
 ): ChartDataLabels | undefined {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const rec = value as Record<string, unknown>;
-    const out: ChartDataLabels = {};
+    const out: ChartDataLabels = defaults.pieLike
+      ? {
+        show: defaults.showValues,
+        position: "outsideEnd",
+        showCategoryName: true,
+        showPercent: true,
+        showLeaderLines: true,
+        minPercent: 0.03,
+      }
+      : defaults.showValues
+        ? { show: true, position: "outsideEnd", showValue: true }
+        : { show: true };
     if (typeof rec.show === "boolean") out.show = rec.show;
     if (rec.position === "bestFit" || rec.position === "center" || rec.position === "insideEnd" || rec.position === "insideBase" || rec.position === "outsideEnd") out.position = rec.position;
+    if (typeof rec.color === "string") out.color = theme ? color(theme, rec.color) : rec.color;
     if (typeof rec.showValue === "boolean") out.showValue = rec.showValue;
     if (typeof rec.showCategoryName === "boolean") out.showCategoryName = rec.showCategoryName;
     if (typeof rec.showSeriesName === "boolean") out.showSeriesName = rec.showSeriesName;
@@ -4650,7 +6096,7 @@ function normalizeChartDataLabels(
   if (defaults.pieLike) {
     return {
       show: defaults.showValues,
-      position: "bestFit",
+      position: "outsideEnd",
       showCategoryName: true,
       showPercent: true,
       showLeaderLines: true,
@@ -4673,14 +6119,14 @@ function pushChartLabelDiagnostics(node: DomNode, rect: Rect, resolvedChartType:
     slideId: currentSlideId || undefined,
     nodeId: nodeLabel(node),
     message: `Pie chart '${nodeLabel(node)}' hides slice labels; readers must infer values from the legend or surrounding text.`,
-    suggestion: "For pie/doughnut charts, omit showValues:false or set dataLabels:{show:true, position:'bestFit', showCategoryName:true, showPercent:true}.",
+    suggestion: "For pie/doughnut charts, omit showValues:false or set dataLabels:{show:true, showCategoryName:true, showPercent:true}. Pie may use position:'outsideEnd'; doughnut labels are rendered as repair-safe external PPT text labels instead of native dLblPos.",
     measured: { rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h } },
   });
 }
 
 interface ChartAspectGuidance {
   recommendedAspectRatio: number;
-  maxAspectRatio: number;
+  hardMaxAspectRatio: number;
   reason: string;
 }
 
@@ -4697,57 +6143,71 @@ function pushChartFitDiagnostics(node: DomNode, rect: Rect, resolvedChartType: C
   const minHeight = requirement.recommendedMinHeight;
   const aspect = chartAspectGuidance(node, resolvedChartType, labelCount, seriesCount, showLegend);
   const aspectRatio = rect.h > 0.01 ? rect.w / rect.h : Number.POSITIVE_INFINITY;
-  const aspectNeededHeight = aspect ? rect.w / aspect.maxAspectRatio : 0;
-  const tooSmall = rect.w < minWidth || rect.h < minHeight;
-  const hardTooSmall = rect.w < requirement.hardMinWidth || rect.h < requirement.hardMinHeight;
-  const tooFlat = Boolean(aspect && rect.w >= minWidth && aspectRatio > aspect.maxAspectRatio && rect.h + 0.04 < aspectNeededHeight);
-  if (!tooSmall && !tooFlat) return;
-  const role = nearestSemanticRole(node);
-  const neededHeight = Math.max(minHeight, aspectNeededHeight);
-  const minWidthAtCurrentHeight = aspect ? rect.h * aspect.maxAspectRatio : minWidth;
+  const aspectNeededHeight = aspect ? rect.w / aspect.hardMaxAspectRatio : 0;
+  const hardWidthDeficit = Math.max(0, requirement.hardMinWidth - rect.w);
+  const hardHeightDeficit = Math.max(0, requirement.hardMinHeight - rect.h);
+  const hardDeficitTolerance = Math.max(0.10, Math.min(0.18, Math.max(requirement.hardMinHeight, requirement.hardMinWidth) * 0.035));
+  const hardTooSmall = hardWidthDeficit > hardDeficitTolerance || hardHeightDeficit > hardDeficitTolerance;
+  const aspectDeficit = Math.max(0, aspectNeededHeight - rect.h);
+  const hardFlatness = Boolean(aspect && rect.w >= requirement.hardMinWidth && aspectRatio > aspect.hardMaxAspectRatio && aspectDeficit > Math.max(0.30, rect.h * 0.16));
+  if (!hardTooSmall && !hardFlatness) return;
+  const hardNeededHeight = Math.max(requirement.hardMinHeight, aspectNeededHeight);
+  const recommendedNeededHeight = Math.max(minHeight, aspectNeededHeight);
+  const minWidthAtCurrentHeight = aspect ? rect.h * aspect.hardMaxAspectRatio : minWidth;
   const chromeHeight = outerRect ? Math.max(0, outerRect.h - rect.h) : undefined;
-  const outerNeededHeight = chromeHeight !== undefined ? neededHeight + chromeHeight : undefined;
-  const aspectMessage = aspect && tooFlat
-    ? ` Its chart-body aspect ratio is ${aspectRatio.toFixed(1)}:1; ${resolvedChartType} charts with this density should stay at or below ${aspect.maxAspectRatio.toFixed(1)}:1, so this body needs about ${aspectNeededHeight.toFixed(1)}cm height at the current width.`
+  const outerNeededHeight = chromeHeight !== undefined ? recommendedNeededHeight + chromeHeight : undefined;
+  const aspectMessage = aspect && hardFlatness
+    ? ` Its chart-body aspect ratio is ${aspectRatio.toFixed(1)}:1; ${resolvedChartType} charts with this density need to stay at or below ${aspect.hardMaxAspectRatio.toFixed(1)}:1, so this body needs about ${aspectNeededHeight.toFixed(1)}cm height at the current width.`
     : "";
-  const severity = role === "chart-card" && (hardTooSmall || tooFlat) ? "error" : "warn";
-  pushDiagnostic({
-    severity,
-    code: "SQUASHED",
+  const categoryBand = labelCount > 0 ? rect.h / Math.max(1, labelCount) : undefined;
+  const pointSpacing = labelCount > 1 ? rect.w / Math.max(1, labelCount - 1) : undefined;
+  pushSquashedDiagnostic({
+    subject: "chart",
     slideId: currentSlideId || undefined,
     nodeId: node.id,
-    message: `Chart '${nodeLabel(node)}' was assigned ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm; ${resolvedChartType} charts may be hard to read below about ${minWidth.toFixed(1)}x${minHeight.toFixed(1)}cm.${aspectMessage}`,
+    severity: "error",
+    message: `Chart '${nodeLabel(node)}' was assigned ${rect.w.toFixed(2)}x${rect.h.toFixed(2)}cm; ${resolvedChartType} chart body is below its hard readable geometry (${requirement.hardMinWidth.toFixed(1)}x${requirement.hardMinHeight.toFixed(1)}cm).${aspectMessage}`,
     suggestion: chartCapacitySuggestion(resolvedChartType, minWidth, minHeight, labelCount, showLegend, aspect ? {
       aspectRatio,
-      maxAspectRatio: aspect.maxAspectRatio,
+      hardMaxAspectRatio: aspect.hardMaxAspectRatio,
       recommendedAspectRatio: aspect.recommendedAspectRatio,
       aspectNeededHeightCm: aspectNeededHeight,
       minWidthAtCurrentHeightCm: minWidthAtCurrentHeight,
       reason: aspect.reason,
     } : undefined, outerNeededHeight),
+    rect,
     measured: {
-      rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
       available: rect.h,
-      needed: neededHeight,
-      deltaCm: Math.max(0, neededHeight - rect.h),
+      needed: hardNeededHeight,
+      readableNeeded: recommendedNeededHeight,
+      deltaCm: Math.max(0, hardNeededHeight - rect.h),
       minWidthCm: minWidth,
       minHeightCm: minHeight,
       hardMinHeightCm: requirement.hardMinHeight,
-      bodyNeededHeightCm: neededHeight,
+      hardMinWidthCm: requirement.hardMinWidth,
+      bodyNeededHeightCm: hardNeededHeight,
       ...(chromeHeight !== undefined ? { chromeHeightCm: chromeHeight } : {}),
       ...(outerNeededHeight !== undefined ? { outerNeededHeightCm: outerNeededHeight } : {}),
       ...(outerRect ? { outerRect: { x: outerRect.x, y: outerRect.y, w: outerRect.w, h: outerRect.h } } : {}),
       ...(aspect ? {
         aspectRatio,
-        maxAspectRatio: aspect.maxAspectRatio,
+        maxAspectRatio: aspect.hardMaxAspectRatio,
+        hardMaxAspectRatio: aspect.hardMaxAspectRatio,
         recommendedAspectRatio: aspect.recommendedAspectRatio,
         aspectNeededHeightCm: aspectNeededHeight,
+        hardAspectNeededHeightCm: aspectNeededHeight,
         minWidthAtCurrentHeightCm: minWidthAtCurrentHeight,
         aspectReason: aspect.reason,
       } : {}),
+      chartType: resolvedChartType,
+      plotWidthCm: rect.w,
+      plotHeightCm: rect.h,
+      ...(categoryBand !== undefined ? { categoryBandCm: categoryBand, minCategoryBandCm: chartMinCategoryBandCm(resolvedChartType, labelCount, seriesCount) } : {}),
+      ...(pointSpacing !== undefined ? { pointSpacingCm: pointSpacing, minPointSpacingCm: chartMinPointSpacingCm(resolvedChartType, labelCount, seriesCount) } : {}),
       labelCount,
       seriesCount,
       showLegend,
+      fitMethod: "chart-hard-geometry",
     },
   });
 }
@@ -4786,7 +6246,7 @@ function chartAspectGuidance(node: DomNode, resolvedChartType: ChartType, labelC
     const max = clamp(5.0 - (showLegend ? 0.25 : 0) - (seriesCount >= 3 ? 0.25 : 0) - (axisTitleCount > 0 ? 0.2 : 0), 4.3, 5.0);
     return {
       recommendedAspectRatio: recommended,
-      maxAspectRatio: max,
+      hardMaxAspectRatio: max,
       reason: "axis charts need enough vertical plot area for slopes, markers, gridlines, axis titles, and legends",
     };
   }
@@ -4795,9 +6255,31 @@ function chartAspectGuidance(node: DomNode, resolvedChartType: ChartType, labelC
     const max = clamp(5.4 - (showLegend ? 0.2 : 0) - (axisTitleCount > 0 ? 0.15 : 0), 4.8, 5.4);
     return {
       recommendedAspectRatio: recommended,
-      maxAspectRatio: max,
+      hardMaxAspectRatio: max,
       reason: "bar charts can be wider than line charts, but still need height for value comparison and axis labels",
     };
+  }
+  return undefined;
+}
+
+function chartMinCategoryBandCm(resolvedChartType: ChartType, labelCount: number, seriesCount: number): number | undefined {
+  if (labelCount <= 0) return undefined;
+  if (resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "waterfall") {
+    return seriesCount >= 2 ? 0.34 : 0.28;
+  }
+  if (resolvedChartType === "line" || resolvedChartType === "area" || resolvedChartType === "combo" || resolvedChartType === "scatter") {
+    return 0.18;
+  }
+  return undefined;
+}
+
+function chartMinPointSpacingCm(resolvedChartType: ChartType, labelCount: number, seriesCount: number): number | undefined {
+  if (labelCount <= 1) return undefined;
+  if (resolvedChartType === "line" || resolvedChartType === "area" || resolvedChartType === "combo" || resolvedChartType === "scatter") {
+    return seriesCount >= 3 ? 0.42 : 0.34;
+  }
+  if (resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "waterfall") {
+    return 0.28;
   }
   return undefined;
 }
@@ -4814,7 +6296,7 @@ function chartCapacitySuggestion(
   showLegend: boolean,
   aspect?: {
     aspectRatio: number;
-    maxAspectRatio: number;
+    hardMaxAspectRatio: number;
     recommendedAspectRatio: number;
     aspectNeededHeightCm: number;
     minWidthAtCurrentHeightCm: number;
@@ -4825,7 +6307,7 @@ function chartCapacitySuggestion(
   const minimum = `Reserve at least ${minWidth.toFixed(1)}x${minHeight.toFixed(1)}cm for the chart body inside chart-card; title/caption/card chrome need additional space.`;
   const outer = outerNeededHeightCm !== undefined ? ` With the current title/caption/card chrome, reserve roughly ${outerNeededHeightCm.toFixed(1)}cm total chart-card height.` : "";
   const aspectAdvice = aspect
-    ? ` Current body is ${aspect.aspectRatio.toFixed(1)}:1; target about ${aspect.recommendedAspectRatio.toFixed(1)}:1 and keep it <= ${aspect.maxAspectRatio.toFixed(1)}:1 (${aspect.reason}). At this width, raise the chart body to about ${aspect.aspectNeededHeightCm.toFixed(1)}cm or reduce body width to about ${aspect.minWidthAtCurrentHeightCm.toFixed(1)}cm before simplifying the chart.`
+    ? ` Current body is ${aspect.aspectRatio.toFixed(1)}:1; target about ${aspect.recommendedAspectRatio.toFixed(1)}:1 and keep it <= ${aspect.hardMaxAspectRatio.toFixed(1)}:1 (${aspect.reason}). At this width, raise the chart body to about ${aspect.aspectNeededHeightCm.toFixed(1)}cm or reduce body width to about ${aspect.minWidthAtCurrentHeightCm.toFixed(1)}cm before simplifying the chart.`
     : "";
   const density = labelCount > 8
     ? ` This chart has ${labelCount} categories; reduce label density, group categories, or use a follow-up slide after the body area is large enough.`
@@ -4869,7 +6351,11 @@ function normalizeChartAxis(theme: SimpleTheme, value: unknown): ChartAxisSpec |
   const rec = value as Record<string, unknown>;
   const axis: ChartAxisSpec = {};
   if (typeof rec.title === "string") axis.title = rec.title;
+  else if (typeof rec.label === "string") axis.title = rec.label;
+  else if (typeof rec.name === "string") axis.title = rec.name;
   if (typeof rec.show === "boolean") axis.show = rec.show;
+  if (typeof rec.color === "string") axis.color = color(theme, rec.color);
+  if (typeof rec.titleColor === "string") axis.titleColor = color(theme, rec.titleColor);
   for (const key of ["min", "max", "majorUnit", "minorUnit"] as const) {
     const v = rec[key];
     if (typeof v === "number" && Number.isFinite(v)) axis[key] = v;
@@ -5284,39 +6770,47 @@ function bulletsItemsFromNode(node: DomNode): unknown[] {
 
 function materializeDeck(deck: RenderedDeck): RenderedDeck {
   const { theme } = buildThemeForDeck(deck);
-  const slides = deck.slides.map((slide) => {
-    const dom = materializeAndCompactify(slide.dom, slide.id, theme);
-    return { slide, dom, layout: layoutSlide(theme, dom), decisions: layoutDecisionsBySlide.get(slide.id) || new Map() };
-  });
-  const diagnostics = getRenderDiagnostics();
-  return {
-    ...deck,
-    slides: slides.map(({ slide, dom, layout, decisions }) => {
-      const slideDiagnostics = diagnostics.filter((item) => item.slideId === slide.id);
-      return {
-        ...slide,
-        dom,
-        measured: {
-          nodes: layout.measured.map(serializeMeasuredNode),
-          layoutDecisions: Array.from(decisions.entries()).map(([nodeId, decision]) => ({ nodeId, ...decision })),
-          diagnostics: slideDiagnostics,
-          collisions: slideDiagnostics
-            .filter((item) => item.code === "COLLISION" || item.code === "SIBLING_INK_OVERLAP" || item.code === "STRUCTURAL_OVERLAP" || item.code === "OVERLAY_OCCLUDES_FLOW")
-            .map((item) => ({
-              code: item.code,
-              nodeId: item.nodeId,
-              otherNodeId: item.measured?.other?.nodeId,
-              rect: item.measured?.rect,
-              other: item.measured?.other,
-              overlap: item.measured?.overlap,
-              overlapAreaCm2: item.measured?.overlapAreaCm2,
-              overlapRatio: item.measured?.overlapRatio,
-              relationship: item.measured?.relationship,
-            })),
-        },
-      };
-    }),
-  } as RenderedDeck;
+  layoutDecisionsBySlide.clear();
+  squashedWarnings.clear();
+  try {
+    const slides = deck.slides.map((slide) => {
+      const dom = materializeAndCompactify(slide.dom, slide.id, theme);
+      const measuredDom = prepareDomForMeasuredSemanticCohorts(theme, dom, slide.id);
+      return { slide, dom: measuredDom, layout: layoutSlide(theme, measuredDom), decisions: layoutDecisionsBySlide.get(slide.id) || new Map() };
+    });
+    const diagnostics = getRenderDiagnostics();
+    return {
+      ...deck,
+      slides: slides.map(({ slide, dom, layout, decisions }) => {
+        const slideDiagnostics = diagnostics.filter((item) => item.slideId === slide.id);
+        return {
+          ...slide,
+          dom,
+          measured: {
+            nodes: layout.measured.map(serializeMeasuredNode),
+            layoutDecisions: Array.from(decisions.entries()).map(([nodeId, decision]) => ({ nodeId, ...decision })),
+            diagnostics: slideDiagnostics,
+            collisions: slideDiagnostics
+              .filter((item) => item.code === "COLLISION" || item.code === "SIBLING_INK_OVERLAP" || item.code === "STRUCTURAL_OVERLAP" || item.code === "OVERLAY_OCCLUDES_FLOW")
+              .map((item) => ({
+                code: item.code,
+                nodeId: item.nodeId,
+                otherNodeId: item.measured?.other?.nodeId,
+                rect: item.measured?.rect,
+                other: item.measured?.other,
+                overlap: item.measured?.overlap,
+                overlapAreaCm2: item.measured?.overlapAreaCm2,
+                overlapRatio: item.measured?.overlapRatio,
+                relationship: item.measured?.relationship,
+              })),
+          },
+        };
+      }),
+    } as RenderedDeck;
+  } finally {
+    layoutDecisionsBySlide.clear();
+    squashedWarnings.clear();
+  }
 }
 
 function serializeMeasuredNode(node: MeasuredNode): MeasuredNode {
@@ -5365,8 +6859,7 @@ function containerBackgroundShape(theme: SimpleTheme, node: DomNode, rect: Rect,
 }
 
 function contentRect(theme: SimpleTheme, node: DomNode, rect: Rect): Rect {
-  const style = componentStyle(theme, node);
-  const pad = numberProp(node, "padding", style.padding ?? 0);
+  const pad = effectiveContentPaddingCm(theme, node, rect);
   if (pad <= 0) return rect;
   return {
     x: rect.x + pad,
@@ -5374,6 +6867,29 @@ function contentRect(theme: SimpleTheme, node: DomNode, rect: Rect): Rect {
     w: Math.max(0, rect.w - pad * 2),
     h: Math.max(0, rect.h - pad * 2),
   };
+}
+
+function baseContentPaddingCm(theme: SimpleTheme, node: DomNode): number {
+  const style = componentStyle(theme, node);
+  return numberProp(node, "padding", style.padding ?? 0);
+}
+
+function effectiveContentPaddingCm(theme: SimpleTheme, node: DomNode, rect?: Rect): number {
+  const base = baseContentPaddingCm(theme, node);
+  if (base <= 0 || !rect) return base;
+  const role = typeof node.role === "string" ? node.role : "";
+  if (node.type === "stack" && node.direction !== "horizontal" && SEMANTIC_COHORT_PRESSURE_PADDING_ROLES.has(role)) {
+    const pressure = semanticCohortPressurePaddingCm(theme, node, rect, base, undefined);
+    if (pressure !== undefined) return Math.min(base, pressure);
+  }
+  if (role !== "quote") return base;
+  // OOXML text boxes treat inset as an internal margin on the containing
+  // shape. It should create breathing room, not consume most of a tight
+  // semantic component. Cap quote padding by the assigned box so quote text
+  // and attribution keep a usable content area.
+  const heightCap = rect.h * 0.12;
+  const widthCap = rect.w * 0.08;
+  return Math.max(0.12, Math.min(base, heightCap, widthCap));
 }
 
 /**
@@ -5384,7 +6900,7 @@ function contentRect(theme: SimpleTheme, node: DomNode, rect: Rect): Rect {
  *
  *   1. shrink           (handled by solveSizes/shrinkSizes — flex children -> min)
  *   2. demote density   (bullets comfortable->compact, paragraph->caption)
- *   3. drop optional    (children with `optional: true` are removed)
+ *   3. explicit drop    (only children with an explicit drop fallback are removed)
  *   4. truncate         (apply autoFit:"shrink" to text/bullets so OOXML
  *                        tightens to fit)
  *   5. hard fail        (FALLBACK_FAILED diagnostic with measured deltaCm)
@@ -5395,16 +6911,15 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
   const children = () => parent.children || [];
   if (children().length === 0) return;
 
-  const gap = gapCm(theme, parent);
   const sumIntrinsic = () => {
     const current = children();
     const specs = current.map((child) => childMainSpec(theme, child, direction, crossSize));
-    return specs.reduce((sum, spec) => sum + spec.basis, 0) + gap * Math.max(0, current.length - 1);
+    return specs.reduce((sum, spec) => sum + spec.basis, 0) + totalStackGapCm(theme, parent, current);
   };
   const sumMin = () => {
     const current = children();
     const specs = current.map((child) => childMainSpec(theme, child, direction, crossSize));
-    return specs.reduce((sum, spec) => sum + spec.min, 0) + gap * Math.max(0, current.length - 1);
+    return specs.reduce((sum, spec) => sum + spec.min, 0) + totalStackGapCm(theme, parent, current);
   };
   const parentRole = typeof parent.role === "string" ? parent.role : "";
 
@@ -5440,18 +6955,20 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
   }
   if (demoted > 0 && sumMin() <= availableMain + 0.001) return;
 
-  // Stage 3: drop optional.
+  // Stage 3: optional no longer means "silently delete this child". It marks
+  // the child as an agent-editable pressure valve, but the renderer only drops
+  // it when the author explicitly opts in with autoDrop/dropWhenTight/fallback.
   const before = children().length;
   const remaining = children().filter((child) => {
-    if (child.optional === true) {
+    if (child.optional === true && shouldAutoDropOptionalChild(parent, child)) {
       if (parentRole === "feature-card" && isFeatureCardSemanticChild(child)) return true;
       pushDiagnostic({
         severity: "warn",
         code: "DROP",
         slideId: currentSlideId || undefined,
         nodeId: child.id,
-        message: `Optional child '${child.id}' dropped to fit available space.`,
-        suggestion: capacitySuggestion(child, "If this content is critical, mark it non-optional and move other content out."),
+        message: `Optional child '${child.id}' auto-dropped because it explicitly allowed drop fallback.`,
+        suggestion: capacitySuggestion(child, "If this content is critical, remove autoDrop/dropWhenTight/fallback:'drop' and move other content out instead."),
       });
       return false;
     }
@@ -5495,18 +7012,30 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
   // and inter-line slack absorb the difference; emitting a blocking
   // FALLBACK_FAILED for what the eye reads as "fits fine" forces agents
   // into wasteful retry loops on no-op deltas (see qzwkqg/inmuai logs).
-  const needed = sumIntrinsic();
-  const delta = needed - availableMain;
-  const tolerance = Math.max(0.1, availableMain * 0.05);
-  if (delta < tolerance) {
-    pushDiagnostic({
+  const readableNeeded = sumIntrinsic();
+  const hardNeeded = sumMin();
+  const delta = hardNeeded - availableMain;
+  const tolerance = Math.max(0.18, availableMain * 0.15);
+  const mildFormulaPressure = isMildFormulaFitDeficit(parent, delta, availableMain);
+  const mildMetricPressure = isMildMetricCardFitDeficit(parent, delta, availableMain);
+  const adaptiveTextPressure = isAdaptiveTextFirstFitDeficit(parent, delta, availableMain);
+  const adaptiveTextOnlyPressure = isAdaptiveTextOnlyFitDeficit(parent, delta, availableMain);
+  if (delta < tolerance || mildFormulaPressure || mildMetricPressure || adaptiveTextPressure || adaptiveTextOnlyPressure) {
+    const toleranceLabel = mildFormulaPressure ? "formula fit" : mildMetricPressure ? "metric-card fit" : adaptiveTextPressure || adaptiveTextOnlyPressure ? "semantic text fit" : "hard fit";
+    pushFitDiagnostic({
+      kind: "container",
       severity: "warn",
-      code: "OVERFLOW",
       slideId: currentSlideId || undefined,
       nodeId: parent.id,
-      message: `Container '${parent.id}' is ${delta.toFixed(2)}cm over its available height (${availableMain.toFixed(2)}cm); within tolerance, autoFit will absorb it.`,
-      suggestion: "No fix required unless the rendered output looks crowded; the small delta is absorbed by autoFit shrink.",
-      measured: { available: availableMain, needed, deltaCm: delta },
+      message: `Container '${parent.id}' is ${Math.max(0, readableNeeded - availableMain).toFixed(2)}cm over its readable height (${availableMain.toFixed(2)}cm), but remains within the ${toleranceLabel} tolerance; autoFit will absorb it.`,
+      suggestion: mildFormulaPressure
+        ? "No blocking fix required if the rendered formula remains readable; use size:'sm' or split equations only when visual review confirms crowding."
+        : mildMetricPressure
+          ? "No blocking fix required if the rendered metric card remains readable; shorten label/body or give the card more height only when visual review confirms crowding."
+          : adaptiveTextPressure || adaptiveTextOnlyPressure
+            ? "No blocking fix required from capacity pressure alone. This semantic text component can adapt with shrink/density/chrome compression; concrete child diagnostics will report any real unreadable text, content loss, or overlap."
+            : "No fix required unless the rendered output looks crowded; the readable-height delta is absorbed by autoFit shrink.",
+      measured: { available: availableMain, needed: readableNeeded, hardNeeded, deltaCm: Math.max(0, readableNeeded - availableMain), hardDeltaCm: Math.max(0, delta), ...(mildFormulaPressure ? { mildFormulaPressure: true } : {}), ...(mildMetricPressure ? { mildMetricPressure: true } : {}), ...(adaptiveTextPressure || adaptiveTextOnlyPressure ? { adaptiveTextPressure: true } : {}) },
     });
     return;
   }
@@ -5515,17 +7044,17 @@ function applyFallbackLadder(theme: SimpleTheme, parent: DomNode, direction: "ho
   const constraintHint = constraint
     ? ` Constrained by ${constraint.ancestorId}.${constraint.prop} = ${constraint.value}cm; relax or remove that to give children room.`
     : "";
-  pushDiagnostic({
+  pushFitDiagnostic({
+    kind: "container",
     severity: "error",
-    code: "FALLBACK_FAILED",
     slideId: currentSlideId || undefined,
     nodeId: parent.id,
-    message: `Container '${parent.id}' cannot fit its children even after demote/drop/truncate (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm).${constraintHint}`,
+    message: `Container '${parent.id}' cannot fit its children even after demote/drop/truncate (needed ${hardNeeded.toFixed(2)}cm hard minimum, ${readableNeeded.toFixed(2)}cm readable; available ${availableMain.toFixed(2)}cm).${constraintHint}`,
     suggestion: constraint
-      ? `Drop or raise ${constraint.ancestorId}.${constraint.prop} (currently ${constraint.value}cm) so the children have ≥${needed.toFixed(2)}cm.${scaleHint ? ` If the component semantics must stay in this slot, ${scaleHint}` : ""} Alternatively, split content across slides or remove a child.`
+      ? `Drop or raise ${constraint.ancestorId}.${constraint.prop} (currently ${constraint.value}cm) so the children have ≥${hardNeeded.toFixed(2)}cm.${scaleHint ? ` If the component semantics must stay in this slot, ${scaleHint}` : ""} Alternatively, split content across slides or remove a child.`
       : `${capacitySuggestion(parent, "Split content across slides, remove a child, or increase the parent's allotted height.")}${scaleHint ? ` ${scaleHint}` : ""}`,
-    measured: { available: availableMain, needed, deltaCm: delta, ...(scaleHint ? { scaleSuggestion: "sm" } : {}) },
-    ...(constraint ? { constrainedBy: constraint } : {}),
+    measured: { available: availableMain, needed: hardNeeded, readableNeeded, deltaCm: delta, readableDeltaCm: Math.max(0, readableNeeded - availableMain), ...(scaleHint ? { scaleSuggestion: "sm" } : {}) },
+    constrainedBy: constraint,
   });
 }
 
@@ -5535,6 +7064,68 @@ function scaleHintForOverflow(delta: number, available: number): string {
   if (ratio <= 0.09) return "try component scale:'sm' first; it shrinks the component typography/chrome consistently without changing the semantic component.";
   if (ratio <= 0.16) return "try scale:'sm' or density:'compact' before deleting content; if it still fails, increase the region or split the component across slides.";
   return "";
+}
+
+function isMildFormulaFitDeficit(parent: DomNode, delta: number, available: number): boolean {
+  if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0 || available < 0.85) return false;
+  const hasFormulaChild = (parent.children || []).some((child) =>
+    child.type === "equation"
+    || child.role === "equation"
+    || /\.math$/.test(String(child.id || ""))
+    || String(child.role || "").includes("equation")
+  );
+  if (!hasFormulaChild) return false;
+  return delta <= Math.max(0.42, Math.min(0.48, available * 0.36));
+}
+
+function isMildMetricCardFitDeficit(parent: DomNode, delta: number, available: number): boolean {
+  if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0) return false;
+  const role = nearestSemanticRole(parent);
+  if (role === "metric-card" && available >= 0.85 && delta <= Math.max(0.10, available * 0.08)) return true;
+  if (/\.value-wrap$/.test(String(parent.id || "")) && available >= METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM && delta <= Math.max(0.18, available * 0.32)) return true;
+  return false;
+}
+
+function isAdaptiveTextFirstFitDeficit(parent: DomNode, delta: number, available: number): boolean {
+  if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0 || available <= 0) return false;
+  const role = nearestSemanticRole(parent);
+  if (!role) return false;
+  if (componentElasticityClass(parent, role || regionCapacityRole(parent)) !== "elastic") return false;
+  if (containsHardLayoutDemand(parent)) return false;
+  return available >= 0.24;
+}
+
+function isAdaptiveTextOnlyFitDeficit(parent: DomNode, delta: number, available: number): boolean {
+  if (!Number.isFinite(delta) || !Number.isFinite(available) || delta <= 0 || available < 0.8) return false;
+  if (!nearestSemanticRole(parent)) return false;
+  if (delta > Math.max(1.0, available * 1.2)) return false;
+  if (containsHardLayoutDemand(parent)) return false;
+  const children = parent.children || [];
+  if (children.length === 0) return false;
+  return children.every((child) =>
+    child.type === "text"
+    || child.type === "bullets"
+    || child.type === "spacer"
+    || child.type === "divider"
+    || componentElasticityClass(child, regionCapacityRole(child)) === "elastic"
+  );
+}
+
+function containsHardLayoutDemand(node: DomNode): boolean {
+  const role = regionCapacityRole(node);
+  if (componentElasticityClass(node, role) === "hard") return true;
+  for (const child of node.children || []) {
+    if (containsHardLayoutDemand(child)) return true;
+  }
+  return false;
+}
+
+function shouldAutoDropOptionalChild(parent: DomNode, child: DomNode): boolean {
+  if (parent.role === "feature-card" && isFeatureCardSemanticChild(child)) return false;
+  const rec = child as Record<string, unknown>;
+  if (rec.autoDrop === true || rec.dropWhenTight === true || rec.allowAutoDrop === true) return true;
+  const fallback = rec.fallback ?? rec.overflowFallback ?? rec.capacityFallback;
+  return fallback === "drop" || fallback === "autoDrop" || fallback === "auto-drop";
 }
 
 function isFeatureCardSemanticChild(child: DomNode): boolean {
@@ -5553,12 +7144,12 @@ function pushFeatureCardCapacityDiagnostic(parent: DomNode, direction: "horizont
     ? ` Constrained by ${constraint.ancestorId}.${constraint.prop} = ${constraint.value}cm; relax that ancestor or give the card a larger region.`
     : "";
   pushDiagnostic({
-    severity: "error",
+    severity: "warn",
     code: "FEATURE_CARD_OVER_CAPACITY",
     slideId: currentSlideId || undefined,
     nodeId: parent.id,
-    message: `Feature-card '${parent.id}' cannot keep its title and body readable in the assigned ${axisLabel} (needed ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm).${constraintHint}`,
-    suggestion: `${capacitySuggestion(parent, "Increase the feature-card region, reduce sibling content, or split the feature group across slides.")}${scaleHint ? ` ${scaleHint}` : ""}`,
+    message: `Feature-card '${parent.id}' is tight in the assigned ${axisLabel} (estimated ${needed.toFixed(2)}cm, available ${availableMain.toFixed(2)}cm), but this is capacity guidance rather than a blocking render failure.${constraintHint}`,
+    suggestion: `No blocking fix is required from feature-card capacity pressure alone. Keep the component and rely on child diagnostics for actual unreadable text, content loss, or overlap; if visual review looks crowded, try scale:'sm', density:'compact', shorten supporting proof/tags, or give the card more space.${scaleHint ? ` ${scaleHint}` : ""}`,
     measured: {
       available: availableMain,
       needed,
@@ -5575,40 +7166,50 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
   const direction = node.direction === "horizontal" ? "horizontal" : "vertical";
   const mainSize = direction === "horizontal" ? rect.w : rect.h;
   const crossSize = direction === "horizontal" ? rect.h : rect.w;
-  const gap = gapCm(theme, node);
   const allChildren = node.children || [];
   if (allChildren.length === 0) return [];
   // Layered children (`layer:"behind"` / `"above"`) claim no main-axis
-  // space. They fill the parent's content rect and are rendered
-  // beneath / above flow children in renderStack/renderGrid.
+  // space. They fill the parent's content rect and are rendered beneath or
+  // above flow children in renderStack/renderGrid. Absolute/anchored children
+  // still stay in the traversal so overlay-occlusion diagnostics can measure
+  // them against flow content.
   const isLayered = (c: DomNode) => c.layer === "behind" || c.layer === "above";
   const flowOnly = allChildren.filter((c) => !isLayered(c));
+  const cohortFlowOnly = normalizeRepeatedSemanticCohorts(theme, node, flowOnly, {
+    kind: "stack",
+    direction,
+    containerRect: rect,
+    slideId: currentSlideId || undefined,
+  });
   const layered = allChildren.filter(isLayered);
   // Stash flow children on the node so applyFallbackLadder operates on
   // them only; restore after.
   const savedChildren = node.children;
-  node.children = flowOnly;
-  const initialChildren = flowOnly;
-  if (initialChildren.length === 0) {
+  node.children = cohortFlowOnly;
+  let children: DomNode[];
+  try {
+    const initialChildren = cohortFlowOnly;
+    if (initialChildren.length === 0) {
+      return layered.map((c) => ({ node: c, rect }));
+    }
+    // applyFallbackLadder compares total child demand including effective gaps.
+    // Pass the full main-axis size here; subtracting gaps here as well
+    // double-counts spacing and falsely reports FALLBACK_FAILED for otherwise
+    // valid compact stacks.
+    const initialAvailable = Math.max(0, mainSize);
+    applyFallbackLadder(theme, node, direction, initialAvailable, crossSize);
+    children = node.children || [];
+  } finally {
+    // Restore the full child list so renderStack still iterates the full
+    // set including layered ones.
     node.children = savedChildren;
-    return layered.map((c) => ({ node: c, rect }));
   }
-  // applyFallbackLadder compares total child demand including gaps
-  // (`sumMin` / `sumIntrinsic` add gap * (n - 1)). Pass the full main-axis
-  // size here; subtracting gaps here as well double-counts spacing and
-  // falsely reports FALLBACK_FAILED for otherwise valid compact stacks.
-  const initialAvailable = Math.max(0, mainSize);
-  applyFallbackLadder(theme, node, direction, initialAvailable, crossSize);
-  const children = node.children || [];
-  // Restore the full child list so renderStack still iterates the full
-  // set including layered ones.
-  node.children = savedChildren;
   if (children.length === 0) {
     return layered.map((c) => ({ node: c, rect }));
   }
-  const availableMain = Math.max(0, mainSize - gap * (children.length - 1));
+  const availableMain = Math.max(0, mainSize - totalStackGapCm(theme, node, children));
   const explicitSplitRatio = explicitSplitRatioWeights(node, children.length);
-  const childSpecs = children.map((child, index) => {
+  const rawChildSpecs = children.map((child, index) => {
     const spec = childMainSpec(theme, child, direction, crossSize);
     if (!explicitSplitRatio || spec.fixed) return spec;
     const target = availableMain * explicitSplitRatio[index]!;
@@ -5619,27 +7220,38 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
       grow: true,
     };
   });
+  const glueAdjusted = applyLayoutGlueSpecs(theme, node, children, rawChildSpecs, direction);
+  const childSpecs = applySemanticRegionBudgetSpecs(theme, node, children, glueAdjusted.specs, direction, availableMain, crossSize);
+  const layoutGlues = glueAdjusted.glues;
+  const layoutGlueByIndex = new Map(layoutGlues.map((glue) => [glue.index, glue] as const));
   if (currentSlideId) {
     children.forEach((child, index) => {
       const spec = childSpecs[index]!;
+      const glue = layoutGlueByIndex.get(index);
       recordDecision(currentSlideId, child.id, {
         intrinsic: { mainAxis: direction === "horizontal" ? "horizontal" : "vertical", basis: spec.basis, min: spec.min, max: Number.isFinite(spec.max) ? spec.max : -1, weight: spec.weight },
+        ...(glue ? { notes: [`layout-glue:min=${glue.min.toFixed(2)},preferred=${glue.preferred.toFixed(2)},max=${glue.max.toFixed(2)}`] } : {}),
       });
     });
   }
-  const childSizes = solveSizes(childSpecs, availableMain, direction === "horizontal");
+  // Cassowary owns final geometry, but it still needs Auto Layout-style
+  // intrinsic targets so compression/growth follows the renderer's semantic
+  // measurement contract instead of equal-strength arbitrary shrinkage.
+  const targetChildSizes = solveSizes(childSpecs, availableMain, direction === "horizontal");
+  const constrained = layoutStackChildrenWithCassowary(theme, node, rect, children, layered, direction, childSpecs, explicitSplitRatio, targetChildSizes);
+  if (constrained) return constrained;
   // Main-axis alignment ('justify'): when total size < available and no
   // grow children consumed the slack, distribute the leftover according to
   // the chosen justify. This makes "vertically centered hero", "right-aligned
   // toolbar" etc. expressible without inserting spacer hacks.
-  const totalMain = childSizes.reduce((sum, size) => sum + size, 0) + gap * Math.max(0, children.length - 1);
+  const totalMain = targetChildSizes.reduce((sum, size) => sum + size, 0) + totalStackGapCm(theme, node, children);
   const slack = Math.max(0, mainSize - totalMain);
   const justify = stringProp(node, "justify", "start");
   const startOffset = slack > 0.001 ? (justify === "center" || justify === "middle" ? slack / 2 : justify === "end" ? slack : 0) : 0;
   if (currentSlideId) {
     children.forEach((child, index) => {
       const spec = childSpecs[index]!;
-      const size = childSizes[index]!;
+      const size = targetChildSizes[index]!;
       const applied: LayoutDecision["applied"] = spec.fixed
         ? "fit"
         : size < spec.basis - 0.001
@@ -5652,12 +7264,12 @@ function layoutStackChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arr
   }
   let cursor = (direction === "horizontal" ? rect.x : rect.y) + startOffset;
   const flowOut = children.map((child, index) => {
-    const size = childSizes[index]!;
+    const size = targetChildSizes[index]!;
     const cross = childCrossRect(theme, child, direction === "horizontal" ? rect.y : rect.x, crossSize, node, size, direction);
     const childRect = direction === "horizontal"
       ? { x: cursor, y: cross.start, w: size, h: cross.size }
       : { x: cross.start, y: cursor, w: cross.size, h: size };
-    cursor += size + gap;
+    cursor += size + stackGapBetweenCm(theme, node, child, children[index + 1]);
     return { node: child, rect: childRect };
   });
   if (layered.length === 0) return flowOut;
@@ -5673,6 +7285,297 @@ function explicitSplitRatioWeights(node: DomNode, childCount: number): number[] 
   const total = values.reduce((sum, value) => sum + value, 0);
   if (total <= 0) return null;
   return values.map((value) => value / total);
+}
+
+function cassowaryLayoutRequested(node: DomNode): boolean {
+  if (node.constraintLayout === false) return false;
+  const mode = typeof node.layoutEngine === "string"
+    ? node.layoutEngine
+    : typeof node.layoutAlgorithm === "string"
+      ? node.layoutAlgorithm
+      : typeof node.layoutMode === "string"
+        ? node.layoutMode
+        : "";
+  const normalized = mode.toLowerCase();
+  if (normalized === "legacy" || normalized === "classic" || normalized === "local" || normalized === "flex") return false;
+  if (normalized === "cassowary" || normalized === "constraint" || normalized === "constraints") return true;
+  if (typeof process !== "undefined" && process.env?.SLIDEML2_LAYOUT_ENGINE === "legacy") return false;
+  return true;
+}
+
+function uniformStackGapCm(theme: SimpleTheme, parent: DomNode, children: DomNode[]): number | undefined {
+  if (children.length <= 1) return 0;
+  const first = stackGapBetweenCm(theme, parent, children[0], children[1]);
+  for (let index = 1; index < children.length - 1; index++) {
+    const gap = stackGapBetweenCm(theme, parent, children[index], children[index + 1]);
+    if (Math.abs(gap - first) > 0.001) return undefined;
+  }
+  return first;
+}
+
+function layoutStackChildrenWithCassowary(
+  theme: SimpleTheme,
+  node: DomNode,
+  rect: Rect,
+  children: DomNode[],
+  layered: DomNode[],
+  direction: "horizontal" | "vertical",
+  childSpecs: SizeSpec[],
+  explicitSplitRatio: number[] | null,
+  targetChildSizes: number[],
+): Array<{ node: DomNode; rect: Rect }> | undefined {
+  if (!cassowaryLayoutRequested(node)) return undefined;
+  const gap = uniformStackGapCm(theme, node, children);
+  if (gap === undefined) return undefined;
+  const autoFillSlack = direction === "horizontal" || explicitSplitRatio !== null;
+  const weights = explicitSplitRatio ?? childSpecs.map((spec) => ((spec.grow || autoFillSlack) && !spec.fixed) ? spec.weight : 0);
+  const shouldFill = explicitSplitRatio !== null || weights.some((weight) => weight > 0);
+  const cassowarySpecs = childSpecs.map((spec, index) => ({ ...spec, basis: targetChildSizes[index] ?? spec.basis }));
+  const specsById = new Map(children.map((child, index) => [child.id, cassowarySpecs[index]!] as const));
+  const solverNode: DomNode = stripContainerSelfSizingForChildLayout({
+    ...node,
+    gap,
+    padding: 0,
+    layoutPadding: 0,
+    fillLayout: shouldFill,
+    children: children.map((child, index) => ({
+      ...child,
+      layoutWeight: weights[index] ?? 0,
+    })),
+  });
+
+  try {
+    const result = solveDomConstraintLayout(solverNode, rect, {
+      maxDepth: 1,
+      stackWeightStrength: explicitSplitRatio ? "medium" : "weak",
+      measureNode: (measureNode, parentAxis) => {
+        if (measureNode.id === node.id) return undefined;
+        const spec = specsById.get(measureNode.id);
+        return spec ? sizePreferenceFromMainSpec(measureNode, parentAxis, spec) : undefined;
+      },
+    });
+    const totalMain = targetChildSizes.reduce((sum, size) => sum + size, 0) + totalStackGapCm(theme, node, children);
+    const parentMain = direction === "horizontal" ? rect.w : rect.h;
+    const slack = Math.max(0, parentMain - totalMain);
+    const justify = stringProp(node, "justify", "start");
+    const startOffset = !shouldFill && slack > 0.001
+      ? (justify === "center" || justify === "middle" ? slack / 2 : justify === "end" ? slack : 0)
+      : 0;
+    const flowOut = children.map((child) => {
+      const solved = result.rects.get(child.id);
+      if (!solved || !isFiniteRect(solved)) throw new Error(`Cassowary stack did not solve child '${child.id}'.`);
+      const mainSize = direction === "horizontal" ? solved.w : solved.h;
+      const cross = childCrossRect(theme, child, direction === "horizontal" ? rect.y : rect.x, direction === "horizontal" ? rect.h : rect.w, node, mainSize, direction);
+      const childRect = direction === "horizontal"
+        ? { x: solved.x + startOffset, y: cross.start, w: solved.w, h: cross.size }
+        : { x: cross.start, y: solved.y + startOffset, w: cross.size, h: solved.h };
+      if (currentSlideId) recordDecision(currentSlideId, child.id, { applied: "fit", notes: [`cassowary:${direction}`] });
+      return { node: child, rect: childRect };
+    });
+    pushCassowaryPressureDiagnostics(node, dedupeCassowaryPressures([
+      ...stackMainAxisPressures(direction, result.pressures),
+      ...stackCrossAxisPressures(direction, stackFinalSizePressures(children, flowOut, direction, childSpecs)),
+    ]));
+    return layered.length === 0 ? flowOut : [...flowOut, ...layered.map((child) => ({ node: child, rect }))];
+  } catch (error) {
+    if (currentSlideId) {
+      recordDecision(currentSlideId, node.id, { notes: [`cassowary-fallback:${error instanceof Error ? error.message : String(error)}`] });
+    }
+    return undefined;
+  }
+}
+
+function stripContainerSelfSizingForChildLayout(node: DomNode): DomNode {
+  const out: DomNode = { ...node };
+  delete out.minWidth;
+  delete out.idealWidth;
+  delete out.preferredWidth;
+  delete out.basisWidth;
+  delete out.maxWidth;
+  delete out.fixedWidth;
+  delete out.width;
+  delete out.minHeight;
+  delete out.idealHeight;
+  delete out.preferredHeight;
+  delete out.basisHeight;
+  delete out.maxHeight;
+  delete out.fixedHeight;
+  delete out.height;
+  delete out.basis;
+  return out;
+}
+
+interface CassowaryPressure {
+  nodeId: string;
+  constraint: string;
+  expected: number;
+  actual: number;
+  delta: number;
+}
+
+function stackMainAxisPressures(direction: "horizontal" | "vertical", pressures: CassowaryPressure[]): CassowaryPressure[] {
+  const mainConstraints = direction === "horizontal" ? new Set(["minW", "maxW"]) : new Set(["minH", "maxH"]);
+  return pressures.filter((pressure) => mainConstraints.has(pressure.constraint));
+}
+
+function stackCrossAxisPressures(direction: "horizontal" | "vertical", pressures: CassowaryPressure[]): CassowaryPressure[] {
+  const crossConstraints = direction === "horizontal" ? new Set(["minH", "maxH"]) : new Set(["minW", "maxW"]);
+  return pressures.filter((pressure) => crossConstraints.has(pressure.constraint));
+}
+
+function dedupeCassowaryPressures(pressures: CassowaryPressure[]): CassowaryPressure[] {
+  const seen = new Set<string>();
+  const out: CassowaryPressure[] = [];
+  for (const pressure of pressures) {
+    const key = `${pressure.nodeId}|${pressure.constraint}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(pressure);
+  }
+  return out;
+}
+
+function stackFinalSizePressures(
+  children: DomNode[],
+  flowOut: Array<{ node: DomNode; rect: Rect }>,
+  direction: "horizontal" | "vertical",
+  specs: SizeSpec[],
+): CassowaryPressure[] {
+  const rectById = new Map(flowOut.map((item) => [item.node.id, item.rect] as const));
+  const pressures: CassowaryPressure[] = [];
+  children.forEach((child, index) => {
+    const rect = rectById.get(child.id);
+    const spec = specs[index];
+    if (!rect || !spec) return;
+    const preference = sizePreferenceFromMainSpec(child, direction, spec);
+    pushMinPressure(pressures, child.id, "minW", preference.minW, rect.w);
+    pushMinPressure(pressures, child.id, "minH", preference.minH, rect.h);
+    pushMaxPressure(pressures, child.id, "maxW", preference.maxW, rect.w);
+    pushMaxPressure(pressures, child.id, "maxH", preference.maxH, rect.h);
+  });
+  return pressures;
+}
+
+function pushMinPressure(pressures: CassowaryPressure[], nodeId: string, constraint: string, expected: number | undefined, actual: number): void {
+  if (expected === undefined || !Number.isFinite(expected)) return;
+  const delta = expected - actual;
+  if (delta <= 0.04) return;
+  pressures.push({ nodeId, constraint, expected, actual, delta });
+}
+
+function pushMaxPressure(pressures: CassowaryPressure[], nodeId: string, constraint: string, expected: number | undefined, actual: number): void {
+  if (expected === undefined || !Number.isFinite(expected)) return;
+  const delta = actual - expected;
+  if (delta <= 0.04) return;
+  pressures.push({ nodeId, constraint, expected, actual, delta });
+}
+
+function sizePreferenceFromMainSpec(node: DomNode, parentAxis: "horizontal" | "vertical" | undefined, spec: SizeSpec): SizePreference {
+  const preference = explicitSizePreference(node);
+  const main = axisPreferenceFromSpec(spec);
+  if (parentAxis === "horizontal") {
+    delete preference.minW;
+    delete preference.idealW;
+    delete preference.maxW;
+    Object.assign(preference, {
+      minW: main.min,
+      idealW: main.ideal,
+      ...(main.max !== undefined ? { maxW: main.max } : {}),
+    });
+  } else if (parentAxis === "vertical") {
+    delete preference.minH;
+    delete preference.idealH;
+    delete preference.maxH;
+    Object.assign(preference, {
+      minH: main.min,
+      idealH: main.ideal,
+      ...(main.max !== undefined ? { maxH: main.max } : {}),
+    });
+  }
+  if (spec.fixed) {
+    preference.minStrength = "strong";
+    preference.idealStrength = "strong";
+    preference.maxStrength = "strong";
+  } else {
+    preference.minStrength = node.optional === true ? "medium" : "strong";
+    preference.idealStrength = node.optional === true ? "weak" : "medium";
+    preference.maxStrength = "strong";
+  }
+  return preference;
+}
+
+function axisPreferenceFromSpec(spec: SizeSpec): { min: number; ideal: number; max?: number } {
+  return {
+    min: spec.min,
+    ideal: spec.basis,
+    ...(Number.isFinite(spec.max) ? { max: spec.max } : {}),
+  };
+}
+
+function explicitSizePreference(node: DomNode): SizePreference {
+  const fixedW = optionalNumberProp(node, "fixedWidth") ?? optionalNumberProp(node, "width");
+  const fixedH = optionalNumberProp(node, "fixedHeight") ?? optionalNumberProp(node, "height");
+  const preference: SizePreference = {
+    ...(fixedW !== undefined ? { minW: fixedW, idealW: fixedW, maxW: fixedW } : explicitAxisPreference(node, "Width")),
+    ...(fixedH !== undefined ? { minH: fixedH, idealH: fixedH, maxH: fixedH } : explicitAxisPreference(node, "Height")),
+  };
+  if (fixedW !== undefined || fixedH !== undefined) {
+    preference.minStrength = "strong";
+    preference.idealStrength = "strong";
+    preference.maxStrength = "strong";
+  }
+  return preference;
+}
+
+function explicitAxisPreference(node: DomNode, suffix: "Width" | "Height"): SizePreference {
+  const min = optionalNumberProp(node, `min${suffix}`);
+  const ideal = optionalNumberProp(node, `ideal${suffix}`) ?? optionalNumberProp(node, `preferred${suffix}`) ?? optionalNumberProp(node, `basis${suffix}`);
+  const max = optionalNumberProp(node, `max${suffix}`);
+  if (suffix === "Width") {
+    return {
+      ...(min !== undefined ? { minW: min } : {}),
+      ...(ideal !== undefined ? { idealW: ideal } : {}),
+      ...(max !== undefined ? { maxW: max } : {}),
+    };
+  }
+  return {
+    ...(min !== undefined ? { minH: min } : {}),
+    ...(ideal !== undefined ? { idealH: ideal } : {}),
+    ...(max !== undefined ? { maxH: max } : {}),
+  };
+}
+
+function isFiniteRect(rect: Rect): boolean {
+  return Number.isFinite(rect.x) && Number.isFinite(rect.y) && Number.isFinite(rect.w) && Number.isFinite(rect.h) && rect.w >= -0.001 && rect.h >= -0.001;
+}
+
+function pushCassowaryPressureDiagnostics(
+  parent: DomNode,
+  pressures: Array<{ nodeId: string; constraint: string; expected: number; actual: number; delta: number }>,
+): void {
+  for (const pressure of pressures) {
+    if (isBenignCassowaryPressure(pressure)) continue;
+    pushDiagnostic({
+      severity: "warn",
+      code: "OVERFLOW",
+      slideId: currentSlideId || undefined,
+      nodeId: pressure.nodeId,
+      message: `Cassowary layout pressure in '${parent.id}': ${pressure.constraint} expected ${pressure.expected.toFixed(2)}cm, solved ${pressure.actual.toFixed(2)}cm.`,
+      suggestion: "Increase the region, relax fixed/min/max sizing, adjust layoutWeight/ratio, or move lower-priority content to another region.",
+      measured: {
+        available: pressure.actual,
+        needed: pressure.expected,
+        deltaCm: pressure.delta,
+        fitMethod: "cassowary-layout",
+      },
+    });
+  }
+}
+
+function isBenignCassowaryPressure(pressure: { nodeId: string; constraint: string; expected: number; actual: number }): boolean {
+  if (pressure.actual <= pressure.expected) return false;
+  if (!/\.value-wrap$/.test(pressure.nodeId)) return false;
+  return pressure.constraint === "maxH" || pressure.constraint === "fixedH";
 }
 
 function childCrossRect(theme: SimpleTheme, child: DomNode, parentCrossStart: number, parentCrossSize: number, parent: DomNode, mainSize: number, parentDirection: "horizontal" | "vertical"): { start: number; size: number } {
@@ -5820,6 +7723,101 @@ function computeGridPlacements(children: DomNode[], columns: number): GridPlacem
   return placements;
 }
 
+function layoutGridChildrenWithCassowary(
+  theme: SimpleTheme,
+  node: DomNode,
+  rect: Rect,
+  placements: GridPlacement[],
+  columns: number,
+  rows: number,
+  gap: number,
+  colWidths: number[],
+  rowHeights: number[],
+  layered: DomNode[],
+): Array<{ node: DomNode; rect: Rect }> | undefined {
+  if (!cassowaryLayoutRequested(node)) return undefined;
+  const measurementById = new Map<string, SizePreference>();
+  for (const placement of placements) {
+    const width = spannedSize(colWidths, placement.col, placement.colSpan, gap);
+    const height = spannedSize(rowHeights, placement.row, placement.rowSpan, gap);
+    measurementById.set(placement.child.id, gridChildSizePreference(theme, placement.child, width, height));
+  }
+  const solverNode: DomNode = stripContainerSelfSizingForChildLayout({
+    ...node,
+    gap,
+    padding: 0,
+    layoutPadding: 0,
+    columns,
+    rows,
+    columnWeights: trackWeightsFromSizes(colWidths),
+    rowWeights: trackWeightsFromSizes(rowHeights),
+    children: placements.map((placement) => ({
+      ...placement.child,
+      row: placement.row,
+      col: placement.col,
+      rowSpan: placement.rowSpan,
+      colSpan: placement.colSpan,
+    })),
+  });
+
+  try {
+    const result = solveDomConstraintLayout(solverNode, rect, {
+      maxDepth: 1,
+      gridTrackStrength: "strong",
+      measureNode: (measureNode) => {
+        if (measureNode.id === node.id) return undefined;
+        return measurementById.get(measureNode.id) ?? explicitSizePreference(measureNode);
+      },
+    });
+    if (result.pressures.some((pressure) => (pressure.constraint === "minW" || pressure.constraint === "minH") && pressure.delta > 0.04)) {
+      return undefined;
+    }
+    const flowOut = placements.map(({ child }) => {
+      const solved = result.rects.get(child.id);
+      if (!solved || !isFiniteRect(solved)) throw new Error(`Cassowary grid did not solve child '${child.id}'.`);
+      if (currentSlideId) recordDecision(currentSlideId, child.id, { applied: "fit", notes: ["cassowary:grid"] });
+      return { node: child, rect: solved };
+    });
+    pushCassowaryPressureDiagnostics(node, result.pressures);
+    return layered.length === 0 ? flowOut : [...flowOut, ...layered.map((child) => ({ node: child, rect }))];
+  } catch (error) {
+    if (currentSlideId) {
+      recordDecision(currentSlideId, node.id, { notes: [`cassowary-fallback:${error instanceof Error ? error.message : String(error)}`] });
+    }
+    return undefined;
+  }
+}
+
+function gridChildSizePreference(theme: SimpleTheme, node: DomNode, width: number, height: number): SizePreference {
+  const fixedW = optionalNumberProp(node, "fixedWidth") ?? optionalNumberProp(node, "width");
+  const fixedH = optionalNumberProp(node, "fixedHeight") ?? optionalNumberProp(node, "height");
+  const preference = explicitSizePreference(node);
+  if (fixedW === undefined && preference.minW === undefined) preference.minW = intrinsicMinSize(theme, node, "horizontal", Math.max(0.2, height));
+  if (fixedW === undefined && preference.idealW === undefined) {
+    const explicitBasisW = optionalNumberProp(node, "basisWidth") ?? optionalNumberProp(node, "basis");
+    if (explicitBasisW !== undefined) preference.idealW = explicitBasisW;
+  }
+  if (fixedH === undefined && preference.minH === undefined) preference.minH = intrinsicMinSize(theme, node, "vertical", Math.max(0.2, width));
+  if (fixedH === undefined && preference.idealH === undefined) {
+    const explicitBasisH = optionalNumberProp(node, "basisHeight") ?? optionalNumberProp(node, "basis");
+    preference.idealH = explicitBasisH ?? intrinsicMainSize(theme, node, "vertical", Math.max(0.2, width));
+  }
+  return preference;
+}
+
+function spannedSize(sizes: number[], start: number, span: number, gap: number): number {
+  let total = 0;
+  for (let index = 0; index < span; index++) total += sizes[start + index] || 0;
+  return total + gap * Math.max(0, span - 1);
+}
+
+function trackWeightsFromSizes(sizes: number[]): number[] | undefined {
+  if (sizes.length === 0) return undefined;
+  const positive = sizes.map((size) => Number.isFinite(size) && size > 0 ? size : 0);
+  if (positive.every((size) => size <= 0)) return undefined;
+  return positive;
+}
+
 function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Array<{ node: DomNode; rect: Rect }> {
   const allChildren = node.children || [];
   if (allChildren.length === 0) return [];
@@ -5831,17 +7829,19 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
     return layered.map((c) => ({ node: c, rect }));
   }
   const columns = Math.max(1, numberProp(node, "columns", 2));
-  const gap = gapCm(theme, node);
+  const gap = gridGapCm(theme, node, flowOnly, columns);
   const availableWidth = Math.max(0, rect.w - gap * (columns - 1));
-  const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
-  const children = prepareGridChildrenForLayout(theme, node, flowOnly, columns, colWidths, gap);
+  const colWidths = gridColumnTrackTargets(node, columns, availableWidth);
+  const children = prepareGridChildrenForLayout(theme, node, flowOnly, columns, colWidths, gap, rect);
   const placements = computeGridPlacements(children, columns);
   const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
   const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
   const rows = Math.max(1, declaredRows, usedRows);
   const availableHeight = Math.max(0, rect.h - gap * (rows - 1));
   const colX = positionsFromSizes(rect.x, gap, colWidths);
-  const rowHeights = resolveGridRowHeights(theme, placements, columns, rows, availableHeight, colWidths, gap, node.rowWeights);
+  const rowHeights = resolveGridRowHeights(theme, placements, rows, availableHeight, colWidths, gap, node.rowWeights);
+  const constrained = layoutGridChildrenWithCassowary(theme, node, rect, placements, columns, rows, gap, colWidths, rowHeights, layered);
+  if (constrained) return constrained;
   const rowY = positionsFromSizes(rect.y, gap, rowHeights);
   const flowOut = placements.map(({ child, row, col, rowSpan, colSpan }) => {
     const x = colX[col]!.start;
@@ -5858,31 +7858,769 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
   return [...flowOut, ...layered.map((c) => ({ node: c, rect }))];
 }
 
-function prepareGridChildrenForLayout(theme: SimpleTheme, node: DomNode, children: DomNode[], columns: number, colWidths: number[], gap: number): DomNode[] {
-  if (node.role !== "kpi-grid" || children.length === 0) return children;
+function prepareGridChildrenForLayout(theme: SimpleTheme, node: DomNode, children: DomNode[], columns: number, colWidths: number[], gap: number, rect?: Rect): DomNode[] {
+  const flowChildren = normalizeRepeatedSemanticCohorts(
+    theme,
+    node,
+    normalizeSingleColumnShapeFlowChildren(children, columns, colWidths[0] || 6),
+    {
+      kind: "grid",
+      columns,
+      colWidths,
+      gap,
+      containerRect: rect,
+      slideId: currentSlideId || undefined,
+    },
+  );
+  if (flowChildren.length === 0) return flowChildren;
+  children = flowChildren;
   const placements = computeGridPlacements(children, columns);
+  const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
+  const usedRows = placements.reduce((max, p) => Math.max(max, p.row + p.rowSpan), 0);
+  const rows = Math.max(1, declaredRows, usedRows);
+  const availableHeight = rect ? Math.max(0, rect.h - gap * (rows - 1)) : 0;
+  const estimatedRowHeights = rect
+    ? normalizeTrackWeights(node.rowWeights, rows).map((weight) => availableHeight * weight)
+    : [];
   let valueBandHeight = 0;
+  let labelBandHeight = 0;
   const valueMinById = new Map<string, number>();
+  const labelMinById = new Map<string, number>();
+  const cardHeightById = new Map<string, number>();
 
   for (const placement of placements) {
     if (findMetricValueNode(placement.child) === undefined) continue;
     let cellWidth = 0;
     for (let i = 0; i < placement.colSpan; i++) cellWidth += colWidths[placement.col + i] || 0;
     if (placement.colSpan > 1) cellWidth += gap * (placement.colSpan - 1);
-    const measured = measuredMetricValueBand(theme, placement.child, cellWidth);
+    if (estimatedRowHeights.length > 0) {
+      cardHeightById.set(placement.child.id, spannedSize(estimatedRowHeights, placement.row, placement.rowSpan, gap));
+    }
+    const measured = measuredMetricBands(theme, placement.child, cellWidth);
     if (!measured) continue;
-    valueBandHeight = Math.max(valueBandHeight, measured.bandHeight);
-    valueMinById.set(placement.child.id, measured.textMinHeight);
+    valueBandHeight = Math.max(valueBandHeight, measured.valueBandHeight);
+    valueMinById.set(placement.child.id, measured.valueTextMinHeight);
+    if (measured.labelBandHeight !== undefined) {
+      labelBandHeight = Math.max(labelBandHeight, measured.labelBandHeight);
+      labelMinById.set(placement.child.id, measured.labelTextMinHeight ?? measured.labelBandHeight);
+    }
   }
 
-  if (valueBandHeight <= 0) return children;
+  if (valueBandHeight <= 0 && labelBandHeight <= 0) return children;
   return children.map((child) => {
     const textMinHeight = valueMinById.get(child.id);
-    return textMinHeight === undefined ? child : withMeasuredMetricValueBand(child, valueBandHeight, textMinHeight);
+    const labelMinHeight = labelMinById.get(child.id);
+    return textMinHeight === undefined && labelMinHeight === undefined
+      ? child
+      : withMeasuredMetricBands(theme, child, {
+        valueBandHeight: textMinHeight === undefined ? undefined : valueBandHeight,
+        valueTextMinHeight: textMinHeight,
+        labelBandHeight: labelMinHeight === undefined ? undefined : labelBandHeight,
+        labelTextMinHeight: labelMinHeight,
+        cardHeight: cardHeightById.get(child.id),
+        cohortSize: valueMinById.size,
+      });
   });
 }
 
-function measuredMetricValueBand(theme: SimpleTheme, metricCardNode: DomNode, cellWidth: number): { bandHeight: number; textMinHeight: number } | undefined {
+type SemanticCohortKind = "slide" | "stack" | "grid";
+
+interface SemanticCohortContext {
+  kind: SemanticCohortKind;
+  direction?: "horizontal" | "vertical";
+  containerRect?: Rect;
+  columns?: number;
+  colWidths?: number[];
+  gap?: number;
+  rectsById?: Map<string, Rect>;
+  slideId?: string;
+}
+
+interface SemanticCohortMember {
+  node: DomNode;
+  rect?: Rect;
+}
+
+interface SemanticCohortSlotFont {
+  min: number;
+  max: number;
+}
+
+const SEMANTIC_COHORT_EXCLUDED_ROLES = new Set([
+  "badge",
+  "bullets",
+  "eyebrow",
+  "kpi-grid",
+  "legend",
+  "logo-strip",
+  "metric-card",
+  "progress-bar",
+  "source-note",
+  "tag-list",
+  "text",
+  "timeline-item-row",
+  "timeline-step",
+]);
+
+const SLIDE_WIDE_SEMANTIC_COHORT_ROLES = new Set([
+  "analytic-table",
+  "callout",
+  "comparison-card",
+  "comparison-table",
+  "definition-card",
+  "explanation-block",
+  "feature-card",
+  "hero-stat",
+  "icon-text",
+  "insight-card",
+  "key-takeaway",
+  "numbered-step",
+  "pricing-card",
+  "profile-card",
+  "quote",
+  "region-card",
+  "roadmap-item",
+  "scorecard-item",
+  "table-card",
+  "step-card",
+  "takeaway-item",
+  "warning-list",
+]);
+
+const TABLE_LIKE_COMPONENT_ROLES = new Set(["table-card", "analytic-table", "comparison-table"]);
+
+const BUDGETABLE_EVIDENCE_ROLES = new Set([
+  "analytic-table",
+  "chart-card",
+  "code-block",
+  "comparison-table",
+  "image-card",
+  "table-card",
+]);
+
+const SEMANTIC_COHORT_PRESSURE_PADDING_ROLES = new Set([
+  "callout",
+  "definition-card",
+  "explanation-block",
+  "feature-card",
+  "insight-card",
+  "key-takeaway",
+  "quote",
+  "region-card",
+  "takeaway-item",
+  "warning-list",
+]);
+
+const SEMANTIC_COHORT_BODY_SLOTS = new Set(["body", "bullets", "detail", "description", "quote", "summary", "text"]);
+
+function normalizeAuthoredSemanticCohorts(theme: SimpleTheme, root: DomNode): DomNode {
+  return normalizeSemanticCohortsInTree(theme, root);
+}
+
+function normalizeMeasuredSemanticCohorts(theme: SimpleTheme, root: DomNode, rectsById: Map<string, Rect>, slideId: string): DomNode {
+  const groups = new Map<string, SemanticCohortMember[]>();
+  collectMeasuredSemanticCohortMembers(root, rectsById, groups);
+  const replacements = new Map<string, DomNode>();
+  for (const members of groups.values()) {
+    const role = semanticCohortRole(members[0]!.node);
+    if (members.length < 2 || members.length > 12 || !SLIDE_WIDE_SEMANTIC_COHORT_ROLES.has(role)) continue;
+    const normalized = normalizeSemanticCohortMembers(theme, role, members, { kind: "slide", rectsById, slideId });
+    for (const [id, node] of normalized) replacements.set(id, node);
+  }
+  return replacements.size > 0 ? rewriteDomNodesById(root, replacements) : root;
+}
+
+function normalizeSemanticCohortsInTree(theme: SimpleTheme, node: DomNode): DomNode {
+  if (!Array.isArray(node.children) || node.children.length === 0) return node;
+  let childChanged = false;
+  const children = node.children.map((child) => {
+    const next = normalizeSemanticCohortsInTree(theme, child);
+    if (next !== child) childChanged = true;
+    return next;
+  });
+  const normalized = normalizeRepeatedSemanticCohorts(theme, node, children, { kind: "slide", slideId: currentSlideId || undefined });
+  return normalized === children && !childChanged ? node : { ...node, children: normalized };
+}
+
+function collectMeasuredSemanticCohortMembers(node: DomNode, rectsById: Map<string, Rect>, groups: Map<string, SemanticCohortMember[]>): void {
+  collectDirectMeasuredSemanticCohortMembers(node, rectsById, groups);
+  collectStructuralPeerSemanticCohortMembers(node, rectsById, groups);
+  for (const child of node.children || []) {
+    if (semanticCohortRole(child)) continue;
+    collectMeasuredSemanticCohortMembers(child, rectsById, groups);
+  }
+}
+
+function collectDirectMeasuredSemanticCohortMembers(node: DomNode, rectsById: Map<string, Rect>, groups: Map<string, SemanticCohortMember[]>): void {
+  for (const child of flowChildren(node)) {
+    const role = semanticCohortRole(child);
+    if (!role || !SLIDE_WIDE_SEMANTIC_COHORT_ROLES.has(role) || componentElasticityClass(child, role) !== "elastic") continue;
+    addMeasuredSemanticCohortMember(groups, `direct:${node.id}|${role}|${semanticCohortSettingsKey(child)}`, child, rectsById);
+  }
+}
+
+function collectStructuralPeerSemanticCohortMembers(node: DomNode, rectsById: Map<string, Rect>, groups: Map<string, SemanticCohortMember[]>): void {
+  const regions = flowChildren(node).filter((child) => !semanticCohortRole(child) && flowChildren(child).length > 0);
+  if (regions.length < 2) return;
+  const regionGroups = new Map<string, DomNode[]>();
+  for (const region of regions) {
+    const key = `${semanticPeerRegionKey(region)};footprint=${semanticPeerRegionFootprintKey(rectsById.get(region.id))}`;
+    const group = regionGroups.get(key) || [];
+    group.push(region);
+    regionGroups.set(key, group);
+  }
+  for (const [regionKey, peerRegions] of regionGroups) {
+    if (peerRegions.length < 2) continue;
+    for (const region of peerRegions) {
+      const slots: Array<{ path: string; node: DomNode }> = [];
+      collectSemanticPeerSlots(region, slots);
+      for (const slot of slots) {
+        const role = semanticCohortRole(slot.node);
+        if (!role || !SLIDE_WIDE_SEMANTIC_COHORT_ROLES.has(role) || componentElasticityClass(slot.node, role) !== "elastic") continue;
+        addMeasuredSemanticCohortMember(groups, `slot:${node.id}|${regionKey}|${slot.path}|${role}|${semanticCohortSettingsKey(slot.node)}`, slot.node, rectsById);
+      }
+    }
+  }
+}
+
+function addMeasuredSemanticCohortMember(groups: Map<string, SemanticCohortMember[]>, key: string, node: DomNode, rectsById: Map<string, Rect>): void {
+  const rect = rectsById.get(node.id);
+  if (!rect) return;
+  const group = groups.get(key) || [];
+  group.push({ node, rect });
+  groups.set(key, group);
+}
+
+function semanticPeerRegionKey(node: DomNode): string {
+  return [
+    `type=${node.type}`,
+    `role=${stringSetting(regionCapacityRole(node))}`,
+    `direction=${stringSetting(node.direction)}`,
+    `area=${stringSetting(node.area)}`,
+    `anchor=${stringSetting(node.anchor)}`,
+    `cohortScope=${stringSetting(node.cohortScope ?? node.__cohortScope)}`,
+    `layoutWeight=${numberSetting(node.layoutWeight)}`,
+    `width=${numberSetting(node.width)}`,
+    `height=${numberSetting(node.height)}`,
+    `fixedWidth=${numberSetting(node.fixedWidth)}`,
+    `fixedHeight=${numberSetting(node.fixedHeight)}`,
+    `minWidth=${numberSetting(node.minWidth)}`,
+    `minHeight=${numberSetting(node.minHeight)}`,
+    `colSpan=${numberSetting(node.colSpan)}`,
+    `rowSpan=${numberSetting(node.rowSpan)}`,
+    `at=${tupleSetting(node.at)}`,
+  ].join(";");
+}
+
+function semanticPeerRegionFootprintKey(rect?: Rect): string {
+  if (!rect) return "unmeasured";
+  const bucket = (value: number) => String(Math.round(Math.max(0, value) * 10) / 10);
+  return `w=${bucket(rect.w)};h=${bucket(rect.h)}`;
+}
+
+function collectSemanticPeerSlots(node: DomNode, out: Array<{ path: string; node: DomNode }>, depth = 0, counters: Map<string, number> = new Map()): void {
+  if (depth > 8) return;
+  for (const child of flowChildren(node)) {
+    const role = semanticCohortRole(child);
+    if (role) {
+      const explicit = semanticCohortAuthoredSlot(child);
+      const base = explicit || `${role}|${semanticCohortSettingsKey(child)}`;
+      const index = counters.get(base) || 0;
+      counters.set(base, index + 1);
+      out.push({ path: explicit || `${base}#${index}`, node: child });
+      continue;
+    }
+    if (flowChildren(child).length > 0) collectSemanticPeerSlots(child, out, depth + 1, counters);
+  }
+}
+
+function normalizeRepeatedSemanticCohorts(theme: SimpleTheme, parent: DomNode, children: DomNode[], context: SemanticCohortContext): DomNode[] {
+  if (children.length < 2) return children;
+  const rects = estimateSemanticCohortMemberRects(theme, parent, children, context);
+  const groups = new Map<string, SemanticCohortMember[]>();
+  for (const child of children) {
+    const role = semanticCohortRole(child);
+    if (!role || componentElasticityClass(child, role) !== "elastic") continue;
+    const member = { node: child, rect: rects.get(child.id) };
+    const groupKey = `${role}|${semanticCohortSettingsKey(child)}`;
+    const group = groups.get(groupKey) || [];
+    group.push(member);
+    groups.set(groupKey, group);
+  }
+  const replacements = new Map<string, DomNode>();
+  for (const members of groups.values()) {
+    const role = semanticCohortRole(members[0]!.node);
+    if (members.length < 2) continue;
+    const normalized = normalizeSemanticCohortMembers(theme, role, members, context);
+    for (const [id, node] of normalized) replacements.set(id, node);
+  }
+  if (replacements.size === 0) return children;
+  return children.map((child) => replacements.get(child.id) || child);
+}
+
+function semanticCohortRole(node: DomNode): string {
+  const role = regionCapacityRole(node);
+  if (!role || SEMANTIC_COHORT_EXCLUDED_ROLES.has(role)) return "";
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role)) return role;
+  if (!TEXT_FIRST_REGION_ROLES.has(role)) return "";
+  if (node.type === "text" || node.type === "bullets" || node.type === "spacer" || node.type === "divider") return "";
+  return role;
+}
+
+function estimateSemanticCohortMemberRects(theme: SimpleTheme, parent: DomNode, children: DomNode[], context: SemanticCohortContext): Map<string, Rect> {
+  const out = new Map<string, Rect>();
+  const rect = context.containerRect;
+  if (!rect || children.length === 0) return out;
+  if (context.kind === "grid") {
+    const columns = Math.max(1, context.columns || 1);
+    const gap = Math.max(0, context.gap || 0);
+    const colWidths = context.colWidths && context.colWidths.length > 0 ? context.colWidths : new Array(columns).fill(Math.max(0, (rect.w - gap * (columns - 1)) / columns));
+    const placements = computeGridPlacements(children, columns);
+    const declaredRows = Math.max(0, Math.floor(numberProp(parent, "rows", 0)));
+    const usedRows = placements.reduce((max, placement) => Math.max(max, placement.row + placement.rowSpan), 0);
+    const rows = Math.max(1, declaredRows, usedRows);
+    const availableHeight = Math.max(0, rect.h - gap * (rows - 1));
+    const rowHeight = rows > 0 ? availableHeight / rows : 0;
+    for (const placement of placements) {
+      const w = spannedSize(colWidths, placement.col, placement.colSpan, gap) || colWidths[placement.col] || rect.w;
+      const h = rowHeight * placement.rowSpan + gap * Math.max(0, placement.rowSpan - 1);
+      out.set(placement.child.id, { x: rect.x, y: rect.y, w, h });
+    }
+    return out;
+  }
+  if (context.kind === "stack") {
+    const direction = context.direction === "horizontal" ? "horizontal" : "vertical";
+    const availableMain = Math.max(0, (direction === "horizontal" ? rect.w : rect.h) - totalStackGapCm(theme, parent, children));
+    const crossSize = direction === "horizontal" ? rect.h : rect.w;
+    const explicitSplitRatio = explicitSplitRatioWeights(parent, children.length);
+    const specs = children.map((child, index) => {
+      const spec = childMainSpec(theme, child, direction, crossSize);
+      if (!explicitSplitRatio || spec.fixed) return spec;
+      const target = availableMain * explicitSplitRatio[index]!;
+      return {
+        ...spec,
+        basis: clamp(target, spec.min, spec.max),
+        weight: Math.max(0.0001, explicitSplitRatio[index]!),
+        grow: true,
+      };
+    });
+    const sizes = resolveFlexMainTargets(specs, availableMain, { autoFillSlack: direction === "horizontal" });
+    const itemGap = children.length > 1 ? totalStackGapCm(theme, parent, children) / (children.length - 1) : 0;
+    let cursor = direction === "horizontal" ? rect.x : rect.y;
+    for (let index = 0; index < children.length; index++) {
+      const child = children[index]!;
+      const main = Math.max(0, sizes[index] ?? 0);
+      out.set(child.id, direction === "horizontal"
+        ? { x: cursor, y: rect.y, w: main, h: rect.h }
+        : { x: rect.x, y: cursor, w: rect.w, h: main });
+      cursor += main + itemGap;
+    }
+  }
+  return out;
+}
+
+function semanticCohortSettingsKey(node: DomNode): string {
+  const slots: string[] = [];
+  collectSemanticCohortSlots(node, slots);
+  return [
+    `sourceType=${stringSetting(node.__cohortSourceType ?? node.type)}`,
+    `variant=${stringSetting(node.__cohortSourceVariant ?? node.variant)}`,
+    `density=${stringSetting(node.__cohortSourceDensity ?? node.density)}`,
+    `cohortGroup=${stringSetting(node.__cohortGroup ?? node.cohortGroup)}`,
+    `cohortScope=${stringSetting(node.__cohortScope ?? node.cohortScope)}`,
+    `direction=${stringSetting(node.direction)}`,
+    `columns=${numberSetting(node.columns)}`,
+    `rows=${numberSetting(node.rows)}`,
+    `layoutWeight=${numberSetting(node.layoutWeight)}`,
+    `basis=${numberSetting(node.basis)}`,
+    `basisWidth=${numberSetting(node.basisWidth)}`,
+    `basisHeight=${numberSetting(node.basisHeight)}`,
+    `preferredWidth=${numberSetting(node.preferredWidth)}`,
+    `preferredHeight=${numberSetting(node.preferredHeight)}`,
+    `idealWidth=${numberSetting(node.idealWidth)}`,
+    `idealHeight=${numberSetting(node.idealHeight)}`,
+    `width=${numberSetting(node.width)}`,
+    `height=${numberSetting(node.height)}`,
+    `fixedWidth=${numberSetting(node.fixedWidth)}`,
+    `fixedHeight=${numberSetting(node.fixedHeight)}`,
+    `minWidth=${numberSetting(node.minWidth)}`,
+    `minHeight=${numberSetting(node.minHeight)}`,
+    `maxWidth=${numberSetting(node.maxWidth)}`,
+    `maxHeight=${numberSetting(node.maxHeight)}`,
+    `row=${numberSetting(node.row)}`,
+    `col=${numberSetting(node.col)}`,
+    `rowSpan=${numberSetting(node.rowSpan)}`,
+    `colSpan=${numberSetting(node.colSpan)}`,
+    `area=${stringSetting(node.area)}`,
+    `anchor=${stringSetting(node.anchor)}`,
+    `at=${tupleSetting(node.at)}`,
+    `slots=${slots.join(",")}`,
+  ].join(";");
+}
+
+function semanticCohortAuthoredSlot(node: DomNode): string {
+  const explicit = node.__cohortSlot ?? node.cohortSlot;
+  return typeof explicit === "string" && explicit.trim() ? explicit.trim() : "";
+}
+
+function collectSemanticCohortSlots(node: DomNode, out: string[]): void {
+  if (node.type === "table") {
+    out.push(tableCohortSlotKey(node));
+    return;
+  }
+  const slot = semanticTextSlot(node);
+  if (slot && (node.type === "text" || node.type === "bullets")) {
+    out.push(`${node.type}:${slot}`);
+    return;
+  }
+  for (const child of node.children || []) collectSemanticCohortSlots(child, out);
+}
+
+function tableCohortSlotKey(node: DomNode): string {
+  const sourceRows = tableSourceRows(node);
+  const columnModel = tableColumnModel(node, sourceRows);
+  const bodyRows = tableRowsFromNode(sourceRows, columnModel.columnDefs);
+  const headerCount = columnModel.headers.length > 0 ? 1 : 0;
+  const colCount = Math.max(1, columnModel.headers.length, ...bodyRows.map((row) => row.length));
+  return `table:rows=${headerCount + bodyRows.length};cols=${colCount};density=${tableDensity(node.density)}`;
+}
+
+function stringSetting(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value.trim() : "-";
+}
+
+function numberSetting(value: unknown): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(Math.round(value * 100) / 100) : "-";
+}
+
+function tupleSetting(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return "-";
+  return value.map((item) => numberSetting(item)).join(",");
+}
+
+function normalizeSemanticCohortMembers(theme: SimpleTheme, role: string, members: SemanticCohortMember[], context: SemanticCohortContext): Map<string, DomNode> {
+  const replacements = new Map<string, DomNode>();
+  const slotFonts = semanticCohortSlotFonts(theme, members, context.rectsById);
+  if (slotFonts.size === 0) return replacements;
+  const scale = semanticCohortCompressionScaleForMembers(theme, role, members);
+  const needsTypographyNormalization = Array.from(slotFonts.values()).some((font) => font.max > font.min + 0.25);
+  const needsUpdate = needsTypographyNormalization || scale < 0.985 || semanticCohortMembersNeedUpdate(theme, members, slotFonts, scale);
+  if (!needsUpdate) return replacements;
+  for (const member of members) {
+    replacements.set(member.node.id, withSemanticCohortTypography(theme, member.node, slotFonts, scale, member.rect));
+  }
+  const decisionSlideId = context.slideId || currentSlideId;
+  if (decisionSlideId && replacements.size > 0) {
+    for (const member of members) {
+      recordDecision(decisionSlideId, member.node.id, {
+        notes: [`semantic-cohort:role=${role},count=${members.length},scale=${scale.toFixed(3)},scope=${context.kind}`],
+      });
+    }
+  }
+  return replacements;
+}
+
+function semanticCohortMembersNeedUpdate(theme: SimpleTheme, members: SemanticCohortMember[], slotFonts: Map<string, SemanticCohortSlotFont>, scale: number): boolean {
+  let needs = false;
+  const visit = (node: DomNode, rect?: Rect): void => {
+    if (needs) return;
+    const slot = semanticTextSlot(node);
+    if (slot && (node.type === "text" || node.type === "bullets")) {
+      const target = semanticCohortTargetFontSize(theme, node, slot, slotFonts, scale);
+      const actual = semanticActualNodeFontSize(theme, node);
+      if (Math.abs(target - actual) > 0.2) {
+        needs = true;
+        return;
+      }
+    }
+    if (node.type === "table" && semanticCohortTableNeedsUpdate(theme, node, slotFonts, scale)) {
+      needs = true;
+      return;
+    }
+    if (semanticCohortRole(node) && semanticCohortChromeNeedsUpdate(theme, node, scale, rect)) {
+      needs = true;
+      return;
+    }
+    for (const child of node.children || []) visit(child);
+  };
+  for (const member of members) visit(member.node, member.rect);
+  return needs;
+}
+
+function semanticCohortCompressionScaleForMembers(theme: SimpleTheme, role: string, members: SemanticCohortMember[]): number {
+  let scale = 1;
+  for (const member of members) {
+    if (!member.rect || member.rect.w <= 0 || member.rect.h <= 0) continue;
+    const needed = intrinsicMainSize(theme, member.node, "vertical", member.rect.w);
+    if (needed > member.rect.h + 0.04) {
+      scale = Math.min(scale, semanticCohortCompressionScale(role, member.rect.h, needed));
+    }
+  }
+  return scale;
+}
+
+function semanticCohortCompressionScale(role: string, availableHeight: number, neededHeight: number): number {
+  if (!Number.isFinite(availableHeight) || !Number.isFinite(neededHeight) || neededHeight <= 0) return 1;
+  const raw = availableHeight / neededHeight;
+  if (raw >= 0.76) return clamp(1 - (1 - raw) * 0.45, 0.84, 1);
+  const floor = role === "quote" ? 0.74 : role === "metric-card" || role === "hero-stat" ? 0.72 : 0.785;
+  return clamp(raw, floor, 1);
+}
+
+function semanticCohortSlotFonts(theme: SimpleTheme, members: SemanticCohortMember[], rectsById?: Map<string, Rect>): Map<string, SemanticCohortSlotFont> {
+  const slots = new Map<string, SemanticCohortSlotFont>();
+  const upsert = (slot: string, fontSize: number): void => {
+    if (fontSize <= 0) return;
+    const prev = slots.get(slot);
+    slots.set(slot, prev ? { min: Math.min(prev.min, fontSize), max: Math.max(prev.max, fontSize) } : { min: fontSize, max: fontSize });
+  };
+  const visit = (node: DomNode): void => {
+    if (node.type === "table") {
+      const fonts = semanticTableSlotFonts(theme, node);
+      upsert("table-header", fonts.header);
+      upsert("table-cell", fonts.cell);
+      return;
+    }
+    const slot = semanticTextSlot(node);
+    if (slot) {
+      const fontSize = semanticNodeFontSize(theme, node, rectsById?.get(node.id));
+      upsert(slot, fontSize);
+    }
+    for (const child of node.children || []) visit(child);
+  };
+  for (const member of members) visit(member.node);
+  return slots;
+}
+
+function semanticTableSlotFonts(theme: SimpleTheme, node: DomNode): { header: number; cell: number } {
+  const density = tableDensity(node.density);
+  const scale = optionalNumberProp(node, "fontScale") ?? 1;
+  return {
+    header: tableTextStyle(theme, true, density, scale).fontSize,
+    cell: tableTextStyle(theme, false, density, scale).fontSize,
+  };
+}
+
+function semanticNodeFontSize(theme: SimpleTheme, node: DomNode, rect?: Rect): number {
+  if (!rect) return semanticActualNodeFontSize(theme, node);
+  const baseFontSize = semanticBaseNodeFontSize(theme, node);
+  if (node.type === "bullets") {
+    const base = { ...bulletsAuthoredStyle(theme, node), fontSize: baseFontSize };
+    return fitBulletsStyleForReadableFit(theme, node, base, rect, { emitDiagnostics: false }).fontSize;
+  }
+  if (node.type !== "text") return 0;
+  const base = { ...effectiveTextStyle(theme, node, "paragraph"), fontSize: baseFontSize };
+  return measuredTextStyleForInk(theme, node, rect, base).fontSize;
+}
+
+function semanticBaseNodeFontSize(theme: SimpleTheme, node: DomNode): number {
+  const recorded = optionalNumberProp(node, "__semanticCohortBaseFontSize");
+  if (recorded !== undefined && recorded > 0) return recorded;
+  return semanticActualNodeFontSize(theme, node);
+}
+
+function semanticActualNodeFontSize(theme: SimpleTheme, node: DomNode): number {
+  if (node.type === "bullets") return bulletsAuthoredStyle(theme, node).fontSize;
+  if (node.type === "text") return effectiveTextStyle(theme, node, "paragraph").fontSize;
+  return 0;
+}
+
+function semanticTextSlot(node: DomNode): string | undefined {
+  if (node.type === "bullets") return "bullets";
+  if (node.type !== "text") return undefined;
+  const explicit = typeof node.__cohortSlot === "string" ? node.__cohortSlot : typeof node.cohortSlot === "string" ? node.cohortSlot : typeof node.slot === "string" ? node.slot : "";
+  if (explicit.trim()) return explicit.trim();
+  const id = typeof node.id === "string" ? node.id.toLowerCase() : "";
+  const suffix = id.split(".").pop() || id;
+  if (/^(headline|heading|hero|h1)$/.test(suffix)) return "headline";
+  if (/^(title|titlerow|title-row|h2|question)$/.test(suffix)) return "title";
+  if (/^(subtitle|subhead|eyebrow|label|caption|source|footer|delta|status|proof|tag|badge|meta|unit)$/.test(suffix)) return suffix;
+  if (/^(value|metric|number|figure|stat)$/.test(suffix)) return "value";
+  if (/^(body|detail|description|summary|text|message|content|copy|lead|answer|quote)$/.test(suffix)) return suffix === "quote" ? "quote" : suffix === "description" ? "description" : suffix === "summary" ? "summary" : suffix === "detail" ? "detail" : "body";
+  const styleKey = textStyleKey(node);
+  if (styleKey === "metric-value") return "value";
+  if (styleKey === "metric-label" || styleKey === "label" || styleKey === "caption" || styleKey === "source-note" || styleKey === "badge" || styleKey === "tag") return styleKey;
+  if (styleKey === "section-title" || styleKey === "slide-title" || styleKey === "card-title" || styleKey === "title") return "title";
+  if (styleKey === "quote" || styleKey === "callout" || styleKey === "lead" || BODY_LIKE_TEXT_STYLES.has(styleKey)) return "body";
+  return undefined;
+}
+
+function withSemanticCohortTypography(theme: SimpleTheme, node: DomNode, slotFonts: Map<string, SemanticCohortSlotFont>, scale: number, rect?: Rect): DomNode {
+  const container = semanticCohortRole(node) ? withSemanticCohortChromeCompression(theme, node, scale, rect) : node;
+  const slot = semanticTextSlot(node);
+  if (slot && (node.type === "text" || node.type === "bullets")) {
+    const baseFont = semanticBaseNodeFontSize(theme, node);
+    const targetFont = semanticCohortTargetFontSize(theme, node, slot, slotFonts, scale);
+    const textScale = baseFont > 0 ? targetFont / baseFont : scale;
+    const minHeight = optionalNumberProp(node, "__semanticCohortBaseMinHeight") ?? optionalNumberProp(node, "minHeight");
+    const { fontScale: _fontScale, ...rest } = node;
+    return {
+      ...rest,
+      __semanticCohortBaseFontSize: baseFont,
+      ...(minHeight !== undefined ? { __semanticCohortBaseMinHeight: minHeight } : {}),
+      fontSize: targetFont,
+      ...(minHeight !== undefined ? { minHeight: Math.max(0.30, minHeight * textScale) } : {}),
+      ...(SEMANTIC_COHORT_BODY_SLOTS.has(slot) && node.fixedHeight === undefined && node.height === undefined ? { layoutWeight: node.layoutWeight ?? 1 } : {}),
+    };
+  }
+  if (node.type === "table") {
+    const tableFontScale = semanticCohortTableFontScale(theme, node, slotFonts, scale);
+    if (Math.abs(tableFontScale - (optionalNumberProp(node, "fontScale") ?? 1)) > 0.01) {
+      return {
+        ...node,
+        __semanticCohortBaseFontScale: optionalNumberProp(node, "__semanticCohortBaseFontScale") ?? optionalNumberProp(node, "fontScale") ?? 1,
+        fontScale: tableFontScale,
+      };
+    }
+  }
+  if (!Array.isArray(container.children) || container.children.length === 0) return container;
+  return {
+    ...container,
+    children: container.children.map((child) => withSemanticCohortTypography(theme, child, slotFonts, scale)),
+  };
+}
+
+function semanticCohortTableNeedsUpdate(theme: SimpleTheme, node: DomNode, slotFonts: Map<string, SemanticCohortSlotFont>, scale: number): boolean {
+  return Math.abs(semanticCohortTableFontScale(theme, node, slotFonts, scale) - (optionalNumberProp(node, "fontScale") ?? 1)) > 0.01;
+}
+
+function semanticCohortTableFontScale(theme: SimpleTheme, node: DomNode, slotFonts: Map<string, SemanticCohortSlotFont>, scale: number): number {
+  const base = optionalNumberProp(node, "__semanticCohortBaseFontScale") ?? optionalNumberProp(node, "fontScale") ?? 1;
+  const fonts = semanticTableSlotFonts(theme, { ...node, fontScale: base });
+  const headerTarget = slotFonts.get("table-header")?.min ?? fonts.header;
+  const cellTarget = slotFonts.get("table-cell")?.min ?? fonts.cell;
+  const headerScale = fonts.header > 0 ? headerTarget / fonts.header : 1;
+  const cellScale = fonts.cell > 0 ? cellTarget / fonts.cell : 1;
+  const normalized = base * Math.min(headerScale, cellScale, scale);
+  return clamp(normalized, 0.76, 1.16);
+}
+
+function semanticCohortTargetFontSize(theme: SimpleTheme, node: DomNode, slot: string, slotFonts: Map<string, SemanticCohortSlotFont>, scale: number): number {
+  const baseFont = semanticBaseNodeFontSize(theme, node);
+  const slotFont = slotFonts.get(slot);
+  const targetBase = slotFont ? Math.min(baseFont, slotFont.min) : baseFont;
+  return Math.max(semanticCohortMinFontPt(node, slot), targetBase * scale);
+}
+
+function semanticCohortChromeTarget(theme: SimpleTheme, node: DomNode, scale: number, rect?: Rect): { padding?: number; gap?: number } {
+  const role = semanticCohortRole(node);
+  const chromeScale = semanticCohortChromeScale(role, scale);
+  const currentPadding = optionalNumberProp(node, "padding");
+  const currentGap = optionalNumberProp(node, "gap");
+  const basePadding = optionalNumberProp(node, "__semanticCohortBasePadding") ?? currentPadding;
+  const baseGap = optionalNumberProp(node, "__semanticCohortBaseGap") ?? currentGap;
+  const targetGap = baseGap !== undefined ? Math.min(baseGap, Math.max(0.05, baseGap * chromeScale)) : undefined;
+  const pressurePadding = basePadding !== undefined
+    ? semanticCohortPressurePaddingCm(theme, node, rect, basePadding, targetGap)
+    : undefined;
+  return {
+    ...(basePadding !== undefined ? { padding: Math.min(basePadding, pressurePadding ?? Math.max(semanticCohortMinPaddingCm(role), basePadding * chromeScale)) } : {}),
+    ...(targetGap !== undefined ? { gap: targetGap } : {}),
+  };
+}
+
+function semanticCohortChromeScale(role: string, scale: number): number {
+  if (scale >= 0.985) return 1;
+  return role === "explanation-block" || role === "insight-card" || role === "feature-card" || role === "callout"
+    ? Math.pow(scale, 1.75)
+    : scale;
+}
+
+function semanticCohortChromeNeedsUpdate(theme: SimpleTheme, node: DomNode, scale: number, rect?: Rect): boolean {
+  const target = semanticCohortChromeTarget(theme, node, scale, rect);
+  const padding = optionalNumberProp(node, "padding");
+  const gap = optionalNumberProp(node, "gap");
+  return (target.padding !== undefined && padding !== undefined && Math.abs(target.padding - padding) > 0.01)
+    || (target.gap !== undefined && gap !== undefined && Math.abs(target.gap - gap) > 0.01);
+}
+
+function withSemanticCohortChromeCompression(theme: SimpleTheme, node: DomNode, scale: number, rect?: Rect): DomNode {
+  const padding = optionalNumberProp(node, "padding");
+  const gap = optionalNumberProp(node, "gap");
+  const target = semanticCohortChromeTarget(theme, node, scale, rect);
+  if (target.padding === undefined && target.gap === undefined) return node;
+  return {
+    ...node,
+    ...(padding !== undefined ? { __semanticCohortBasePadding: optionalNumberProp(node, "__semanticCohortBasePadding") ?? padding } : {}),
+    ...(gap !== undefined ? { __semanticCohortBaseGap: optionalNumberProp(node, "__semanticCohortBaseGap") ?? gap } : {}),
+    ...(target.padding !== undefined ? { padding: target.padding } : {}),
+    ...(target.gap !== undefined ? { gap: target.gap } : {}),
+  };
+}
+
+function semanticCohortPressurePaddingCm(theme: SimpleTheme, node: DomNode, rect: Rect | undefined, basePadding: number, targetGap: number | undefined): number | undefined {
+  if (!rect || rect.h <= 0 || rect.w <= 0 || basePadding <= 0) return undefined;
+  if (node.direction === "horizontal") return undefined;
+  const children = flowChildren(node);
+  if (children.length === 0) return undefined;
+  const role = semanticCohortRole(node);
+  const minPadding = semanticCohortMinPaddingCm(role);
+  const innerWidth = Math.max(0.45, rect.w - minPadding * 2);
+  const contentFloor = children.reduce((sum, child) => sum + semanticCohortChildHeightFloor(theme, child, innerWidth), 0);
+  const gapFloor = targetGap !== undefined
+    ? targetGap * Math.max(0, children.length - 1)
+    : totalStackGapCm(theme, node, children);
+  const availablePadding = (rect.h - contentFloor - gapFloor) / 2;
+  if (!Number.isFinite(availablePadding) || availablePadding >= basePadding - 0.01) return undefined;
+  return Math.max(minPadding, Math.min(basePadding, availablePadding));
+}
+
+function semanticCohortChildHeightFloor(theme: SimpleTheme, child: DomNode, widthCm: number): number {
+  const fixed = optionalNumberProp(child, "fixedHeight") ?? optionalNumberProp(child, "height");
+  if (fixed !== undefined) return Math.max(0, fixed);
+  const explicit = optionalNumberProp(child, "__semanticCohortBaseMinHeight") ?? optionalNumberProp(child, "minHeight");
+  if (explicit !== undefined) return Math.max(0, explicit);
+  return Math.max(0, intrinsicMinSize(theme, child, "vertical", widthCm));
+}
+
+function semanticCohortMinPaddingCm(role: string): number {
+  if (role === "explanation-block" || role === "insight-card" || role === "feature-card") return 0.24;
+  if (role === "callout" || role === "quote" || role === "key-takeaway") return 0.20;
+  return 0.18;
+}
+
+function semanticCohortMinFontPt(node: DomNode, slot: string): number {
+  if (slot === "table-header") return 7.4;
+  if (slot === "table-cell") return 7.0;
+  if (slot === "value") return 9.5;
+  if (slot === "label" || slot === "caption" || slot === "source" || slot === "footer" || slot === "tag" || slot === "badge") return 6.5;
+  if (slot === "headline" || slot === "title") return 8;
+  if (node.type === "bullets") return 7.5;
+  return 7.5;
+}
+
+function rewriteDomNodesById(node: DomNode, replacements: Map<string, DomNode>): DomNode {
+  const replacement = replacements.get(node.id);
+  if (replacement) return replacement;
+  if (!Array.isArray(node.children) || node.children.length === 0) return node;
+  let changed = false;
+  const children = node.children.map((child) => {
+    const next = rewriteDomNodesById(child, replacements);
+    if (next !== child) changed = true;
+    return next;
+  });
+  return changed ? { ...node, children } : node;
+}
+
+const METRIC_CARD_REPAIR_MIN_PADDING_CM = 0.30;
+const METRIC_CARD_REPAIR_MIN_GAP_CM = 0.08;
+const METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM = 0.62;
+const METRIC_CARD_REPAIR_CAPACITY_TOLERANCE_CM = 0.03;
+const METRIC_CARD_COHORT_MICRO_PADDING_CM = 0.22;
+const METRIC_CARD_COHORT_MICRO_GAP_CM = 0.04;
+const METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM = 0.52;
+const METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM = 0.30;
+const METRIC_CARD_COHORT_MICRO_FONT_SCALE = 0.78;
+const METRIC_CARD_COHORT_MICRO_TOLERANCE_CM = 0.04;
+
+interface MeasuredMetricBands {
+  valueBandHeight: number;
+  valueTextMinHeight: number;
+  labelBandHeight?: number;
+  labelTextMinHeight?: number;
+}
+
+function measuredMetricBands(theme: SimpleTheme, metricCardNode: DomNode, cellWidth: number): MeasuredMetricBands | undefined {
   const valueWrap = findMetricValueWrap(metricCardNode);
   const valueNode = findMetricValueNode(metricCardNode);
   if (!valueWrap || !valueNode) return undefined;
@@ -5890,39 +8628,345 @@ function measuredMetricValueBand(theme: SimpleTheme, metricCardNode: DomNode, ce
   const wrapContent = contentRect(theme, valueWrap, { x: 0, y: 0, w: Math.max(0.25, cardContent.w), h: 10 });
   const width = Math.max(0.45, wrapContent.w);
   const style = effectiveTextStyle(theme, valueNode, "paragraph");
-  const textMinHeight = Math.max(
-    textSquashMinHeight(theme, valueNode),
-    textNeededHeight(theme, { ...valueNode, wrapMinHeight: true }, width, style),
-  );
   const current = optionalNumberProp(valueWrap, "fixedHeight")
     ?? optionalNumberProp(valueWrap, "maxHeight")
     ?? optionalNumberProp(valueWrap, "minHeight")
     ?? 0;
+  const compactValue = measuredMetricValueBandHeight(theme, valueNode, width, style, current);
+  const label = measuredMetricLabelBand(theme, metricCardNode, cardContent.w);
+  return {
+    valueBandHeight: compactValue.bandHeight,
+    valueTextMinHeight: compactValue.textMinHeight,
+    ...(label ? { labelBandHeight: label.bandHeight, labelTextMinHeight: label.textMinHeight } : {}),
+  };
+}
+
+function measuredMetricValueBandHeight(theme: SimpleTheme, valueNode: DomNode, width: number, style: ReturnType<typeof textStyle>, current: number): { bandHeight: number; textMinHeight: number } {
+  if (current > 0) {
+    const probeRect = { x: 0, y: 0, w: width, h: current };
+    const fittedStyle = measuredTextStyleForInk(theme, valueNode, probeRect, style);
+    const visibleInkHeight = textVisibleInkHeight(theme, valueNode, width, fittedStyle);
+    const textMinHeight = Math.min(current, Math.max(textSquashMinHeight(theme, valueNode, probeRect), visibleInkHeight + 0.035));
+    return {
+      bandHeight: clamp(textMinHeight, Math.min(current, 0.52), current),
+      textMinHeight,
+    };
+  }
+  const textMinHeight = Math.max(
+    textSquashMinHeight(theme, valueNode),
+    textNeededHeight(theme, { ...valueNode, wrapMinHeight: true }, width, style),
+  );
   return {
     bandHeight: Math.min(2.4, Math.max(current, textMinHeight)),
     textMinHeight,
   };
 }
 
-function withMeasuredMetricValueBand(metricCardNode: DomNode, bandHeight: number, textMinHeight: number): DomNode {
+function measuredMetricLabelBand(theme: SimpleTheme, metricCardNode: DomNode, cardContentWidth: number): { bandHeight: number; textMinHeight: number } | undefined {
+  const labelNode = findMetricLabelNode(metricCardNode);
+  if (!labelNode) return undefined;
+  const width = Math.max(0.45, cardContentWidth);
+  const current = optionalNumberProp(labelNode, "fixedHeight")
+    ?? optionalNumberProp(labelNode, "minHeight")
+    ?? 0;
+  const baseStyle = effectiveTextStyle(theme, labelNode, "paragraph");
+  const styleKey = textStyleKey(labelNode);
+  const minPt = autoShrinkMinFontPt(labelNode, styleKey, baseStyle.fontSize);
+  const readableStyle = { ...baseStyle, fontSize: minPt };
+  const evidence = measureTextFitAtFont(theme, labelNode, readableStyle, { x: 0, y: 0, w: width, h: 10 }, styleKey, minPt);
+  const textMinHeight = Math.max(textSquashMinHeight(theme, labelNode), evidence.heightNeeded + 0.035);
+  return {
+    bandHeight: Math.max(current, textMinHeight),
+    textMinHeight,
+  };
+}
+
+interface MetricBandOverrides {
+  valueBandHeight?: number;
+  valueTextMinHeight?: number;
+  labelBandHeight?: number;
+  labelTextMinHeight?: number;
+  cardHeight?: number;
+  cohortSize?: number;
+}
+
+interface MetricBandRepairPlan {
+  padding: number;
+  gap: number;
+  valueBandHeight?: number;
+  valueTextMinHeight?: number;
+  labelBandHeight?: number;
+  labelTextMinHeight?: number;
+  minCardHeight: number;
+  needsLabelRepair: boolean;
+  explicitPadding: boolean;
+  explicitGap: boolean;
+  fontScale?: number;
+  adaptiveMode?: "cohort-fit" | "cohort-micro";
+  diagnosticMinPaddingCm: number;
+  diagnosticMinGapCm: number;
+  diagnosticMinValueBandCm: number;
+}
+
+interface MetricBandRepairOptions {
+  minPaddingCm?: number;
+  minGapCm?: number;
+  minValueBandCm?: number;
+}
+
+function withMeasuredMetricBands(theme: SimpleTheme, metricCardNode: DomNode, overrides: MetricBandOverrides): DomNode {
   if (!Array.isArray(metricCardNode.children)) return metricCardNode;
+  let plan = metricBandRepairPlan(theme, metricCardNode, overrides);
+  if (
+    overrides.cardHeight !== undefined
+    && plan.minCardHeight > overrides.cardHeight + METRIC_CARD_REPAIR_CAPACITY_TOLERANCE_CM
+  ) {
+    const microPlan = metricCohortFittedRepairPlan(theme, metricCardNode, overrides, plan)
+      ?? metricCohortMicroRepairPlan(theme, metricCardNode, overrides);
+    if (!microPlan) {
+      pushMetricBandRepairRejectedDiagnostic(metricCardNode, overrides.cardHeight, plan);
+      return metricCardNode;
+    }
+    plan = microPlan;
+  }
   return {
     ...metricCardNode,
+    ...(plan.needsLabelRepair && !plan.explicitPadding ? { padding: plan.padding } : {}),
+    ...(plan.needsLabelRepair && !plan.explicitGap ? { gap: plan.gap } : {}),
+    minHeight: Math.max(optionalNumberProp(metricCardNode, "minHeight") ?? 0, plan.minCardHeight),
     children: metricCardNode.children.map((child) => {
-      if (!isMetricValueWrap(child)) return child;
+      if (isMetricLabelNode(child) && plan.labelBandHeight !== undefined) {
+        return {
+          ...child,
+          fixedHeight: plan.labelBandHeight,
+          minHeight: plan.labelTextMinHeight ?? plan.labelBandHeight,
+          autoFit: child.autoFit ?? "shrink",
+          optional: false,
+          ...(plan.fontScale !== undefined ? { fontScale: mergedFontScale(child.fontScale, plan.fontScale) } : {}),
+        };
+      }
+      if (!isMetricValueWrap(child) || plan.valueBandHeight === undefined) return child;
       return {
         ...child,
-        fixedHeight: bandHeight,
-        maxHeight: bandHeight,
-        minHeight: bandHeight,
+        fixedHeight: plan.valueBandHeight,
+        maxHeight: plan.valueBandHeight,
+        minHeight: plan.valueBandHeight,
         children: (child.children || []).map((grandchild) =>
           isMetricValueNode(grandchild)
-            ? { ...grandchild, minHeight: textMinHeight, wrapMinHeight: true }
+            ? {
+              ...grandchild,
+              minHeight: plan.valueTextMinHeight ?? plan.valueBandHeight,
+              wrapMinHeight: true,
+              ...(plan.fontScale !== undefined ? { fontScale: mergedFontScale(grandchild.fontScale, plan.fontScale) } : {}),
+            }
             : grandchild
         ),
       };
     }),
   };
+}
+
+function metricBandRepairPlan(theme: SimpleTheme, metricCardNode: DomNode, overrides: MetricBandOverrides, options: MetricBandRepairOptions = {}): MetricBandRepairPlan {
+  const minPadding = options.minPaddingCm ?? METRIC_CARD_REPAIR_MIN_PADDING_CM;
+  const minGap = options.minGapCm ?? METRIC_CARD_REPAIR_MIN_GAP_CM;
+  const minValueBand = options.minValueBandCm ?? METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM;
+  const labelNode = findMetricLabelNode(metricCardNode);
+  const existingLabelHeight = labelNode ? optionalNumberProp(labelNode, "fixedHeight") ?? 0 : 0;
+  const needsLabelRepair = (overrides.labelBandHeight ?? 0) > existingLabelHeight + 0.04;
+  const explicitPadding = optionalNumberProp(metricCardNode, "padding") !== undefined;
+  const explicitGap = optionalNumberProp(metricCardNode, "gap") !== undefined;
+  const padding = needsLabelRepair && !explicitPadding
+    ? minPadding
+    : paddingCm(theme, metricCardNode);
+  const gap = needsLabelRepair && !explicitGap
+    ? minGap
+    : gapCm(theme, metricCardNode);
+  const valueBandHeight = overrides.valueBandHeight === undefined
+    ? undefined
+    : Math.max(overrides.valueBandHeight, minValueBand);
+  const valueTextMinHeight = overrides.valueTextMinHeight === undefined
+    ? undefined
+    : Math.max(overrides.valueTextMinHeight, Math.min(valueBandHeight ?? overrides.valueTextMinHeight, minValueBand));
+  const minCardHeight = metricCardRepairMinHeight(theme, metricCardNode, {
+    padding,
+    gap,
+    valueBandHeight,
+    labelBandHeight: overrides.labelBandHeight,
+    labelTextMinHeight: overrides.labelTextMinHeight,
+  });
+  return {
+    padding,
+    gap,
+    valueBandHeight,
+    valueTextMinHeight,
+    labelBandHeight: overrides.labelBandHeight,
+    labelTextMinHeight: overrides.labelTextMinHeight,
+    minCardHeight,
+    needsLabelRepair,
+    explicitPadding,
+    explicitGap,
+    diagnosticMinPaddingCm: minPadding,
+    diagnosticMinGapCm: minGap,
+    diagnosticMinValueBandCm: minValueBand,
+  };
+}
+
+function metricCohortMicroRepairPlan(theme: SimpleTheme, metricCardNode: DomNode, overrides: MetricBandOverrides): MetricBandRepairPlan | undefined {
+  const available = overrides.cardHeight;
+  if (available === undefined) return undefined;
+  if (!metricCardEligibleForCohortMicroRepair(metricCardNode, overrides.cohortSize ?? 1)) return undefined;
+  const valueBandHeight = overrides.valueBandHeight === undefined
+    ? undefined
+    : clamp(overrides.valueBandHeight * 0.86, METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM, overrides.valueBandHeight);
+  const labelBandHeight = overrides.labelBandHeight === undefined
+    ? undefined
+    : clamp(overrides.labelBandHeight * 0.9, METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM, overrides.labelBandHeight);
+  const valueTextMinHeight = overrides.valueTextMinHeight === undefined || valueBandHeight === undefined
+    ? overrides.valueTextMinHeight
+    : Math.min(overrides.valueTextMinHeight, Math.max(METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM, valueBandHeight - 0.02));
+  const labelTextMinHeight = overrides.labelTextMinHeight === undefined || labelBandHeight === undefined
+    ? overrides.labelTextMinHeight
+    : Math.min(overrides.labelTextMinHeight, Math.max(METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM, labelBandHeight - 0.01));
+  const plan = metricBandRepairPlan(theme, metricCardNode, {
+    ...overrides,
+    valueBandHeight,
+    valueTextMinHeight,
+    labelBandHeight,
+    labelTextMinHeight,
+  }, {
+    minPaddingCm: METRIC_CARD_COHORT_MICRO_PADDING_CM,
+    minGapCm: METRIC_CARD_COHORT_MICRO_GAP_CM,
+    minValueBandCm: METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM,
+  });
+  if (plan.minCardHeight > available + METRIC_CARD_COHORT_MICRO_TOLERANCE_CM) return undefined;
+  return {
+    ...plan,
+    fontScale: METRIC_CARD_COHORT_MICRO_FONT_SCALE,
+    adaptiveMode: "cohort-micro",
+  };
+}
+
+function metricCohortFittedRepairPlan(
+  _theme: SimpleTheme,
+  metricCardNode: DomNode,
+  overrides: MetricBandOverrides,
+  idealPlan: MetricBandRepairPlan,
+): MetricBandRepairPlan | undefined {
+  const available = overrides.cardHeight;
+  if (available === undefined || !Number.isFinite(available) || available <= 0) return undefined;
+  if (!metricCardEligibleForCohortMicroRepair(metricCardNode, overrides.cohortSize ?? 1)) return undefined;
+  if (idealPlan.valueBandHeight === undefined) return undefined;
+
+  const hasLabel = idealPlan.labelBandHeight !== undefined;
+  const hardPadding = idealPlan.explicitPadding
+    ? idealPlan.padding
+    : Math.min(idealPlan.padding, METRIC_CARD_COHORT_MICRO_PADDING_CM);
+  const hardGap = idealPlan.explicitGap
+    ? idealPlan.gap
+    : Math.min(idealPlan.gap, METRIC_CARD_COHORT_MICRO_GAP_CM);
+  const hardValueBand = Math.min(idealPlan.valueBandHeight, METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM);
+  const hardLabelBand = hasLabel
+    ? Math.min(idealPlan.labelBandHeight!, METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM)
+    : undefined;
+  const gapCount = hasLabel ? 1 : 0;
+  const hardHeight = hardPadding * 2 + hardValueBand + (hardLabelBand ?? 0) + hardGap * gapCount;
+  if (hardHeight > available + METRIC_CARD_COHORT_MICRO_TOLERANCE_CM) return undefined;
+
+  const idealGapTotal = idealPlan.gap * gapCount;
+  const idealHeight = idealPlan.padding * 2 + idealPlan.valueBandHeight + (idealPlan.labelBandHeight ?? 0) + idealGapTotal;
+  const compressible = Math.max(0, idealHeight - hardHeight);
+  const budgetRatio = compressible <= 0
+    ? 1
+    : clamp((available - hardHeight) / compressible, 0, 1);
+  const padding = hardPadding + (idealPlan.padding - hardPadding) * budgetRatio;
+  const gap = hasLabel ? hardGap + (idealPlan.gap - hardGap) * budgetRatio : idealPlan.gap;
+  const valueBandHeight = hardValueBand + (idealPlan.valueBandHeight - hardValueBand) * budgetRatio;
+  const labelBandHeight = hasLabel && hardLabelBand !== undefined
+    ? hardLabelBand + (idealPlan.labelBandHeight! - hardLabelBand) * budgetRatio
+    : undefined;
+  const valueTextMinHeight = Math.min(
+    idealPlan.valueTextMinHeight ?? valueBandHeight,
+    Math.max(hardValueBand, valueBandHeight - 0.02),
+  );
+  const labelTextMinHeight = labelBandHeight === undefined
+    ? undefined
+    : Math.min(
+      idealPlan.labelTextMinHeight ?? labelBandHeight,
+      Math.max(hardLabelBand ?? METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM, labelBandHeight - 0.01),
+    );
+  const minCardHeight = padding * 2 + valueBandHeight + (labelBandHeight ?? 0) + gap * gapCount;
+  return {
+    ...idealPlan,
+    padding,
+    gap,
+    valueBandHeight,
+    valueTextMinHeight,
+    labelBandHeight,
+    labelTextMinHeight,
+    minCardHeight,
+    fontScale: budgetRatio < 0.72 ? 0.88 : undefined,
+    adaptiveMode: "cohort-fit",
+    diagnosticMinPaddingCm: hardPadding,
+    diagnosticMinGapCm: hardGap,
+    diagnosticMinValueBandCm: hardValueBand,
+  };
+}
+
+function metricCardEligibleForCohortMicroRepair(metricCardNode: DomNode, cohortSize: number): boolean {
+  if (cohortSize < 3) return false;
+  const valueNode = findMetricValueNode(metricCardNode);
+  const labelNode = findMetricLabelNode(metricCardNode);
+  if (!valueNode || !labelNode) return false;
+  const children = metricCardNode.children || [];
+  if (children.some((child) => !isMetricValueWrap(child) && !isMetricLabelNode(child) && child.optional !== true)) return false;
+  const value = renderedTextContent(valueNode).trim();
+  const label = renderedTextContent(labelNode).trim();
+  if (!metricValueLooksNumeric(value)) return false;
+  return weightedTextLength(label) <= 18;
+}
+
+function metricValueLooksNumeric(value: string): boolean {
+  return /^[~≈<>≤≥+\-−]?\s*(?:[$€£¥])?\s*\d[\d,]*(?:\.\d+)?\s*(?:[%‰x×:+/\-–—]|\p{L}){0,12}$/u.test(value);
+}
+
+function mergedFontScale(existing: unknown, target: number): number {
+  return Math.min(typeof existing === "number" && Number.isFinite(existing) ? existing : 1, target);
+}
+
+function metricCardRepairMinHeight(
+  theme: SimpleTheme,
+  metricCardNode: DomNode,
+  plan: { padding: number; gap: number; valueBandHeight?: number; labelBandHeight?: number; labelTextMinHeight?: number },
+): number {
+  const requiredChildren = (metricCardNode.children || []).filter((child) => child.optional !== true || isMetricValueWrap(child) || isMetricLabelNode(child));
+  if (requiredChildren.length === 0) return plan.padding * 2;
+  const contentHeight = requiredChildren.reduce((sum, child) => {
+    if (isMetricValueWrap(child) && plan.valueBandHeight !== undefined) return sum + plan.valueBandHeight;
+    if (isMetricLabelNode(child) && plan.labelBandHeight !== undefined) return sum + Math.max(plan.labelBandHeight, plan.labelTextMinHeight ?? 0);
+    return sum + intrinsicMinSize(theme, child, "vertical", 1);
+  }, 0);
+  return plan.padding * 2 + contentHeight + plan.gap * Math.max(0, requiredChildren.length - 1);
+}
+
+function pushMetricBandRepairRejectedDiagnostic(metricCardNode: DomNode, availableHeight: number, plan: MetricBandRepairPlan): void {
+  pushFitDiagnostic({
+    kind: "container",
+    severity: "error",
+    code: "FALLBACK_FAILED",
+    slideId: currentSlideId || undefined,
+    nodeId: metricCardNode.id,
+    message: `Metric-card '${metricCardNode.id}' cannot be auto-compacted without violating minimum text breathing room (needs ${plan.minCardHeight.toFixed(2)}cm, has ${availableHeight.toFixed(2)}cm).`,
+    suggestion: "Keep the KPI semantics, but give the metric row more height, reduce columns, shorten labels, or split these metrics across slides. Do not squeeze padding, value bands, or label space below readable minima.",
+    measured: {
+      available: availableHeight,
+      needed: plan.minCardHeight,
+      deltaCm: Math.max(0, plan.minCardHeight - availableHeight),
+      minPaddingCm: METRIC_CARD_REPAIR_MIN_PADDING_CM,
+      minGapCm: METRIC_CARD_REPAIR_MIN_GAP_CM,
+      minValueBandCm: METRIC_CARD_REPAIR_MIN_VALUE_BAND_CM,
+      fitMethod: "metric-card-repair-budget",
+    },
+  });
 }
 
 function findMetricValueWrap(node: DomNode): DomNode | undefined {
@@ -5934,6 +8978,10 @@ function findMetricValueNode(node: DomNode): DomNode | undefined {
   return (wrap?.children || []).find(isMetricValueNode);
 }
 
+function findMetricLabelNode(node: DomNode): DomNode | undefined {
+  return (node.children || []).find(isMetricLabelNode);
+}
+
 function isMetricValueWrap(node: DomNode): boolean {
   return node.type === "stack" && typeof node.id === "string" && node.id.endsWith(".value-wrap");
 }
@@ -5942,17 +8990,607 @@ function isMetricValueNode(node: DomNode): boolean {
   return node.type === "text" && typeof node.id === "string" && node.id.endsWith(".value");
 }
 
+function isMetricLabelNode(node: DomNode): boolean {
+  return node.type === "text" && typeof node.id === "string" && node.id.endsWith(".label");
+}
+
 function resolveMainSizes(theme: SimpleTheme, children: DomNode[], direction: "horizontal" | "vertical", availableMain: number, crossSize: number): number[] {
   return solveSizes(children.map((child) => childMainSpec(theme, child, direction, crossSize)), availableMain);
 }
 
-interface SizeSpec {
-  basis: number;
+type SizeSpec = FlexMainSpec;
+
+function applySemanticRegionBudgetSpecs(
+  theme: SimpleTheme,
+  parent: DomNode,
+  children: DomNode[],
+  specs: SizeSpec[],
+  direction: "horizontal" | "vertical",
+  availableMain: number,
+  crossSize: number,
+): SizeSpec[] {
+  if (children.length < 2) return specs;
+  if (!usesSemanticRegionBudget(parent, direction)) return specs;
+  const items = collectSemanticRegionBudgetItems(theme, parent, children, specs, direction, crossSize, availableMain);
+  const preferredTotal = items.reduce((sum, item) => sum + item.preferred, 0);
+  const floorTotal = items.reduce((sum, item) => sum + item.floor, 0);
+  const projected = solveSizes(specs, availableMain, false);
+  const starvingCritical = items.some((item) =>
+    item.priority >= SEMANTIC_CRITICAL_PRIORITY
+    && (projected[item.index] ?? 0) + 0.08 < item.floor
+  );
+  const overCapacity = preferredTotal > availableMain + 0.06;
+  if (!overCapacity && !starvingCritical) return specs;
+
+  const targetSizes = resolveSemanticRegionBudgetTargets(items, availableMain);
+  if (floorTotal > availableMain + 0.04) {
+    pushSemanticRegionBudgetInfeasibleDiagnostic(parent, children, items, targetSizes, availableMain, preferredTotal, floorTotal);
+  }
+  if (targetSizes.every((target, index) => Math.abs(target - items[index]!.preferred) <= 0.03 && items[index]!.floor >= specs[index]!.min - 0.03)) {
+    return specs;
+  }
+
+  return applySemanticRegionBudgetTargets(parent, children, specs, items, targetSizes);
+}
+
+function collectSemanticRegionBudgetItems(
+  theme: SimpleTheme,
+  parent: DomNode,
+  children: DomNode[],
+  specs: SizeSpec[],
+  direction: "horizontal" | "vertical",
+  crossSize: number,
+  availableMain: number,
+): SemanticRegionBudgetItem[] {
+  return children.map((child, index) =>
+    semanticRegionBudgetItem(theme, parent, child, specs[index]!, index, direction, crossSize, availableMain)
+  );
+}
+
+function applySemanticRegionBudgetTargets(
+  parent: DomNode,
+  children: DomNode[],
+  specs: SizeSpec[],
+  items: SemanticRegionBudgetItem[],
+  targetSizes: number[],
+): SizeSpec[] {
+  const next = specs.slice();
+  for (const item of items) {
+    const index = item.index;
+    const child = children[index]!;
+    const spec = item.spec;
+    if (spec.fixed) continue;
+    const target = targetSizes[index] ?? item.preferred;
+    const floor = Math.min(target, item.floor);
+    const compressed = target < item.preferred - 0.04;
+    next[index] = {
+      ...spec,
+      min: Math.max(0, floor),
+      basis: Math.max(0, target),
+      fixed: false,
+      grow: false,
+      weight: Math.max(spec.weight, semanticGrowthWeight(item.priority)),
+      shrinkWeight: Math.max(spec.shrinkWeight ?? 0, semanticShrinkWeight(item.priority)),
+    };
+    if (compressed && child.type === "bullets" && child.density !== "compact") child.density = "compact";
+    if (compressed && (child.type === "text" || child.type === "bullets") && child.autoFit !== "shrink") {
+      child.autoFit = "shrink";
+      child.__fallbackAutoFitShrink = true;
+    }
+    if (currentSlideId) {
+      const belowFloor = target + 0.03 < item.floor;
+      recordDecision(currentSlideId, child.id, {
+        notes: [`semantic-budget:preferred=${item.preferred.toFixed(2)},floor=${item.floor.toFixed(2)},target=${target.toFixed(2)},priority=${item.priority}${belowFloor ? ",belowFloor=true" : ""}`],
+      });
+    }
+  }
+  return next;
+}
+
+const SEMANTIC_CRITICAL_PRIORITY = 90;
+
+interface SemanticRegionBudgetItem {
+  index: number;
+  spec: SizeSpec;
+  priority: number;
+  preferred: number;
+  floor: number;
+}
+
+function semanticRegionBudgetItem(
+  theme: SimpleTheme,
+  parent: DomNode,
+  child: DomNode,
+  spec: SizeSpec,
+  index: number,
+  direction: "horizontal" | "vertical",
+  crossSize: number,
+  availableMain: number,
+): SemanticRegionBudgetItem {
+  const priority = semanticLayoutPriority(child, parent);
+  const preferred = semanticPreferredMain(spec);
+  const floor = spec.fixed
+    ? preferred
+    : Math.min(preferred, semanticRegionFloor(theme, parent, child, spec, priority, direction, crossSize, availableMain));
+  return { index, spec, priority, preferred, floor };
+}
+
+function semanticPreferredMain(spec: SizeSpec): number {
+  return clamp(spec.basis, Math.max(0, spec.min), Math.max(Math.max(0, spec.min), spec.max));
+}
+
+function resolveSemanticRegionBudgetTargets(items: SemanticRegionBudgetItem[], availableMain: number): number[] {
+  const targets = items.map((item) => item.preferred);
+  let overflow = targets.reduce((sum, target) => sum + target, 0) - Math.max(0, availableMain);
+  let shrinkable = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item, index }) => !item.spec.fixed && targets[index]! > item.floor + 0.001);
+  while (overflow > 0.001 && shrinkable.length > 0) {
+    const factors = shrinkable.map(({ item, index }) =>
+      Math.max(0, targets[index]! - item.floor) * semanticCompressionFactor(item.priority)
+    );
+    const totalFactor = factors.reduce((sum, factor) => sum + factor, 0);
+    if (totalFactor <= 0.001) break;
+    let consumed = 0;
+    shrinkable.forEach(({ item, index }, factorIndex) => {
+      const capacity = Math.max(0, targets[index]! - item.floor);
+      const reduction = Math.min(capacity, overflow * (factors[factorIndex]! / totalFactor));
+      targets[index]! -= reduction;
+      consumed += reduction;
+    });
+    if (consumed <= 0.001) break;
+    overflow = targets.reduce((sum, target) => sum + target, 0) - Math.max(0, availableMain);
+    shrinkable = shrinkable.filter(({ item, index }) => targets[index]! > item.floor + 0.001);
+  }
+  if (overflow > 0.001) {
+    const flexible = items
+      .map((item, index) => ({ item, index }))
+      .filter(({ item, index }) => !item.spec.fixed && targets[index]! > 0.04);
+    const flexibleTotal = flexible.reduce((sum, { index }) => sum + targets[index]!, 0);
+    if (flexibleTotal > 0.001) {
+      const fixedTotal = targets.reduce((sum, target, index) => sum + (items[index]!.spec.fixed ? target : 0), 0);
+      const flexibleAvailable = Math.max(0, availableMain - fixedTotal);
+      const scale = Math.min(1, flexibleAvailable / flexibleTotal);
+      flexible.forEach(({ index }) => {
+        targets[index]! *= scale;
+      });
+    }
+  }
+  return targets;
+}
+
+function pushSemanticRegionBudgetInfeasibleDiagnostic(
+  parent: DomNode,
+  children: DomNode[],
+  items: SemanticRegionBudgetItem[],
+  targetSizes: number[],
+  availableMain: number,
+  preferredTotal: number,
+  floorTotal: number,
+): void {
+  pushDiagnostic({
+    severity: "warn",
+    code: "REGION_BUDGET_INFEASIBLE",
+    slideId: currentSlideId || undefined,
+    nodeId: parent.id,
+    message: `Narrative region '${parent.id}' cannot keep all children above their readable floors within ${roundCm(availableMain)}cm.`,
+    suggestion: "Reduce copy, split the region, or lower the priority/floor of less important items; the renderer will share compression and may go below readable floors.",
+    measured: {
+      available: roundCm(availableMain),
+      needed: roundCm(floorTotal),
+      deltaCm: roundCm(Math.max(0, floorTotal - availableMain)),
+      preferredTotalCm: roundCm(preferredTotal),
+      floorTotalCm: roundCm(floorTotal),
+      targetTotalCm: roundCm(targetSizes.reduce((sum, target) => sum + target, 0)),
+      budgetDeficitCm: roundCm(Math.max(0, floorTotal - availableMain)),
+      budgetStrategy: "shared-compression-below-floor",
+      budgetItems: items.map((item) => {
+        const child = children[item.index]!;
+        return {
+          nodeId: child.id,
+          role: regionCapacityRole(child),
+          preferredCm: roundCm(item.preferred),
+          floorCm: roundCm(item.floor),
+          targetCm: roundCm(targetSizes[item.index] ?? item.preferred),
+          priority: item.priority,
+        };
+      }),
+    },
+  });
+}
+
+function roundCm(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+function isNarrativeSplitRegion(parent: DomNode): boolean {
+  return usesSemanticRegionBudget(parent, "vertical");
+}
+
+function usesSemanticRegionBudget(parent: DomNode, direction: "horizontal" | "vertical"): boolean {
+  if (parent.semanticBudget === false || parent.layoutBudget === "none") return false;
+  if (parent.semanticBudget === "narrative" || parent.layoutBudget === "narrative") return true;
+  const role = typeof parent.role === "string" ? parent.role.trim() : "";
+  if (role && SEMANTIC_BUDGET_REGION_ROLES.has(role)) return true;
+  if (!isSemanticBudgetCandidateContainer(parent)) return false;
+  const isWithinSemanticLayout = ancestorStack.some((ancestor) =>
+    ancestor !== parent
+    && (ancestor.__loweredFromSplit === true
+      || ancestor.role === "evidence-layout"
+      || ancestor.role === "chart-with-rail"
+      || ancestor.role === "main-effect-comparison")
+  );
+  if (isWithinSemanticLayout) return true;
+  return direction === "vertical";
+}
+
+const SEMANTIC_BUDGET_REGION_ROLES = new Set([
+  "analytic-table",
+  "callout",
+  "chart-card",
+  "code-block",
+  "comparison-table",
+  "executive-summary",
+  "explanation-block",
+  "image-card",
+  "insight-card",
+  "insight-region",
+  "key-takeaway",
+  "quote",
+  "region-card",
+  "side-rail",
+  "table-card",
+  "takeaway-list",
+  "warning-list",
+]);
+
+function isSemanticBudgetCandidateContainer(parent: DomNode): boolean {
+  const role = typeof parent.role === "string" ? parent.role.trim() : "";
+  if (role && !SEMANTIC_BUDGET_REGION_ROLES.has(role)) return false;
+  if (parent.type !== "stack" && parent.type !== "panel" && parent.type !== "card" && parent.type !== "inset") return false;
+  const children = parent.children || [];
+  if (children.length < 2) return false;
+  let budgetableCount = 0;
+  let hardCount = 0;
+  for (const child of children) {
+    const childRole = regionCapacityRole(child);
+    if (
+      child.type === "text"
+      || child.type === "bullets"
+      || child.type === "spacer"
+      || child.type === "divider"
+      || SEMANTIC_BUDGET_REGION_ROLES.has(childRole)
+    ) {
+      budgetableCount += 1;
+      continue;
+    }
+    if (componentElasticityClass(child, childRole) === "hard" && !BUDGETABLE_EVIDENCE_ROLES.has(childRole)) hardCount += 1;
+  }
+  return budgetableCount >= 2 && hardCount === 0;
+}
+
+function semanticLayoutPriority(node: DomNode, parent?: DomNode): number {
+  const role = regionCapacityRole(node);
+  if (role === "key-takeaway") return isFinalSemanticSibling(parent, node) ? 100 : 88;
+  if (role === "executive-summary") return 95;
+  if (role === "insight-card" || role === "explanation-block") return 86;
+  if (role === "table-card" || role === "analytic-table" || role === "comparison-table") return 84;
+  if (role === "chart-card" || role === "image-card" || role === "code-block") return 82;
+  if (parent?.role === "key-takeaway" && node.type === "text" && /\.detail$/.test(String(node.id || ""))) return 76;
+  if (role === "quote") return 64;
+  if (node.type === "bullets") return 42;
+  if (node.type === "text") {
+    const styleKey = textStyleKey(node);
+    if (styleKey === "slide-title" || styleKey === "section-title") return 70;
+    if (styleKey === "card-title" || styleKey === "lead") return 58;
+    return 40;
+  }
+  if (node.type === "spacer" || node.type === "divider" || node.type === "shape") return 8;
+  if (componentElasticityClass(node, role) === "hard") return 76;
+  return 52;
+}
+
+function isFinalSemanticSibling(parent: DomNode | undefined, node: DomNode): boolean {
+  const siblings = (parent?.children || []).filter((child) => !isOverlayChild(child) && child.type !== "spacer" && child.type !== "divider");
+  return siblings.length > 0 && siblings[siblings.length - 1] === node;
+}
+
+function semanticRegionFloor(
+  theme: SimpleTheme,
+  parent: DomNode,
+  node: DomNode,
+  spec: SizeSpec,
+  priority: number,
+  direction: "horizontal" | "vertical",
+  crossSize: number,
+  availableMain: number,
+): number {
+  if (direction === "horizontal") return semanticHorizontalRegionFloor(theme, parent, node, spec, priority, crossSize, availableMain);
+  const role = regionCapacityRole(node);
+  if (role === "key-takeaway") return keyTakeawayRegionFloor(theme, node, crossSize, spec, availableMain);
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role)) return tableLikeRegionFloor(theme, node, crossSize, spec, availableMain);
+  if (role === "chart-card" || role === "image-card" || role === "code-block") return evidenceRegionFloor(theme, node, crossSize, spec, availableMain);
+  if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") {
+    const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "vertical", crossSize));
+    return clamp(Math.max(spec.min, natural * 0.52), spec.min, Math.min(availableMain * 0.46, 3.8));
+  }
+  if (node.type === "text") return Math.max(semanticCompressionMainFloor(theme, node, "vertical", crossSize, spec), semanticTextReadableFloor(theme, parent, node, crossSize, priority));
+  if (node.type === "bullets") return Math.max(semanticCompressionMainFloor(theme, node, "vertical", crossSize, spec), semanticBulletsReadableFloor(theme, node, crossSize));
+  return semanticCompressionMainFloor(theme, node, "vertical", crossSize, spec);
+}
+
+function semanticHorizontalRegionFloor(
+  theme: SimpleTheme,
+  parent: DomNode,
+  node: DomNode,
+  spec: SizeSpec,
+  priority: number,
+  crossSize: number,
+  availableMain: number,
+): number {
+  const role = regionCapacityRole(node);
+  if (node.type === "spacer" || node.type === "divider" || node.type === "shape") return 0;
+  const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "horizontal", crossSize));
+  const readable = Math.max(spec.min, natural * semanticHorizontalFloorRatio(node, role, priority));
+  if (role === "key-takeaway") {
+    const cap = Math.max(spec.min, Math.min(6.2, availableMain * 0.62));
+    return clamp(Math.max(spec.min, Math.min(readable, 4.4)), spec.min, cap);
+  }
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role)) {
+    const cap = Math.max(spec.min, Math.min(8.2, availableMain * 0.70));
+    return clamp(Math.max(spec.min, Math.min(readable, 4.8)), spec.min, cap);
+  }
+  if (role === "chart-card" || role === "image-card" || role === "code-block") {
+    const cap = Math.max(spec.min, Math.min(8.0, availableMain * 0.68));
+    return clamp(Math.max(spec.min, Math.min(readable, 4.6)), spec.min, cap);
+  }
+  if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") {
+    const cap = Math.max(spec.min, Math.min(5.8, availableMain * 0.58));
+    return clamp(Math.max(spec.min, Math.min(readable, 3.9)), spec.min, cap);
+  }
+  if (role === "quote") {
+    const cap = Math.max(spec.min, Math.min(5.0, availableMain * 0.54));
+    return clamp(Math.max(spec.min, Math.min(readable, 3.4)), spec.min, cap);
+  }
+  if (node.type === "text" || node.type === "bullets") {
+    const cap = Math.max(spec.min, Math.min(5.4, availableMain * 0.5));
+    return clamp(Math.max(spec.min, Math.min(readable, 3.2)), spec.min, cap);
+  }
+  if (componentElasticityClass(node, role) === "hard") return spec.min;
+  const cap = Math.max(spec.min, Math.min(5.2, availableMain * 0.52));
+  return clamp(Math.max(spec.min, Math.min(readable, 3.2)), spec.min, cap);
+}
+
+function semanticHorizontalFloorRatio(node: DomNode, role: string, priority: number): number {
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role)) return 0.56;
+  if (role === "chart-card" || role === "image-card" || role === "code-block") return 0.54;
+  if (role === "key-takeaway") return 0.52;
+  if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") return 0.48;
+  if (role === "quote") return 0.44;
+  if (node.type === "bullets") return 0.42;
+  if (node.type === "text") return priority >= 58 ? 0.42 : 0.36;
+  return 0.4;
+}
+
+function tableLikeRegionFloor(theme: SimpleTheme, node: DomNode, widthCm: number, spec: SizeSpec, availableMain: number): number {
+  const table = findDescendantDom(node, (child) => child.type === "table");
+  const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "vertical", widthCm));
+  if (!table) return clamp(Math.max(spec.min, natural * 0.58, 2.4), spec.min, Math.max(spec.min, Math.min(availableMain * 0.62, 5.8)));
+  const tableWidth = Math.max(0.6, widthCm - semanticEvidenceChromeWidth(node));
+  const compactTable = { ...table, density: table.density ?? "compact" };
+  const bodyNeed = tableIntrinsicHeight(theme, compactTable, tableWidth);
+  const naturalBody = tableIntrinsicHeight(theme, table, tableWidth);
+  const chromeNeed = Math.max(0, natural - naturalBody);
+  const rowCount = tableLayoutInfo(theme, table, tableWidth).allRows.length;
+  const readableMin = rowCount >= 8 ? 4.65 : rowCount >= 5 ? 3.55 : 2.35;
+  const preferredFloor = Math.max(spec.min, chromeNeed + bodyNeed * 0.76, readableMin);
+  const cap = Math.max(spec.min, Math.min(rowCount >= 8 ? 6.8 : 5.7, availableMain * 0.72));
+  return clamp(preferredFloor, spec.min, cap);
+}
+
+function evidenceRegionFloor(theme: SimpleTheme, node: DomNode, widthCm: number, spec: SizeSpec, availableMain: number): number {
+  const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "vertical", widthCm));
+  const role = regionCapacityRole(node);
+  const minimum = role === "code-block" ? 3.4 : role === "chart-card" ? 3.2 : 2.8;
+  const cap = Math.max(spec.min, Math.min(role === "code-block" ? 6.6 : 6.2, availableMain * 0.68));
+  return clamp(Math.max(spec.min, natural * 0.55, minimum), spec.min, cap);
+}
+
+function semanticEvidenceChromeWidth(node: DomNode): number {
+  const padding = optionalNumberProp(node, "padding");
+  if (padding !== undefined) return padding * 2;
+  return node.type === "card" || node.type === "panel" ? 0.8 : 0;
+}
+
+function keyTakeawayRegionFloor(theme: SimpleTheme, node: DomNode, widthCm: number, spec: SizeSpec, availableMain: number): number {
+  const children = (node.children || []).filter((child) => !isOverlayChild(child));
+  const hasDetail = children.some((child) => child.type === "text" && /\.detail$/.test(String(child.id || "")));
+  const structural = children.reduce((sum, child) => {
+    if (child.type === "shape") return sum + (optionalNumberProp(child, "fixedHeight") ?? optionalNumberProp(child, "height") ?? optionalNumberProp(child, "minHeight") ?? 0.12);
+    if (child.type === "text") {
+      const explicit = optionalNumberProp(child, "minHeight");
+      const readable = semanticTextReadableFloor(theme, node, child, widthCm, semanticLayoutPriority(child, node));
+      return sum + Math.max(explicit ?? 0, readable);
+    }
+    return sum + intrinsicMinSize(theme, child, "vertical", widthCm);
+  }, 0) + totalStackGapCm(theme, node, children);
+  const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "vertical", widthCm));
+  const budget = theme.layout.regionBudget;
+  const minimum = hasDetail ? budget.keyTakeawayMinCm : 1.75;
+  const maximum = hasDetail ? budget.keyTakeawayMaxCm : 2.75;
+  const fraction = hasDetail ? 0.46 : 0.48;
+  return clamp(
+    Math.max(spec.min, structural, natural * fraction, minimum),
+    spec.min,
+    Math.min(maximum, Math.max(spec.min, availableMain * budget.keyTakeawayMaxAvailableRatio)),
+  );
+}
+
+function semanticTextReadableFloor(theme: SimpleTheme, parent: DomNode, node: DomNode, widthCm: number, priority: number): number {
+  const styleKey = textStyleKey(node);
+  const baseStyle = effectiveTextStyle(theme, node, "paragraph");
+  const targetPt = semanticTargetTextFontPt(theme, parent, node, styleKey, baseStyle.fontSize, priority);
+  const fitNode = { ...node, autoFit: "shrink", __fallbackAutoFitShrink: true };
+  const evidence = measureTextFitAtFont(theme, fitNode, baseStyle, { x: 0, y: 0, w: Math.max(0.45, widthCm), h: 10 }, styleKey, targetPt);
+  return Math.max(
+    textSquashMinHeight(theme, fitNode, { x: 0, y: 0, w: widthCm, h: 10 }),
+    evidence.heightNeeded + (evidence.wrappedLines > 1 ? 0.12 : 0.04),
+  );
+}
+
+function semanticTargetTextFontPt(theme: SimpleTheme, parent: DomNode, node: DomNode, styleKey: string, originalPt: number, priority: number): number {
+  const minPt = autoShrinkMinFontPt({ ...node, autoFit: "shrink" }, styleKey, originalPt);
+  const parentRole = typeof parent.role === "string" ? parent.role : "";
+  const budget = theme.layout.regionBudget;
+  const roleScale = parentRole === "key-takeaway" && /\.detail$/.test(String(node.id || ""))
+    ? budget.keyTakeawayDetailScale
+    : isHeadingTextStyle(styleKey)
+      ? budget.headingScale
+      : priority >= 58
+        ? budget.leadScale
+        : budget.bodyScale;
+  return Math.max(minPt, originalPt * roleScale);
+}
+
+function semanticBulletsReadableFloor(theme: SimpleTheme, node: DomNode, widthCm: number): number {
+  const compactNode = { ...node, density: "compact", autoFit: "shrink", __fallbackAutoFitShrink: true };
+  const baseStyle = bulletsAuthoredStyle(theme, compactNode);
+  const budget = theme.layout.regionBudget;
+  const style = { ...baseStyle, fontSize: Math.max(budget.bulletMinPt, baseStyle.fontSize * budget.bulletScale) };
+  const evidence = measureBulletsFit(theme, compactNode, { x: 0, y: 0, w: widthCm, h: 10 }, style);
+  return Math.max(bulletsSquashMinHeight(theme, compactNode, { x: 0, y: 0, w: widthCm, h: 10 }), evidence.needed);
+}
+
+function semanticCompressionMainFloor(
+  theme: SimpleTheme,
+  node: DomNode,
+  direction: "horizontal" | "vertical",
+  crossSize: number,
+  spec: SizeSpec,
+): number {
+  if (direction !== "vertical") return spec.min;
+  if (node.type === "bullets") {
+    const compactNode = { ...node, density: "compact", autoFit: "shrink", __fallbackAutoFitShrink: true };
+    const compact = bulletsIntrinsicHeight(theme, compactNode, crossSize);
+    const squash = bulletsSquashMinHeight(theme, compactNode, { x: 0, y: 0, w: crossSize, h: 10 });
+    return clamp(Math.max(squash, compact * 0.62), 0.72, Math.max(0.72, spec.min));
+  }
+  if (node.type === "text") {
+    const squash = textSquashMinHeight(theme, node, { x: 0, y: 0, w: crossSize, h: 10 });
+    const ratio = isHeadingTextStyle(textStyleKey(node)) ? 0.70 : 0.58;
+    return clamp(Math.max(squash, spec.basis * ratio), 0.36, Math.max(0.36, spec.min));
+  }
+  if (node.type === "spacer") return 0;
+  return spec.min;
+}
+
+function semanticShrinkWeight(priority: number): number {
+  if (priority <= 20) return 8;
+  if (priority <= 45) return 5;
+  if (priority <= 60) return 3;
+  return 1.6;
+}
+
+function semanticCompressionFactor(priority: number): number {
+  if (priority >= 95) return 1.25;
+  if (priority >= 85) return 1.45;
+  if (priority >= 70) return 1.7;
+  if (priority >= 58) return 2.1;
+  if (priority >= 42) return 2.5;
+  return 3.0;
+}
+
+function semanticGrowthWeight(priority: number): number {
+  if (priority >= 95) return 1.4;
+  if (priority >= 70) return 1.15;
+  if (priority >= 42) return 0.9;
+  return 0.7;
+}
+
+interface LayoutGlueSpec {
+  index: number;
   min: number;
+  preferred: number;
   max: number;
   weight: number;
-  grow: boolean;
-  fixed: boolean;
+}
+
+function applyLayoutGlueSpecs(
+  theme: SimpleTheme,
+  parent: DomNode,
+  children: DomNode[],
+  specs: SizeSpec[],
+  direction: "horizontal" | "vertical",
+): { specs: SizeSpec[]; glues: LayoutGlueSpec[] } {
+  const glues = children
+    .map((child, index) => layoutGlueSpecForChild(theme, parent, children, child, index, direction))
+    .filter((glue): glue is LayoutGlueSpec => glue !== undefined);
+  if (glues.length === 0) return { specs, glues };
+
+  const next = specs.slice();
+  for (const glue of glues) {
+    const spec = specs[glue.index]!;
+    next[glue.index] = {
+      ...spec,
+      basis: clamp(Math.max(spec.basis, glue.preferred), glue.min, glue.max),
+      min: Math.max(spec.min, glue.min),
+      max: Math.max(glue.max, glue.min),
+      weight: Math.max(spec.weight, glue.weight),
+      grow: false,
+      fixed: false,
+      shrinkWeight: Math.max(spec.shrinkWeight ?? 0, glue.weight * 2),
+    };
+  }
+  return { specs: next, glues };
+}
+
+function layoutGlueSpecForChild(
+  theme: SimpleTheme,
+  parent: DomNode,
+  children: DomNode[],
+  child: DomNode,
+  index: number,
+  direction: "horizontal" | "vertical",
+): LayoutGlueSpec | undefined {
+  if (direction !== "vertical") return undefined;
+  if (child.type !== "spacer") return undefined;
+  if (child.layoutGlue === false || child.glue === false) return undefined;
+  if (optionalNumberProp(child, "layoutWeight") !== undefined) return undefined;
+  const fixed = optionalNumberProp(child, "fixedHeight") ?? optionalNumberProp(child, "height") ?? optionalNumberProp(child, "basisHeight") ?? optionalNumberProp(child, "basis");
+  if (fixed === undefined) return undefined;
+
+  const before = children[index - 1];
+  const after = children[index + 1];
+  if (!before || !after) return undefined;
+  if (before.type === "spacer" || after.type === "spacer") return undefined;
+  if (child.layoutGlue !== true && (!isLayoutGlueContentNode(before) || !isLayoutGlueContentNode(after))) return undefined;
+
+  const parentGap = gapCm(theme, parent);
+  if (parentGap <= 0) return undefined;
+  const policy = stringProp(child, "gapPolicy", stringProp(parent, "gapPolicy", "rhythm"));
+  if (policy === "replace" || policy === "fixed" || policy === "none") return undefined;
+
+  const min = Math.max(0, fixed);
+  const preferred = layoutGluePreferredSize(policy, min, parentGap);
+  const authoredMax = optionalNumberProp(child, "maxHeight") ?? optionalNumberProp(child, "maxGlueHeight") ?? optionalNumberProp(parent, "maxGlueHeight");
+  const rhythmMax = Math.max(preferred, Math.min(1.6, min + parentGap * 1.8, parentGap * 2.4));
+  const max = Math.max(min, authoredMax !== undefined ? Math.max(preferred, authoredMax) : rhythmMax);
+  return { index, min, preferred, max, weight: 4 };
+}
+
+function layoutGluePreferredSize(policy: string, min: number, parentGap: number): number {
+  if (policy === "max") return Math.max(min, parentGap);
+  if (policy === "additive") return min + parentGap;
+  return Math.max(min + parentGap, parentGap * 1.35);
+}
+
+function isLayoutGlueContentNode(node: DomNode): boolean {
+  if (node.type === "spacer" || node.type === "divider" || node.type === "shape") return false;
+  if (node.type === "text" || node.type === "bullets") return true;
+  if (node.type === "image" || node.type === "table" || node.type === "chart") return true;
+  if (node.type === "stack" || node.type === "grid" || node.type === "split") return true;
+  if (node.type === "panel" || node.type === "card" || node.type === "band" || node.type === "frame" || node.type === "inset") return true;
+  return typeof node.role === "string" && node.role.trim().length > 0;
 }
 
 function childMainSpec(theme: SimpleTheme, node: DomNode, direction: "horizontal" | "vertical", crossSize: number): SizeSpec {
@@ -6017,58 +9655,12 @@ export function clearSizeOverflowWarnings(): void {
 }
 
 function solveSizes(specs: SizeSpec[], availableMain: number, autoFillSlack = false): number[] {
-  if (specs.length === 0) return [];
-  const available = Math.max(0, availableMain);
-  const sizes = specs.map((spec) => clamp(spec.basis, spec.min, spec.max));
-  const total = sizes.reduce((sum, size) => sum + size, 0);
-  if (total > available) return shrinkSizes(specs, sizes, available);
-  if (total < available) return growSizes(specs, sizes, available - total, autoFillSlack);
-  return sizes;
-}
-
-function shrinkSizes(specs: SizeSpec[], sizes: number[], available: number): number[] {
-  let overflow = sizes.reduce((sum, size) => sum + size, 0) - available;
-  const shrinkable = specs.map((spec, index) => ({ spec, index })).filter(({ spec, index }) => !spec.fixed && sizes[index]! > spec.min);
-  while (overflow > 0.0001 && shrinkable.some(({ spec, index }) => sizes[index]! > spec.min + 0.0001)) {
-    const capacities = shrinkable.map(({ spec, index }) => Math.max(0, sizes[index]! - spec.min));
-    const totalCapacity = capacities.reduce((sum, capacity) => sum + capacity, 0);
-    if (totalCapacity <= 0) break;
-    shrinkable.forEach(({ spec, index }, listIndex) => {
-      const reduction = Math.min(sizes[index]! - spec.min, overflow * (capacities[listIndex]! / totalCapacity));
-      sizes[index] -= reduction;
-    });
-    overflow = sizes.reduce((sum, size) => sum + size, 0) - available;
-  }
-  if (overflow > 0.0001) {
-    sizeOverflowWarnings.add(`overflow=${overflow.toFixed(2)}cm; available=${available.toFixed(2)}cm`);
-    return fitToAvailableRespectingFixed(specs, sizes, available);
-  }
-  return sizes;
-}
-
-function growSizes(specs: SizeSpec[], sizes: number[], extra: number, autoFillSlack = false): number[] {
-  let remaining = extra;
-  let growIndexes = specs.map((spec, index) => spec.grow && sizes[index]! < spec.max ? index : -1).filter((index) => index >= 0);
-  if (growIndexes.length === 0 && autoFillSlack) {
-    // No child opted into growth, but the parent has slack and the caller
-    // signalled that the slack should be absorbed (typical for horizontal
-    // stacks of text where leftover gutter would clip narrow intrinsic widths).
-    growIndexes = specs.map((spec, index) => spec.fixed ? -1 : index).filter((index) => index >= 0);
-  }
-  while (remaining > 0.0001 && growIndexes.length > 0) {
-    const weights = normalizeWeights(growIndexes.map((index) => specs[index]!.weight));
-    let consumed = 0;
-    growIndexes.forEach((index, weightIndex) => {
-      const room = specs[index]!.max - sizes[index]!;
-      const addition = Math.min(room, remaining * weights[weightIndex]!);
-      sizes[index] += addition;
-      consumed += addition;
-    });
-    if (consumed <= 0.0001) break;
-    remaining -= consumed;
-    growIndexes = growIndexes.filter((index) => sizes[index]! < specs[index]!.max - 0.0001);
-  }
-  return sizes;
+  return resolveFlexMainTargets(specs, availableMain, {
+    autoFillSlack,
+    onOverflow: (overflow, available) => {
+      sizeOverflowWarnings.add(`overflow=${overflow.toFixed(2)}cm; available=${available.toFixed(2)}cm`);
+    },
+  });
 }
 
 function intrinsicMainSize(theme: SimpleTheme, node: DomNode, direction: "horizontal" | "vertical", crossSize: number): number {
@@ -6156,14 +9748,14 @@ function intrinsicMinSize(theme: SimpleTheme, node: DomNode, direction: "horizon
 }
 
 function tableIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number): number {
-  const { allRows, colCount, firstRowHeader, colWidths } = tableLayoutInfo(node, widthCm);
+  const { allRows, colCount, firstRowHeader, colWidths } = tableLayoutInfo(theme, node, widthCm);
   if (allRows.length === 0) return 0.9;
   const fontScale = typeof node.fontScale === "number" && Number.isFinite(node.fontScale) && node.fontScale > 0 ? node.fontScale : 1;
   const rowHeights = estimateTableRowHeights(theme, allRows, colWidths, firstRowHeader, tableDensity(node.density), fontScale);
   return Math.min(10, Math.max(0.9, rowHeights.reduce((sum, h) => sum + h, 0)));
 }
 
-function tableLayoutInfo(node: DomNode, widthCm: number): {
+function tableLayoutInfo(theme: SimpleTheme, node: DomNode, widthCm: number): {
   allRows: unknown[][];
   colCount: number;
   firstRowHeader: boolean;
@@ -6177,9 +9769,10 @@ function tableLayoutInfo(node: DomNode, widthCm: number): {
   const headerRow: unknown[] = headers.length > 0 ? headers : [];
   const allRows: unknown[][] = headerRow.length > 0 ? [headerRow, ...rawRows] : rawRows;
   const colCount = Math.max(1, ...allRows.map((row) => row.length));
-  const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0;
+  const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0 || tableFirstRowLooksHeader(rawRows);
   const widthsInput = Array.isArray(node.colWidths) ? node.colWidths : (widthsFromColumns && widthsFromColumns.some((w) => w > 0) ? widthsFromColumns : undefined);
-  const colWidths = resolveTableColWidths(widthsInput, colCount, widthCm);
+  const density = tableDensity(node.density);
+  const colWidths = resolveTableColWidths(widthsInput, colCount, widthCm, { theme, rows: allRows, firstRowHeader, density });
   return { allRows, colCount, firstRowHeader, colWidths };
 }
 
@@ -6278,8 +9871,92 @@ function tableCellText(raw: unknown): string {
   return String(raw ?? "");
 }
 
-function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, rows: unknown[][], colWidths: number[], rowHeights: number[], firstRowHeader: boolean, outerRect?: Rect): void {
-  const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, tableDensity(node.density));
+function effectiveTableFontScale(
+  theme: SimpleTheme,
+  node: DomNode,
+  rect: Rect,
+  rows: unknown[][],
+  colWidths: number[],
+  firstRowHeader: boolean,
+  density: TableDensity,
+  authoredFontScale: number,
+): number {
+  if (authoredFontScale !== 1) return authoredFontScale;
+  const baseNeeded = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density, 1).reduce((sum, h) => sum + h, 0);
+  if (baseNeeded <= rect.h + 0.08) {
+    if (density === "comfortable" && node.role !== "code-block-table" && rows.length <= 7 && rect.w >= 9 && rect.h >= baseNeeded + 0.75) {
+      for (const scale of [1.16, 1.12, 1.08]) {
+        if (!tableWrapsRemainStable(theme, rows, colWidths, firstRowHeader, density, scale)) continue;
+        const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density, scale).reduce((sum, h) => sum + h, 0);
+        if (needed <= rect.h - 0.08) return scale;
+      }
+    }
+    return 1;
+  }
+  for (const scale of [0.94, 0.9, 0.86, 0.82, 0.78]) {
+    const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, density, scale).reduce((sum, h) => sum + h, 0);
+    if (needed <= rect.h + 0.08) {
+      pushDiagnostic({
+        severity: "warn",
+        code: "TRUNCATED",
+        slideId: currentSlideId || undefined,
+        nodeId: node.id,
+        message: `Table '${nodeLabel(node)}' font scaled to ${(scale * 100).toFixed(0)}% to fit its assigned body height.`,
+        suggestion: "This was repaired inside the rendered table. For a more comfortable read, give the table more height, use density:'compact', widen text-heavy columns, or split dense rows across slides.",
+        measured: { available: rect.h, needed: baseNeeded, rect, fontScale: scale },
+      });
+      return scale;
+    }
+  }
+  return 1;
+}
+
+function tableWrapsRemainStable(
+  theme: SimpleTheme,
+  rows: unknown[][],
+  colWidths: number[],
+  firstRowHeader: boolean,
+  density: TableDensity,
+  targetScale: number,
+): boolean {
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex] || [];
+    const isHeader = rowIndex === 0 && firstRowHeader;
+    for (let col = 0; col < Math.max(row.length, colWidths.length); col++) {
+      const raw = row[col] ?? "";
+      const width = colWidths[col] || colWidths[0] || 1;
+      const baseLines = tableCellWrapLineCount(theme, raw, width, isHeader, density, 1);
+      const scaledLines = tableCellWrapLineCount(theme, raw, width, isHeader, density, targetScale);
+      if (baseLines <= 1 && scaledLines > 1) return false;
+      if (baseLines <= 1 && !tableCellHasSingleLineHeadroom(theme, raw, width, isHeader, density, targetScale)) return false;
+      if (scaledLines > baseLines + 1) return false;
+    }
+  }
+  return true;
+}
+
+function tableCellWrapLineCount(theme: SimpleTheme, raw: unknown, widthCm: number, isHeader: boolean, density: TableDensity, fontScale: number): number {
+  const style = tableTextStyle(theme, isHeader, density, fontScale);
+  const text = tableCellText(raw);
+  const isCode = density === "code" || density === "code-dense" || density === "code-tiny";
+  const contentWidth = Math.max(0.8, widthCm - (isCode ? 0.18 : density === "compact" ? 0.38 : 0.52));
+  const fontPt = tableCellEffectiveFontPt(raw, style.fontSize);
+  return createTextMeasurer(theme).wrapLines(text, fontPt, style.weight, contentWidth).lines;
+}
+
+function tableCellHasSingleLineHeadroom(theme: SimpleTheme, raw: unknown, widthCm: number, isHeader: boolean, density: TableDensity, fontScale: number): boolean {
+  const style = tableTextStyle(theme, isHeader, density, fontScale);
+  const text = tableCellText(raw);
+  if (!text.trim()) return true;
+  const isCode = density === "code" || density === "code-dense" || density === "code-tiny";
+  const contentWidth = Math.max(0.8, widthCm - (isCode ? 0.18 : density === "compact" ? 0.38 : 0.52));
+  const fontPt = tableCellEffectiveFontPt(raw, style.fontSize);
+  const measuredWidth = createTextMeasurer(theme).textWidth(text, fontPt, style.weight);
+  return measuredWidth <= contentWidth * 0.94;
+}
+
+function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, rows: unknown[][], colWidths: number[], rowHeights: number[], firstRowHeader: boolean, outerRect?: Rect, fontScale = 1): void {
+  const needed = estimateTableRowHeights(theme, rows, colWidths, firstRowHeader, tableDensity(node.density), fontScale);
   const totalNeeded = needed.reduce((sum, h) => sum + h, 0);
   const shortRows = needed
     .map((height, index) => ({ index, needed: height, available: rowHeights[index] || 0 }))
@@ -6306,12 +9983,21 @@ function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, 
   const dataRowCount = firstRowHeader ? Math.max(0, rows.length - 1) : rows.length;
   const chromeHeight = outerRect ? Math.max(0, outerRect.h - rect.h) : undefined;
   const outerNeededHeight = chromeHeight !== undefined ? totalNeeded + chromeHeight : undefined;
-  pushDiagnostic({
+  const totalDelta = Math.max(0, totalNeeded - rect.h);
+  const worstDelta = Math.max(0, worst.needed - worst.available);
+  const estimatedAllRowsFit = estimatedRowsFit >= rows.length;
+  const mildTablePressure = (
+    (estimatedAllRowsFit && worstDelta <= 0.26)
+    || (dataRowCount <= 4 && totalDelta <= 0.65 && worstDelta <= 0.20 && rect.w >= 12)
+    || (totalDelta <= Math.max(0.35, rect.h * 0.10) && worstDelta <= 0.18)
+  );
+  if (mildTablePressure) return;
+  pushFitDiagnostic({
+    kind: "table",
     severity: "error",
-    code: "FALLBACK_FAILED",
     slideId: currentSlideId,
     nodeId: node.id,
-    message: `Table '${nodeLabel(node)}' has ${shortRows.length} row(s) whose text needs more height than assigned; row ${worst.index + 1} needs ${worst.needed.toFixed(2)}cm, available ${worst.available.toFixed(2)}cm.`,
+    message: `Table '${nodeLabel(node)}' has ${shortRows.length} row(s) whose text still needs more height after supported density/font fitting; row ${worst.index + 1} needs ${worst.needed.toFixed(2)}cm, available ${worst.available.toFixed(2)}cm.`,
     suggestion: tableCapacitySuggestion(node, {
       dataRowCount,
       visibleRowsFit,
@@ -6332,6 +10018,7 @@ function pushTableFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, 
       dataRowCount,
       estimatedVisibleRowsFit: visibleRowsFit,
       columnCount: colWidths.length,
+      fitMethod: "final-table-row-measure",
       worstRow: {
         index: worst.index + 1,
         neededCm: worst.needed,
@@ -6395,15 +10082,24 @@ function pushCodeBlockOverflowDiagnostic(
   const ownerId = nodeLabel(node).replace(/\.table\d*$/, "");
   const worst = shortRows.reduce((max, row) => row.needed - row.available > max.needed - max.available ? row : max, shortRows[0]!);
   const manyRowsShort = shortRows.length > rows.length / 2;
+  const totalDelta = Math.max(0, totalNeeded - available);
+  const worstDelta = Math.max(0, worst.needed - worst.available);
+  const mildCodeOverflow = estimatedCapacity >= totalLines
+    && totalDelta <= Math.max(0.20, available * 0.10)
+    && worstDelta <= 0.12;
   pushDiagnostic({
-    severity: "error",
-    code: "CODE_BLOCK_OVERFLOW",
+    severity: mildCodeOverflow ? "warn" : "error",
+    code: mildCodeOverflow ? "OVERFLOW" : "CODE_BLOCK_OVERFLOW",
     slideId: currentSlideId,
     nodeId: ownerId,
-    message: manyRowsShort
+    message: mildCodeOverflow
+      ? `Code block '${ownerId}' is slightly tight at density '${density}', but estimated capacity still covers the authored ${totalLines} line(s).`
+      : manyRowsShort
       ? `Code block '${ownerId}' has ${totalLines} line(s), but the assigned area can show about ${estimatedCapacity} line(s) at density '${density}'.`
       : `Code block '${ownerId}' has line(s) that wrap or need more height than assigned; row ${worst.index + 1} needs ${worst.needed.toFixed(2)}cm, available ${worst.available.toFixed(2)}cm.`,
-    suggestion: "Paginate the code into multiple slides or multiple code-block components with explicit line ranges. Use columns:2/3, density:'tiny', or fontSize:5-6 only when still readable. Use maxLines only for an intentional excerpt, not to hide required code.",
+    suggestion: mildCodeOverflow
+      ? "No blocking fix required if visual review confirms the code remains readable; use a little more height or density:'tiny' only when it looks crowded."
+      : "Paginate the code into multiple slides or multiple code-block components with explicit line ranges. Use columns:2/3, density:'tiny', or fontSize:5-6 only when still readable. Use maxLines only for an intentional excerpt, not to hide required code.",
     measured: {
       available,
       needed: totalNeeded,
@@ -6467,31 +10163,29 @@ function canGrow(node: DomNode): boolean {
 }
 
 function stackIntrinsicHeight(theme: SimpleTheme, node: DomNode, crossSize: number): number {
-  const children = node.children || [];
+  const children = (node.children || []).filter((child) => child.layer !== "behind" && child.layer !== "above");
   if (children.length === 0) return 0;
-  const gap = gapCm(theme, node);
   const pad = paddingCm(theme, node);
   const innerWidth = Math.max(0, crossSize - pad * 2);
   if (node.direction === "horizontal") {
-    const availableWidth = Math.max(0, innerWidth - gap * Math.max(0, children.length - 1));
+    const availableWidth = Math.max(0, innerWidth - totalStackGapCm(theme, node, children));
     const widths = resolveMainSizes(theme, children, "horizontal", availableWidth, 10);
     const childHeights = children.map((child, index) => intrinsicMainSize(theme, child, "vertical", widths[index] || innerWidth));
     return Math.max(0, ...childHeights) + pad * 2;
   }
   const fixed = children.reduce((sum, child) => sum + intrinsicMainSize(theme, child, "vertical", innerWidth), 0);
-  return fixed + gap * Math.max(0, children.length - 1) + pad * 2;
+  return fixed + totalStackGapCm(theme, node, children) + pad * 2;
 }
 
 function horizontalStackIntrinsicWidth(theme: SimpleTheme, node: DomNode, heightCm: number): number {
-  const children = node.children || [];
+  const children = (node.children || []).filter((child) => child.layer !== "behind" && child.layer !== "above");
   if (children.length === 0) return 0;
-  const gap = gapCm(theme, node);
   const pad = paddingCm(theme, node);
-  return children.reduce((sum, child) => sum + intrinsicMainSize(theme, child, "horizontal", heightCm), 0) + gap * Math.max(0, children.length - 1) + pad * 2;
+  return children.reduce((sum, child) => sum + intrinsicMainSize(theme, child, "horizontal", heightCm), 0) + totalStackGapCm(theme, node, children) + pad * 2;
 }
 
 function verticalStackIntrinsicWidth(theme: SimpleTheme, node: DomNode, heightCm: number): number {
-  const children = node.children || [];
+  const children = (node.children || []).filter((child) => child.layer !== "behind" && child.layer !== "above");
   if (children.length === 0) return 0;
   const pad = paddingCm(theme, node);
   const innerHeight = Math.max(0, heightCm - pad * 2);
@@ -6503,10 +10197,10 @@ function gridIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number)
   const rawChildren = node.children || [];
   if (rawChildren.length === 0) return 0;
   const columns = Math.max(1, numberProp(node, "columns", 2));
-  const gap = gapCm(theme, node);
+  const gap = gridGapCm(theme, node, rawChildren, columns);
   const contentWidth = contentRect(theme, node, { x: 0, y: 0, w: widthCm, h: 10 }).w;
   const availableWidth = Math.max(0, contentWidth - gap * (columns - 1));
-  const colWidths = gridColumnSizesFromProps(node, columns, availableWidth);
+  const colWidths = gridColumnTrackTargets(node, columns, availableWidth);
   const children = prepareGridChildrenForLayout(theme, node, rawChildren, columns, colWidths, gap);
   const placements = computeGridPlacements(children, columns);
   const declaredRows = Math.max(0, Math.floor(numberProp(node, "rows", 0)));
@@ -6530,33 +10224,111 @@ function gridIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number)
   return total + gap * Math.max(0, rows - 1);
 }
 
-function resolveGridRowHeights(theme: SimpleTheme, placements: GridPlacement[], columns: number, rows: number, availableHeight: number, colWidths: number[], gap: number, rowWeightsValue: unknown): number[] {
-  const rowWeights = weightsFromProp(rowWeightsValue, rows);
-  const specs: SizeSpec[] = [];
-  // For each row, intrinsic basis is driven by the children that *start* in
-  // that row, scaled by their rowSpan (so a rowSpan:2 child contributes half
-  // its intrinsic to each of the two rows it covers).
-  const childByCell = new Map<string, GridPlacement>();
-  for (const p of placements) childByCell.set(`${p.row}:${p.col}`, p);
-  for (let row = 0; row < rows; row++) {
-    let basis = 0;
-    let min = 0.4;
-    for (let col = 0; col < columns; col++) {
-      const placement = childByCell.get(`${row}:${col}`);
-      if (!placement) continue;
-      const child = placement.child;
-      if (!child) continue;
-      let width = 0;
-      for (let i = 0; i < placement.colSpan; i++) width += colWidths[placement.col + i] || 0;
-      if (placement.colSpan > 1) width += gap * (placement.colSpan - 1);
-      const perRowBasis = intrinsicMainSize(theme, child, "vertical", width || colWidths[col] || colWidths[0] || 1) / placement.rowSpan;
-      const perRowMin = intrinsicMinSize(theme, child, "vertical", width || colWidths[col] || colWidths[0] || 1) / placement.rowSpan;
-      basis = Math.max(basis, perRowBasis);
-      min = Math.max(min, perRowMin);
-    }
-    specs.push({ basis, min, max: Number.POSITIVE_INFINITY, weight: rowWeights[row] || 1, grow: true, fixed: false });
+function resolveGridRowHeights(theme: SimpleTheme, placements: GridPlacement[], rows: number, availableHeight: number, colWidths: number[], gap: number, rowWeightsValue: unknown): number[] {
+  const uniform = uniformSemanticGridRowHeights(placements, rows, availableHeight, rowWeightsValue);
+  if (uniform) return uniform;
+  return resolveGridRowTracks({
+    count: rows,
+    available: availableHeight,
+    weights: rowWeightsValue,
+    defaultMin: 0.4,
+    contributions: gridRowContributions(theme, placements, colWidths, gap),
+  });
+}
+
+function uniformSemanticGridRowHeights(placements: GridPlacement[], rows: number, availableHeight: number, rowWeightsValue: unknown): number[] | undefined {
+  if (rowWeightsValue !== undefined) return undefined;
+  if (rows < 2 || placements.length < 2) return undefined;
+  const roles = new Set<string>();
+  for (const placement of placements) {
+    const role = semanticCohortRole(placement.child);
+    if (!role || placement.rowSpan !== 1 || placement.colSpan !== 1 || componentElasticityClass(placement.child, role) !== "elastic") return undefined;
+    roles.add(role);
   }
-  return solveSizes(specs, availableHeight);
+  if (roles.size !== 1) return undefined;
+  const counts = new Array(rows).fill(0);
+  for (const placement of placements) {
+    if (placement.row < 0 || placement.row >= rows) return undefined;
+    counts[placement.row] += 1;
+  }
+  if (!counts.every((count) => count === counts[0])) return undefined;
+  const size = rows > 0 ? availableHeight / rows : 0;
+  return new Array(rows).fill(Math.max(0, size));
+}
+
+function gridRowContributions(theme: SimpleTheme, placements: GridPlacement[], colWidths: number[], gap: number): GridTrackContribution[] {
+  return placements.map((placement) => {
+    const width = spannedSize(colWidths, placement.col, placement.colSpan, gap) || colWidths[placement.col] || colWidths[0] || 1;
+    return {
+      start: placement.row,
+      span: placement.rowSpan,
+      basis: intrinsicMainSize(theme, placement.child, "vertical", width),
+      min: intrinsicMinSize(theme, placement.child, "vertical", width),
+      weight: gridPlacementWeightHint(placement),
+    };
+  });
+}
+
+function gridGapCm(theme: SimpleTheme, node: DomNode, children: DomNode[], columns: number): number {
+  const gap = gapCm(theme, node);
+  return isSingleColumnShapeFlow(children, columns) ? Math.min(gap, 0.14) : gap;
+}
+
+function normalizeSingleColumnShapeFlowChildren(children: DomNode[], columns: number, colWidth: number): DomNode[] {
+  if (!isSingleColumnShapeFlow(children, columns)) return children;
+  const nodeWidth = Math.max(4.8, Math.min(8.2, colWidth * 0.46));
+  return children.map((child) => {
+    if (isConnectorShapeNode(child)) {
+      const preset = shapePresetName(child);
+      const connectorWidth = preset === "elbowConnector" || preset === "orthogonalConnector" || preset === "curvedConnector" ? Math.max(0.9, Math.min(1.8, colWidth * 0.12)) : 0.12;
+      return {
+        ...child,
+        fixedWidth: optionalNumberProp(child, "fixedWidth") ?? connectorWidth,
+        fixedHeight: optionalNumberProp(child, "fixedHeight") ?? 0.46,
+        minHeight: optionalNumberProp(child, "minHeight") ?? 0.30,
+        maxHeight: optionalNumberProp(child, "maxHeight") ?? 0.58,
+        align: child.align ?? "center",
+        valign: child.valign ?? "middle",
+        layoutWeight: optionalNumberProp(child, "layoutWeight") ?? 0.22,
+      };
+    }
+    return {
+      ...child,
+      fixedWidth: optionalNumberProp(child, "fixedWidth") ?? nodeWidth,
+      minHeight: optionalNumberProp(child, "minHeight") ?? 0.92,
+      basisHeight: optionalNumberProp(child, "basisHeight") ?? 1.18,
+      maxHeight: optionalNumberProp(child, "maxHeight") ?? 1.55,
+      align: child.align ?? "center",
+      valign: child.valign ?? "middle",
+      layoutWeight: optionalNumberProp(child, "layoutWeight") ?? 1.4,
+    };
+  });
+}
+
+function isSingleColumnShapeFlow(children: DomNode[], columns: number): boolean {
+  if (columns !== 1 || children.length < 3) return false;
+  const shapeChildren = children.filter((child) => child.type === "shape");
+  if (shapeChildren.length !== children.length) return false;
+  const connectorCount = shapeChildren.filter(isConnectorShapeNode).length;
+  const nodeCount = shapeChildren.length - connectorCount;
+  return connectorCount >= 1 && nodeCount >= 2;
+}
+
+function gridPlacementWeightHint(placement: GridPlacement): number | undefined {
+  const child = placement.child;
+  const explicit = optionalNumberProp(child, "layoutWeight");
+  if (explicit !== undefined) return Math.max(0.0001, explicit);
+  if (isConnectorShapeNode(child)) return 0.22;
+  if (child.type === "shape") return 1.4;
+  return undefined;
+}
+
+function isConnectorShapeNode(node: DomNode): boolean {
+  return node.type === "shape" && CONNECTOR_SHAPE_PRESETS.has(shapePresetName(node));
+}
+
+function shapePresetName(node: DomNode): string {
+  return typeof node.preset === "string" ? node.preset : "";
 }
 
 function textIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number): number {
@@ -6570,6 +10342,24 @@ function componentStyle(theme: SimpleTheme, node: DomNode) {
 
 function gapCm(theme: SimpleTheme, node: DomNode): number {
   return numberProp(node, "gap", theme.layout.defaultGap);
+}
+
+function stackGapBetweenCm(theme: SimpleTheme, parent: DomNode, before?: DomNode, after?: DomNode): number {
+  if (!before || !after) return 0;
+  // A spacer is an explicit author-specified gap. Counting the stack gap on
+  // both sides makes `spacer fixedHeight:0.3` behave like ~1cm in a default
+  // stack, which is surprising for agents and users. Treat spacer as the
+  // gap replacement.
+  if (before.type === "spacer" || after.type === "spacer") return 0;
+  return gapCm(theme, parent);
+}
+
+function totalStackGapCm(theme: SimpleTheme, parent: DomNode, children: DomNode[]): number {
+  let total = 0;
+  for (let index = 0; index < children.length - 1; index++) {
+    total += stackGapBetweenCm(theme, parent, children[index], children[index + 1]);
+  }
+  return total;
 }
 
 function paddingCm(theme: SimpleTheme, node: DomNode): number {
@@ -6624,11 +10414,11 @@ function bulletItemText(raw: unknown): string {
   return String(raw ?? "");
 }
 
-function bulletsIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number): number {
+function bulletsIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: number, styleOverride?: ReturnType<typeof textStyle>): number {
   const items = Array.isArray(node.items) ? node.items.map(bulletItemText) : [""];
   const baseStyle = textStyle(theme, node.density === "compact" ? "bullet-compact" : "bullet", "paragraph");
   const mult = sizeMultiplier(theme, node.size);
-  const style = mult === 1 ? baseStyle : { ...baseStyle, fontSize: baseStyle.fontSize * mult };
+  const style = styleOverride || (mult === 1 ? baseStyle : { ...baseStyle, fontSize: baseStyle.fontSize * mult });
   const contentWidth = Math.max(0.8, widthCm - 0.85);
   const measurer = createTextMeasurer(theme);
   const lineCount = items.reduce((sum, item) => sum + measurer.wrapLines(item, style.fontSize, style.weight, contentWidth).lines, 0);
@@ -6637,7 +10427,100 @@ function bulletsIntrinsicHeight(theme: SimpleTheme, node: DomNode, widthCm: numb
   const titleHeight = typeof node.title === "string" && node.title.trim()
     ? textLineMetrics(theme, theme.text["card-title"], undefined, node.title).lineHeightCm + 6 * 0.5 * PT_TO_CM
     : 0;
-  return Math.max(1.05, titleHeight + lineCount * lineHeight + items.length * spaceAfter + textVerticalReserveCm(theme, node, style));
+  const bodyHeight = titleHeight + lineCount * lineHeight + items.length * spaceAfter + textVerticalReserveCm(theme, node, style);
+  return Math.max(bulletReadableHeightFloor(items.length, titleHeight > 0), bodyHeight);
+}
+
+interface BulletsFitEvidence {
+  needed: number;
+  available: number;
+  wrappedLines: number;
+  availableLines: number;
+  lineHeightCm: number;
+  fontPt: number;
+  itemCount: number;
+}
+
+function measureBulletsFit(theme: SimpleTheme, node: DomNode, rect: Rect, style: ReturnType<typeof textStyle>): BulletsFitEvidence {
+  const items = Array.isArray(node.items) ? node.items.map(bulletItemText) : [""];
+  const contentWidth = Math.max(0.8, rect.w - 0.85);
+  const measurer = createTextMeasurer(theme);
+  const wrappedLines = items.reduce((sum, item) => sum + measurer.wrapLines(item, style.fontSize, style.weight, contentWidth).lines, 0);
+  const lineHeightCm = textLineMetrics(theme, style, undefined, items.join("\n")).lineHeightCm;
+  const needed = bulletsIntrinsicHeight(theme, node, rect.w, style);
+  return {
+    needed,
+    available: Math.max(0, rect.h),
+    wrappedLines,
+    availableLines: lineHeightCm > 0 ? Math.max(0, rect.h) / lineHeightCm : 0,
+    lineHeightCm,
+    fontPt: style.fontSize,
+    itemCount: items.length,
+  };
+}
+
+function fitBulletsStyleForReadableFit(
+  theme: SimpleTheme,
+  node: DomNode,
+  style: ReturnType<typeof textStyle>,
+  rect: Rect,
+  options: { emitDiagnostics?: boolean } = {},
+): ReturnType<typeof textStyle> {
+  const emitDiagnostics = options.emitDiagnostics !== false;
+  const initial = measureBulletsFit(theme, node, rect, style);
+  if (initial.needed <= initial.available + 0.08) return style;
+  const minPt = Math.max(7.5, style.fontSize * 0.72);
+  let lo = minPt;
+  let hi = style.fontSize;
+  let fitted = minPt;
+  for (let iter = 0; iter < 12; iter++) {
+    const mid = (lo + hi) / 2;
+    const evidence = measureBulletsFit(theme, node, rect, { ...style, fontSize: mid });
+    if (evidence.needed <= evidence.available + 0.08) {
+      fitted = mid;
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  const rounded = Math.round(fitted * 2) / 2;
+  const roundedFits = measureBulletsFit(theme, node, rect, { ...style, fontSize: rounded }).needed <= initial.available + 0.08;
+  fitted = roundedFits ? rounded : Math.floor(fitted * 2) / 2;
+  if (fitted >= style.fontSize - 0.25) return style;
+  const severe = fitted < 7.5 || fitted <= style.fontSize * 0.65;
+  const finalEvidence = measureBulletsFit(theme, node, rect, { ...style, fontSize: fitted });
+  if (emitDiagnostics) {
+    pushDiagnostic({
+      severity: severe ? "error" : "warn",
+      code: "TRUNCATED",
+      slideId: currentSlideId || undefined,
+      nodeId: node.id,
+      message: `Bullets '${nodeLabel(node)}' were pre-shrunk from ${style.fontSize.toFixed(1)}pt to ${fitted.toFixed(1)}pt to fit the assigned list box.`,
+      suggestion: severe
+        ? "This bullet list is no longer presentation-readable. Use fewer bullets, shorten items, increase the region, or split the list across slides."
+        : "The rendered list was repaired by a small font reduction. If the visual review looks crowded, shorten one bullet or give the list more height.",
+      measured: {
+        available: finalEvidence.available,
+        needed: initial.needed,
+        deltaCm: Math.max(0, initial.needed - finalEvidence.available),
+        rect,
+        originalFontSize: style.fontSize,
+        finalFontSize: fitted,
+        lineHeightCm: finalEvidence.lineHeightCm,
+        wrappedLines: finalEvidence.wrappedLines,
+        availableLines: finalEvidence.availableLines,
+        itemCount: finalEvidence.itemCount,
+        fitMethod: "pre-shrink",
+      },
+    });
+  }
+  return { ...style, fontSize: fitted };
+}
+
+function bulletReadableHeightFloor(itemCount: number, hasTitle: boolean): number {
+  const count = Math.max(1, itemCount);
+  const base = count === 1 ? 0.48 : count === 2 ? 0.74 : 1.0;
+  return hasTitle ? base + 0.35 : base;
 }
 
 interface TextParagraphEstimate {
@@ -6655,6 +10538,16 @@ function textNeededHeight(theme: SimpleTheme, node: DomNode, widthCm: number, ba
 }
 
 function textVisibleInkHeight(theme: SimpleTheme, node: DomNode, widthCm: number, baseStyle = effectiveTextStyle(theme, node, "paragraph")): number {
+  const paragraphs = textParagraphsForEstimate(theme, node, baseStyle);
+  if (paragraphs.length === 0) return singleLineTextHeight(theme, node);
+  const visibleLines = textLineCountForEstimate(theme, node, widthCm, paragraphs);
+  if (visibleLines <= 1) {
+    const maxNaturalHeight = Math.max(...paragraphs.map((para) => {
+      const paraStyle = { ...baseStyle, fontSize: para.fontSize, weight: para.bold ? "bold" : baseStyle.weight };
+      return textLineMetrics(theme, paraStyle, undefined, para.text).naturalHeightCm;
+    }));
+    return Math.min(12, Math.max(0.01, maxNaturalHeight + textInkVerticalReserveCm(theme, node, baseStyle)));
+  }
   const bodyHeight = textBodyHeightForEstimate(theme, node, widthCm, baseStyle);
   if (bodyHeight <= 0) return singleLineTextHeight(theme, node);
   const metrics = textLineMetrics(theme, baseStyle, undefined, renderedTextContent(node));
@@ -6664,6 +10557,8 @@ function textVisibleInkHeight(theme: SimpleTheme, node: DomNode, widthCm: number
 function textBodyHeightForEstimate(theme: SimpleTheme, node: DomNode, widthCm: number, baseStyle: ReturnType<typeof textStyle>): number {
   const paragraphs = textParagraphsForEstimate(theme, node, baseStyle);
   if (paragraphs.length === 0) return 0;
+  const lineCount = textLineCountForEstimate(theme, node, widthCm, paragraphs);
+  if (lineCount <= 0) return 0;
   const contentWidth = Math.max(0.25, widthCm - textHorizontalReserveCm(node));
   const wrap = node.wrap === "none" || node.noWrap === true ? "none" : "wrap";
   return paragraphs.reduce((sum, para, index) => {
@@ -6672,6 +10567,17 @@ function textBodyHeightForEstimate(theme: SimpleTheme, node: DomNode, widthCm: n
       : estimatedWrappedLineCount(theme, para.text, para.fontSize, para.bold, contentWidth);
     const spaceAfter = index === paragraphs.length - 1 ? 0 : para.spaceAfterCm;
     return sum + lines * para.lineHeightCm + spaceAfter;
+  }, 0);
+}
+
+function textLineCountForEstimate(theme: SimpleTheme, node: DomNode, widthCm: number, paragraphs: TextParagraphEstimate[]): number {
+  const contentWidth = Math.max(0.25, widthCm - textHorizontalReserveCm(node));
+  const wrap = node.wrap === "none" || node.noWrap === true ? "none" : "wrap";
+  return paragraphs.reduce((sum, para) => {
+    const lines = wrap === "none"
+      ? Math.max(1, String(para.text || "").split(/\r?\n/).length)
+      : estimatedWrappedLineCount(theme, para.text, para.fontSize, para.bold, contentWidth);
+    return sum + lines;
   }, 0);
 }
 
@@ -6738,7 +10644,7 @@ function textLineMetrics(theme: SimpleTheme, style: TextStyle, rawLineSpacing?: 
     ascentCm *= scale;
     descentCm *= scale;
   }
-  const requested = explicitLineSpacingCm(rawLineSpacing, style) ?? measurer.lineHeight(style.fontSize, style.lineHeight, family);
+  const requested = explicitLineSpacingCm(rawLineSpacing, style) ?? measurer.lineHeightForText(text, style.fontSize, style.lineHeight, family);
   const lineHeightCm = Math.max(naturalHeightCm, requested);
   return {
     ascentCm,
@@ -6804,30 +10710,90 @@ function pushTextFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, s
   if (skipStrictTextFitDiagnostic(node, styleKey)) return;
   const text = renderedTextContent(node);
   if (!text) return;
-  const needed = textNeededHeight(theme, node, rect.w, style);
-  if (needed <= rect.h + 0.08) return;
-  pushDiagnostic({
+  const evidence = measureTextFitAtFont(theme, node, style, rect, styleKey, style.fontSize);
+  const needed = evidence.heightNeeded;
+  const available = evidence.heightAvailable;
+  if (evidence.fits || needed <= available + 0.08 || textLinesFitReadableHeight(evidence)) return;
+  const measured = {
+    available,
+    needed,
+    deltaCm: needed - available,
+    heightAvailable: available,
+    heightNeeded: needed,
+    unbreakableNeeded: evidence.unbreakableNeeded,
+    rect,
+    fontSize: style.fontSize,
+    finalFontSize: style.fontSize,
+    lineHeightCm: evidence.lineHeightCm,
+    wrappedLines: evidence.wrappedLines,
+    availableLines: evidence.availableLines,
+    fitMethod: "final-text-measure",
+  };
+  if (mildTextFitOverflow(needed, { ...rect, h: available })) return;
+  pushFitDiagnostic({
+    kind: "text",
     severity: "error",
-    code: "FALLBACK_FAILED",
     slideId: currentSlideId,
     nodeId: node.id,
-    message: `Text '${nodeLabel(node)}' needs ${needed.toFixed(2)}cm but was assigned ${rect.h.toFixed(2)}cm; PowerPoint would overflow the text box and overlap nearby content.`,
+    message: `Text '${nodeLabel(node)}' still needs ${needed.toFixed(2)}cm after final font measurement but has ${available.toFixed(2)}cm; PowerPoint would overflow the text box and may overlap nearby content.`,
     suggestion: "Give this text more height/width, reduce the copy, or split it across slides. Use autoFit:'shrink' only for non-body display text.",
-    measured: { available: rect.h, needed, deltaCm: needed - rect.h, rect },
+    measured,
   });
 }
 
-function pushBulletsFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect): void {
-  const needed = bulletsIntrinsicHeight(theme, node, rect.w);
-  if (needed <= rect.h + 0.08) return;
-  pushDiagnostic({
+const MILD_TEXT_OVERFLOW_ABSOLUTE_CM = 0.20;
+const MILD_TEXT_OVERFLOW_RATIO = 0.10;
+const MIN_READABLE_TEXT_FIT_HEIGHT_CM = 1.0;
+
+function mildTextFitOverflow(needed: number, rect: Rect): boolean {
+  const delta = needed - rect.h;
+  if (rect.h >= 0.45 && delta <= 0.16) return true;
+  if (rect.h < MIN_READABLE_TEXT_FIT_HEIGHT_CM) return false;
+  return delta <= Math.max(MILD_TEXT_OVERFLOW_ABSOLUTE_CM, rect.h * MILD_TEXT_OVERFLOW_RATIO);
+}
+
+function textLinesFitReadableHeight(evidence: TextFitEvidence): boolean {
+  if (evidence.wrappedLines <= 0 || evidence.lineHeightCm <= 0) return true;
+  return evidence.availableLines + 0.08 >= evidence.wrappedLines;
+}
+
+const MILD_BULLET_OVERFLOW_ABSOLUTE_CM = 0.30;
+const MILD_BULLET_OVERFLOW_RATIO = 0.14;
+const MIN_READABLE_BULLET_LIST_HEIGHT_CM = 1.05;
+
+function mildBulletFitOverflow(needed: number, rect: Rect): boolean {
+  if (rect.h < MIN_READABLE_BULLET_LIST_HEIGHT_CM) return false;
+  const delta = needed - rect.h;
+  return delta <= Math.max(MILD_BULLET_OVERFLOW_ABSOLUTE_CM, rect.h * MILD_BULLET_OVERFLOW_RATIO);
+}
+
+function pushBulletsFitDiagnostics(theme: SimpleTheme, node: DomNode, rect: Rect, style: ReturnType<typeof textStyle>): void {
+  const evidence = measureBulletsFit(theme, node, rect, style);
+  const needed = evidence.needed;
+  const available = evidence.available;
+  if (needed <= available + 0.08 || evidence.availableLines + 0.08 >= evidence.wrappedLines) return;
+  const measured = {
+    available,
+    needed,
+    deltaCm: needed - available,
+    rect,
+    fontSize: style.fontSize,
+    finalFontSize: style.fontSize,
+    lineHeightCm: evidence.lineHeightCm,
+    wrappedLines: evidence.wrappedLines,
+    availableLines: evidence.availableLines,
+    itemCount: evidence.itemCount,
+    fitMethod: "final-bullets-measure",
+  };
+  if (mildBulletFitOverflow(needed, { ...rect, h: available })) return;
+  pushFitDiagnostic({
+    kind: "bullets",
     severity: "error",
-    code: "FALLBACK_FAILED",
     slideId: currentSlideId,
     nodeId: node.id,
-    message: `Bullets '${nodeLabel(node)}' need ${needed.toFixed(2)}cm but were assigned ${rect.h.toFixed(2)}cm; PowerPoint would compress paragraph spacing or overlap lines.`,
+    message: `Bullets '${nodeLabel(node)}' still need ${needed.toFixed(2)}cm after final font measurement but have ${available.toFixed(2)}cm; PowerPoint would compress paragraph spacing or overlap lines.`,
     suggestion: "Use fewer bullets, switch to compact density, split the slide, or give the bullet list more vertical space.",
-    measured: { available: rect.h, needed, deltaCm: needed - rect.h, rect },
+    measured,
   });
 }
 
@@ -6869,8 +10835,18 @@ function textMinHeight(theme: SimpleTheme, node: DomNode, crossSize: number): nu
 }
 
 function textStyleKey(node: DomNode): string {
-  if (typeof node.style === "string" && node.style.trim()) return node.style;
+  if (typeof node.style === "string" && node.style.trim()) return normalizeTextStyleAlias(node.style);
   return inferTextKind(node).kind;
+}
+
+function normalizeTextStyleAlias(style: string): string {
+  const key = style.trim();
+  const normalized = key.toLowerCase();
+  if (normalized === "h1" || normalized === "heading" || normalized === "header") return "section-title";
+  if (normalized === "h2" || normalized === "subheading" || normalized === "subhead") return "card-title";
+  if (normalized === "body") return "paragraph";
+  if (normalized === "small" || normalized === "small-body") return "body-small";
+  return key;
 }
 
 /**
@@ -6889,67 +10865,122 @@ function defaultAutoFitForStyle(styleKey: string): "shrink" | undefined {
 }
 
 /**
- * Pre-shrink a text style so the rendered single-line width fits the rect.
- * Used by autoFit:"shrink" nodes to avoid LibreOffice not honoring the
- * runtime normAutofit hint. Floor at 70% of the original size — beyond
+ * Pre-shrink a text style so the rendered text fits the rect. Used by
+ * autoFit:"shrink" nodes to avoid LibreOffice not honoring the runtime
+ * normAutofit hint. Floor at 70% of the original size by default — beyond
  * that the metric is illegible and the slide should be re-authored.
  */
-function autoShrinkStyle(
+interface TextFitEvidence {
+  fits: boolean;
+  widthNeeded: number;
+  heightNeeded: number;
+  heightAvailable: number;
+  unbreakableNeeded: number;
+  punctuationRisk: boolean;
+  wrappedLines: number;
+  availableLines: number;
+  lineHeightCm: number;
+  fontPt: number;
+  innerWidthCm: number;
+}
+
+function measureTextFitAtFont(
   theme: SimpleTheme,
   node: DomNode,
   style: ReturnType<typeof textStyle>,
   rect: Rect,
   styleKey: string,
-  options: { emitDiagnostics?: boolean } = {},
-): ReturnType<typeof textStyle> {
-  const emitDiagnostics = options.emitDiagnostics !== false;
+  fontPt: number,
+): TextFitEvidence {
   const rawText = renderedTextContent(node);
-  const lines = rawText.split(/\n+/).map((line) => line.trim()).filter(Boolean);
-  const text = (lines.length > 0 ? lines : [rawText.replace(/\n/g, " ")]).join("\n");
-  if (!text) return style;
-  // Width margin baked into textShape (l:0.1 + r:0.1 = 0.2 cm) plus a safety
-  // buffer so we land well inside the renderer's actual line-break threshold.
+  const lines = textLinesForFit(rawText);
+  const text = lines.join("\n");
+  if (!text) {
+    return { fits: true, widthNeeded: 0, heightNeeded: 0, heightAvailable: Math.max(0, rect.h), unbreakableNeeded: 0, punctuationRisk: false, wrappedLines: 0, availableLines: 0, lineHeightCm: 0, fontPt, innerWidthCm: Math.max(0, rect.w) };
+  }
   const compactMarkerText = node.role === "item-marker";
   const inner = Math.max(compactMarkerText ? 0.08 : 0.1, rect.w - (compactMarkerText ? 0.06 : 0.35));
   const innerHeight = Math.max(compactMarkerText ? 0.1 : 0.12, rect.h - (compactMarkerText ? 0.04 : 0.12));
   const textLines = text.split("\n");
   const noWrap = node.wrap === "none" || node.noWrap === true;
   const measurer = createTextMeasurer(theme);
-  const computeFit = (fontPt: number): { fits: boolean; widthNeeded: number; heightNeeded: number; unbreakableNeeded: number } => {
-    let widthNeeded = 0;
-    let unbreakableNeeded = 0;
-    let wrappedLines = 0;
-    for (const line of textLines) {
-      if (noWrap) {
-        const lineWidth = measurer.textWidth(line, fontPt, style.weight);
-        widthNeeded = Math.max(widthNeeded, lineWidth);
-        unbreakableNeeded = Math.max(unbreakableNeeded, lineWidth);
-        wrappedLines += 1;
-      } else {
-        const metrics = measurer.wrapLines(line, fontPt, style.weight, inner);
-        widthNeeded = Math.max(widthNeeded, metrics.widthCm);
-        unbreakableNeeded = Math.max(unbreakableNeeded, metrics.unbreakableCm);
-        wrappedLines += metrics.lines;
-      }
+  let widthNeeded = 0;
+  let unbreakableNeeded = 0;
+  let punctuationRisk = false;
+  let wrappedLines = 0;
+  for (const line of textLines) {
+    if (noWrap) {
+      const lineWidth = measurer.textWidth(line, fontPt, style.weight);
+      widthNeeded = Math.max(widthNeeded, lineWidth);
+      unbreakableNeeded = Math.max(unbreakableNeeded, lineWidth);
+      wrappedLines += 1;
+    } else {
+      const metrics = measurer.wrapLines(line, fontPt, style.weight, inner);
+      widthNeeded = Math.max(widthNeeded, metrics.widthCm);
+      unbreakableNeeded = Math.max(unbreakableNeeded, metrics.unbreakableCm);
+      wrappedLines += metrics.lines;
+      if (!punctuationRisk) punctuationRisk = hasCjkLineStartPunctuationRisk(line, fontPt, style.weight, inner, measurer);
     }
-    const measuredStyle = { ...style, fontSize: fontPt };
-    const lineHeightCm = textLineMetrics(theme, measuredStyle, node.lineSpacing, text).lineHeightCm;
-    const heightReserve = wrappedLines > 1
-      ? textVerticalReserveCm(theme, node, measuredStyle)
-      : textInkVerticalReserveCm(theme, node, measuredStyle);
-    const heightNeeded = wrappedLines * lineHeightCm + heightReserve;
-    const mustFitSingleLineHeight = wrappedLines > 1
-      || ((styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") && rect.h <= 0.5);
-    return {
-      fits: (noWrap ? widthNeeded <= inner : unbreakableNeeded <= inner) && (!mustFitSingleLineHeight || heightNeeded <= innerHeight + 0.08),
-      widthNeeded,
-      heightNeeded,
-      unbreakableNeeded,
-    };
+  }
+  const measuredStyle = { ...style, fontSize: fontPt };
+  const lineMetrics = textLineMetrics(theme, measuredStyle, node.lineSpacing, text);
+  const lineHeightCm = lineMetrics.lineHeightCm;
+  const heightNeeded = wrappedLines > 1
+    ? wrappedLines * lineHeightCm
+    : Math.min(lineHeightCm, lineMetrics.naturalHeightCm + textInkVerticalReserveCm(theme, node, measuredStyle));
+  const autoFitShrink = node.autoFit === "shrink" || node.__fallbackAutoFitShrink === true;
+  const singleLineAutoFitHeightPressure = autoFitShrink
+    && wrappedLines <= 1
+    && heightNeeded > rect.h + Math.max(0.18, rect.h * 0.35);
+  const mustFitSingleLineHeight = wrappedLines > 1
+    || singleLineAutoFitHeightPressure
+    || ((styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") && rect.h <= 0.5);
+  const heightSensitive = mustFitSingleLineHeight
+    || (isTextFirstRole(nearestSemanticRole(node)) && heightNeeded > innerHeight + 0.06);
+  const heightAvailableForFit = wrappedLines <= 1 ? Math.max(0, rect.h) : innerHeight;
+  // CJK text wraps between characters in PowerPoint/LibreOffice. Treating the
+  // whole sentence as one unbreakable word forces unnecessary shrink in normal
+  // Chinese/Japanese/Korean paragraphs.
+  const fitsWidth = noWrap ? widthNeeded <= inner : containsCjk(text) ? !punctuationRisk : unbreakableNeeded <= inner;
+  const fitsHeight = !heightSensitive || heightNeeded <= heightAvailableForFit + 0.08;
+  return {
+    fits: fitsWidth && fitsHeight,
+    widthNeeded,
+    heightNeeded,
+    heightAvailable: heightAvailableForFit,
+    unbreakableNeeded,
+    punctuationRisk,
+    wrappedLines,
+    availableLines: lineHeightCm > 0 ? heightAvailableForFit / lineHeightCm : 0,
+    lineHeightCm,
+    fontPt,
+    innerWidthCm: inner,
   };
+}
+
+function textLinesForFit(rawText: string): string[] {
+  const normalized = String(rawText || "").replace(/\r\n?/g, "\n");
+  if (!normalized.trim()) return [];
+  return normalized.split("\n").map((line) => line.trimEnd());
+}
+
+function autoShrinkStyle(
+  theme: SimpleTheme,
+  node: DomNode,
+  style: ReturnType<typeof textStyle>,
+  rect: Rect,
+  styleKey: string,
+  options: { emitDiagnostics?: boolean; warnOnAnyShrink?: boolean; diagnosticReason?: string } = {},
+): ReturnType<typeof textStyle> {
+  const emitDiagnostics = options.emitDiagnostics !== false;
+  const rawText = renderedTextContent(node);
+  const lines = textLinesForFit(rawText);
+  const text = lines.join("\n");
+  if (!text) return style;
+  const computeFit = (fontPt: number): TextFitEvidence => measureTextFitAtFont(theme, node, style, rect, styleKey, fontPt);
   const initial = computeFit(style.fontSize);
   if (initial.fits) return style;
-  const minPt = Math.max(8, style.fontSize * 0.7);
+  const minPt = autoShrinkMinFontPt(node, styleKey, style.fontSize);
   let lo = minPt, hi = style.fontSize, fitted = minPt;
   for (let iter = 0; iter < 12; iter++) {
     const mid = (lo + hi) / 2;
@@ -6965,18 +10996,35 @@ function autoShrinkStyle(
   const rounded = Math.round(fitted * 2) / 2;
   fitted = computeFit(rounded).fits ? rounded : Math.floor(fitted * 2) / 2;
   if (fitted >= style.fontSize - 0.25) return style;
+  const punctuationGuardShrink = initial.punctuationRisk === true;
+  if (options.warnOnAnyShrink && !punctuationGuardShrink && fitted > style.fontSize * 0.92) return style;
   const severe = isSevereTextShrink(node, styleKey, style.fontSize, fitted);
-  if (emitDiagnostics && (severe || fitted <= 9 || fitted <= style.fontSize * 0.78)) {
+  if (emitDiagnostics && ((!punctuationGuardShrink && options.warnOnAnyShrink) || severe || fitted <= 9 || fitted <= style.fontSize * 0.78)) {
+    const finalEvidence = computeFit(fitted);
+    const reason = options.diagnosticReason || (initial.punctuationRisk ? "guarded against CJK punctuation orphaning" : initial.wrappedLines > lines.length ? "wrapped and auto-shrunk" : "auto-shrunk");
     pushDiagnostic({
       severity: severe ? "error" : "warn",
       code: "TRUNCATED",
       slideId: currentSlideId || undefined,
       nodeId: node.id,
-      message: `Text '${nodeLabel(node)}' was auto-shrunk from ${style.fontSize.toFixed(1)}pt to ${fitted.toFixed(1)}pt to fit its assigned text box after wrapping.`,
+      message: `Text '${nodeLabel(node)}' was ${reason} from ${style.fontSize.toFixed(1)}pt to ${fitted.toFixed(1)}pt to fit its assigned text box.`,
       suggestion: severe
         ? "This body text is no longer presentation-readable. Give it more width/height, split the content, shorten it, or choose a layout/component that gives body text more space."
         : "Give this text more width/height, split the content, use shorter lines, or choose a layout/component that gives body text more space.",
-      measured: { available: inner, needed: initial.widthNeeded, heightAvailable: innerHeight, heightNeeded: initial.heightNeeded, unbreakableNeeded: initial.unbreakableNeeded, rect },
+      measured: {
+        available: initial.innerWidthCm,
+        needed: initial.widthNeeded,
+        heightAvailable: initial.heightAvailable,
+        heightNeeded: initial.heightNeeded,
+        unbreakableNeeded: initial.unbreakableNeeded,
+        rect,
+        originalFontSize: style.fontSize,
+        finalFontSize: fitted,
+        lineHeightCm: finalEvidence.lineHeightCm,
+        wrappedLines: finalEvidence.wrappedLines,
+        availableLines: finalEvidence.availableLines,
+        fitMethod: options.warnOnAnyShrink ? "pre-shrink" : "autoFit-shrink",
+      },
     });
   }
   return { ...style, fontSize: fitted };
@@ -6985,10 +11033,22 @@ function autoShrinkStyle(
 function isSevereTextShrink(node: DomNode, styleKey: string, originalPt: number, fittedPt: number): boolean {
   if (node.optional === true) return false;
   if (styleKey === "label" || styleKey === "metric-label" || styleKey === "badge" || styleKey === "tag" || styleKey === "source-note") return false;
-  if (styleKey === "caption" || styleKey === "figure-caption") return fittedPt < 8 || fittedPt <= originalPt * 0.72;
-  const bodyLike = styleKey === "paragraph" || styleKey === "article" || styleKey === "lead";
+  if (isTextFirstRole(nearestSemanticRole(node)) && !BODY_LIKE_TEXT_STYLES.has(styleKey)) return false;
+  if (styleKey === "caption" || styleKey === "figure-caption") return fittedPt < 7.5 || fittedPt <= originalPt * 0.62;
+  const bodyLike = BODY_LIKE_TEXT_STYLES.has(styleKey);
   if (!bodyLike) return false;
-  return fittedPt < 9 || fittedPt <= originalPt * 0.72;
+  return fittedPt < 8 || fittedPt <= originalPt * 0.62;
+}
+
+const BODY_LIKE_TEXT_STYLES = new Set(["paragraph", "article", "lead"]);
+
+function autoShrinkMinFontPt(node: DomNode, styleKey: string, originalPt: number): number {
+  if (styleKey === "metric-value") return Math.max(11, originalPt * 0.48);
+  if (styleKey === "deck-title" || styleKey === "slide-title" || styleKey === "hero") return Math.max(12, originalPt * 0.50);
+  if (styleKey === "section-title" || styleKey === "card-title" || styleKey === "title") return Math.max(10, originalPt * 0.55);
+  if (styleKey === "quote" || styleKey === "callout") return Math.max(8.5, originalPt * 0.55);
+  if (isTextFirstRole(nearestSemanticRole(node)) && !BODY_LIKE_TEXT_STYLES.has(styleKey)) return Math.max(8, originalPt * 0.58);
+  return Math.max(8, originalPt * 0.7);
 }
 
 /**
@@ -7025,52 +11085,17 @@ function weightedTextLength(text: string): number {
   return length;
 }
 
-function fitToAvailableRespectingFixed(specs: SizeSpec[], sizes: number[], availableMain: number): number[] {
-  const fixedTotal = specs.reduce((sum, spec, index) => sum + (spec.fixed ? sizes[index]! : 0), 0);
-  const flexTotal = sizes.reduce((sum, size, index) => sum + (specs[index]!.fixed ? 0 : size), 0);
-  const flexAvailable = Math.max(0, availableMain - fixedTotal);
-  if (flexTotal <= 0) return sizes;
-  if (flexTotal <= flexAvailable) return sizes;
-  const scale = flexAvailable / flexTotal;
-  return sizes.map((size, index) => specs[index]!.fixed ? size : size * scale);
-}
-
-function weightsFromProp(value: unknown, count: number): number[] {
-  if (Array.isArray(value) && value.length === count) {
-    return normalizeWeights(value.map((item) => typeof item === "number" && Number.isFinite(item) && item > 0 ? item : 1));
-  }
-  return normalizeWeights(Array.from({ length: count }, () => 1));
-}
-
-function gridColumnSizesFromProps(node: DomNode, columns: number, availableWidth: number): number[] {
-  if (Array.isArray(node.columnWeights) && node.columnWeights.length === columns) {
-    return weightsFromProp(node.columnWeights, columns).map((weight) => availableWidth * weight);
-  }
-  if (Array.isArray(node.colWidths) && node.colWidths.length === columns) {
-    const nums = node.colWidths.map((item) => typeof item === "number" && Number.isFinite(item) && item > 0 ? item : 0);
-    const sum = nums.reduce((acc, value) => acc + value, 0);
-    if (sum > 0) {
-      // Match table semantics: values close to the available width are cm;
-      // small fractional lists such as [0.12, 1] are proportions.
-      const looksAbsolute = Math.abs(sum - availableWidth) < availableWidth * 0.5 && nums.every((n) => n >= 0.3);
-      if (looksAbsolute) {
-        if (sum <= availableWidth) return nums;
-        return nums.map((n) => (n / sum) * availableWidth);
-      }
-      return normalizeWeights(nums).map((weight) => availableWidth * weight);
-    }
-  }
-  return weightsFromProp(undefined, columns).map((weight) => availableWidth * weight);
-}
-
-function normalizeWeights(values: number[]): number[] {
-  const total = values.reduce((sum, value) => sum + Math.max(value, 0), 0);
-  if (total <= 0) return values.map(() => 1 / values.length);
-  return values.map((value) => Math.max(value, 0) / total);
+function gridColumnTrackTargets(node: DomNode, columns: number, availableWidth: number): number[] {
+  return resolveGridColumnTracks({
+    count: columns,
+    available: availableWidth,
+    weights: node.columnWeights,
+    explicitSizes: node.colWidths,
+  });
 }
 
 function positionsFromWeights(start: number, availableSize: number, gap: number, weights: number[]): Array<{ start: number; size: number }> {
-  const sizes = weights.map((weight) => availableSize * weight);
+  const sizes = normalizeTrackWeights(weights, weights.length).map((weight) => availableSize * weight);
   return positionsFromSizes(start, gap, sizes);
 }
 
@@ -7117,12 +11142,13 @@ function stringProp(node: DomNode, key: string, fallback: string): string {
 
 function numberProp(node: DomNode, key: string, fallback: number): number {
   const value = node[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  const parsed = parseLayoutDimensionCm(value);
+  return parsed !== undefined ? parsed : fallback;
 }
 
 function optionalNumberProp(node: DomNode, key: string): number | undefined {
   const value = node[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return parseLayoutDimensionCm(value);
 }
 
 function recordValue(value: unknown): Record<string, unknown> | undefined {
@@ -7136,7 +11162,7 @@ function stringFromRecord(record: Record<string, unknown> | undefined, key: stri
 
 function optionalNumberFromRecord(record: Record<string, unknown> | undefined, key: string): number | undefined {
   const value = record?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return parseLayoutDimensionCm(value);
 }
 
 function dashValue(value: unknown): LineSpec["dash"] | undefined {
@@ -7176,7 +11202,7 @@ function valignProp(node: DomNode, kind: string): "top" | "middle" | "bottom" {
 }
 
 function containsCjk(text: string): boolean {
-  return /[\u4e00-\u9fff]/.test(text);
+  return containsCjkOrFullWidth(text);
 }
 
 function chartType(value: unknown): ChartType {
@@ -7192,8 +11218,14 @@ function normalizeChartSeries(theme: SimpleTheme, value: unknown): ChartSeries[]
     if (!item || typeof item !== "object") return null;
     const record = item as Record<string, unknown>;
     const name = typeof record.name === "string" ? record.name : `Series ${index + 1}`;
-    if (Array.isArray(record.points)) {
-      const points = record.points
+    const dataArray = Array.isArray(record.data) ? record.data : undefined;
+    const rawPoints = Array.isArray(record.points)
+      ? record.points
+      : dataArray?.some((p) => Boolean(p && typeof p === "object" && ("x" in p || "y" in p)))
+        ? dataArray
+        : undefined;
+    if (rawPoints) {
+      const points = rawPoints
         .filter((p): p is Record<string, unknown> => Boolean(p && typeof p === "object"))
         .map((p) => ({ x: Number(p.x), y: Number(p.y) }))
         .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
@@ -7204,8 +11236,9 @@ function normalizeChartSeries(theme: SimpleTheme, value: unknown): ChartSeries[]
       }
       return;
     }
-    const values = Array.isArray(record.values)
-      ? record.values.map((v) => v === null ? null : Number(v)).filter((v): v is number | null => v === null || Number.isFinite(v))
+    const rawValues = Array.isArray(record.values) ? record.values : dataArray;
+    const values = Array.isArray(rawValues)
+      ? rawValues.map((v) => v === null ? null : Number(v)).filter((v): v is number | null => v === null || Number.isFinite(v))
       : [];
     if (values.length === 0) return;
     const series: ChartSeries = { name, values };
@@ -7228,7 +11261,7 @@ function applyChartSeriesStyle(theme: SimpleTheme, series: ChartSeries, record: 
   const marker = normalizeChartMarker(theme, record.marker);
   if (marker) series.marker = marker;
   if (typeof record.smooth === "boolean") series.smooth = record.smooth;
-  const dataLabels = normalizeChartDataLabels(record.dataLabels, { pieLike: false, showValues: false });
+  const dataLabels = normalizeChartDataLabels(record.dataLabels, { pieLike: false, showValues: false }, theme);
   if (dataLabels) series.dataLabels = dataLabels;
 }
 
