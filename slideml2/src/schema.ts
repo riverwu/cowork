@@ -6,10 +6,12 @@ export const DATA_SOURCE_TYPE_VALUES = ["inline-json", "inline-csv", "file-csv",
 export const DATA_AGGREGATE_OP_VALUES = ["sum", "avg", "min", "max", "count", "first", "last"] as const;
 export const DATA_COLUMN_TYPE_VALUES = ["text", "number", "percent", "currency", "date"] as const;
 export const DATA_COLUMN_ALIGN_VALUES = ["left", "center", "right"] as const;
+export const DENSITY_PROFILE_VALUES = ["editorial", "analytical", "dense"] as const;
 
 export type ValidationMode = typeof VALIDATION_MODE_VALUES[number];
 
 export const THEME_OVERRIDE_FIELDS = [
+  "densityProfile",
   "colors",
   "text",
   "component",
@@ -51,6 +53,7 @@ export const THEME_LAYOUT_FIELDS = [
   "columnGap",
   "cardPadding",
   "areas",
+  "regionBudget",
 ] as const;
 
 export const SURFACE_FIELDS = [

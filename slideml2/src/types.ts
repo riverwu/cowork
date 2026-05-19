@@ -180,6 +180,8 @@ export type ThemeTextWeight =
 
 export type ThemeFontChain = string | string[];
 
+export type DensityProfileName = "editorial" | "analytical" | "dense";
+
 export interface ThemeRegionBudgetOverride {
   headingScale?: number;
   leadScale?: number;
@@ -270,6 +272,13 @@ export interface DeckSpec {
  *  ever sees them. */
 type ColorOverrideValue = string | { [k: string]: ColorOverrideValue };
 export interface ThemeOverride {
+  /**
+   * Built-in density preset applied before explicit themeOverride fields.
+   * - editorial: large-title, magazine-style default.
+   * - analytical: more usable area for charts/tables and business prose.
+   * - dense: compact dashboards, tables, code, and operational pages.
+   */
+  densityProfile?: DensityProfileName;
   colors?: Record<string, ColorOverrideValue>;
   text?: Record<string, {
     fontSize?: number;

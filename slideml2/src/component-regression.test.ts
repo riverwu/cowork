@@ -71,6 +71,20 @@ function firstTextShapeContaining(ast: ReturnType<typeof renderToAst>, text: str
   return undefined;
 }
 
+function firstRenderedShapeContaining(ast: ReturnType<typeof renderToAst>, text: string) {
+  const textShape = firstTextShapeContaining(ast, text);
+  if (textShape) return textShape;
+  for (const slide of ast.slides) {
+    for (const shape of slide.shapes) {
+      if (shape.type !== "table") continue;
+      const cells = (shape as { cells?: Array<Array<{ runs?: Array<{ text?: string }> }>> }).cells || [];
+      const allText = cells.flatMap((row) => row.flatMap((cell) => (cell.runs || []).map((run) => run.text || ""))).join("");
+      if (allText.includes(text)) return shape;
+    }
+  }
+  return undefined;
+}
+
 function findRunColor(ast: ReturnType<typeof renderToAst>, name: string): string | undefined {
   const shape = findShapeByName(ast, name);
   if (!shape || shape.type !== "text") return undefined;
@@ -1253,6 +1267,42 @@ describe("component regressions", () => {
     expect(chart?.dataLabelColor).toBe("F0EDE5");
     for (const text of ["平台玩家 vs Gamma 规模对比", "Microsoft & Canva", "平台玩家拥有更大的渠道", "这不是同一位面的竞争", "公开财报及公司披露"]) {
       expect(firstTextShapeContaining(ast, text), `missing ${text}`).toBeDefined();
+    }
+  });
+
+  it("chart-with-rail accepts structured railBody nodes without forcing a schema repair loop", () => {
+    const slide: SlideV2 = {
+      id: "reg-rail-structured-body",
+      children: [{
+        id: "reg-rail-structured-body.mix",
+        type: "chart-with-rail",
+        chartType: "pie",
+        chartTitle: "各职能人力占比",
+        chartData: {
+          labels: ["销售", "研发", "售后"],
+          series: [{ name: "人数", values: [150, 55, 29] }],
+        },
+        railTitle: "各职能人数",
+        railBody: [
+          { type: "text", text: "在编+外包合计 276 人，销售占比超半数。", style: "caption" },
+          { type: "spacer", fixedHeight: 0.12 },
+          {
+            type: "table-card",
+            density: "compact",
+            rows: [
+              ["职能", "人数", "占比"],
+              ["销售", "150人", "54.3%"],
+              ["研发", "55人", "19.9%"],
+            ],
+          },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    const validation = validateSlide(slide, baseDeck);
+    expect(validation.errors, JSON.stringify(validation.errors, null, 2)).toEqual([]);
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    for (const text of ["各职能人力占比", "各职能人数", "在编+外包合计", "销售", "150人", "54.3%"]) {
+      expect(firstRenderedShapeContaining(ast, text), `missing ${text}`).toBeDefined();
     }
   });
 

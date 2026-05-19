@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyEdits,
   auditDeck,
+  buildTheme,
   buildDom,
   buildAgentPromptPack,
   clearRenderDiagnostics,
@@ -28,6 +29,7 @@ import {
   insertSlide,
   listNodeTypesForTest,
   listComponents,
+  listDensityProfiles,
   listTextKinds,
   listThemes,
   measureDeck,
@@ -611,6 +613,7 @@ describe("slideml2 MVP", () => {
 
   it("exposes complete component, text kind, and theme registries", () => {
     expect(listThemes()).toEqual(["default"]);
+    expect(listDensityProfiles()).toEqual(["editorial", "analytical", "dense"]);
     expect(listTextKinds().map((item) => item.kind)).toEqual(expect.arrayContaining(["slide-title", "lead", "metric-value", "table-cell", "code"]));
     const componentNames = listComponents().map((item) => item.name);
     expect(componentNames).toEqual(expect.arrayContaining([
@@ -674,6 +677,55 @@ describe("slideml2 MVP", () => {
     expect(textAlternatives.found["comparison-list"]?.fields.items.required).toBe(true);
     expect(textAlternatives.found["fact-list"]?.fields.items.required).toBe(true);
     expect(describeComponents(["unknown-component"]).missing).toEqual(["unknown-component"]);
+  });
+
+  it("applies density profiles before explicit theme overrides", () => {
+    const editorial = buildTheme({}, "default", { densityProfile: "editorial" });
+    const analytical = buildTheme({}, "default", { densityProfile: "analytical" });
+    const dense = buildTheme({}, "default", { densityProfile: "dense" });
+    expect(analytical.densityProfile).toBe("analytical");
+    expect(analytical.text["slide-title"]!.fontSize).toBeLessThan(editorial.text["slide-title"]!.fontSize);
+    expect(analytical.layout.contentTop).toBeLessThan(editorial.layout.contentTop);
+    expect(dense.component.card.padding).toBeLessThan(analytical.component.card.padding);
+    const override = buildTheme({}, "default", { densityProfile: "dense", text: { "slide-title": { fontSize: 31 } } });
+    expect(override.text["slide-title"]!.fontSize).toBe(31);
+  });
+
+  it("keeps peer table-card typography in the same semantic cohort", () => {
+    const rows = [
+      ["Metric", "Value"],
+      ["North America enterprise pipeline with renewals", "$12.4m"],
+      ["International expansion", "$8.1m"],
+      ["SMB self-serve", "$3.8m"],
+      ["Partner channel", "$2.9m"],
+      ["Services attach", "$1.4m"],
+    ];
+    const deck = sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default", themeOverride: { densityProfile: "analytical" } },
+      slides: [{
+        id: "table-cohort",
+        children: [{
+          id: "table-cohort.grid",
+          type: "grid",
+          area: "content",
+          columns: 2,
+          gap: 0.35,
+          fixedHeight: 3.25,
+          semanticBudget: "narrative",
+          children: [
+            { id: "table-cohort.left", type: "component", component: "table-card", title: "Current plan", rows },
+            { id: "table-cohort.right", type: "component", component: "table-card", title: "Scenario plan", rows: rows.map((row, index) => index === 1 ? [row[0], "$14.0m"] : row) },
+          ],
+        }],
+      }],
+    } as never);
+    const ast = renderToAst(deck);
+    const tables = ast.slides[0]!.shapes.filter((shape) => shape.type === "table") as Array<{ cells?: Array<Array<{ runs?: Array<{ sizeHalfPt?: number }> }>> }>;
+    expect(tables).toHaveLength(2);
+    const bodySizes = tables.map((table) => table.cells?.[1]?.[0]?.runs?.[0]?.sizeHalfPt);
+    expect(bodySizes[0]).toBeDefined();
+    expect(bodySizes[0]).toBe(bodySizes[1]);
   });
 
   it("exposes copyable schema examples that validate after normalization", () => {

@@ -176,10 +176,24 @@ const COMPONENT_HELP_OVERRIDES = {
         required: ["chartType", "chartData.labels", "chartData.series[].values"],
         example: { type: "chart-with-rail", chartType: "bar", chartData: { labels: ["A", "B"], series: [{ name: "Series", values: [10, 20] }] }, railTitle: "Readout", railBody: "Concise interpretation." },
       },
+      {
+        name: "structured rail support",
+        required: ["chartType", "chartData.labels", "chartData.series[].values", "railBody[]"],
+        example: {
+          type: "chart-with-rail",
+          chartType: "pie",
+          chartData: { labels: ["Sales", "R&D"], series: [{ name: "HC", values: [150, 55] }] },
+          railTitle: "Readout",
+          railBody: [
+            { type: "text", text: "Sales is more than half of headcount." },
+            { type: "table-card", density: "compact", rows: [["Function", "HC"], ["Sales", "150"], ["R&D", "55"]] },
+          ],
+        },
+      },
     ],
     commonMistakes: [
       "For chart-with-rail flat mode, use chartData:{labels,series}; data:{labels,series} is the chart-card bundle, not the documented flat chart-with-rail key.",
-      "evidence must be a single object, not an array. Put one dominant chart/table/image in evidence and keep rail text concise.",
+      "evidence must be a single object, not an array. Put one dominant chart/table/image in evidence; use railBody:[{type:'text',...},{type:'table-card',...}] or rail:{type:'side-rail',children:[...]} for compact structured rail support.",
       "If the chart is SQUASHED, increase evidence ratio/area or move secondary content to another slide before replacing the evidence component.",
     ],
   },
@@ -368,6 +382,7 @@ function cleanPropDefinition(prop) {
     description: prop.description,
   };
   if (prop.semantic !== undefined) out.semantic = prop.semantic;
+  if (prop.valueTypes !== undefined) out.valueTypes = prop.valueTypes;
   if (prop.enum !== undefined) out.enum = prop.enum;
   if (prop.values !== undefined) out.values = prop.values;
   if (prop.min !== undefined) out.min = prop.min;

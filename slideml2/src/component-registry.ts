@@ -140,6 +140,7 @@ export type ComponentName =
 
 export interface PropDefinition {
   type: "string" | "number" | "boolean" | "enum" | "array" | "object" | "image-ref" | "color-ref" | "table" | "chart";
+  valueTypes?: string[];
   required?: boolean;
   semantic?: string;
   enum?: string[];
@@ -765,7 +766,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     headline: { type: "string", description: "Rail headline when rail node is omitted." },
     detail: { type: "string", description: "Rail body / interpretation when rail node is omitted." },
     railTitle: { type: "string", description: "Alias for rail headline." },
-    railBody: { type: "string", description: "Alias for rail body." },
+    railBody: { type: "string", valueTypes: ["string", "DomNode[]"], description: "Alias for rail body. Use a string for one concise interpretation, or an array of compact DomNodes such as text, spacer, table-card, fact-list, or key-takeaway when the rail needs structured support." },
     railTone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger", "tinted"], description: "Alias for rail tone." },
     keyTakeaway: { type: "object", description: "Optional {headline,title,detail,body,tone} rendered in the rail." },
     items: { type: "array", description: "Optional short rail bullets or proof points." },
@@ -3256,11 +3257,12 @@ function supportModuleNode(slideId: string, name: string, raw: unknown, defaultT
 function interpretationRailNode(slideId: string, name: string, node: DomNode, options: { includeEvidenceProof?: boolean } = {}): DomNode {
   const tone = node.railTone === "tinted" || node.tone === "tinted" ? "tinted" : componentTone(node.railTone) || componentTone(node.tone) || "brand";
   const headline = stringValue(node.railTitle, stringValue(node.headline, stringValue(node.title, "Interpretation")));
-  const detail = stringValue(node.railBody, stringValue(node.detail, stringValue(node.body, "")));
+  const detail = stringValue(typeof node.railBody === "string" ? node.railBody : undefined, stringValue(node.detail, stringValue(node.body, "")));
   const items = stringArray(node.items);
   const children = [
     ...chartWithRailKeyTakeawayNodes(slideId, name, node),
     ...(options.includeEvidenceProof ? chartWithRailEvidenceProofNodes(slideId, name, node.evidence) : []),
+    ...chartWithRailRailBodyNodes(slideId, name, node),
     ...(items.length ? [{ ...bulletList(slideId, `${name}.items`, items.slice(0, 5), "compact"), optional: true } as DomNode] : []),
   ];
   return {
@@ -3271,6 +3273,27 @@ function interpretationRailNode(slideId: string, name: string, node: DomNode, op
     tone,
     children,
   };
+}
+
+function chartWithRailRailBodyNodes(slideId: string, name: string, node: DomNode): DomNode[] {
+  if (!Array.isArray(node.railBody)) return [];
+  return node.railBody.flatMap((raw, index) => {
+    const fallback = `${slideId}.${name}.railBody.${index + 1}`;
+    if (typeof raw === "string") {
+      const text = raw.trim();
+      return text ? [{
+        id: fallback,
+        type: "text",
+        text,
+        style: "caption",
+        color: "text.primary",
+        autoFit: "shrink",
+        optional: true,
+      } as DomNode] : [];
+    }
+    const authored = domNodeValue(raw, fallback);
+    return authored ? [{ ...authored, optional: authored.optional ?? true }] : [];
+  });
 }
 
 function chartWithRailKeyTakeawayNodes(slideId: string, name: string, node: DomNode): DomNode[] {

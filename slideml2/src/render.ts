@@ -2062,6 +2062,7 @@ type ComponentElasticityClass = "elastic" | "hard" | "decorative";
 
 function componentElasticityClass(node: DomNode, role: string): ComponentElasticityClass {
   if (DECORATIVE_REGION_ROLES.has(role) || DECORATIVE_REGION_NODE_TYPES.has(node.type)) return "decorative";
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role)) return "elastic";
   if (HARD_REGION_ROLES.has(role) || HARD_REGION_NODE_TYPES.has(node.type)) return "hard";
   if (node.type === "text" || node.type === "bullets" || node.type === "spacer" || node.type === "divider") return "elastic";
   if (TEXT_FIRST_REGION_ROLES.has(role)) return "elastic";
@@ -7331,7 +7332,7 @@ function layoutStackChildrenWithCassowary(
   const shouldFill = explicitSplitRatio !== null || weights.some((weight) => weight > 0);
   const cassowarySpecs = childSpecs.map((spec, index) => ({ ...spec, basis: targetChildSizes[index] ?? spec.basis }));
   const specsById = new Map(children.map((child, index) => [child.id, cassowarySpecs[index]!] as const));
-  const solverNode: DomNode = {
+  const solverNode: DomNode = stripContainerSelfSizingForChildLayout({
     ...node,
     gap,
     padding: 0,
@@ -7341,7 +7342,7 @@ function layoutStackChildrenWithCassowary(
       ...child,
       layoutWeight: weights[index] ?? 0,
     })),
-  };
+  });
 
   try {
     const result = solveDomConstraintLayout(solverNode, rect, {
@@ -7382,6 +7383,26 @@ function layoutStackChildrenWithCassowary(
     }
     return undefined;
   }
+}
+
+function stripContainerSelfSizingForChildLayout(node: DomNode): DomNode {
+  const out: DomNode = { ...node };
+  delete out.minWidth;
+  delete out.idealWidth;
+  delete out.preferredWidth;
+  delete out.basisWidth;
+  delete out.maxWidth;
+  delete out.fixedWidth;
+  delete out.width;
+  delete out.minHeight;
+  delete out.idealHeight;
+  delete out.preferredHeight;
+  delete out.basisHeight;
+  delete out.maxHeight;
+  delete out.fixedHeight;
+  delete out.height;
+  delete out.basis;
+  return out;
 }
 
 interface CassowaryPressure {
@@ -7721,7 +7742,7 @@ function layoutGridChildrenWithCassowary(
     const height = spannedSize(rowHeights, placement.row, placement.rowSpan, gap);
     measurementById.set(placement.child.id, gridChildSizePreference(theme, placement.child, width, height));
   }
-  const solverNode: DomNode = {
+  const solverNode: DomNode = stripContainerSelfSizingForChildLayout({
     ...node,
     gap,
     padding: 0,
@@ -7737,7 +7758,7 @@ function layoutGridChildrenWithCassowary(
       rowSpan: placement.rowSpan,
       colSpan: placement.colSpan,
     })),
-  };
+  });
 
   try {
     const result = solveDomConstraintLayout(solverNode, rect, {
@@ -7942,8 +7963,10 @@ const SEMANTIC_COHORT_EXCLUDED_ROLES = new Set([
 ]);
 
 const SLIDE_WIDE_SEMANTIC_COHORT_ROLES = new Set([
+  "analytic-table",
   "callout",
   "comparison-card",
+  "comparison-table",
   "definition-card",
   "explanation-block",
   "feature-card",
@@ -7958,9 +7981,21 @@ const SLIDE_WIDE_SEMANTIC_COHORT_ROLES = new Set([
   "region-card",
   "roadmap-item",
   "scorecard-item",
+  "table-card",
   "step-card",
   "takeaway-item",
   "warning-list",
+]);
+
+const TABLE_LIKE_COMPONENT_ROLES = new Set(["table-card", "analytic-table", "comparison-table"]);
+
+const BUDGETABLE_EVIDENCE_ROLES = new Set([
+  "analytic-table",
+  "chart-card",
+  "code-block",
+  "comparison-table",
+  "image-card",
+  "table-card",
 ]);
 
 const SEMANTIC_COHORT_PRESSURE_PADDING_ROLES = new Set([
@@ -8126,6 +8161,7 @@ function normalizeRepeatedSemanticCohorts(theme: SimpleTheme, parent: DomNode, c
 function semanticCohortRole(node: DomNode): string {
   const role = regionCapacityRole(node);
   if (!role || SEMANTIC_COHORT_EXCLUDED_ROLES.has(role)) return "";
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role)) return role;
   if (!TEXT_FIRST_REGION_ROLES.has(role)) return "";
   if (node.type === "text" || node.type === "bullets" || node.type === "spacer" || node.type === "divider") return "";
   return role;
@@ -8228,12 +8264,25 @@ function semanticCohortAuthoredSlot(node: DomNode): string {
 }
 
 function collectSemanticCohortSlots(node: DomNode, out: string[]): void {
+  if (node.type === "table") {
+    out.push(tableCohortSlotKey(node));
+    return;
+  }
   const slot = semanticTextSlot(node);
   if (slot && (node.type === "text" || node.type === "bullets")) {
     out.push(`${node.type}:${slot}`);
     return;
   }
   for (const child of node.children || []) collectSemanticCohortSlots(child, out);
+}
+
+function tableCohortSlotKey(node: DomNode): string {
+  const sourceRows = tableSourceRows(node);
+  const columnModel = tableColumnModel(node, sourceRows);
+  const bodyRows = tableRowsFromNode(sourceRows, columnModel.columnDefs);
+  const headerCount = columnModel.headers.length > 0 ? 1 : 0;
+  const colCount = Math.max(1, columnModel.headers.length, ...bodyRows.map((row) => row.length));
+  return `table:rows=${headerCount + bodyRows.length};cols=${colCount};density=${tableDensity(node.density)}`;
 }
 
 function stringSetting(value: unknown): string {
@@ -8284,6 +8333,10 @@ function semanticCohortMembersNeedUpdate(theme: SimpleTheme, members: SemanticCo
         return;
       }
     }
+    if (node.type === "table" && semanticCohortTableNeedsUpdate(theme, node, slotFonts, scale)) {
+      needs = true;
+      return;
+    }
     if (semanticCohortRole(node) && semanticCohortChromeNeedsUpdate(theme, node, scale, rect)) {
       needs = true;
       return;
@@ -8316,19 +8369,36 @@ function semanticCohortCompressionScale(role: string, availableHeight: number, n
 
 function semanticCohortSlotFonts(theme: SimpleTheme, members: SemanticCohortMember[], rectsById?: Map<string, Rect>): Map<string, SemanticCohortSlotFont> {
   const slots = new Map<string, SemanticCohortSlotFont>();
+  const upsert = (slot: string, fontSize: number): void => {
+    if (fontSize <= 0) return;
+    const prev = slots.get(slot);
+    slots.set(slot, prev ? { min: Math.min(prev.min, fontSize), max: Math.max(prev.max, fontSize) } : { min: fontSize, max: fontSize });
+  };
   const visit = (node: DomNode): void => {
+    if (node.type === "table") {
+      const fonts = semanticTableSlotFonts(theme, node);
+      upsert("table-header", fonts.header);
+      upsert("table-cell", fonts.cell);
+      return;
+    }
     const slot = semanticTextSlot(node);
     if (slot) {
       const fontSize = semanticNodeFontSize(theme, node, rectsById?.get(node.id));
-      if (fontSize > 0) {
-        const prev = slots.get(slot);
-        slots.set(slot, prev ? { min: Math.min(prev.min, fontSize), max: Math.max(prev.max, fontSize) } : { min: fontSize, max: fontSize });
-      }
+      upsert(slot, fontSize);
     }
     for (const child of node.children || []) visit(child);
   };
   for (const member of members) visit(member.node);
   return slots;
+}
+
+function semanticTableSlotFonts(theme: SimpleTheme, node: DomNode): { header: number; cell: number } {
+  const density = tableDensity(node.density);
+  const scale = optionalNumberProp(node, "fontScale") ?? 1;
+  return {
+    header: tableTextStyle(theme, true, density, scale).fontSize,
+    cell: tableTextStyle(theme, false, density, scale).fontSize,
+  };
 }
 
 function semanticNodeFontSize(theme: SimpleTheme, node: DomNode, rect?: Rect): number {
@@ -8393,11 +8463,36 @@ function withSemanticCohortTypography(theme: SimpleTheme, node: DomNode, slotFon
       ...(SEMANTIC_COHORT_BODY_SLOTS.has(slot) && node.fixedHeight === undefined && node.height === undefined ? { layoutWeight: node.layoutWeight ?? 1 } : {}),
     };
   }
+  if (node.type === "table") {
+    const tableFontScale = semanticCohortTableFontScale(theme, node, slotFonts, scale);
+    if (Math.abs(tableFontScale - (optionalNumberProp(node, "fontScale") ?? 1)) > 0.01) {
+      return {
+        ...node,
+        __semanticCohortBaseFontScale: optionalNumberProp(node, "__semanticCohortBaseFontScale") ?? optionalNumberProp(node, "fontScale") ?? 1,
+        fontScale: tableFontScale,
+      };
+    }
+  }
   if (!Array.isArray(container.children) || container.children.length === 0) return container;
   return {
     ...container,
     children: container.children.map((child) => withSemanticCohortTypography(theme, child, slotFonts, scale)),
   };
+}
+
+function semanticCohortTableNeedsUpdate(theme: SimpleTheme, node: DomNode, slotFonts: Map<string, SemanticCohortSlotFont>, scale: number): boolean {
+  return Math.abs(semanticCohortTableFontScale(theme, node, slotFonts, scale) - (optionalNumberProp(node, "fontScale") ?? 1)) > 0.01;
+}
+
+function semanticCohortTableFontScale(theme: SimpleTheme, node: DomNode, slotFonts: Map<string, SemanticCohortSlotFont>, scale: number): number {
+  const base = optionalNumberProp(node, "__semanticCohortBaseFontScale") ?? optionalNumberProp(node, "fontScale") ?? 1;
+  const fonts = semanticTableSlotFonts(theme, { ...node, fontScale: base });
+  const headerTarget = slotFonts.get("table-header")?.min ?? fonts.header;
+  const cellTarget = slotFonts.get("table-cell")?.min ?? fonts.cell;
+  const headerScale = fonts.header > 0 ? headerTarget / fonts.header : 1;
+  const cellScale = fonts.cell > 0 ? cellTarget / fonts.cell : 1;
+  const normalized = base * Math.min(headerScale, cellScale, scale);
+  return clamp(normalized, 0.76, 1.16);
 }
 
 function semanticCohortTargetFontSize(theme: SimpleTheme, node: DomNode, slot: string, slotFonts: Map<string, SemanticCohortSlotFont>, scale: number): number {
@@ -8485,6 +8580,8 @@ function semanticCohortMinPaddingCm(role: string): number {
 }
 
 function semanticCohortMinFontPt(node: DomNode, slot: string): number {
+  if (slot === "table-header") return 7.4;
+  if (slot === "table-cell") return 7.0;
   if (slot === "value") return 9.5;
   if (slot === "label" || slot === "caption" || slot === "source" || slot === "footer" || slot === "tag" || slot === "badge") return 6.5;
   if (slot === "headline" || slot === "title") return 8;
@@ -8605,7 +8702,7 @@ interface MetricBandRepairPlan {
   explicitPadding: boolean;
   explicitGap: boolean;
   fontScale?: number;
-  adaptiveMode?: "cohort-micro";
+  adaptiveMode?: "cohort-fit" | "cohort-micro";
   diagnosticMinPaddingCm: number;
   diagnosticMinGapCm: number;
   diagnosticMinValueBandCm: number;
@@ -8624,7 +8721,8 @@ function withMeasuredMetricBands(theme: SimpleTheme, metricCardNode: DomNode, ov
     overrides.cardHeight !== undefined
     && plan.minCardHeight > overrides.cardHeight + METRIC_CARD_REPAIR_CAPACITY_TOLERANCE_CM
   ) {
-    const microPlan = metricCohortMicroRepairPlan(theme, metricCardNode, overrides);
+    const microPlan = metricCohortFittedRepairPlan(theme, metricCardNode, overrides, plan)
+      ?? metricCohortMicroRepairPlan(theme, metricCardNode, overrides);
     if (!microPlan) {
       pushMetricBandRepairRejectedDiagnostic(metricCardNode, overrides.cardHeight, plan);
       return metricCardNode;
@@ -8745,6 +8843,72 @@ function metricCohortMicroRepairPlan(theme: SimpleTheme, metricCardNode: DomNode
     ...plan,
     fontScale: METRIC_CARD_COHORT_MICRO_FONT_SCALE,
     adaptiveMode: "cohort-micro",
+  };
+}
+
+function metricCohortFittedRepairPlan(
+  _theme: SimpleTheme,
+  metricCardNode: DomNode,
+  overrides: MetricBandOverrides,
+  idealPlan: MetricBandRepairPlan,
+): MetricBandRepairPlan | undefined {
+  const available = overrides.cardHeight;
+  if (available === undefined || !Number.isFinite(available) || available <= 0) return undefined;
+  if (!metricCardEligibleForCohortMicroRepair(metricCardNode, overrides.cohortSize ?? 1)) return undefined;
+  if (idealPlan.valueBandHeight === undefined) return undefined;
+
+  const hasLabel = idealPlan.labelBandHeight !== undefined;
+  const hardPadding = idealPlan.explicitPadding
+    ? idealPlan.padding
+    : Math.min(idealPlan.padding, METRIC_CARD_COHORT_MICRO_PADDING_CM);
+  const hardGap = idealPlan.explicitGap
+    ? idealPlan.gap
+    : Math.min(idealPlan.gap, METRIC_CARD_COHORT_MICRO_GAP_CM);
+  const hardValueBand = Math.min(idealPlan.valueBandHeight, METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM);
+  const hardLabelBand = hasLabel
+    ? Math.min(idealPlan.labelBandHeight!, METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM)
+    : undefined;
+  const gapCount = hasLabel ? 1 : 0;
+  const hardHeight = hardPadding * 2 + hardValueBand + (hardLabelBand ?? 0) + hardGap * gapCount;
+  if (hardHeight > available + METRIC_CARD_COHORT_MICRO_TOLERANCE_CM) return undefined;
+
+  const idealGapTotal = idealPlan.gap * gapCount;
+  const idealHeight = idealPlan.padding * 2 + idealPlan.valueBandHeight + (idealPlan.labelBandHeight ?? 0) + idealGapTotal;
+  const compressible = Math.max(0, idealHeight - hardHeight);
+  const budgetRatio = compressible <= 0
+    ? 1
+    : clamp((available - hardHeight) / compressible, 0, 1);
+  const padding = hardPadding + (idealPlan.padding - hardPadding) * budgetRatio;
+  const gap = hasLabel ? hardGap + (idealPlan.gap - hardGap) * budgetRatio : idealPlan.gap;
+  const valueBandHeight = hardValueBand + (idealPlan.valueBandHeight - hardValueBand) * budgetRatio;
+  const labelBandHeight = hasLabel && hardLabelBand !== undefined
+    ? hardLabelBand + (idealPlan.labelBandHeight! - hardLabelBand) * budgetRatio
+    : undefined;
+  const valueTextMinHeight = Math.min(
+    idealPlan.valueTextMinHeight ?? valueBandHeight,
+    Math.max(hardValueBand, valueBandHeight - 0.02),
+  );
+  const labelTextMinHeight = labelBandHeight === undefined
+    ? undefined
+    : Math.min(
+      idealPlan.labelTextMinHeight ?? labelBandHeight,
+      Math.max(hardLabelBand ?? METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM, labelBandHeight - 0.01),
+    );
+  const minCardHeight = padding * 2 + valueBandHeight + (labelBandHeight ?? 0) + gap * gapCount;
+  return {
+    ...idealPlan,
+    padding,
+    gap,
+    valueBandHeight,
+    valueTextMinHeight,
+    labelBandHeight,
+    labelTextMinHeight,
+    minCardHeight,
+    fontScale: budgetRatio < 0.72 ? 0.88 : undefined,
+    adaptiveMode: "cohort-fit",
+    diagnosticMinPaddingCm: hardPadding,
+    diagnosticMinGapCm: hardGap,
+    diagnosticMinValueBandCm: hardValueBand,
   };
 }
 
@@ -9061,15 +9225,21 @@ function usesSemanticRegionBudget(parent: DomNode, direction: "horizontal" | "ve
 }
 
 const SEMANTIC_BUDGET_REGION_ROLES = new Set([
+  "analytic-table",
   "callout",
+  "chart-card",
+  "code-block",
+  "comparison-table",
   "executive-summary",
   "explanation-block",
+  "image-card",
   "insight-card",
   "insight-region",
   "key-takeaway",
   "quote",
   "region-card",
   "side-rail",
+  "table-card",
   "takeaway-list",
   "warning-list",
 ]);
@@ -9080,7 +9250,7 @@ function isSemanticBudgetCandidateContainer(parent: DomNode): boolean {
   if (parent.type !== "stack" && parent.type !== "panel" && parent.type !== "card" && parent.type !== "inset") return false;
   const children = parent.children || [];
   if (children.length < 2) return false;
-  let narrativeCount = 0;
+  let budgetableCount = 0;
   let hardCount = 0;
   for (const child of children) {
     const childRole = regionCapacityRole(child);
@@ -9091,12 +9261,12 @@ function isSemanticBudgetCandidateContainer(parent: DomNode): boolean {
       || child.type === "divider"
       || SEMANTIC_BUDGET_REGION_ROLES.has(childRole)
     ) {
-      narrativeCount += 1;
+      budgetableCount += 1;
       continue;
     }
-    if (componentElasticityClass(child, childRole) === "hard") hardCount += 1;
+    if (componentElasticityClass(child, childRole) === "hard" && !BUDGETABLE_EVIDENCE_ROLES.has(childRole)) hardCount += 1;
   }
-  return narrativeCount >= 2 && hardCount === 0;
+  return budgetableCount >= 2 && hardCount === 0;
 }
 
 function semanticLayoutPriority(node: DomNode, parent?: DomNode): number {
@@ -9104,6 +9274,8 @@ function semanticLayoutPriority(node: DomNode, parent?: DomNode): number {
   if (role === "key-takeaway") return isFinalSemanticSibling(parent, node) ? 100 : 88;
   if (role === "executive-summary") return 95;
   if (role === "insight-card" || role === "explanation-block") return 86;
+  if (role === "table-card" || role === "analytic-table" || role === "comparison-table") return 84;
+  if (role === "chart-card" || role === "image-card" || role === "code-block") return 82;
   if (parent?.role === "key-takeaway" && node.type === "text" && /\.detail$/.test(String(node.id || ""))) return 76;
   if (role === "quote") return 64;
   if (node.type === "bullets") return 42;
@@ -9136,6 +9308,8 @@ function semanticRegionFloor(
   if (direction === "horizontal") return semanticHorizontalRegionFloor(theme, parent, node, spec, priority, crossSize, availableMain);
   const role = regionCapacityRole(node);
   if (role === "key-takeaway") return keyTakeawayRegionFloor(theme, node, crossSize, spec, availableMain);
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role)) return tableLikeRegionFloor(theme, node, crossSize, spec, availableMain);
+  if (role === "chart-card" || role === "image-card" || role === "code-block") return evidenceRegionFloor(theme, node, crossSize, spec, availableMain);
   if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") {
     const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "vertical", crossSize));
     return clamp(Math.max(spec.min, natural * 0.52), spec.min, Math.min(availableMain * 0.46, 3.8));
@@ -9162,6 +9336,14 @@ function semanticHorizontalRegionFloor(
     const cap = Math.max(spec.min, Math.min(6.2, availableMain * 0.62));
     return clamp(Math.max(spec.min, Math.min(readable, 4.4)), spec.min, cap);
   }
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role)) {
+    const cap = Math.max(spec.min, Math.min(8.2, availableMain * 0.70));
+    return clamp(Math.max(spec.min, Math.min(readable, 4.8)), spec.min, cap);
+  }
+  if (role === "chart-card" || role === "image-card" || role === "code-block") {
+    const cap = Math.max(spec.min, Math.min(8.0, availableMain * 0.68));
+    return clamp(Math.max(spec.min, Math.min(readable, 4.6)), spec.min, cap);
+  }
   if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") {
     const cap = Math.max(spec.min, Math.min(5.8, availableMain * 0.58));
     return clamp(Math.max(spec.min, Math.min(readable, 3.9)), spec.min, cap);
@@ -9180,12 +9362,44 @@ function semanticHorizontalRegionFloor(
 }
 
 function semanticHorizontalFloorRatio(node: DomNode, role: string, priority: number): number {
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role)) return 0.56;
+  if (role === "chart-card" || role === "image-card" || role === "code-block") return 0.54;
   if (role === "key-takeaway") return 0.52;
   if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") return 0.48;
   if (role === "quote") return 0.44;
   if (node.type === "bullets") return 0.42;
   if (node.type === "text") return priority >= 58 ? 0.42 : 0.36;
   return 0.4;
+}
+
+function tableLikeRegionFloor(theme: SimpleTheme, node: DomNode, widthCm: number, spec: SizeSpec, availableMain: number): number {
+  const table = findDescendantDom(node, (child) => child.type === "table");
+  const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "vertical", widthCm));
+  if (!table) return clamp(Math.max(spec.min, natural * 0.58, 2.4), spec.min, Math.max(spec.min, Math.min(availableMain * 0.62, 5.8)));
+  const tableWidth = Math.max(0.6, widthCm - semanticEvidenceChromeWidth(node));
+  const compactTable = { ...table, density: table.density ?? "compact" };
+  const bodyNeed = tableIntrinsicHeight(theme, compactTable, tableWidth);
+  const naturalBody = tableIntrinsicHeight(theme, table, tableWidth);
+  const chromeNeed = Math.max(0, natural - naturalBody);
+  const rowCount = tableLayoutInfo(theme, table, tableWidth).allRows.length;
+  const readableMin = rowCount >= 8 ? 4.65 : rowCount >= 5 ? 3.55 : 2.35;
+  const preferredFloor = Math.max(spec.min, chromeNeed + bodyNeed * 0.76, readableMin);
+  const cap = Math.max(spec.min, Math.min(rowCount >= 8 ? 6.8 : 5.7, availableMain * 0.72));
+  return clamp(preferredFloor, spec.min, cap);
+}
+
+function evidenceRegionFloor(theme: SimpleTheme, node: DomNode, widthCm: number, spec: SizeSpec, availableMain: number): number {
+  const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "vertical", widthCm));
+  const role = regionCapacityRole(node);
+  const minimum = role === "code-block" ? 3.4 : role === "chart-card" ? 3.2 : 2.8;
+  const cap = Math.max(spec.min, Math.min(role === "code-block" ? 6.6 : 6.2, availableMain * 0.68));
+  return clamp(Math.max(spec.min, natural * 0.55, minimum), spec.min, cap);
+}
+
+function semanticEvidenceChromeWidth(node: DomNode): number {
+  const padding = optionalNumberProp(node, "padding");
+  if (padding !== undefined) return padding * 2;
+  return node.type === "card" || node.type === "panel" ? 0.8 : 0;
 }
 
 function keyTakeawayRegionFloor(theme: SimpleTheme, node: DomNode, widthCm: number, spec: SizeSpec, availableMain: number): number {

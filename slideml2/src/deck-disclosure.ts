@@ -1,4 +1,4 @@
-import { buildTheme, listPaletteColors, listSemanticTones, listThemes } from "./theme.js";
+import { buildTheme, listDensityProfiles, listPaletteColors, listSemanticTones, listThemes } from "./theme.js";
 import { DECK_SIZE_VALUES, VALIDATION_MODE_VALUES } from "./schema.js";
 
 export interface DeckFieldDescription {
@@ -21,6 +21,7 @@ export interface DeckDescription {
     description: string;
   };
   themes: { available: string[]; default: string; description: string };
+  densityProfiles: { available: string[]; default: string; description: string; guidance: string[] };
   brand: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
   chrome: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
   validation: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
@@ -83,6 +84,16 @@ export function describeDeck(): DeckDescription {
       available: listThemes(),
       default: "default",
       description: "Only the 'default' scaffold ships built-in. Concrete styling is the agent's responsibility — call set_theme with a themeOverride that fits the subject (consulting / pitch / academic / engineering). The default theme is intentionally neutral.",
+    },
+    densityProfiles: {
+      available: listDensityProfiles(),
+      default: sample.densityProfile,
+      description: "Set deck.themeOverride.densityProfile before authoring slides. The profile changes default type scale, margins, gap, card padding, and semantic region budgets before explicit theme overrides are applied.",
+      guidance: [
+        "editorial: large-title magazine/showcase pages with fewer dense objects.",
+        "analytical: default for business, research, charts, tables, and explanatory prose.",
+        "dense: compact dashboards, tables, code, and operating reviews; split when readability floors are hit.",
+      ],
     },
     brand: {
       description: "Brand identity injected into every slide. Drives brand.primary token, derived brand.tint and brand.shade, optional logo placement via chrome.brandMark.",

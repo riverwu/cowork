@@ -1,7 +1,7 @@
 ---
 name: slideml2
 description: Generate, edit, and validate PowerPoint (.pptx) decks from prompts, notes, markdown, CSV/JSON data, or research/business documents. Use whenever the user asks for a slide deck, presentation, PPT, PPTX, demo slides, 幻灯片, 演示文稿, 投影, 汇报, or any finished deck file as output. The skill drives the SlideML2 CLI toolchain with per-slide validation and emits a real `.pptx` plus a render-tree sidecar — not screenshots or HTML approximations.
-version: 1.0.60
+version: 1.0.61
 license: Proprietary. LICENSE.txt has complete terms
 ---
 
@@ -417,6 +417,12 @@ layout intent says why.
 
 ### 2.5 Density & Capacity
 
+- Choose a deck-level density profile before authoring slides:
+  `deck.themeOverride.densityProfile:"editorial"|"analytical"|"dense"`.
+  `editorial` is large-title/magazine default; use `analytical` for research,
+  business, charts, tables, and explanatory prose; use `dense` only for compact
+  dashboards, code, or table-heavy reference pages. Explicit themeOverride
+  text/layout values still win over the profile.
 - Most slides should have either one hero module, one data/evidence module,
   or 2–4 peer modules. Long prose belongs in shorter bullets or another slide.
 - Bullets are a `bullets` component, not `"• A\n• B"` inside a `text` node.
@@ -428,6 +434,10 @@ layout intent says why.
   excerpts.
 - Tables: a compact 6–8 row business table usually needs its own region.
   Adjust `colWidths`, density, or paginate before dropping columns.
+- Tables, analytic tables, chart cards, image cards, and code blocks now
+  participate in shared region budgets. Keep their semantics; resize/split the
+  region instead of replacing them with generic text when diagnostics report
+  capacity pressure.
 - High-risk fit rules:
   - `chart-card`: do not place a chart in a short rail, banner, or skinny
     strip. Reserve a chart body around 4.8×3.0cm for bar/line/combo and
@@ -744,13 +754,14 @@ image-ref   = absolute path string
 color-ref   = theme token (e.g. "brand.primary") | "RRGGBB"
 rich-runs   = array of { text, marks?, color?, link? } | { kind: "math"|"cite"|"footnoteRef"|"icon"|"token", ... }
 density     = comfortable | compact
+densityProfile = editorial | analytical | dense (deck.themeOverride only)
 variant     = component-specific small enum, typically plain|card|compact|banner
 align       = left | center | right
 direction   = horizontal | vertical
 ```
 
 `tone`, `surface`, `marker`, `image-ref`, `color-ref`, `rich-runs`,
-`density`, `align`, `direction` are referenced by name below without
+`density`, `densityProfile`, `align`, `direction` are referenced by name below without
 re-enumeration.
 
 Component selection sequence:
@@ -849,7 +860,7 @@ Children are required unless noted. Containers may carry `fixedHeight` /
 - `cover-composition` — Editorial cover with optional full-bleed visual, dominant title lockup, hero stat. type='cover-composition' required={title} optional={subtitle, eyebrow, content:[runs]|{runs:[...]}, visual:{src:image-ref|'decorative',fit,anchor?,width?,height?,opacity?}, heroStat:{value,label,caption}, ctaText, ctaLink|link, tone:neutral|inverse|brand, decor:none|grid|shapes, titleSize:deck-title|slide-title|section-title, lockupWidth, lockupHeight}
 - `chapter-divider` — High-impact top-level section opener. type='chapter-divider' required={title} optional={subtitle, chapter/number, showNumber=false, eyebrow, sections, current, tone:brand|neutral|inverse}. It renders no top-right number unless `chapter`/`number` is provided or `showNumber:true`; use only as a direct slide child.
 - `hero-and-support` — One dominant claim plus 2–4 satellites. Use instead of a flat 2×2 grid when one idea leads. type='hero-and-support' required={headline, supports} optional={hero, detail, items (alias), layout:left|top, ratio, gap, tone}
-- `chart-with-rail` — Dominant chart/table/evidence plus a narrow rail. Use either nested `evidence:{type:"chart-card"|...}` or flat chart aliases `chartType + chartData:{labels,series}`. A text-like `evidence` beside flat chart data becomes a rail proof/source note, not the main evidence. type='chart-with-rail' required={evidence OR chartType+chartData} optional={rail, headline/detail, railTitle/railBody, keyTakeaway:{headline,detail,tone}, items, chartTitle, chartTone, showLegend, showValues, yFormat, layout:rail-right|rail-left|stacked, ratio default [0.72,0.28] or stacked [0.68,0.32], gap, tone} capacity="chart body >=4.8x3.0cm; rail <=30% width; stack when rail text is long"
+- `chart-with-rail` — Dominant chart/table/evidence plus a narrow rail. Use either nested `evidence:{type:"chart-card"|...}` or flat chart aliases `chartType + chartData:{labels,series}`. A text-like `evidence` beside flat chart data becomes a rail proof/source note, not the main evidence. Use `railBody:"..."` for one concise interpretation; use `railBody:[{type:"text",...},{type:"table-card",density:"compact",...}]` or `rail:{type:"side-rail",children:[...]}` when the rail needs compact structured support. type='chart-with-rail' required={evidence OR chartType+chartData} optional={rail, headline/detail, railTitle/railBody:string|DomNode[], keyTakeaway:{headline,detail,tone}, items, chartTitle, chartTone, showLegend, showValues, yFormat, layout:rail-right|rail-left|stacked, ratio default [0.72,0.28] or stacked [0.68,0.32], gap, tone} capacity="chart body >=4.8x3.0cm; rail <=30% width; stack when rail text is long"
 - `snapshot-callouts` — Screenshot + numbered callouts. Use `freeform-group` only when markers must point at exact coordinates. type='snapshot-callouts' required={src:image-ref, callouts} optional={title, caption, items (alias), fit:cover|contain|fill, layout:rail-right|rail-left|below, ratio, gap, tone}
 - `evidence-layout` — Evidence + interpretation page. type='evidence-layout' required={evidence} optional={insight, headline, detail, annotations, layout:sidecar|stacked, ratio default [0.68,0.32]} example={"type":"evidence-layout","evidence":{"type":"image-card","src":"/abs/screenshot.png"},"headline":"What changed","annotations":[{"type":"annotation","label":"1","text":"New control"}]}
 

@@ -960,7 +960,7 @@ describe("validation geometry and diagnostic contracts", () => {
     expect(diagnostics.some((item) => item.code === "SQUASHED" && item.nodeId === "snow-mountain.node-1.2.4.value" && item.severity === "error")).toBe(false);
   });
 
-  it("treats mild readable-height pressure in auto-oriented process cards as a warning", () => {
+  it("does not treat auto-oriented process-card outer sizing as inner content pressure", () => {
     clearRenderDiagnostics();
     renderToAst(sourceToRenderedDeck({
       deck: {
@@ -1005,7 +1005,11 @@ describe("validation geometry and diagnostic contracts", () => {
 
     const diagnostics = getRenderDiagnostics();
     expect(diagnostics.some((item) => item.code === "FALLBACK_FAILED" && item.severity === "error" && String(item.nodeId).startsWith("pipeline.node-1.step"))).toBe(false);
-    expect(diagnostics.some((item) => item.code === "OVERFLOW" && String(item.nodeId).startsWith("pipeline.node-1.step"))).toBe(true);
+    expect(diagnostics.some((item) =>
+      item.code === "OVERFLOW"
+      && String(item.nodeId).startsWith("pipeline.node-1.step")
+      && item.measured?.fitMethod === "cassowary-layout"
+    )).toBe(false);
   });
 
   it("treats readable source notes capacity drift as warnings, not blocking failures", () => {
@@ -1265,6 +1269,96 @@ describe("validation geometry and diagnostic contracts", () => {
     const blocking = getRenderDiagnostics().filter((item) =>
       item.severity === "error"
       && (item.nodeId?.startsWith("kpi-label-repair.kpis-m") || item.measured?.relationship?.includes("kpi-label-repair.kpis-m"))
+    );
+    expect(blocking, JSON.stringify(blocking, null, 2)).toHaveLength(0);
+  });
+
+  it("does not block a visually readable near-fit five-up Chinese KPI row", () => {
+    clearRenderDiagnostics();
+    const deck: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: {
+        size: "16x9",
+        theme: "default",
+        brand: { primary: "2563EB" },
+        themeOverride: {
+          colors: {
+            brand: { primary: "1A5F7A" },
+            background: "FFFFFF",
+            surface: "F5F7FA",
+            text: { primary: "1E293B", secondary: "64748B", muted: "94A3B8" },
+            divider: "E2E8F0",
+            success: "059669",
+            warning: "D97706",
+            danger: "DC2626",
+            info: "2563EB",
+          },
+          text: {
+            "slide-title": { fontSize: 28, fontWeight: "bold", color: "text.primary" },
+            "metric-value": { fontSize: 32, fontWeight: "bold", color: "brand.primary" },
+            "metric-label": { fontSize: 12, color: "text.secondary" },
+          },
+          layout: { pageMarginX: 0.8, contentTop: 1.4, contentBottom: 13, defaultGap: 0.35 },
+        },
+      },
+      slides: [{
+        id: "h1-yoy",
+        title: "半年度营收&人力同比",
+        children: [
+          {
+            type: "kpi-grid",
+            at: [0.8, 2.55, 23.8, 1.75],
+            title: "H1-2024 vs H1-2025 核心指标对比",
+            columns: 5,
+            metrics: [
+              { value: "-7.6%", label: "营收SI同比", status: "warning", detail: "3.16亿 → 2.92亿" },
+              { value: "-28.1%", label: "总人力成本同比", status: "positive", detail: "1.01亿 → 0.73亿" },
+              { value: "-17.2%", label: "月均HC同比", status: "positive", detail: "327.5人 → 271.3人" },
+              { value: "+8.9%", label: "人效同比", status: "positive", detail: "16.4万/人 → 17.9万/人" },
+              { value: "+28.7%", label: "人力成本ROI同比", status: "positive", detail: "3.13x → 4.02x" },
+            ],
+            tone: "brand",
+          },
+          {
+            type: "comparison-table",
+            title: "H1半年度数据明细",
+            rows: [
+              { feature: "营收 SI（未税）", "H1-2024": "3.16亿", "H1-2025": "2.92亿", YoY: "-7.6%", "趋势": "↓" },
+              { feature: "总人力成本", "H1-2024": "1.01亿", "H1-2025": "0.73亿", YoY: "-28.1%", "趋势": "↓" },
+              { feature: "月均HC（人）", "H1-2024": "327.5", "H1-2025": "271.3", YoY: "-17.2%", "趋势": "↓" },
+              { feature: "人效（万/人）", "H1-2024": "16.4", "H1-2025": "17.9", YoY: "+8.9%", "趋势": "↑" },
+              { feature: "人力成本ROI", "H1-2024": "3.13x", "H1-2025": "4.02x", YoY: "+28.7%", "趋势": "↑" },
+            ],
+            options: ["H1-2024", "H1-2025", "YoY", "趋势"],
+            tone: "neutral",
+          },
+          {
+            type: "key-takeaway",
+            headline: "结论：降本力度大于营收跌幅，但整体营收趋势仍需关注",
+            detail: "人力成本YoY -28.1%，远超营收降幅 -7.6%，表明压缩初见成效；但2025年营收逐季下滑，人效波动大，需持续关注收入增长",
+            tone: "warning",
+            variant: "panel",
+          },
+        ],
+      }],
+    };
+
+    measureDeck(sourceToRenderedDeck(deck));
+    const repairBudgetDiagnostics = getRenderDiagnostics().filter((item) =>
+      String(item.nodeId || "").startsWith("h1-yoy.node-1-m")
+      && item.measured?.fitMethod === "metric-card-repair-budget"
+    );
+    expect(repairBudgetDiagnostics, JSON.stringify(repairBudgetDiagnostics, null, 2)).toHaveLength(0);
+    const internalHeightPressure = getRenderDiagnostics().filter((item) =>
+      String(item.nodeId || "").startsWith("h1-yoy.node-1-m")
+      && item.measured?.fitMethod === "cassowary-layout"
+    );
+    expect(internalHeightPressure, JSON.stringify(internalHeightPressure, null, 2)).toHaveLength(0);
+    const blocking = getRenderDiagnostics().filter((item) =>
+      item.severity === "error"
+      && item.code === "FALLBACK_FAILED"
+      && String(item.nodeId || "").startsWith("h1-yoy.node-1-m")
+      && item.measured?.fitMethod === "metric-card-repair-budget"
     );
     expect(blocking, JSON.stringify(blocking, null, 2)).toHaveLength(0);
   });

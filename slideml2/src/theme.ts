@@ -1,5 +1,5 @@
 import { pushDiagnostic } from "./diagnostics.js";
-import type { BrandSpec, SurfaceOverride, ThemeLayoutArea, ThemeOverride } from "./types.js";
+import type { BrandSpec, DensityProfileName, SurfaceOverride, ThemeLayoutArea, ThemeOverride } from "./types.js";
 
 export interface SimpleTheme {
   name: string;
@@ -11,6 +11,7 @@ export interface SimpleTheme {
    * this map to preserve the intended translucency.
    */
   colorAlpha?: Record<string, number>;
+  densityProfile: DensityProfileName;
   text: Record<string, TextStyle>;
   /**
    * Semantic font-size dials. Agents pick a scale (`xs` … `2xl`) instead of
@@ -172,6 +173,16 @@ export function listThemes(): string[] {
   return ["default"];
 }
 
+export const DENSITY_PROFILE_NAMES = ["editorial", "analytical", "dense"] as const satisfies readonly DensityProfileName[];
+
+export function listDensityProfiles(): DensityProfileName[] {
+  return [...DENSITY_PROFILE_NAMES];
+}
+
+export function normalizeDensityProfile(value: unknown, fallback: DensityProfileName = "editorial"): DensityProfileName {
+  return typeof value === "string" && (DENSITY_PROFILE_NAMES as readonly string[]).includes(value) ? value as DensityProfileName : fallback;
+}
+
 export function listColorWarnings(): string[] {
   return Array.from(colorWarnings);
 }
@@ -194,7 +205,7 @@ export function buildTheme(brand: BrandSpec = {}, themeName = "default", themeOv
   const flatColors = flattenColorOverrides(themeOverride?.colors);
   const flatColorAlphas = flattenColorOverrideAlphas(themeOverride?.colors);
   const brandPrimary = normalizeHex(brand.primary || flatColors["brand.primary"] || "2563EB");
-  const base = defaultBase(brandPrimary);
+  const base = applyDensityProfile(defaultBase(brandPrimary), normalizeDensityProfile(themeOverride?.densityProfile));
   return mergeTheme(base, brandPrimary, themeOverride, flatColors, flatColorAlphas);
 }
 
@@ -282,6 +293,7 @@ function mergeTheme(base: SimpleTheme, brandPrimary: string, override?: ThemeOve
   applyToneColorAliases(colors, flatColors);
   const merged: SimpleTheme = {
     ...base,
+    densityProfile: normalizeDensityProfile(override?.densityProfile, base.densityProfile),
     colors,
     colorAlpha: flatColorAlphas,
     text: mergeTextStyles(base.text, override?.text),
@@ -1125,9 +1137,197 @@ function defaultPalette(): Record<string, string> {
   return out;
 }
 
+interface DensityProfileSpec {
+  textScale: Record<string, number>;
+  layout?: Partial<SimpleTheme["layout"]>;
+  regionBudget?: Partial<SimpleTheme["layout"]["regionBudget"]>;
+  componentPaddingScale?: number;
+  guidance?: Partial<SimpleTheme["guidance"]>;
+}
+
+const DENSITY_PROFILE_SPECS: Record<DensityProfileName, DensityProfileSpec> = {
+  editorial: {
+    textScale: {},
+    guidance: {
+      scenario: "editorial or magazine-style presentation",
+    },
+  },
+  analytical: {
+    textScale: {
+      "deck-title": 0.90,
+      "slide-title": 0.90,
+      "section-title": 0.92,
+      "card-title": 0.94,
+      lead: 0.92,
+      paragraph: 0.96,
+      article: 0.95,
+      caption: 0.98,
+      "figure-caption": 0.98,
+      footnote: 0.98,
+      bullet: 0.96,
+      "bullet-compact": 0.96,
+      "metric-value": 0.92,
+      "metric-label": 0.98,
+      quote: 0.90,
+      body: 0.90,
+    },
+    layout: {
+      pageMarginX: 1.55,
+      titleTop: 0.72,
+      titleHeight: 1.25,
+      contentTop: 2.55,
+      contentBottom: 13.35,
+      defaultGap: 0.42,
+      columnGap: 0.58,
+      cardPadding: 0.44,
+    },
+    regionBudget: {
+      headingScale: 0.68,
+      leadScale: 0.78,
+      bodyScale: 0.76,
+      keyTakeawayDetailScale: 0.80,
+      bulletScale: 0.78,
+      bulletMinPt: 7.6,
+      keyTakeawayMinCm: 2.75,
+      keyTakeawayMaxCm: 3.9,
+      keyTakeawayMaxAvailableRatio: 0.40,
+    },
+    componentPaddingScale: 0.84,
+    guidance: {
+      scenario: "analytical presentation with charts, tables, and readable business prose",
+      layoutPrinciples: [
+        "Use the analytical density profile for pages where charts, tables, exact values, and prose must share the page.",
+        "Prefer content-aware split/grid sizing over oversized headline chrome.",
+      ],
+    },
+  },
+  dense: {
+    textScale: {
+      "deck-title": 0.82,
+      "slide-title": 0.84,
+      "section-title": 0.86,
+      "card-title": 0.90,
+      label: 0.94,
+      lead: 0.86,
+      paragraph: 0.90,
+      article: 0.90,
+      caption: 0.96,
+      "figure-caption": 0.96,
+      footnote: 0.96,
+      bullet: 0.90,
+      "bullet-compact": 0.94,
+      "metric-value": 0.84,
+      "metric-label": 0.94,
+      "table-header": 0.92,
+      "table-cell": 0.92,
+      "axis-label": 0.94,
+      "legend-label": 0.94,
+      callout: 0.88,
+      quote: 0.84,
+      hero: 0.82,
+      title: 0.86,
+      body: 0.86,
+    },
+    layout: {
+      pageMarginX: 1.35,
+      titleTop: 0.65,
+      titleHeight: 1.12,
+      contentTop: 2.35,
+      contentBottom: 13.45,
+      defaultGap: 0.34,
+      columnGap: 0.46,
+      cardPadding: 0.36,
+    },
+    regionBudget: {
+      headingScale: 0.72,
+      leadScale: 0.80,
+      bodyScale: 0.78,
+      keyTakeawayDetailScale: 0.82,
+      bulletScale: 0.80,
+      bulletMinPt: 7.2,
+      keyTakeawayMinCm: 2.35,
+      keyTakeawayMaxCm: 3.4,
+      keyTakeawayMaxAvailableRatio: 0.38,
+    },
+    componentPaddingScale: 0.70,
+    guidance: {
+      scenario: "dense analytical dashboard, table, code, or operating-review presentation",
+      layoutPrinciples: [
+        "Use the dense profile only when the page job requires many exact values or compact operational content.",
+        "Keep density intentional: if core text falls below readable floors, split the page instead of relying on autoFit.",
+      ],
+    },
+  },
+};
+
+function applyDensityProfile(base: SimpleTheme, profile: DensityProfileName): SimpleTheme {
+  const spec = DENSITY_PROFILE_SPECS[profile] || DENSITY_PROFILE_SPECS.editorial;
+  const text = scaleTextStylesForDensity(base.text, spec.textScale);
+  const component = spec.componentPaddingScale === undefined
+    ? base.component
+    : scaleComponentPadding(base.component, spec.componentPaddingScale);
+  const layoutOverride = spec.layout || {};
+  const guidanceOverride = spec.guidance || {};
+  return {
+    ...base,
+    densityProfile: profile,
+    text,
+    component,
+    layout: {
+      ...base.layout,
+      ...layoutOverride,
+      areas: { ...base.layout.areas, ...(layoutOverride.areas || {}) },
+      regionBudget: {
+        ...base.layout.regionBudget,
+        ...(spec.regionBudget || {}),
+      },
+    },
+    guidance: {
+      ...base.guidance,
+      scenario: guidanceOverride.scenario ?? base.guidance.scenario,
+      stylePrinciples: guidanceOverride.stylePrinciples ?? base.guidance.stylePrinciples,
+      layoutPrinciples: guidanceOverride.layoutPrinciples ?? base.guidance.layoutPrinciples,
+      componentGuidance: { ...base.guidance.componentGuidance, ...(guidanceOverride.componentGuidance || {}) },
+      dataVizGuidance: guidanceOverride.dataVizGuidance ?? base.guidance.dataVizGuidance,
+      imageGuidance: guidanceOverride.imageGuidance ?? base.guidance.imageGuidance,
+      avoid: guidanceOverride.avoid ?? base.guidance.avoid,
+    },
+  };
+}
+
+function scaleTextStylesForDensity(text: Record<string, TextStyle>, scales: Record<string, number>): Record<string, TextStyle> {
+  if (Object.keys(scales).length === 0) return text;
+  const out: Record<string, TextStyle> = {};
+  for (const [key, style] of Object.entries(text)) {
+    const scale = scales[key] ?? 1;
+    out[key] = scale === 1 ? style : { ...style, fontSize: roundFontSize(style.fontSize * scale) };
+  }
+  return out;
+}
+
+function roundFontSize(value: number): number {
+  return Math.round(value * 10) / 10;
+}
+
+function scaleComponentPadding(component: Record<string, ComponentStyle>, scale: number): Record<string, ComponentStyle> {
+  const out: Record<string, ComponentStyle> = {};
+  for (const [key, style] of Object.entries(component)) {
+    if (typeof style.padding !== "number" || style.padding <= 0) {
+      out[key] = style;
+      continue;
+    }
+    out[key] = {
+      ...style,
+      padding: Math.max(0.12, Math.round(style.padding * scale * 100) / 100),
+    };
+  }
+  return out;
+}
+
 function defaultBase(brandPrimary: string): SimpleTheme {
   return {
     name: "default",
+    densityProfile: "editorial",
     colors: {
       "brand.primary": brandPrimary,
       // Slightly cool off-white slide background lets white cards float —

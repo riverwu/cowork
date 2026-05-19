@@ -6,6 +6,7 @@ import {
   DATA_BIND_FIELDS,
   DATA_COLUMN_ALIGN_VALUES,
   DATA_COLUMN_TYPE_VALUES,
+  DENSITY_PROFILE_VALUES,
   DATA_ENCODING_FIELD_ALIASES,
   DATA_ENCODING_FIELDS,
   DATA_FIELD_SYNONYM_GROUPS,
@@ -28,7 +29,7 @@ const LAYOUT_CONTAINERS = new Set(["stack", "grid", "split", "panel", "card", "b
 import { buildTheme, parseCssColor, textStyle } from "./theme.js";
 import { resolveDataSourceRowsById, type DataBindingOptions } from "./data-binding.js";
 import { inferTextKind } from "./text-normalizer.js";
-import type { DeckValidationSpec, DomNode, RenderedDeck, RenderedSlide, Slideml2SourceDeck, SlideV2, ThemeLayoutArea, ThemeOverride } from "./types.js";
+import type { DeckValidationSpec, DomNode, RenderedDeck, RenderedSlide, Slideml2SourceDeck, SlideV2, ThemeLayoutArea, ThemeOverride, ThemeRegionBudgetOverride } from "./types.js";
 import { measureDeck } from "./render.js";
 import { normalizeSlide, sourceSlideToRendered, sourceToRenderedDeck } from "./source-deck.js";
 import { emuToCm, parseLayoutDimensionCm, SLIDE_SIZES } from "./units.js";
@@ -943,7 +944,7 @@ function withSyntheticNodeIds(node: DomNode, fallbackId: string): DomNode {
 }
 
 const SYNTHETIC_OBJECT_SLOT_KEYS = ["evidence", "rail", "left", "right", "hero", "insight"] as const;
-const SYNTHETIC_ARRAY_SLOT_KEYS = ["children", "annotations", "supports"] as const;
+const SYNTHETIC_ARRAY_SLOT_KEYS = ["children", "annotations", "supports", "railBody"] as const;
 
 function isDomNodeSlot(value: unknown): value is DomNode {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -2404,9 +2405,18 @@ function validateThemeOverrideTopLevel(override: Record<string, unknown>, issues
     if (!THEME_OVERRIDE_FIELD_SET.has(key)) {
       issues.push(issue("error", "UNKNOWN_THEME_OVERRIDE_FIELD", `deck.themeOverride.${key} is not a supported themeOverride field, so it would be ignored.`, {
         path: `deck.themeOverride.${key}`,
-        suggestedFix: "Use one of: colors, text, component, tone, layout, fonts, chart, chrome, imageGrowWeight, sizeScale, guidance.",
+        suggestedFix: "Use one of: densityProfile, colors, text, component, tone, layout, fonts, chart, chrome, imageGrowWeight, sizeScale, guidance.",
       }));
     }
+  }
+  if (
+    override.densityProfile !== undefined
+    && (typeof override.densityProfile !== "string" || !(DENSITY_PROFILE_VALUES as readonly string[]).includes(override.densityProfile))
+  ) {
+    issues.push(issue("error", "INVALID_THEME_DENSITY_PROFILE", "deck.themeOverride.densityProfile must be one of editorial, analytical, or dense.", {
+      path: "deck.themeOverride.densityProfile",
+      suggestedFix: "Use densityProfile:'editorial' for magazine pages, 'analytical' for charts/tables/prose, or 'dense' for compact operational/table/code pages.",
+    }));
   }
 }
 
@@ -2419,13 +2429,18 @@ function validateThemeLayout(deck: Slideml2SourceDeck, override: Record<string, 
     if (!THEME_LAYOUT_FIELD_SET.has(key)) {
       issues.push(issue("error", "UNKNOWN_THEME_LAYOUT_FIELD", `${path} is not a supported layout field, so it would not affect rendering.`, {
         path,
-        suggestedFix: "Use effective layout fields: pageMarginX, titleTop, titleHeight, contentTop, contentBottom, defaultGap, columnGap, cardPadding, slideWidthCm, slideHeightCm, areas. There is no pageMarginY.",
+        suggestedFix: "Use effective layout fields: pageMarginX, titleTop, titleHeight, contentTop, contentBottom, defaultGap, columnGap, cardPadding, slideWidthCm, slideHeightCm, areas, regionBudget. There is no pageMarginY.",
       }));
       continue;
     }
     if (key === "areas") {
       const areas = validateThemeLayoutAreas(value, path, issues);
       if (areas) safeLayout.areas = areas;
+      continue;
+    }
+    if (key === "regionBudget") {
+      const regionBudget = validateThemeRegionBudget(value, path, issues);
+      if (regionBudget) safeLayout.regionBudget = regionBudget;
       continue;
     }
     if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -2480,6 +2495,47 @@ function validateThemeLayout(deck: Slideml2SourceDeck, override: Record<string, 
       suggestedFix: `Set contentBottom to at most ${maxContentBottom.toFixed(2)}cm when chrome.pageNumber or footerText is enabled.`,
     }));
   }
+}
+
+function validateThemeRegionBudget(value: unknown, path: string, issues: ValidationIssue[]): ThemeRegionBudgetOverride | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    issues.push(issue("error", "INVALID_THEME_REGION_BUDGET", `${path} must be an object of numeric budget controls.`, {
+      path,
+      suggestedFix: "Use layout.regionBudget:{bodyScale:0.76, keyTakeawayMinCm:2.7, bulletMinPt:7.6}.",
+    }));
+    return undefined;
+  }
+  const out: Record<string, number> = {};
+  const allowed = new Set([
+    "headingScale",
+    "leadScale",
+    "bodyScale",
+    "keyTakeawayDetailScale",
+    "bulletScale",
+    "bulletMinPt",
+    "keyTakeawayMinCm",
+    "keyTakeawayMaxCm",
+    "keyTakeawayMaxAvailableRatio",
+  ]);
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const fieldPath = `${path}.${key}`;
+    if (!allowed.has(key)) {
+      issues.push(issue("error", "UNKNOWN_THEME_REGION_BUDGET_FIELD", `${fieldPath} is not a supported region budget field.`, {
+        path: fieldPath,
+        suggestedFix: "Use headingScale, leadScale, bodyScale, keyTakeawayDetailScale, bulletScale, bulletMinPt, keyTakeawayMinCm, keyTakeawayMaxCm, or keyTakeawayMaxAvailableRatio.",
+      }));
+      continue;
+    }
+    if (typeof raw !== "number" || !Number.isFinite(raw)) {
+      issues.push(issue("error", "INVALID_THEME_REGION_BUDGET_VALUE", `${fieldPath} must be a finite number.`, {
+        path: fieldPath,
+        suggestedFix: "Use a numeric scale or centimeter value, e.g. bodyScale:0.76 or keyTakeawayMinCm:2.7.",
+      }));
+      continue;
+    }
+    out[key] = raw;
+  }
+  return out as ThemeRegionBudgetOverride;
 }
 
 function validateThemeLayoutAreas(value: unknown, path: string, issues: ValidationIssue[]): Record<string, ThemeLayoutArea> | undefined {
@@ -2812,6 +2868,16 @@ function componentFieldTypeError(componentName: string, propName: string, prop: 
   if (propName === "scale" && typeof value === "string" && ["xs", "sm", "small", "md"].includes(value.trim().toLowerCase())) return null;
   if (propName === "marker" && prop.type === "object" && typeof value === "string" && value.trim()) return null;
   if (propName === "cellPadding" && prop.type === "object" && typeof value === "number" && Number.isFinite(value) && value >= 0) return null;
+  if (prop.valueTypes?.length) {
+    if (prop.valueTypes.some((type) => declaredValueTypeMatches(value, type))) return null;
+    return {
+      expected: declaredValueTypesDescription(prop.valueTypes),
+      actual: describeValueType(value),
+      suggestedFix: componentName === "chart-with-rail" && propName === "railBody"
+        ? "Use railBody:'Concise interpretation', railBody:[{type:'text',text:'...'},{type:'table-card',rows:[[...]]}], or rail:{type:'side-rail',children:[...]}."
+        : undefined,
+    };
+  }
   switch (prop.type) {
     case "string":
     case "image-ref":
@@ -2840,6 +2906,36 @@ function componentFieldTypeError(componentName: string, propName: string, prop: 
     case "chart":
       return null;
   }
+}
+
+function declaredValueTypeMatches(value: unknown, type: string): boolean {
+  switch (type) {
+    case "string":
+      return typeof value === "string";
+    case "DomNode":
+      return Boolean(value && typeof value === "object" && !Array.isArray(value) && typeof (value as Record<string, unknown>).type === "string");
+    case "DomNode[]":
+      return Array.isArray(value);
+    default:
+      return false;
+  }
+}
+
+function declaredValueTypesDescription(types: readonly string[]): string {
+  const labels = types.map((type) => {
+    switch (type) {
+      case "string":
+        return "a string";
+      case "DomNode":
+        return "a DomNode object";
+      case "DomNode[]":
+        return "an array of compact DomNode objects";
+      default:
+        return type;
+    }
+  });
+  if (labels.length <= 1) return labels[0] || "a supported value";
+  return `${labels.slice(0, -1).join(", ")} or ${labels[labels.length - 1]}`;
 }
 
 function validateComponentNode(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], options: EffectiveValidationOptions, parent?: DomNode): void {
@@ -3051,6 +3147,7 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
     for (const key of ["evidence", "rail"] as const) {
       validateComponentSlotNode(node, key, path, slideId, issues, options);
     }
+    validateChartWithRailRailBodyField(node, path, slideId, issues, options);
     if (!hasChartWithRailEvidence(node)) {
       issues.push(issue("error", "MISSING_REQUIRED_FIELD", "chart-with-rail requires evidence, or flat chartType plus labels/series/chartData.", {
         slideId,
@@ -3086,6 +3183,34 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       suggestedFix: "Add source:'...' or caption:'Source: ...' to make the chart/table evidence traceable.",
     }));
   }
+}
+
+function validateChartWithRailRailBodyField(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], options: EffectiveValidationOptions): void {
+  const value = node.railBody;
+  if (!Array.isArray(value)) return;
+  value.forEach((content, index) => {
+    const itemPath = `${path}.railBody[${index}]`;
+    if (typeof content === "string") {
+      if (content.trim()) return;
+      issues.push(issue("error", "INVALID_FIELD_USAGE", `chart-with-rail.railBody[${index}] must not be an empty string.`, {
+        slideId,
+        path: itemPath,
+        nodeName: node.id,
+        suggestedFix: "Remove the empty entry, or use {type:'spacer', fixedHeight:0.2} when visual spacing is intentional.",
+      }));
+      return;
+    }
+    if (content && typeof content === "object" && !Array.isArray(content) && typeof (content as Record<string, unknown>).type === "string") {
+      validateNode(withSyntheticNodeIds(content as DomNode, componentSlotFallbackId(slideId, node, path, `railBody.${index + 1}`)), itemPath, slideId, issues, node, options);
+      return;
+    }
+    issues.push(issue("error", "INVALID_FIELD_USAGE", `chart-with-rail.railBody[${index}] must be a compact DomNode object with a type field, or a string note.`, {
+      slideId,
+      path: itemPath,
+      nodeName: node.id,
+      suggestedFix: "Use railBody:[{type:'text',text:'...'},{type:'table-card',density:'compact',rows:[[...]]}] for structured rail support, or use one railBody string for a short interpretation.",
+    }));
+  });
 }
 
 function hasKeyTakeawayContent(node: DomNode): boolean {
