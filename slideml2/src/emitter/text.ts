@@ -131,9 +131,18 @@ function paragraphPropsXml(p: Paragraph): string {
                 attr("latinLnBrk", "0") +
                 attr("hangingPunct", "1");
 
-  // Order matters for OOXML: spacing first, then bullet props.
-  const inner = `${lnSpc}${spcAft}${bullet}`;
+  // Order matters for OOXML: spacing first, then bullet props, then default
+  // run properties. Office Math uses `w:color`, but some preview/render paths
+  // only honor DrawingML paragraph defaults for math glyph color inheritance.
+  const inner = `${lnSpc}${spcAft}${bullet}${paragraphDefaultRunPropsXml(p)}`;
   return `<a:pPr${attrs}>${inner}</a:pPr>`;
+}
+
+function paragraphDefaultRunPropsXml(p: Paragraph): string {
+  const mathRunColor = p.runs.find((run) => run.mathOmml && run.color)?.color;
+  if (!mathRunColor) return "";
+  assertHex(mathRunColor, "TextRun.color");
+  return `<a:defRPr><a:solidFill><a:srgbClr val="${mathRunColor.toUpperCase()}"/></a:solidFill></a:defRPr>`;
 }
 
 /** `<a:r>` — one styled text run. */

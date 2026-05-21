@@ -22,7 +22,7 @@ import { latexToOmml } from "./latex-omml.js";
 import { emuToCm, normalizeStrokeCm, parseLayoutDimensionCm, SLIDE_SIZES } from "./units.js";
 import { isDeckSize } from "./schema.js";
 import { containsCjkOrFullWidth, createTextMeasurer, hasCjkLineStartPunctuationRisk, protectCjkLineBreakPunctuation, PT_TO_CM } from "./text-measure.js";
-import { probeImageDimensions } from "./emitter/image-dim.js";
+import { detectImageExt, probeImageDimensions } from "./emitter/image-dim.js";
 import { normalizeSlideTransition } from "./transition.js";
 import { protectTextRunsForCjkLineBreaks } from "./emitter/text-protection.js";
 
@@ -2129,6 +2129,7 @@ const TEXT_FIRST_REGION_ROLES = new Set([
   "qa-question",
   "quiz-card",
   "quiz-item",
+  "rail-block",
   "region-card",
   "roadmap-item",
   "quote",
@@ -2136,6 +2137,7 @@ const TEXT_FIRST_REGION_ROLES = new Set([
   "scorecard",
   "scorecard-item",
   "section-break",
+  "section-header",
   "side-rail",
   "source-note",
   "stat-strip",
@@ -2152,6 +2154,10 @@ const TEXT_FIRST_REGION_ROLES = new Set([
   "takeaway-item",
   "text",
   "bullets",
+  "evidence-block",
+  "module-strip",
+  "module-strip-grid",
+  "module-strip-item",
   "timeline-item-row",
   "process-step",
   "timeline-step",
@@ -2556,14 +2562,16 @@ function probeImageDimensionsSync(src: string): { width: number; height: number 
     if (src.startsWith("data:image/")) {
       const match = src.match(/^data:image\/(png|jpeg|jpg|gif|svg\+xml|webp);base64,(.+)$/i);
       if (!match) return undefined;
-      const ext = normalizeProbeImageExt(match[1]!);
+      const bytes = Buffer.from(match[2]!, "base64");
+      const ext = detectImageExt(bytes) ?? normalizeProbeImageExt(match[1]!);
       if (!ext) return undefined;
-      return probeImageDimensions(Buffer.from(match[2]!, "base64"), ext);
+      return probeImageDimensions(bytes, ext);
     }
     if (/^https?:\/\//i.test(src) || !existsSync(src)) return undefined;
-    const ext = normalizeProbeImageExt(extname(src).replace(/^\./, ""));
+    const bytes = readFileSync(src);
+    const ext = detectImageExt(bytes) ?? normalizeProbeImageExt(extname(src).replace(/^\./, ""));
     if (!ext) return undefined;
-    return probeImageDimensions(readFileSync(src), ext);
+    return probeImageDimensions(bytes, ext);
   } catch {
     return undefined;
   }
@@ -5023,7 +5031,7 @@ function tableShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
   const colCount = Math.max(1, ...allRows.map((row) => row.length));
   const rowCount = Math.max(1, allRows.length);
   const cellAlign = node.align === "center" || node.align === "right" || node.align === "left" ? node.align : "left";
-  const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0 || tableFirstRowLooksHeader(rawRows);
+  const firstRowHeader = node.firstRowHeader === true ? true : node.firstRowHeader === false ? false : headers.length > 0 || tableFirstRowLooksHeader(rawRows);
   const widthsInput = Array.isArray(node.colWidths) ? node.colWidths : (widthsFromColumns && widthsFromColumns.some((w) => w > 0) ? widthsFromColumns : undefined);
   const density = tableDensity(node.density);
   const colWidths = resolveTableColWidths(widthsInput, colCount, rect.w, { theme, rows: allRows, firstRowHeader, density });
@@ -5460,14 +5468,17 @@ function makeTableCell(
     const valign = cell.valign === "top" || cell.valign === "bottom" || cell.valign === "middle" ? cell.valign : "middle";
     const fillToken = typeof cell.fill === "string" ? cell.fill : isHeader ? (defaults.headerFill || "surface.subtle") : defaults.bodyFill;
     const colorToken = typeof cell.color === "string" ? cell.color : tokenToneColor(cell.tone);
+    const explicitFontSize = typeof cell.fontSize === "number" && Number.isFinite(cell.fontSize) && cell.fontSize > 0 ? cell.fontSize : undefined;
     const bold = cell.bold === true || (isStyleBold(style.weight));
-    const effectiveStyle = colorToken ? { ...style, color: colorToken } : style;
+    const effectiveStyle = colorToken || explicitFontSize
+      ? { ...style, ...(colorToken ? { color: colorToken } : {}), ...(explicitFontSize ? { fontSize: explicitFontSize } : {}) }
+      : style;
     const parsedRuns = (!customRuns && cell.markdown !== false) ? parseMarkdownInline(text) : null;
     const runs: TextRun[] = customRuns
-      ? customRuns.map((r) => richRunToTextRun(theme, r, style, bold))
+      ? customRuns.map((r) => richRunToTextRun(theme, r, effectiveStyle, bold))
       : parsedRuns?.matched
         ? parsedRuns.runs.map((r) => richRunToTextRun(theme, r, effectiveStyle, bold))
-        : [plainTextRun(theme, text, style, bold, color(theme, colorToken, style.color))];
+        : [plainTextRun(theme, text, effectiveStyle, bold, color(theme, colorToken, effectiveStyle.color))];
     return {
       runs: protectTextRunsForCjkLineBreaks(runs),
       fill: tableCellFill(theme, fillToken),
@@ -5730,17 +5741,25 @@ function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     safeLabels.length,
     resolvedChartType,
   );
+  const pieLike = resolvedChartType === "pie" || resolvedChartType === "doughnut";
   const customColors = Array.isArray(node.colors) ? node.colors.filter((c): c is string => typeof c === "string") : null;
   const palette = customColors && customColors.length > 0
     ? customColors.map((token) => color(theme, token))
-    : (theme.chart?.series || ["brand.primary", "brand.primary.tint", "text.muted"]).map((token) => color(theme, token));
-  const showLegend = typeof node.showLegend === "boolean" ? node.showLegend : safeSeries.length > 1;
-  const pieLike = resolvedChartType === "pie" || resolvedChartType === "doughnut";
-  const showValues = typeof node.showValues === "boolean" ? node.showValues : pieLike;
-  const dataLabels = normalizeChartDataLabels(node.dataLabels, { pieLike, showValues }, theme);
+    : defaultChartPaletteTokens(theme, pieLike, safeLabels.length).map((token) => color(theme, token));
+  const legend = normalizeChartLegend(node.legend);
+  const showLegend = chartLegendVisible(node, legend, safeSeries.length);
+  const deferPieLabelsToLegend = shouldDeferPieDataLabelsToLegend(node, {
+    pieLike,
+    showLegend,
+    labels: safeLabels,
+  });
+  const showValues = typeof node.showValues === "boolean" ? node.showValues : pieLike ? !deferPieLabelsToLegend : false;
+  const dataLabels = deferPieLabelsToLegend
+    ? { show: false }
+    : normalizeChartDataLabels(node.dataLabels, { pieLike, showValues }, theme);
   const annotations = normalizeChartAnnotations(node.annotations);
   pushChartFitDiagnostics(node, rect, resolvedChartType, safeLabels.length, safeSeries.length, showLegend, semanticOuterRectForBody(node.id, "chart", rectsById));
-  pushChartLabelDiagnostics(node, rect, resolvedChartType, dataLabels);
+  pushChartLabelDiagnostics(node, rect, resolvedChartType, dataLabels, showLegend);
   const barLike = resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "combo";
   const chartTextColor = color(theme, typeof node.textColor === "string" ? node.textColor : "text.primary");
   const axisTextColor = color(theme, typeof node.axisTextColor === "string" ? node.axisTextColor : "text.muted");
@@ -5766,7 +5785,7 @@ function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     xAxis: normalizeChartAxis(theme, node.xAxis ?? node.axis),
     yAxis: normalizeChartAxis(theme, node.yAxis),
     secondaryYAxis: normalizeChartAxis(theme, node.secondaryYAxis ?? node.secondaryAxis),
-    legend: normalizeChartLegend(node.legend),
+    legend,
     plotArea: normalizeChartPlotArea(node.plotArea),
     ...(barLike ? { negativeColor: color(theme, node.negativeColor, "danger") } : {}),
     ...(barLike && typeof node.positiveColor === "string" ? { positiveColor: color(theme, node.positiveColor) } : {}),
@@ -5774,6 +5793,35 @@ function chartShape(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId
     yFormat: chartNumberFormat(node.yFormat),
     annotations: annotations.length > 0 ? annotations : undefined,
   };
+}
+
+function defaultChartPaletteTokens(theme: SimpleTheme, pieLike: boolean, pointCount: number): string[] {
+  const base = theme.chart?.series && theme.chart.series.length > 0
+    ? theme.chart.series
+    : ["brand.primary", "brand.primary.tint", "text.muted"];
+  if (!pieLike || base.length >= Math.min(Math.max(pointCount, 1), 6)) return base;
+  const out = [...base];
+  for (const token of ["success", "warning", "info", "danger", "blue", "purple", "teal", "orange", "pink", "text.muted"]) {
+    if (!out.includes(token)) out.push(token);
+    if (out.length >= pointCount) break;
+  }
+  return out;
+}
+
+function chartLegendVisible(node: DomNode, legend: ChartLegendSpec | undefined, seriesCount: number): boolean {
+  if (legend) return legend.show !== false;
+  if (typeof node.showLegend === "boolean") return node.showLegend;
+  return seriesCount > 1;
+}
+
+function shouldDeferPieDataLabelsToLegend(
+  node: DomNode,
+  options: { pieLike: boolean; showLegend: boolean; labels: string[] },
+): boolean {
+  if (!options.pieLike || !options.showLegend) return false;
+  if (typeof node.showValues === "boolean") return false;
+  if (node.dataLabels !== undefined && node.dataLabels !== null) return false;
+  return options.labels.length >= 5 || options.labels.some((label) => /[%％]/.test(label));
 }
 
 function chartShapes(theme: SimpleTheme, node: DomNode, rect: Rect, ids: { nextId: number }, rectsById?: Map<string, Rect>): ShapeList {
@@ -6109,10 +6157,11 @@ function normalizeChartDataLabels(
   return undefined;
 }
 
-function pushChartLabelDiagnostics(node: DomNode, rect: Rect, resolvedChartType: ChartType, dataLabels: ChartDataLabels | undefined): void {
+function pushChartLabelDiagnostics(node: DomNode, rect: Rect, resolvedChartType: ChartType, dataLabels: ChartDataLabels | undefined, showLegend: boolean): void {
   const pieLike = resolvedChartType === "pie" || resolvedChartType === "doughnut";
   if (!pieLike) return;
   if (dataLabels?.show !== false) return;
+  if (showLegend) return;
   pushDiagnostic({
     severity: "warn",
     code: "PIE_LABELS_HIDDEN",
@@ -7828,7 +7877,7 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
   if (flowOnly.length === 0) {
     return layered.map((c) => ({ node: c, rect }));
   }
-  const columns = Math.max(1, numberProp(node, "columns", 2));
+  const columns = resolvedGridColumnsForLayout(theme, node, flowOnly, rect);
   const gap = gridGapCm(theme, node, flowOnly, columns);
   const availableWidth = Math.max(0, rect.w - gap * (columns - 1));
   const colWidths = gridColumnTrackTargets(node, columns, availableWidth);
@@ -7856,6 +7905,31 @@ function layoutGridChildren(theme: SimpleTheme, node: DomNode, rect: Rect): Arra
   });
   if (layered.length === 0) return flowOut;
   return [...flowOut, ...layered.map((c) => ({ node: c, rect }))];
+}
+
+function resolvedGridColumnsForLayout(theme: SimpleTheme, node: DomNode, flowOnly: DomNode[], rect: Rect): number {
+  const authored = Math.max(1, numberProp(node, "columns", 2));
+  if (node.role !== "kpi-grid" || node.__autoColumns !== true || flowOnly.length <= 1) return authored;
+  return autoKpiGridColumns(theme, node, flowOnly.length, authored, rect);
+}
+
+function autoKpiGridColumns(theme: SimpleTheme, node: DomNode, itemCount: number, authored: number, rect: Rect): number {
+  const maxColumns = Math.max(1, Math.min(authored, itemCount));
+  const minCellWidth = 2.9;
+  const minCellHeight = 1.65;
+  const fits = (candidate: number): boolean => {
+    const gap = gridGapCm(theme, node, [], candidate);
+    const rows = Math.max(1, Math.ceil(itemCount / candidate));
+    const cellW = (rect.w - gap * Math.max(0, candidate - 1)) / candidate;
+    const cellH = (rect.h - gap * Math.max(0, rows - 1)) / rows;
+    return cellW >= minCellWidth && cellH >= minCellHeight;
+  };
+  if (fits(maxColumns)) return maxColumns;
+  if (itemCount === 4 && maxColumns >= 4 && fits(2)) return 2;
+  for (let candidate = maxColumns - 1; candidate >= 1; candidate--) {
+    if (fits(candidate)) return candidate;
+  }
+  return maxColumns;
 }
 
 function prepareGridChildrenForLayout(theme: SimpleTheme, node: DomNode, children: DomNode[], columns: number, colWidths: number[], gap: number, rect?: Rect): DomNode[] {
@@ -7987,13 +8061,14 @@ const SLIDE_WIDE_SEMANTIC_COHORT_ROLES = new Set([
   "warning-list",
 ]);
 
-const TABLE_LIKE_COMPONENT_ROLES = new Set(["table-card", "analytic-table", "comparison-table"]);
+const TABLE_LIKE_COMPONENT_ROLES = new Set(["table-card", "analytic-table", "comparison-table", "key-value-list", "key-value-list-table", "key-value-list-grid"]);
 
 const BUDGETABLE_EVIDENCE_ROLES = new Set([
   "analytic-table",
   "chart-card",
   "code-block",
   "comparison-table",
+  "figure",
   "image-card",
   "table-card",
 ]);
@@ -9230,14 +9305,20 @@ const SEMANTIC_BUDGET_REGION_ROLES = new Set([
   "chart-card",
   "code-block",
   "comparison-table",
+  "evidence-block",
+  "figure",
   "executive-summary",
   "explanation-block",
   "image-card",
   "insight-card",
   "insight-region",
   "key-takeaway",
+  "key-value-list",
+  "module-strip",
   "quote",
+  "rail-block",
   "region-card",
+  "section-header",
   "side-rail",
   "table-card",
   "takeaway-list",
@@ -9273,9 +9354,13 @@ function semanticLayoutPriority(node: DomNode, parent?: DomNode): number {
   const role = regionCapacityRole(node);
   if (role === "key-takeaway") return isFinalSemanticSibling(parent, node) ? 100 : 88;
   if (role === "executive-summary") return 95;
+  if (role === "figure") return 86;
   if (role === "insight-card" || role === "explanation-block") return 86;
-  if (role === "table-card" || role === "analytic-table" || role === "comparison-table") return 84;
+  if (role === "table-card" || role === "analytic-table" || role === "comparison-table" || role === "key-value-list") return 84;
   if (role === "chart-card" || role === "image-card" || role === "code-block") return 82;
+  if (role === "evidence-block") return 80;
+  if (role === "rail-block" || role === "module-strip") return 58;
+  if (role === "section-header") return 56;
   if (parent?.role === "key-takeaway" && node.type === "text" && /\.detail$/.test(String(node.id || ""))) return 76;
   if (role === "quote") return 64;
   if (node.type === "bullets") return 42;
@@ -9601,9 +9686,14 @@ function childMainSpec(theme: SimpleTheme, node: DomNode, direction: "horizontal
   const max = optionalNumberProp(node, direction === "horizontal" ? "maxWidth" : "maxHeight") ?? Number.POSITIVE_INFINITY;
   const hasExplicitWeight = optionalNumberProp(node, "layoutWeight") !== undefined;
   const isContainer = node.type === "stack" || node.type === "grid";
+  const fixedContainerIsHard = isMetricValueWrap(node);
   // For containers, fixedHeight/Width is treated as a soft minimum: if the children's
   // natural intrinsic size exceeds it, let the container grow so children aren't crushed.
-  const naturalContainerMain = isContainer && fixed !== undefined
+  // Metric value bands are the exception: their child text is authored with
+  // autoFit and the fixed band is what keeps peer KPI baselines aligned. If the
+  // band grows to the text's natural metric-value height, mixed values in a
+  // kpi-grid drift vertically inside tall cells.
+  const naturalContainerMain = isContainer && fixed !== undefined && !fixedContainerIsHard
     ? containerNaturalMainSize(theme, node, direction, crossSize)
     : undefined;
   const effectiveFixed = (isContainer && fixed !== undefined && naturalContainerMain !== undefined && naturalContainerMain > fixed)
@@ -9769,7 +9859,7 @@ function tableLayoutInfo(theme: SimpleTheme, node: DomNode, widthCm: number): {
   const headerRow: unknown[] = headers.length > 0 ? headers : [];
   const allRows: unknown[][] = headerRow.length > 0 ? [headerRow, ...rawRows] : rawRows;
   const colCount = Math.max(1, ...allRows.map((row) => row.length));
-  const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0 || tableFirstRowLooksHeader(rawRows);
+  const firstRowHeader = node.firstRowHeader === true ? true : node.firstRowHeader === false ? false : headers.length > 0 || tableFirstRowLooksHeader(rawRows);
   const widthsInput = Array.isArray(node.colWidths) ? node.colWidths : (widthsFromColumns && widthsFromColumns.some((w) => w > 0) ? widthsFromColumns : undefined);
   const density = tableDensity(node.density);
   const colWidths = resolveTableColWidths(widthsInput, colCount, widthCm, { theme, rows: allRows, firstRowHeader, density });
@@ -9850,6 +9940,7 @@ function tableCellEffectiveFontPt(raw: unknown, fallbackPt: number): number {
   let fontPt = fallbackPt;
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const rec = raw as Record<string, unknown>;
+    if (typeof rec.fontSize === "number" && Number.isFinite(rec.fontSize) && rec.fontSize > 0) fontPt = rec.fontSize;
     if (Array.isArray(rec.runs)) {
       for (const run of rec.runs) {
         if (!run || typeof run !== "object") continue;

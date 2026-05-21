@@ -96,6 +96,7 @@ describe("M3 scientific authoring capabilities", () => {
     expect(slideXml).toContain("<m:borderBox>");
     expect(slideXml).toContain('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"');
     expect(slideXml).toContain('<w:color w:val="FFFFFF"/>');
+    expect(slideXml).toContain('<a:defRPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:defRPr>');
     expect(slideXml).not.toContain("boxed");
     expect(slideXml).not.toContain("vec");
   });

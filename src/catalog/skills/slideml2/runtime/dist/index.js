@@ -13845,6 +13845,20 @@ import { dirname as dirname2, isAbsolute, join as join2, resolve as resolve2 } f
 import { readFile as readFile2 } from "node:fs/promises";
 
 // slideml2/dist/emitter/image-dim.js
+function detectImageExt(bytes) {
+  if (bytes.length >= 24 && bytes[0] === 137 && bytes[1] === 80 && bytes[2] === 78 && bytes[3] === 71)
+    return "png";
+  if (bytes.length >= 4 && bytes[0] === 255 && bytes[1] === 216)
+    return "jpg";
+  if (bytes.length >= 10 && bytes[0] === 71 && bytes[1] === 73 && bytes[2] === 70)
+    return "gif";
+  if (bytes.length >= 30 && bytes[0] === 82 && bytes[1] === 73 && bytes[2] === 70 && bytes[3] === 70 && bytes[8] === 87 && bytes[9] === 69 && bytes[10] === 66 && bytes[11] === 80)
+    return "webp";
+  const head = new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(0, Math.min(bytes.length, 512))).trimStart();
+  if (/^(?:<\?xml\b[\s\S]*?)?<svg[\s>]/i.test(head))
+    return "svg";
+  return void 0;
+}
 function probeImageDimensions(bytes, ext) {
   switch (ext) {
     case "png":
@@ -13998,8 +14012,10 @@ async function resolveImage(src) {
   return withDimensions({ bytes: new Uint8Array(bytes), ext, mimeType: EXT_TO_MIME[ext] });
 }
 function withDimensions(img) {
-  const dim = probeImageDimensions(img.bytes, img.ext);
-  return dim ? { ...img, dimensions: dim } : img;
+  const ext = detectImageExt(img.bytes) ?? img.ext;
+  const normalized = ext === img.ext ? img : { ...img, ext, mimeType: EXT_TO_MIME[ext] };
+  const dim = probeImageDimensions(normalized.bytes, normalized.ext);
+  return dim ? { ...normalized, dimensions: dim } : normalized;
 }
 function extFromUrlPath(s) {
   const m = EXT_PATTERN.exec(s.split("?")[0].split("#")[0]);
@@ -15097,13 +15113,20 @@ var COMPONENT_TEXT_STYLE_DERIVATIONS = {
 function listThemes() {
   return ["default"];
 }
+var DENSITY_PROFILE_NAMES = ["editorial", "analytical", "dense"];
+function listDensityProfiles() {
+  return [...DENSITY_PROFILE_NAMES];
+}
+function normalizeDensityProfile(value, fallback = "editorial") {
+  return typeof value === "string" && DENSITY_PROFILE_NAMES.includes(value) ? value : fallback;
+}
 var colorWarnings = /* @__PURE__ */ new Set();
 function buildTheme(brand = {}, themeName = "default", themeOverride) {
   void themeName;
   const flatColors = flattenColorOverrides(themeOverride?.colors);
   const flatColorAlphas = flattenColorOverrideAlphas(themeOverride?.colors);
   const brandPrimary = normalizeHex(brand.primary || flatColors["brand.primary"] || "2563EB");
-  const base = defaultBase(brandPrimary);
+  const base = applyDensityProfile(defaultBase(brandPrimary), normalizeDensityProfile(themeOverride?.densityProfile));
   return mergeTheme(base, brandPrimary, themeOverride, flatColors, flatColorAlphas);
 }
 function flattenColorOverrides(input) {
@@ -15175,6 +15198,7 @@ function mergeTheme(base, brandPrimary, override, prebuiltColors, prebuiltColorA
   applyToneColorAliases(colors, flatColors);
   const merged = {
     ...base,
+    densityProfile: normalizeDensityProfile(override?.densityProfile, base.densityProfile),
     colors,
     colorAlpha: flatColorAlphas,
     text: mergeTextStyles(base.text, override?.text),
@@ -15910,9 +15934,183 @@ function defaultPalette() {
   }
   return out;
 }
+var DENSITY_PROFILE_SPECS = {
+  editorial: {
+    textScale: {},
+    guidance: {
+      scenario: "editorial or magazine-style presentation"
+    }
+  },
+  analytical: {
+    textScale: {
+      "deck-title": 0.9,
+      "slide-title": 0.9,
+      "section-title": 0.92,
+      "card-title": 0.94,
+      lead: 0.92,
+      paragraph: 0.96,
+      article: 0.95,
+      caption: 0.98,
+      "figure-caption": 0.98,
+      footnote: 0.98,
+      bullet: 0.96,
+      "bullet-compact": 0.96,
+      "metric-value": 0.92,
+      "metric-label": 0.98,
+      quote: 0.9,
+      body: 0.9
+    },
+    layout: {
+      pageMarginX: 1.55,
+      titleTop: 0.72,
+      titleHeight: 1.25,
+      contentTop: 2.55,
+      contentBottom: 13.35,
+      defaultGap: 0.42,
+      columnGap: 0.58,
+      cardPadding: 0.44
+    },
+    regionBudget: {
+      headingScale: 0.68,
+      leadScale: 0.78,
+      bodyScale: 0.76,
+      keyTakeawayDetailScale: 0.8,
+      bulletScale: 0.78,
+      bulletMinPt: 7.6,
+      keyTakeawayMinCm: 2.75,
+      keyTakeawayMaxCm: 3.9,
+      keyTakeawayMaxAvailableRatio: 0.4
+    },
+    componentPaddingScale: 0.84,
+    guidance: {
+      scenario: "analytical presentation with charts, tables, and readable business prose",
+      layoutPrinciples: [
+        "Use the analytical density profile for pages where charts, tables, exact values, and prose must share the page.",
+        "Prefer content-aware split/grid sizing over oversized headline chrome."
+      ]
+    }
+  },
+  dense: {
+    textScale: {
+      "deck-title": 0.82,
+      "slide-title": 0.84,
+      "section-title": 0.86,
+      "card-title": 0.9,
+      label: 0.94,
+      lead: 0.86,
+      paragraph: 0.9,
+      article: 0.9,
+      caption: 0.96,
+      "figure-caption": 0.96,
+      footnote: 0.96,
+      bullet: 0.9,
+      "bullet-compact": 0.94,
+      "metric-value": 0.84,
+      "metric-label": 0.94,
+      "table-header": 0.92,
+      "table-cell": 0.92,
+      "axis-label": 0.94,
+      "legend-label": 0.94,
+      callout: 0.88,
+      quote: 0.84,
+      hero: 0.82,
+      title: 0.86,
+      body: 0.86
+    },
+    layout: {
+      pageMarginX: 1.35,
+      titleTop: 0.65,
+      titleHeight: 1.12,
+      contentTop: 2.35,
+      contentBottom: 13.45,
+      defaultGap: 0.34,
+      columnGap: 0.46,
+      cardPadding: 0.36
+    },
+    regionBudget: {
+      headingScale: 0.72,
+      leadScale: 0.8,
+      bodyScale: 0.78,
+      keyTakeawayDetailScale: 0.82,
+      bulletScale: 0.8,
+      bulletMinPt: 7.2,
+      keyTakeawayMinCm: 2.35,
+      keyTakeawayMaxCm: 3.4,
+      keyTakeawayMaxAvailableRatio: 0.38
+    },
+    componentPaddingScale: 0.7,
+    guidance: {
+      scenario: "dense analytical dashboard, table, code, or operating-review presentation",
+      layoutPrinciples: [
+        "Use the dense profile only when the page job requires many exact values or compact operational content.",
+        "Keep density intentional: if core text falls below readable floors, split the page instead of relying on autoFit."
+      ]
+    }
+  }
+};
+function applyDensityProfile(base, profile) {
+  const spec = DENSITY_PROFILE_SPECS[profile] || DENSITY_PROFILE_SPECS.editorial;
+  const text = scaleTextStylesForDensity(base.text, spec.textScale);
+  const component2 = spec.componentPaddingScale === void 0 ? base.component : scaleComponentPadding(base.component, spec.componentPaddingScale);
+  const layoutOverride = spec.layout || {};
+  const guidanceOverride = spec.guidance || {};
+  return {
+    ...base,
+    densityProfile: profile,
+    text,
+    component: component2,
+    layout: {
+      ...base.layout,
+      ...layoutOverride,
+      areas: { ...base.layout.areas, ...layoutOverride.areas || {} },
+      regionBudget: {
+        ...base.layout.regionBudget,
+        ...spec.regionBudget || {}
+      }
+    },
+    guidance: {
+      ...base.guidance,
+      scenario: guidanceOverride.scenario ?? base.guidance.scenario,
+      stylePrinciples: guidanceOverride.stylePrinciples ?? base.guidance.stylePrinciples,
+      layoutPrinciples: guidanceOverride.layoutPrinciples ?? base.guidance.layoutPrinciples,
+      componentGuidance: { ...base.guidance.componentGuidance, ...guidanceOverride.componentGuidance || {} },
+      dataVizGuidance: guidanceOverride.dataVizGuidance ?? base.guidance.dataVizGuidance,
+      imageGuidance: guidanceOverride.imageGuidance ?? base.guidance.imageGuidance,
+      avoid: guidanceOverride.avoid ?? base.guidance.avoid
+    }
+  };
+}
+function scaleTextStylesForDensity(text, scales) {
+  if (Object.keys(scales).length === 0)
+    return text;
+  const out = {};
+  for (const [key, style] of Object.entries(text)) {
+    const scale = scales[key] ?? 1;
+    out[key] = scale === 1 ? style : { ...style, fontSize: roundFontSize(style.fontSize * scale) };
+  }
+  return out;
+}
+function roundFontSize(value) {
+  return Math.round(value * 10) / 10;
+}
+function scaleComponentPadding(component2, scale) {
+  const out = {};
+  for (const [key, style] of Object.entries(component2)) {
+    if (typeof style.padding !== "number" || style.padding <= 0) {
+      out[key] = style;
+      continue;
+    }
+    out[key] = {
+      ...style,
+      padding: Math.max(0.12, Math.round(style.padding * scale * 100) / 100)
+    };
+  }
+  return out;
+}
 function defaultBase(brandPrimary) {
   return {
     name: "default",
+    densityProfile: "editorial",
     colors: {
       "brand.primary": brandPrimary,
       // Slightly cool off-white slide background lets white cards float —
@@ -23484,8 +23682,15 @@ function paragraphPropsXml(p) {
   const marginLeft = typeof p.marginLeft === "number" ? Math.max(0, Math.round(p.marginLeft)) : void 0;
   const hanging = typeof p.hanging === "number" ? Math.round(p.hanging) : void 0;
   const attrs = attr("marL", marginLeft ?? (lvl ? lvl * 285750 : void 0)) + attr("lvl", lvl) + attr("indent", hanging ?? (lvl ? -285750 : void 0)) + attr("algn", algn) + attr("eaLnBrk", "1") + attr("latinLnBrk", "0") + attr("hangingPunct", "1");
-  const inner = `${lnSpc}${spcAft}${bullet}`;
+  const inner = `${lnSpc}${spcAft}${bullet}${paragraphDefaultRunPropsXml(p)}`;
   return `<a:pPr${attrs}>${inner}</a:pPr>`;
+}
+function paragraphDefaultRunPropsXml(p) {
+  const mathRunColor = p.runs.find((run) => run.mathOmml && run.color)?.color;
+  if (!mathRunColor)
+    return "";
+  assertHex(mathRunColor, "TextRun.color");
+  return `<a:defRPr><a:solidFill><a:srgbClr val="${mathRunColor.toUpperCase()}"/></a:solidFill></a:defRPr>`;
 }
 function runXml(run, isLast, rels) {
   if (run.mathOmml) {
@@ -25627,12 +25832,14 @@ function profileCard(slideId, id, options) {
   };
 }
 function kpiGrid(slideId, id, metrics, columns, options = {}) {
+  const autoColumns = columns === void 0;
   const cols = Math.max(1, columns || Math.min(4, metrics.length));
   const dense = options.density === "compact" || options.variant === "compact" || metrics.length >= 5;
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "grid",
     columns: cols,
+    ...autoColumns ? { __autoColumns: true } : {},
     gap: dense ? 0.32 : 0.5,
     role: "kpi-grid",
     children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, statusText: m.statusText, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable", peerAligned: true }))
@@ -27631,13 +27838,14 @@ function qAndA(slideId, id, options) {
 }
 function comparisonTable(slideId, id, options) {
   const features = (options.features || []).slice(0, 8);
-  const opts = (options.options || []).slice(0, 4);
+  const opts = (options.options || []).slice(0, 6);
+  const dense = opts.length >= 5 || features.length >= 6;
   const colCount = opts.length + 1;
   const headerRow = [
     {
       id: `${slideId}.${id}.h0`,
       type: "spacer",
-      fixedHeight: 0.9
+      fixedHeight: dense ? 0.78 : 0.9
     },
     ...opts.map((opt, idx) => ({
       id: `${slideId}.${id}.h${idx + 1}`,
@@ -27646,7 +27854,7 @@ function comparisonTable(slideId, id, options) {
       gap: 0.08,
       align: "center",
       valign: "middle",
-      fixedHeight: 0.9,
+      fixedHeight: dense ? 0.78 : 0.9,
       fill: opt.recommended ? "brand.tint" : void 0,
       cornerRadius: opt.recommended ? 0.08 : void 0,
       children: [
@@ -27666,11 +27874,11 @@ function comparisonTable(slideId, id, options) {
           id: `${slideId}.${id}.h${idx + 1}.name`,
           type: "text",
           text: opt.name,
-          style: "card-title",
+          style: dense ? "label" : "card-title",
           weight: "bold",
           color: "text.primary",
           align: "center",
-          minHeight: 0.5,
+          minHeight: dense ? 0.42 : 0.5,
           autoFit: "shrink"
         }
       ]
@@ -27682,13 +27890,13 @@ function comparisonTable(slideId, id, options) {
         id: `${slideId}.${id}.r${fIdx}.f`,
         type: "text",
         text: feature,
-        style: "card-title",
+        style: dense ? "paragraph" : "card-title",
         weight: "semibold",
         color: "text.primary",
         align: "left",
         valign: "middle",
         fill: "surface.subtle",
-        minHeight: 0.7,
+        minHeight: dense ? 0.62 : 0.7,
         autoFit: "shrink"
       },
       ...opts.map((opt, oIdx) => {
@@ -27703,10 +27911,10 @@ function comparisonTable(slideId, id, options) {
           style: "paragraph",
           color: isCheck ? "success" : isCross ? "danger" : "text.primary",
           weight: isCheck || isCross ? "bold" : void 0,
-          align: "center",
+          align: dense || cellText.length > 18 ? "left" : "center",
           valign: "middle",
           fill: opt.recommended ? "brand.tint" : void 0,
-          minHeight: 0.7,
+          minHeight: dense ? 0.62 : 0.7,
           autoFit: "shrink"
         };
       })
@@ -27717,10 +27925,15 @@ function comparisonTable(slideId, id, options) {
     id: `${slideId}.${id}`,
     type: "grid",
     columns: colCount,
+    colWidths: comparisonTableColumnWeights(opts.length),
     gap: 0.04,
     role: "comparison-table",
     children: [...headerRow, ...featureRows]
   }, options);
+}
+function comparisonTableColumnWeights(optionCount) {
+  const featureWeight = optionCount >= 5 ? 0.82 : 1;
+  return [featureWeight, ...Array.from({ length: optionCount }, () => 1)];
 }
 function scorecard(slideId, id, options) {
   const items = (options.items || []).slice(0, 8);
@@ -29544,7 +29757,12 @@ var SCALABLE_COMPONENTS = /* @__PURE__ */ new Set([
   "equation",
   "code-block",
   "table-card",
-  "donut-summary"
+  "donut-summary",
+  "figure",
+  "rail-block",
+  "evidence-block",
+  "key-value-list",
+  "module-strip"
 ]);
 var COMPONENT_DEFINITIONS = [
   textComponent("deck-title", "Deck-level title for covers and section openers. Use when the title itself is the dominant semantic object, not for normal slide headings.", "deck-title"),
@@ -29815,7 +30033,7 @@ var COMPONENT_DEFINITIONS = [
     tone: { type: "enum", enum: ["brand", "positive", "neutral", "warning", "danger"], description: "Default value color tone for cells without their own tone." }
   }, "horizontal stack of (value+label) cells with thin divider rules", "stack"),
   component("legend", "Color/category key for a chart, diagram, map, or coded table. Use when colors or symbols need semantic decoding.", {
-    items: { type: "array", required: true, description: "Array of { label, color } items. color is a theme token (palette name, brand.primary, etc.)." },
+    items: { type: "array", required: true, description: "Array of strings or { label|name|title|text, color|tone } items. color is a theme token (palette name, brand.primary, etc.); tone maps to the theme accent color." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Orientation." },
     marker: { type: "enum", enum: ["dot", "square", "bar"], description: "Marker shape per item: dot (default), square, or short horizontal bar." }
   }, "stack of (color-dot + label) pairs", "stack"),
@@ -29847,12 +30065,93 @@ var COMPONENT_DEFINITIONS = [
     text: { type: "string", semantic: "caption", description: "Optional one-sentence note." },
     tone: { type: "enum", enum: ["brand", "neutral", "inverse", "positive", "warning", "danger"], description: "Accent tone. Use inverse on dark color fields." }
   }, "stack(label, accent-rule, caption)", "stack"),
+  component("section-header", "Composable local heading block: eyebrow + title + optional subtitle/rule. Use to name a region inside a slide without hand-building loose text/rules.", {
+    title: { type: "string", required: true, semantic: "card-title", description: "Local section title." },
+    eyebrow: { type: "string", semantic: "label", description: "Optional short kicker above the title." },
+    subtitle: { type: "string", semantic: "caption", description: "Optional one-line explanation below the title." },
+    body: { type: "string", semantic: "caption", description: "Alias for subtitle." },
+    level: { type: "enum", enum: ["h1", "h2", "compact"], description: "Heading scale. h1 is for major body regions; h2/compact are for panels and rails." },
+    align: { type: "enum", enum: ["left", "center", "right"], description: "Text alignment." },
+    rule: { type: "boolean", description: "Show an accent rule under the heading. Defaults true unless variant is minimal." },
+    variant: { type: "enum", enum: ["plain", "minimal"], description: "plain includes default rhythm/rule; minimal suppresses the default rule." },
+    tone: { type: "enum", enum: ["brand", "neutral", "inverse", "positive", "warning", "danger"], description: "Accent tone for eyebrow/rule." }
+  }, "stack(eyebrow?, title, subtitle?, rule?)", "stack"),
+  containerComponent("figure", "Composable evidence figure: chart/image/table/diagram plus optional title, caption, and source. Use as the standard evidence block inside split/grid/rail layouts.", {
+    title: { type: "string", description: "Optional figure title above the visual." },
+    content: { type: "object", description: "Primary visual DomNode. Aliases: evidence, visual, media. Use chart-card, image-card, table-card, chart, image, table, or a diagram component." },
+    evidence: { type: "object", description: "Alias for content." },
+    visual: { type: "object", description: "Alias for content." },
+    media: { type: "object", description: "Alias for content." },
+    src: { type: "image-ref", description: "Flat image authoring shortcut. Builds a raw image when content is omitted." },
+    chartType: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], description: "Flat chart shortcut. Builds a raw chart from labels/series/data when content is omitted." },
+    labels: { type: "array", description: "Flat chart labels." },
+    series: { type: "array", description: "Flat chart series." },
+    data: { type: "object", description: "Flat chart/table data bundle." },
+    rows: { type: "array", description: "Flat table rows. Builds a raw table when content/src/chartType are omitted." },
+    headers: { type: "array", description: "Flat table headers." },
+    caption: { type: "string", description: "Quiet caption below the visual." },
+    source: { type: "string", description: "Quiet source/provenance below the visual." },
+    fit: { type: "enum", enum: ["cover", "contain", "fill"], description: "Image fit when using src shortcut." },
+    variant: { type: "enum", enum: ["frameless", "card", "compact"], description: "frameless is default; card adds a subtle surface; compact tightens gaps." },
+    tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger", "tinted"], description: "Optional surface/accent tone." },
+    surface: { type: "object", description: "Optional surface override for the figure wrapper." }
+  }, "stack(title?, evidence visual, caption?, source?)", "grid"),
   containerComponent("side-rail", "Narrow contextual rail for chapter label, lens, constraints, or interpretation beside the main content. Use inside split/grid to create asymmetry and reading frame.", {
     title: { type: "string", semantic: "card-title", description: "Optional rail heading." },
     body: { type: "string", semantic: "caption", description: "Optional rail note." },
     tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger", "tinted"], description: "Rail accent tone." },
     accent: { type: "enum", enum: ["left", "top"], description: "Accent rule placement." }
   }, "card/panel side rail containing a stack of title/body/children", "grid"),
+  containerComponent("rail-block", "Compact structured block for a rail or side panel: title/body/items/footer with light accenting. Use to compose interpretation rails without hand-stacking text cards.", {
+    title: { type: "string", semantic: "card-title", description: "Optional block heading." },
+    headline: { type: "string", semantic: "card-title", description: "Alias for title." },
+    body: { type: "string", semantic: "caption", description: "Optional concise explanation." },
+    detail: { type: "string", semantic: "caption", description: "Alias for body." },
+    items: { type: "array", description: "Optional short bullets or compact child records." },
+    footer: { type: "string", description: "Optional quiet footer/source/action note." },
+    tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger", "tinted"], description: "Accent tone." },
+    variant: { type: "enum", enum: ["plain", "accent", "panel"], description: "plain has no surface; accent adds a side rule; panel adds subtle fill and border." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
+    surface: { type: "object", description: "Optional surface override for accent/panel variants." }
+  }, "compact stack(title?, body?, bullets?, children?, footer?)", "stack"),
+  component("evidence-block", "Composable claim + proof + interpretation block. Use when a slide region needs a local argument, not just a raw figure or generic card.", {
+    claim: { type: "string", required: true, semantic: "card-title", description: "Local claim or finding." },
+    headline: { type: "string", semantic: "card-title", description: "Alias for claim." },
+    title: { type: "string", semantic: "card-title", description: "Alias for claim." },
+    proof: { type: "object", description: "Optional proof DomNode, usually figure/chart-card/image-card/table-card/quote. Aliases: evidence, visual, content." },
+    evidence: { type: "object", description: "Alias for proof." },
+    visual: { type: "object", description: "Alias for proof." },
+    content: { type: "object", description: "Alias for proof." },
+    proofText: { type: "string", description: "Optional text proof when no proof DomNode is needed." },
+    interpretation: { type: "string", description: "Optional so-what / implication sentence." },
+    detail: { type: "string", description: "Alias for interpretation." },
+    source: { type: "string", description: "Optional source/provenance note." },
+    tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Accent tone." },
+    variant: { type: "enum", enum: ["plain", "panel", "compact"], description: "panel adds a subtle surface; compact tightens gaps." },
+    surface: { type: "object", description: "Optional surface override." }
+  }, "stack(claim, proof?, interpretation?, source?)", "stack"),
+  component("key-value-list", "Aligned key/value facts for metadata, assumptions, parameters, or compact facts. Use instead of loose text rows when labels and values must scan together.", {
+    items: { type: "array", required: true, description: "Array of {key|label|term|name, value, detail?, tone?}. Aliases: pairs, rows, facts." },
+    pairs: { type: "array", description: "Alias for items." },
+    rows: { type: "array", description: "Alias for items." },
+    facts: { type: "array", description: "Alias for items." },
+    title: { type: "string", description: "Optional local heading." },
+    columns: { type: "number", description: "1 or 2 item columns. Defaults to 1; use 2 for 6-10 short pairs." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Row density." },
+    variant: { type: "enum", enum: ["plain", "table", "panel"], description: "plain/table = aligned table-like rows; panel adds a subtle surface." },
+    tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Default accent tone for values." },
+    surface: { type: "object", description: "Optional surface override." }
+  }, "aligned compact table/list of key-value rows", "stack"),
+  component("module-strip", "Horizontal or compact grid strip of 2-5 lightweight modules. Use for small peer facts/features beneath a main object without creating repetitive card grids.", {
+    items: { type: "array", required: true, description: "2-5 items. Each item may be a DomNode or {title|label|name, body|detail, value?, badge?, tone?, marker?}." },
+    title: { type: "string", description: "Optional strip title." },
+    columns: { type: "number", description: "Column count. Defaults to item count capped at 5." },
+    gap: { type: "number", description: "Gap between modules in cm." },
+    variant: { type: "enum", enum: ["plain", "subtle", "cards"], description: "plain is lowest chrome; subtle adds light module surfaces; cards adds stronger containment." },
+    density: { type: "enum", enum: ["comfortable", "compact"], description: "Vertical density." },
+    tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Default module accent tone." },
+    surface: { type: "object", description: "Optional surface override for module cells." }
+  }, "grid of compact peer modules", "grid"),
   component("axis-ruler", "Ordered conceptual scale: eras, maturity stages, spectrum, or progression. Use when position along an axis is the meaning, not just a dated timeline.", {
     items: { type: "array", required: true, description: "Array of { label/title/name, body/text/description?, tone? } items, usually 3-7." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Axis orientation (default horizontal)." },
@@ -29916,7 +30215,7 @@ var COMPONENT_DEFINITIONS = [
     variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
     surface: { type: "object", description: "Optional surface override." }
   }, "card(stack(title?, image, caption?))", "grid"),
-  component("chart-card", "Titled quantitative evidence module. Use when the chart is a self-contained proof object with interpretation/source, not just a raw plot.", {
+  component("chart-card", "Titled quantitative evidence module. Use when the chart is a self-contained proof object with interpretation/source, not just a raw plot. Pie/doughnut charts get a multi-color theme palette by default when colors are omitted.", {
     chartType: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], required: true, description: "Chart type." },
     chart: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], description: "Alias for chartType." },
     labels: { type: "array", required: true, description: "Category labels." },
@@ -29931,7 +30230,7 @@ var COMPONENT_DEFINITIONS = [
     showLegend: { type: "boolean", description: "Show chart legend." },
     showValues: { type: "boolean", description: "Show values on chart marks." },
     orientation: { type: "enum", enum: ["vertical", "horizontal"], description: "Bar-like chart orientation. Horizontal bars are useful for ranked categories with long labels." },
-    dataLabels: { type: "object", description: "Optional data-label controls {show, position:'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue, showCategoryName, showSeriesName, showPercent, showLegendKey, showLeaderLines, minPercent}. Pie defaults to native PowerPoint outsideEnd category+percent labels with leader lines. Doughnut uses repair-safe external PPT text labels and leader lines instead of native dLblPos. Slices below 3% are suppressed unless minPercent is set." },
+    dataLabels: { type: "object", description: "Optional data-label controls {show, position:'bestFit'|'center'|'insideEnd'|'insideBase'|'outsideEnd', showValue, showCategoryName, showSeriesName, showPercent, showLegendKey, showLeaderLines, minPercent}. Pie defaults to native PowerPoint outsideEnd category+percent labels with leader lines, but dense pie/doughnut charts that already show a legend default to legend-only labels so the plot keeps enough room. Set showValues:true or dataLabels:{show:true,...} to force slice labels. Doughnut uses repair-safe external PPT text labels and leader lines instead of native dLblPos. Slices below 3% are suppressed unless minPercent is set." },
     xAxis: { type: "object", description: "Optional x/category axis controls {title, show, min, max, majorUnit, numberFormat, gridlines, tickLabelRotation, tickLabelPosition}." },
     yAxis: { type: "object", description: "Optional primary value axis controls {title, show, min, max, majorUnit, numberFormat, gridlines, tickLabelRotation, tickLabelPosition}." },
     secondaryYAxis: { type: "object", description: "Optional secondary value axis controls for series using axis:'secondary'." },
@@ -29939,6 +30238,7 @@ var COMPONENT_DEFINITIONS = [
     plotArea: { type: "object", description: "Manual plot-area layout {x,y,w,h}. Prefer 0..1 factors; cm-like values are accepted and converted to chart-frame factors." },
     positiveColor: { type: "color-ref", description: "Optional color for positive bar/stacked-bar/combo points." },
     negativeColor: { type: "color-ref", description: "Optional color for negative bar/stacked-bar/combo points. Defaults to theme danger." },
+    colors: { type: "array", description: "Optional series/point color tokens. Omit for theme defaults; pie/doughnut will use a distinct multi-color palette." },
     yFormat: { type: "enum", enum: ["int", "decimal", "percent", "wanyuan", "yi"], description: "Y-axis number format." },
     tone: { type: "enum", enum: ["neutral", "brand", "tinted"], description: "Card surface tone." },
     variant: { type: "enum", enum: ["card", "frameless", "compact"], description: "Visual treatment." },
@@ -30050,7 +30350,7 @@ var COMPONENT_DEFINITIONS = [
     answer: { type: "string", semantic: "lead", description: "Alias for thesis." },
     summary: { type: "string", semantic: "paragraph", description: "Optional short summary sentence." },
     body: { type: "string", semantic: "paragraph", description: "Alias for summary." },
-    findings: { type: "array", description: "Array of {headline/title, detail/body?, tone?}; alias items." },
+    findings: { type: "array", description: "Array of {label?, metric?|value?, headline|title, detail|body?, tone?}; alias items. label/metric are rendered as structured signals when present." },
     items: { type: "array", description: "Alias for findings." },
     takeaways: { type: "array", description: "Alias for findings." },
     keyPoints: { type: "array", description: "Alias for findings." },
@@ -30058,7 +30358,7 @@ var COMPONENT_DEFINITIONS = [
     action: { type: "string", description: "Optional recommended next action." },
     recommendation: { type: "string", description: "Alias for action." },
     nextStep: { type: "string", description: "Alias for action." },
-    variant: { type: "enum", enum: ["memo", "board", "compact"], description: "Visual treatment. Default auto-selects 'board' when \u22654 findings AND at least 3 carry both headline and detail (renders findings as a labeled grid with tone color); otherwise 'memo' (collapses findings to a bullet list \u2014 better for short prose summaries with \u22643 findings or headline-only items)." },
+    variant: { type: "enum", enum: ["memo", "board", "board-balanced", "scorecard", "decision", "compact"], description: "Visual treatment. Default auto-selects balanced board grids for 4-6 structured findings, scorecard when metric/value fields are present, and memo for shorter prose summaries." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Semantic accent tone." }
   }, "stack(thesis, summary?, findings?, implication/action?)", "stack"),
   component("hero-and-support", "Page archetype: one dominant claim/object plus 2-4 supporting modules. Use instead of an equal card grid when one idea should clearly lead and the rest are satellites.", {
@@ -30074,7 +30374,7 @@ var COMPONENT_DEFINITIONS = [
   }, "grid/span layout: dominant hero + support satellites", "stack"),
   component("chart-with-rail", "Page archetype: one chart/table/evidence object plus a narrow interpretation rail. Use when a data object must dominate and the rail explains what to notice, why it matters, and what action follows.", {
     evidence: { type: "object", description: "DomNode for chart-card, table-card, image-card, chart, table, image, or diagram. When chartType/chartData are supplied on chart-with-rail itself, a text-like evidence object is treated as a rail proof/source note." },
-    chartType: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], description: "Flat chart authoring alias. Builds the evidence chart-card when evidence is omitted or text-like." },
+    chartType: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], description: "Flat chart authoring alias. Builds the evidence chart-card when evidence is omitted or text-like. Pie/doughnut keep default multi-color point palettes unless colors is supplied." },
     chart: { type: "enum", enum: ["bar", "stacked-bar", "line", "pie", "doughnut", "area", "combo", "scatter", "waterfall"], description: "Alias for chartType." },
     chartTitle: { type: "string", description: "Flat chart title alias for the generated chart-card." },
     chartData: { type: "object", description: "Flat chart data alias {labels, series}; equivalent to chart-card.data." },
@@ -30082,10 +30382,11 @@ var COMPONENT_DEFINITIONS = [
     showLegend: { type: "boolean", description: "Forwarded to the generated chart-card in flat chart mode." },
     showValues: { type: "boolean", description: "Forwarded to the generated chart-card in flat chart mode." },
     yFormat: { type: "enum", enum: ["int", "decimal", "percent", "wanyuan", "yi"], description: "Forwarded to the generated chart-card in flat chart mode." },
+    colors: { type: "array", description: "Optional chart color tokens. Omit for theme defaults; pie/doughnut will use multiple distinct slice colors." },
     headline: { type: "string", description: "Rail headline when rail node is omitted." },
     detail: { type: "string", description: "Rail body / interpretation when rail node is omitted." },
     railTitle: { type: "string", description: "Alias for rail headline." },
-    railBody: { type: "string", description: "Alias for rail body." },
+    railBody: { type: "string", valueTypes: ["string", "DomNode[]"], description: "Alias for rail body. Use a string for one concise interpretation, or an array of compact DomNodes such as text, spacer, table-card, fact-list, or key-takeaway when the rail needs structured support." },
     railTone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger", "tinted"], description: "Alias for rail tone." },
     keyTakeaway: { type: "object", description: "Optional {headline,title,detail,body,tone} rendered in the rail." },
     items: { type: "array", description: "Optional short rail bullets or proof points." },
@@ -30157,14 +30458,14 @@ var COMPONENT_DEFINITIONS = [
     density: { type: "enum", enum: ["comfortable", "compact"], description: "Force a density; default auto by item count." }
   }, "stack(items:Array<row(Q chip, q-text), row(A chip, a-text)>)", "stack"),
   component("comparison-table", "Multi-option comparison matrix: features as rows, options as columns, with one option highlighted as RECOMMENDED. Distinct from table-card (no per-column emphasis) and comparison-card (single-option card). Cell values that look like \u2713/\u2717/yes/no auto-render in success/danger color.", {
-    features: { type: "array", description: "Array of row labels, either strings or objects with label|name|title|feature|term (max 8). If rows are object records, feature labels may also come from rows[].feature/label/title/name." },
-    options: { type: "array", description: "Array of option names or {name:string, values?:string[], key?:string, recommended?:boolean} (max 4 options). values length should match features length. When values are omitted, rows[] may provide cells keyed by each option name/key." },
+    features: { type: "array", description: "Array of row labels, either strings or objects with label|name|title|feature|term (max 8). Agent-natural row records are also accepted here, e.g. features:[{feature:'ARR', Gamma:'$1m', Canva:'$2m'}], when rows is omitted." },
+    options: { type: "array", description: "Array of option names or {name:string, values?:string[], key?:string, recommended?:boolean} (max 6 options; 5-6 render in compact mode). values length should match features length. When values are omitted, rows[] or object features may provide cells keyed by each option name/key." },
     rows: { type: "array", description: "Optional row records for natural matrix authoring, e.g. {feature:'ARR', Gamma:'$1.02\u4EBF', Canva:'$35\u4EBF'}." },
     title: { type: "string", description: "Optional heading rendered above the table." }
   }, "grid(headerRow + featureRows)", "stack"),
   // ---------- DATA components ----------
   component("scorecard", "Status-coded metric grid. Each item carries a label, value, status color (good/warning/danger/neutral), and optional delta with trend arrow. Use for project status, health checks, dashboards. Different from metric-card / kpi-grid which have no health/status semantics.", {
-    items: { type: "array", required: true, description: "Array of {label:string, value:string, status?:enum[good|warning|danger|neutral], delta?:string, trend?:enum[up|down|flat]}." },
+    items: { type: "array", required: true, description: "Array of strings or {label|name|title|metric|key, value|amount|number|stat|score, status?:enum[good|warning|danger|neutral], delta?:string, trend?:enum[up|down|flat]}. Strings render visibly as fallback metric text." },
     columns: { type: "number", description: "Optional column count (default auto)." }
   }, "grid of status-accented metric cards", "stack"),
   component("funnel", "Conversion funnel \u2014 sales pipeline, signup \u2192 activation \u2192 paid funnel, traffic stages. Renders as an inverted pyramid made from editable PowerPoint trapezoid stages; each stage width reflects value and can carry title/body/items/contents/icon/badge/surface styling.", {
@@ -30204,7 +30505,7 @@ var COMPONENT_DEFINITIONS = [
     height: { type: "number", description: "Height in cm (default 1.0)." }
   }, "horizontal stack of bars", "stack"),
   component("stat-flow", "Horizontal sequence of stat blocks connected by operator/connector text. Use for unit economics derivation (CAC \xD7 LTV \u2192 margin), formula walkthroughs, KPI cause-effect chains.", {
-    steps: { type: "array", required: true, description: 'Array of {value:string, label:string, tone?:enum[brand|positive|warning|danger|neutral]} OR {connector:string} entries (max 10). Connectors are operator strings like "\xD7", "\xF7 24m", "\u2192".' }
+    steps: { type: "array", required: true, description: 'Array of strings, {value|amount|number|stat|score, label|name|title|metric?, tone?:enum[brand|positive|warning|danger|neutral]} OR {connector|operator:string} entries (max 10). Operator-like strings such as "\xD7" and "\u2192" render as connectors; other strings render as stat blocks.' }
   }, "horizontal stack of value/label blocks + connector text", "stack"),
   component("donut-summary", 'Primary-share + remainder legend. Use for "X% from Y" stories where one share dominates. Different from chart-card pie (no primary emphasis).', {
     primary: { type: "object", required: true, description: "{label:string, value:number} for the dominant share." },
@@ -30682,13 +30983,44 @@ function componentUsabilityGuidance(name) {
       ];
     case "executive-summary":
       return [
-        "Use for thesis + findings + implication/action. thesis/headline/title/conclusion/answer, findings/items/takeaways/keyPoints, and action/recommendation/nextStep are accepted aliases.",
+        "Use for thesis + findings + implication/action. thesis/headline/title/conclusion/answer, findings/items/takeaways/keyPoints, and action/recommendation/nextStep are accepted aliases. findings can include label and metric/value for scorecard-style summaries.",
+        "For 4 structured findings the default board is balanced as 2x2; 6 findings use 3x2. Actions render as a bottom strip instead of becoming another finding.",
         "For 3-5 final conclusions without a thesis paragraph, use takeaway-list instead."
       ];
     case "takeaway-list":
       return [
         "Use for 3-5 short conclusions. items/takeaways/conclusions/findings accept headline/title/text/label/name plus detail/body/description.",
         "Use key-takeaway when there is only one conclusion; use executive-summary when the slide needs thesis + findings + action."
+      ];
+    case "section-header":
+      return [
+        "Use to name a local region inside a slide. Keep it flexible by letting the parent stack/grid allocate height; avoid fixed coordinates for ordinary section rhythm.",
+        "Use level:'compact' in rails, narrow grid cells, and pressure layouts; keep subtitle to one sentence."
+      ];
+    case "figure":
+      return [
+        "Use as the standard evidence wrapper inside split/grid/rail layouts. The visual child should receive the flexible region; move long captions/sources to a rail when the figure is narrow.",
+        "Author either content/evidence/visual as a DomNode, or use one flat shortcut: src for image, chartType+labels+series for chart, or rows/headers for table."
+      ];
+    case "rail-block":
+      return [
+        "Use inside side-rail or narrow split regions for compact interpretation. Prefer variant:'plain' or 'accent' when nesting in an existing rail surface.",
+        "Keep body and items short; place large proof objects in the main evidence region or a figure, not in the rail block."
+      ];
+    case "evidence-block":
+      return [
+        "Use for a local argument: claim first, proof second, interpretation/source last. It is meant to compose inside larger layouts, not replace a full evidence-layout page archetype.",
+        "Use variant:'compact' or plain when the parent grid/split is under pressure; move the proof to a sibling figure when the claim block gets narrow."
+      ];
+    case "key-value-list":
+      return [
+        "Use for aligned facts, metadata, assumptions, or parameters. It adapts as a compact table in rails and can use columns:2 for many short pairs in wider regions.",
+        "Keep labels terse and values scannable; use table-card or analytic-table when rows need full tabular semantics or cell visuals."
+      ];
+    case "module-strip":
+      return [
+        "Use for 2-5 lightweight peer modules below or beside a primary object. It adapts through grid columns instead of absolute item placement.",
+        "Use compact density in constrained regions; if each module needs paragraph-level proof, split into full components rather than overloading the strip."
       ];
     case "outline":
       return [
@@ -30824,8 +31156,10 @@ function expandComponent(slideId, node, theme) {
   }
   if (componentName === "comparison-card") {
     const metrics = Array.isArray(node.metrics) ? node.metrics.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw : {};
-      return { label: stringValue(rec.label, ""), value: stringValue(rec.value, ""), tone: componentTone(rec.tone) };
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { value: raw };
+      const label = semanticTextValue(rec, "label", "name", "title", "metric", "key", "text");
+      const value = semanticTextValue(rec, "value", "amount", "number", "stat", "score");
+      return { label: value ? label : "", value: value || label, tone: componentTone(rec.tone) };
     }).filter((m) => m.label || m.value) : void 0;
     const variant = node.variant === "card" || node.variant === "compact" ? node.variant : void 0;
     const density = node.density === "compact" || node.density === "comfortable" ? node.density : void 0;
@@ -30883,15 +31217,17 @@ function expandComponent(slideId, node, theme) {
   if (componentName === "timeline") {
     const toneOf = (raw) => raw === "brand" || raw === "positive" || raw === "warning" || raw === "danger" || raw === "neutral" ? raw : void 0;
     const items = Array.isArray(node.items) ? node.items.map((raw, index) => {
-      const rec = raw && typeof raw === "object" ? raw : {};
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { title: raw };
       const contentRaw = rec.content;
       const content = contentRaw && typeof contentRaw === "object" && !Array.isArray(contentRaw) ? normalizeTimelineContent(slideId, name, index, contentRaw) : void 0;
+      const title = semanticTextValue(rec, "title", "label", "headline", "name", "text");
+      const body = semanticTextValue(rec, "body", "description", "detail", "summary");
       return {
-        time: stringValue(rec.time, stringValue(rec.date, stringValue(rec.year, ""))),
+        time: semanticTextValue(rec, "time", "date", "year", "period"),
         // title is now optional; when content is present, agents often
         // omit it because the content carries its own headline.
-        title: stringValue(rec.title, stringValue(rec.label, stringValue(rec.headline, stringValue(rec.name, "")))),
-        body: stringValue(rec.body, stringValue(rec.description, "")),
+        title,
+        body,
         tone: toneOf(rec.tone),
         shape: stringValue(rec.shape, stringValue(rec.milestoneShape, stringValue(rec.markerShape, ""))),
         icon: stringValue(rec.icon, ""),
@@ -30914,13 +31250,15 @@ function expandComponent(slideId, node, theme) {
   }
   if (componentName === "kpi-grid") {
     const metrics = arrayValue(node.metrics, node.items).map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw : {};
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { value: raw };
       const trendRaw = rec.trend;
       const trend = trendRaw === "up" || trendRaw === "down" || trendRaw === "flat" ? trendRaw : void 0;
+      const label = semanticTextValue(rec, "label", "name", "title", "metric", "key", "text");
+      const value = semanticTextValue(rec, "value", "amount", "number", "stat", "score");
       return {
-        name: stringValue(rec.name, ""),
-        value: stringValue(rec.value, ""),
-        label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))),
+        name: semanticTextValue(rec, "name", "label", "title", "metric", "key", "text"),
+        value: value || label,
+        label: value ? label : "",
         unit: stringValue(rec.unit, ""),
         delta: stringValue(rec.delta, ""),
         status: componentTone(rec.tone) ?? componentTone(rec.status),
@@ -31025,10 +31363,12 @@ function expandComponent(slideId, node, theme) {
   }
   if (componentName === "process-flow") {
     const steps = arrayValue(node.steps, node.items).map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw : {};
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { title: raw };
+      const title = semanticTextValue(rec, "title", "label", "name", "text", "headline", "step", "number");
+      const body = semanticTextValue(rec, "body", "description", "detail", "summary");
       return {
-        title: stringValue(rec.title, stringValue(rec.label, "")),
-        body: stringValue(rec.body, stringValue(rec.description, "")),
+        title: title || body,
+        body: title ? body : "",
         status: stringValue(rec.status, ""),
         owner: stringValue(rec.owner, ""),
         time: stringValue(rec.time, stringValue(rec.duration, "")),
@@ -31103,11 +31443,11 @@ function expandComponent(slideId, node, theme) {
     };
     const tone = coerceTone(node.tone);
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw : {};
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { label: raw };
       const value = barListValue(rec.value, rec.score, rec.percent);
       const valueLabel = barListValueLabel(rec.valueLabel, rec.value ?? rec.score ?? rec.percent, value);
       return {
-        label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))),
+        label: semanticTextValue(rec, "label", "name", "title", "text", "metric"),
         value,
         max: rec.max === void 0 ? void 0 : barListValue(rec.max),
         valueLabel,
@@ -31126,10 +31466,12 @@ function expandComponent(slideId, node, theme) {
       return norm && allowedTones.has(norm) ? norm : void 0;
     };
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw : {};
+      const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { value: raw };
+      const label = semanticTextValue(rec, "label", "name", "title", "text", "metric");
+      const value = semanticTextValue(rec, "value", "amount", "number", "stat", "score");
       return {
-        value: stringValue(rec.value, stringValue(rec.metric, "")),
-        label: stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, ""))),
+        value: value || label,
+        label: value ? label : "",
         tone: coerceTone(rec.tone)
       };
     }).filter((item) => item.value || item.label) : [];
@@ -31138,8 +31480,15 @@ function expandComponent(slideId, node, theme) {
   }
   if (componentName === "legend") {
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw : {};
-      return { label: stringValue(rec.label, ""), color: stringValue(rec.color, "brand.primary") };
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return { label: semanticScalarText(raw), color: "brand.primary" };
+      }
+      const rec = raw;
+      const tone = componentTone(rec.tone);
+      return {
+        label: semanticTextValue(rec, "label", "name", "title", "text", "value"),
+        color: stringValue(rec.color, tone ? toneAccent(tone) : "brand.primary")
+      };
     }).filter((item) => item.label) : [];
     const direction = node.direction === "vertical" ? "vertical" : "horizontal";
     const marker = node.marker === "square" || node.marker === "bar" || node.marker === "dot" ? node.marker : void 0;
@@ -31162,8 +31511,26 @@ function expandComponent(slideId, node, theme) {
   if (componentName === "annotation") {
     return withComponentRoot(node, annotationNode(slideId, name, node));
   }
+  if (componentName === "section-header") {
+    return withComponentRoot(node, sectionHeaderNode(slideId, name, node));
+  }
+  if (componentName === "figure") {
+    return withComponentRoot(node, figureNode(slideId, name, node));
+  }
   if (componentName === "side-rail") {
     return withComponentRoot(node, sideRailNode(slideId, name, node));
+  }
+  if (componentName === "rail-block") {
+    return withComponentRoot(node, railBlockNode(slideId, name, node));
+  }
+  if (componentName === "evidence-block") {
+    return withComponentRoot(node, evidenceBlockNode(slideId, name, node));
+  }
+  if (componentName === "key-value-list") {
+    return withComponentRoot(node, keyValueListNode(slideId, name, node));
+  }
+  if (componentName === "module-strip") {
+    return withComponentRoot(node, moduleStripNode(slideId, name, node));
   }
   if (componentName === "axis-ruler") {
     return withComponentRoot(node, axisRulerNode(slideId, name, node));
@@ -31262,19 +31629,27 @@ function expandComponent(slideId, node, theme) {
   }
   if (componentName === "scorecard") {
     const items = Array.isArray(node.items) ? node.items.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw : {};
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return {
+          label: "",
+          value: semanticScalarText(raw)
+        };
+      }
+      const rec = raw;
       const sRaw = rec.status;
       const status = sRaw === "good" || sRaw === "warning" || sRaw === "danger" || sRaw === "neutral" ? sRaw : void 0;
       const tRaw = rec.trend;
       const trend = tRaw === "up" || tRaw === "down" || tRaw === "flat" ? tRaw : void 0;
+      const label = semanticTextValue(rec, "label", "name", "title", "metric", "key", "text");
+      const value = semanticTextValue(rec, "value", "amount", "number", "stat", "score");
       return {
-        label: stringValue(rec.label, stringValue(rec.name, "")),
-        value: stringValue(rec.value, ""),
+        label: value ? label : "",
+        value: value || label,
         status,
         delta: stringValue(rec.delta, "") || void 0,
         trend
       };
-    }).filter((it) => it.label && it.value) : [];
+    }).filter((it) => it.label || it.value) : [];
     const cols = typeof node.columns === "number" ? node.columns : void 0;
     return withComponentRoot(node, scorecard(slideId, name, { items, columns: cols }));
   }
@@ -31371,15 +31746,23 @@ function expandComponent(slideId, node, theme) {
     }));
   }
   if (componentName === "stat-flow") {
+    const isConnectorText = (text) => /^[+xX*×÷/=→⇒➜\-–—]+$/.test(text.trim());
     const steps = Array.isArray(node.steps) ? node.steps.map((raw) => {
-      const rec = raw && typeof raw === "object" ? raw : {};
-      if (typeof rec.connector === "string" && rec.connector.trim())
-        return { connector: rec.connector };
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        const text = semanticScalarText(raw);
+        return isConnectorText(text) ? { connector: text } : { value: text, label: "" };
+      }
+      const rec = raw;
+      const connector = semanticTextValue(rec, "connector", "operator", "op");
+      if (connector)
+        return { connector };
       const tRaw = rec.tone;
       const tone = tRaw === "brand" || tRaw === "positive" || tRaw === "warning" || tRaw === "danger" || tRaw === "neutral" ? tRaw : void 0;
+      const label = semanticTextValue(rec, "label", "name", "title", "metric", "text");
+      const value = semanticTextValue(rec, "value", "amount", "number", "stat", "score");
       return {
-        value: stringValue(rec.value, ""),
-        label: stringValue(rec.label, ""),
+        value: value || label,
+        label: value ? label : "",
         tone
       };
     }).filter((s) => "connector" in s ? !!s.connector : !!s.value) : [];
@@ -31685,7 +32068,7 @@ function expandComponent(slideId, node, theme) {
     return withComponentRoot(node, qAndA(slideId, name, { items, density }));
   }
   if (componentName === "comparison-table") {
-    const rows = Array.isArray(node.rows) ? node.rows : [];
+    const rows = comparisonTableRows(node.rows, node.features);
     const features = comparisonTableFeatures(node.features, rows);
     const opts = comparisonTableOptions(node.options, rows).map((option) => {
       const values = option.values.length ? option.values : features.map((feature, featureIndex) => {
@@ -32365,7 +32748,9 @@ function chartWithRailFlatChartNode(slideId, name, node, authoredEvidence) {
     return null;
   const chartData = chartWithRailDataObject(node);
   const chartTone = componentTone(node.chartTone) || componentTone(node.tone);
-  const colors = Array.isArray(node.colors) ? node.colors : chartTone ? [toneAccent(chartTone)] : void 0;
+  const rawChartType = String(node.chartType || node.chart || "");
+  const pieLike = rawChartType === "pie" || rawChartType === "doughnut";
+  const colors = Array.isArray(node.colors) ? node.colors : pieLike ? void 0 : chartTone ? [toneAccent(chartTone)] : void 0;
   return {
     id: `${slideId}.${name}.chart`,
     type: "chart-card",
@@ -32507,11 +32892,12 @@ function supportModuleNode(slideId, name, raw, defaultTone) {
 function interpretationRailNode(slideId, name, node, options = {}) {
   const tone = node.railTone === "tinted" || node.tone === "tinted" ? "tinted" : componentTone(node.railTone) || componentTone(node.tone) || "brand";
   const headline = stringValue(node.railTitle, stringValue(node.headline, stringValue(node.title, "Interpretation")));
-  const detail = stringValue(node.railBody, stringValue(node.detail, stringValue(node.body, "")));
+  const detail = stringValue(typeof node.railBody === "string" ? node.railBody : void 0, stringValue(node.detail, stringValue(node.body, "")));
   const items = stringArray(node.items);
   const children = [
     ...chartWithRailKeyTakeawayNodes(slideId, name, node),
     ...options.includeEvidenceProof ? chartWithRailEvidenceProofNodes(slideId, name, node.evidence) : [],
+    ...chartWithRailRailBodyNodes(slideId, name, node),
     ...items.length ? [{ ...bulletList(slideId, `${name}.items`, items.slice(0, 5), "compact"), optional: true }] : []
   ];
   return {
@@ -32522,6 +32908,27 @@ function interpretationRailNode(slideId, name, node, options = {}) {
     tone,
     children
   };
+}
+function chartWithRailRailBodyNodes(slideId, name, node) {
+  if (!Array.isArray(node.railBody))
+    return [];
+  return node.railBody.flatMap((raw, index) => {
+    const fallback = `${slideId}.${name}.railBody.${index + 1}`;
+    if (typeof raw === "string") {
+      const text = raw.trim();
+      return text ? [{
+        id: fallback,
+        type: "text",
+        text,
+        style: "caption",
+        color: "text.primary",
+        autoFit: "shrink",
+        optional: true
+      }] : [];
+    }
+    const authored = domNodeValue(raw, fallback);
+    return authored ? [{ ...authored, optional: authored.optional ?? true }] : [];
+  });
 }
 function chartWithRailKeyTakeawayNodes(slideId, name, node) {
   const raw = node.keyTakeaway ?? node.takeaway;
@@ -32893,6 +33300,7 @@ function tableCardNode(slideId, name, node) {
   const surface = node.surface && typeof node.surface === "object" && !Array.isArray(node.surface) ? node.surface : {};
   const cardFill = typeof surface.fill === "string" ? surface.fill : typeof node.fill === "string" ? node.fill : typeof cardProps.fill === "string" ? cardProps.fill : "surface";
   const frameless = node.variant === "frameless";
+  const gap = denseTable ? caption ? 0.24 : 0.16 : 0.25;
   return applyAgentSurface({
     id: `${slideId}.${name}`,
     type: frameless ? "stack" : "card",
@@ -32902,7 +33310,7 @@ function tableCardNode(slideId, name, node) {
       id: `${slideId}.${name}.stack`,
       type: "stack",
       direction: "vertical",
-      gap: denseTable ? 0.16 : 0.25,
+      gap,
       children: [
         ...badge2 ? [{ id: `${slideId}.${name}.badge`, type: "text", text: badge2, style: "label", fill: "surface.subtle", color: "text.primary", cornerRadius: 0.18, fixedHeight: 0.42, fixedWidth: textChipWidthCm(badge2, { min: 1, max: 4.8, padding: 0.62 }), align: "center", autoFit: "shrink" }] : [],
         ...title ? [denseTable ? { id: `${slideId}.${name}.title`, type: "text", text: title, style: "card-title", minHeight: 0.45, autoFit: "shrink", optional: true } : { id: `${slideId}.${name}.title`, type: "text", text: title, style: "card-title", fixedHeight: 0.65, autoFit: "shrink" }] : [],
@@ -32947,11 +33355,13 @@ function analyticTableNode(slideId, name, node) {
   const bodyRows = sourceRows.map((row, rowIndex) => columns.map((column, colIndex) => analyticTableCell(row, rowIndex, column, colIndex, scales.get(column.key))));
   const compact = node.density !== "comfortable";
   const groupHeader = analyticTableColumnGroupRow(node, columns);
+  const denseHeaderFontSize = compact && columns.length >= 9 ? 8 : void 0;
   const columnHeader = columns.map((column) => ({
-    text: column.header,
+    text: analyticTableHeaderText(column.header, compact, columns.length),
     align: column.align === "right" ? "right" : column.align === "left" ? "left" : "center",
     bold: true,
-    fill: "surface.subtle"
+    fill: "surface.subtle",
+    ...denseHeaderFontSize ? { fontSize: denseHeaderFontSize } : {}
   }));
   const tableNode = {
     ...node,
@@ -32965,12 +33375,13 @@ function analyticTableNode(slideId, name, node) {
       colWidths: columns.map((column) => column.width ?? 1),
       firstRowHeader: true
     } : {
-      columns: columns.map((column) => ({
-        key: column.key,
-        header: column.header,
-        ...column.width !== void 0 ? { width: column.width } : {}
-      })),
-      rows: bodyRows
+      columns: void 0,
+      headers: void 0,
+      data: void 0,
+      encoding: void 0,
+      rows: [columnHeader, ...bodyRows],
+      colWidths: columns.map((column) => column.width ?? 1),
+      firstRowHeader: true
     },
     density: compact ? "compact" : "comfortable",
     cellPadding: node.cellPadding ?? (compact ? { left: 0.12, right: 0.12, top: 0.06, bottom: 0.06 } : void 0),
@@ -32987,6 +33398,12 @@ function analyticTableNode(slideId, name, node) {
 function analyticTableRenderMode(node) {
   const raw = typeof node.renderMode === "string" ? node.renderMode : typeof node.mode === "string" ? node.mode : typeof node.renderer === "string" ? node.renderer : "";
   return raw === "composed" || raw === "visual" || raw === "shapes" ? "composed" : "native";
+}
+function analyticTableHeaderText(header, compact, columnCount) {
+  const text = String(header || "").trim();
+  if (!compact || columnCount < 9 || text.includes("\n"))
+    return text;
+  return text.replace(/^(.+?)([（(][^（）()]{1,6}[）)])$/u, "$1\n$2");
 }
 function analyticComposedTableNode(slideId, name, node, columns, sourceRows, scales) {
   const title = stringValue(node.title, "");
@@ -33120,10 +33537,12 @@ function analyticComposedBodyCell(slideId, id, tableNode, row, rowIndex, column,
   const numeric = analyticNumericValue(rawValue);
   if (visual.type === "delta") {
     const tone2 = analyticDeltaTone(numeric, visual);
-    return analyticComposedTextCell(`${slideId}.${id}`, analyticSignedValue(rawValue, column), {
+    const colors = toneToColors(tone2);
+    return analyticComposedTextCell(`${slideId}.${id}`, analyticDeltaLabel(rawValue, column), {
       ...base,
       align: column.align ?? "right",
-      color: toneAccent(tone2),
+      color: colors.fg ?? toneAccent(tone2),
+      fill: colors.bg ?? fill,
       bold: true,
       style: tableNode.density === "comfortable" ? "label" : "caption"
     });
@@ -33933,11 +34352,13 @@ function analyticTableCell(row, rowIndex, column, colIndex, scale) {
   const numeric = analyticNumericValue(rawValue);
   if (visual.type === "delta") {
     const tone2 = analyticDeltaTone(numeric, visual);
+    const colors = toneToColors(tone2);
     return {
       ...base,
-      text: analyticSignedValue(rawValue, column),
+      text: analyticDeltaLabel(rawValue, column),
       align: column.align ?? "right",
-      color: toneAccent(tone2),
+      color: colors.fg ?? toneAccent(tone2),
+      fill: colors.bg ?? base.fill,
       bold: true
     };
   }
@@ -34170,6 +34591,13 @@ function analyticSignedValue(value, column) {
     return analyticFormattedValue(value, column);
   const formatted = column.format === "percent" || Math.abs(numeric) <= 1 && column.format !== "currency" && column.format !== "currencyCompact" ? formatPercent(numeric) : analyticFormattedValue(value, column);
   return numeric > 0 && !formatted.startsWith("+") ? `+${formatted}` : formatted;
+}
+function analyticDeltaLabel(value, column) {
+  const numeric = analyticNumericValue(value);
+  const signed = analyticSignedValue(value, column);
+  if (typeof numeric !== "number" || Math.abs(numeric) < 1e-6)
+    return `\u2192 ${signed}`;
+  return `${numeric > 0 ? "\u2191" : "\u2193"} ${signed}`;
 }
 function formatPercent(value) {
   const pct = Math.abs(value) <= 1 ? value * 100 : value;
@@ -36104,10 +36532,11 @@ function hubSpokeNode(slideId, name, node) {
   const compact = officeCompact(node);
   const items = officeRecords(node.items || node.spokes);
   const safeItems = items.length ? items.slice(0, 8) : [{ title: "Customers" }, { title: "Data" }, { title: "Partners" }, { title: "Operations" }];
+  const hiddenItemCount = items.length > safeItems.length ? items.length - safeItems.length : 0;
   const slots = [];
   for (let i = 0; i < 9; i += 1) {
     if (i === 4) {
-      slots.push(officeCardNode(`${slideId}.${name}.center`, stringValue(node.center, "Hub"), "", componentTone(node.tone) || "brand", {
+      slots.push(officeCardNode(`${slideId}.${name}.center`, stringValue(node.center, "Hub"), hiddenItemCount ? `+${hiddenItemCount} more` : "", componentTone(node.tone) || "brand", {
         compact,
         fixedHeight: compact ? 0.78 : 0.98,
         align: "center",
@@ -36149,6 +36578,8 @@ function stakeholderMapNode(slideId, name, node) {
       const y = String(item.y ?? item.influence ?? item.impact ?? "").toLowerCase() === "high" ? "high" : "low";
       return x === quad.x && y === quad.y;
     });
+    const visibleMembers = members.length > 5 ? members.slice(0, 4) : members.slice(0, 5);
+    const hiddenMembers = members.length - visibleMembers.length;
     return {
       id: `${slideId}.${name}.${quad.key}`,
       type: "stack",
@@ -36162,7 +36593,8 @@ function stakeholderMapNode(slideId, name, node) {
       minHeight: compact ? 1.12 : 1.35,
       children: [
         { id: `${slideId}.${name}.${quad.key}.title`, type: "text", text: quad.title, style: "label", color: "text.primary", weight: "semibold", fixedHeight: 0.3, autoFit: "shrink" },
-        ...members.slice(0, 5).map((member, index) => officeChipNode(`${slideId}.${name}.${quad.key}.member.${index}`, officeTitleOf(member, `Stakeholder ${index + 1}`), officeToneOf(member, officeToneAt(index, node.tone)), true))
+        ...visibleMembers.map((member, index) => officeChipNode(`${slideId}.${name}.${quad.key}.member.${index}`, officeTitleOf(member, `Stakeholder ${index + 1}`), officeToneOf(member, officeToneAt(index, node.tone)), true)),
+        ...hiddenMembers > 0 ? [officeChipNode(`${slideId}.${name}.${quad.key}.overflow`, `+${hiddenMembers} more`, "neutral", true)] : []
       ]
     };
   });
@@ -36221,7 +36653,14 @@ function raciFill(value) {
 function kanbanBoardNode(slideId, name, node) {
   const compact = officeCompact(node);
   const columns = officeRecords(node.columns || node.lanes);
-  const safeColumns = columns.length ? columns.slice(0, 6) : [
+  const visibleColumns = columns.length > 6 ? columns.slice(0, 5) : columns.slice(0, 6);
+  const hiddenColumnCount = columns.length - visibleColumns.length;
+  const overflowColumn = hiddenColumnCount > 0 ? [{
+    title: `+${hiddenColumnCount} columns`,
+    items: columns.slice(visibleColumns.length).map((column, index) => officeTitleOf(column, `Column ${visibleColumns.length + index + 1}`)),
+    tone: "neutral"
+  }] : [];
+  const safeColumns = columns.length ? [...visibleColumns, ...overflowColumn] : [
     { title: "To do", items: ["Scope"] },
     { title: "Doing", items: ["Build"] },
     { title: "Done", items: ["Review"] }
@@ -36233,6 +36672,8 @@ function kanbanBoardNode(slideId, name, node) {
     gap: compact ? 0.1 : 0.14,
     children: safeColumns.map((column, columnIndex) => {
       const tickets = officeRecords(column.items || column.cards || column.tasks);
+      const visibleTickets = tickets.length > 5 ? tickets.slice(0, 4) : tickets.slice(0, 5);
+      const hiddenTickets = tickets.length - visibleTickets.length;
       return {
         id: `${slideId}.${name}.column.${columnIndex}`,
         type: "stack",
@@ -36246,7 +36687,8 @@ function kanbanBoardNode(slideId, name, node) {
         minHeight: compact ? 2.2 : 2.6,
         children: [
           { id: `${slideId}.${name}.column.${columnIndex}.title`, type: "text", text: officeTitleOf(column, `Column ${columnIndex + 1}`), style: "label", color: toneAccent(officeToneOf(column, node.tone || officeToneAt(columnIndex, node.tone))), weight: "semibold", fixedHeight: 0.32, autoFit: "shrink" },
-          ...tickets.slice(0, 5).map((ticket, ticketIndex) => officeCardNode(`${slideId}.${name}.column.${columnIndex}.ticket.${ticketIndex}`, officeTitleOf(ticket, `Ticket ${ticketIndex + 1}`), officeBodyOf(ticket, "owner", "due", "body", "description"), officeToneOf(ticket, officeToneAt(ticketIndex, node.tone)), { compact, fixedHeight: compact ? 0.62 : 0.76, role: "kanban-ticket" }))
+          ...visibleTickets.map((ticket, ticketIndex) => officeCardNode(`${slideId}.${name}.column.${columnIndex}.ticket.${ticketIndex}`, officeTitleOf(ticket, `Ticket ${ticketIndex + 1}`), officeBodyOf(ticket, "owner", "due", "body", "description"), officeToneOf(ticket, officeToneAt(ticketIndex, node.tone)), { compact, fixedHeight: compact ? 0.62 : 0.76, role: "kanban-ticket" })),
+          ...hiddenTickets > 0 ? [officeChipNode(`${slideId}.${name}.column.${columnIndex}.overflow`, `+${hiddenTickets} more`, "neutral", true)] : []
         ]
       };
     })
@@ -37280,15 +37722,17 @@ function sankeyNode(slideId, name, node) {
   safeNodes.forEach((rec, index) => nodeById.set(idFor(rec, index), rec));
   const authoredStages = Array.isArray(node.stages) ? node.stages.map(String).filter(Boolean) : [];
   const inferredStages = safeNodes.map((rec, index) => stringValue(rec.stage, `${Math.floor(index / Math.max(1, Math.ceil(safeNodes.length / 2)))}`));
-  const stages = (authoredStages.length ? authoredStages : Array.from(new Set(inferredStages))).slice(0, 5);
+  const stageSource = authoredStages.length ? authoredStages : Array.from(new Set(inferredStages));
+  const stages = stageSource.slice(0, 5);
+  const hiddenStageCount = Math.max(0, stageSource.length - stages.length);
   const stageOf = (rec, index = 0) => {
     const raw = rec.stage;
     if (typeof raw === "number" && Number.isFinite(raw))
       return Math.max(0, Math.min(stages.length - 1, Math.floor(raw)));
     if (typeof raw === "string") {
-      const found = stages.findIndex((stage) => stage.toLowerCase() === raw.trim().toLowerCase());
+      const found = stageSource.findIndex((stage) => stage.toLowerCase() === raw.trim().toLowerCase());
       if (found >= 0)
-        return found;
+        return Math.min(found, stages.length - 1);
     }
     return Math.max(0, Math.min(stages.length - 1, index % Math.max(1, stages.length)));
   };
@@ -37306,7 +37750,8 @@ function sankeyNode(slideId, name, node) {
       layoutWeight: 1,
       children: [
         { id: `${slideId}.${name}.stage.${stageIndex}.title`, type: "text", text: stage, style: "label", color: "text.secondary", fixedHeight: 0.3, align: "center", autoFit: "shrink" },
-        ...nodesByStage[stageIndex].map((rec, itemIndex) => officeCardNode(`${slideId}.${name}.stage.${stageIndex}.node.${itemIndex}`, officeTitleOf(rec, `Node ${itemIndex + 1}`), stringValue(rec.value, ""), officeToneOf(rec, officeToneAt(itemIndex, node.tone)), { compact, fixedHeight: compact ? 0.62 : 0.78, align: "center", role: "sankey-node" }))
+        ...nodesByStage[stageIndex].map((rec, itemIndex) => officeCardNode(`${slideId}.${name}.stage.${stageIndex}.node.${itemIndex}`, officeTitleOf(rec, `Node ${itemIndex + 1}`), stringValue(rec.value, ""), officeToneOf(rec, officeToneAt(itemIndex, node.tone)), { compact, fixedHeight: compact ? 0.62 : 0.78, align: "center", role: "sankey-node" })),
+        ...hiddenStageCount > 0 && stageIndex === stages.length - 1 ? [officeChipNode(`${slideId}.${name}.stage.${stageIndex}.overflow`, `+${hiddenStageCount} stages`, "neutral", true)] : []
       ]
     });
     if (stageIndex < stages.length - 1) {
@@ -37315,6 +37760,9 @@ function sankeyNode(slideId, name, node) {
         const target = nodeById.get(stringValue(link.target, stringValue(link.to, "")));
         return source && target && stageOf(source) === stageIndex && stageOf(target) > stageIndex;
       });
+      const linkCandidates = stageLinks.length ? stageLinks : safeLinks.slice(0, 2);
+      const visibleLinks = linkCandidates.length > 5 ? linkCandidates.slice(0, 4) : linkCandidates.slice(0, 5);
+      const hiddenLinks = linkCandidates.length - visibleLinks.length;
       columns.push({
         id: `${slideId}.${name}.links.${stageIndex}`,
         type: "stack",
@@ -37322,14 +37770,17 @@ function sankeyNode(slideId, name, node) {
         direction: "vertical",
         gap: compact ? 0.08 : 0.1,
         fixedWidth: compact ? 1.35 : 1.65,
-        children: (stageLinks.length ? stageLinks : safeLinks.slice(0, 2)).slice(0, 5).map((link, linkIndex) => {
-          const value = Math.max(0, numberValue(link.value, 0));
-          const height = (compact ? 0.62 : 0.72) + value / maxValue * (compact ? 0.22 : 0.3);
-          const sourceLabel = officeTitleOf(nodeById.get(stringValue(link.source, stringValue(link.from, ""))) || {}, stringValue(link.source, stringValue(link.from, "")));
-          const targetLabel = officeTitleOf(nodeById.get(stringValue(link.target, stringValue(link.to, ""))) || {}, stringValue(link.target, stringValue(link.to, "")));
-          const label = stringValue(link.label, `${sourceLabel} > ${targetLabel}`);
-          return sankeyLinkNode(`${slideId}.${name}.link.${stageIndex}.${linkIndex}`, label, value, officeToneOf(link, officeToneAt(linkIndex, node.tone)), height);
-        })
+        children: [
+          ...visibleLinks.map((link, linkIndex) => {
+            const value = Math.max(0, numberValue(link.value, 0));
+            const height = (compact ? 0.62 : 0.72) + value / maxValue * (compact ? 0.22 : 0.3);
+            const sourceLabel = officeTitleOf(nodeById.get(stringValue(link.source, stringValue(link.from, ""))) || {}, stringValue(link.source, stringValue(link.from, "")));
+            const targetLabel = officeTitleOf(nodeById.get(stringValue(link.target, stringValue(link.to, ""))) || {}, stringValue(link.target, stringValue(link.to, "")));
+            const label = stringValue(link.label, `${sourceLabel} > ${targetLabel}`);
+            return sankeyLinkNode(`${slideId}.${name}.link.${stageIndex}.${linkIndex}`, label, value, officeToneOf(link, officeToneAt(linkIndex, node.tone)), height);
+          }),
+          ...hiddenLinks > 0 ? [officeChipNode(`${slideId}.${name}.links.${stageIndex}.overflow`, `+${hiddenLinks} more`, "neutral", true)] : []
+        ]
       });
     }
   });
@@ -37652,85 +38103,68 @@ function executiveSummaryNode(slideId, name, node) {
   const tone = componentTone(node.tone) || "brand";
   const thesis = semanticTextValue(node, "thesis", "headline", "title", "answer", "conclusion", "takeaway");
   const summary2 = semanticTextValue(node, "summary", "body", "detail", "description", "text");
-  const findings = semanticRecordItems(node.findings, node.items, node.takeaways, node.keyPoints, node.points, node.highlights).map((rec) => ({
-    headline: semanticTextValue(rec, "headline", "title", "name", "label", "text"),
-    detail: semanticTextValue(rec, "detail", "body", "description", "summary", "insight"),
-    tone: componentTone(rec.tone) || tone
-  })).filter((item) => item.headline || item.detail);
-  const explicitVariant = node.variant === "board" || node.variant === "compact" || node.variant === "memo" ? node.variant : null;
-  const structuredFindings = findings.filter((item) => item.headline && item.detail).length;
-  const autoVariant = findings.length >= 4 && structuredFindings >= 3 ? "board" : "memo";
-  const variant = explicitVariant ?? autoVariant;
+  const findings = semanticRecordItems(node.findings, node.items, node.takeaways, node.keyPoints, node.points, node.highlights).map((rec) => executiveSummaryFinding(rec, tone)).filter((item) => item.label || item.metric || item.headline || item.detail);
+  const explicitVariant = executiveSummaryVariant(node.variant);
+  const variant = explicitVariant ?? executiveSummaryAutoVariant(findings);
   const compact = variant === "compact";
-  const children = [{
-    id: `${slideId}.${name}.thesis`,
-    type: "text",
-    text: thesis,
-    style: compact ? "card-title" : "lead",
-    color: toneAccent(tone),
-    minHeight: compact ? 0.6 : 0.85,
-    autoFit: "shrink"
-  }];
-  if (summary2)
-    children.push({ id: `${slideId}.${name}.summary`, type: "text", text: summary2, style: "paragraph", color: "text.primary", minHeight: estimateInsightDetailMinHeight(summary2, compact), autoFit: "shrink", optional: true });
+  const boardLike = variant === "board" || variant === "board-balanced" || variant === "scorecard" || variant === "decision";
+  const scorecard2 = variant === "scorecard";
+  const children = [];
+  if (thesis) {
+    children.push({
+      id: `${slideId}.${name}.thesis`,
+      type: "text",
+      text: thesis,
+      style: compact ? "card-title" : "lead",
+      color: toneAccent(tone),
+      minHeight: compact ? 0.6 : 0.85,
+      autoFit: "shrink"
+    });
+  }
+  if (summary2) {
+    children.push({
+      id: `${slideId}.${name}.summary`,
+      type: "text",
+      text: summary2,
+      style: "paragraph",
+      color: "text.primary",
+      fill: boardLike ? "surface.subtle" : void 0,
+      line: boardLike ? "divider" : void 0,
+      padding: boardLike ? compact ? 0.22 : 0.3 : void 0,
+      cornerRadius: boardLike ? 0.08 : void 0,
+      minHeight: estimateInsightDetailMinHeight(summary2, compact),
+      autoFit: "shrink",
+      optional: true
+    });
+  }
   if (findings.length) {
-    if (variant !== "board") {
+    if (!boardLike) {
       const bulletDensity = compact || findings.length > 4 ? "compact" : "comfortable";
       children.push({
-        ...bulletList(slideId, `${name}.findings`, findings.map((item) => [item.headline, item.detail].filter(Boolean).join(": ")).filter(Boolean), bulletDensity),
+        ...bulletList(slideId, `${name}.findings`, findings.map(executiveSummaryMemoText).filter(Boolean), bulletDensity),
         optional: true
       });
     } else {
-      const findingNodes = findings.map((item, index) => {
-        const localChildren = [];
-        if (item.headline)
-          localChildren.push({ id: `${slideId}.${name}.finding${index + 1}.headline`, type: "text", text: item.headline, style: "card-title", color: toneAccent(item.tone), minHeight: compact ? 0.34 : 0.42, autoFit: "shrink" });
-        if (item.detail)
-          localChildren.push({ id: `${slideId}.${name}.finding${index + 1}.detail`, type: "text", text: item.detail, style: "caption", color: "text.primary", minHeight: estimateInsightDetailMinHeight(item.detail, true), autoFit: "shrink", optional: true });
-        return { id: `${slideId}.${name}.finding${index + 1}`, type: "stack", direction: "vertical", gap: 0.08, children: localChildren };
-      });
+      const findingNodes = findings.map((item, index) => executiveSummaryFindingNode(slideId, name, item, index, compact, scorecard2));
       children.push({
         id: `${slideId}.${name}.findings`,
         type: "grid",
-        columns: Math.min(3, Math.max(1, findingNodes.length)),
-        gap: 0.28,
+        columns: executiveSummaryGridColumns(findingNodes.length),
+        gap: compact ? 0.18 : 0.28,
         children: findingNodes
       });
     }
   }
   const implication = semanticTextValue(node, "implication", "soWhat", "impact");
   const action = semanticTextValue(node, "action", "recommendation", "nextStep", "nextSteps", "decision");
-  if (implication || action) {
-    const implicationOnly = Boolean(implication && !action);
-    children.push({
-      id: `${slideId}.${name}.next`,
-      type: "stack",
-      direction: "vertical",
-      gap: 0.08,
-      fill: "surface.subtle",
-      line: "divider",
-      padding: compact ? 0.28 : 0.38,
-      cornerRadius: 0.08,
-      optional: true,
-      children: [
-        ...implication ? [{
-          id: `${slideId}.${name}.implication`,
-          type: "text",
-          text: implication,
-          style: implicationOnly ? "card-title" : "paragraph",
-          color: implicationOnly ? toneAccent(tone) : "text.primary",
-          minHeight: implicationOnly ? 0.5 : 0.42,
-          autoFit: "shrink"
-        }] : [],
-        ...action ? [{ id: `${slideId}.${name}.action`, type: "text", text: action, style: "card-title", color: toneAccent(tone), minHeight: 0.42, autoFit: "shrink" }] : []
-      ]
-    });
-  }
+  const next = executiveSummaryNextNode(slideId, name, implication, action, tone, compact);
+  if (next)
+    children.push(next);
   return {
     id: `${slideId}.${name}`,
     type: "stack",
     direction: "vertical",
-    gap: compact ? 0.16 : 0.24,
+    gap: compact ? 0.16 : boardLike ? 0.22 : 0.24,
     role: "executive-summary",
     fill: variant === "memo" ? "surface.subtle" : void 0,
     line: variant === "memo" ? "divider" : void 0,
@@ -37738,6 +38172,208 @@ function executiveSummaryNode(slideId, name, node) {
     cornerRadius: variant === "memo" ? 0.1 : void 0,
     children
   };
+}
+function executiveSummaryFinding(rec, defaultTone) {
+  const label = semanticTextValue(rec, "label", "category", "eyebrow", "kicker");
+  const metric = semanticTextValue(rec, "metric", "value", "amount", "number", "stat", "score", "kpi");
+  const headline = semanticTextValue(rec, "headline", "title", "name", "text", "conclusion", "finding", "insight");
+  const detail = semanticTextValue(rec, "detail", "body", "description", "summary", "supportingText", "note");
+  return {
+    label,
+    metric,
+    headline,
+    detail,
+    tone: componentTone(rec.tone) || defaultTone
+  };
+}
+function executiveSummaryVariant(value) {
+  if (value === "memo" || value === "board" || value === "board-balanced" || value === "scorecard" || value === "decision" || value === "compact")
+    return value;
+  if (value === "balanced" || value === "grid")
+    return "board-balanced";
+  return null;
+}
+function executiveSummaryAutoVariant(findings) {
+  const structured = findings.filter((item) => (item.headline || item.label || item.metric) && item.detail).length;
+  const hasMetric = findings.some((item) => item.metric);
+  const load = executiveSummaryTextLoad(findings);
+  if (hasMetric && findings.length >= 2 && findings.length <= 6 && load.maxHeadlineChars <= 56)
+    return "scorecard";
+  if (findings.length >= 4 && findings.length <= 6 && structured >= 3 && load.maxHeadlineChars <= 72)
+    return "board-balanced";
+  return "memo";
+}
+function executiveSummaryTextLoad(findings) {
+  return findings.reduce((out, item) => ({
+    maxHeadlineChars: Math.max(out.maxHeadlineChars, executiveSummaryVisibleChars(item.headline || item.label))
+  }), { maxHeadlineChars: 0 });
+}
+function executiveSummaryVisibleChars(value) {
+  return Array.from(String(value || "").replace(/\s+/g, "")).length;
+}
+function executiveSummaryGridColumns(count) {
+  if (count <= 1)
+    return 1;
+  if (count === 2)
+    return 2;
+  if (count === 3)
+    return 3;
+  if (count === 4)
+    return 2;
+  return 3;
+}
+function executiveSummaryFindingNode(slideId, name, item, index, compact, scorecard2) {
+  const colors = toneToColors(item.tone);
+  const localChildren = [
+    { id: `${slideId}.${name}.finding${index + 1}.accent`, type: "shape", preset: "rect", fill: colors.line ?? toneAccent(item.tone), line: colors.line ?? toneAccent(item.tone), fixedHeight: compact ? 0.04 : 0.05, optional: true }
+  ];
+  if (item.label) {
+    localChildren.push({
+      id: `${slideId}.${name}.finding${index + 1}.label`,
+      type: "text",
+      text: item.label,
+      style: "label",
+      color: toneAccent(item.tone),
+      minHeight: compact ? 0.28 : 0.32,
+      autoFit: "shrink"
+    });
+  }
+  if (item.metric) {
+    localChildren.push({
+      id: `${slideId}.${name}.finding${index + 1}.metric`,
+      type: "text",
+      text: item.metric,
+      style: scorecard2 ? "metric-value" : "card-title",
+      color: toneAccent(item.tone),
+      minHeight: compact ? 0.38 : scorecard2 ? 0.58 : 0.46,
+      autoFit: "shrink"
+    });
+  }
+  if (item.headline) {
+    localChildren.push({
+      id: `${slideId}.${name}.finding${index + 1}.headline`,
+      type: "text",
+      text: item.headline,
+      style: item.metric ? "paragraph" : "card-title",
+      color: "text.primary",
+      minHeight: compact ? 0.34 : item.metric ? 0.42 : 0.46,
+      autoFit: "shrink"
+    });
+  }
+  if (item.detail) {
+    localChildren.push({
+      id: `${slideId}.${name}.finding${index + 1}.detail`,
+      type: "text",
+      text: item.detail,
+      style: "caption",
+      color: "text.primary",
+      minHeight: estimateInsightDetailMinHeight(item.detail, true),
+      autoFit: "shrink",
+      optional: true
+    });
+  }
+  return {
+    id: `${slideId}.${name}.finding${index + 1}`,
+    type: "stack",
+    direction: "vertical",
+    gap: compact ? 0.06 : 0.08,
+    fill: "surface",
+    line: "divider",
+    padding: compact ? 0.18 : 0.24,
+    cornerRadius: 0.08,
+    children: localChildren
+  };
+}
+function executiveSummaryMemoText(item) {
+  const head = [item.label, item.metric, item.headline].filter(Boolean).join(" ");
+  return [head, item.detail].filter(Boolean).join(": ");
+}
+function executiveSummaryNextNode(slideId, name, implication, action, tone, compact) {
+  if (!implication && !action)
+    return null;
+  const actionParts = executiveSummaryActionParts(action);
+  const actionChildren = [];
+  if (actionParts.label) {
+    actionChildren.push({
+      id: `${slideId}.${name}.actionLabel`,
+      type: "text",
+      text: actionParts.label,
+      style: "label",
+      color: toneAccent(tone),
+      minHeight: compact ? 0.26 : 0.32,
+      autoFit: "shrink"
+    });
+  }
+  if (actionParts.items.length > 1) {
+    actionChildren.push({
+      id: `${slideId}.${name}.actionItems`,
+      type: "grid",
+      columns: Math.min(3, actionParts.items.length),
+      gap: compact ? 0.1 : 0.14,
+      children: actionParts.items.map((item, index) => ({
+        id: `${slideId}.${name}.action${index + 1}`,
+        type: "text",
+        text: item,
+        style: "label",
+        color: "text.primary",
+        fill: "surface",
+        line: "divider",
+        padding: compact ? 0.12 : 0.16,
+        cornerRadius: 0.08,
+        minHeight: compact ? 0.3 : 0.36,
+        align: "center",
+        autoFit: "shrink"
+      }))
+    });
+  } else if (actionParts.text) {
+    actionChildren.push({
+      id: `${slideId}.${name}.action`,
+      type: "text",
+      text: actionParts.text,
+      style: "card-title",
+      color: toneAccent(tone),
+      minHeight: 0.42,
+      autoFit: "shrink"
+    });
+  }
+  return {
+    id: `${slideId}.${name}.next`,
+    type: "stack",
+    direction: "vertical",
+    gap: compact ? 0.08 : 0.12,
+    fill: "surface.subtle",
+    line: "divider",
+    padding: compact ? 0.28 : 0.36,
+    cornerRadius: 0.08,
+    optional: true,
+    children: [
+      ...implication ? [{
+        id: `${slideId}.${name}.implication`,
+        type: "text",
+        text: implication,
+        style: action ? "paragraph" : "card-title",
+        color: action ? "text.primary" : toneAccent(tone),
+        minHeight: action ? 0.38 : 0.5,
+        autoFit: "shrink"
+      }] : [],
+      ...actionChildren
+    ]
+  };
+}
+function executiveSummaryActionParts(action) {
+  const cleaned = String(action || "").trim().replace(/[。.]$/u, "");
+  if (!cleaned)
+    return { label: "", items: [], text: "" };
+  const labelMatch = cleaned.match(/^([^：:]{2,18})[：:]\s*(.+)$/u);
+  const label = labelMatch ? labelMatch[1].trim() : "";
+  const body = (labelMatch ? labelMatch[2] : cleaned) || "";
+  let parts = body.split(/[;；]/u).map((part) => part.trim().replace(/[。.]$/u, "")).filter(Boolean);
+  if (parts.length <= 1) {
+    const commaParts = body.split(/[、]/u).map((part) => part.trim().replace(/[。.]$/u, "")).filter(Boolean);
+    if (commaParts.length > 1 && commaParts.length <= 5)
+      parts = commaParts;
+  }
+  return { label, items: parts, text: parts.length === 1 ? parts[0] : body.trim() };
 }
 function factItemNode(slideId, name, item, compact, framed, variant) {
   const children = [];
@@ -38832,6 +39468,206 @@ function annotationNode(slideId, name, node) {
     children
   };
 }
+function sectionHeaderNode(slideId, name, node) {
+  const align = node.align === "center" || node.align === "right" ? node.align : "left";
+  const level = node.level === "h1" || node.level === "h2" || node.level === "compact" ? node.level : "h2";
+  const tone = node.tone === "inverse" ? "inverse" : componentTone(node.tone) || "brand";
+  const colors = toneToColors(tone);
+  const titleStyle = level === "h1" ? "section-title" : "card-title";
+  const titleHeight = level === "h1" ? 0.78 : level === "compact" ? 0.42 : 0.58;
+  const title = semanticTextValue(node, "title", "headline", "label", "name");
+  const subtitle = semanticTextValue(node, "subtitle", "body", "detail", "description");
+  const showRule = node.rule === true || node.rule !== false && node.variant !== "minimal";
+  const children = [];
+  const eyebrow = semanticTextValue(node, "eyebrow", "kicker", "section", "label");
+  if (eyebrow && eyebrow !== title) {
+    children.push({ ...eyebrowNode(slideId, `${name}.eyebrow`, { id: `${slideId}.${name}.eyebrow`, type: "eyebrow", text: eyebrow, tone, rule: false }), align });
+  }
+  if (title) {
+    children.push({
+      id: `${slideId}.${name}.title`,
+      type: "text",
+      text: title,
+      style: titleStyle,
+      color: tone === "inverse" ? "text.inverse" : "text.primary",
+      align,
+      minHeight: titleHeight,
+      autoFit: "shrink"
+    });
+  }
+  if (subtitle) {
+    children.push({
+      id: `${slideId}.${name}.subtitle`,
+      type: "text",
+      text: subtitle,
+      style: level === "compact" ? "caption" : "lead",
+      color: tone === "inverse" ? "text.inverse" : "text.muted",
+      align,
+      minHeight: level === "compact" ? 0.34 : 0.48,
+      autoFit: "shrink",
+      optional: true
+    });
+  }
+  if (showRule) {
+    children.push({
+      ...accentRuleNode(slideId, `${name}.rule`, {
+        id: `${slideId}.${name}.rule`,
+        type: "accent-rule",
+        direction: "horizontal",
+        tone,
+        length: align === "center" ? 1.8 : level === "compact" ? 1.2 : 2.6,
+        thickness: level === "compact" ? 0.045 : 0.06
+      }),
+      align,
+      optional: true
+    });
+  }
+  return {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: level === "compact" ? 0.08 : 0.14,
+    role: "section-header",
+    align,
+    children: children.length ? children : [{ id: `${slideId}.${name}.empty`, type: "spacer", fixedHeight: 0.08 }],
+    ...colors.bg && tone === "inverse" ? { fill: "brand.primary", padding: 0.35, cornerRadius: 0.08 } : {}
+  };
+}
+function figureNode(slideId, name, node) {
+  const variant = node.variant === "card" || node.variant === "compact" ? node.variant : "frameless";
+  const tone = node.tone === "tinted" ? "brand" : componentTone(node.tone) || "neutral";
+  const gap = variant === "compact" ? 0.14 : 0.22;
+  const title = semanticTextValue(node, "title", "headline", "label", "name");
+  const caption = semanticTextValue(node, "caption", "note", "description");
+  const source = semanticTextValue(node, "source", "citation", "byline");
+  const content = figureContentNode(slideId, name, node);
+  const children = [
+    ...title ? [{
+      id: `${slideId}.${name}.title`,
+      type: "text",
+      text: title,
+      style: "card-title",
+      color: "text.primary",
+      minHeight: 0.5,
+      autoFit: "shrink"
+    }] : [],
+    { ...content, layoutWeight: typeof content.layoutWeight === "number" ? content.layoutWeight : 1 },
+    ...caption ? [{
+      id: `${slideId}.${name}.caption`,
+      type: "text",
+      text: caption,
+      style: "caption",
+      color: "text.muted",
+      minHeight: 0.34,
+      autoFit: "shrink",
+      optional: true
+    }] : [],
+    ...source ? [{ id: `${slideId}.${name}.source`, type: "source-note", text: source, optional: true }] : []
+  ];
+  const wrapper = {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap,
+    role: "figure",
+    children,
+    ...figureSuggestedMinHeight(node, content) ? { minHeight: figureSuggestedMinHeight(node, content) } : {},
+    ...variant === "card" ? {
+      fill: toneToColors(tone).bg || "surface",
+      line: toneToColors(tone).line || "divider",
+      padding: 0.36,
+      cornerRadius: 0.08
+    } : {}
+  };
+  return applyAgentSurface(wrapper, surfaceOptions(node));
+}
+function figureContentNode(slideId, name, node) {
+  const authored = domNodeValue(node.content, `${slideId}.${name}.content`) || domNodeValue(node.evidence, `${slideId}.${name}.content`) || domNodeValue(node.visual, `${slideId}.${name}.content`) || domNodeValue(node.media, `${slideId}.${name}.content`);
+  if (authored)
+    return authored;
+  const children = Array.isArray(node.children) ? node.children : [];
+  if (children.length === 1)
+    return { ...children[0], id: typeof children[0].id === "string" && children[0].id ? children[0].id : `${slideId}.${name}.content` };
+  if (children.length > 1) {
+    return {
+      id: `${slideId}.${name}.content`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.18,
+      children
+    };
+  }
+  const src = stringValue(node.src, stringValue(node.image, ""));
+  if (src) {
+    return {
+      id: `${slideId}.${name}.image`,
+      type: "image",
+      src,
+      alt: semanticTextValue(node, "alt", "title"),
+      fit: node.fit === "cover" || node.fit === "fill" ? node.fit : "contain",
+      minHeight: 2.4
+    };
+  }
+  const chartType2 = typeof node.chartType === "string" ? node.chartType : typeof node.chart === "string" ? node.chart : "";
+  const data = node.data && typeof node.data === "object" && !Array.isArray(node.data) ? node.data : {};
+  const labels = arrayValue(node.labels, data.labels);
+  const series = arrayValue(node.series, data.series);
+  if (chartType2 && labels.length && series.length) {
+    return {
+      id: `${slideId}.${name}.chart`,
+      type: "chart",
+      chartType: chartType2,
+      labels,
+      series,
+      showLegend: typeof node.showLegend === "boolean" ? node.showLegend : void 0,
+      showValues: typeof node.showValues === "boolean" ? node.showValues : void 0,
+      dataLabels: node.dataLabels,
+      orientation: node.orientation,
+      xAxis: node.xAxis,
+      yAxis: node.yAxis,
+      secondaryYAxis: node.secondaryYAxis ?? node.secondaryAxis,
+      legend: node.legend,
+      plotArea: node.plotArea,
+      minHeight: node.variant === "compact" ? 2.6 : 3.1
+    };
+  }
+  const rows = arrayValue(node.rows, data.rows);
+  if (rows.length) {
+    return {
+      id: `${slideId}.${name}.table`,
+      type: "table",
+      rows,
+      headers: arrayValue(node.headers, data.headers),
+      density: node.density === "comfortable" ? "comfortable" : "compact",
+      minHeight: node.variant === "compact" ? 1.8 : 2.4
+    };
+  }
+  return {
+    id: `${slideId}.${name}.empty`,
+    type: "spacer",
+    fixedHeight: 0.2
+  };
+}
+function figureSuggestedMinHeight(node, content) {
+  if (typeof node.minHeight === "number" && Number.isFinite(node.minHeight))
+    return node.minHeight;
+  if (node.variant === "compact") {
+    if (content.type === "chart")
+      return 3;
+    if (content.type === "table")
+      return 2.3;
+    if (content.type === "image")
+      return 2.7;
+    return void 0;
+  }
+  if (content.type === "chart")
+    return 3.6;
+  if (content.type === "table")
+    return 2.8;
+  if (content.type === "image")
+    return 3;
+  return void 0;
+}
 function sideRailNode(slideId, name, node) {
   const toneRaw = node.tone === "positive" || node.tone === "warning" || node.tone === "danger" || node.tone === "brand" || node.tone === "tinted" ? node.tone : "neutral";
   const tone = toneToColors(toneRaw);
@@ -38873,6 +39709,308 @@ function sideRailNode(slideId, name, node) {
       children: children.length ? children : [{ id: `${slideId}.${name}.empty`, type: "spacer", fixedHeight: 0.1 }]
     }]
   };
+}
+function railBlockNode(slideId, name, node) {
+  const variant = node.variant === "plain" || node.variant === "panel" ? node.variant : "accent";
+  const density = node.density === "compact" ? "compact" : "comfortable";
+  const toneRaw = node.tone === "tinted" ? "brand" : componentTone(node.tone) || "brand";
+  const tone = toneToColors(toneRaw);
+  const title = semanticTextValue(node, "title", "headline", "label", "name");
+  const body = semanticTextValue(node, "body", "detail", "description", "text", "summary");
+  const items = semanticStringList(node.items, node.points, node.bullets);
+  const itemList = items.length ? density === "compact" ? railBlockCompactItemsNode(slideId, name, items.slice(0, 5), toneRaw) : { ...bulletList(slideId, `${name}.items`, items.slice(0, 6), "comfortable"), optional: true } : null;
+  const children = [
+    ...title ? [{
+      id: `${slideId}.${name}.title`,
+      type: "text",
+      text: title,
+      style: density === "compact" ? "label" : "card-title",
+      weight: "bold",
+      color: "text.primary",
+      minHeight: density === "compact" ? 0.32 : 0.44,
+      ...density === "compact" ? { fixedHeight: 0.32 } : {},
+      autoFit: "shrink"
+    }] : [],
+    ...body ? [{ id: `${slideId}.${name}.body`, type: "text", text: body, style: "caption", color: "text.primary", minHeight: density === "compact" ? 0.3 : 0.38, autoFit: "shrink", optional: true }] : [],
+    ...itemList ? [itemList] : [],
+    ...node.children || [],
+    ...semanticTextValue(node, "footer", "source", "action", "nextStep") ? [{ id: `${slideId}.${name}.footer`, type: "source-note", text: semanticTextValue(node, "footer", "source", "action", "nextStep"), optional: true }] : []
+  ];
+  const wrapper = {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: density === "compact" ? 0.12 : 0.18,
+    role: "rail-block",
+    children: children.length ? children : [{ id: `${slideId}.${name}.empty`, type: "spacer", fixedHeight: 0.08 }],
+    ...variant === "plain" ? {} : {
+      fill: variant === "panel" ? tone.bg || "surface.subtle" : "surface",
+      line: variant === "panel" ? tone.line || "divider" : "none",
+      accent: "left",
+      accentColor: tone.line || "brand.primary",
+      padding: variant === "panel" ? 0.32 : 0.22,
+      cornerRadius: 0.08
+    }
+  };
+  return applyAgentSurface(wrapper, surfaceOptions(node));
+}
+function railBlockCompactItemsNode(slideId, name, items, tone) {
+  return {
+    id: `${slideId}.${name}.items`,
+    type: "text",
+    text: items.map((item) => `\u2022 ${item}`).join("  "),
+    style: "caption",
+    color: toneToColors(tone).fg || "text.primary",
+    minHeight: 0.28,
+    autoFit: "shrink",
+    role: "rail-block-items",
+    optional: true
+  };
+}
+function evidenceBlockNode(slideId, name, node) {
+  const variant = node.variant === "plain" || node.variant === "compact" ? node.variant : "panel";
+  const density = variant === "compact" ? "compact" : node.density === "compact" ? "compact" : "comfortable";
+  const tone = componentTone(node.tone) || "brand";
+  const claim = semanticTextValue(node, "claim", "headline", "title", "finding", "conclusion");
+  const proof = evidenceProofNode(slideId, name, node);
+  const interpretation = semanticTextValue(node, "interpretation", "detail", "body", "implication", "soWhat");
+  const source = semanticTextValue(node, "source", "citation", "caption");
+  const children = [
+    ...claim ? [{
+      id: `${slideId}.${name}.claim`,
+      type: "text",
+      text: claim,
+      style: density === "compact" ? "label" : "card-title",
+      weight: "bold",
+      color: "text.primary",
+      minHeight: density === "compact" ? 0.3 : 0.5,
+      autoFit: "shrink"
+    }] : [],
+    ...proof ? [{ ...proof, layoutWeight: typeof proof.layoutWeight === "number" ? proof.layoutWeight : 1 }] : [],
+    ...interpretation ? [{
+      id: `${slideId}.${name}.interpretation`,
+      type: "text",
+      text: interpretation,
+      style: "caption",
+      color: "text.primary",
+      minHeight: 0.38,
+      autoFit: "shrink",
+      optional: true
+    }] : [],
+    ...source ? [{ id: `${slideId}.${name}.source`, type: "source-note", text: source, optional: true }] : []
+  ];
+  const wrapper = {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: density === "compact" ? 0.14 : 0.22,
+    role: "evidence-block",
+    children: children.length ? children : [{ id: `${slideId}.${name}.empty`, type: "spacer", fixedHeight: 0.08 }],
+    ...variant === "panel" ? {
+      fill: toneToColors(tone).bg || "surface.subtle",
+      line: toneToColors(tone).line || "divider",
+      accent: "left",
+      accentColor: toneToColors(tone).line || "brand.primary",
+      padding: 0.34,
+      cornerRadius: 0.08
+    } : {}
+  };
+  return applyAgentSurface(wrapper, surfaceOptions(node));
+}
+function evidenceProofNode(slideId, name, node) {
+  const authored = domNodeValue(node.proof, `${slideId}.${name}.proof`) || domNodeValue(node.evidence, `${slideId}.${name}.proof`) || domNodeValue(node.visual, `${slideId}.${name}.proof`) || domNodeValue(node.content, `${slideId}.${name}.proof`);
+  if (authored)
+    return authored;
+  if (stringValue(node.src, "") || typeof node.chartType === "string" || Array.isArray(node.rows)) {
+    return {
+      ...figureNode(slideId, `${name}.figure`, {
+        ...node,
+        id: `${slideId}.${name}.figure`,
+        type: "figure",
+        title: "",
+        caption: "",
+        source: "",
+        variant: "frameless"
+      }),
+      optional: true
+    };
+  }
+  const proofText = semanticTextValue(node, "proofText", "proof", "evidenceText", "fact");
+  if (!proofText)
+    return null;
+  return {
+    id: `${slideId}.${name}.proofText`,
+    type: "text",
+    text: proofText,
+    style: "caption",
+    color: "text.primary",
+    fill: "surface.subtle",
+    line: "divider",
+    padding: 0.2,
+    cornerRadius: 0.06,
+    minHeight: 0.32,
+    autoFit: "shrink",
+    optional: true
+  };
+}
+function keyValueListNode(slideId, name, node) {
+  const items = keyValueItems(node);
+  const density = node.density === "comfortable" ? "comfortable" : "compact";
+  const columns = Math.max(1, Math.min(2, Math.floor(numberValue(node.columns, 1))));
+  const title = semanticTextValue(node, "title", "headline", "label");
+  const listNode = columns > 1 ? keyValueGridNode(slideId, name, items, columns, density, componentTone(node.tone) || "brand") : keyValueTableNode(slideId, name, items, density, componentTone(node.tone) || "brand");
+  const children = [
+    ...title ? [{ id: `${slideId}.${name}.title`, type: "text", text: title, style: density === "compact" ? "label" : "card-title", weight: "bold", color: "text.primary", minHeight: density === "compact" ? 0.28 : 0.44, autoFit: "shrink" }] : [],
+    listNode
+  ];
+  const variant = node.variant === "panel" ? "panel" : "plain";
+  const wrapper = {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: density === "compact" ? 0.12 : 0.18,
+    role: "key-value-list",
+    children,
+    ...variant === "panel" ? {
+      fill: "surface.subtle",
+      line: "divider",
+      padding: 0.28,
+      cornerRadius: 0.08
+    } : {}
+  };
+  return applyAgentSurface(wrapper, surfaceOptions(node));
+}
+function keyValueItems(node) {
+  return arrayValue(node.items, node.pairs, node.rows, node.facts, node.values).map((raw) => {
+    const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { key: String(raw ?? ""), value: "" };
+    return {
+      key: semanticTextValue(rec, "key", "label", "term", "name", "title", "metric"),
+      value: semanticTextValue(rec, "value", "amount", "text", "body", "status"),
+      detail: semanticTextValue(rec, "detail", "description", "note", "source"),
+      tone: componentTone(rec.tone) || componentTone(rec.status)
+    };
+  }).filter((item) => item.key || item.value || item.detail);
+}
+function keyValueTableNode(slideId, name, items, density, defaultTone) {
+  const rows = items.length ? items.map((item) => {
+    const valueColor = toneToColors(item.tone || defaultTone).fg || "text.primary";
+    return [
+      { text: item.key, color: "text.muted", bold: true, fill: "none", valign: "top" },
+      { text: item.detail ? `${item.value}
+${item.detail}` : item.value, color: valueColor, fill: "none", valign: "top" }
+    ];
+  }) : [["", ""]];
+  return {
+    id: `${slideId}.${name}.table`,
+    type: "table",
+    rows,
+    density,
+    firstRowHeader: false,
+    borders: { color: "divider", width: 0.3, top: "none", left: "none", right: "none" },
+    colWidths: [0.38, 0.62],
+    cellPadding: density === "compact" ? 3 : 5,
+    role: "key-value-list-table"
+  };
+}
+function keyValueGridNode(slideId, name, items, columns, density, defaultTone) {
+  return {
+    id: `${slideId}.${name}.grid`,
+    type: "grid",
+    columns,
+    gap: density === "compact" ? 0.18 : 0.28,
+    role: "key-value-list-grid",
+    children: (items.length ? items : [{ key: "", value: "" }]).map((item, index) => {
+      const color2 = toneToColors(item.tone || defaultTone).fg || "text.primary";
+      return {
+        id: `${slideId}.${name}.item${index + 1}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.04,
+        children: [
+          { id: `${slideId}.${name}.item${index + 1}.key`, type: "text", text: item.key, style: "label", color: "text.muted", minHeight: 0.28, autoFit: "shrink" },
+          { id: `${slideId}.${name}.item${index + 1}.value`, type: "text", text: item.value, style: "card-title", color: color2, minHeight: 0.38, autoFit: "shrink" },
+          ...item.detail ? [{ id: `${slideId}.${name}.item${index + 1}.detail`, type: "text", text: item.detail, style: "caption", color: "text.muted", minHeight: 0.3, autoFit: "shrink", optional: true }] : []
+        ]
+      };
+    })
+  };
+}
+function moduleStripNode(slideId, name, node) {
+  const items = arrayValue(node.items, node.modules, node.children).slice(0, 5);
+  const columns = Math.max(1, Math.min(5, Math.floor(numberValue(node.columns, items.length || 1))));
+  const density = node.density === "compact" ? "compact" : "comfortable";
+  const title = semanticTextValue(node, "title", "headline", "label");
+  const tone = componentTone(node.tone) || "brand";
+  const grid = {
+    id: `${slideId}.${name}.grid`,
+    type: "grid",
+    columns,
+    gap: typeof node.gap === "number" ? node.gap : density === "compact" ? 0.22 : 0.32,
+    role: "module-strip-grid",
+    children: (items.length ? items : [""]).map((item, index) => moduleStripItemNode(slideId, `${name}.item${index + 1}`, item, node, tone, density))
+  };
+  const children = [
+    ...title ? [{ id: `${slideId}.${name}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.45, autoFit: "shrink" }] : [],
+    grid
+  ];
+  return {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: density === "compact" ? 0.14 : 0.22,
+    role: "module-strip",
+    children
+  };
+}
+function moduleStripItemNode(slideId, name, raw, parent, defaultTone, density) {
+  const authored = domNodeValue(raw, `${slideId}.${name}`);
+  if (authored)
+    return authored;
+  const rec = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { title: String(raw ?? "") };
+  const tone = componentTone(rec.tone) || defaultTone;
+  const colors = toneToColors(tone);
+  const title = semanticTextValue(rec, "title", "headline", "label", "name");
+  const value = semanticTextValue(rec, "value", "metric", "amount");
+  const body = semanticTextValue(rec, "body", "detail", "description", "text");
+  const badge2 = semanticTextValue(rec, "badge", "tag", "statusLabel");
+  const marker = decorationMarker(rec.marker);
+  const variant = parent.variant === "cards" ? "cards" : parent.variant === "plain" ? "plain" : "subtle";
+  const children = [];
+  if (badge2 || marker) {
+    children.push({
+      id: `${slideId}.${name}.top`,
+      type: "stack",
+      direction: "horizontal",
+      gap: 0.16,
+      valign: "middle",
+      fixedHeight: 0.4,
+      children: [
+        ...marker ? [{ id: `${slideId}.${name}.marker`, type: "shape", marker, fixedWidth: 0.26, fixedHeight: 0.26, fill: colors.line || "brand.primary", line: colors.line || "brand.primary" }] : [],
+        ...badge2 ? [{ id: `${slideId}.${name}.badge`, type: "badge", text: badge2, tone, optional: true }] : []
+      ]
+    });
+  }
+  if (value)
+    children.push({ id: `${slideId}.${name}.value`, type: "text", text: value, style: "metric-value", color: colors.fg || "brand.primary", minHeight: density === "compact" ? 0.48 : 0.62, autoFit: "shrink" });
+  if (title)
+    children.push({ id: `${slideId}.${name}.title`, type: "text", text: title, style: "card-title", color: "text.primary", minHeight: 0.42, autoFit: "shrink" });
+  if (body)
+    children.push({ id: `${slideId}.${name}.body`, type: "text", text: body, style: "caption", color: "text.muted", minHeight: 0.34, autoFit: "shrink", optional: true });
+  const wrapper = {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: density === "compact" ? 0.08 : 0.12,
+    role: "module-strip-item",
+    children: children.length ? children : [{ id: `${slideId}.${name}.empty`, type: "spacer", fixedHeight: 0.08 }],
+    ...variant === "plain" ? {} : {
+      fill: variant === "cards" ? "surface" : "surface.subtle",
+      line: variant === "cards" ? colors.line || "divider" : "divider",
+      padding: density === "compact" ? 0.2 : 0.28,
+      cornerRadius: 0.08
+    }
+  };
+  return applyAgentSurface(wrapper, surfaceOptions(parent));
 }
 function axisRulerNode(slideId, name, node) {
   const direction = node.direction === "vertical" ? "vertical" : "horizontal";
@@ -39088,6 +40226,14 @@ function comparisonTableFeatureLabel(value) {
     return stringValue(rec.label, stringValue(rec.name, stringValue(rec.title, stringValue(rec.feature, stringValue(rec.term, "")))));
   }
   return String(value ?? "").trim();
+}
+function comparisonTableRows(rowsRaw, featuresRaw) {
+  if (Array.isArray(rowsRaw))
+    return rowsRaw;
+  if (Array.isArray(featuresRaw) && featuresRaw.some((feature) => feature && typeof feature === "object" && !Array.isArray(feature))) {
+    return featuresRaw;
+  }
+  return [];
 }
 function comparisonTableFeatures(featuresRaw, rowsRaw) {
   const explicit = Array.isArray(featuresRaw) ? featuresRaw.map(comparisonTableFeatureLabel).filter(Boolean) : [];
@@ -41497,7 +42643,9 @@ var DATA_SOURCE_TYPE_VALUES = ["inline-json", "inline-csv", "file-csv", "compute
 var DATA_AGGREGATE_OP_VALUES = ["sum", "avg", "min", "max", "count", "first", "last"];
 var DATA_COLUMN_TYPE_VALUES = ["text", "number", "percent", "currency", "date"];
 var DATA_COLUMN_ALIGN_VALUES = ["left", "center", "right"];
+var DENSITY_PROFILE_VALUES = ["editorial", "analytical", "dense"];
 var THEME_OVERRIDE_FIELDS = [
+  "densityProfile",
   "colors",
   "text",
   "component",
@@ -41536,7 +42684,8 @@ var THEME_LAYOUT_FIELDS = [
   "defaultGap",
   "columnGap",
   "cardPadding",
-  "areas"
+  "areas",
+  "regionBudget"
 ];
 var DATA_BIND_FIELDS = [
   "source",
@@ -46052,6 +47201,8 @@ function isElasticRegionCapacityChild(node, role) {
 function componentElasticityClass(node, role) {
   if (DECORATIVE_REGION_ROLES.has(role) || DECORATIVE_REGION_NODE_TYPES.has(node.type))
     return "decorative";
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role))
+    return "elastic";
   if (HARD_REGION_ROLES.has(role) || HARD_REGION_NODE_TYPES.has(node.type))
     return "hard";
   if (node.type === "text" || node.type === "bullets" || node.type === "spacer" || node.type === "divider")
@@ -46120,6 +47271,7 @@ var TEXT_FIRST_REGION_ROLES = /* @__PURE__ */ new Set([
   "qa-question",
   "quiz-card",
   "quiz-item",
+  "rail-block",
   "region-card",
   "roadmap-item",
   "quote",
@@ -46127,6 +47279,7 @@ var TEXT_FIRST_REGION_ROLES = /* @__PURE__ */ new Set([
   "scorecard",
   "scorecard-item",
   "section-break",
+  "section-header",
   "side-rail",
   "source-note",
   "stat-strip",
@@ -46143,6 +47296,10 @@ var TEXT_FIRST_REGION_ROLES = /* @__PURE__ */ new Set([
   "takeaway-item",
   "text",
   "bullets",
+  "evidence-block",
+  "module-strip",
+  "module-strip-grid",
+  "module-strip-item",
   "timeline-item-row",
   "process-step",
   "timeline-step",
@@ -46534,17 +47691,19 @@ function probeImageDimensionsSync(src) {
       const match = src.match(/^data:image\/(png|jpeg|jpg|gif|svg\+xml|webp);base64,(.+)$/i);
       if (!match)
         return void 0;
-      const ext2 = normalizeProbeImageExt(match[1]);
+      const bytes2 = Buffer.from(match[2], "base64");
+      const ext2 = detectImageExt(bytes2) ?? normalizeProbeImageExt(match[1]);
       if (!ext2)
         return void 0;
-      return probeImageDimensions(Buffer.from(match[2], "base64"), ext2);
+      return probeImageDimensions(bytes2, ext2);
     }
     if (/^https?:\/\//i.test(src) || !existsSync2(src))
       return void 0;
-    const ext = normalizeProbeImageExt(extname(src).replace(/^\./, ""));
+    const bytes = readFileSync2(src);
+    const ext = detectImageExt(bytes) ?? normalizeProbeImageExt(extname(src).replace(/^\./, ""));
     if (!ext)
       return void 0;
-    return probeImageDimensions(readFileSync2(src), ext);
+    return probeImageDimensions(bytes, ext);
   } catch {
     return void 0;
   }
@@ -48643,7 +49802,7 @@ function tableShape(theme, node, rect, ids, rectsById) {
   const colCount = Math.max(1, ...allRows.map((row) => row.length));
   const rowCount = Math.max(1, allRows.length);
   const cellAlign = node.align === "center" || node.align === "right" || node.align === "left" ? node.align : "left";
-  const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0 || tableFirstRowLooksHeader(rawRows);
+  const firstRowHeader = node.firstRowHeader === true ? true : node.firstRowHeader === false ? false : headers.length > 0 || tableFirstRowLooksHeader(rawRows);
   const widthsInput = Array.isArray(node.colWidths) ? node.colWidths : widthsFromColumns && widthsFromColumns.some((w) => w > 0) ? widthsFromColumns : void 0;
   const density = tableDensity(node.density);
   const colWidths = resolveTableColWidths(widthsInput, colCount, rect.w, { theme, rows: allRows, firstRowHeader, density });
@@ -49009,10 +50168,11 @@ function makeTableCell(theme, raw, isHeader, defaultAlign, defaults = {}) {
     const valign = cell.valign === "top" || cell.valign === "bottom" || cell.valign === "middle" ? cell.valign : "middle";
     const fillToken = typeof cell.fill === "string" ? cell.fill : isHeader ? defaults.headerFill || "surface.subtle" : defaults.bodyFill;
     const colorToken = typeof cell.color === "string" ? cell.color : tokenToneColor(cell.tone);
+    const explicitFontSize = typeof cell.fontSize === "number" && Number.isFinite(cell.fontSize) && cell.fontSize > 0 ? cell.fontSize : void 0;
     const bold = cell.bold === true || isStyleBold(style.weight);
-    const effectiveStyle = colorToken ? { ...style, color: colorToken } : style;
+    const effectiveStyle = colorToken || explicitFontSize ? { ...style, ...colorToken ? { color: colorToken } : {}, ...explicitFontSize ? { fontSize: explicitFontSize } : {} } : style;
     const parsedRuns2 = !customRuns && cell.markdown !== false ? parseMarkdownInline(text2) : null;
-    const runs = customRuns ? customRuns.map((r) => richRunToTextRun(theme, r, style, bold)) : parsedRuns2?.matched ? parsedRuns2.runs.map((r) => richRunToTextRun(theme, r, effectiveStyle, bold)) : [plainTextRun(theme, text2, style, bold, color(theme, colorToken, style.color))];
+    const runs = customRuns ? customRuns.map((r) => richRunToTextRun(theme, r, effectiveStyle, bold)) : parsedRuns2?.matched ? parsedRuns2.runs.map((r) => richRunToTextRun(theme, r, effectiveStyle, bold)) : [plainTextRun(theme, text2, effectiveStyle, bold, color(theme, colorToken, effectiveStyle.color))];
     return {
       runs: protectTextRunsForCjkLineBreaks(runs),
       fill: tableCellFill(theme, fillToken),
@@ -49261,15 +50421,21 @@ function chartShape(theme, node, rect, ids, rectsById) {
     pushEmptyChartDataDiagnostic(node, labels, series, resolvedChartType);
   const safeLabels = hasRenderableData || labels.length > 0 ? labels : ["No data"];
   const safeSeries = alignChartSeriesToLabels(hasRenderableData && series.length > 0 ? series : [{ name: "No data", values: [0] }], safeLabels.length, resolvedChartType);
-  const customColors = Array.isArray(node.colors) ? node.colors.filter((c) => typeof c === "string") : null;
-  const palette = customColors && customColors.length > 0 ? customColors.map((token) => color(theme, token)) : (theme.chart?.series || ["brand.primary", "brand.primary.tint", "text.muted"]).map((token) => color(theme, token));
-  const showLegend = typeof node.showLegend === "boolean" ? node.showLegend : safeSeries.length > 1;
   const pieLike = resolvedChartType === "pie" || resolvedChartType === "doughnut";
-  const showValues = typeof node.showValues === "boolean" ? node.showValues : pieLike;
-  const dataLabels = normalizeChartDataLabels(node.dataLabels, { pieLike, showValues }, theme);
+  const customColors = Array.isArray(node.colors) ? node.colors.filter((c) => typeof c === "string") : null;
+  const palette = customColors && customColors.length > 0 ? customColors.map((token) => color(theme, token)) : defaultChartPaletteTokens(theme, pieLike, safeLabels.length).map((token) => color(theme, token));
+  const legend2 = normalizeChartLegend(node.legend);
+  const showLegend = chartLegendVisible(node, legend2, safeSeries.length);
+  const deferPieLabelsToLegend = shouldDeferPieDataLabelsToLegend(node, {
+    pieLike,
+    showLegend,
+    labels: safeLabels
+  });
+  const showValues = typeof node.showValues === "boolean" ? node.showValues : pieLike ? !deferPieLabelsToLegend : false;
+  const dataLabels = deferPieLabelsToLegend ? { show: false } : normalizeChartDataLabels(node.dataLabels, { pieLike, showValues }, theme);
   const annotations = normalizeChartAnnotations(node.annotations);
   pushChartFitDiagnostics(node, rect, resolvedChartType, safeLabels.length, safeSeries.length, showLegend, semanticOuterRectForBody(node.id, "chart", rectsById));
-  pushChartLabelDiagnostics(node, rect, resolvedChartType, dataLabels);
+  pushChartLabelDiagnostics(node, rect, resolvedChartType, dataLabels, showLegend);
   const barLike = resolvedChartType === "bar" || resolvedChartType === "stacked-bar" || resolvedChartType === "combo";
   const chartTextColor = color(theme, typeof node.textColor === "string" ? node.textColor : "text.primary");
   const axisTextColor = color(theme, typeof node.axisTextColor === "string" ? node.axisTextColor : "text.muted");
@@ -49295,7 +50461,7 @@ function chartShape(theme, node, rect, ids, rectsById) {
     xAxis: normalizeChartAxis(theme, node.xAxis ?? node.axis),
     yAxis: normalizeChartAxis(theme, node.yAxis),
     secondaryYAxis: normalizeChartAxis(theme, node.secondaryYAxis ?? node.secondaryAxis),
-    legend: normalizeChartLegend(node.legend),
+    legend: legend2,
     plotArea: normalizeChartPlotArea(node.plotArea),
     ...barLike ? { negativeColor: color(theme, node.negativeColor, "danger") } : {},
     ...barLike && typeof node.positiveColor === "string" ? { positiveColor: color(theme, node.positiveColor) } : {},
@@ -49303,6 +50469,35 @@ function chartShape(theme, node, rect, ids, rectsById) {
     yFormat: chartNumberFormat(node.yFormat),
     annotations: annotations.length > 0 ? annotations : void 0
   };
+}
+function defaultChartPaletteTokens(theme, pieLike, pointCount) {
+  const base = theme.chart?.series && theme.chart.series.length > 0 ? theme.chart.series : ["brand.primary", "brand.primary.tint", "text.muted"];
+  if (!pieLike || base.length >= Math.min(Math.max(pointCount, 1), 6))
+    return base;
+  const out = [...base];
+  for (const token of ["success", "warning", "info", "danger", "blue", "purple", "teal", "orange", "pink", "text.muted"]) {
+    if (!out.includes(token))
+      out.push(token);
+    if (out.length >= pointCount)
+      break;
+  }
+  return out;
+}
+function chartLegendVisible(node, legend2, seriesCount) {
+  if (legend2)
+    return legend2.show !== false;
+  if (typeof node.showLegend === "boolean")
+    return node.showLegend;
+  return seriesCount > 1;
+}
+function shouldDeferPieDataLabelsToLegend(node, options) {
+  if (!options.pieLike || !options.showLegend)
+    return false;
+  if (typeof node.showValues === "boolean")
+    return false;
+  if (node.dataLabels !== void 0 && node.dataLabels !== null)
+    return false;
+  return options.labels.length >= 5 || options.labels.some((label) => /[%％]/.test(label));
 }
 function chartShapes(theme, node, rect, ids, rectsById) {
   const chart = chartShape(theme, node, rect, ids, rectsById);
@@ -49596,11 +50791,13 @@ function normalizeChartDataLabels(value, defaults, theme) {
   }
   return void 0;
 }
-function pushChartLabelDiagnostics(node, rect, resolvedChartType, dataLabels) {
+function pushChartLabelDiagnostics(node, rect, resolvedChartType, dataLabels, showLegend) {
   const pieLike = resolvedChartType === "pie" || resolvedChartType === "doughnut";
   if (!pieLike)
     return;
   if (dataLabels?.show !== false)
+    return;
+  if (showLegend)
     return;
   pushDiagnostic({
     severity: "warn",
@@ -50699,7 +51896,7 @@ function layoutStackChildrenWithCassowary(theme, node, rect, children, layered, 
   const shouldFill = explicitSplitRatio !== null || weights.some((weight) => weight > 0);
   const cassowarySpecs = childSpecs.map((spec, index) => ({ ...spec, basis: targetChildSizes[index] ?? spec.basis }));
   const specsById = new Map(children.map((child, index) => [child.id, cassowarySpecs[index]]));
-  const solverNode = {
+  const solverNode = stripContainerSelfSizingForChildLayout({
     ...node,
     gap,
     padding: 0,
@@ -50709,7 +51906,7 @@ function layoutStackChildrenWithCassowary(theme, node, rect, children, layered, 
       ...child,
       layoutWeight: weights[index] ?? 0
     }))
-  };
+  });
   try {
     const result = solveDomConstraintLayout(solverNode, rect, {
       maxDepth: 1,
@@ -50748,6 +51945,25 @@ function layoutStackChildrenWithCassowary(theme, node, rect, children, layered, 
     }
     return void 0;
   }
+}
+function stripContainerSelfSizingForChildLayout(node) {
+  const out = { ...node };
+  delete out.minWidth;
+  delete out.idealWidth;
+  delete out.preferredWidth;
+  delete out.basisWidth;
+  delete out.maxWidth;
+  delete out.fixedWidth;
+  delete out.width;
+  delete out.minHeight;
+  delete out.idealHeight;
+  delete out.preferredHeight;
+  delete out.basisHeight;
+  delete out.maxHeight;
+  delete out.fixedHeight;
+  delete out.height;
+  delete out.basis;
+  return out;
 }
 function stackMainAxisPressures(direction, pressures) {
   const mainConstraints = direction === "horizontal" ? /* @__PURE__ */ new Set(["minW", "maxW"]) : /* @__PURE__ */ new Set(["minH", "maxH"]);
@@ -51043,7 +52259,7 @@ function layoutGridChildrenWithCassowary(theme, node, rect, placements, columns,
     const height = spannedSize(rowHeights, placement.row, placement.rowSpan, gap);
     measurementById.set(placement.child.id, gridChildSizePreference(theme, placement.child, width, height));
   }
-  const solverNode = {
+  const solverNode = stripContainerSelfSizingForChildLayout({
     ...node,
     gap,
     padding: 0,
@@ -51059,7 +52275,7 @@ function layoutGridChildrenWithCassowary(theme, node, rect, placements, columns,
       rowSpan: placement.rowSpan,
       colSpan: placement.colSpan
     }))
-  };
+  });
   try {
     const result = solveDomConstraintLayout(solverNode, rect, {
       maxDepth: 1,
@@ -51133,7 +52349,7 @@ function layoutGridChildren(theme, node, rect) {
   if (flowOnly.length === 0) {
     return layered.map((c) => ({ node: c, rect }));
   }
-  const columns = Math.max(1, numberProp(node, "columns", 2));
+  const columns = resolvedGridColumnsForLayout(theme, node, flowOnly, rect);
   const gap = gridGapCm(theme, node, flowOnly, columns);
   const availableWidth = Math.max(0, rect.w - gap * (columns - 1));
   const colWidths = gridColumnTrackTargets(node, columns, availableWidth);
@@ -51167,6 +52383,33 @@ function layoutGridChildren(theme, node, rect) {
   if (layered.length === 0)
     return flowOut;
   return [...flowOut, ...layered.map((c) => ({ node: c, rect }))];
+}
+function resolvedGridColumnsForLayout(theme, node, flowOnly, rect) {
+  const authored = Math.max(1, numberProp(node, "columns", 2));
+  if (node.role !== "kpi-grid" || node.__autoColumns !== true || flowOnly.length <= 1)
+    return authored;
+  return autoKpiGridColumns(theme, node, flowOnly.length, authored, rect);
+}
+function autoKpiGridColumns(theme, node, itemCount, authored, rect) {
+  const maxColumns = Math.max(1, Math.min(authored, itemCount));
+  const minCellWidth = 2.9;
+  const minCellHeight = 1.65;
+  const fits = (candidate) => {
+    const gap = gridGapCm(theme, node, [], candidate);
+    const rows = Math.max(1, Math.ceil(itemCount / candidate));
+    const cellW = (rect.w - gap * Math.max(0, candidate - 1)) / candidate;
+    const cellH = (rect.h - gap * Math.max(0, rows - 1)) / rows;
+    return cellW >= minCellWidth && cellH >= minCellHeight;
+  };
+  if (fits(maxColumns))
+    return maxColumns;
+  if (itemCount === 4 && maxColumns >= 4 && fits(2))
+    return 2;
+  for (let candidate = maxColumns - 1; candidate >= 1; candidate--) {
+    if (fits(candidate))
+      return candidate;
+  }
+  return maxColumns;
 }
 function prepareGridChildrenForLayout(theme, node, children, columns, colWidths, gap, rect) {
   const flowChildren2 = normalizeRepeatedSemanticCohorts(theme, node, normalizeSingleColumnShapeFlowChildren(children, columns, colWidths[0] || 6), {
@@ -51243,8 +52486,10 @@ var SEMANTIC_COHORT_EXCLUDED_ROLES = /* @__PURE__ */ new Set([
   "timeline-step"
 ]);
 var SLIDE_WIDE_SEMANTIC_COHORT_ROLES = /* @__PURE__ */ new Set([
+  "analytic-table",
   "callout",
   "comparison-card",
+  "comparison-table",
   "definition-card",
   "explanation-block",
   "feature-card",
@@ -51259,9 +52504,20 @@ var SLIDE_WIDE_SEMANTIC_COHORT_ROLES = /* @__PURE__ */ new Set([
   "region-card",
   "roadmap-item",
   "scorecard-item",
+  "table-card",
   "step-card",
   "takeaway-item",
   "warning-list"
+]);
+var TABLE_LIKE_COMPONENT_ROLES = /* @__PURE__ */ new Set(["table-card", "analytic-table", "comparison-table", "key-value-list", "key-value-list-table", "key-value-list-grid"]);
+var BUDGETABLE_EVIDENCE_ROLES = /* @__PURE__ */ new Set([
+  "analytic-table",
+  "chart-card",
+  "code-block",
+  "comparison-table",
+  "figure",
+  "image-card",
+  "table-card"
 ]);
 var SEMANTIC_COHORT_PRESSURE_PADDING_ROLES = /* @__PURE__ */ new Set([
   "callout",
@@ -51432,6 +52688,8 @@ function semanticCohortRole(node) {
   const role = regionCapacityRole(node);
   if (!role || SEMANTIC_COHORT_EXCLUDED_ROLES.has(role))
     return "";
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role))
+    return role;
   if (!TEXT_FIRST_REGION_ROLES.has(role))
     return "";
   if (node.type === "text" || node.type === "bullets" || node.type === "spacer" || node.type === "divider")
@@ -51532,6 +52790,10 @@ function semanticCohortAuthoredSlot(node) {
   return typeof explicit === "string" && explicit.trim() ? explicit.trim() : "";
 }
 function collectSemanticCohortSlots(node, out) {
+  if (node.type === "table") {
+    out.push(tableCohortSlotKey(node));
+    return;
+  }
   const slot = semanticTextSlot(node);
   if (slot && (node.type === "text" || node.type === "bullets")) {
     out.push(`${node.type}:${slot}`);
@@ -51539,6 +52801,14 @@ function collectSemanticCohortSlots(node, out) {
   }
   for (const child of node.children || [])
     collectSemanticCohortSlots(child, out);
+}
+function tableCohortSlotKey(node) {
+  const sourceRows = tableSourceRows(node);
+  const columnModel = tableColumnModel(node, sourceRows);
+  const bodyRows = tableRowsFromNode(sourceRows, columnModel.columnDefs);
+  const headerCount = columnModel.headers.length > 0 ? 1 : 0;
+  const colCount = Math.max(1, columnModel.headers.length, ...bodyRows.map((row) => row.length));
+  return `table:rows=${headerCount + bodyRows.length};cols=${colCount};density=${tableDensity(node.density)}`;
 }
 function stringSetting(value) {
   return typeof value === "string" && value.trim() ? value.trim() : "-";
@@ -51588,6 +52858,10 @@ function semanticCohortMembersNeedUpdate(theme, members, slotFonts, scale) {
         return;
       }
     }
+    if (node.type === "table" && semanticCohortTableNeedsUpdate(theme, node, slotFonts, scale)) {
+      needs = true;
+      return;
+    }
     if (semanticCohortRole(node) && semanticCohortChromeNeedsUpdate(theme, node, scale, rect)) {
       needs = true;
       return;
@@ -51622,14 +52896,23 @@ function semanticCohortCompressionScale(role, availableHeight, neededHeight) {
 }
 function semanticCohortSlotFonts(theme, members, rectsById) {
   const slots = /* @__PURE__ */ new Map();
+  const upsert = (slot, fontSize) => {
+    if (fontSize <= 0)
+      return;
+    const prev = slots.get(slot);
+    slots.set(slot, prev ? { min: Math.min(prev.min, fontSize), max: Math.max(prev.max, fontSize) } : { min: fontSize, max: fontSize });
+  };
   const visit = (node) => {
+    if (node.type === "table") {
+      const fonts = semanticTableSlotFonts(theme, node);
+      upsert("table-header", fonts.header);
+      upsert("table-cell", fonts.cell);
+      return;
+    }
     const slot = semanticTextSlot(node);
     if (slot) {
       const fontSize = semanticNodeFontSize(theme, node, rectsById?.get(node.id));
-      if (fontSize > 0) {
-        const prev = slots.get(slot);
-        slots.set(slot, prev ? { min: Math.min(prev.min, fontSize), max: Math.max(prev.max, fontSize) } : { min: fontSize, max: fontSize });
-      }
+      upsert(slot, fontSize);
     }
     for (const child of node.children || [])
       visit(child);
@@ -51637,6 +52920,14 @@ function semanticCohortSlotFonts(theme, members, rectsById) {
   for (const member of members)
     visit(member.node);
   return slots;
+}
+function semanticTableSlotFonts(theme, node) {
+  const density = tableDensity(node.density);
+  const scale = optionalNumberProp(node, "fontScale") ?? 1;
+  return {
+    header: tableTextStyle(theme, true, density, scale).fontSize,
+    cell: tableTextStyle(theme, false, density, scale).fontSize
+  };
 }
 function semanticNodeFontSize(theme, node, rect) {
   if (!rect)
@@ -51713,12 +53004,35 @@ function withSemanticCohortTypography(theme, node, slotFonts, scale, rect) {
       ...SEMANTIC_COHORT_BODY_SLOTS.has(slot) && node.fixedHeight === void 0 && node.height === void 0 ? { layoutWeight: node.layoutWeight ?? 1 } : {}
     };
   }
+  if (node.type === "table") {
+    const tableFontScale = semanticCohortTableFontScale(theme, node, slotFonts, scale);
+    if (Math.abs(tableFontScale - (optionalNumberProp(node, "fontScale") ?? 1)) > 0.01) {
+      return {
+        ...node,
+        __semanticCohortBaseFontScale: optionalNumberProp(node, "__semanticCohortBaseFontScale") ?? optionalNumberProp(node, "fontScale") ?? 1,
+        fontScale: tableFontScale
+      };
+    }
+  }
   if (!Array.isArray(container.children) || container.children.length === 0)
     return container;
   return {
     ...container,
     children: container.children.map((child) => withSemanticCohortTypography(theme, child, slotFonts, scale))
   };
+}
+function semanticCohortTableNeedsUpdate(theme, node, slotFonts, scale) {
+  return Math.abs(semanticCohortTableFontScale(theme, node, slotFonts, scale) - (optionalNumberProp(node, "fontScale") ?? 1)) > 0.01;
+}
+function semanticCohortTableFontScale(theme, node, slotFonts, scale) {
+  const base = optionalNumberProp(node, "__semanticCohortBaseFontScale") ?? optionalNumberProp(node, "fontScale") ?? 1;
+  const fonts = semanticTableSlotFonts(theme, { ...node, fontScale: base });
+  const headerTarget = slotFonts.get("table-header")?.min ?? fonts.header;
+  const cellTarget = slotFonts.get("table-cell")?.min ?? fonts.cell;
+  const headerScale = fonts.header > 0 ? headerTarget / fonts.header : 1;
+  const cellScale = fonts.cell > 0 ? cellTarget / fonts.cell : 1;
+  const normalized = base * Math.min(headerScale, cellScale, scale);
+  return clamp(normalized, 0.76, 1.16);
 }
 function semanticCohortTargetFontSize(theme, node, slot, slotFonts, scale) {
   const baseFont = semanticBaseNodeFontSize(theme, node);
@@ -51800,6 +53114,10 @@ function semanticCohortMinPaddingCm(role) {
   return 0.18;
 }
 function semanticCohortMinFontPt(node, slot) {
+  if (slot === "table-header")
+    return 7.4;
+  if (slot === "table-cell")
+    return 7;
   if (slot === "value")
     return 9.5;
   if (slot === "label" || slot === "caption" || slot === "source" || slot === "footer" || slot === "tag" || slot === "badge")
@@ -51892,7 +53210,7 @@ function withMeasuredMetricBands(theme, metricCardNode, overrides) {
     return metricCardNode;
   let plan = metricBandRepairPlan(theme, metricCardNode, overrides);
   if (overrides.cardHeight !== void 0 && plan.minCardHeight > overrides.cardHeight + METRIC_CARD_REPAIR_CAPACITY_TOLERANCE_CM) {
-    const microPlan = metricCohortMicroRepairPlan(theme, metricCardNode, overrides);
+    const microPlan = metricCohortFittedRepairPlan(theme, metricCardNode, overrides, plan) ?? metricCohortMicroRepairPlan(theme, metricCardNode, overrides);
     if (!microPlan) {
       pushMetricBandRepairRejectedDiagnostic(metricCardNode, overrides.cardHeight, plan);
       return metricCardNode;
@@ -51995,6 +53313,50 @@ function metricCohortMicroRepairPlan(theme, metricCardNode, overrides) {
     ...plan,
     fontScale: METRIC_CARD_COHORT_MICRO_FONT_SCALE,
     adaptiveMode: "cohort-micro"
+  };
+}
+function metricCohortFittedRepairPlan(_theme, metricCardNode, overrides, idealPlan) {
+  const available = overrides.cardHeight;
+  if (available === void 0 || !Number.isFinite(available) || available <= 0)
+    return void 0;
+  if (!metricCardEligibleForCohortMicroRepair(metricCardNode, overrides.cohortSize ?? 1))
+    return void 0;
+  if (idealPlan.valueBandHeight === void 0)
+    return void 0;
+  const hasLabel = idealPlan.labelBandHeight !== void 0;
+  const hardPadding = idealPlan.explicitPadding ? idealPlan.padding : Math.min(idealPlan.padding, METRIC_CARD_COHORT_MICRO_PADDING_CM);
+  const hardGap = idealPlan.explicitGap ? idealPlan.gap : Math.min(idealPlan.gap, METRIC_CARD_COHORT_MICRO_GAP_CM);
+  const hardValueBand = Math.min(idealPlan.valueBandHeight, METRIC_CARD_COHORT_MICRO_MIN_VALUE_BAND_CM);
+  const hardLabelBand = hasLabel ? Math.min(idealPlan.labelBandHeight, METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM) : void 0;
+  const gapCount = hasLabel ? 1 : 0;
+  const hardHeight = hardPadding * 2 + hardValueBand + (hardLabelBand ?? 0) + hardGap * gapCount;
+  if (hardHeight > available + METRIC_CARD_COHORT_MICRO_TOLERANCE_CM)
+    return void 0;
+  const idealGapTotal = idealPlan.gap * gapCount;
+  const idealHeight = idealPlan.padding * 2 + idealPlan.valueBandHeight + (idealPlan.labelBandHeight ?? 0) + idealGapTotal;
+  const compressible = Math.max(0, idealHeight - hardHeight);
+  const budgetRatio = compressible <= 0 ? 1 : clamp((available - hardHeight) / compressible, 0, 1);
+  const padding = hardPadding + (idealPlan.padding - hardPadding) * budgetRatio;
+  const gap = hasLabel ? hardGap + (idealPlan.gap - hardGap) * budgetRatio : idealPlan.gap;
+  const valueBandHeight = hardValueBand + (idealPlan.valueBandHeight - hardValueBand) * budgetRatio;
+  const labelBandHeight = hasLabel && hardLabelBand !== void 0 ? hardLabelBand + (idealPlan.labelBandHeight - hardLabelBand) * budgetRatio : void 0;
+  const valueTextMinHeight = Math.min(idealPlan.valueTextMinHeight ?? valueBandHeight, Math.max(hardValueBand, valueBandHeight - 0.02));
+  const labelTextMinHeight = labelBandHeight === void 0 ? void 0 : Math.min(idealPlan.labelTextMinHeight ?? labelBandHeight, Math.max(hardLabelBand ?? METRIC_CARD_COHORT_MICRO_MIN_LABEL_BAND_CM, labelBandHeight - 0.01));
+  const minCardHeight = padding * 2 + valueBandHeight + (labelBandHeight ?? 0) + gap * gapCount;
+  return {
+    ...idealPlan,
+    padding,
+    gap,
+    valueBandHeight,
+    valueTextMinHeight,
+    labelBandHeight,
+    labelTextMinHeight,
+    minCardHeight,
+    fontScale: budgetRatio < 0.72 ? 0.88 : void 0,
+    adaptiveMode: "cohort-fit",
+    diagnosticMinPaddingCm: hardPadding,
+    diagnosticMinGapCm: hardGap,
+    diagnosticMinValueBandCm: hardValueBand
   };
 }
 function metricCardEligibleForCohortMicroRepair(metricCardNode, cohortSize) {
@@ -52229,15 +53591,27 @@ function usesSemanticRegionBudget(parent, direction) {
   return direction === "vertical";
 }
 var SEMANTIC_BUDGET_REGION_ROLES = /* @__PURE__ */ new Set([
+  "analytic-table",
   "callout",
+  "chart-card",
+  "code-block",
+  "comparison-table",
+  "evidence-block",
+  "figure",
   "executive-summary",
   "explanation-block",
+  "image-card",
   "insight-card",
   "insight-region",
   "key-takeaway",
+  "key-value-list",
+  "module-strip",
   "quote",
+  "rail-block",
   "region-card",
+  "section-header",
   "side-rail",
+  "table-card",
   "takeaway-list",
   "warning-list"
 ]);
@@ -52250,18 +53624,18 @@ function isSemanticBudgetCandidateContainer(parent) {
   const children = parent.children || [];
   if (children.length < 2)
     return false;
-  let narrativeCount = 0;
+  let budgetableCount = 0;
   let hardCount = 0;
   for (const child of children) {
     const childRole = regionCapacityRole(child);
     if (child.type === "text" || child.type === "bullets" || child.type === "spacer" || child.type === "divider" || SEMANTIC_BUDGET_REGION_ROLES.has(childRole)) {
-      narrativeCount += 1;
+      budgetableCount += 1;
       continue;
     }
-    if (componentElasticityClass(child, childRole) === "hard")
+    if (componentElasticityClass(child, childRole) === "hard" && !BUDGETABLE_EVIDENCE_ROLES.has(childRole))
       hardCount += 1;
   }
-  return narrativeCount >= 2 && hardCount === 0;
+  return budgetableCount >= 2 && hardCount === 0;
 }
 function semanticLayoutPriority(node, parent) {
   const role = regionCapacityRole(node);
@@ -52269,8 +53643,20 @@ function semanticLayoutPriority(node, parent) {
     return isFinalSemanticSibling(parent, node) ? 100 : 88;
   if (role === "executive-summary")
     return 95;
+  if (role === "figure")
+    return 86;
   if (role === "insight-card" || role === "explanation-block")
     return 86;
+  if (role === "table-card" || role === "analytic-table" || role === "comparison-table" || role === "key-value-list")
+    return 84;
+  if (role === "chart-card" || role === "image-card" || role === "code-block")
+    return 82;
+  if (role === "evidence-block")
+    return 80;
+  if (role === "rail-block" || role === "module-strip")
+    return 58;
+  if (role === "section-header")
+    return 56;
   if (parent?.role === "key-takeaway" && node.type === "text" && /\.detail$/.test(String(node.id || "")))
     return 76;
   if (role === "quote")
@@ -52301,6 +53687,10 @@ function semanticRegionFloor(theme, parent, node, spec, priority, direction, cro
   const role = regionCapacityRole(node);
   if (role === "key-takeaway")
     return keyTakeawayRegionFloor(theme, node, crossSize, spec, availableMain);
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role))
+    return tableLikeRegionFloor(theme, node, crossSize, spec, availableMain);
+  if (role === "chart-card" || role === "image-card" || role === "code-block")
+    return evidenceRegionFloor(theme, node, crossSize, spec, availableMain);
   if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") {
     const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "vertical", crossSize));
     return clamp(Math.max(spec.min, natural * 0.52), spec.min, Math.min(availableMain * 0.46, 3.8));
@@ -52321,6 +53711,14 @@ function semanticHorizontalRegionFloor(theme, parent, node, spec, priority, cros
     const cap2 = Math.max(spec.min, Math.min(6.2, availableMain * 0.62));
     return clamp(Math.max(spec.min, Math.min(readable, 4.4)), spec.min, cap2);
   }
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role)) {
+    const cap2 = Math.max(spec.min, Math.min(8.2, availableMain * 0.7));
+    return clamp(Math.max(spec.min, Math.min(readable, 4.8)), spec.min, cap2);
+  }
+  if (role === "chart-card" || role === "image-card" || role === "code-block") {
+    const cap2 = Math.max(spec.min, Math.min(8, availableMain * 0.68));
+    return clamp(Math.max(spec.min, Math.min(readable, 4.6)), spec.min, cap2);
+  }
   if (role === "executive-summary" || role === "insight-card" || role === "explanation-block") {
     const cap2 = Math.max(spec.min, Math.min(5.8, availableMain * 0.58));
     return clamp(Math.max(spec.min, Math.min(readable, 3.9)), spec.min, cap2);
@@ -52339,6 +53737,10 @@ function semanticHorizontalRegionFloor(theme, parent, node, spec, priority, cros
   return clamp(Math.max(spec.min, Math.min(readable, 3.2)), spec.min, cap);
 }
 function semanticHorizontalFloorRatio(node, role, priority) {
+  if (TABLE_LIKE_COMPONENT_ROLES.has(role))
+    return 0.56;
+  if (role === "chart-card" || role === "image-card" || role === "code-block")
+    return 0.54;
   if (role === "key-takeaway")
     return 0.52;
   if (role === "executive-summary" || role === "insight-card" || role === "explanation-block")
@@ -52350,6 +53752,35 @@ function semanticHorizontalFloorRatio(node, role, priority) {
   if (node.type === "text")
     return priority >= 58 ? 0.42 : 0.36;
   return 0.4;
+}
+function tableLikeRegionFloor(theme, node, widthCm, spec, availableMain) {
+  const table = findDescendantDom(node, (child) => child.type === "table");
+  const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "vertical", widthCm));
+  if (!table)
+    return clamp(Math.max(spec.min, natural * 0.58, 2.4), spec.min, Math.max(spec.min, Math.min(availableMain * 0.62, 5.8)));
+  const tableWidth = Math.max(0.6, widthCm - semanticEvidenceChromeWidth(node));
+  const compactTable = { ...table, density: table.density ?? "compact" };
+  const bodyNeed = tableIntrinsicHeight(theme, compactTable, tableWidth);
+  const naturalBody = tableIntrinsicHeight(theme, table, tableWidth);
+  const chromeNeed = Math.max(0, natural - naturalBody);
+  const rowCount = tableLayoutInfo(theme, table, tableWidth).allRows.length;
+  const readableMin = rowCount >= 8 ? 4.65 : rowCount >= 5 ? 3.55 : 2.35;
+  const preferredFloor = Math.max(spec.min, chromeNeed + bodyNeed * 0.76, readableMin);
+  const cap = Math.max(spec.min, Math.min(rowCount >= 8 ? 6.8 : 5.7, availableMain * 0.72));
+  return clamp(preferredFloor, spec.min, cap);
+}
+function evidenceRegionFloor(theme, node, widthCm, spec, availableMain) {
+  const natural = Math.max(spec.basis, intrinsicMainSize(theme, node, "vertical", widthCm));
+  const role = regionCapacityRole(node);
+  const minimum = role === "code-block" ? 3.4 : role === "chart-card" ? 3.2 : 2.8;
+  const cap = Math.max(spec.min, Math.min(role === "code-block" ? 6.6 : 6.2, availableMain * 0.68));
+  return clamp(Math.max(spec.min, natural * 0.55, minimum), spec.min, cap);
+}
+function semanticEvidenceChromeWidth(node) {
+  const padding = optionalNumberProp(node, "padding");
+  if (padding !== void 0)
+    return padding * 2;
+  return node.type === "card" || node.type === "panel" ? 0.8 : 0;
 }
 function keyTakeawayRegionFloor(theme, node, widthCm, spec, availableMain) {
   const children = (node.children || []).filter((child) => !isOverlayChild(child));
@@ -52524,7 +53955,8 @@ function childMainSpec(theme, node, direction, crossSize) {
   const max = optionalNumberProp(node, direction === "horizontal" ? "maxWidth" : "maxHeight") ?? Number.POSITIVE_INFINITY;
   const hasExplicitWeight = optionalNumberProp(node, "layoutWeight") !== void 0;
   const isContainer = node.type === "stack" || node.type === "grid";
-  const naturalContainerMain = isContainer && fixed !== void 0 ? containerNaturalMainSize(theme, node, direction, crossSize) : void 0;
+  const fixedContainerIsHard = isMetricValueWrap(node);
+  const naturalContainerMain = isContainer && fixed !== void 0 && !fixedContainerIsHard ? containerNaturalMainSize(theme, node, direction, crossSize) : void 0;
   const effectiveFixed = isContainer && fixed !== void 0 && naturalContainerMain !== void 0 && naturalContainerMain > fixed ? void 0 : fixed;
   const fixedSize = effectiveFixed === void 0 ? void 0 : Math.max(0, effectiveFixed);
   const defaultWeight = node.type === "image" ? theme.imageGrowWeight : 1;
@@ -52701,7 +54133,7 @@ function tableLayoutInfo(theme, node, widthCm) {
   const headerRow = headers.length > 0 ? headers : [];
   const allRows = headerRow.length > 0 ? [headerRow, ...rawRows] : rawRows;
   const colCount = Math.max(1, ...allRows.map((row) => row.length));
-  const firstRowHeader = node.firstRowHeader === false ? false : headers.length > 0 || tableFirstRowLooksHeader(rawRows);
+  const firstRowHeader = node.firstRowHeader === true ? true : node.firstRowHeader === false ? false : headers.length > 0 || tableFirstRowLooksHeader(rawRows);
   const widthsInput = Array.isArray(node.colWidths) ? node.colWidths : widthsFromColumns && widthsFromColumns.some((w) => w > 0) ? widthsFromColumns : void 0;
   const density = tableDensity(node.density);
   const colWidths = resolveTableColWidths(widthsInput, colCount, widthCm, { theme, rows: allRows, firstRowHeader, density });
@@ -52783,6 +54215,8 @@ function tableCellEffectiveFontPt(raw, fallbackPt) {
   let fontPt = fallbackPt;
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const rec = raw;
+    if (typeof rec.fontSize === "number" && Number.isFinite(rec.fontSize) && rec.fontSize > 0)
+      fontPt = rec.fontSize;
     if (Array.isArray(rec.runs)) {
       for (const run of rec.runs) {
         if (!run || typeof run !== "object")
@@ -54233,6 +55667,16 @@ function describeDeck() {
       default: "default",
       description: "Only the 'default' scaffold ships built-in. Concrete styling is the agent's responsibility \u2014 call set_theme with a themeOverride that fits the subject (consulting / pitch / academic / engineering). The default theme is intentionally neutral."
     },
+    densityProfiles: {
+      available: listDensityProfiles(),
+      default: sample.densityProfile,
+      description: "Set deck.themeOverride.densityProfile before authoring slides. The profile changes default type scale, margins, gap, card padding, and semantic region budgets before explicit theme overrides are applied.",
+      guidance: [
+        "editorial: large-title magazine/showcase pages with fewer dense objects.",
+        "analytical: default for business, research, charts, tables, and explanatory prose.",
+        "dense: compact dashboards, tables, code, and operating reviews; split when readability floors are hit."
+      ]
+    },
     brand: {
       description: "Brand identity injected into every slide. Drives brand.primary token, derived brand.tint and brand.shade, optional logo placement via chrome.brandMark.",
       fields: {
@@ -55108,6 +56552,7 @@ function buildAgentPromptPack(options = {}) {
     for (const r of deck.emphasisHierarchy)
       lines.push(`- ${r}`);
     lines.push("", "Density:");
+    lines.push(`- Theme density profiles: ${deck.densityProfiles.available.join(", ")}. Use deck.themeOverride.densityProfile='analytical' for charts/tables/prose and 'dense' for compact dashboards/tables/code; editorial is the large-title default.`);
     for (const r of deck.densityRules)
       lines.push(`- ${r}`);
     lines.push("", "Fallback ladder (these are the layout failure modes you should avoid; if you see them in diagnostics, restructure rather than tweak sizes):");
@@ -56186,7 +57631,7 @@ function withSyntheticNodeIds(node, fallbackId) {
   return out;
 }
 var SYNTHETIC_OBJECT_SLOT_KEYS = ["evidence", "rail", "left", "right", "hero", "insight"];
-var SYNTHETIC_ARRAY_SLOT_KEYS = ["children", "annotations", "supports"];
+var SYNTHETIC_ARRAY_SLOT_KEYS = ["children", "annotations", "supports", "railBody"];
 function isDomNodeSlot(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -57594,9 +59039,15 @@ function validateThemeOverrideTopLevel(override, issues) {
     if (!THEME_OVERRIDE_FIELD_SET.has(key)) {
       issues.push(issue("error", "UNKNOWN_THEME_OVERRIDE_FIELD", `deck.themeOverride.${key} is not a supported themeOverride field, so it would be ignored.`, {
         path: `deck.themeOverride.${key}`,
-        suggestedFix: "Use one of: colors, text, component, tone, layout, fonts, chart, chrome, imageGrowWeight, sizeScale, guidance."
+        suggestedFix: "Use one of: densityProfile, colors, text, component, tone, layout, fonts, chart, chrome, imageGrowWeight, sizeScale, guidance."
       }));
     }
+  }
+  if (override.densityProfile !== void 0 && (typeof override.densityProfile !== "string" || !DENSITY_PROFILE_VALUES.includes(override.densityProfile))) {
+    issues.push(issue("error", "INVALID_THEME_DENSITY_PROFILE", "deck.themeOverride.densityProfile must be one of editorial, analytical, or dense.", {
+      path: "deck.themeOverride.densityProfile",
+      suggestedFix: "Use densityProfile:'editorial' for magazine pages, 'analytical' for charts/tables/prose, or 'dense' for compact operational/table/code pages."
+    }));
   }
 }
 function validateThemeLayout(deck, override, issues) {
@@ -57609,7 +59060,7 @@ function validateThemeLayout(deck, override, issues) {
     if (!THEME_LAYOUT_FIELD_SET.has(key)) {
       issues.push(issue("error", "UNKNOWN_THEME_LAYOUT_FIELD", `${path} is not a supported layout field, so it would not affect rendering.`, {
         path,
-        suggestedFix: "Use effective layout fields: pageMarginX, titleTop, titleHeight, contentTop, contentBottom, defaultGap, columnGap, cardPadding, slideWidthCm, slideHeightCm, areas. There is no pageMarginY."
+        suggestedFix: "Use effective layout fields: pageMarginX, titleTop, titleHeight, contentTop, contentBottom, defaultGap, columnGap, cardPadding, slideWidthCm, slideHeightCm, areas, regionBudget. There is no pageMarginY."
       }));
       continue;
     }
@@ -57617,6 +59068,12 @@ function validateThemeLayout(deck, override, issues) {
       const areas = validateThemeLayoutAreas(value, path, issues);
       if (areas)
         safeLayout.areas = areas;
+      continue;
+    }
+    if (key === "regionBudget") {
+      const regionBudget = validateThemeRegionBudget(value, path, issues);
+      if (regionBudget)
+        safeLayout.regionBudget = regionBudget;
       continue;
     }
     if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -57664,6 +59121,46 @@ function validateThemeLayout(deck, override, issues) {
       suggestedFix: `Set contentBottom to at most ${maxContentBottom.toFixed(2)}cm when chrome.pageNumber or footerText is enabled.`
     }));
   }
+}
+function validateThemeRegionBudget(value, path, issues) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    issues.push(issue("error", "INVALID_THEME_REGION_BUDGET", `${path} must be an object of numeric budget controls.`, {
+      path,
+      suggestedFix: "Use layout.regionBudget:{bodyScale:0.76, keyTakeawayMinCm:2.7, bulletMinPt:7.6}."
+    }));
+    return void 0;
+  }
+  const out = {};
+  const allowed = /* @__PURE__ */ new Set([
+    "headingScale",
+    "leadScale",
+    "bodyScale",
+    "keyTakeawayDetailScale",
+    "bulletScale",
+    "bulletMinPt",
+    "keyTakeawayMinCm",
+    "keyTakeawayMaxCm",
+    "keyTakeawayMaxAvailableRatio"
+  ]);
+  for (const [key, raw] of Object.entries(value)) {
+    const fieldPath = `${path}.${key}`;
+    if (!allowed.has(key)) {
+      issues.push(issue("error", "UNKNOWN_THEME_REGION_BUDGET_FIELD", `${fieldPath} is not a supported region budget field.`, {
+        path: fieldPath,
+        suggestedFix: "Use headingScale, leadScale, bodyScale, keyTakeawayDetailScale, bulletScale, bulletMinPt, keyTakeawayMinCm, keyTakeawayMaxCm, or keyTakeawayMaxAvailableRatio."
+      }));
+      continue;
+    }
+    if (typeof raw !== "number" || !Number.isFinite(raw)) {
+      issues.push(issue("error", "INVALID_THEME_REGION_BUDGET_VALUE", `${fieldPath} must be a finite number.`, {
+        path: fieldPath,
+        suggestedFix: "Use a numeric scale or centimeter value, e.g. bodyScale:0.76 or keyTakeawayMinCm:2.7."
+      }));
+      continue;
+    }
+    out[key] = raw;
+  }
+  return out;
 }
 function validateThemeLayoutAreas(value, path, issues) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -57998,6 +59495,15 @@ function componentFieldTypeError(componentName, propName, prop, value) {
     return null;
   if (propName === "cellPadding" && prop.type === "object" && typeof value === "number" && Number.isFinite(value) && value >= 0)
     return null;
+  if (prop.valueTypes?.length) {
+    if (prop.valueTypes.some((type) => declaredValueTypeMatches(value, type)))
+      return null;
+    return {
+      expected: declaredValueTypesDescription(prop.valueTypes),
+      actual: describeValueType(value),
+      suggestedFix: componentName === "chart-with-rail" && propName === "railBody" ? "Use railBody:'Concise interpretation', railBody:[{type:'text',text:'...'},{type:'table-card',rows:[[...]]}], or rail:{type:'side-rail',children:[...]}." : void 0
+    };
+  }
   switch (prop.type) {
     case "string":
     case "image-ref":
@@ -58025,6 +59531,35 @@ function componentFieldTypeError(componentName, propName, prop, value) {
     case "chart":
       return null;
   }
+}
+function declaredValueTypeMatches(value, type) {
+  switch (type) {
+    case "string":
+      return typeof value === "string";
+    case "DomNode":
+      return Boolean(value && typeof value === "object" && !Array.isArray(value) && typeof value.type === "string");
+    case "DomNode[]":
+      return Array.isArray(value);
+    default:
+      return false;
+  }
+}
+function declaredValueTypesDescription(types) {
+  const labels = types.map((type) => {
+    switch (type) {
+      case "string":
+        return "a string";
+      case "DomNode":
+        return "a DomNode object";
+      case "DomNode[]":
+        return "an array of compact DomNode objects";
+      default:
+        return type;
+    }
+  });
+  if (labels.length <= 1)
+    return labels[0] || "a supported value";
+  return `${labels.slice(0, -1).join(", ")} or ${labels[labels.length - 1]}`;
 }
 function validateComponentNode(node, path, slideId, issues, options, parent) {
   const name = getComponentName(node) || node.component;
@@ -58116,6 +59651,7 @@ function validateComponentNode(node, path, slideId, issues, options, parent) {
       }
     });
   }
+  validateComponentRenderableItemShapes(String(name), node, path, slideId, issues);
   validateComponentNumericFields(String(name), node, path, slideId, issues);
   for (const [propName, prop] of Object.entries(definition.fields)) {
     if (prop.required) {
@@ -58228,6 +59764,7 @@ function validateComponentNode(node, path, slideId, issues, options, parent) {
     for (const key of ["evidence", "rail"]) {
       validateComponentSlotNode(node, key, path, slideId, issues, options);
     }
+    validateChartWithRailRailBodyField(node, path, slideId, issues, options);
     if (!hasChartWithRailEvidence(node)) {
       issues.push(issue("error", "MISSING_REQUIRED_FIELD", "chart-with-rail requires evidence, or flat chartType plus labels/series/chartData.", {
         slideId,
@@ -58243,7 +59780,7 @@ function validateComponentNode(node, path, slideId, issues, options, parent) {
         slideId,
         path,
         nodeName: node.id,
-        suggestedFix: "Provide features:[...] or use row records such as rows:[{feature:'ARR', Gamma:'$1.02\u4EBF', Canva:'$35\u4EBF'}]."
+        suggestedFix: "Provide features:[...] or use row records such as rows:[{feature:'ARR', Gamma:'$1.02\u4EBF', Canva:'$35\u4EBF'}] or features:[{feature:'ARR', Gamma:'$1.02\u4EBF', Canva:'$35\u4EBF'}]."
       }));
     }
     if (!hasComparisonTableOptions(node)) {
@@ -58251,7 +59788,7 @@ function validateComponentNode(node, path, slideId, issues, options, parent) {
         slideId,
         path,
         nodeName: node.id,
-        suggestedFix: "Provide options:['Gamma','Canva'] or include option columns in each row record."
+        suggestedFix: "Provide options:['Gamma','Canva'] or include option columns in each row/features record."
       }));
     }
   }
@@ -58263,6 +59800,35 @@ function validateComponentNode(node, path, slideId, issues, options, parent) {
       suggestedFix: "Add source:'...' or caption:'Source: ...' to make the chart/table evidence traceable."
     }));
   }
+}
+function validateChartWithRailRailBodyField(node, path, slideId, issues, options) {
+  const value = node.railBody;
+  if (!Array.isArray(value))
+    return;
+  value.forEach((content, index) => {
+    const itemPath = `${path}.railBody[${index}]`;
+    if (typeof content === "string") {
+      if (content.trim())
+        return;
+      issues.push(issue("error", "INVALID_FIELD_USAGE", `chart-with-rail.railBody[${index}] must not be an empty string.`, {
+        slideId,
+        path: itemPath,
+        nodeName: node.id,
+        suggestedFix: "Remove the empty entry, or use {type:'spacer', fixedHeight:0.2} when visual spacing is intentional."
+      }));
+      return;
+    }
+    if (content && typeof content === "object" && !Array.isArray(content) && typeof content.type === "string") {
+      validateNode(withSyntheticNodeIds(content, componentSlotFallbackId(slideId, node, path, `railBody.${index + 1}`)), itemPath, slideId, issues, node, options);
+      return;
+    }
+    issues.push(issue("error", "INVALID_FIELD_USAGE", `chart-with-rail.railBody[${index}] must be a compact DomNode object with a type field, or a string note.`, {
+      slideId,
+      path: itemPath,
+      nodeName: node.id,
+      suggestedFix: "Use railBody:[{type:'text',text:'...'},{type:'table-card',density:'compact',rows:[[...]]}] for structured rail support, or use one railBody string for a short interpretation."
+    }));
+  });
 }
 function hasKeyTakeawayContent(node) {
   const fields = ["headline", "title", "detail", "body", "description", "text"];
@@ -58291,19 +59857,20 @@ function hasChartWithRailEvidence(node) {
 function hasComparisonTableFeatures(node) {
   if (Array.isArray(node.features) && node.features.length > 0)
     return true;
-  return comparisonTableRows(node).some((row) => ["feature", "label", "title", "name", "term", "criteria", "criterion"].some((key) => typeof row[key] === "string" && String(row[key]).trim()));
+  return comparisonTableRows2(node).some((row) => ["feature", "label", "title", "name", "term", "criteria", "criterion"].some((key) => typeof row[key] === "string" && String(row[key]).trim()));
 }
 function hasComparisonTableOptions(node) {
   if (Array.isArray(node.options) && node.options.length > 0)
     return true;
-  const first = comparisonTableRows(node)[0];
+  const first = comparisonTableRows2(node)[0];
   if (!first)
     return false;
   const excluded = /* @__PURE__ */ new Set(["feature", "label", "name", "title", "term", "criteria", "criterion", "values", "row", "cells"]);
   return Object.keys(first).some((key) => !excluded.has(key));
 }
-function comparisonTableRows(node) {
-  return Array.isArray(node.rows) ? node.rows.filter((row) => Boolean(row && typeof row === "object" && !Array.isArray(row))) : [];
+function comparisonTableRows2(node) {
+  const raw = Array.isArray(node.rows) ? node.rows : Array.isArray(node.features) && node.features.some((feature) => feature && typeof feature === "object" && !Array.isArray(feature)) ? node.features : [];
+  return raw.filter((row) => Boolean(row && typeof row === "object" && !Array.isArray(row)));
 }
 function validateChapterDividerUsage(node, path, slideId, issues, parent) {
   if (parent) {
@@ -58327,6 +59894,70 @@ function validateChapterDividerUsage(node, path, slideId, issues, parent) {
     }));
   }
 }
+function validateComponentRenderableItemShapes(componentName, node, path, slideId, issues) {
+  if (componentName === "kpi-grid") {
+    validateRenderableArrayFieldAlias(componentName, node, "metrics", ["items"], ["value", "amount", "number", "stat", "score", "label", "name", "title", "text", "metric", "key"], path, slideId, issues);
+  }
+  if (componentName === "process-flow") {
+    validateRenderableArrayFieldAlias(componentName, node, "steps", ["items"], ["title", "label", "name", "text", "headline", "step", "number", "body", "description", "detail", "summary"], path, slideId, issues);
+  }
+  if (componentName === "bar-list" && Array.isArray(node.items)) {
+    validateRenderableComponentItems(componentName, "items", node.items, ["label", "name", "title", "text", "metric", "value", "score", "percent"], path, slideId, node.id, issues);
+  }
+  if (componentName === "stat-strip" && Array.isArray(node.items)) {
+    validateRenderableComponentItems(componentName, "items", node.items, ["value", "amount", "number", "stat", "score", "label", "name", "title", "text", "metric"], path, slideId, node.id, issues);
+  }
+  if (componentName === "legend" && Array.isArray(node.items)) {
+    validateRenderableComponentItems(componentName, "items", node.items, ["label", "name", "title", "text"], path, slideId, node.id, issues);
+  }
+  if (componentName === "scorecard" && Array.isArray(node.items)) {
+    validateRenderableComponentItems(componentName, "items", node.items, ["label", "name", "title", "text", "metric", "key", "value", "amount", "number", "stat", "score"], path, slideId, node.id, issues);
+  }
+  if (componentName === "stat-flow" && Array.isArray(node.steps)) {
+    validateRenderableComponentItems(componentName, "steps", node.steps, ["connector", "operator", "op", "value", "amount", "number", "stat", "score", "label", "name", "title", "text", "metric"], path, slideId, node.id, issues);
+  }
+}
+function validateRenderableArrayFieldAlias(componentName, node, primaryField, aliases, textKeys, path, slideId, issues) {
+  const fields = [primaryField, ...aliases];
+  for (const fieldName of fields) {
+    const value = node[fieldName];
+    if (!Array.isArray(value))
+      continue;
+    validateRenderableComponentItems(componentName, fieldName, value, textKeys, path, slideId, node.id, issues);
+    return;
+  }
+}
+function validateRenderableComponentItems(componentName, fieldName, items, textKeys, path, slideId, nodeName, issues) {
+  items.forEach((raw, index) => {
+    if (componentItemHasRenderableText(raw, textKeys))
+      return;
+    issues.push(issue("error", "INVALID_FIELD_USAGE", `${componentName}.${fieldName}[${index}] has no renderable text field.`, {
+      slideId,
+      path: `${path}.${fieldName}[${index}]`,
+      nodeName: typeof nodeName === "string" ? nodeName : void 0,
+      suggestedFix: `${componentName}.${fieldName} entries may be strings, or objects with one of: ${textKeys.join(", ")}.`
+    }));
+  });
+}
+function componentItemHasRenderableText(raw, textKeys) {
+  if (typeof raw === "string")
+    return raw.trim() !== "";
+  if (typeof raw === "number" && Number.isFinite(raw))
+    return true;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    return false;
+  const rec = raw;
+  return textKeys.some((key) => hasRenderableTextValue(rec[key]));
+}
+function hasRenderableTextValue(value) {
+  if (typeof value === "string")
+    return value.trim() !== "";
+  if (typeof value === "number")
+    return Number.isFinite(value);
+  if (typeof value === "boolean")
+    return true;
+  return false;
+}
 function validateDomNodeArrayField(node, fieldName, path, slideId, issues, options) {
   const value = node[fieldName];
   if (!Array.isArray(value))
@@ -58341,6 +59972,23 @@ var REQUIRED_FIELD_ALIASES = {
   "kpi-grid": { metrics: ["items"] },
   "process-flow": { steps: ["items"] },
   "logo-strip": { logos: ["items", "images"] },
+  "key-value-list": { items: ["pairs", "rows", "facts", "values"] },
+  "comparison-list": { items: ["options", "choices", "cases", "scenarios"] },
+  "fact-list": { items: ["facts", "observations", "evidence", "metrics", "data"] },
+  "takeaway-list": { items: ["takeaways", "conclusions", "findings", "points", "warnings"] },
+  "warning-list": { items: ["warnings", "takeaways", "conclusions", "findings", "points"] },
+  "outline": { items: ["sections", "chapters", "agenda"] },
+  "glossary": { items: ["entries", "terms", "definitions"] },
+  "q-and-a": { items: ["faqs", "questions", "qa"] },
+  "roadmap-plan": { lanes: ["items"] },
+  "gantt-chart": { tasks: ["items"] },
+  "cycle-diagram": { steps: ["items"] },
+  "value-chain": { stages: ["items"] },
+  "architecture-map": { layers: ["items"] },
+  "geo-region-map": { regions: ["items"] },
+  "calendar-plan": { events: ["items"] },
+  "org-chart": { nodes: ["items"] },
+  "decision-tree": { nodes: ["items"] },
   "chart-card": {
     chartType: ["chart"],
     labels: ["data.labels", "bind"],
@@ -59568,6 +61216,7 @@ export {
   DATA_ENCODING_FIELDS,
   DATA_SOURCE_TYPE_VALUES,
   DECK_SIZE_VALUES,
+  DENSITY_PROFILE_VALUES,
   QUALITY_RENDER_DIAGNOSTIC_CODES,
   RENDER_DIAGNOSTIC_CODES,
   VALIDATION_MODE_VALUES,
@@ -59627,6 +61276,7 @@ export {
   kpiGrid,
   legend,
   listComponents,
+  listDensityProfiles,
   listNodeTypes,
   listPaletteColors,
   listSizeNames,

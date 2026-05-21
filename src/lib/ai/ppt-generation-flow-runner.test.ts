@@ -218,6 +218,7 @@ import {
   writePptGenerationFlowValidationFailureScenes,
   type PptGenerationFlowResult,
   type PptGenerationFlowSuiteResult,
+  type PptGenerationFlowToolRecord,
 } from "./ppt-generation-flow-runner";
 
 describe("ppt generation flow runner", () => {
@@ -361,6 +362,85 @@ describe("ppt generation flow runner", () => {
       outputPath,
       maxBlockingDiagnostics: 0,
       requiredDeckJsonSubstrings: ["\"slides\""],
+    });
+
+    expect(verification.ok, verification.failures.join("\n")).toBe(true);
+  });
+
+  it("recognizes SlideML2 runtime CLI commands wrapped in bash -c scripts", async () => {
+    const dir = join(tmpdir(), `cowork-ppt-flow-cli-bash-${Date.now()}`);
+    await mkdir(dir, { recursive: true });
+    const outputPath = join(dir, "deck.pptx");
+    const deckPath = `${outputPath}.deck.json`;
+    await writeFile(deckPath, JSON.stringify({ deck: {}, slides: [] }));
+    await writeFile(outputPath, "fake pptx");
+
+    const cli = "/Users/river/.cowork/skills/slideml2/runtime/bin/slideml2.js";
+    const bashCliRecord = (
+      step: number,
+      subcommand: "init-deck" | "validate-slide" | "validate-manifest" | "compose",
+      argsPath: string,
+      result: Record<string, unknown>,
+      extraArgs: string[] = [],
+    ): PptGenerationFlowToolRecord => ({
+      step,
+      name: "shell",
+      toolCallId: `call-shell-bash-${step}`,
+      input: {
+        command: ["bash", "-c", `cd ${dir} && node ${cli} ${subcommand} ${argsPath} ${extraArgs.join(" ")} 2>&1`],
+      },
+      success: true,
+      result: JSON.stringify(result),
+    });
+    const helpOnly = {
+      step: 0,
+      name: "shell",
+      toolCallId: "call-shell-help",
+      input: { command: ["bash", "-c", `node ${cli} help compose 2>&1`] },
+      success: true,
+      result: JSON.stringify({ ok: true, command: "help", helpCommand: "compose" }),
+    } satisfies PptGenerationFlowToolRecord;
+    expect(summarizePptGenerationFlow([], [helpOnly]).toolNames).not.toContain("compose");
+
+    const toolRecords = [
+      helpOnly,
+      bashCliRecord(1, "init-deck", "deck-init.json", { ok: true, stage: "commit", status: "ok", deckModified: true }),
+      bashCliRecord(2, "validate-slide", "slides/01-cover.json", { ok: true, stage: "validate", status: "ok", deckModified: false }),
+      bashCliRecord(3, "validate-manifest", "manifest.json", { ok: true, stage: "validate", status: "ok", deckModified: false }),
+      bashCliRecord(4, "compose", "manifest.json", {
+        ok: true,
+        stage: "render",
+        status: "ok",
+        sourcePath: deckPath,
+        outputPath,
+        diagnostics: { blockingCount: 0, summary: {} },
+      }, ["--out", outputPath]),
+    ];
+    const summary = summarizePptGenerationFlow([], toolRecords);
+    const result: PptGenerationFlowResult = {
+      scenario: { id: "cli-bash-case", userPrompt: "Generate.", workingDirectory: dir },
+      startedAt: 1,
+      finishedAt: 2,
+      durationMs: 1,
+      events: [],
+      monitorEvents: [],
+      toolRecords,
+      llmSends: [],
+      llmResponses: [],
+      debugLogDirectory: null,
+      summary,
+    };
+
+    expect(summary.toolNames).toEqual(expect.arrayContaining(["shell", "init_deck", "validate_slide", "validate_manifest", "compose"]));
+    expect(summary.finalValidateRender?.outputPath).toBe(outputPath);
+
+    const verification = await verifyPptGenerationFlow(result, {
+      requiredTools: ["init_deck", "validate_slide", "validate_manifest", "compose"],
+      minValidateSlideCalls: 1,
+      requireFinalValidateRender: true,
+      requirePptxOutput: true,
+      outputPath,
+      maxBlockingDiagnostics: 0,
     });
 
     expect(verification.ok, verification.failures.join("\n")).toBe(true);

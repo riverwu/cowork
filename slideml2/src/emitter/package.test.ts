@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import JSZip from "jszip";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { emitPackage } from "./package.js";
 import { cm, inch } from "../units.js";
 import type { DeckAst } from "./types.js";
@@ -128,6 +130,35 @@ describe("emitter — package end-to-end", () => {
     expect(slideRels).toContain('Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.png"');
     expect(slideRels).toContain('Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image2.png"');
     expect(slideRels).not.toContain("__background");
+  });
+
+  it("sniffs misleading image extensions before computing contain geometry", async () => {
+    const seedreamJpegSavedAsPng = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../fixtures/icon-sheets/seedream/physics-dark-1x1.seedream.png",
+    );
+    const deck: DeckAst = {
+      size: "16x9",
+      slides: [{
+        shapes: [{
+          type: "image",
+          id: 2,
+          xfrm: { x: 0, y: 0, cx: cm(8), cy: cm(4) },
+          src: seedreamJpegSavedAsPng,
+          fit: "contain",
+        }],
+      }],
+    };
+
+    const zip = await JSZip.loadAsync(await emitPackage(deck));
+    const files = Object.keys(zip.files).sort();
+    expect(files).toContain("ppt/media/image1.jpg");
+
+    const slideRels = await zip.file("ppt/slides/_rels/slide1.xml.rels")!.async("string");
+    expect(slideRels).toContain('Target="../media/image1.jpg"');
+
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(slideXml).toContain('<a:fillRect l="25000" r="25000" t="0" b="0"/>');
   });
 
   it("produces multi-slide deck with sequential rel numbering", async () => {

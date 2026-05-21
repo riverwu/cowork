@@ -1284,12 +1284,14 @@ export function kpiGrid(slideId: string, id: string, metrics: Array<{
   comparison?: string;
   sparkline?: Array<number | string>;
 }>, columns?: number, options: { variant?: "plain" | "card" | "compact"; density?: "comfortable" | "compact" } & { surface?: AgentSurface } & AgentSurface = {}): DomNode {
+  const autoColumns = columns === undefined;
   const cols = Math.max(1, columns || Math.min(4, metrics.length));
   const dense = options.density === "compact" || options.variant === "compact" || metrics.length >= 5;
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "grid",
     columns: cols,
+    ...(autoColumns ? { __autoColumns: true } : {}),
     gap: dense ? 0.32 : 0.5,
     role: "kpi-grid",
     children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, statusText: m.statusText, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable", peerAligned: true })),
@@ -3694,14 +3696,15 @@ export function comparisonTable(
   } & { surface?: AgentSurface } & AgentSurface,
 ): DomNode {
   const features = (options.features || []).slice(0, 8);
-  const opts = (options.options || []).slice(0, 4);
+  const opts = (options.options || []).slice(0, 6);
+  const dense = opts.length >= 5 || features.length >= 6;
   const colCount = opts.length + 1; // +1 for the feature label column
   // Header row: empty corner + option names
   const headerRow: DomNode[] = [
     {
       id: `${slideId}.${id}.h0`,
       type: "spacer",
-      fixedHeight: 0.9,
+      fixedHeight: dense ? 0.78 : 0.9,
     },
     ...opts.map((opt, idx) => ({
       id: `${slideId}.${id}.h${idx + 1}`,
@@ -3710,7 +3713,7 @@ export function comparisonTable(
       gap: 0.08,
       align: "center" as const,
       valign: "middle" as const,
-      fixedHeight: 0.9,
+      fixedHeight: dense ? 0.78 : 0.9,
       fill: opt.recommended ? "brand.tint" : undefined,
       cornerRadius: opt.recommended ? 0.08 : undefined,
       children: [
@@ -3730,11 +3733,11 @@ export function comparisonTable(
           id: `${slideId}.${id}.h${idx + 1}.name`,
           type: "text" as const,
           text: opt.name,
-          style: "card-title",
+          style: dense ? "label" : "card-title",
           weight: "bold" as const,
           color: "text.primary",
           align: "center" as const,
-          minHeight: 0.5,
+          minHeight: dense ? 0.42 : 0.5,
           autoFit: "shrink" as const,
         },
       ],
@@ -3747,13 +3750,13 @@ export function comparisonTable(
         id: `${slideId}.${id}.r${fIdx}.f`,
         type: "text",
         text: feature,
-        style: "card-title",
+        style: dense ? "paragraph" : "card-title",
         weight: "semibold",
         color: "text.primary",
         align: "left",
         valign: "middle",
         fill: "surface.subtle",
-        minHeight: 0.7,
+        minHeight: dense ? 0.62 : 0.7,
         autoFit: "shrink",
       },
       ...opts.map((opt, oIdx) => {
@@ -3768,10 +3771,10 @@ export function comparisonTable(
           style: "paragraph",
           color: isCheck ? "success" : isCross ? "danger" : "text.primary",
           weight: (isCheck || isCross ? "bold" : undefined) as ("bold" | undefined),
-          align: "center" as const,
+          align: dense || cellText.length > 18 ? "left" as const : "center" as const,
           valign: "middle" as const,
           fill: opt.recommended ? "brand.tint" : undefined,
-          minHeight: 0.7,
+          minHeight: dense ? 0.62 : 0.7,
           autoFit: "shrink" as const,
         };
       }),
@@ -3782,10 +3785,16 @@ export function comparisonTable(
     id: `${slideId}.${id}`,
     type: "grid",
     columns: colCount,
+    colWidths: comparisonTableColumnWeights(opts.length),
     gap: 0.04,
     role: "comparison-table",
     children: [...headerRow, ...featureRows],
   } as DomNode, options);
+}
+
+function comparisonTableColumnWeights(optionCount: number): number[] {
+  const featureWeight = optionCount >= 5 ? 0.82 : 1;
+  return [featureWeight, ...Array.from({ length: optionCount }, () => 1)];
 }
 
 /* ============================================================

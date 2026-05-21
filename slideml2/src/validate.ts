@@ -3023,7 +3023,8 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
       }
     });
 	  }
-	  validateComponentNumericFields(String(name), node, path, slideId, issues);
+  validateComponentRenderableItemShapes(String(name), node, path, slideId, issues);
+  validateComponentNumericFields(String(name), node, path, slideId, issues);
 	  for (const [propName, prop] of Object.entries(definition.fields)) {
     if (prop.required) {
       const required = checkRequiredComponentField(String(name), propName, prop, node);
@@ -3163,7 +3164,7 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
         slideId,
         path,
         nodeName: node.id,
-        suggestedFix: "Provide features:[...] or use row records such as rows:[{feature:'ARR', Gamma:'$1.02亿', Canva:'$35亿'}].",
+        suggestedFix: "Provide features:[...] or use row records such as rows:[{feature:'ARR', Gamma:'$1.02亿', Canva:'$35亿'}] or features:[{feature:'ARR', Gamma:'$1.02亿', Canva:'$35亿'}].",
       }));
     }
     if (!hasComparisonTableOptions(node)) {
@@ -3171,7 +3172,7 @@ function validateComponentNode(node: DomNode, path: string, slideId: string, iss
         slideId,
         path,
         nodeName: node.id,
-        suggestedFix: "Provide options:['Gamma','Canva'] or include option columns in each row record.",
+        suggestedFix: "Provide options:['Gamma','Canva'] or include option columns in each row/features record.",
       }));
     }
   }
@@ -3253,9 +3254,12 @@ function hasComparisonTableOptions(node: DomNode): boolean {
 }
 
 function comparisonTableRows(node: DomNode): Array<Record<string, unknown>> {
-  return Array.isArray(node.rows)
-    ? node.rows.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object" && !Array.isArray(row)))
-    : [];
+  const raw = Array.isArray(node.rows)
+    ? node.rows
+    : Array.isArray(node.features) && node.features.some((feature) => feature && typeof feature === "object" && !Array.isArray(feature))
+      ? node.features
+      : [];
+  return raw.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object" && !Array.isArray(row)));
 }
 
 function validateChapterDividerUsage(node: DomNode, path: string, slideId: string, issues: ValidationIssue[], parent?: DomNode): void {
@@ -3284,6 +3288,85 @@ function validateChapterDividerUsage(node: DomNode, path: string, slideId: strin
   }
 }
 
+function validateComponentRenderableItemShapes(componentName: string, node: DomNode, path: string, slideId: string, issues: ValidationIssue[]): void {
+  if (componentName === "kpi-grid") {
+    validateRenderableArrayFieldAlias(componentName, node, "metrics", ["items"], ["value", "amount", "number", "stat", "score", "label", "name", "title", "text", "metric", "key"], path, slideId, issues);
+  }
+  if (componentName === "process-flow") {
+    validateRenderableArrayFieldAlias(componentName, node, "steps", ["items"], ["title", "label", "name", "text", "headline", "step", "number", "body", "description", "detail", "summary"], path, slideId, issues);
+  }
+  if (componentName === "bar-list" && Array.isArray(node.items)) {
+    validateRenderableComponentItems(componentName, "items", node.items, ["label", "name", "title", "text", "metric", "value", "score", "percent"], path, slideId, node.id, issues);
+  }
+  if (componentName === "stat-strip" && Array.isArray(node.items)) {
+    validateRenderableComponentItems(componentName, "items", node.items, ["value", "amount", "number", "stat", "score", "label", "name", "title", "text", "metric"], path, slideId, node.id, issues);
+  }
+  if (componentName === "legend" && Array.isArray(node.items)) {
+    validateRenderableComponentItems(componentName, "items", node.items, ["label", "name", "title", "text"], path, slideId, node.id, issues);
+  }
+  if (componentName === "scorecard" && Array.isArray(node.items)) {
+    validateRenderableComponentItems(componentName, "items", node.items, ["label", "name", "title", "text", "metric", "key", "value", "amount", "number", "stat", "score"], path, slideId, node.id, issues);
+  }
+  if (componentName === "stat-flow" && Array.isArray(node.steps)) {
+    validateRenderableComponentItems(componentName, "steps", node.steps, ["connector", "operator", "op", "value", "amount", "number", "stat", "score", "label", "name", "title", "text", "metric"], path, slideId, node.id, issues);
+  }
+}
+
+function validateRenderableArrayFieldAlias(
+  componentName: string,
+  node: DomNode,
+  primaryField: string,
+  aliases: readonly string[],
+  textKeys: readonly string[],
+  path: string,
+  slideId: string,
+  issues: ValidationIssue[],
+): void {
+  const fields = [primaryField, ...aliases];
+  for (const fieldName of fields) {
+    const value = node[fieldName];
+    if (!Array.isArray(value)) continue;
+    validateRenderableComponentItems(componentName, fieldName, value, textKeys, path, slideId, node.id, issues);
+    return;
+  }
+}
+
+function validateRenderableComponentItems(
+  componentName: string,
+  fieldName: string,
+  items: unknown[],
+  textKeys: readonly string[],
+  path: string,
+  slideId: string,
+  nodeName: unknown,
+  issues: ValidationIssue[],
+): void {
+  items.forEach((raw, index) => {
+    if (componentItemHasRenderableText(raw, textKeys)) return;
+    issues.push(issue("error", "INVALID_FIELD_USAGE", `${componentName}.${fieldName}[${index}] has no renderable text field.`, {
+      slideId,
+      path: `${path}.${fieldName}[${index}]`,
+      nodeName: typeof nodeName === "string" ? nodeName : undefined,
+      suggestedFix: `${componentName}.${fieldName} entries may be strings, or objects with one of: ${textKeys.join(", ")}.`,
+    }));
+  });
+}
+
+function componentItemHasRenderableText(raw: unknown, textKeys: readonly string[]): boolean {
+  if (typeof raw === "string") return raw.trim() !== "";
+  if (typeof raw === "number" && Number.isFinite(raw)) return true;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const rec = raw as Record<string, unknown>;
+  return textKeys.some((key) => hasRenderableTextValue(rec[key]));
+}
+
+function hasRenderableTextValue(value: unknown): boolean {
+  if (typeof value === "string") return value.trim() !== "";
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "boolean") return true;
+  return false;
+}
+
 function validateDomNodeArrayField(node: DomNode, fieldName: string, path: string, slideId: string, issues: ValidationIssue[], options: EffectiveValidationOptions): void {
   const value = (node as Record<string, unknown>)[fieldName];
   if (!Array.isArray(value)) return;
@@ -3298,6 +3381,23 @@ const REQUIRED_FIELD_ALIASES: Record<string, Record<string, string[]>> = {
   "kpi-grid": { metrics: ["items"] },
   "process-flow": { steps: ["items"] },
   "logo-strip": { logos: ["items", "images"] },
+  "key-value-list": { items: ["pairs", "rows", "facts", "values"] },
+  "comparison-list": { items: ["options", "choices", "cases", "scenarios"] },
+  "fact-list": { items: ["facts", "observations", "evidence", "metrics", "data"] },
+  "takeaway-list": { items: ["takeaways", "conclusions", "findings", "points", "warnings"] },
+  "warning-list": { items: ["warnings", "takeaways", "conclusions", "findings", "points"] },
+  "outline": { items: ["sections", "chapters", "agenda"] },
+  "glossary": { items: ["entries", "terms", "definitions"] },
+  "q-and-a": { items: ["faqs", "questions", "qa"] },
+  "roadmap-plan": { lanes: ["items"] },
+  "gantt-chart": { tasks: ["items"] },
+  "cycle-diagram": { steps: ["items"] },
+  "value-chain": { stages: ["items"] },
+  "architecture-map": { layers: ["items"] },
+  "geo-region-map": { regions: ["items"] },
+  "calendar-plan": { events: ["items"] },
+  "org-chart": { nodes: ["items"] },
+  "decision-tree": { nodes: ["items"] },
   "chart-card": {
     chartType: ["chart"],
     labels: ["data.labels", "bind"],

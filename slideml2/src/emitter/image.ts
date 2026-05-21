@@ -11,7 +11,7 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { probeImageDimensions, type ImageDimensions } from "./image-dim.js";
+import { detectImageExt, probeImageDimensions, type ImageDimensions } from "./image-dim.js";
 
 export type ImageExt = "png" | "jpg" | "gif" | "svg" | "webp";
 
@@ -85,8 +85,10 @@ export async function resolveImage(src: string): Promise<ResolvedImage> {
 
 /** Attach probed pixel dimensions to a ResolvedImage when possible. */
 function withDimensions(img: ResolvedImage): ResolvedImage {
-  const dim = probeImageDimensions(img.bytes, img.ext);
-  return dim ? { ...img, dimensions: dim } : img;
+  const ext = detectImageExt(img.bytes) ?? img.ext;
+  const normalized = ext === img.ext ? img : { ...img, ext, mimeType: EXT_TO_MIME[ext] };
+  const dim = probeImageDimensions(normalized.bytes, normalized.ext);
+  return dim ? { ...normalized, dimensions: dim } : normalized;
 }
 
 function extFromUrlPath(s: string): ImageExt | undefined {

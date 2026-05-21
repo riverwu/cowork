@@ -299,6 +299,10 @@ function arrayValueFor(componentName: string, fieldName: string, count: number):
   if (fieldName === "headers") return Array.from({ length: count }, (_, i) => `列 ${i + 1}`);
   if (fieldName === "rows") return Array.from({ length: count }, (_, i) => Array.from({ length: 2 }, (__, j) => `r${i + 1}c${j + 1}`));
   if (fieldName === "series") return [{ name: "Series", values: Array.from({ length: count }, (_, i) => (i + 1) * 10) }];
+  if (fieldName === "colors") {
+    const palette = ["brand.primary", "blue", "success", "warning", "info", "danger"];
+    return Array.from({ length: count }, (_, i) => palette[i % palette.length]);
+  }
   if (fieldName === "items" || fieldName === "points" || fieldName === "bullets") return Array.from({ length: count }, (_, i) => `要点 ${i + 1}`);
   if (fieldName === "paragraphs") return Array.from({ length: count }, (_, i) => `段落 ${i + 1}：${PARAGRAPH_MID}`);
   return Array.from({ length: count }, (_, i) => `元素 ${i + 1}`);

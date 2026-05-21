@@ -1,7 +1,8 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import JSZip from "jszip";
 import {
   clearRenderDiagnostics,
   getRenderDiagnostics,
@@ -1201,6 +1202,26 @@ describe("component regressions", () => {
     }
   });
 
+  it("comparison-table also treats object features with option keys as row records", () => {
+    const slide: SlideV2 = {
+      id: "reg-cmp-feature-rows",
+      children: [{
+        id: "reg-cmp-feature-rows.table",
+        type: "comparison-table",
+        options: ["线下经销", "京东", "抖音/直播", "研发", "整体人力"],
+        features: [
+          { feature: "核心问题", "线下经销": "82人仅贡献8.6%收入", "京东": "收入-31%，成本反增15%", "抖音/直播": "利润率低", "研发": "人均创收压力大", "整体人力": "营收降幅快于成本" },
+          { feature: "建议动作", "线下经销": "冻结新招", "京东": "停止扩编", "抖音/直播": "合并低效账号", "研发": "优化研发流程", "整体人力": "稳住总HC" },
+          { feature: "目标指标", "线下经销": "ROI 2.7→5.0", "京东": "ROI恢复至40以上", "抖音/直播": "整体ROI>8", "研发": "全年SKU≥8款", "整体人力": "HC稳定" },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    for (const value of ["核心问题", "冻结新招", "停止扩编", "ROI恢复至40以上", "整体ROI>8", "研发", "稳住总HC", "整体人力", "HC稳定"]) {
+      expect(firstTextShapeContaining(ast, value), `missing ${value}`).toBeDefined();
+    }
+  });
+
   it("comparison-table can infer features and options from natural row records", () => {
     const slide: SlideV2 = {
       id: "reg-cmp-infer",
@@ -1219,6 +1240,261 @@ describe("component regressions", () => {
     for (const value of ["ARR", "Gamma", "Canva", "$35亿", "52人"]) {
       expect(firstTextShapeContaining(ast, value), `missing ${value}`).toBeDefined();
     }
+  });
+
+  it("validator accepts renderer-supported semantic aliases for required component fields", () => {
+    const cases: Array<{ id: string; component: DomNode }> = [
+      { id: "alias-val-outline", component: { id: "alias-val-outline.c", type: "outline", sections: [{ title: "背景" }] } as unknown as DomNode },
+      { id: "alias-val-glossary", component: { id: "alias-val-glossary.c", type: "glossary", entries: [{ term: "ARR", definition: "年度经常性收入" }] } as unknown as DomNode },
+      { id: "alias-val-qa", component: { id: "alias-val-qa.c", type: "q-and-a", faqs: [{ question: "为什么？", answer: "因为弹性更好。" }] } as unknown as DomNode },
+      { id: "alias-val-comparison", component: { id: "alias-val-comparison.c", type: "comparison-list", options: [{ name: "A", description: "更快" }] } as unknown as DomNode },
+      { id: "alias-val-fact", component: { id: "alias-val-fact.c", type: "fact-list", facts: [{ metric: "ROI", value: "12x" }] } as unknown as DomNode },
+      { id: "alias-val-takeaway", component: { id: "alias-val-takeaway.c", type: "takeaway-list", takeaways: [{ headline: "聚焦现金流" }] } as unknown as DomNode },
+      { id: "alias-val-warning", component: { id: "alias-val-warning.c", type: "warning-list", warnings: [{ headline: "避免无来源数据" }] } as unknown as DomNode },
+      { id: "alias-val-kv", component: { id: "alias-val-kv.c", type: "key-value-list", pairs: [{ key: "口径", value: "H1" }] } as unknown as DomNode },
+      { id: "alias-val-roadmap", component: { id: "alias-val-roadmap.c", type: "roadmap-plan", items: [{ label: "产品", items: [{ title: "Pilot", period: "Q1" }] }] } as unknown as DomNode },
+      { id: "alias-val-gantt", component: { id: "alias-val-gantt.c", type: "gantt-chart", items: [{ title: "Discovery", start: "Q1", end: "Q2" }] } as unknown as DomNode },
+      { id: "alias-val-cycle", component: { id: "alias-val-cycle.c", type: "cycle-diagram", items: [{ title: "Plan" }, { title: "Run" }] } as unknown as DomNode },
+      { id: "alias-val-value", component: { id: "alias-val-value.c", type: "value-chain", items: [{ title: "Source" }, { title: "Serve" }] } as unknown as DomNode },
+      { id: "alias-val-arch", component: { id: "alias-val-arch.c", type: "architecture-map", items: [{ label: "Platform", services: ["API"] }] } as unknown as DomNode },
+      { id: "alias-val-geo", component: { id: "alias-val-geo.c", type: "geo-region-map", items: [{ label: "North", value: "42%" }] } as unknown as DomNode },
+      { id: "alias-val-cal", component: { id: "alias-val-cal.c", type: "calendar-plan", items: [{ day: 3, title: "Launch" }] } as unknown as DomNode },
+      { id: "alias-val-org", component: { id: "alias-val-org.c", type: "org-chart", items: [{ id: "ceo", name: "CEO" }] } as unknown as DomNode },
+      { id: "alias-val-tree", component: { id: "alias-val-tree.c", type: "decision-tree", items: [{ id: "start", label: "Start" }] } as unknown as DomNode },
+    ];
+
+    for (const item of cases) {
+      const report = validateSlide({ id: item.id, children: [item.component] }, baseDeck);
+      expect(report.errors, `${item.id}\n${report.errors.map((error) => `${error.code}: ${error.message}`).join("\n")}`).toEqual([]);
+    }
+  });
+
+  it("string item arrays in legend, scorecard, and stat-flow render visible content", () => {
+    const slide: SlideV2 = {
+      id: "reg-string-items",
+      children: [
+        { id: "reg-string-items.legend", type: "legend", items: ["直营", "加盟"] } as unknown as SlideV2["children"][number],
+        { id: "reg-string-items.score", type: "scorecard", items: ["Revenue $1m", { metric: "ROI", amount: "12x" }] } as unknown as SlideV2["children"][number],
+        { id: "reg-string-items.flow", type: "stat-flow", steps: ["CAC", "×", "LTV", { operator: "→" }, { label: "Margin" }] } as unknown as SlideV2["children"][number],
+      ],
+    };
+    const report = validateSlide(slide, baseDeck);
+    expect(report.errors, report.errors.map((error) => error.message).join("\n")).toEqual([]);
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    for (const value of ["直营", "Revenue $1m", "ROI", "12x", "CAC", "×", "Margin"]) {
+      expect(firstTextShapeContaining(ast, value), `missing ${value}`).toBeDefined();
+    }
+  });
+
+  it("common item-array components render string fallbacks instead of empty structures", () => {
+    const cases: Array<{ id: string; component: DomNode; expected: string }> = [
+      { id: "reg-string-kpi", component: { id: "reg-string-kpi.c", type: "kpi-grid", metrics: ["Revenue $1m"] } as unknown as DomNode, expected: "Revenue $1m" },
+      { id: "reg-string-process", component: { id: "reg-string-process.c", type: "process-flow", steps: ["Scope"] } as unknown as DomNode, expected: "Scope" },
+      { id: "reg-string-statstrip", component: { id: "reg-string-statstrip.c", type: "stat-strip", items: ["$1m ARR"] } as unknown as DomNode, expected: "$1m ARR" },
+      { id: "reg-string-bar", component: { id: "reg-string-bar.c", type: "bar-list", items: ["Direct channel"] } as unknown as DomNode, expected: "Direct channel" },
+      { id: "reg-string-timeline", component: { id: "reg-string-timeline.c", type: "timeline", items: ["Kickoff"] } as unknown as DomNode, expected: "Kickoff" },
+    ];
+
+    for (const item of cases) {
+      const slide: SlideV2 = { id: item.id, children: [item.component] };
+      const report = validateSlide(slide, baseDeck);
+      expect(report.errors, `${item.id}\n${report.errors.map((error) => error.message).join("\n")}`).toEqual([]);
+      const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+      expect(firstTextShapeContaining(ast, item.expected), `${item.id} missing ${item.expected}`).toBeDefined();
+    }
+
+    const invalid = validateSlide({
+      id: "reg-string-invalid",
+      children: [{ id: "reg-string-invalid.c", type: "process-flow", steps: [{}] } as unknown as SlideV2["children"][number]],
+    }, baseDeck);
+    expect(invalid.errors.some((error) => error.code === "INVALID_FIELD_USAGE")).toBe(true);
+  });
+
+  it("office foundation components show overflow markers instead of silently dropping excess data", () => {
+    const cases: Array<{ id: string; component: DomNode; expected: string }> = [
+      {
+        id: "reg-overflow-hub",
+        expected: "+1 more",
+        component: {
+          id: "reg-overflow-hub.c",
+          type: "hub-spoke",
+          center: "Hub",
+          items: Array.from({ length: 9 }, (_, index) => ({ title: `Spoke ${index + 1}` })),
+        } as unknown as DomNode,
+      },
+      {
+        id: "reg-overflow-stakeholder",
+        expected: "+2 more",
+        component: {
+          id: "reg-overflow-stakeholder.c",
+          type: "stakeholder-map",
+          items: Array.from({ length: 6 }, (_, index) => ({ label: `Stakeholder ${index + 1}`, influence: "high", interest: "high" })),
+        } as unknown as DomNode,
+      },
+      {
+        id: "reg-overflow-kanban",
+        expected: "+2 columns",
+        component: {
+          id: "reg-overflow-kanban.c",
+          type: "kanban-board",
+          columns: Array.from({ length: 7 }, (_, index) => ({
+            title: `Column ${index + 1}`,
+            items: index === 0 ? Array.from({ length: 6 }, (_, ticketIndex) => `Ticket ${ticketIndex + 1}`) : [`Ticket ${index + 1}`],
+          })),
+        } as unknown as DomNode,
+      },
+      {
+        id: "reg-overflow-sankey",
+        expected: "+1 stages",
+        component: {
+          id: "reg-overflow-sankey.c",
+          type: "sankey",
+          stages: ["A", "B", "C", "D", "E", "F"],
+          nodes: ["A", "B", "C", "D", "E", "F"].map((stage, index) => ({ id: stage.toLowerCase(), label: stage, stage, value: String(index + 1) })),
+          links: Array.from({ length: 6 }, (_, index) => ({ source: "a", target: "b", value: index + 1, label: `Flow ${index + 1}` })),
+        } as unknown as DomNode,
+      },
+    ];
+
+    for (const item of cases) {
+      const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide({ id: item.id, children: [item.component] })));
+      expect(firstTextShapeContaining(ast, item.expected), `${item.id} missing ${item.expected}`).toBeDefined();
+    }
+  });
+
+  it("chart-with-rail pie keeps a multi-color default palette when tone is set", () => {
+    const slide: SlideV2 = {
+      id: "reg-pie-palette",
+      children: [{
+        id: "reg-pie-palette.cwr",
+        type: "chart-with-rail",
+        tone: "brand",
+        chartType: "pie",
+        chartTitle: "各职能人数占比",
+        data: {
+          labels: ["销售", "研发", "售后", "产品", "市场", "供应链"],
+          series: [{ name: "人数", values: [150, 55, 29, 19, 15, 8] }],
+        },
+        railTitle: "结构要点",
+        railBody: "销售占比最高，研发为第二大职能。",
+      } as unknown as SlideV2["children"][number]],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(buildDeckWithSlide(slide)));
+    const chart = ast.slides[0].shapes.find((shape) => shape.type === "chart") as { colors?: string[] } | undefined;
+    const colors = chart?.colors?.slice(0, 6) ?? [];
+    expect(colors).toHaveLength(6);
+    expect(new Set(colors).size).toBeGreaterThan(3);
+  });
+
+  it("chart-card dense pie with visible legend defaults to legend-only labels", async () => {
+    const slide: SlideV2 = {
+      id: "reg-pie-legend-only",
+      children: [{
+        id: "reg-pie-legend-only.card",
+        type: "chart-card",
+        chartType: "pie",
+        title: "HC占比",
+        data: {
+          labels: ["销售 54.3%", "售后 10.5%", "研发 19.9%", "产品设计教研 6.9%", "市场 5.4%", "供应链 2.9%"],
+          series: [{ name: "HC占比", values: [54.3, 10.5, 19.9, 6.9, 5.4, 2.9] }],
+        },
+        showLegend: true,
+      } as unknown as SlideV2["children"][number]],
+    };
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide(slide));
+    const ast = renderToAst(rendered);
+    const chart = ast.slides[0].shapes.find((shape) => shape.type === "chart") as { showLegend?: boolean; showValues?: boolean; dataLabels?: { show?: boolean } } | undefined;
+    expect(chart?.showLegend).toBe(true);
+    expect(chart?.showValues).toBe(false);
+    expect(chart?.dataLabels?.show).toBe(false);
+
+    const outDir = mkdtempSync(join(tmpdir(), "slideml2-pie-legend-"));
+    const outPath = join(outDir, "deck.pptx");
+    await renderToPptx(rendered, outPath);
+    const zip = await JSZip.loadAsync(readFileSync(outPath));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    expect(chartXml).toContain("<c:legend>");
+    expect(chartXml).not.toContain("<c:dLbls>");
+  });
+
+  it("kpi-grid keeps peer metric values vertically aligned inside tall cells", () => {
+    const slide: SlideV2 = {
+      id: "reg-kpi-align",
+      title: "线下经销深度分析",
+      children: [{
+        id: "reg-kpi-align.kpis",
+        type: "kpi-grid",
+        metrics: [
+          { value: "-67.2%", label: "H1收入同比", status: "danger" },
+          { value: "2,125万", label: "25H1收入", status: "neutral" },
+          { value: "-54.0%", label: "ROI同比变化", status: "danger" },
+          { value: "82人", label: "7月在编人数", status: "warning" },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    const nodes = measureDeck(sourceToRenderedDeck(buildDeckWithSlide(slide)))[0]!.nodes;
+    const byId = (id: string) => nodes.find((entry) => entry.id === id)?.rect;
+    const values = [1, 2, 3, 4].map((index) => byId(`reg-kpi-align.kpis-m${index}.value`));
+    const wraps = [1, 2, 3, 4].map((index) => byId(`reg-kpi-align.kpis-m${index}.value-wrap`));
+    expect(values.every(Boolean)).toBe(true);
+    expect(wraps.every(Boolean)).toBe(true);
+    const valueTops = values.map((rect) => rect!.y);
+    const valueBottoms = values.map((rect) => rect!.y + rect!.h);
+    const wrapHeights = wraps.map((rect) => rect!.h);
+    expect(Math.max(...valueTops) - Math.min(...valueTops)).toBeLessThan(0.18);
+    expect(Math.max(...valueBottoms) - Math.min(...valueBottoms)).toBeLessThan(0.18);
+    expect(Math.max(...wrapHeights) - Math.min(...wrapHeights)).toBeLessThan(0.12);
+  });
+
+  it("kpi-grid auto-wraps four metrics in narrow tall split regions", () => {
+    const slide: SlideV2 = {
+      id: "reg-kpi-wrap",
+      title: "线下经销深度分析",
+      children: [{
+        id: "reg-kpi-wrap.split",
+        type: "split",
+        ratio: [0.55, 0.45],
+        gap: 0.4,
+        children: [
+          {
+            id: "reg-kpi-wrap.kpis",
+            type: "kpi-grid",
+            metrics: [
+              { value: "-67.2%", label: "H1收入同比", status: "danger" },
+              { value: "2,125万", label: "25H1收入", status: "neutral" },
+              { value: "-54.0%", label: "ROI同比变化", status: "danger" },
+              { value: "82人", label: "7月在编人数", status: "warning" },
+            ],
+          },
+          {
+            id: "reg-kpi-wrap.rail",
+            type: "stack",
+            children: [
+              { id: "reg-kpi-wrap.rail.callout", type: "callout", title: "结构性矛盾", text: "线下经销人力投入高但收入贡献偏低。", variant: "card", tone: "danger" },
+            ],
+          },
+        ],
+      } as unknown as SlideV2["children"][number]],
+    };
+    clearRenderDiagnostics();
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide(slide));
+    renderToAst(rendered);
+    const diagnostics = getRenderDiagnostics().filter((d) => d.slideId === "reg-kpi-wrap" && d.code === "KPI_REGION_OVER_CAPACITY");
+    expect(diagnostics, diagnostics.map((d) => d.message).join("\n")).toHaveLength(0);
+    const nodes = measureDeck(rendered)[0]!.nodes;
+    const byId = (id: string) => nodes.find((entry) => entry.id === id)?.rect;
+    const card1 = byId("reg-kpi-wrap.kpis-m1");
+    const card2 = byId("reg-kpi-wrap.kpis-m2");
+    const card3 = byId("reg-kpi-wrap.kpis-m3");
+    const card4 = byId("reg-kpi-wrap.kpis-m4");
+    expect(card1).toBeDefined();
+    expect(card2).toBeDefined();
+    expect(card3).toBeDefined();
+    expect(card4).toBeDefined();
+    expect(card1!.w).toBeGreaterThan(5);
+    expect(Math.abs(card1!.y - card2!.y)).toBeLessThan(0.02);
+    expect(Math.abs(card3!.y - card4!.y)).toBeLessThan(0.02);
+    expect(card3!.y).toBeGreaterThan(card1!.y + card1!.h);
   });
 
   it("chart-with-rail accepts flat chart/rail fields without dropping the chart or rail details", () => {
@@ -3103,6 +3379,50 @@ describe("component regressions", () => {
     expect(findings?.paragraphs?.[0]?.spaceAfterHalfPt).toBeGreaterThanOrEqual(10);
   });
 
+  it("executive-summary balances four structured findings as a 2x2 board", () => {
+    const expanded = expandComponent("summary-balanced", {
+      id: "summary-balanced.exec",
+      type: "executive-summary",
+      thesis: "结构性调整进入验证期",
+      summary: "成本改善已经显现，但增长质量仍需继续验证。",
+      findings: [
+        { headline: "营收压力仍在", detail: "收入端需要止跌。", tone: "warning" },
+        { headline: "成本压降有效", detail: "组织收缩带来效率改善。", tone: "positive" },
+        { headline: "渠道风险突出", detail: "低效渠道需要重配资源。", tone: "danger" },
+        { headline: "研发效率改善", detail: "新品节奏需要持续跟踪。", tone: "neutral" },
+      ],
+      action: "重点关注：渠道重配；团队升级；效率跟踪",
+    } as unknown as DomNode);
+
+    const findings = findDomNode(expanded, "summary-balanced.exec.findings");
+    expect(findings?.type).toBe("grid");
+    expect(findings?.columns).toBe(2);
+    expect(findDomNode(expanded, "summary-balanced.exec.finding4.headline")).toBeDefined();
+    expect(findDomNode(expanded, "summary-balanced.exec.actionItems")?.type).toBe("grid");
+    expect(findDomNode(expanded, "summary-balanced.exec.action1")?.text).toBe("渠道重配");
+    expect(findDomNode(expanded, "summary-balanced.exec.action3")?.text).toBe("效率跟踪");
+  });
+
+  it("executive-summary renders label and metric fields as scorecard signals", () => {
+    const expanded = expandComponent("summary-score", {
+      id: "summary-score.exec",
+      type: "executive-summary",
+      thesis: "经营质量改善但增长承压",
+      findings: [
+        { label: "收入", metric: "-7.6%", headline: "收入端仍需止跌", detail: "高峰后回落。", tone: "warning" },
+        { label: "成本", metric: "-28.1%", headline: "压降超预期", detail: "成本改善明显。", tone: "positive" },
+        { label: "ROI", metric: "+28.7%", headline: "效率改善", detail: "结构调整有效。", tone: "positive" },
+        { label: "风险", metric: "高", headline: "渠道拖累", detail: "低效资源需重配。", tone: "danger" },
+      ],
+    } as unknown as DomNode);
+
+    const findings = findDomNode(expanded, "summary-score.exec.findings");
+    expect(findings?.columns).toBe(2);
+    expect(findDomNode(expanded, "summary-score.exec.finding1.label")?.text).toBe("收入");
+    expect(findDomNode(expanded, "summary-score.exec.finding1.metric")?.text).toBe("-7.6%");
+    expect(findDomNode(expanded, "summary-score.exec.finding4.metric")?.text).toBe("高");
+  });
+
   it("executive-summary preserves all findings instead of silently dropping after four", () => {
     const slide: SlideV2 = {
       id: "summary-many",
@@ -3497,5 +3817,83 @@ describe("component regressions", () => {
       && d.measured?.other?.nodeId === "card-body.item.body"
     );
     expect(parentChildCollisions, JSON.stringify(parentChildCollisions, null, 2)).toHaveLength(0);
+  });
+
+  it("auto-apportions a table/split/stat-strip page without table caption overlap", () => {
+    const slide: SlideV2 = {
+      id: "mixed-stack-page",
+      title: "渠道效率分析",
+      children: [
+        {
+          id: "mixed-stack-page.table",
+          type: "analytic-table",
+          title: "京东 / 天猫 H1 指标对比",
+          density: "compact",
+          columns: [
+            { key: "channel", label: "渠道", width: 2.2 },
+            { key: "rev24", label: "24H1收入（万）", align: "right" },
+            { key: "rev25", label: "25H1收入（万）", align: "right" },
+            { key: "rev_yoy", label: "收入YoY", format: "percent", align: "right", visual: "delta" },
+            { key: "cost24", label: "24H1成本（万）", align: "right" },
+            { key: "cost25", label: "25H1成本（万）", align: "right" },
+            { key: "cost_yoy", label: "成本YoY", format: "percent", align: "right", visual: "delta" },
+            { key: "roi24", label: "24ROI", align: "right" },
+            { key: "roi25", label: "25ROI", align: "right" },
+            { key: "roi_chg", label: "ROI变化", format: "percent", align: "right", visual: "delta" },
+            { key: "hc", label: "在编人数", align: "right" },
+          ],
+          rows: [
+            { channel: "京东", rev24: 10553, rev25: 7298, rev_yoy: -0.308, cost24: 225, cost25: 258, cost_yoy: 0.147, roi24: 46.9, roi25: 28.3, roi_chg: -0.397, hc: 10 },
+            { channel: "天猫", rev24: 9922, rev25: 8325, rev_yoy: -0.161, cost24: 323, cost25: 303, cost_yoy: -0.062, roi24: 30.7, roi25: 27.5, roi_chg: -0.106, hc: 10 },
+          ],
+          caption: "ROI = 营收（未税）/ 人力成本",
+        } as unknown as SlideV2["children"][number],
+        {
+          id: "mixed-stack-page.split",
+          type: "split",
+          ratio: [0.5, 0.5],
+          gap: 0.5,
+          children: [
+            { id: "mixed-stack-page.split.jd", type: "callout", title: "京东", body: "收入同比 -30.8%，成本逆势增长 +14.7%。", tone: "warning", variant: "card" },
+            { id: "mixed-stack-page.split.tm", type: "callout", title: "天猫", body: "收入同比 -16.1%，成本同步下降 -6.2%。", tone: "neutral", variant: "card" },
+          ],
+        } as unknown as SlideV2["children"][number],
+        {
+          id: "mixed-stack-page.stats",
+          type: "stat-strip",
+          items: [
+            { label: "25H1 收入合计", value: "1.56 亿" },
+            { label: "收入占比", value: "63.4%" },
+            { label: "人力配置合计", value: "20 人" },
+            { label: "平均 ROI", value: "27.9x", tone: "positive" },
+          ],
+        } as unknown as SlideV2["children"][number],
+        { id: "mixed-stack-page.source", type: "source-note", text: "数据来源：主要发现工作表 Row 30-31", align: "left" } as unknown as SlideV2["children"][number],
+      ],
+    };
+    const rendered = sourceToRenderedDeck(buildDeckWithSlide(slide));
+    clearRenderDiagnostics();
+    renderToAst(rendered);
+    const blocking = getRenderDiagnostics().filter((d) => BLOCKING_CODES.has(d.code) && d.severity !== "info");
+    expect(blocking, blocking.map((d) => `${d.code} ${d.nodeId}: ${d.message}`).join("\n")).toHaveLength(0);
+
+    const nodes = measureDeck(rendered)[0]!.nodes;
+    const byId = (id: string) => nodes.find((entry) => entry.id === id)?.rect;
+    const tableCard = byId("mixed-stack-page.table");
+    const split = byId("mixed-stack-page.split");
+    const stats = byId("mixed-stack-page.stats");
+    const source = byId("mixed-stack-page.source");
+    const tableBody = byId("mixed-stack-page.table.table");
+    const caption = byId("mixed-stack-page.table.caption");
+    expect(tableCard).toBeDefined();
+    expect(split).toBeDefined();
+    expect(stats).toBeDefined();
+    expect(source).toBeDefined();
+    expect(tableBody).toBeDefined();
+    expect(caption).toBeDefined();
+    expect(split!.y).toBeGreaterThanOrEqual(tableCard!.y + tableCard!.h + 0.30);
+    expect(stats!.y).toBeGreaterThanOrEqual(split!.y + split!.h + 0.30);
+    expect(source!.y).toBeGreaterThanOrEqual(stats!.y + stats!.h + 0.30);
+    expect(caption!.y).toBeGreaterThanOrEqual(tableBody!.y + tableBody!.h + 0.20);
   });
 });

@@ -2507,13 +2507,7 @@ function isValidateRenderRecord(record: PptGenerationFlowToolRecord): boolean {
 }
 
 function slideml2CliToolAlias(record: PptGenerationFlowToolRecord): "init_deck" | "set_deck" | "validate_slide" | "validate_manifest" | "compose" | undefined {
-  if (record.name !== "shell") return undefined;
-  const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
-  const command = Array.isArray(input.command) ? input.command.filter((item): item is string => typeof item === "string") : [];
-  if (!command.some((item) => item.includes("slideml2.js") || item.includes("runtime/bin/slideml2"))) return undefined;
-  const subcommand = command.find((item) => [
-    "init-deck", "set-deck", "validate-slide", "validate-manifest", "compose",
-  ].includes(item));
+  const subcommand = slideml2CliSubcommand(record);
   if (subcommand === "init-deck") return "init_deck";
   if (subcommand === "set-deck") return "set_deck";
   if (subcommand === "validate-slide") return "validate_slide";
@@ -2549,30 +2543,75 @@ function validateRenderInput(record: PptGenerationFlowToolRecord): Record<string
 }
 
 function slideml2CliArgsPath(record: PptGenerationFlowToolRecord): string | undefined {
-  const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
-  const command = Array.isArray(input.command) ? input.command.filter((item): item is string => typeof item === "string") : [];
+  const command = slideml2CliCommand(record);
   const subcommandIndex = command.findIndex((item) => [
     "init-deck", "set-deck", "validate-slide", "validate-manifest", "compose",
   ].includes(item));
-  const argOffset = 1;
-  const argPath = subcommandIndex >= 0 ? command[subcommandIndex + argOffset] : undefined;
+  const shellArgPath = subcommandIndex < 0 ? slideml2CliShellArgPath(record) : undefined;
+  const argPath = subcommandIndex >= 0 ? command[subcommandIndex + 1] : shellArgPath;
   if (!argPath) return undefined;
   if (argPath.startsWith("--")) return undefined;
   return nodePath.isAbsolute(argPath) ? argPath : nodePath.resolve(slideml2CliCwd(record) || ".", argPath);
 }
 
 function slideml2CliFlagValue(record: PptGenerationFlowToolRecord, flag: string): string | undefined {
-  const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
-  const command = Array.isArray(input.command) ? input.command.filter((item): item is string => typeof item === "string") : [];
+  const command = slideml2CliCommand(record);
   const index = command.indexOf(flag);
-  const raw = index >= 0 ? command[index + 1] : undefined;
+  const raw = index >= 0 ? command[index + 1] : slideml2CliShellFlagValue(record, flag);
   if (!raw || raw.startsWith("--")) return undefined;
   return nodePath.isAbsolute(raw) ? raw : nodePath.resolve(slideml2CliCwd(record) || ".", raw);
 }
 
 function slideml2CliCwd(record: PptGenerationFlowToolRecord): string | undefined {
   const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
-  return typeof input.cwd === "string" ? input.cwd : undefined;
+  if (typeof input.cwd === "string") return input.cwd;
+  const script = slideml2CliShellScript(record);
+  const cdMatch = script.match(/\bcd\s+(?:"([^"]+)"|'([^']+)'|([^;&]+?))\s*&&/);
+  const raw = cdMatch?.[1] || cdMatch?.[2] || cdMatch?.[3];
+  return raw?.trim();
+}
+
+function slideml2CliSubcommand(record: PptGenerationFlowToolRecord): "init-deck" | "set-deck" | "validate-slide" | "validate-manifest" | "compose" | undefined {
+  if (record.name !== "shell") return undefined;
+  const subcommands = ["init-deck", "set-deck", "validate-slide", "validate-manifest", "compose"] as const;
+  const command = slideml2CliCommand(record);
+  const runtimeIndex = command.findIndex(isSlideml2RuntimeInvocation);
+  if (runtimeIndex >= 0) {
+    const direct = command[runtimeIndex + 1];
+    if (direct && (subcommands as readonly string[]).includes(direct)) return direct as typeof subcommands[number];
+  }
+  const script = slideml2CliShellScript(record);
+  const escapedSubcommands = subcommands.join("|");
+  const match = script.match(new RegExp(`(?:^|\\s)(?:node\\s+)?(?:"[^"]*slideml2\\.js"|'[^']*slideml2\\.js'|\\S*(?:slideml2\\.js|runtime/bin/slideml2))\\s+(${escapedSubcommands})(?:\\s|$)`));
+  return match?.[1] as typeof subcommands[number] | undefined;
+}
+
+function isSlideml2RuntimeInvocation(item: string): boolean {
+  return item.includes("slideml2.js") || item.includes("runtime/bin/slideml2");
+}
+
+function slideml2CliCommand(record: PptGenerationFlowToolRecord): string[] {
+  const input = record.input && typeof record.input === "object" ? record.input as Record<string, unknown> : {};
+  return Array.isArray(input.command) ? input.command.filter((item): item is string => typeof item === "string") : [];
+}
+
+function slideml2CliShellScript(record: PptGenerationFlowToolRecord): string {
+  return slideml2CliCommand(record).join(" ");
+}
+
+function slideml2CliShellArgPath(record: PptGenerationFlowToolRecord): string | undefined {
+  const subcommand = slideml2CliSubcommand(record);
+  if (!subcommand) return undefined;
+  const match = slideml2CliShellScript(record).match(new RegExp(`\\b${subcommand}\\s+(?:"([^"]+)"|'([^']+)'|([^\\s;&|]+))`));
+  const raw = match?.[1] || match?.[2] || match?.[3];
+  return raw?.trim();
+}
+
+function slideml2CliShellFlagValue(record: PptGenerationFlowToolRecord, flag: string): string | undefined {
+  const escapedFlag = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = slideml2CliShellScript(record).match(new RegExp(`${escapedFlag}\\s+(?:"([^"]+)"|'([^']+)'|([^\\s;&|]+))`));
+  const raw = match?.[1] || match?.[2] || match?.[3];
+  return raw?.trim();
 }
 
 async function pptxXmlCorpus(outputPath: string): Promise<string> {
