@@ -1822,6 +1822,8 @@ export function progressBar(slideId: string, id: string, options: { label: strin
     direction: "vertical",
     gap: 0.18,
     role: "progress-bar",
+    basisHeight: 1.08,
+    maxHeight: 1.18,
     children: [
       {
         id: `${slideId}.${id}.header`,
@@ -2186,32 +2188,47 @@ export function processFlow(slideId: string, id: string, options: {
 }
 
 export function logoStrip(slideId: string, id: string, logos: Array<{ src: string; alt?: string }>, options: { caption?: string; columns?: number } = {}): DomNode {
-  const columns = options.columns && options.columns > 0 ? options.columns : Math.min(6, logos.length);
+  const columns = Math.max(1, Math.floor(options.columns && options.columns > 0 ? options.columns : Math.min(6, Math.max(1, logos.length))));
+  const rows = Math.max(1, Math.ceil(Math.max(1, logos.length) / columns));
+  const logoHeight = 1.4;
+  const logoGap = 0.6;
+  const gridHeight = rows * logoHeight + Math.max(0, rows - 1) * logoGap;
   const grid: DomNode = {
     id: `${slideId}.${id}.row`,
     type: "grid",
     columns,
-    gap: 0.6,
+    gap: logoGap,
     role: "logo-strip",
+    basisHeight: gridHeight,
+    minHeight: Math.max(logoHeight, gridHeight - rows * 0.12),
+    maxHeight: gridHeight + 0.16,
+    rowWeights: Array.from({ length: rows }, () => logoHeight),
     children: logos.map((logo, index) => ({
       id: `${slideId}.${id}.logo${index + 1}`,
       type: "image",
       src: logo.src,
       alt: logo.alt || `logo-${index + 1}`,
       fit: "contain",
-      fixedHeight: 1.4,
+      fixedHeight: logoHeight,
     })),
   };
-  if (!options.caption) return grid;
+  const captionText = (options.caption || "").trim();
+  if (!captionText) return grid;
+  const captionLines = Math.max(1, Math.ceil(weightedTextLength(captionText) / 58));
+  const captionHeight = Math.max(0.4, Math.min(0.92, captionLines * 0.32 + 0.08));
+  const naturalHeight = gridHeight + 0.25 + captionHeight;
   return {
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
     gap: 0.25,
     role: "logo-strip",
+    basisHeight: naturalHeight,
+    minHeight: Math.max(1.55, naturalHeight - 0.18),
+    maxHeight: naturalHeight + 0.16,
     children: [
       grid,
-      { id: `${slideId}.${id}.caption`, type: "text", text: options.caption, style: "caption", align: "center", color: "text.muted", minHeight: 0.4, autoFit: "shrink" },
+      { id: `${slideId}.${id}.caption`, type: "text", text: captionText, style: "caption", align: "center", color: "text.muted", minHeight: 0.4, basisHeight: captionHeight, maxHeight: captionHeight + 0.08, autoFit: "shrink" },
     ],
   };
 }
@@ -2773,6 +2790,7 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
     role: "stat-strip",
     align: "stretch",
     valign: "middle",
+    basisHeight: 2.05,
     minHeight: 2.05,
     maxHeight: 2.35,
     children: items,
@@ -2817,6 +2835,10 @@ export function legend(slideId: string, id: string, options: { items: Array<{ la
   const markerPreset = marker === "square" ? "rect" : marker === "bar" ? "rect" : "ellipse";
   const markerWidth = marker === "bar" ? 0.85 : 0.55;
   const markerHeight = marker === "bar" ? 0.22 : 0.55;
+  const itemHeight = 0.64;
+  const naturalHeight = direction === "horizontal"
+    ? itemHeight
+    : options.items.length * itemHeight + Math.max(0, options.items.length - 1) * 0.28;
   return {
     id: `${slideId}.${id}`,
     type: "stack",
@@ -2825,6 +2847,8 @@ export function legend(slideId: string, id: string, options: { items: Array<{ la
     role: "legend",
     align: "start",
     valign: "middle",
+    basisHeight: naturalHeight,
+    maxHeight: naturalHeight + 0.12,
     children: options.items.map((item, index) => ({
       id: `${slideId}.${id}.${index}`,
       type: "stack",
@@ -2832,6 +2856,9 @@ export function legend(slideId: string, id: string, options: { items: Array<{ la
       gap: 0.25,
       align: "start",
       valign: "middle",
+      basisHeight: itemHeight,
+      minHeight: 0.54,
+      maxHeight: itemHeight + 0.08,
       children: [
         {
           id: `${slideId}.${id}.${index}.dot`,
@@ -2933,6 +2960,9 @@ export function flowArrow(slideId: string, id: string, options: { label?: string
   const clusterWidth = direction === "right"
     ? arrowWidth + 0.4 + labelWidth
     : Math.max(arrowWidth, labelWidth);
+  const clusterHeight = direction === "right"
+    ? 0.9
+    : 1.6 + (options.label && options.label.trim() ? 0.18 + 0.5 : 0);
   return {
     id: `${slideId}.${id}`,
     type: "stack",
@@ -2943,6 +2973,9 @@ export function flowArrow(slideId: string, id: string, options: { label?: string
     valign: "middle",
     justify: "center",
     fixedWidth: clusterWidth,
+    basisHeight: clusterHeight,
+    minHeight: Math.max(0.85, clusterHeight - 0.12),
+    maxHeight: clusterHeight + 0.12,
     children,
   };
 }
@@ -2960,12 +2993,23 @@ export function tagList(slideId: string, id: string, options: { items: Array<str
   // Arrange tags as an auto-wrapping grid; default to 4-6 per row depending
   // on item count, so a tight panel doesn't force tags off the edge.
   const columns = options.columns && options.columns > 0 ? options.columns : Math.min(6, Math.max(2, itemCount <= 4 ? itemCount : 4));
+  const rows = Math.max(1, Math.ceil(Math.max(1, itemCount) / columns));
+  const chipHeight = 0.92;
+  const compactChipHeight = 0.72;
+  const gap = 0.3;
+  const naturalHeight = rows * chipHeight + Math.max(0, rows - 1) * gap;
+  const minHeight = rows * compactChipHeight + Math.max(0, rows - 1) * Math.min(gap, 0.18);
+  const comfortableSlack = rows === 1 ? 0.34 : 0.48;
   return {
     id: `${slideId}.${id}`,
     type: "grid",
     columns,
-    gap: 0.3,
+    gap,
     role: "tag-list",
+    basisHeight: naturalHeight,
+    minHeight,
+    maxHeight: naturalHeight + comfortableSlack,
+    rowWeights: Array.from({ length: rows }, () => chipHeight),
     children: options.items.map((item, index) => {
       const text = typeof item === "string" ? item : (item && typeof item.text === "string" ? item.text : "");
       const tone = typeof item === "string" ? defaultTone : (item.tone || defaultTone);
@@ -2975,13 +3019,15 @@ export function tagList(slideId: string, id: string, options: { items: Array<str
         type: "text",
         text,
         style: "label",
-        size: "sm",
+        size: "md",
         color,
         fill,
         align: "center",
         valign: "middle",
         cornerRadius: 0.4,
-        minHeight: 0.55,
+        basisHeight: chipHeight,
+        minHeight: compactChipHeight,
+        maxHeight: chipHeight + Math.min(0.28, comfortableSlack / rows),
         autoFit: "shrink",
       };
     }),
@@ -5306,12 +5352,18 @@ export function scaleBar(
     const v = min + ((max - min) * i) / (tickCount - 1);
     labels.push(`${Math.round(v * 100) / 100}${options.unit || ""}`);
   }
+  const labelWeight = labels.reduce((maxWeight, label) => Math.max(maxWeight, weightedTextLength(label)), 0);
+  const labelHeight = labelWeight > 62 ? 1.2 : labelWeight > 36 ? 0.92 : labelWeight > 18 ? 0.62 : 0.36;
+  const naturalHeight = 0.3 + 0.04 + labelHeight + 0.16;
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
     gap: 0.08,
     role: "scale-bar",
+    basisHeight: naturalHeight,
+    minHeight: Math.max(0.72, naturalHeight - 0.08),
+    maxHeight: naturalHeight + 0.08,
     children: [
       // tick row: short vertical bars
       {
@@ -5340,6 +5392,9 @@ export function scaleBar(
         type: "stack",
         direction: "horizontal",
         gap: 0,
+        basisHeight: labelHeight,
+        minHeight: Math.max(0.32, labelHeight - 0.08),
+        maxHeight: labelHeight + 0.08,
         children: labels.map((lbl, i) => ({
           id: `${slideId}.${id}.lbl${i}`,
           type: "text" as const,
@@ -5348,7 +5403,9 @@ export function scaleBar(
           color: "text.muted",
           align: i === 0 ? "left" as const : i === labels.length - 1 ? "right" as const : "center" as const,
           autoFit: "shrink" as const,
-          minHeight: 0.32,
+          minHeight: Math.max(0.32, labelHeight - 0.08),
+          basisHeight: labelHeight,
+          maxHeight: labelHeight + 0.08,
           layoutWeight: 1,
         })),
       },

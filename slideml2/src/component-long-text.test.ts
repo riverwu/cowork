@@ -4,7 +4,7 @@ import {
   getRenderDiagnostics,
   type LayoutDiagnostic,
 } from "./diagnostics.js";
-import { renderToAst } from "./render.js";
+import { measureDeck, renderToAst, type MeasuredNode } from "./render.js";
 import { sourceToRenderedDeck } from "./source-deck.js";
 import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
 
@@ -40,6 +40,11 @@ function blockingFor(slide: SlideV2, themeOverride?: Slideml2SourceDeck["deck"][
   clearRenderDiagnostics();
   renderToAst(sourceToRenderedDeck(deck(slide, themeOverride)));
   return getRenderDiagnostics().filter((d) => d.severity === "error" || (BLOCKING.has(d.code) && d.severity !== "info"));
+}
+
+function measuredFor(slide: SlideV2, themeOverride?: Slideml2SourceDeck["deck"]["themeOverride"]): MeasuredNode[] {
+  clearRenderDiagnostics();
+  return measureDeck(sourceToRenderedDeck(deck(slide, themeOverride)))[0]?.nodes || [];
 }
 
 describe("insightCallout: long callout text doesn't get clipped at fixedHeight", () => {
@@ -223,6 +228,77 @@ describe("tag-list: long tag text doesn't trip fixedHeight", () => {
     const blocking = blockingFor(slide);
     const fixedFail = blocking.filter((d) => d.code === "FALLBACK_FAILED" && d.constrainedBy?.prop === "fixedHeight");
     expect(fixedFail, fixedFail.map((d) => d.message).join("\n")).toHaveLength(0);
+  });
+
+  it("keeps standalone tags at a comfortable bounded chip-row height", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "维度",
+      children: [{
+        id: "s.tags",
+        type: "tag-list",
+        items: ["分层模型", "预算感知", "上下文压缩", "工具优先", "结果评估", "低成本规模化"],
+      } as unknown as DomNode],
+    };
+    const measured = measuredFor(slide);
+    const root = measured.find((node) => node.id === "s.tags");
+    const chips = measured.filter((node) => /^s\.tags\.\d+$/.test(node.id));
+    expect(root?.rect.h).toBeGreaterThanOrEqual(2.3);
+    expect(root?.rect.h).toBeLessThanOrEqual(2.75);
+    expect(chips.length).toBe(6);
+    expect(Math.max(...chips.map((node) => node.rect.h))).toBeLessThanOrEqual(1.25);
+  });
+});
+
+describe("axis-ruler: light axis stages don't stretch into sparse cards", () => {
+  it("keeps a standalone horizontal axis at a comfortable bounded height", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "能力演进",
+      children: [{
+        id: "s.axis",
+        type: "axis-ruler",
+        items: [
+          { label: "生成", body: "语言能力" },
+          { label: "推理", body: "拆解问题" },
+          { label: "工具", body: "调用系统" },
+          { label: "多模态", body: "读图读文档" },
+          { label: "行动", body: "完成任务" },
+        ],
+      } as unknown as DomNode],
+    };
+    const measured = measuredFor(slide);
+    const root = measured.find((node) => node.id === "s.axis");
+    const items = measured.filter((node) => /^s\.axis\.\d+$/.test(node.id));
+    expect(root?.rect.h).toBeGreaterThanOrEqual(2.45);
+    expect(root?.rect.h).toBeLessThanOrEqual(2.85);
+    expect(items.length).toBe(5);
+    expect(Math.max(...items.map((node) => node.rect.h))).toBeLessThanOrEqual(2.35);
+  });
+});
+
+describe("stat-strip: metric strips keep their natural band height", () => {
+  it("does not stretch a standalone stat strip across the content region", () => {
+    const slide: SlideV2 = {
+      id: "s",
+      title: "指标",
+      children: [{
+        id: "s.stats",
+        type: "stat-strip",
+        items: [
+          { value: "276人", label: "总HC" },
+          { value: "37.3%", label: "外包占比" },
+          { value: "销售 54.3%", label: "最大职能" },
+          { value: "19.9%", label: "研发占比" },
+        ],
+      } as unknown as DomNode],
+    };
+    const measured = measuredFor(slide);
+    const root = measured.find((node) => node.id === "s.stats");
+    const items = measured.filter((node) => /^s\.stats\.\d+$/.test(node.id));
+    expect(root?.rect.h).toBeLessThanOrEqual(2.45);
+    expect(items.length).toBe(4);
+    expect(Math.max(...items.map((node) => node.rect.h))).toBeLessThanOrEqual(2.2);
   });
 });
 

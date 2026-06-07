@@ -630,7 +630,9 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     items: { type: "array", required: true, description: "Array of { label/title/name, body/text/description?, tone? } items, usually 3-7." },
     direction: { type: "enum", enum: ["horizontal", "vertical"], description: "Axis orientation (default horizontal)." },
     tone: { type: "enum", enum: ["brand", "neutral", "positive", "warning", "danger"], description: "Default marker color." },
-  }, "axis line + marker labels", "stack"),
+    variant: { type: "enum", enum: ["rail", "minimal"], description: "rail (default) renders a designed rail with stage labels; minimal keeps the old straight line + dot marker style." },
+    railStyle: { type: "enum", enum: ["gradient", "segmented", "tick"], description: "Rail visual treatment for variant='rail'. gradient is the default continuous spectrum; segmented renders numbered capsules; tick renders a ruler-like scale." },
+  }, "visual rail with stage labels", "stack"),
   component("flow-arrow", "Connector showing direction, transition, or causality between two modules. Use for one explicit relationship; use process-flow for multi-step sequences.", {
     label: { type: "string", description: "Optional short label rendered next to the arrow." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Arrow color tone." },
@@ -665,6 +667,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
   component("tag-list", "Set of short keywords, categories, feature flags, or filters. Use for compact classification; not for sentences or long labels.", {
     items: { type: "array", required: true, description: "Array of strings or { text, tone? } objects." },
     tone: { type: "enum", enum: ["neutral", "brand", "positive", "warning", "danger"], description: "Default tone for tags that don't override." },
+    columns: { type: "number", description: "Optional preferred tag columns before wrapping. Defaults to a compact 2-4 column rhythm." },
   }, "horizontal stack of small filled rounded rects with labels", "stack"),
   component("stat-comparison", "Before/after or current/target numeric change with delta. Use when the transformation is the point and two values must be read together.", {
     beforeLabel: { type: "string", required: true, description: "Label for the before column." },
@@ -2100,12 +2103,13 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
   if (componentName === "tag-list") {
     const toneRaw = node.tone;
     const tone = toneRaw === "neutral" || toneRaw === "brand" || toneRaw === "positive" || toneRaw === "warning" || toneRaw === "danger" ? toneRaw : undefined;
+    const columns = typeof node.columns === "number" && Number.isFinite(node.columns) && node.columns > 0 ? Math.floor(node.columns) : undefined;
     const items = Array.isArray(node.items) ? node.items.filter((item): item is string | { text: string; tone?: string } => {
       if (typeof item === "string") return Boolean(item.trim());
       if (item && typeof item === "object" && typeof (item as { text?: unknown }).text === "string") return true;
       return false;
     }) : [];
-    return withComponentRoot(node, tagList(slideId, name, { items, tone }));
+    return withComponentRoot(node, tagList(slideId, name, { items, tone, columns }));
   }
   if (componentName === "stat-comparison") {
     const trendRaw = node.trend;
@@ -11414,13 +11418,33 @@ function axisRulerNode(slideId: string, name: string, node: DomNode): DomNode {
       tone: stringValue(rec.tone, stringValue(node.tone, "brand")),
     };
   }).filter((item) => item.label) : [];
+  const variant = node.variant === "minimal" ? "minimal" : "rail";
+  if (variant === "rail") return axisRulerRailNode(slideId, name, node, direction, items, axisRulerRailStyle(node.railStyle));
+  return axisRulerMinimalNode(slideId, name, node, direction, items);
+}
+
+type AxisRulerRailStyle = "gradient" | "segmented" | "tick";
+
+function axisRulerRailStyle(value: unknown): AxisRulerRailStyle {
+  return value === "segmented" || value === "tick" || value === "gradient" ? value : "gradient";
+}
+
+function axisRulerMinimalNode(
+  slideId: string,
+  name: string,
+  node: DomNode,
+  direction: "horizontal" | "vertical",
+  items: Array<{ label: string; body?: string; tone?: string }>,
+): DomNode {
   if (direction === "vertical") {
+    const sizing = verticalAxisRulerSizing(items);
     return {
       id: `${slideId}.${name}`,
       type: "stack",
       direction: "vertical",
       gap: 0.18,
       role: "axis-ruler",
+      ...sizing,
       children: items.map((item, index) => axisRulerItem(slideId, name, item, index, "vertical")),
     };
   }
@@ -11430,48 +11454,556 @@ function axisRulerNode(slideId: string, name: string, node: DomNode): DomNode {
     for (let start = 0; start < items.length; start += columns) {
       const rowIndex = Math.floor(start / columns);
       const rowItems = items.slice(start, start + columns);
+      const rowSizing = horizontalAxisRulerRowSizing(rowItems);
+      const gridSizing = horizontalAxisRulerGridSizing(rowItems);
       rows.push({
         id: `${slideId}.${name}.row${rowIndex}`,
         type: "stack",
         direction: "vertical",
-        gap: 0.16,
+        gap: 0.28,
         role: "axis-ruler-row",
+        ...rowSizing,
         children: [
-          { id: `${slideId}.${name}.row${rowIndex}.line`, type: "divider", orientation: "horizontal", line: toneToColors(node.tone).line || "brand.primary", thickness: 0.04, fixedHeight: 0.10 },
+          { id: `${slideId}.${name}.row${rowIndex}.line`, type: "divider", orientation: "horizontal", line: toneToColors(node.tone).line || "brand.primary", thickness: 0.04, fixedHeight: 0.14 },
           {
             id: `${slideId}.${name}.row${rowIndex}.items`,
             type: "grid",
             columns,
             gap: 0.32,
+            ...gridSizing,
             children: rowItems.map((item, localIndex) => axisRulerItem(slideId, name, item, start + localIndex, "horizontal")),
           },
         ],
       });
     }
+    const sizing = wrappedHorizontalAxisRulerSizing(rows.length, rows.map((row) => numberValue(row.basisHeight, horizontalAxisRulerRowSizing([]).basisHeight)));
     return {
       id: `${slideId}.${name}`,
       type: "stack",
       direction: "vertical",
       gap: 0.28,
       role: "axis-ruler",
+      ...sizing,
       children: rows,
     };
   }
+  const sizing = horizontalAxisRulerRowSizing(items);
+  const gridSizing = horizontalAxisRulerGridSizing(items);
   return {
     id: `${slideId}.${name}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.2,
+    gap: 0.28,
     role: "axis-ruler",
+    ...sizing,
     children: [
-      { id: `${slideId}.${name}.line`, type: "divider", orientation: "horizontal", line: toneToColors(node.tone).line || "brand.primary", thickness: 0.05, fixedHeight: 0.12 },
+      { id: `${slideId}.${name}.line`, type: "divider", orientation: "horizontal", line: toneToColors(node.tone).line || "brand.primary", thickness: 0.05, fixedHeight: 0.14 },
       {
         id: `${slideId}.${name}.items`,
         type: "grid",
         columns: Math.max(1, items.length),
         gap: 0.35,
+        ...gridSizing,
         children: items.map((item, index) => axisRulerItem(slideId, name, item, index, "horizontal")),
       },
+    ],
+  };
+}
+
+function axisRulerRailNode(
+  slideId: string,
+  name: string,
+  node: DomNode,
+  direction: "horizontal" | "vertical",
+  items: Array<{ label: string; body?: string; tone?: string }>,
+  railStyle: AxisRulerRailStyle,
+): DomNode {
+  if (direction === "vertical") {
+    const sizing = verticalAxisRulerRailSizing(items);
+    return {
+      id: `${slideId}.${name}`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.22,
+      role: "axis-ruler",
+      ...sizing,
+      children: items.map((item, index) => axisRulerRailItem(slideId, name, item, index, "vertical")),
+    };
+  }
+  if (items.length > 6) {
+    const columns = 4;
+    const rows: DomNode[] = [];
+    for (let start = 0; start < items.length; start += columns) {
+      const rowIndex = Math.floor(start / columns);
+      const rowItems = items.slice(start, start + columns);
+      const rowSizing = horizontalAxisRulerRailRowSizing(rowItems, railStyle);
+      rows.push({
+        id: `${slideId}.${name}.row${rowIndex}`,
+        type: "stack",
+        direction: "vertical",
+        gap: 0.24,
+        role: "axis-ruler-row",
+        ...rowSizing,
+        children: [
+          axisRulerRailVisual(slideId, name, rowItems, start, columns, `${slideId}.${name}.row${rowIndex}.rail`, railStyle),
+          axisRulerRailCopyGrid(slideId, name, rowItems, start, columns, `${slideId}.${name}.row${rowIndex}.items`),
+        ],
+      });
+    }
+    const sizing = wrappedHorizontalAxisRulerRailSizing(rows.length, rows.map((row) => numberValue(row.basisHeight, horizontalAxisRulerRailRowSizing([], railStyle).basisHeight)));
+    return {
+      id: `${slideId}.${name}`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.32,
+      role: "axis-ruler",
+      ...sizing,
+      children: rows,
+    };
+  }
+  const sizing = horizontalAxisRulerRailRowSizing(items, railStyle);
+  return {
+    id: `${slideId}.${name}`,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.24,
+    role: "axis-ruler",
+    ...sizing,
+    children: [
+      axisRulerRailVisual(slideId, name, items, 0, Math.max(1, items.length), `${slideId}.${name}.rail`, railStyle),
+      axisRulerRailCopyGrid(slideId, name, items, 0, Math.max(1, items.length), `${slideId}.${name}.items`),
+    ],
+  };
+}
+
+function axisRulerRailVisual(
+  slideId: string,
+  name: string,
+  items: Array<{ label: string; body?: string; tone?: string }>,
+  startIndex: number,
+  columns: number,
+  id: string,
+  railStyle: AxisRulerRailStyle,
+): DomNode {
+  if (railStyle === "segmented") return axisRulerRailGrid(slideId, name, items, startIndex, columns, id);
+  if (railStyle === "tick") return axisRulerTickRail(slideId, name, items, startIndex, columns, id);
+  return axisRulerGradientRail(slideId, name, items, startIndex, columns, id);
+}
+
+function axisRulerGradientRail(
+  slideId: string,
+  name: string,
+  items: Array<{ label: string; body?: string; tone?: string }>,
+  startIndex: number,
+  columns: number,
+  id: string,
+): DomNode {
+  const railHeight = axisRulerRailHeight("gradient");
+  const contentWidth = Math.max(10.5, Math.min(20, Math.max(1, columns) * 4.6 + 1.6));
+  const trackX = 0.5;
+  const trackY = 0.46;
+  const trackW = contentWidth - trackX * 2;
+  const trackH = 0.28;
+  const markerW = 0.78;
+  const markerH = 0.58;
+  return {
+    id,
+    type: "positioned-group",
+    role: "axis-ruler-rail",
+    contentWidth,
+    contentHeight: railHeight,
+    fit: "fill",
+    align: "center",
+    valign: "top",
+    basisHeight: railHeight,
+    minHeight: railHeight - 0.08,
+    maxHeight: railHeight + 0.08,
+    children: [
+      {
+        id: `${id}.track-shadow`,
+        type: "shape",
+        preset: "roundRect",
+        fill: "text.primary",
+        fillOpacity: 0.1,
+        line: "none",
+        cornerRadius: 0.14,
+        at: [trackX + 0.08, trackY + 0.08, trackW - 0.16, trackH],
+        zIndex: 0,
+      },
+      {
+        id: `${id}.track`,
+        type: "shape",
+        preset: "roundRect",
+        fill: axisRulerGradientColorAt(0),
+        line: "none",
+        cornerRadius: 0.14,
+        at: [trackX, trackY, trackW, trackH],
+        zIndex: 1,
+      },
+      ...axisRulerGradientTrackSegments(id, trackX, trackY, trackW, trackH),
+      {
+        id: `${id}.track-highlight`,
+        type: "shape",
+        preset: "roundRect",
+        fill: "brand.primary",
+        fillOpacity: 0.08,
+        line: "none",
+        cornerRadius: 0.035,
+        at: [trackX + 0.18, trackY + 0.055, trackW - 0.36, 0.07],
+        zIndex: 3,
+      },
+      ...items.flatMap((item, localIndex) => {
+        const centerX = axisRulerRailCenterX(localIndex, columns, contentWidth);
+        const markerColor = axisRulerRailMarkerColor(item.tone);
+        const markerX = centerX - markerW / 2;
+        const markerY = 0.12;
+        return [
+          {
+            id: `${slideId}.${name}.${startIndex + localIndex}.stem`,
+            type: "shape" as const,
+            preset: "roundRect",
+            fill: "divider",
+            fillOpacity: 0.82,
+            line: "none",
+            cornerRadius: 0.012,
+            at: [centerX - 0.012, trackY + trackH + 0.03, 0.024, 0.3],
+            zIndex: 2,
+          },
+          {
+            id: `${slideId}.${name}.${startIndex + localIndex}.railShadow`,
+            type: "shape" as const,
+            preset: "roundRect",
+            fill: "text.primary",
+            fillOpacity: 0.14,
+            line: "none",
+            cornerRadius: 0.16,
+            at: [markerX + 0.05, markerY + 0.07, markerW, markerH],
+            zIndex: 4,
+          },
+          {
+            id: `${slideId}.${name}.${startIndex + localIndex}.railBridge`,
+            type: "shape" as const,
+            preset: "roundRect",
+            fill: markerColor,
+            line: markerColor,
+            cornerRadius: 0.03,
+            at: [centerX - 0.05, trackY + 0.05, 0.1, trackH - 0.1],
+            zIndex: 5,
+          },
+          {
+            id: `${slideId}.${name}.${startIndex + localIndex}.rail`,
+            type: "text" as const,
+            text: String(startIndex + localIndex + 1).padStart(2, "0"),
+            style: "label" as const,
+            size: "sm" as const,
+            weight: "bold" as const,
+            color: "text.inverse",
+            fill: markerColor,
+            line: "FFFFFF",
+            lineOpacity: 0.32,
+            lineWidth: 0.012,
+            align: "center" as const,
+            valign: "middle" as const,
+            cornerRadius: 0.16,
+            at: [markerX, markerY, markerW, markerH],
+            zIndex: 6,
+            noWrap: true,
+            autoFit: "shrink" as const,
+          },
+        ];
+      }),
+    ],
+  };
+}
+
+function axisRulerGradientTrackSegments(id: string, trackX: number, trackY: number, trackW: number, trackH: number): DomNode[] {
+  const segmentCount = 96;
+  const segmentW = trackW / segmentCount;
+  return Array.from({ length: segmentCount }, (_, index) => {
+    const first = index === 0;
+    const last = index === segmentCount - 1;
+    return {
+      id: `${id}.track.segment.${index}`,
+      type: "shape" as const,
+      preset: first || last ? "roundRect" : "rect",
+      fill: axisRulerGradientColorAt((index + 0.5) / segmentCount),
+      line: "none",
+      cornerRadius: first || last ? 0.14 : undefined,
+      at: [
+        trackX + index * segmentW - (first ? 0 : 0.01),
+        trackY,
+        segmentW + (first || last ? 0.01 : 0.02),
+        trackH,
+      ],
+      zIndex: 2,
+    };
+  });
+}
+
+const AXIS_RULER_GRADIENT_STOPS: Array<{ position: number; color: string }> = [
+  { position: 0, color: "2563EB" },
+  { position: 0.42, color: "059669" },
+  { position: 0.72, color: "F59E0B" },
+  { position: 1, color: "DC2626" },
+];
+
+function axisRulerGradientColorAt(position: number): string {
+  const t = Math.max(0, Math.min(1, position));
+  let left = AXIS_RULER_GRADIENT_STOPS[0]!;
+  let right = AXIS_RULER_GRADIENT_STOPS[AXIS_RULER_GRADIENT_STOPS.length - 1]!;
+  for (let index = 0; index < AXIS_RULER_GRADIENT_STOPS.length - 1; index++) {
+    const a = AXIS_RULER_GRADIENT_STOPS[index]!;
+    const b = AXIS_RULER_GRADIENT_STOPS[index + 1]!;
+    if (t >= a.position && t <= b.position) {
+      left = a;
+      right = b;
+      break;
+    }
+  }
+  const span = Math.max(0.001, right.position - left.position);
+  return blendHexColor(left.color, right.color, (t - left.position) / span);
+}
+
+function blendHexColor(left: string, right: string, ratio: number): string {
+  const a = hexToRgb(left);
+  const b = hexToRgb(right);
+  const t = Math.max(0, Math.min(1, ratio));
+  const channel = (from: number, to: number) => Math.round(from + (to - from) * t).toString(16).padStart(2, "0").toUpperCase();
+  return `${channel(a.r, b.r)}${channel(a.g, b.g)}${channel(a.b, b.b)}`;
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const clean = hex.replace(/^#/, "");
+  return {
+    r: Number.parseInt(clean.slice(0, 2), 16),
+    g: Number.parseInt(clean.slice(2, 4), 16),
+    b: Number.parseInt(clean.slice(4, 6), 16),
+  };
+}
+
+function axisRulerRailCenterX(localIndex: number, columns: number, contentWidth: number): number {
+  const count = Math.max(1, columns);
+  return ((localIndex + 0.5) / count) * contentWidth;
+}
+
+function axisRulerRailMarkerColor(tone: unknown): string {
+  const colors = toneToColors(tone);
+  return colors.line && colors.line !== "divider" ? colors.line : "brand.primary";
+}
+
+function axisRulerTickRail(
+  slideId: string,
+  name: string,
+  items: Array<{ label: string; body?: string; tone?: string }>,
+  startIndex: number,
+  columns: number,
+  id: string,
+): DomNode {
+  const railHeight = axisRulerRailHeight("tick");
+  const trackHeight = 0.1;
+  const tickHeight = 0.7;
+  return {
+    id,
+    type: "stack",
+    direction: "vertical",
+    gap: 0.06,
+    role: "axis-ruler-rail",
+    basisHeight: railHeight,
+    minHeight: railHeight - 0.08,
+    maxHeight: railHeight + 0.08,
+    children: [
+      {
+        id: `${id}.track`,
+        type: "shape",
+        preset: "roundRect",
+        fill: "divider",
+        line: "none",
+        cornerRadius: 0.05,
+        fixedHeight: trackHeight,
+        basisHeight: trackHeight,
+        minHeight: trackHeight,
+        maxHeight: trackHeight,
+      },
+      {
+        id: `${id}.ticks`,
+        type: "grid",
+        columns: Math.max(1, columns),
+        gap: 0.1,
+        fixedHeight: tickHeight,
+        basisHeight: tickHeight,
+        minHeight: tickHeight,
+        maxHeight: tickHeight,
+        rowWeights: [tickHeight],
+        children: items.map((item, localIndex) => {
+          const colors = toneToColors(item.tone);
+          const markerColor = colors.line || "brand.primary";
+          return {
+            id: `${slideId}.${name}.${startIndex + localIndex}.tick`,
+            type: "stack" as const,
+            direction: "vertical" as const,
+            gap: 0.04,
+            align: "center" as const,
+            justify: "center" as const,
+            fixedHeight: tickHeight,
+            children: [
+              {
+                id: `${slideId}.${name}.${startIndex + localIndex}.rail`,
+                type: "shape" as const,
+                preset: "roundRect",
+                fill: markerColor,
+                line: markerColor,
+                cornerRadius: 0.02,
+                fixedWidth: 0.04,
+                fixedHeight: 0.34,
+              },
+              {
+                id: `${slideId}.${name}.${startIndex + localIndex}.tickLabel`,
+                type: "text" as const,
+                text: String(startIndex + localIndex + 1).padStart(2, "0"),
+                style: "label" as const,
+                size: "sm" as const,
+                color: colors.fg || "text.muted",
+                align: "center" as const,
+                valign: "middle" as const,
+                fixedHeight: 0.32,
+                noWrap: true,
+                autoFit: "shrink" as const,
+              },
+            ],
+          };
+        }),
+      },
+    ],
+  };
+}
+
+function axisRulerRailGrid(
+  slideId: string,
+  name: string,
+  items: Array<{ label: string; body?: string; tone?: string }>,
+  startIndex: number,
+  columns: number,
+  id: string,
+): DomNode {
+  const railHeight = axisRulerRailHeight();
+  return {
+    id,
+    type: "grid",
+    columns: Math.max(1, columns),
+    gap: 0.1,
+    role: "axis-ruler-rail",
+    basisHeight: railHeight,
+    minHeight: railHeight - 0.08,
+    maxHeight: railHeight + 0.1,
+    rowWeights: [railHeight],
+    children: items.map((item, localIndex) => {
+      const colors = toneToColors(item.tone);
+      return {
+        id: `${slideId}.${name}.${startIndex + localIndex}.rail`,
+        type: "text" as const,
+        text: String(startIndex + localIndex + 1).padStart(2, "0"),
+        style: "label" as const,
+        size: "sm" as const,
+        weight: "bold" as const,
+        color: "text.primary",
+        fill: colors.bg || "brand.tint",
+        line: colors.line || "brand.primary",
+        lineWidth: 0.015,
+        align: "center" as const,
+        valign: "middle" as const,
+        cornerRadius: 0.28,
+        basisHeight: railHeight,
+        minHeight: railHeight - 0.08,
+        maxHeight: railHeight + 0.1,
+        autoFit: "shrink" as const,
+      };
+    }),
+  };
+}
+
+function axisRulerRailCopyGrid(
+  slideId: string,
+  name: string,
+  items: Array<{ label: string; body?: string; tone?: string }>,
+  startIndex: number,
+  columns: number,
+  id: string,
+): DomNode {
+  const sizing = horizontalAxisRulerRailCopyGridSizing(items);
+  return {
+    id,
+    type: "grid",
+    columns: Math.max(1, columns),
+    gap: 0,
+    ...sizing,
+    children: items.map((item, localIndex) => axisRulerRailItem(slideId, name, item, startIndex + localIndex, "horizontal")),
+  };
+}
+
+function axisRulerRailItem(slideId: string, name: string, item: { label: string; body?: string; tone?: string }, index: number, direction: "horizontal" | "vertical"): DomNode {
+  const sizing = axisRulerRailItemSizing(item, direction);
+  const label: DomNode = { id: `${slideId}.${name}.${index}.label`, type: "text", text: item.label, style: "label", size: "lg", color: "text.primary", align: direction === "horizontal" ? "center" : "left", fixedHeight: 0.6, autoFit: "shrink" };
+  const body = item.body ? [{
+    id: `${slideId}.${name}.${index}.body`,
+    type: "text" as const,
+    text: item.body,
+    style: "caption",
+    size: "lg",
+    color: "text.muted",
+    align: direction === "horizontal" ? "center" as const : "left" as const,
+    valign: "top" as const,
+    minHeight: sizing.bodyHeight,
+    maxHeight: sizing.bodyHeight ? sizing.bodyHeight + 0.08 : undefined,
+    autoFit: "shrink" as const,
+  }] : [];
+  if (direction === "horizontal") {
+    return {
+      id: `${slideId}.${name}.${index}`,
+      type: "stack",
+      direction: "vertical",
+      gap: 0.14,
+      role: "axis-ruler-item",
+      align: "center",
+      valign: "middle",
+      justify: "center",
+      basisHeight: sizing.basisHeight,
+      minHeight: sizing.minHeight,
+      maxHeight: sizing.maxHeight,
+      children: [label, ...body],
+    };
+  }
+  const colors = toneToColors(item.tone);
+  return {
+    id: `${slideId}.${name}.${index}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: 0.28,
+    role: "axis-ruler-item",
+    align: "start",
+    valign: "middle",
+    basisHeight: sizing.basisHeight,
+    minHeight: sizing.minHeight,
+    maxHeight: sizing.maxHeight,
+    children: [
+      {
+        id: `${slideId}.${name}.${index}.rail`,
+        type: "text",
+        text: String(index + 1).padStart(2, "0"),
+        style: "label",
+        size: "sm",
+        weight: "bold",
+        color: "text.primary",
+        fill: colors.bg || "brand.tint",
+        line: colors.line || "brand.primary",
+        lineWidth: 0.015,
+        align: "center",
+        valign: "middle",
+        cornerRadius: 0.36,
+        fixedWidth: 0.74,
+        fixedHeight: 0.74,
+        autoFit: "shrink",
+      },
+      { id: `${slideId}.${name}.${index}.copy`, type: "stack", direction: "vertical", gap: 0.1, layoutWeight: 1, children: [label, ...body] },
     ],
   };
 }
@@ -11479,32 +12011,175 @@ function axisRulerNode(slideId: string, name: string, node: DomNode): DomNode {
 function axisRulerItem(slideId: string, name: string, item: { label: string; body?: string; tone?: string }, index: number, direction: "horizontal" | "vertical"): DomNode {
   const tone = toneToColors(item.tone);
   const markerColor = tone.line || "brand.primary";
+  const sizing = axisRulerItemSizing(item, direction);
   const marker: DomNode = {
     id: `${slideId}.${name}.${index}.marker`,
     type: "shape",
     preset: "ellipse",
     fill: markerColor,
     line: markerColor,
-    fixedWidth: 0.32,
-    fixedHeight: 0.32,
+    fixedWidth: 0.42,
+    fixedHeight: 0.42,
     align: direction === "horizontal" ? "center" : "start",
   };
   // umzrkm fix: label color was markerColor (= brand.primary by default).
   // Mid-saturation brand themes failed 4.5:1 contrast on light surfaces.
   // The marker shape carries the brand color visually; the label reads
   // at body weight against the slide bg, so it must use text.primary.
-  const label: DomNode = { id: `${slideId}.${name}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: direction === "horizontal" ? "center" : "left", fixedHeight: 0.45 };
-  const body = item.body ? [{ id: `${slideId}.${name}.${index}.body`, type: "text" as const, text: item.body, style: "caption", color: "text.muted", align: direction === "horizontal" ? "center" as const : "left" as const, valign: "top" as const }] : [];
+  const label: DomNode = { id: `${slideId}.${name}.${index}.label`, type: "text", text: item.label, style: "label", size: "lg", color: "text.primary", align: direction === "horizontal" ? "center" : "left", fixedHeight: 0.6 };
+  const body = item.body ? [{
+    id: `${slideId}.${name}.${index}.body`,
+    type: "text" as const,
+    text: item.body,
+    style: "caption",
+    size: "lg",
+    color: "text.muted",
+    align: direction === "horizontal" ? "center" as const : "left" as const,
+    valign: "top" as const,
+    minHeight: sizing.bodyHeight,
+    maxHeight: sizing.bodyHeight ? sizing.bodyHeight + 0.08 : undefined,
+    autoFit: "shrink" as const,
+  }] : [];
   return {
     id: `${slideId}.${name}.${index}`,
     type: "stack",
     direction: direction === "horizontal" ? "vertical" : "horizontal",
-    gap: direction === "horizontal" ? 0.12 : 0.25,
+    gap: direction === "horizontal" ? 0.16 : 0.25,
     role: "axis-ruler-item",
     align: direction === "horizontal" ? "center" : "start",
     valign: "middle",
+    justify: "center",
+    basisHeight: sizing.basisHeight,
+    minHeight: sizing.minHeight,
+    maxHeight: sizing.maxHeight,
     children: direction === "horizontal" ? [marker, label, ...body] : [marker, { id: `${slideId}.${name}.${index}.copy`, type: "stack", direction: "vertical", gap: 0.1, children: [label, ...body] }],
   };
+}
+
+function horizontalAxisRulerRowSizing(items: Array<{ label: string; body?: string }>): { basisHeight: number; minHeight: number; maxHeight: number } {
+  const gridHeight = horizontalAxisRulerGridSizing(items).basisHeight;
+  const basisHeight = 0.14 + 0.28 + gridHeight;
+  return {
+    basisHeight,
+    minHeight: Math.max(1.2, basisHeight - 0.22),
+    maxHeight: basisHeight + 0.4,
+  };
+}
+
+function horizontalAxisRulerGridSizing(items: Array<{ label: string; body?: string }>): { basisHeight: number; minHeight: number; maxHeight: number; rowWeights: number[] } {
+  const itemHeights = items.length ? items.map((item) => axisRulerItemSizing(item, "horizontal").basisHeight) : [1.32];
+  const basisHeight = Math.max(...itemHeights);
+  return {
+    basisHeight,
+    minHeight: Math.max(0.95, basisHeight - 0.16),
+    maxHeight: basisHeight + 0.36,
+    rowWeights: [basisHeight],
+  };
+}
+
+function axisRulerRailHeight(railStyle: AxisRulerRailStyle = "segmented"): number {
+  if (railStyle === "gradient") return 0.86;
+  if (railStyle === "tick") return 0.86;
+  return 0.64;
+}
+
+function horizontalAxisRulerRailRowSizing(items: Array<{ label: string; body?: string }>, railStyle: AxisRulerRailStyle = "gradient"): { basisHeight: number; minHeight: number; maxHeight: number } {
+  const railHeight = axisRulerRailHeight(railStyle);
+  const copyHeight = horizontalAxisRulerRailCopyGridSizing(items).basisHeight;
+  const basisHeight = railHeight + 0.24 + copyHeight;
+  return {
+    basisHeight,
+    minHeight: Math.max(1.55, basisHeight - 0.18),
+    maxHeight: basisHeight + 0.42,
+  };
+}
+
+function horizontalAxisRulerRailCopyGridSizing(items: Array<{ label: string; body?: string }>): { basisHeight: number; minHeight: number; maxHeight: number; rowWeights: number[] } {
+  const itemHeights = items.length ? items.map((item) => axisRulerRailItemSizing(item, "horizontal").basisHeight) : [1.1];
+  const basisHeight = Math.max(...itemHeights);
+  return {
+    basisHeight,
+    minHeight: Math.max(0.9, basisHeight - 0.14),
+    maxHeight: basisHeight + 0.42,
+    rowWeights: [basisHeight],
+  };
+}
+
+function wrappedHorizontalAxisRulerRailSizing(rowCount: number, rowHeights: number[]): { basisHeight: number; minHeight: number; maxHeight: number } {
+  const gap = 0.32;
+  const basisHeight = rowHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, rowCount - 1) * gap;
+  return {
+    basisHeight,
+    minHeight: Math.max(1.55, basisHeight - rowCount * 0.18),
+    maxHeight: basisHeight + rowCount * 0.3,
+  };
+}
+
+function verticalAxisRulerRailSizing(items: Array<{ label: string; body?: string }>): { basisHeight: number; minHeight: number; maxHeight: number } {
+  const gap = 0.22;
+  const itemHeights = (items.length ? items : [{ label: "" }]).map((item) => axisRulerRailItemSizing(item, "vertical").basisHeight);
+  const basisHeight = itemHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, itemHeights.length - 1) * gap;
+  return {
+    basisHeight,
+    minHeight: Math.max(1.1, basisHeight - itemHeights.length * 0.14),
+    maxHeight: basisHeight + itemHeights.length * 0.12,
+  };
+}
+
+function wrappedHorizontalAxisRulerSizing(rowCount: number, rowHeights: number[]): { basisHeight: number; minHeight: number; maxHeight: number } {
+  const gap = 0.28;
+  const basisHeight = rowHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, rowCount - 1) * gap;
+  return {
+    basisHeight,
+    minHeight: Math.max(1.2, basisHeight - rowCount * 0.2),
+    maxHeight: basisHeight + 0.2,
+  };
+}
+
+function verticalAxisRulerSizing(items: Array<{ label: string; body?: string }>): { basisHeight: number; minHeight: number; maxHeight: number } {
+  const gap = 0.18;
+  const itemHeights = (items.length ? items : [{ label: "" }]).map((item) => axisRulerItemSizing(item, "vertical").basisHeight);
+  const basisHeight = itemHeights.reduce((sum, height) => sum + height, 0) + Math.max(0, itemHeights.length - 1) * gap;
+  return {
+    basisHeight,
+    minHeight: Math.max(0.9, basisHeight - itemHeights.length * 0.14),
+    maxHeight: basisHeight + 0.2,
+  };
+}
+
+function axisRulerItemSizing(item: { label: string; body?: string }, direction: "horizontal" | "vertical"): { basisHeight: number; minHeight: number; maxHeight: number; bodyHeight?: number } {
+  const labelHeight = 0.6;
+  const bodyHeight = item.body ? axisRulerBodyHeight(item.body, direction) : 0;
+  const textHeight = labelHeight + (bodyHeight > 0 ? 0.14 + bodyHeight : 0);
+  const basisHeight = direction === "horizontal"
+    ? 0.42 + 0.16 + textHeight
+    : Math.max(0.42, textHeight);
+  return {
+    basisHeight,
+    minHeight: Math.max(direction === "horizontal" ? 0.95 : 0.62, basisHeight - 0.16),
+    maxHeight: basisHeight + 0.36,
+    ...(bodyHeight > 0 ? { bodyHeight } : {}),
+  };
+}
+
+function axisRulerRailItemSizing(item: { label: string; body?: string }, direction: "horizontal" | "vertical"): { basisHeight: number; minHeight: number; maxHeight: number; bodyHeight?: number } {
+  const labelHeight = 0.6;
+  const bodyHeight = item.body ? axisRulerBodyHeight(item.body, direction) : 0;
+  const textHeight = labelHeight + (bodyHeight > 0 ? 0.14 + bodyHeight : 0);
+  const basisHeight = direction === "horizontal" ? textHeight : Math.max(0.74, textHeight);
+  return {
+    basisHeight,
+    minHeight: Math.max(direction === "horizontal" ? 0.72 : 0.74, basisHeight - 0.12),
+    maxHeight: basisHeight + 0.42,
+    ...(bodyHeight > 0 ? { bodyHeight } : {}),
+  };
+}
+
+function axisRulerBodyHeight(text: string, direction: "horizontal" | "vertical"): number {
+  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const capacity = direction === "horizontal" ? 18 : 34;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weightedTextLengthForComponent(text) / capacity));
+  return Math.max(0.56, Math.min(1.6, estimatedLines * 0.5 + 0.06));
 }
 
 

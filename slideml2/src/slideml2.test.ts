@@ -1167,7 +1167,7 @@ describe("slideml2 MVP", () => {
     const names = ast.slides[0]!.shapes.map((shape) => shape.name || "");
     expect(names.some((name) => name.includes("visual-primitives.lockup.rule"))).toBe(true);
     expect(names.some((name) => name.includes("visual-primitives.kicker.rule"))).toBe(true);
-    expect(names.some((name) => name.includes("visual-primitives.axis.line"))).toBe(true);
+    expect(names.some((name) => name.includes("visual-primitives.axis.0.rail"))).toBe(true);
     expect(names.some((name) => name.includes("visual-primitives.rail-card"))).toBe(true);
   });
 

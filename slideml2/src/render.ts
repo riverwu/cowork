@@ -954,6 +954,11 @@ function runShapeVisibilityCheck(slideId: string, slide: { shapes: ShapeList; ba
       continue;
     }
     const fillHex = fill.color.toUpperCase();
+    if (isAxisRulerGradientRailLayerShape(shape.name)) {
+      const cover = surfaceCoverFromShape(shape, slideBg);
+      if (cover) fillCovers.push(cover);
+      continue;
+    }
     // Subtle-by-design tokens: when the fill exactly matches a theme
     // token whose semantic role is "intentionally low contrast" (divider,
     // border, surface.subtle, text.muted), the agent chose to de-emphasize.
@@ -1071,6 +1076,13 @@ function runShapeVisibilityCheck(slideId: string, slide: { shapes: ShapeList; ba
           : "Pick a fill token that contrasts with this surface — typically an accent token. For card backings on near-white slide bgs, set `borderColor:\"divider\"` or `fill:\"surface.subtle\"`.",
     });
   }
+}
+
+function isAxisRulerGradientRailLayerShape(name: string | undefined): boolean {
+  const id = name || "";
+  return /\.rail\.track\.segment\.\d+$/.test(id)
+    || /\.rail\.track-highlight$/.test(id)
+    || /\.\d+\.railBridge$/.test(id);
 }
 
 /**
@@ -3232,14 +3244,27 @@ function rectForSlideChild(theme: SimpleTheme, node: DomNode, slideDom?: DomNode
   }
   const areaName = stringProp(node, "area", "");
   if (areaName === "content") {
-    return slideDom
+    const rect = slideDom
       ? protectedContentRect(theme, slideDom, node)
       : { x: theme.layout.pageMarginX, y: theme.layout.contentTop, w: theme.layout.slideWidthCm - theme.layout.pageMarginX * 2, h: theme.layout.contentBottom - theme.layout.contentTop };
+    return applySlideChildContentHugRect(theme, node, rect);
   }
   if (areaName === "full" || areaName === "") return fullRect(theme);
   const namedArea = theme.layout.areas[areaName];
   if (namedArea) return rectFromThemeArea(namedArea);
   return fullRect(theme);
+}
+
+function applySlideChildContentHugRect(theme: SimpleTheme, node: DomNode, rect: Rect): Rect {
+  const explicitMax = optionalNumberProp(node, "maxHeight");
+  const implicitMax = explicitMax ?? contentHugMaxMainSize(
+    node,
+    "vertical",
+    optionalNumberProp(node, "basisHeight") ?? intrinsicMainSize(theme, node, "vertical", rect.w),
+  );
+  if (implicitMax === undefined || !Number.isFinite(implicitMax) || implicitMax <= 0) return rect;
+  if (rect.h <= implicitMax + 0.001) return rect;
+  return { ...rect, h: Math.max(0.03, implicitMax) };
 }
 
 function rectFromThemeArea(area: SimpleTheme["layout"]["areas"][string]): Rect {
@@ -7378,7 +7403,10 @@ function layoutStackChildrenWithCassowary(
   if (gap === undefined) return undefined;
   const autoFillSlack = direction === "horizontal" || explicitSplitRatio !== null;
   const weights = explicitSplitRatio ?? childSpecs.map((spec) => ((spec.grow || autoFillSlack) && !spec.fixed) ? spec.weight : 0);
-  const shouldFill = explicitSplitRatio !== null || weights.some((weight) => weight > 0);
+  const parentMain = direction === "horizontal" ? rect.w : rect.h;
+  const totalTargetMain = targetChildSizes.reduce((sum, size) => sum + size, 0) + totalStackGapCm(theme, node, children);
+  const targetsConsumeMain = totalTargetMain >= parentMain - 0.001;
+  const shouldFill = explicitSplitRatio !== null || (weights.some((weight) => weight > 0) && targetsConsumeMain);
   const cassowarySpecs = childSpecs.map((spec, index) => ({ ...spec, basis: targetChildSizes[index] ?? spec.basis }));
   const specsById = new Map(children.map((child, index) => [child.id, cassowarySpecs[index]!] as const));
   const solverNode: DomNode = stripContainerSelfSizingForChildLayout({
@@ -7404,7 +7432,6 @@ function layoutStackChildrenWithCassowary(
       },
     });
     const totalMain = targetChildSizes.reduce((sum, size) => sum + size, 0) + totalStackGapCm(theme, node, children);
-    const parentMain = direction === "horizontal" ? rect.w : rect.h;
     const slack = Math.max(0, parentMain - totalMain);
     const justify = stringProp(node, "justify", "start");
     const startOffset = !shouldFill && slack > 0.001
@@ -7673,9 +7700,12 @@ function layoutPositionedGroupChildren(node: DomNode, rect: Rect): Array<{ node:
   const contentWidth = Math.max(0.001, numberProp(node, "contentWidth", rect.w));
   const contentHeight = Math.max(0.001, numberProp(node, "contentHeight", rect.h));
   const fit = stringProp(node, "fit", "contain");
-  const scale = fit === "none" ? 1 : Math.min(1, rect.w / contentWidth, rect.h / contentHeight);
-  const scaledWidth = contentWidth * scale;
-  const scaledHeight = contentHeight * scale;
+  const fill = fit === "fill" || fit === "stretch";
+  const scale = fill ? 1 : fit === "none" ? 1 : Math.min(1, rect.w / contentWidth, rect.h / contentHeight);
+  const scaleX = fill ? rect.w / contentWidth : scale;
+  const scaleY = fill ? rect.h / contentHeight : scale;
+  const scaledWidth = contentWidth * scaleX;
+  const scaledHeight = contentHeight * scaleY;
   const align = stringProp(node, "align", "center");
   const valign = stringProp(node, "valign", "top");
   const offsetX = align === "left" ? 0 : align === "right" ? rect.w - scaledWidth : (rect.w - scaledWidth) / 2;
@@ -7685,10 +7715,10 @@ function layoutPositionedGroupChildren(node: DomNode, rect: Rect): Array<{ node:
     return {
       node: child,
       rect: {
-        x: rect.x + offsetX + local.x * scale,
-        y: rect.y + offsetY + local.y * scale,
-        w: Math.max(0.01, local.w * scale),
-        h: Math.max(0.01, local.h * scale),
+        x: rect.x + offsetX + local.x * scaleX,
+        y: rect.y + offsetY + local.y * scaleY,
+        w: Math.max(0.01, local.w * scaleX),
+        h: Math.max(0.01, local.h * scaleY),
       },
     };
   });
@@ -7698,7 +7728,7 @@ function pushPositionedGroupFitDiagnostic(node: DomNode, rect: Rect): void {
   const contentWidth = Math.max(0.001, numberProp(node, "contentWidth", rect.w));
   const contentHeight = Math.max(0.001, numberProp(node, "contentHeight", rect.h));
   const fit = stringProp(node, "fit", "contain");
-  if (fit === "none") return;
+  if (fit === "none" || fit === "fill" || fit === "stretch") return;
   const scale = Math.min(1, rect.w / contentWidth, rect.h / contentHeight);
   const minScale = numberProp(node, "minScale", 0.84);
   const precomputedOverflow = node.overflow === true;
@@ -9683,7 +9713,9 @@ function childMainSpec(theme: SimpleTheme, node: DomNode, direction: "horizontal
   const explicitBasis = optionalNumberProp(node, direction === "horizontal" ? "basisWidth" : "basisHeight") ?? optionalNumberProp(node, "basis");
   const intrinsic = explicitBasis ?? intrinsicMainSize(theme, node, direction, crossSize);
   const min = optionalNumberProp(node, direction === "horizontal" ? "minWidth" : "minHeight") ?? intrinsicMinSize(theme, node, direction, crossSize);
-  const max = optionalNumberProp(node, direction === "horizontal" ? "maxWidth" : "maxHeight") ?? Number.POSITIVE_INFINITY;
+  const authoredMax = optionalNumberProp(node, direction === "horizontal" ? "maxWidth" : "maxHeight");
+  const implicitContentHugMax = contentHugMaxMainSize(node, direction, intrinsic);
+  const max = authoredMax ?? implicitContentHugMax ?? Number.POSITIVE_INFINITY;
   const hasExplicitWeight = optionalNumberProp(node, "layoutWeight") !== undefined;
   const isContainer = node.type === "stack" || node.type === "grid";
   const fixedContainerIsHard = isMetricValueWrap(node);
@@ -10224,6 +10256,31 @@ const CONTENT_HUG_STACK_ROLES = new Set([
   "timeline-row",
   "timeline-marker",
 ]);
+
+const CONTENT_HUG_VERTICAL_ROLES = new Set([
+  "accent-rule",
+  "axis-ruler",
+  "axis-ruler-row",
+  "badge",
+  "eyebrow",
+  "flow-arrow",
+  "legend",
+  "logo-strip",
+  "progress-bar",
+  "scale-bar",
+  "stat-strip",
+  "tag-list",
+  "timeline-axis-bar",
+]);
+
+function contentHugMaxMainSize(node: DomNode, direction: "horizontal" | "vertical", intrinsic: number): number | undefined {
+  if (direction !== "vertical") return undefined;
+  const role = regionCapacityRole(node);
+  if (!CONTENT_HUG_VERTICAL_ROLES.has(role)) return undefined;
+  if (node.fill === true || optionalNumberProp(node, "layoutWeight") !== undefined) return undefined;
+  const slack = role === "axis-ruler" || role === "legend" || role === "logo-strip" ? 0.22 : 0.14;
+  return Math.max(0.08, intrinsic + slack);
+}
 
 function contentHugSafetySlack(node: DomNode): number {
   if (node.role === "callout") {

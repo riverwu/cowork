@@ -318,6 +318,45 @@ describe("uehi0g regressions", () => {
     expect(findNode(expanded, "uehi0g-axis-wrap.ar.row0.items")?.columns).toBe(4);
   });
 
+  it("axis-ruler defaults to gradient rail, supports segmented/tick styles, and minimal keeps the legacy divider", () => {
+    const base = {
+      id: "uehi0g-axis-rail.ar",
+      type: "axis-ruler",
+      direction: "horizontal",
+      items: [
+        { label: "Low", body: "Manual" },
+        { label: "Mid", body: "Assisted" },
+        { label: "High", body: "Autonomous" },
+      ],
+    } as unknown as DomNode;
+    const rail = expandComponent("uehi0g-axis-rail", base);
+    expect(rail.children?.map((child) => child.role || child.type)).toEqual(["axis-ruler-rail", "grid"]);
+    expect(rail.children?.[0]?.type).toBe("positioned-group");
+    expect(findNode(rail, "uehi0g-axis-rail.ar.rail.track.segment.0")?.type).toBe("shape");
+    expect(findNode(rail, "uehi0g-axis-rail.ar.rail.track.segment.95")?.type).toBe("shape");
+    expect(findNode(rail, "uehi0g-axis-rail.ar.0.rail")?.type).toBe("text");
+    expect(findNode(rail, "uehi0g-axis-rail.ar.0.rail")?.noWrap).toBe(true);
+    const gradientRail = rail.children?.[0] as DomNode | undefined;
+    const firstStem = findNode(rail, "uehi0g-axis-rail.ar.0.stem") as DomNode | undefined;
+    const lastStem = findNode(rail, "uehi0g-axis-rail.ar.2.stem") as DomNode | undefined;
+    expect(gradientRail?.contentWidth).toBeCloseTo(15.4);
+    expect(Array.isArray(firstStem?.at) ? firstStem.at[0] + firstStem.at[2] / 2 : undefined).toBeCloseTo(gradientRail!.contentWidth / 6);
+    expect(Array.isArray(lastStem?.at) ? lastStem.at[0] + lastStem.at[2] / 2 : undefined).toBeCloseTo((gradientRail!.contentWidth * 5) / 6);
+    expect(rail.children?.[1]?.gap).toBe(0);
+
+    const segmented = expandComponent("uehi0g-axis-segmented", { ...base, id: "uehi0g-axis-segmented.ar", railStyle: "segmented" } as unknown as DomNode);
+    expect(segmented.children?.[0]?.type).toBe("grid");
+    expect(findNode(segmented, "uehi0g-axis-segmented.ar.0.rail")?.type).toBe("text");
+
+    const tick = expandComponent("uehi0g-axis-tick", { ...base, id: "uehi0g-axis-tick.ar", railStyle: "tick" } as unknown as DomNode);
+    expect(tick.children?.[0]?.type).toBe("stack");
+    expect(findNode(tick, "uehi0g-axis-tick.ar.0.rail")?.type).toBe("shape");
+
+    const minimal = expandComponent("uehi0g-axis-minimal", { ...base, id: "uehi0g-axis-minimal.ar", variant: "minimal" } as unknown as DomNode);
+    expect(minimal.children?.[0]?.type).toBe("divider");
+    expect(findNode(minimal, "uehi0g-axis-minimal.ar.0.marker")?.type).toBe("shape");
+  });
+
   it("dense numbered-grid uses one compact tone chip, not a second marker badge", () => {
     const expanded = expandComponent("uehi0g-numbered-dense", {
       id: "uehi0g-numbered-dense.grid",
