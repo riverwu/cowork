@@ -302,6 +302,47 @@ describe("stat-strip: metric strips keep their natural band height", () => {
   });
 });
 
+describe("matrix-2x2: axis layout keeps a bounded natural height", () => {
+  it("does not consume the whole slide when combined with a takeaway", () => {
+    const slide: SlideV2 = {
+      id: "matrix-pressure",
+      title: "抓 Agent 红利，第一步是选对流程",
+      children: [
+        {
+          id: "matrix-pressure.matrix",
+          type: "matrix-2x2",
+          xAxis: { low: "结果难验证", high: "结果可验证" },
+          yAxis: { low: "业务价值低", high: "业务价值高" },
+          quadrantLabels: {
+            tl: "先治理上下文：数据语义化 / API / 权限 / Eval",
+            tr: "优先改造：广告投放 / 客服工单 / 财务审核 / 教育答疑",
+            bl: "暂缓：泛助手 / 开放闲聊 / 无指标任务",
+            br: "可以自动化：报表 / 摘要 / 文件处理",
+          },
+          quadrantTones: { tr: "positive", tl: "warning", bl: "neutral", br: "warning" },
+        } as unknown as DomNode,
+        {
+          id: "matrix-pressure.takeaway",
+          type: "key-takeaway",
+          headline: "先抓可验证、可闭环、能直接改造效率的流程。",
+          detail: "把泛泛的 Agent 需求拆成价值与可验证性两个维度，优先推进右上象限。",
+          variant: "panel",
+          tone: "brand",
+        } as unknown as DomNode,
+      ],
+    };
+
+    const blocking = blockingFor(slide);
+    expect(blocking.map((d) => `${d.code} ${d.nodeId}`).join("\n")).toBe("");
+    const measured = measuredFor(slide);
+    const matrix = measured.find((node) => node.id === "matrix-pressure.matrix");
+    const takeaway = measured.find((node) => node.id === "matrix-pressure.takeaway");
+    expect(matrix?.rect.h).toBeLessThanOrEqual(5.7);
+    expect(takeaway?.rect.h).toBeGreaterThan(1.15);
+    expect(takeaway!.rect.y).toBeGreaterThan(matrix!.rect.y + matrix!.rect.h);
+  });
+});
+
 describe("composite suite under tight slot (sibling competition)", () => {
   it("kpi-grid + comparison-card grid stacked: does not FALLBACK on factory-set fixedHeight", () => {
     // Two grids stacked in one slide reproduces the rm8s07 pinch.

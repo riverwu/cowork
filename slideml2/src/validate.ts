@@ -2912,6 +2912,15 @@ function declaredValueTypeMatches(value: unknown, type: string): boolean {
   switch (type) {
     case "string":
       return typeof value === "string";
+    case "number":
+      return (typeof value === "number" && Number.isFinite(value)) || isNumericString(value);
+    case "boolean":
+      return typeof value === "boolean";
+    case "object":
+    case "record":
+      return Boolean(value && typeof value === "object" && !Array.isArray(value));
+    case "array":
+      return Array.isArray(value);
     case "DomNode":
       return Boolean(value && typeof value === "object" && !Array.isArray(value) && typeof (value as Record<string, unknown>).type === "string");
     case "DomNode[]":
@@ -2926,6 +2935,15 @@ function declaredValueTypesDescription(types: readonly string[]): string {
     switch (type) {
       case "string":
         return "a string";
+      case "number":
+        return "a finite number";
+      case "boolean":
+        return "a boolean";
+      case "object":
+      case "record":
+        return "an object";
+      case "array":
+        return "an array";
       case "DomNode":
         return "a DomNode object";
       case "DomNode[]":

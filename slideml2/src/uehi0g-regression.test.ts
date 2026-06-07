@@ -136,6 +136,53 @@ describe("uehi0g regressions", () => {
     expect(neutralCell?.line).toBe("divider");
   });
 
+  it("matrix-2x2 axis mode preserves configurable line heads, label positions, and borders", () => {
+    const expanded = expandComponent("matrix-axis-config", {
+      id: "matrix-axis-config.matrix",
+      type: "matrix-2x2",
+      xAxis: { low: "结果难验证", high: "结果可验证" },
+      yAxis: { low: "业务价值低", high: "业务价值高" },
+      quadrantLabels: {
+        tl: "先治理上下文：数据语义化 / API / 权限 / Eval",
+        tr: "优先改造：广告投放 / 客服工单",
+        bl: "暂缓：开放闲聊",
+        br: "可以自动化：报表 / 摘要",
+      },
+      axisLabelPosition: "inside",
+      quadrantLabelPosition: "center",
+      axisLine: {
+        line: "danger",
+        lineWidth: 0.06,
+        lineDash: "dash",
+        heads: "both",
+        xTailEnd: { type: "stealth", width: "lg", length: "lg" },
+        yHeadEnd: { type: "oval", width: "med", length: "med" },
+      },
+      quadrantBorder: {
+        line: "brand.primary",
+        lineWidth: 0.04,
+        lineDash: "dot",
+        cornerRadius: 0.22,
+      },
+    } as unknown as DomNode);
+
+    const xAxis = findNode(expanded, "matrix-axis-config.matrix.x-axis.line");
+    const yAxis = findNode(expanded, "matrix-axis-config.matrix.y-axis.line");
+    const topLeft = findNode(expanded, "matrix-axis-config.matrix.tl");
+    const xLowLabel = findNode(expanded, "matrix-axis-config.matrix.xlo");
+
+    expect(xAxis?.line).toBe("danger");
+    expect(xAxis?.lineWidth).toBe(0.06);
+    expect(xAxis?.lineDash).toBe("dash");
+    expect(xAxis?.tailEnd).toMatchObject({ type: "stealth", width: "lg", length: "lg" });
+    expect(yAxis?.headEnd).toMatchObject({ type: "oval", width: "med", length: "med" });
+    expect(topLeft?.line).toBe("brand.primary");
+    expect(topLeft?.lineWidth).toBe(0.04);
+    expect(topLeft?.lineDash).toBe("dot");
+    expect(topLeft?.cornerRadius).toBe(0.22);
+    expect(xLowLabel?.at?.[1]).toBeGreaterThan((xAxis?.at?.[1] ?? 0) - 0.1);
+  });
+
   it("matrix-2x2 with neither items nor quadrantLabels produces a clear error", () => {
     const slide: SlideV2 = {
       id: "uehi0g-s3-empty",

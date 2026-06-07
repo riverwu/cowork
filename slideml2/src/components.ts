@@ -4224,16 +4224,63 @@ function heatmapColor(palette: "warm" | "cool" | "diverging", t: number): string
 export function matrix2x2(
   slideId: string,
   id: string,
-  options: {
-    xAxis: { low: string; high: string };
-    yAxis: { low: string; high: string };
-    items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: "brand" | "positive" | "warning" | "danger" }>;
-    quadrantLabels?: { tl?: string; tr?: string; bl?: string; br?: string };
-    quadrantTones?: { tl?: "brand" | "positive" | "warning" | "danger" | "neutral"; tr?: "brand" | "positive" | "warning" | "danger" | "neutral"; bl?: "brand" | "positive" | "warning" | "danger" | "neutral"; br?: "brand" | "positive" | "warning" | "danger" | "neutral" };
-    density?: "comfortable" | "compact" | "auto";
-    showXAxis?: boolean;
-    showYAxis?: boolean;
-  } & { surface?: AgentSurface } & AgentSurface,
+  options: Matrix2x2Options,
+): DomNode {
+  if (options.variant !== "cards") return matrix2x2Axis(slideId, id, options);
+  return matrix2x2Cards(slideId, id, options);
+}
+
+type MatrixQuadrantKey = "tl" | "tr" | "bl" | "br";
+type MatrixQuadrantTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+type Matrix2x2Options = {
+  xAxis: { low: string; high: string };
+  yAxis: { low: string; high: string };
+  items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: "brand" | "positive" | "warning" | "danger" }>;
+  quadrantLabels?: { tl?: string; tr?: string; bl?: string; br?: string };
+  quadrantTones?: Partial<Record<MatrixQuadrantKey, MatrixQuadrantTone>>;
+  variant?: "axis" | "cards";
+  density?: "comfortable" | "compact" | "auto";
+  showXAxis?: boolean;
+  showYAxis?: boolean;
+  axisLabelPosition?: "outside" | "inside" | "none";
+  quadrantLabelPosition?: "corner" | "center";
+  axisLine?: MatrixAxisLineOptions;
+  quadrantBorder?: boolean | MatrixQuadrantBorderOptions;
+} & { surface?: AgentSurface } & AgentSurface;
+type MatrixLineEnd = {
+  type?: "none" | "triangle" | "stealth" | "diamond" | "oval" | "arrow";
+  width?: "sm" | "med" | "lg";
+  length?: "sm" | "med" | "lg";
+};
+type MatrixAxisLineOptions = {
+  color?: string;
+  line?: string;
+  lineWidth?: number;
+  width?: number;
+  dash?: "solid" | "dash" | "dashDot" | "dot";
+  lineDash?: "solid" | "dash" | "dashDot" | "dot";
+  heads?: "positive" | "both" | "none";
+  headEnd?: MatrixLineEnd;
+  tailEnd?: MatrixLineEnd;
+  xHeadEnd?: MatrixLineEnd;
+  xTailEnd?: MatrixLineEnd;
+  yHeadEnd?: MatrixLineEnd;
+  yTailEnd?: MatrixLineEnd;
+};
+type MatrixQuadrantBorderOptions = {
+  line?: string;
+  color?: string;
+  lineWidth?: number;
+  width?: number;
+  dash?: "solid" | "dash" | "dashDot" | "dot";
+  lineDash?: "solid" | "dash" | "dashDot" | "dot";
+  cornerRadius?: number;
+};
+
+function matrix2x2Cards(
+  slideId: string,
+  id: string,
+  options: Matrix2x2Options,
 ): DomNode {
   const items = options.items || [];
   const compact = options.density !== "comfortable";
@@ -4390,6 +4437,476 @@ export function matrix2x2(
     role: "matrix-2x2",
     children,
   } as DomNode, options);
+}
+
+function matrix2x2Axis(
+  slideId: string,
+  id: string,
+  options: Matrix2x2Options,
+): DomNode {
+  const items = options.items || [];
+  const compact = options.density !== "comfortable";
+  const showXAxis = options.showXAxis !== false && options.axisLabelPosition !== "none";
+  const showYAxis = options.showYAxis !== false && options.axisLabelPosition !== "none";
+  const labelInside = options.axisLabelPosition === "inside";
+  const labelOnly = items.length === 0;
+  const ql = options.quadrantLabels || {};
+  const qt = options.quadrantTones || {};
+  const quadrantItems = matrixQuadrantItems(items);
+  const contentWidth = 18.4;
+  const contentHeight = compact ? 5.05 : 5.85;
+  const labelTop = labelInside || !showYAxis ? 0.28 : compact ? 0.66 : 0.72;
+  const labelBottom = labelInside || !showXAxis ? 0.38 : compact ? 0.64 : 0.70;
+  const plotX = 0.9;
+  const plotY = labelTop;
+  const plotW = contentWidth - 1.8;
+  const plotH = contentHeight - labelTop - labelBottom;
+  const axisX = plotX + plotW / 2;
+  const axisY = plotY + plotH / 2;
+  const outerGapX = compact ? 0.34 : 0.45;
+  const outerGapY = compact ? 0.14 : 0.18;
+  const crossGapX = compact ? 0.42 : 0.52;
+  const crossGapY = compact ? 0.36 : 0.44;
+  const qW = (plotW - outerGapX * 2 - crossGapX) / 2;
+  const qH = (plotH - outerGapY * 2 - crossGapY) / 2;
+  const basisHeight = contentHeight;
+  const axis = matrixAxisLineOptions(options.axisLine);
+  const border = matrixQuadrantBorderOptions(options.quadrantBorder);
+
+  const quadrantRect = (key: MatrixQuadrantKey): [number, number, number, number] => {
+    const left = key.endsWith("l");
+    const top = key.startsWith("t");
+    return [
+      left ? plotX + outerGapX : axisX + crossGapX / 2,
+      top ? plotY + outerGapY : axisY + crossGapY / 2,
+      qW,
+      qH,
+    ];
+  };
+
+  const children: DomNode[] = [
+    {
+      id: `${slideId}.${id}.frame`,
+      type: "shape",
+      preset: "roundRect",
+      fill: "surface",
+      fillOpacity: 0.28,
+      line: "divider",
+      lineOpacity: 0.55,
+      lineWidth: 0.014,
+      cornerRadius: 0.12,
+      at: [0.05, 0.05, contentWidth - 0.1, contentHeight - 0.1],
+      zIndex: 0,
+    },
+    ...(["tl", "tr", "bl", "br"] as MatrixQuadrantKey[]).flatMap((key) => {
+      const rect = quadrantRect(key);
+      return matrixAxisQuadrantNodes(
+        slideId,
+        id,
+        key,
+        rect,
+        ql[key],
+        qt[key],
+        quadrantItems[key],
+        labelOnly,
+        compact,
+        options.quadrantLabelPosition || "corner",
+        border,
+      );
+    }),
+    ...matrixAxisLineNodes(slideId, id, axis, plotX, plotY, plotW, plotH, axisX, axisY),
+    ...matrixAxisLabelNodes(slideId, id, options, {
+      showXAxis,
+      showYAxis,
+      inside: labelInside,
+      compact,
+      plotX,
+      plotY,
+      plotW,
+      plotH,
+      axisX,
+      axisY,
+      contentWidth,
+      contentHeight,
+    }),
+  ];
+
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "positioned-group",
+    role: "matrix-2x2",
+    contentWidth,
+    contentHeight,
+    fit: "fill",
+    align: "center",
+    valign: "top",
+    basisHeight,
+    minHeight: compact ? 4.15 : 4.9,
+    maxHeight: compact ? 5.45 : 6.4,
+    children,
+  } as DomNode, options);
+}
+
+function matrixQuadrantItems(items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: "brand" | "positive" | "warning" | "danger" }>): Record<MatrixQuadrantKey, Array<{ label: string; tone: string }>> {
+  const quadrants: Record<MatrixQuadrantKey, Array<{ label: string; tone: string }>> = { tl: [], tr: [], bl: [], br: [] };
+  for (const it of items) {
+    const key = `${it.y === "high" ? "t" : "b"}${it.x === "low" ? "l" : "r"}` as MatrixQuadrantKey;
+    quadrants[key]!.push({ label: it.label, tone: it.tone || "brand" });
+  }
+  return quadrants;
+}
+
+function matrixTint(tone: MatrixQuadrantTone | undefined): { fill: string; ink: string; line: string } {
+  if (tone === "positive") return { fill: "success.tint", ink: "success", line: "success" };
+  if (tone === "warning") return { fill: "warning.tint", ink: "warning", line: "warning" };
+  if (tone === "danger") return { fill: "danger.tint", ink: "danger", line: "danger" };
+  if (tone === "brand") return { fill: "brand.tint", ink: "brand.primary", line: "brand.primary" };
+  if (tone === "neutral") return { fill: "surface.subtle", ink: "text.primary", line: "divider" };
+  return { fill: "surface.subtle", ink: "text.primary", line: "divider" };
+}
+
+function matrixDefaultQuadrantTone(key: MatrixQuadrantKey): MatrixQuadrantTone {
+  if (key === "tr") return "positive";
+  if (key === "bl") return "neutral";
+  return "warning";
+}
+
+function matrixAxisQuadrantNodes(
+  slideId: string,
+  id: string,
+  key: MatrixQuadrantKey,
+  rect: [number, number, number, number],
+  label: string | undefined,
+  toneRaw: MatrixQuadrantTone | undefined,
+  items: Array<{ label: string; tone: string }>,
+  labelOnly: boolean,
+  compact: boolean,
+  labelPosition: "corner" | "center",
+  border: Required<MatrixQuadrantBorderOptions> & { show: boolean },
+): DomNode[] {
+  const tone = toneRaw || (labelOnly ? matrixDefaultQuadrantTone(key) : "neutral");
+  const tint = labelOnly ? matrixTint(tone) : matrixTint("neutral");
+  const [x, y, w, h] = rect;
+  const pad = compact ? 0.32 : 0.46;
+  const zBase = key === "tr" ? 2 : 1;
+  const nodes: DomNode[] = [{
+    id: `${slideId}.${id}.${key}`,
+    type: "shape",
+    preset: "roundRect",
+    role: "matrix-quadrant",
+    fill: tint.fill,
+    fillOpacity: labelOnly ? 0.74 : 0.54,
+    line: border.show ? (toneRaw ? tint.line : border.line) : "none",
+    lineWidth: border.show ? border.lineWidth : 0,
+    lineDash: border.lineDash,
+    cornerRadius: border.cornerRadius,
+    at: [x, y, w, h],
+    zIndex: zBase,
+  }];
+  if (label) {
+    const labelParts = matrixSplitQuadrantLabel(label);
+    const center = labelPosition === "center" && labelOnly;
+    const chipH = compact ? 0.40 : 0.46;
+    const chipToTitleGap = compact ? 0.16 : 0.20;
+    const blockH = labelParts.kicker ? (compact ? 1.24 : 1.44) : (compact ? 0.68 : 0.82);
+    const labelX = x + pad;
+    const labelY = center ? y + Math.max(0.2, (h - blockH) / 2) : y + (compact ? 0.26 : 0.30);
+    const labelW = w - pad * 2;
+    if (labelParts.kicker) {
+      nodes.push({
+        id: `${slideId}.${id}.${key}.kicker`,
+        type: "text",
+        text: labelParts.kicker,
+        style: "label",
+        size: "sm",
+        weight: "bold",
+        color: tint.ink,
+        fill: "surface",
+        fillOpacity: 0.95,
+        line: tint.line,
+        lineWidth: 0.01,
+        cornerRadius: 0.12,
+        align: center ? "center" : "left",
+        valign: "middle",
+        noWrap: true,
+        autoFit: "shrink",
+        at: [labelX, labelY, Math.min(labelW, textChipWidthCm(labelParts.kicker, { min: 1.45, max: 4.8, padding: 0.92 })), chipH],
+        zIndex: zBase + 2,
+      });
+      nodes.push({
+        id: `${slideId}.${id}.${key}.qlabel`,
+        type: "text",
+        text: labelParts.title,
+        style: labelOnly ? "card-title" : "label",
+        size: labelOnly && !compact && !labelParts.kicker ? "lg" : undefined,
+        weight: "semibold",
+        color: labelOnly && !labelParts.kicker ? tint.ink : "text.primary",
+        align: center ? "center" : "left",
+        valign: labelParts.detail ? "top" : center ? "middle" : "top",
+        autoFit: "shrink",
+        noWrap: !labelParts.detail,
+        at: [
+          labelX,
+          labelY + chipH + chipToTitleGap,
+          labelW,
+          labelParts.detail
+            ? compact ? 0.52 : 0.66
+            : Math.max(compact ? 0.66 : 0.78, h - (labelY - y) - (compact ? 0.36 : 0.42)),
+        ],
+        zIndex: zBase + 2,
+      });
+      if (labelParts.detail) {
+        nodes.push({
+          id: `${slideId}.${id}.${key}.detail`,
+          type: "text",
+          text: labelParts.detail,
+          style: compact ? "caption" : "paragraph",
+          weight: "semibold",
+          color: "text.primary",
+          align: center ? "center" : "left",
+          valign: "top",
+          autoFit: "shrink",
+          at: [labelX, labelY + (compact ? 1.02 : 1.28), labelW, Math.max(0.5, h - (labelY - y) - (compact ? 1.22 : 1.54))],
+          zIndex: zBase + 2,
+        });
+      }
+    } else {
+      nodes.push({
+        id: `${slideId}.${id}.${key}.qlabel`,
+        type: "text",
+        text: labelParts.title,
+        style: labelOnly ? "card-title" : "label",
+        size: labelOnly && !compact ? "lg" : undefined,
+        weight: "semibold",
+        color: labelOnly ? tint.ink : "text.primary",
+        align: center ? "center" : "left",
+        valign: center ? "middle" : "top",
+        autoFit: "shrink",
+        at: [labelX, center ? y + h * 0.28 : labelY, labelW, center ? h * 0.44 : compact ? 0.68 : 0.82],
+        zIndex: zBase + 2,
+      });
+    }
+  }
+  if (!labelOnly && items.length) {
+    const chipH = compact ? 0.32 : 0.40;
+    const chipGap = compact ? 0.08 : 0.10;
+    const startY = y + (label ? (compact ? 0.98 : 1.12) : pad);
+    const visible = items.length > 5 ? items.slice(0, 4) : items.slice(0, 5);
+    visible.forEach((item, index) => {
+      const itemTone = matrixItemTone(item.tone);
+      nodes.push({
+        id: `${slideId}.${id}.${key}.${index}`,
+        type: "text",
+        text: item.label,
+        style: "label",
+        size: "sm",
+        weight: "semibold",
+        color: itemTone.ink,
+        fill: itemTone.fill,
+        align: "left",
+        valign: "middle",
+        cornerRadius: 0.08,
+        autoFit: "shrink",
+        at: [x + pad, startY + index * (chipH + chipGap), w - pad * 2, chipH],
+        zIndex: zBase + 3,
+      });
+    });
+    if (items.length > visible.length) {
+      nodes.push({
+        id: `${slideId}.${id}.${key}.overflow`,
+        type: "text",
+        text: `+${items.length - visible.length} more`,
+        style: "label",
+        size: "sm",
+        color: "text.muted",
+        fill: "surface",
+        align: "center",
+        valign: "middle",
+        cornerRadius: 0.08,
+        autoFit: "shrink",
+        at: [x + pad, startY + visible.length * (chipH + chipGap), 1.6, chipH],
+        zIndex: zBase + 3,
+      });
+    }
+  }
+  return nodes;
+}
+
+function matrixSplitQuadrantLabel(label: string): { kicker?: string; title: string; detail?: string } {
+  const trimmed = label.trim();
+  const match = trimmed.match(/^(.{2,18}?)[：:]\s*(.+)$/);
+  if (!match) return { title: trimmed };
+  const head = match[1]!.trim();
+  const rest = match[2]!.trim();
+  const detailMatch = rest.match(/^(.{2,36}?)[；;。]\s*(.+)$/);
+  if (detailMatch) {
+    return { kicker: head, title: detailMatch[1]!.trim(), detail: detailMatch[2]!.trim() };
+  }
+  return { kicker: head, title: rest };
+}
+
+function matrixItemTone(tone: string): { fill: string; ink: string } {
+  if (tone === "positive") return { fill: "success.tint", ink: "success" };
+  if (tone === "warning") return { fill: "warning.tint", ink: "warning" };
+  if (tone === "danger") return { fill: "danger.tint", ink: "danger" };
+  return { fill: "brand.tint", ink: "brand.primary" };
+}
+
+function matrixAxisLineOptions(axisLine: MatrixAxisLineOptions | undefined): Required<MatrixAxisLineOptions> {
+  const heads = axisLine?.heads || "both";
+  const positiveHead: MatrixLineEnd | undefined = heads === "none" ? { type: "none" } : { type: "triangle", width: "lg", length: "lg" };
+  const lowHead: MatrixLineEnd | undefined = heads === "both" ? { type: "triangle", width: "lg", length: "lg" } : { type: "none" };
+  return {
+    color: axisLine?.color || axisLine?.line || "brand.primary",
+    line: axisLine?.line || axisLine?.color || "brand.primary",
+    lineWidth: axisLine?.lineWidth ?? axisLine?.width ?? 0.04,
+    width: axisLine?.width ?? axisLine?.lineWidth ?? 0.04,
+    dash: axisLine?.dash || axisLine?.lineDash || "solid",
+    lineDash: axisLine?.lineDash || axisLine?.dash || "solid",
+    heads,
+    headEnd: axisLine?.headEnd || lowHead || { type: "none" },
+    tailEnd: axisLine?.tailEnd || positiveHead || { type: "none" },
+    xHeadEnd: axisLine?.xHeadEnd || axisLine?.headEnd || lowHead || { type: "none" },
+    xTailEnd: axisLine?.xTailEnd || axisLine?.tailEnd || positiveHead || { type: "none" },
+    yHeadEnd: axisLine?.yHeadEnd || axisLine?.headEnd || positiveHead || { type: "none" },
+    yTailEnd: axisLine?.yTailEnd || axisLine?.tailEnd || lowHead || { type: "none" },
+  };
+}
+
+function matrixQuadrantBorderOptions(border: boolean | MatrixQuadrantBorderOptions | undefined): Required<MatrixQuadrantBorderOptions> & { show: boolean } {
+  if (border === false) {
+    return { show: false, line: "none", color: "none", lineWidth: 0, width: 0, dash: "solid", lineDash: "solid", cornerRadius: 0.12 };
+  }
+  const rec = border && typeof border === "object" ? border : {};
+  return {
+    show: true,
+    line: rec.line || rec.color || "divider",
+    color: rec.color || rec.line || "divider",
+    lineWidth: rec.lineWidth ?? rec.width ?? 0.018,
+    width: rec.width ?? rec.lineWidth ?? 0.018,
+    dash: rec.dash || rec.lineDash || "solid",
+    lineDash: rec.lineDash || rec.dash || "solid",
+    cornerRadius: rec.cornerRadius ?? 0.10,
+  };
+}
+
+function matrixAxisLineNodes(
+  slideId: string,
+  id: string,
+  axis: Required<MatrixAxisLineOptions>,
+  plotX: number,
+  plotY: number,
+  plotW: number,
+  plotH: number,
+  axisX: number,
+  axisY: number,
+): DomNode[] {
+  const dash = axis.lineDash === "solid" ? undefined : axis.lineDash;
+  const lineBox = 0.06;
+  return [
+    {
+      id: `${slideId}.${id}.x-axis.line`,
+      type: "shape",
+      preset: "line",
+      fill: "none",
+      line: axis.line,
+      lineWidth: axis.lineWidth,
+      lineDash: dash,
+      headEnd: axis.xHeadEnd,
+      tailEnd: axis.xTailEnd,
+      at: [plotX, axisY - lineBox / 2, plotW, lineBox],
+      zIndex: 8,
+    },
+    {
+      id: `${slideId}.${id}.y-axis.line`,
+      type: "shape",
+      preset: "line",
+      fill: "none",
+      line: axis.line,
+      lineWidth: axis.lineWidth,
+      lineDash: dash,
+      headEnd: axis.yHeadEnd,
+      tailEnd: axis.yTailEnd,
+      at: [axisX - lineBox / 2, plotY, lineBox, plotH],
+      zIndex: 8,
+    },
+    {
+      id: `${slideId}.${id}.axis.center`,
+      type: "shape",
+      preset: "ellipse",
+      fill: axis.line,
+      line: "surface",
+      lineWidth: 0.025,
+      at: [axisX - 0.08, axisY - 0.08, 0.16, 0.16],
+      zIndex: 9,
+    },
+  ];
+}
+
+function matrixAxisLabelNodes(
+  slideId: string,
+  id: string,
+  options: Matrix2x2Options,
+  layout: {
+    showXAxis: boolean;
+    showYAxis: boolean;
+    inside: boolean;
+    compact: boolean;
+    plotX: number;
+    plotY: number;
+    plotW: number;
+    plotH: number;
+    axisX: number;
+    axisY: number;
+    contentWidth: number;
+    contentHeight: number;
+  },
+): DomNode[] {
+  const nodes: DomNode[] = [];
+  const labelH = layout.compact ? 0.44 : 0.48;
+  const yPillW = Math.min(4.6, Math.max(2.35, layout.plotW * 0.22));
+  const xLabelW = Math.min(3.8, Math.max(2.35, layout.plotW / 2 - 0.34));
+  const axisLabel = (suffix: string, text: string, at: [number, number, number, number], align: "left" | "center" | "right" = "center"): DomNode => ({
+    id: `${slideId}.${id}.${suffix}`,
+    type: "text",
+    text,
+    style: "label",
+    weight: "semibold",
+    color: "text.primary",
+    fill: "none",
+    line: "none",
+    align,
+    valign: "middle",
+    tracking: "wide",
+    noWrap: true,
+    autoFit: "shrink",
+    at,
+    zIndex: 12,
+  });
+  if (layout.showYAxis) {
+    const yHighW = Math.min(yPillW, textChipWidthCm(options.yAxis.high, { min: 2.15, max: yPillW, padding: 0.78 }));
+    const yLowW = Math.min(yPillW, textChipWidthCm(options.yAxis.low, { min: 2.15, max: yPillW, padding: 0.78 }));
+    nodes.push(axisLabel(
+      "yhi",
+      options.yAxis.high,
+      layout.inside
+        ? [layout.axisX + 0.18, layout.plotY + 0.12, yHighW, labelH]
+        : [layout.axisX - yHighW / 2, 0.13, yHighW, labelH],
+    ));
+    nodes.push(axisLabel(
+      "ylo",
+      options.yAxis.low,
+      layout.inside
+        ? [layout.axisX + 0.18, layout.plotY + layout.plotH - labelH - 0.12, yLowW, labelH]
+        : [layout.axisX - yLowW / 2, layout.contentHeight - labelH - 0.12, yLowW, labelH],
+    ));
+  }
+  if (layout.showXAxis) {
+    const y = layout.inside ? layout.axisY + 0.18 : layout.contentHeight - labelH - 0.12;
+    nodes.push(axisLabel("xlo", options.xAxis.low, [Math.max(0.1, layout.plotX - 0.45), y, xLabelW, labelH], "left"));
+    nodes.push(axisLabel("xhi", options.xAxis.high, [Math.min(layout.contentWidth - xLabelW - 0.1, layout.plotX + layout.plotW - xLabelW + 0.45), y, xLabelW, labelH], "right"));
+  }
+  return nodes;
 }
 
 /**

@@ -963,7 +963,7 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     palette: { type: "enum", enum: ["warm", "cool", "diverging"], description: "Color palette (default cool)." },
     showValues: { type: "boolean", description: "Render numeric values inside cells (default auto by size)." },
   }, "grid of colored cells with axis labels", "stack"),
-  component("matrix-2x2", "2x2 quadrant matrix with labeled axes. Use for risk-matrix (impact × probability), priority (effort × value), Boston matrix, market segmentation. Different from swot-matrix which has fixed S/W/O/T semantics. Two authoring modes: (1) item-style — pass `items` with each entry placed in a quadrant via x/y enum; (2) label-style — pass `quadrantLabels {tl,tr,bl,br}` or `quadrants` to render each quadrant as a tinted card carrying just the corner label/headline. At least one of `items`, `quadrantLabels`, or `quadrants` is required.", {
+  component("matrix-2x2", "2x2 quadrant matrix with labeled axes. Use for risk-matrix (impact × probability), priority (effort × value), Boston matrix, market segmentation. Different from swot-matrix which has fixed S/W/O/T semantics. Default `variant:'axis'` renders a true x/y coordinate matrix with editable axis lines; `variant:'cards'` keeps the legacy stacked quadrant-card layout. Two authoring modes: (1) item-style — pass `items` with each entry placed in a quadrant via x/y enum; (2) label-style — pass `quadrantLabels {tl,tr,bl,br}` or `quadrants` to render each quadrant as a tinted summary region. At least one of `items`, `quadrantLabels`, or `quadrants` is required.", {
     xAxis: { type: "object", description: "{low:string, high:string} — x-axis labels. Alias: x, axes.x, xLow/xHigh." },
     yAxis: { type: "object", description: "{low:string, high:string} — y-axis labels. Alias: y, axes.y, yLow/yHigh." },
     x: { type: "object", description: "Alias for xAxis." },
@@ -973,9 +973,14 @@ export const COMPONENT_DEFINITIONS: ComponentDefinition[] = [
     quadrantLabels: { type: "object", description: "Optional {tl|topLeft, tr|topRight, bl|bottomLeft, br|bottomRight} corner names (e.g. \"Quick Wins\"). When provided without items, each quadrant renders as a tinted summary card." },
     quadrantTones: { type: "object", description: "Optional {tl?,tr?,bl?,br?: enum[brand|positive|warning|danger|neutral]} — per-quadrant accent tone, applied in label-only mode (no items[]). In item-style mode set per-item `tone` instead — quadrant cells stay neutral there so the data points stand out." },
     quadrants: { type: "array", description: "Optional label-style alias: [{quadrant|position:'tl|tr|bl|br', label|title|name|text, tone?}], or an object using topLeft/topRight/bottomLeft/bottomRight keys." },
+    variant: { type: "enum", enum: ["axis", "cards"], description: "Visual treatment. axis/default uses crossing editable x/y lines and quadrant regions; cards keeps the older 2x2 card grid." },
     density: { type: "enum", enum: ["auto", "comfortable", "compact"], description: "auto/default uses compact internals so the matrix works inside split/grid regions; comfortable restores larger gaps." },
     showAxes: { type: "boolean", description: "Force axis labels on/off. By default axes render only when axis labels were explicitly provided." },
-  }, "stack(yhi-label, 2x2 grid of quadrant cards, ylo-label, x-axis labels)", "stack"),
+    axisLabelPosition: { type: "enum", enum: ["outside", "inside", "none"], description: "Where x/y low/high text labels render in axis mode. outside/default places labels outside the plot; inside tucks them into the plot; none hides labels but keeps axis lines." },
+    quadrantLabelPosition: { type: "enum", enum: ["corner", "center"], description: "Label placement for label-only quadrants in axis mode. corner/default is best for long labels; center works for short quadrant names." },
+    axisLine: { type: "object", description: "Axis line styling for axis mode: {line|color, lineWidth|width, lineDash|dash, heads:'positive'|'both'|'none', headEnd?, tailEnd?, xHeadEnd?, xTailEnd?, yHeadEnd?, yTailEnd?}. Line end objects support {type:'none'|'triangle'|'stealth'|'diamond'|'oval'|'arrow', width:'sm'|'med'|'lg', length:'sm'|'med'|'lg'}." },
+    quadrantBorder: { type: "object", valueTypes: ["object", "boolean"], description: "Quadrant border styling in axis mode. Pass false to remove borders, or {line|color, lineWidth|width, lineDash|dash, cornerRadius}." },
+  }, "positioned-group(frame, quadrant regions, editable axis lines, axis labels)", "stack"),
   component("trend-line", "Mini sparkline / trend visualization (bars whose height reflects values). Use as decoration next to a metric or under a heading. Different from chart-card (full chart with axes/legend) — trend-line is just the shape.", {
     values: { type: "array", required: true, description: "Array of numbers (max 24)." },
     tone: { type: "enum", enum: ["brand", "positive", "warning", "danger"], description: "Bar color tone." },
@@ -2243,6 +2248,16 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
     };
     const showAxes = typeof node.showAxes === "boolean" ? node.showAxes : undefined;
     const density = node.density === "comfortable" || node.density === "compact" || node.density === "auto" ? node.density : undefined;
+    const variant = node.variant === "cards" || node.variant === "axis" ? node.variant : undefined;
+    const axisLabelPosition = node.axisLabelPosition === "outside" || node.axisLabelPosition === "inside" || node.axisLabelPosition === "none"
+      ? node.axisLabelPosition
+      : undefined;
+    const quadrantLabelPosition = node.quadrantLabelPosition === "corner" || node.quadrantLabelPosition === "center"
+      ? node.quadrantLabelPosition
+      : undefined;
+    const quadrantBorder = typeof node.quadrantBorder === "boolean"
+      ? node.quadrantBorder
+      : objectRecord(node.quadrantBorder);
     return withComponentRoot(node, matrix2x2(slideId, name, {
       xAxis: { low: xAxis.low, high: xAxis.high },
       yAxis: { low: yAxis.low, high: yAxis.high },
@@ -2259,9 +2274,14 @@ export function expandComponent(slideId: string, node: DomNode, theme?: SimpleTh
         bl: tone(qt.bl),
         br: tone(qt.br),
       },
+      variant,
       density,
       showXAxis: showAxes ?? xAxis.explicit,
       showYAxis: showAxes ?? yAxis.explicit,
+      axisLabelPosition,
+      quadrantLabelPosition,
+      axisLine: objectRecord(node.axisLine),
+      quadrantBorder,
     }));
   }
   if (componentName === "trend-line") {
