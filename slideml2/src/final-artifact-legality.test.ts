@@ -28,7 +28,8 @@ describe("final artifact legality", () => {
     const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
 
     expect(slideXml).toContain("<p:transition");
-    expect(slideXml).toContain('dur="800"');
+    expect(slideXml).toContain('spd="med"');
+    expect(slideXml).not.toContain(" dur=");
     expect(slideXml).toContain("<p:push");
   });
 
@@ -336,6 +337,214 @@ describe("final artifact legality", () => {
     expect(slideXml).toContain("29,214.0");
   });
 
+  it("scales table column width proportions to fill the native table frame", async () => {
+    const source: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "s",
+        title: "Table widths",
+        children: [{
+          id: "s.table",
+          type: "table-card",
+          title: "Readiness",
+          headers: ["Workstream", "Owner", "Readiness", "Status", "Next Action"],
+          rows: [["Release controls", "Review Office", "68", "Focus", "Complete release evidence package"]],
+          colWidths: [3, 2, 1.4, 1.4, 7],
+        } as never],
+      }],
+    };
+    const out = join(mkdtempSync(join(tmpdir(), "slideml2-table-width-fill-")), "table-width-fill.pptx");
+    await renderToPptx(sourceToRenderedDeck(source), out);
+    const zip = await JSZip.loadAsync(readFileSync(out));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    const frameWidth = Number(slideXml.match(/<p:graphicFrame>.*?<a:ext cx="(\d+)" cy="\d+"\/>.*?<a:tbl>/s)?.[1] ?? 0);
+    const widths = Array.from(slideXml.matchAll(/<a:gridCol w="(\d+)"\/>/g)).map((match) => Number(match[1]));
+
+    expect(frameWidth).toBeGreaterThan(0);
+    expect(widths).toHaveLength(5);
+    expect(Math.abs(widths.reduce((sum, width) => sum + width, 0) - frameWidth)).toBeLessThanOrEqual(5);
+  });
+
+  it("preserves object-row per-cell styling while keeping base cell text", () => {
+    const source: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "s",
+        title: "Cell styles",
+        children: [{
+          id: "s.table",
+          type: "table-card",
+          headers: [
+            { key: "workstream", label: "Workstream" },
+            { key: "readiness", label: "Readiness" },
+          ],
+          rows: [{
+            workstream: "Data ingestion",
+            readiness: "82%",
+            cells: {
+              workstream: { padding: { left: 8 } },
+              readiness: { fill: "DCFCE7", color: "059669", bold: true },
+            },
+          }],
+        } as never],
+      }],
+    };
+    const ast = renderToAst(sourceToRenderedDeck(source));
+    const table = ast.slides[0]!.shapes.find((shape) => shape.type === "table") as { cells?: Array<Array<{ fill?: { color?: string }; runs?: Array<{ text?: string }>; padding?: { l?: number } }>> } | undefined;
+
+    expect(table?.cells?.[1]?.[0]?.runs?.[0]?.text).toBe("Data ingestion");
+    expect(table?.cells?.[1]?.[0]?.padding?.l).toBeGreaterThan(0);
+    expect(table?.cells?.[1]?.[1]?.runs?.[0]?.text).toBe("82%");
+    expect(table?.cells?.[1]?.[1]?.fill?.color).toBe("DCFCE7");
+  });
+
+  it("infers content-aware column widths for explicit cells rows", async () => {
+    const source: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "s",
+        title: "Auto table widths",
+        children: [{
+          id: "s.table",
+          type: "table-card",
+          rows: [
+            { cells: ["Workstream", "Owner", "Readiness", "Attention", "Next Action"].map((text) => ({ text, bold: true, fill: "0F766E", color: "FFFFFF", align: "center" })) },
+            { cells: ["Data ingestion", "Platform", "82", "Watch", "Finish Salesforce connector retries"] },
+            { cells: ["Model evaluation", "AI Science", "76", "Focus", "Add regression eval for long-tail accounts"] },
+          ],
+        } as never],
+      }],
+    };
+    const out = join(mkdtempSync(join(tmpdir(), "slideml2-table-auto-widths-")), "table-auto-widths.pptx");
+    await renderToPptx(sourceToRenderedDeck(source), out);
+    const zip = await JSZip.loadAsync(readFileSync(out));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    const widths = Array.from(slideXml.matchAll(/<a:gridCol w="(\d+)"\/>/g)).map((match) => Number(match[1]));
+
+    expect(widths).toHaveLength(5);
+    expect(slideXml).toContain('firstRow="1"');
+    expect(widths[4]).toBeGreaterThan(widths[2]! * 1.8);
+    expect(new Set(widths).size).toBeGreaterThan(2);
+  });
+
+  it("does not warn on business tables solely from row-count heuristics", () => {
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "s",
+        layout: "freeform",
+        children: [{
+          id: "s.table",
+          type: "table",
+          at: [1.2, 2.2, 20, 3.2],
+          rows: [
+            { cells: ["Workstream", "Owner", "Readiness", "Attention", "Next Action"].map((text) => ({ text, bold: true, fill: "0F766E", color: "FFFFFF", align: "center" })) },
+            { cells: ["Data ingestion", "Platform", "82", "Watch", "Finish Salesforce connector retries"] },
+            { cells: ["Model evaluation", "AI Science", "76", "Focus", "Add regression eval for long-tail accounts"] },
+            { cells: ["Release controls", "Review Office", "68", "Focus", "Complete release evidence package"] },
+            { cells: ["Customer migration", "CS Ops", "73", "Watch", "Segment beta accounts"] },
+            { cells: ["Launch analytics", "Product Ops", "88", "Ready", "Freeze dashboard definitions"] },
+          ],
+        } as never],
+      }],
+    }));
+    const hits = getRenderDiagnostics().filter((item) => item.nodeId === "s.table" && item.code === "SQUASHED");
+
+    expect(hits).toHaveLength(0);
+  });
+
+  it("falls back to a safe native table style for unknown GUID tableStyleId values", async () => {
+    const source: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "s",
+        title: "Safe table style",
+        children: [{
+          id: "s.table",
+          type: "table-card",
+          tableStyleId: "{073A0DAA-6AF3-43AB-8588-CFCD8F2F0E31}",
+          rows: [
+            { cells: ["A", "B"] },
+            { cells: ["One", "Two"] },
+          ],
+        } as never],
+      }],
+    };
+    const out = join(mkdtempSync(join(tmpdir(), "slideml2-table-safe-style-")), "table-safe-style.pptx");
+    await renderToPptx(sourceToRenderedDeck(source), out);
+    const zip = await JSZip.loadAsync(readFileSync(out));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+
+    expect(slideXml).toContain("{5C22544A-7EE6-4342-B048-85BDC9FD1C3A}");
+    expect(slideXml).not.toContain("{073A0DAA-6AF3-43AB-8588-CFCD8F2F0E31}");
+  });
+
+  it("upscales sparse wide business table fonts within the assigned table frame", async () => {
+    const source: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "s",
+        title: "Readable table",
+        children: [{
+          id: "s.table",
+          type: "table-card",
+          title: "Readiness",
+          headers: ["Team", "Owner", "Score", "State", "Action"],
+          rows: [
+            ["Ingest", "Platform", "82%", "Watch", "Retry connectors"],
+            ["Eval", "Science", "76%", "Focus", "Add regression eval"],
+            ["Controls", "Review", "68%", "Focus", "Evidence package"],
+            ["Migration", "CS Ops", "73%", "Watch", "Segment accounts"],
+            ["Analytics", "Product", "88%", "Ready", "Freeze metrics"],
+          ],
+          colWidths: [5.2, 3, 2, 2.2, 7.6],
+        } as never],
+      }],
+    };
+    const out = join(mkdtempSync(join(tmpdir(), "slideml2-table-font-fit-")), "table-font-fit.pptx");
+    await renderToPptx(sourceToRenderedDeck(source), out);
+    const zip = await JSZip.loadAsync(readFileSync(out));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    const tableXml = slideXml.match(/<p:graphicFrame>[\s\S]*?<a:tbl>[\s\S]*?<\/a:tbl>[\s\S]*?<\/p:graphicFrame>/)?.[0] ?? "";
+    const sizes = Array.from(tableXml.matchAll(/\bsz="(\d+)"/g)).map((match) => Number(match[1]));
+
+    expect(sizes.some((size) => size >= 1080)).toBe(true);
+  });
+
+  it("does not upscale table fonts when that would introduce new header wrapping", async () => {
+    const source: Slideml2SourceDeck = {
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "s",
+        title: "Stable header wrap",
+        children: [{
+          id: "s.table",
+          type: "table-card",
+          title: "Readiness",
+          headers: ["Workstream", "Owner", "Readiness", "Attention", "Next Action"],
+          rows: [["Data ingestion", "Platform", "82%", "Watch", "Finish Salesforce connector retries"]],
+          colWidths: [5.2, 3, 2, 2.2, 7.6],
+        } as never],
+      }],
+    };
+    const out = join(mkdtempSync(join(tmpdir(), "slideml2-table-no-new-wrap-")), "table-no-new-wrap.pptx");
+    await renderToPptx(sourceToRenderedDeck(source), out);
+    const zip = await JSZip.loadAsync(readFileSync(out));
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    const tableXml = slideXml.match(/<p:graphicFrame>[\s\S]*?<a:tbl>[\s\S]*?<\/a:tbl>[\s\S]*?<\/p:graphicFrame>/)?.[0] ?? "";
+    const sizes = Array.from(tableXml.matchAll(/\bsz="(\d+)"/g)).map((match) => Number(match[1]));
+
+    expect(Math.max(...sizes)).toBeLessThan(1080);
+  });
+
   it("data-bound tables nested in chart-with-rail slots emit real PPTX cell text", async () => {
     const source: Slideml2SourceDeck = {
       slideml2: 2,
@@ -413,11 +622,12 @@ describe("final artifact legality", () => {
     expect(chartXml).toContain('<c:showCatName val="1"/>');
     expect(chartXml).toContain('<c:showPercent val="1"/>');
     expect(chartXml).toContain("<c:dLbls>");
-    expect(chartXml).not.toContain("<c:dLblPos");
-    expect(chartXml.indexOf("<c:dLbls>")).toBeLessThan(chartXml.indexOf("<c:cat>"));
+    expect(chartXml).toContain('<c:dLblPos val="outEnd"/>');
+    expect(chartXml).toContain('<c:showLeaderLines val="1"/>');
+    expect(chartXml.indexOf("<c:dLbls>")).toBeGreaterThan(chartXml.indexOf("</c:ser>"));
   });
 
-  it("pie chart dataLabels controls emitted label content without PowerPoint-repairing position XML", async () => {
+  it("pie chart dataLabels controls emitted label content and outside position", async () => {
     const source = deck([{
       id: "s.pie",
       type: "chart-card",
@@ -443,11 +653,41 @@ describe("final artifact legality", () => {
     const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
 
     expect(chartXml).toContain("<c:dLbls>");
-    expect(chartXml).not.toContain("<c:dLblPos");
+    expect(chartXml).toContain('<c:dLblPos val="outEnd"/>');
     expect(chartXml).toContain('<c:showVal val="1"/>');
     expect(chartXml).toContain('<c:showCatName val="1"/>');
     expect(chartXml).toContain('<c:showPercent val="0"/>');
     expect(chartXml).toContain('<c:showLeaderLines val="1"/>');
+  });
+
+  it("doughnut dataLabels render repair-free external labels", async () => {
+    const source = deck([{
+      id: "s.pie",
+      type: "chart-card",
+      title: "下载平台占比",
+      chartType: "doughnut",
+      labels: ["Windows", "Mac ARM", "Mobile", "Mac Intel", "Unknown"],
+      series: [{ name: "pct", values: [78, 12, 5, 4, 1] }],
+      dataLabels: { show: true },
+      variant: "frameless",
+      at: [1, 2, 22, 8],
+    } as never]);
+
+    const out = join(mkdtempSync(join(tmpdir(), "slideml2-doughnut-partial-labels-")), "doughnut-labels.pptx");
+    await renderToPptx(sourceToRenderedDeck(source), out);
+    const zip = await JSZip.loadAsync(readFileSync(out));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    const slideXml = await zip.file("ppt/slides/slide1.xml")!.async("string");
+
+    expect(chartXml).toContain("<c:doughnutChart>");
+    expect(chartXml).not.toContain("<c:dLbls>");
+    expect(chartXml).not.toContain("<c:dLblPos");
+    expect(slideXml).toContain("doughnut.leader");
+    expect(slideXml).toContain("doughnut.label");
+    expect(slideXml).toContain("Windows");
+    expect(slideXml).toContain("78%");
+    expect(slideXml).toContain("Mac ARM");
+    expect(slideXml).not.toContain("Unknown");
   });
 
   it("bar charts emit a default negative point color for negative values", async () => {
@@ -539,6 +779,31 @@ describe("final artifact legality", () => {
     expect(hit?.measured?.rect).toMatchObject({ x: expect.any(Number), y: expect.any(Number), w: expect.any(Number), h: expect.any(Number) });
   });
 
+  it("accepts Chart.js-style series.data arrays as chart values", async () => {
+    const source = deck([{
+      id: "s.data-alias",
+      type: "chart-card",
+      title: "Market size",
+      chartType: "bar",
+      data: {
+        labels: ["2025", "2026", "2027"],
+        series: [{ name: "Market", data: [75, 110, 160] }],
+      },
+    } as never]);
+
+    const out = join(mkdtempSync(join(tmpdir(), "slideml2-chart-data-alias-")), "chart-data-alias.pptx");
+    clearRenderDiagnostics();
+    await renderToPptx(sourceToRenderedDeck(source), out);
+    const diagnostics = getRenderDiagnostics();
+    clearRenderDiagnostics();
+
+    const zip = await JSZip.loadAsync(readFileSync(out));
+    const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
+    expect(diagnostics.find((item) => item.code === "EMPTY_CHART_DATA"), JSON.stringify(diagnostics)).toBeUndefined();
+    expect(chartXml).toContain("<c:v>75</c:v>");
+    expect(chartXml).toContain("<c:v>160</c:v>");
+  });
+
   it("empty charts produce blocking diagnostics and still emit PowerPoint-safe chart XML", async () => {
     const source = deck([{
       id: "s.empty",
@@ -560,8 +825,43 @@ describe("final artifact legality", () => {
     const chartXml = await zip.file("ppt/charts/chart1.xml")!.async("string");
     expect(hit, JSON.stringify(diagnostics)).toBeDefined();
     expect(hit?.severity).toBe("error");
+    expect(hit?.message).toContain("missing category labels");
+    expect(hit?.suggestion).toContain("\"values\"");
+    expect(hit?.suggestion).toContain("series[].data");
+    expect(hit?.measured).toMatchObject({ dataMode: "hand-authored", reason: expect.stringContaining("labels=0") });
     expect(chartXml).toContain("<c:barChart>");
     expect(chartXml).toContain("<c:v>No data</c:v>");
+  });
+
+  it("malformed hand-authored chart diagnostics include the correct data format", () => {
+    const source = deck([{
+      id: "s.bad-chart",
+      type: "chart-card",
+      title: "Bad chart",
+      chartType: "bar",
+      data: {
+        labels: ["2025", "2026"],
+        series: [{ name: "Market", amount: [75, 110] }],
+      },
+    } as never]);
+
+    clearRenderDiagnostics();
+    renderToAst(sourceToRenderedDeck(source));
+    const diagnostics = getRenderDiagnostics();
+    const hit = diagnostics.find((item) => item.code === "EMPTY_CHART_DATA" && item.nodeId === "s.bad-chart.chart");
+    clearRenderDiagnostics();
+
+    expect(hit, JSON.stringify(diagnostics)).toBeDefined();
+    expect(hit?.message).toContain("no numeric values");
+    expect(hit?.message).toContain("amount");
+    expect(hit?.suggestion).toContain("\"data\":{\"labels\"");
+    expect(hit?.suggestion).toContain("\"values\"");
+    expect(hit?.suggestion).toContain("Chart.js compatibility alias");
+    expect(hit?.measured).toMatchObject({
+      dataMode: "hand-authored",
+      rawSeriesCount: 1,
+      renderablePointCount: 0,
+    });
   });
 
   it("top-level anchored content cannot overlap a normal content region", () => {
@@ -588,14 +888,14 @@ describe("final artifact legality", () => {
     expect(report.errors.some((item) => item.code === "TOP_LEVEL_LAYOUT_OVERLAP" && item.nodeName === "s.hero")).toBe(true);
   });
 
-  it("charts below suggested readable size trigger advisory diagnostics", () => {
+  it("does not warn on charts that are only below suggested readable size", () => {
     const source = deck([{
       id: "s.chart",
       type: "chart",
       chartType: "bar",
       labels: ["京东", "天猫", "抖音"],
       series: [{ name: "ROI变化", values: [-0.397, -0.106, 0.297] }],
-      at: [1, 3, 22, 1.8],
+      at: [1, 3, 7, 1.8],
     } as never]);
 
     clearRenderDiagnostics();
@@ -604,9 +904,6 @@ describe("final artifact legality", () => {
     const hit = diagnostics.find((item) => item.code === "SQUASHED" && item.nodeId === "s.chart" && /Chart/.test(item.message));
     clearRenderDiagnostics();
 
-    expect(hit, JSON.stringify(diagnostics)).toBeDefined();
-    expect(hit?.severity).toBe("warn");
-    expect(hit?.message).toMatch(/Chart .* assigned/);
-    expect(hit?.suggestion).toMatch(/more vertical space|dominant area|split/i);
+    expect(hit, JSON.stringify(diagnostics)).toBeUndefined();
   });
 });

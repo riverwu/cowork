@@ -6,7 +6,7 @@ export { buildAgentPromptPack } from "./agent-disclosure.js";
 export { listComponents, describeComponents } from "./component-registry.js";
 export { describeDeck } from "./deck-disclosure.js";
 export { listTextKinds, describeTextKind } from "./text-kinds.js";
-export { listThemes } from "./theme.js";
+export { buildTheme, listDensityProfiles, listThemes } from "./theme.js";
 export { createDeck, setDeckProps, appendSlide, insertSlide, replaceSlide, deleteSlide, validateDeckPath, renderDeck } from "./deck-ops.js";
 export { createSourceDeck, normalizeSlide, sourceToRenderedDeck } from "./source-deck.js";
 export { validateDeck, validateSlide } from "./validate.js";

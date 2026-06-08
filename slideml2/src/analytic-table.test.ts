@@ -80,6 +80,7 @@ describe("analytic-table", () => {
     const rowText = row.map((cell) => cell.runs.map((run) => run.text).join("")).join("|");
     expect(rowText).toContain("华东");
     expect(rowText).toContain("¥274.7万");
+    expect(rowText).toContain("↑ +12.4%");
     expect(rowText).toContain("+12.4%");
     expect(rowText).toContain("78%");
     expect(rowText).toContain("达标");
@@ -89,9 +90,15 @@ describe("analytic-table", () => {
     const yoyCell = row[2]!;
     expect(yoyCell.align).toBe("right");
     expect(yoyCell.runs[0]?.color).toBeDefined();
+    expect(yoyCell.fill?.type).toBe("solid");
     const badgeCell = row[5]!;
     expect(badgeCell.align).toBe("center");
     expect(badgeCell.fill?.type).toBe("solid");
+
+    const captionShape = ast.slides[0]!.shapes.find((shape) => String((shape as { name?: string }).name || "").endsWith(".caption")) as { xfrm?: { y: number; cy: number } } | undefined;
+    if (!captionShape?.xfrm) throw new Error("Expected analytic-table caption shape.");
+    const tableCaptionGap = (captionShape.xfrm.y - (table.xfrm.y + table.xfrm.cy)) / EMU_PER_CM;
+    expect(tableCaptionGap).toBeGreaterThanOrEqual(0.20);
 
     const out = join(mkdtempSync(join(tmpdir(), "slideml2-analytic-table-")), "analytic-table.pptx");
     await renderToPptx(sourceToRenderedDeck(source), out);
@@ -100,7 +107,52 @@ describe("analytic-table", () => {
     expect(slideXml).toContain("区域经营表现");
     expect(slideXml).toContain("华东");
     expect(slideXml).toContain("¥274.7万");
-    expect(slideXml).toContain("+12.4%");
+    expect(slideXml).toContain("↑ +12.4%");
+  });
+
+  it("keeps dense unit headers controlled in native table row-height estimation", () => {
+    const source = deck([{
+      id: "s.channel",
+      type: "analytic-table",
+      title: "京东 / 天猫 H1 指标对比",
+      variant: "frameless",
+      density: "compact",
+      columns: [
+        { key: "channel", label: "渠道", width: 2.2 },
+        { key: "rev24", label: "24H1收入（万）", align: "right" },
+        { key: "rev25", label: "25H1收入（万）", align: "right" },
+        { key: "rev_yoy", label: "收入YoY", format: "percent", align: "right", visual: "delta" },
+        { key: "cost24", label: "24H1成本（万）", align: "right" },
+        { key: "cost25", label: "25H1成本（万）", align: "right" },
+        { key: "cost_yoy", label: "成本YoY", format: "percent", align: "right", visual: "delta" },
+        { key: "roi24", label: "24ROI", align: "right" },
+        { key: "roi25", label: "25ROI", align: "right" },
+        { key: "roi_chg", label: "ROI变化", format: "percent", align: "right", visual: "delta" },
+        { key: "hc", label: "在编人数", align: "right" },
+      ],
+      rows: [
+        { channel: "京东", rev24: 10553, rev25: 7298, rev_yoy: -0.308, cost24: 225, cost25: 258, cost_yoy: 0.147, roi24: 46.9, roi25: 28.3, roi_chg: -0.397, hc: 10 },
+        { channel: "天猫", rev24: 9922, rev25: 8325, rev_yoy: -0.161, cost24: 323, cost25: 303, cost_yoy: -0.062, roi24: 30.7, roi25: 27.5, roi_chg: -0.106, hc: 10 },
+      ],
+      caption: "ROI = 营收（未税）/ 人力成本",
+    } as never]);
+
+    clearRenderDiagnostics();
+    const ast = renderToAst(sourceToRenderedDeck(source));
+    const diagnostics = getRenderDiagnostics();
+    expect(diagnostics.filter((item) => item.severity === "error"), JSON.stringify(diagnostics)).toHaveLength(0);
+
+    const table = ast.slides[0]!.shapes.find((shape) => shape.type === "table");
+    if (!table || table.type !== "table") throw new Error("Expected dense analytic-table to render a native table shape.");
+    const headerText = table.cells[0]!.map((cell) => cell.runs.map((run) => run.text).join("").replace(/\u2060/g, ""));
+    expect(headerText[1]).toBe("24H1收入\n（万）");
+    expect(headerText[4]).toBe("24H1成本\n（万）");
+    expect(table.cells[0]![1]!.runs[0]?.sizeHalfPt).toBeLessThanOrEqual(16);
+
+    const captionShape = ast.slides[0]!.shapes.find((shape) => String((shape as { name?: string }).name || "").endsWith(".caption")) as { xfrm?: { y: number; cy: number } } | undefined;
+    if (!captionShape?.xfrm) throw new Error("Expected dense analytic-table caption shape.");
+    const tableCaptionGap = (captionShape.xfrm.y - (table.xfrm.y + table.xfrm.cy)) / EMU_PER_CM;
+    expect(tableCaptionGap).toBeGreaterThanOrEqual(0.20);
   });
 
   it("renders composed visual cells as real shapes for visual QA", async () => {

@@ -12,6 +12,7 @@ export interface TextWrapMetrics {
 export interface TextMeasurer {
   glyphAdvance(ch: string, fontPt: number, weight?: FontWeight): number;
   lineHeight(fontPt: number, lineHeight: number, family?: string): number;
+  lineHeightForText(text: string, fontPt: number, lineHeight: number, family?: string): number;
   wrapLines(text: string, fontPt: number, weight: FontWeight | undefined, maxWidthCm: number): TextWrapMetrics;
   ascentDescent(fontPt: number, family?: string): { ascentCm: number; descentCm: number };
   textWidth(text: string, fontPt: number, weight?: FontWeight): number;
@@ -45,7 +46,13 @@ class HeuristicTextMeasurer implements TextMeasurer {
 
   lineHeight(fontPt: number, lineHeight: number, family?: string): number {
     const metrics = this.ascentDescent(fontPt, family);
-    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics);
+    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics, false);
+    return Math.max(natural, fontPt * PT_TO_CM * lineHeight);
+  }
+
+  lineHeightForText(text: string, fontPt: number, lineHeight: number, family?: string): number {
+    const metrics = this.ascentDescent(fontPt, family);
+    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics, containsCjkOrFullWidth(text));
     return Math.max(natural, fontPt * PT_TO_CM * lineHeight);
   }
 
@@ -94,7 +101,13 @@ class MetricPackTextMeasurer implements TextMeasurer {
 
   lineHeight(fontPt: number, lineHeight: number, family?: string): number {
     const metrics = this.ascentDescent(fontPt, family);
-    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics);
+    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics, false);
+    return Math.max(natural, fontPt * PT_TO_CM * lineHeight);
+  }
+
+  lineHeightForText(text: string, fontPt: number, lineHeight: number, family?: string): number {
+    const metrics = this.ascentDescent(fontPt, family);
+    const natural = normalizedNaturalLineHeightCm(fontPt, family, metrics, containsCjkOrFullWidth(text));
     return Math.max(natural, fontPt * PT_TO_CM * lineHeight);
   }
 
@@ -159,7 +172,7 @@ class MetricPackTextMeasurer implements TextMeasurer {
   private faceKeyForFamily(family: string, weight: "regular" | "bold"): string | undefined {
     const normalized = normalizeFontAlias(family);
     const mapped = fontMetricAliases[normalized]
-      || (normalized.includes("cjk") || normalized.includes("pingfang") || normalized.includes("yahei") || normalized.includes("hiragino")
+      || (isKnownCjkFontAlias(normalized)
         ? fontMetricAliases["noto-sans-cjk-sc"]
         : fontMetricAliases.arial);
     return mapped?.[weight] || mapped?.regular;
@@ -195,9 +208,101 @@ interface BreakSegment {
   whitespace?: boolean;
 }
 
+export const WORD_JOINER = "\u2060";
+
 const LATIN_BREAK_AFTER = new Set(["-", "/", "\\", "_", "@", ".", ":", "+", "="]);
-const PROHIBITED_LINE_START = new Set(["，", "。", "、", "；", "：", "！", "？", "）", "】", "》", "」", "』", "〉", ")", "]", "}", ",", ".", ";", ":", "!", "?"]);
-const PROHIBITED_LINE_END = new Set(["（", "【", "《", "「", "『", "〈", "(", "[", "{"]);
+const PROHIBITED_LINE_START = new Set(["，", "。", "、", "；", "：", "！", "？", "）", "】", "〕", "》", "」", "』", "〉", "”", "’", ")", "]", "}", ",", ".", ";", ":", "!", "?"]);
+const PROHIBITED_LINE_END = new Set(["（", "【", "〔", "《", "「", "『", "〈", "“", "‘", "(", "[", "{"]);
+const CJK_PUNCTUATION = new Set([
+  "，", "。", "、", "；", "：", "！", "？",
+  "（", "）", "【", "】", "〔", "〕", "《", "》", "「", "」", "『", "』", "〈", "〉",
+  "“", "”", "‘", "’",
+]);
+
+export function protectCjkLineBreakPunctuation(text: string, context: { previous?: string; next?: string } = {}): string {
+  const chars = [...String(text || "")];
+  if (chars.length === 0) return "";
+  let out = "";
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i]!;
+    const previous = previousVisibleChar(chars, i) ?? context.previous;
+    if (PROHIBITED_LINE_START.has(ch) && shouldJoinCjkPunctuation(previous, ch) && !out.endsWith(WORD_JOINER)) {
+      out += WORD_JOINER;
+    }
+    out += ch;
+    const next = nextVisibleChar(chars, i) ?? context.next;
+    if (PROHIBITED_LINE_END.has(ch)
+      && chars[i + 1] !== WORD_JOINER
+      && shouldJoinCjkPunctuation(ch, next)) {
+      out += WORD_JOINER;
+    }
+  }
+  return out;
+}
+
+export function hasCjkLineStartPunctuationRisk(
+  text: string,
+  fontPt: number,
+  weight: FontWeight | undefined,
+  maxWidthCm: number,
+  measurer: Pick<TextMeasurer, "textWidth">,
+): boolean {
+  const usable = Math.max(0.25, maxWidthCm);
+  const guardWidth = usable * 0.965;
+  for (const line of String(text || "").split(/\r?\n/)) {
+    if (!containsCjkOrFullWidth(line)) continue;
+    const wrap = measureWrappedText(line, fontPt, weight, usable, measurer);
+    if (wrap.lines > 2) continue;
+    if (wrap.widthCm <= guardWidth) continue;
+    if (wrap.widthCm > usable * 2.08) continue;
+    const chars = [...line];
+    let prefix = "";
+    for (let i = 0; i < chars.length; i++) {
+      const ch = chars[i]!;
+      if (ch === WORD_JOINER) continue;
+      const previous = previousVisibleChar(chars, i);
+      if (PROHIBITED_LINE_START.has(ch) && shouldJoinCjkPunctuation(previous, ch)) {
+        const beforeWidth = measurer.textWidth(prefix, fontPt, weight);
+        const punctWidth = measurer.textWidth(ch, fontPt, weight);
+        if (beforeWidth <= usable && beforeWidth + punctWidth > guardWidth) return true;
+        const lineIndex = Math.floor(beforeWidth / usable);
+        if (lineIndex > 0) {
+          const residual = beforeWidth - lineIndex * usable;
+          const edgeBand = Math.max(0.08, punctWidth * 1.25);
+          if (residual > usable - edgeBand && residual + punctWidth > guardWidth) return true;
+        }
+      }
+      prefix += ch;
+    }
+  }
+  return false;
+}
+
+function previousVisibleChar(chars: string[], index: number): string | undefined {
+  for (let i = index - 1; i >= 0; i--) {
+    const ch = chars[i]!;
+    if (ch !== WORD_JOINER) return ch;
+  }
+  return undefined;
+}
+
+function nextVisibleChar(chars: string[], index: number): string | undefined {
+  for (let i = index + 1; i < chars.length; i++) {
+    const ch = chars[i]!;
+    if (ch !== WORD_JOINER) return ch;
+  }
+  return undefined;
+}
+
+function shouldJoinCjkPunctuation(left: string | undefined, right: string | undefined): boolean {
+  if (!left || !right) return false;
+  if (left === WORD_JOINER || right === WORD_JOINER) return false;
+  if (/\s/.test(left) || /\s/.test(right)) return false;
+  return isCjkOrFullWidth(left)
+    || isCjkOrFullWidth(right)
+    || CJK_PUNCTUATION.has(left)
+    || CJK_PUNCTUATION.has(right);
+}
 
 function measureWrappedText(
   text: string,
@@ -206,7 +311,7 @@ function measureWrappedText(
   maxWidthCm: number,
   measurer: Pick<TextMeasurer, "textWidth">,
 ): TextWrapMetrics {
-  const usable = Math.max(0.25, maxWidthCm);
+  const usable = Math.max(0.25, maxWidthCm * wrapSafetyFactor(text, weight));
   const hardLines = String(text || "").split(/\r?\n/);
   let lineCount = 0;
   let widthCm = 0;
@@ -227,6 +332,13 @@ function measureWrappedText(
     lineCount += greedyLineCount(segmentWidths, usable);
   }
   return { lines: lineCount, widthCm, unbreakableCm };
+}
+
+function wrapSafetyFactor(text: string, weight: FontWeight | undefined): number {
+  const hasCjk = containsCjkOrFullWidth(text);
+  const hasLatin = /[A-Za-z0-9]/.test(text);
+  if (hasCjk && hasLatin) return resolveFontWeight(weight).bold ? 0.94 : 0.96;
+  return 1;
 }
 
 function unbreakableSegmentWidth(
@@ -250,11 +362,20 @@ function greedyLineCount(segments: Array<BreakSegment & { width: number }>, usab
   for (const segment of segments) {
     if (segment.whitespace && lineWidth === 0) continue;
     if (segment.whitespace && lineWidth + segment.width > usable) {
+      lines++;
       lineWidth = 0;
       continue;
     }
     if (lineWidth === 0) {
-      lineWidth = segment.whitespace ? 0 : segment.width;
+      if (segment.whitespace) {
+        lineWidth = 0;
+      } else if (segment.width > usable && segmentCanWrapInternally(segment.text)) {
+        const forcedLines = Math.max(1, Math.ceil(segment.width / usable));
+        lines += forcedLines - 1;
+        lineWidth = residualWrappedWidth(segment.width, usable, forcedLines);
+      } else {
+        lineWidth = segment.width;
+      }
       continue;
     }
     if (lineWidth + segment.width <= usable + 0.001) {
@@ -262,9 +383,26 @@ function greedyLineCount(segments: Array<BreakSegment & { width: number }>, usab
       continue;
     }
     lines++;
-    lineWidth = segment.whitespace ? 0 : segment.width;
+    if (segment.whitespace) {
+      lineWidth = 0;
+    } else if (segment.width > usable && segmentCanWrapInternally(segment.text)) {
+      const forcedLines = Math.max(1, Math.ceil(segment.width / usable));
+      lines += forcedLines - 1;
+      lineWidth = residualWrappedWidth(segment.width, usable, forcedLines);
+    } else {
+      lineWidth = segment.width;
+    }
   }
   return lines;
+}
+
+function segmentCanWrapInternally(text: string): boolean {
+  return /\s/.test(text) || containsCjkOrFullWidth(text);
+}
+
+function residualWrappedWidth(width: number, usable: number, lines: number): number {
+  const residual = width - usable * Math.max(0, lines - 1);
+  return residual <= 0.001 ? usable : Math.min(usable, residual);
 }
 
 function breakSegments(text: string): BreakSegment[] {
@@ -309,7 +447,30 @@ function endsWithProhibitedLineEnd(text: string): boolean {
 }
 
 export function isCjkOrFullWidth(ch: string): boolean {
-  return /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch);
+  const code = ch.codePointAt(0);
+  if (code === undefined) return false;
+  return (code >= 0x1100 && code <= 0x11ff)
+    || (code >= 0x2e80 && code <= 0x2fdf)
+    || (code >= 0x3000 && code <= 0x303f)
+    || (code >= 0x3040 && code <= 0x30ff)
+    || (code >= 0x3100 && code <= 0x318f)
+    || (code >= 0x31a0 && code <= 0x31ff)
+    || (code >= 0x3400 && code <= 0x4dbf)
+    || (code >= 0x4e00 && code <= 0x9fff)
+    || (code >= 0xa960 && code <= 0xa97f)
+    || (code >= 0xac00 && code <= 0xd7ff)
+    || (code >= 0xf900 && code <= 0xfaff)
+    || (code >= 0xfe30 && code <= 0xfe4f)
+    || (code >= 0xff00 && code <= 0xffef)
+    || (code >= 0x20000 && code <= 0x2fa1f)
+    || (code >= 0x30000 && code <= 0x323af);
+}
+
+export function containsCjkOrFullWidth(text: string): boolean {
+  for (const ch of String(text || "")) {
+    if (isCjkOrFullWidth(ch)) return true;
+  }
+  return false;
 }
 
 export function isWideVisualSymbol(ch: string): boolean {
@@ -320,19 +481,27 @@ function normalizeFontAlias(value: string): string {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-function normalizedNaturalLineHeightCm(fontPt: number, family: string | undefined, metrics: { ascentCm: number; descentCm: number }): number {
+function isKnownCjkFontAlias(normalized: string): boolean {
+  return normalized.includes("cjk")
+    || normalized.includes("pingfang")
+    || normalized.includes("yahei")
+    || normalized.includes("hiragino")
+    || normalized.includes("simsun")
+    || normalized.includes("songti")
+    || normalized.includes("source-han")
+    || normalized.includes("noto-serif-sc")
+    || normalized.includes("noto-serif-cjk")
+    || normalized === "system-ui"
+    || normalized === "apple-system";
+}
+
+function normalizedNaturalLineHeightCm(fontPt: number, _family: string | undefined, metrics: { ascentCm: number; descentCm: number }, hasCjkText: boolean): number {
   const raw = Math.max(0.01, metrics.ascentCm + metrics.descentCm);
-  const normalizedFamily = family ? normalizeFontAlias(family) : "";
-  const isCjkFamily = normalizedFamily.includes("cjk")
-    || normalizedFamily.includes("pingfang")
-    || normalizedFamily.includes("yahei")
-    || normalizedFamily.includes("simsun")
-    || normalizedFamily.includes("songti")
-    || normalizedFamily.includes("hiragino");
   // Some CJK fonts report a very tall global bbox (PingFang is ~1.4em).
   // PowerPoint text boxes use a tighter renderer line box; using the full
   // font bbox as the natural line-height floor creates false-positive
-  // SQUASHED/overflow diagnostics for normal 10-12pt labels.
-  const cap = fontPt * PT_TO_CM * (isCjkFamily ? 1.12 : 1.16);
+  // SQUASHED/overflow diagnostics for normal 10-12pt labels. The tighter CJK
+  // cap is selected from the actual text content, not from the font name.
+  const cap = fontPt * PT_TO_CM * (hasCjkText ? 1.12 : 1.16);
   return Math.min(raw, cap);
 }

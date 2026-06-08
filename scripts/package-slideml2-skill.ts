@@ -104,7 +104,7 @@ function parseSkillFrontmatter(text: string): { version: string; description: st
 async function currentCommit(): Promise<string> {
   try {
     const commit = (await run("git", ["rev-parse", "--short=12", "HEAD"], repoRoot)).trim();
-    const dirty = (await run("git", ["status", "--porcelain"], repoRoot)).trim();
+    const dirty = (await run("git", ["status", "--porcelain", "--untracked-files=no"], repoRoot)).trim();
     return dirty ? `${commit}-dirty` : commit;
   } catch {
     return "unknown";
@@ -177,8 +177,9 @@ node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" init-deck deck-init.json
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" set-deck deck-theme.json
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-slide slides/01-cover.json
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" validate-manifest manifest.json
-node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" compose manifest.json --write-source build/deck.json --out build/deck.pptx
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" compose manifest.json --out build/deck.pptx
 node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" slice-icons assets/icons/icon-sheet.png --icons assets/icons/icons.json --out-dir assets/icons --grid 2x2
+node "$SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js" help component chart-card
 \`\`\`
 
 All CLI commands run from the deck workspace. If \`--deck\` is omitted, the CLI
@@ -192,6 +193,7 @@ Supported agent-facing commands are:
 - \`validate-manifest\`
 - \`compose\`
 - \`slice-icons\`
+- \`help component <name>\`
 
 Do not call TypeScript handlers, npm scripts, or tool adapters as the agent
 interface. Rebuilds must happen from the upstream SlideML2 repository; this
@@ -278,8 +280,9 @@ node /path/to/slideml2/runtime/bin/slideml2.js init-deck deck-init.json
 node /path/to/slideml2/runtime/bin/slideml2.js set-deck deck-theme.json
 node /path/to/slideml2/runtime/bin/slideml2.js validate-slide slides/01-cover.json
 node /path/to/slideml2/runtime/bin/slideml2.js validate-manifest manifest.json
-node /path/to/slideml2/runtime/bin/slideml2.js compose manifest.json --write-source build/deck.json --out deck.pptx
+node /path/to/slideml2/runtime/bin/slideml2.js compose manifest.json --out deck.pptx
 node /path/to/slideml2/runtime/bin/slideml2.js slice-icons assets/icons/icon-sheet.png --icons assets/icons/icons.json --out-dir assets/icons --grid 2x2
+node /path/to/slideml2/runtime/bin/slideml2.js help component chart-card
 \`\`\`
 
 This package is runtime-only: it intentionally omits TypeScript source, tests,
@@ -381,6 +384,7 @@ async function main(): Promise<void> {
   const zipPath = join(outDir, `${packageBase}.zip`);
   const shaPath = join(outDir, `${packageBase}.sha256`);
   const manifestPath = join(outDir, `${packageBase}.manifest.json`);
+  const sourceCommit = await currentCommit();
   const stageRoot = await mkdtemp(join(tmpdir(), "slideml2-skill-package-"));
 
   try {
@@ -392,7 +396,6 @@ async function main(): Promise<void> {
     const packageFiles = await copyPackageFiles(stageRoot);
     const runtimeFiles = await copyRuntimeFiles(stageRoot);
     const packageRoot = join(stageRoot, skillName);
-    const sourceCommit = await currentCommit();
     const partialManifest = {
       name: skillName,
       version,
@@ -421,7 +424,7 @@ async function main(): Promise<void> {
           setDeck: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js set-deck deck-theme.json",
           validateSlide: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js validate-slide slides/01-cover.json",
           validateManifest: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js validate-manifest manifest.json",
-          compose: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js compose manifest.json --write-source build/deck.json --out deck.pptx",
+          compose: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js compose manifest.json --out deck.pptx",
           sliceIcons: "cd $DECK_WORKDIR && node $SLIDEML2_SKILL_DIR/runtime/bin/slideml2.js slice-icons assets/icons/icon-sheet.png --icons assets/icons/icons.json --out-dir assets/icons --grid 2x2",
         },
         devInstallCommand: "not supported in the skill package; rebuild from the upstream SlideML2 repository",

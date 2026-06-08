@@ -13,7 +13,7 @@ import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
  * Backward compat: items with only {time, title, body} still work.
  */
 
-const BLOCKING = new Set(["FALLBACK_FAILED", "TINY_RECT", "SQUASHED", "UNKNOWN_NODE_TYPE", "MISSING_NODE_TYPE", "UNKNOWN_COLOR", "LOW_CONTRAST"]);
+const BLOCKING = new Set(["FALLBACK_FAILED", "TINY_RECT", "SQUASHED", "UNKNOWN_NODE_TYPE", "MISSING_NODE_TYPE", "UNKNOWN_COLOR"]);
 
 function deck(slides: SlideV2[]): Slideml2SourceDeck {
   return {

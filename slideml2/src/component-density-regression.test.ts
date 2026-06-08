@@ -66,6 +66,110 @@ describe("dense data component regressions from live PPT flow", () => {
     expect(squashedErrors, diagnostics.map((d) => `${d.severity}:${d.code}:${d.nodeId}:${d.message}`).join("\n")).toHaveLength(0);
   });
 
+  it("stat-strip keeps four compact physics metrics inside a narrow story column", () => {
+    const slide: SlideV2 = {
+      id: "collider",
+      children: [{
+        type: "split",
+        direction: "horizontal",
+        ratio: [0.48, 0.52],
+        gap: 0.5,
+        children: [
+          {
+            type: "image-card",
+            src: WIDE_SVG_DATA_URL,
+            alt: "detector",
+            fit: "contain",
+          },
+          {
+            type: "stack",
+            gap: 0.4,
+            children: [
+              { type: "eyebrow", text: "人类工程的极限", tone: "brand" },
+              { type: "h1", text: "对撞机与探测器", align: "left" },
+              {
+                type: "explanation-block",
+                title: "如何看见不可见？",
+                body: "物理学家用极高能量将粒子束对撞，然后用巨型探测器记录碰撞产生的所有碎片。百万个传感器通道在纳秒级别内捕捉数据，每年产生 PB 级信息。",
+                density: "comfortable",
+                tone: "neutral",
+              },
+              {
+                type: "stat-strip",
+                items: [
+                  { value: "27 km", label: "LHC 周长" },
+                  { value: "100 m", label: "地下深度" },
+                  { value: "万吨", label: "探测器总重" },
+                  { value: "13.6 TeV", label: "对撞能量" },
+                ],
+                tone: "brand",
+              },
+            ],
+          },
+        ],
+      } as never],
+    };
+    const diagnostics = allDiagnostics(slide);
+    const blocking = diagnostics.filter((d) =>
+      d.severity === "error"
+      && ["FALLBACK_FAILED", "SQUASHED", "TINY_RECT", "TRUNCATED", "OVERFLOW"].includes(d.code)
+      && String(d.nodeId || "").includes("collider.node-1.2.4"),
+    );
+    expect(blocking, diagnostics.map((d) => `${d.severity}:${d.code}:${d.nodeId}:${d.message}`).join("\n")).toHaveLength(0);
+  });
+
+  it("stat-strip uses one compact band profile for multiline labels", () => {
+    const slide: SlideV2 = {
+      id: "collider-multiline",
+      children: [{
+        type: "two-column",
+        ratio: [0.58, 0.42],
+        gap: 0.6,
+        left: {
+          type: "image-card",
+          src: WIDE_SVG_DATA_URL,
+          fit: "cover",
+          alt: "LHC",
+        },
+        right: {
+          type: "stack",
+          gap: 0.4,
+          children: [
+            {
+              type: "explanation-block",
+              title: "把粒子撞向光速",
+              body: "用强大电磁场将质子加速至接近光速后令其正面碰撞，模拟宇宙早期的极端环境。",
+              density: "compact",
+              tone: "neutral",
+              variant: "panel",
+            },
+            {
+              type: "stat-strip",
+              items: [
+                { label: "束流能量\n13.6 TeV", value: "13.6" },
+                { label: "周长\n27 km", value: "27" },
+                { label: "碰撞持续\n10⁻²³ s", value: "10⁻²³" },
+              ],
+            },
+            {
+              type: "callout",
+              body: "新物理信号极为稀少，需要从海量标准模型事件中筛选。",
+              tone: "neutral",
+              variant: "card",
+            },
+          ],
+        },
+      } as never],
+    };
+    const diagnostics = allDiagnostics(slide);
+    const blocking = diagnostics.filter((d) =>
+      d.severity === "error"
+      && ["FALLBACK_FAILED", "SQUASHED", "TINY_RECT", "TRUNCATED", "OVERFLOW"].includes(d.code)
+      && String(d.nodeId || "").includes("collider-multiline.node-1.right.2"),
+    );
+    expect(blocking, diagnostics.map((d) => `${d.severity}:${d.code}:${d.nodeId}:${d.message}`).join("\n")).toHaveLength(0);
+  });
+
   it("kpi-grid handles mixed CJK units and negative percentages without compressed value boxes", () => {
     const slide: SlideV2 = {
       id: "kpis",
@@ -199,7 +303,7 @@ describe("dense data component regressions from live PPT flow", () => {
     expect(chartFit?.measured?.outerNeededHeightCm).toBeGreaterThan(chartFit?.measured?.bodyNeededHeightCm ?? 0);
   });
 
-  it("low-density bar chart near the recommended height warns instead of blocking the slide", () => {
+  it("does not warn when a low-density bar chart is below recommendation but above hard geometry", () => {
     const slide: SlideV2 = {
       id: "compact-bar",
       title: "三组部署对比",
@@ -216,9 +320,7 @@ describe("dense data component regressions from live PPT flow", () => {
     };
     const diagnostics = allDiagnostics(slide);
     const chartFit = diagnostics.find((d) => d.code === "SQUASHED" && d.nodeId === "compact-bar.compact.chart.chart");
-    expect(chartFit, diagnostics.map((d) => `${d.severity}:${d.code}:${d.nodeId}:${d.message}`).join("\n")).toBeDefined();
-    expect(chartFit?.severity).toBe("warn");
-    expect(chartFit?.measured?.hardMinHeightCm).toBeLessThan(chartFit?.measured?.minHeightCm ?? 0);
+    expect(chartFit, diagnostics.map((d) => `${d.severity}:${d.code}:${d.nodeId}:${d.message}`).join("\n")).toBeUndefined();
   });
 
   it("overloaded evidence slides emit page-level split guidance before repeated local squeezing", () => {
@@ -309,6 +411,7 @@ describe("dense data component regressions from live PPT flow", () => {
               },
               { type: "quote", text: "Structured evidence panels significantly reduce diagnostic review latency.", source: "Smith et al. 2025" },
               { type: "source-note", text: "Smith et al. 2025 reported latency reduction. Internal: triage 42 to 18 min across 120 cases." },
+              { type: "source-note", text: "Additional caveat: model quality is sensitive to sample mix, annotation delay, and reviewer calibration across departments." },
             ],
           },
         ],
@@ -470,6 +573,7 @@ describe("dense data component regressions from live PPT flow", () => {
     const diagnostics = allDiagnostics(slide);
     const evidenceRatio = diagnostics.find((d) => d.code === "EVIDENCE_REGION_TOO_SMALL");
     expect(evidenceRatio, diagnostics.map((d) => `${d.severity}:${d.code}:${d.nodeId}:${d.message}:${d.suggestion}`).join("\n")).toBeDefined();
+    expect(evidenceRatio?.severity).toBe("warn");
     expect(evidenceRatio?.suggestion).toMatch(/adjust the split\/ratio|follow-up slide/i);
     expect(evidenceRatio?.measured?.evidenceRatio).toBeLessThan(evidenceRatio?.measured?.recommendedRatio ?? 0);
   });
@@ -539,6 +643,7 @@ describe("dense data component regressions from live PPT flow", () => {
     const diagnostics = allDiagnostics(slide);
     const featureGuidance = diagnostics.find((d) => d.code === "FEATURE_CARD_OVER_CAPACITY");
     expect(featureGuidance, diagnostics.map((d) => `${d.code}:${d.nodeId}:${d.suggestion}`).join("\n")).toBeDefined();
+    expect(featureGuidance?.severity).toBe("warn");
     expect(featureGuidance?.suggestion).toMatch(/fewer columns|split feature groups|density:'compact'/i);
     expect(featureGuidance?.nodeId).toBe("feature.card");
     const bodyDrop = diagnostics.find((d) => d.code === "DROP" && d.nodeId === "feature-overload.feature.card.body");

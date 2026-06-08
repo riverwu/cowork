@@ -15,7 +15,7 @@ import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
  * in a realistic deck context — full slide title, sibling content, dense items,
  * dark/light theme variants — and asserts:
  *   - schema validation passes (component fields the agent reaches for resolve)
- *   - 0 BLOCKING render diagnostics (LOW_CONTRAST/FALLBACK_FAILED/SQUASHED/...)
+ *   - 0 BLOCKING render diagnostics (FALLBACK_FAILED/SQUASHED/LOW_CONTRAST error/...)
  *
  * The intent: every composition pattern an agent is likely to author, on
  * either a default or a custom themed deck, should render the FIRST time
@@ -26,7 +26,7 @@ import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
 const TINY_PNG = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI4MDAiIGhlaWdodD0iNDUwIj48cmVjdCB3aWR0aD0iODAwIiBoZWlnaHQ9IjQ1MCIgZmlsbD0iIzExMTgyNyIvPjwvc3ZnPg==";
 
 const BLOCKING: ReadonlySet<LayoutDiagnostic["code"]> = new Set([
-  "FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "LOW_CONTRAST", "UNKNOWN_COLOR", "UNKNOWN_STYLE",
+  "FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "UNKNOWN_COLOR", "UNKNOWN_STYLE",
 ]);
 
 const DARK_OVERRIDE: Slideml2SourceDeck["deck"]["themeOverride"] = {
@@ -70,7 +70,7 @@ function runCase(testCase: UsabilityCase): { schema: string[]; blocking: string[
   clearRenderDiagnostics();
   renderToAst(sourceToRenderedDeck(deck));
   const blocking = getRenderDiagnostics()
-    .filter((d) => BLOCKING.has(d.code) && d.severity !== "info")
+    .filter((d) => d.severity === "error" || (BLOCKING.has(d.code) && d.severity !== "info"))
     .map((d) => `[${d.code} ${d.slideId || "?"}/${d.nodeId || "?"}] ${d.message?.slice(0, 200)}`);
   return { schema: [], blocking };
 }

@@ -5,8 +5,9 @@ import type { RenderDiagnosticCode } from "./diagnostic-codes.js";
  * Render diagnostics: structured, agent-readable feedback from the layout solver
  * and renderer. Replaces the legacy Set<string> warning channels.
  *
- * Severity: "warn" still produces a slide; "error" means content was dropped or
- * cannot be reliably positioned.
+ * Severity: "warn" still produces a slide with a quality concern; "error"
+ * means content is lost, unreadable, occluded, overflowing, or cannot be
+ * reliably positioned.
  *
  * Codes (stable; agents may match on them):
  *   OVERFLOW         children exceed available size; solver shrank/dropped to fit
@@ -28,7 +29,8 @@ import type { RenderDiagnosticCode } from "./diagnostic-codes.js";
  *   MISSING_ANCHOR_TARGET anchorTo overlay references a node id that does not exist
  *   MISSING_DATA_BINDING_SOURCE bound chart/table references a source that did not resolve
  *   PAGE_OVER_CAPACITY multiple large components together exceed a single readable page budget
- *   REGION_OVER_CAPACITY a split/rail/local region has more direct content blocks than its readable budget
+ *   REGION_OVER_CAPACITY a split/rail/local region has more hard-layout component demand than its readable budget
+ *   REGION_BUDGET_INFEASIBLE a narrative region cannot preserve all readable floors after shared compression
  *   ORG_OVERFLOW     an org/tree layout needs more readable space than the assigned region
  */
 export interface LayoutDiagnostic {
@@ -41,10 +43,14 @@ export interface LayoutDiagnostic {
   measured?: {
     available?: number;
     needed?: number;
+    hardNeeded?: number;
+    readableNeeded?: number;
     heightAvailable?: number;
     heightNeeded?: number;
     unbreakableNeeded?: number;
     deltaCm?: number;
+    hardDeltaCm?: number;
+    readableDeltaCm?: number;
     rect?: { x: number; y: number; w: number; h: number };
     other?: { x: number; y: number; w: number; h: number; nodeId?: string };
     overlap?: { x: number; y: number; w: number; h: number };
@@ -54,23 +60,42 @@ export interface LayoutDiagnostic {
     parentId?: string;
     lineCount?: number;
     renderedRows?: number;
+    reason?: string;
+    dataMode?: string;
+    rawSeriesCount?: number;
+    renderablePointCount?: number;
     estimatedCapacityLines?: number;
+    wrappedLines?: number;
+    availableLines?: number;
     columns?: number;
     columnCount?: number;
     dataRowCount?: number;
     estimatedVisibleRowsFit?: number;
     minWidthCm?: number;
     minHeightCm?: number;
+    minPaddingCm?: number;
+    minGapCm?: number;
+    minValueBandCm?: number;
     labelCount?: number;
     seriesCount?: number;
     showLegend?: boolean;
+    chartType?: string;
+    plotWidthCm?: number;
+    plotHeightCm?: number;
     aspectRatio?: number;
+    hardMaxAspectRatio?: number;
     maxAspectRatio?: number;
     recommendedAspectRatio?: number;
     aspectNeededHeightCm?: number;
+    hardAspectNeededHeightCm?: number;
     minWidthAtCurrentHeightCm?: number;
     aspectReason?: string;
+    categoryBandCm?: number;
+    pointSpacingCm?: number;
+    minCategoryBandCm?: number;
+    minPointSpacingCm?: number;
     hardMinHeightCm?: number;
+    hardMinWidthCm?: number;
     bodyNeededHeightCm?: number;
     chromeHeightCm?: number;
     outerNeededHeightCm?: number;
@@ -99,13 +124,34 @@ export interface LayoutDiagnostic {
     ringDiameterCm?: number;
     minRingDiameterCm?: number;
     legendWidthCm?: number;
+    contrastRatio?: number;
+    wcagThreshold?: number;
+    perceptualContrastLc?: number;
+    perceptualReadableFloorLc?: number;
+    perceptualTargetLc?: number;
     worstRow?: { index: number; neededCm: number; availableCm: number };
     density?: string;
     fontSize?: number;
+    originalFontSize?: number;
+    finalFontSize?: number;
+    fontScale?: number;
+    lineHeightCm?: number;
+    fitMethod?: string;
     componentCount?: number;
     largeComponentCount?: number;
     capacityRatio?: number;
-    components?: Array<{ nodeId: string; role: string; assignedHeightCm: number; neededHeightCm: number }>;
+    comfortPressureCm?: number;
+    hardComponentCount?: number;
+    adaptiveTextPressure?: boolean;
+    mildFormulaPressure?: boolean;
+    mildMetricPressure?: boolean;
+    components?: Array<{ nodeId: string; role: string; assignedHeightCm: number; neededHeightCm: number; preferredHeightCm?: number; hardMinHeightCm?: number; capacityMode?: string }>;
+    preferredTotalCm?: number;
+    floorTotalCm?: number;
+    targetTotalCm?: number;
+    budgetDeficitCm?: number;
+    budgetStrategy?: string;
+    budgetItems?: Array<{ nodeId: string; role: string; preferredCm: number; floorCm: number; targetCm: number; priority: number }>;
   };
   /**
    * For LOW_CONTRAST: ordered chain of surfaces that determined the comparison
@@ -138,6 +184,7 @@ export interface LayoutDiagnostic {
 
 let diagnostics: LayoutDiagnostic[] = [];
 let diagnosticDedupKeys: Set<string> = new Set();
+let diagnosticSuppressionDepth = 0;
 
 /**
  * Build a stable deduplication key for a diagnostic. The renderer's measure
@@ -169,6 +216,7 @@ function diagnosticDedupKey(d: LayoutDiagnostic, includeSlide = true): string {
 }
 
 export function pushDiagnostic(d: LayoutDiagnostic): void {
+  if (diagnosticSuppressionDepth > 0) return;
   const key = diagnosticDedupKey(d);
   // Dedupe across (slide,node,code) AND across (any-slide,node,code) — the
   // second emission from the render pass often has slideId="" while the first
@@ -187,6 +235,15 @@ export function getRenderDiagnostics(): LayoutDiagnostic[] {
 export function clearRenderDiagnostics(): void {
   diagnostics = [];
   diagnosticDedupKeys = new Set();
+}
+
+export function withSuppressedRenderDiagnostics<T>(fn: () => T): T {
+  diagnosticSuppressionDepth += 1;
+  try {
+    return fn();
+  } finally {
+    diagnosticSuppressionDepth = Math.max(0, diagnosticSuppressionDepth - 1);
+  }
 }
 
 /** Filter helpers for agents and tests. */

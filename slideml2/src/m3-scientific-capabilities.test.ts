@@ -66,6 +66,12 @@ describe("M3 scientific authoring capabilities", () => {
     expect(unsupported.unsupported).toContain("\\begin");
   });
 
+  it("accepts escaped literal LaTeX characters common in agent output", () => {
+    const out = latexToOmml("p \\leq 5\\% \\\\ q \\_ safe");
+    expect(out.ok).toBe(true);
+    expect(out.unsupported).toEqual([]);
+  });
+
   it("emits native Office Math with repaired contrast color into the final pptx package", async () => {
     const deck: Slideml2SourceDeck = {
       slideml2: 2,
@@ -90,6 +96,7 @@ describe("M3 scientific authoring capabilities", () => {
     expect(slideXml).toContain("<m:borderBox>");
     expect(slideXml).toContain('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"');
     expect(slideXml).toContain('<w:color w:val="FFFFFF"/>');
+    expect(slideXml).toContain('<a:defRPr><a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill></a:defRPr>');
     expect(slideXml).not.toContain("boxed");
     expect(slideXml).not.toContain("vec");
   });

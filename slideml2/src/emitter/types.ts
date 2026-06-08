@@ -371,6 +371,10 @@ export type ChartNumberFormat =
 export interface ChartAxisSpec {
   title?: string;
   show?: boolean;
+  /** Tick-label color. Renderer supplies a theme-aware default. */
+  color?: HexColor;
+  /** Axis title color; falls back to color. */
+  titleColor?: HexColor;
   min?: number;
   max?: number;
   majorUnit?: number;
@@ -390,7 +394,7 @@ export interface ChartLegendSpec {
 }
 
 export interface ChartPlotAreaSpec {
-  /** Manual layout factors, 0..1, relative to the chart frame. */
+  /** Manual layout factors, 0..1, relative to the chart frame; cm-like values are converted by the emitter. */
   x?: number;
   y?: number;
   w?: number;
@@ -448,6 +452,8 @@ export interface ChartSeries {
 export interface ChartDataLabels {
   show?: boolean;
   position?: "bestFit" | "center" | "insideEnd" | "insideBase" | "outsideEnd";
+  /** Label text color. Renderer supplies a theme-aware default. */
+  color?: HexColor;
   showValue?: boolean;
   showCategoryName?: boolean;
   showSeriesName?: boolean;
@@ -502,6 +508,16 @@ export interface ChartShape {
   plotArea?: ChartPlotAreaSpec;
   /** Optional title rendered above the chart. */
   title?: string;
+  /** Theme-aware default text color for native chart text. */
+  textColor?: HexColor;
+  /** Theme-aware axis tick-label fallback color. */
+  axisTextColor?: HexColor;
+  /** Theme-aware data-label fallback color. */
+  dataLabelColor?: HexColor;
+  /** Theme-aware chart-title color. */
+  titleColor?: HexColor;
+  /** Theme-aware legend color. */
+  legendTextColor?: HexColor;
   /** Color cycle in hex (no `#`). The renderer cycles series through these. */
   colors?: HexColor[];
   /** Show the legend. Default true when series.length > 1. */

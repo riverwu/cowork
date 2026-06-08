@@ -28,7 +28,7 @@ type AnyShape = {
   preset?: string;
   xfrm?: { x: number; y: number; cx: number; cy: number; flipH?: boolean; flipV?: boolean };
   fill?: { type: string; color?: string };
-  line?: { color: string; width: number };
+  line?: { color: string; width: number; dash?: string; headEnd?: unknown; tailEnd?: unknown };
   cornerRadius?: number;
   paragraphs?: Array<{ runs: Array<{ text: string; color?: string; bold?: boolean }> }>;
 };
@@ -241,11 +241,58 @@ describe("heatmap visual structure", () => {
 /* ============================================================ matrix-2x2 */
 
 describe("matrix-2x2 visual structure", () => {
-  it("emits exactly 4 quadrant cards (tl, tr, bl, br)", () => {
+  it("emits 4 quadrant regions and editable axis lines by default", () => {
     const shapes = renderShapes({
       id: "s.m", type: "matrix-2x2",
       xAxis: { low: "L", high: "H" }, yAxis: { low: "L", high: "H" },
-      items: [],
+      quadrantLabels: { tl: "A", tr: "B", bl: "C", br: "D" },
+    } as unknown as DomNode);
+    expect(findByNameSuffix(shapes, "s.m.tl")).toBeDefined();
+    expect(findByNameSuffix(shapes, "s.m.tr")).toBeDefined();
+    expect(findByNameSuffix(shapes, "s.m.bl")).toBeDefined();
+    expect(findByNameSuffix(shapes, "s.m.br")).toBeDefined();
+    const xAxis = findByNameSuffix(shapes, "s.m.x-axis.line");
+    const yAxis = findByNameSuffix(shapes, "s.m.y-axis.line");
+    expect(xAxis?.preset).toBe("line");
+    expect(yAxis?.preset).toBe("line");
+    expect(xAxis?.line?.headEnd).toMatchObject({ type: "triangle" });
+    expect(xAxis?.line?.tailEnd).toMatchObject({ type: "triangle" });
+    expect(yAxis?.line?.headEnd).toMatchObject({ type: "triangle" });
+    expect(yAxis?.line?.tailEnd).toMatchObject({ type: "triangle" });
+    const yHighLabel = findByNameSuffix(shapes, "s.m.yhi");
+    const yLowLabel = findByNameSuffix(shapes, "s.m.ylo");
+    expect(yHighLabel?.fill?.type).toBe("none");
+    expect(yLowLabel?.fill?.type).toBe("none");
+    expect(yHighLabel?.line).toBeUndefined();
+    expect(yLowLabel?.line).toBeUndefined();
+  });
+
+  it("keeps a breathable center gutter around the crossing axes", () => {
+    const rects = measureRects({
+      id: "s.m", type: "matrix-2x2",
+      xAxis: { low: "Result hard to verify", high: "Result verifiable" },
+      yAxis: { low: "Low value", high: "High value" },
+      quadrantLabels: { tl: "Govern context", tr: "Prioritize", bl: "Defer", br: "Automate" },
+    } as unknown as DomNode);
+    const tl = rects.get("s.m.tl")!;
+    const tr = rects.get("s.m.tr")!;
+    const bl = rects.get("s.m.bl")!;
+    const xAxis = rects.get("s.m.x-axis.line")!;
+    const yAxis = rects.get("s.m.y-axis.line")!;
+    expect(tr.x - (tl.x + tl.w)).toBeGreaterThan(0.35);
+    expect(bl.y - (tl.y + tl.h)).toBeGreaterThan(0.28);
+    expect(xAxis.x).toBeLessThan(tl.x);
+    expect(xAxis.x + xAxis.w).toBeGreaterThan(tr.x + tr.w);
+    expect(yAxis.y).toBeLessThan(tl.y);
+    expect(yAxis.y + yAxis.h).toBeGreaterThan(bl.y + bl.h);
+  });
+
+  it("cards variant keeps the legacy quadrant card structure", () => {
+    const shapes = renderShapes({
+      id: "s.m", type: "matrix-2x2",
+      variant: "cards",
+      xAxis: { low: "L", high: "H" }, yAxis: { low: "L", high: "H" },
+      quadrantLabels: { tl: "A", tr: "B", bl: "C", br: "D" },
     } as unknown as DomNode);
     expect(findByNameSuffix(shapes, "s.m.tl-card")).toBeDefined();
     expect(findByNameSuffix(shapes, "s.m.tr-card")).toBeDefined();

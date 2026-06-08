@@ -88,6 +88,25 @@ describe("CJK badges and numbered list formatting", () => {
     expect(shape?.paragraphs?.[0]?.runs?.[0]?.text).toBe("长期赢家\u2060。");
   });
 
+  it("protects CJK punctuation in paragraph text and rich-run boundaries", () => {
+    const ast = renderToAst(sourceToRenderedDeck({
+      slideml2: 2,
+      deck: { size: "16x9", theme: "default" },
+      slides: [{
+        id: "s",
+        children: [
+          { id: "s.p", type: "text", paragraphs: [{ text: "实验（理论）继续。" }] },
+          { id: "s.r", type: "text", content: [{ text: "理论" }, { text: "）继续" }] },
+        ],
+      }],
+    } as never));
+    const paragraphShape = ast.slides[0]!.shapes.find((item) => item.name === "s.p") as { paragraphs?: Array<{ runs: Array<{ text?: string }> }> } | undefined;
+    const richShape = ast.slides[0]!.shapes.find((item) => item.name === "s.r") as { paragraphs?: Array<{ runs: Array<{ text?: string }> }> } | undefined;
+
+    expect(paragraphShape?.paragraphs?.[0]?.runs?.[0]?.text).toBe("实验（\u2060理论\u2060）继续\u2060。");
+    expect(richShape?.paragraphs?.[0]?.runs.map((run) => run.text).join("")).toBe("理论\u2060）继续");
+  });
+
   it("warns when three consecutive slides are authored as table-card-only pages", () => {
     const slides = [1, 2, 3].map((index) => ({
       id: `s${index}`,

@@ -19,14 +19,14 @@ import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
  *   5. Long text doesn't crash layout
  *   6. Field aliases mentioned in the registry mapping work
  *   7. No UNKNOWN_NODE_TYPE / MISSING_NODE_TYPE / UNKNOWN_COLOR /
- *      LOW_CONTRAST blocking diagnostics
+ *      LOW_CONTRAST error diagnostics
  *   8. Required text content actually appears in the rendered AST
  */
 
 const BLOCKING_CODES = new Set([
   "FALLBACK_FAILED", "TINY_RECT", "SQUASHED",
   "UNKNOWN_NODE_TYPE", "MISSING_NODE_TYPE",
-  "UNKNOWN_COLOR", "LOW_CONTRAST",
+  "UNKNOWN_COLOR",
 ]);
 
 function deck(slides: SlideV2[]): Slideml2SourceDeck {

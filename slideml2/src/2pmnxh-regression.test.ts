@@ -24,7 +24,7 @@ import type { DomNode, Slideml2SourceDeck, SlideV2 } from "./types.js";
  */
 
 const BLOCKING: ReadonlySet<LayoutDiagnostic["code"]> = new Set([
-  "FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "LOW_CONTRAST", "UNKNOWN_COLOR", "UNKNOWN_STYLE",
+  "FALLBACK_FAILED", "COLLISION", "TINY_RECT", "SQUASHED", "UNKNOWN_COLOR", "UNKNOWN_STYLE",
 ]);
 
 function deckWith(slides: SlideV2[], themeOverride?: Slideml2SourceDeck["deck"]["themeOverride"]): Slideml2SourceDeck {
@@ -38,7 +38,7 @@ function deckWith(slides: SlideV2[], themeOverride?: Slideml2SourceDeck["deck"][
 function blockingAfterRender(deck: Slideml2SourceDeck): LayoutDiagnostic[] {
   clearRenderDiagnostics();
   renderToAst(sourceToRenderedDeck(deck));
-  return getRenderDiagnostics().filter((d) => BLOCKING.has(d.code) && d.severity !== "info");
+  return getRenderDiagnostics().filter((d) => d.severity === "error" || (BLOCKING.has(d.code) && d.severity !== "info"));
 }
 
 describe("timeline on a dark-theme deck (2pmnxh)", () => {

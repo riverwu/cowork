@@ -15,7 +15,6 @@ const BLOCKING = new Set<LayoutDiagnostic["code"]>([
   "TITLE_OCCLUDED",
   "TINY_RECT",
   "SQUASHED",
-  "LOW_CONTRAST",
   "SHAPE_INVISIBLE",
   "UNKNOWN_COLOR",
   "UNKNOWN_STYLE",

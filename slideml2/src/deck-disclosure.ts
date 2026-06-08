@@ -1,4 +1,4 @@
-import { buildTheme, listPaletteColors, listSemanticTones, listThemes } from "./theme.js";
+import { buildTheme, listDensityProfiles, listPaletteColors, listSemanticTones, listThemes } from "./theme.js";
 import { DECK_SIZE_VALUES, VALIDATION_MODE_VALUES } from "./schema.js";
 
 export interface DeckFieldDescription {
@@ -21,6 +21,7 @@ export interface DeckDescription {
     description: string;
   };
   themes: { available: string[]; default: string; description: string };
+  densityProfiles: { available: string[]; default: string; description: string; guidance: string[] };
   brand: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
   chrome: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
   validation: { description: string; fields: Record<string, DeckFieldDescription>; example: unknown };
@@ -83,6 +84,16 @@ export function describeDeck(): DeckDescription {
       available: listThemes(),
       default: "default",
       description: "Only the 'default' scaffold ships built-in. Concrete styling is the agent's responsibility — call set_theme with a themeOverride that fits the subject (consulting / pitch / academic / engineering). The default theme is intentionally neutral.",
+    },
+    densityProfiles: {
+      available: listDensityProfiles(),
+      default: sample.densityProfile,
+      description: "Set deck.themeOverride.densityProfile before authoring slides. The profile changes default type scale, margins, gap, card padding, and semantic region budgets before explicit theme overrides are applied.",
+      guidance: [
+        "editorial: large-title magazine/showcase pages with fewer dense objects.",
+        "analytical: default for business, research, charts, tables, and explanatory prose.",
+        "dense: compact dashboards, tables, code, and operating reviews; split when readability floors are hit.",
+      ],
     },
     brand: {
       description: "Brand identity injected into every slide. Drives brand.primary token, derived brand.tint and brand.shade, optional logo placement via chrome.brandMark.",
@@ -449,8 +460,8 @@ export function describeDeck(): DeckDescription {
         "If FALLBACK_FAILED appears, split content into a new slide instead of fighting the layout.",
         "If CODE_BLOCK_OVERFLOW appears, paginate the code across multiple slides or multiple code-block components; do not hide required code with maxLines unless the user asked for an excerpt.",
         "If TITLE_OCCLUDED appears, fix deck.themeOverride.layout.contentTop or move the covering decoration behind the title.",
-        "If PIE_LABELS_HIDDEN appears, keep pie/doughnut slice labels visible with dataLabels:{show:true,position:'bestFit',showCategoryName:true,showPercent:true}; do not hide them behind a legend-only design.",
-        "If SQUASHED appears, treat it as a layout failure even if the slide technically renders; first preserve the current component semantics by increasing its region, changing layout ratio, reducing rows/items/labels, or splitting supporting content. Change component only when the alternative is semantically more accurate.",
+        "If PIE_LABELS_HIDDEN appears, keep pie/doughnut slice labels visible with dataLabels:{show:true,showCategoryName:true,showPercent:true}; pie may use native position:'outsideEnd', while doughnut uses repair-safe external PPT labels instead of native dLblPos. Do not hide slices behind a legend-only design.",
+        "If SQUASHED appears, treat it as a layout failure even if the slide technically renders; preserve the current component semantics by increasing its region, changing layout ratio, reducing rows/items/labels, or splitting supporting content. Generic mild compression estimates are intentionally suppressed because unreliable warnings cause unnecessary rewrites.",
         "Use `optional: true` on nice-to-have decoration so the renderer can drop it cleanly when space is tight.",
       ],
     },

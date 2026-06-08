@@ -26,6 +26,9 @@ const DEFAULT_COLORS: HexColor[] = [
   "3CC2FF", "1078B5", "FF9F45", "8DA8C2", "F5F9FC",
   "5A8FB5", "29B5A8", "B5829A", "8C7DCC", "BFB143",
 ];
+const DEFAULT_CHART_TEXT_COLOR = "111827";
+
+const EMU_PER_CM = 360000;
 
 /**
  * Build the `chart{N}.xml` body for a chart shape.
@@ -46,13 +49,14 @@ export function chartXml(shape: ChartShape, options: { embeddedWorkbookRelId?: s
   const secondaryValAxId = 100000003;
   const hasSecondaryAxis = chartSupportsSecondaryAxis(shape) && shape.series.some((series) => series.axis === "secondary");
 
+  const titleColor = (shape.titleColor ?? shape.textColor ?? DEFAULT_CHART_TEXT_COLOR).toUpperCase();
   const titleXml = shape.title
     ? `<c:title>` +
       `<c:tx><c:rich>` +
       `<a:bodyPr rot="0" spcFirstLastPara="1" vertOverflow="ellipsis" wrap="square" anchor="ctr" anchorCtr="1"/>` +
       `<a:lstStyle/>` +
-      `<a:p><a:pPr algn="ctr"><a:defRPr sz="1400" b="1"/></a:pPr>` +
-      `<a:r><a:rPr lang="en-US" sz="1400" b="1"/><a:t>${xmlEscapeText(shape.title)}</a:t></a:r></a:p>` +
+      `<a:p><a:pPr algn="ctr">${defaultRunPrXml(titleColor, 1400, true)}</a:pPr>` +
+      `<a:r><a:rPr lang="en-US" sz="1400" b="1">${solidFillXml(titleColor)}</a:rPr><a:t>${xmlEscapeText(shape.title)}</a:t></a:r></a:p>` +
       `</c:rich></c:tx>` +
       `<c:overlay val="0"/></c:title>`
     : "";
@@ -89,8 +93,8 @@ export function chartXml(shape: ChartShape, options: { embeddedWorkbookRelId?: s
   const axesXml = axisLessTypes.includes(shape.chartType)
     ? ""
     : isScatter
-      ? scatterAxesXml(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt)
-      : axesXmlOf(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt, hasSecondaryAxis ? secondaryValAxId : undefined, shape.secondaryYAxis, isHorizontalBarChart(shape) ? "horizontal" : "vertical");
+      ? scatterAxesXml(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt, shape.axisTextColor ?? shape.textColor)
+      : axesXmlOf(catAxId, valAxId, shape.xAxis, shape.yAxis, numFmt, hasSecondaryAxis ? secondaryValAxId : undefined, shape.secondaryYAxis, isHorizontalBarChart(shape) ? "horizontal" : "vertical", shape.axisTextColor ?? shape.textColor);
 
   const externalDataXml = options.embeddedWorkbookRelId
     ? `<c:externalData r:id="${options.embeddedWorkbookRelId}"><c:autoUpdate val="0"/></c:externalData>`
@@ -132,12 +136,25 @@ function chartSupportsSecondaryAxis(shape: ChartShape): boolean {
 }
 
 function validateChartStyle(shape: ChartShape): void {
+  for (const [field, value] of [
+    ["textColor", shape.textColor],
+    ["axisTextColor", shape.axisTextColor],
+    ["dataLabelColor", shape.dataLabelColor],
+    ["titleColor", shape.titleColor],
+    ["legendTextColor", shape.legendTextColor],
+  ] as const) {
+    if (value) assertHex(value, `ChartShape.${field}`);
+  }
+  if (shape.dataLabels?.color) assertHex(shape.dataLabels.color, "ChartShape.dataLabels.color");
   for (const [idx, series] of shape.series.entries()) {
     if (series.color) assertHex(series.color, `ChartSeries[${idx}].color`);
     if (series.marker?.fill) assertHex(series.marker.fill, `ChartSeries[${idx}].marker.fill`);
     if (series.marker?.line) assertHex(series.marker.line, `ChartSeries[${idx}].marker.line`);
+    if (series.dataLabels?.color) assertHex(series.dataLabels.color, `ChartSeries[${idx}].dataLabels.color`);
   }
   for (const [label, axis] of [["xAxis", shape.xAxis], ["yAxis", shape.yAxis], ["secondaryYAxis", shape.secondaryYAxis]] as const) {
+    if (axis?.color) assertHex(axis.color, `ChartShape.${label}.color`);
+    if (axis?.titleColor) assertHex(axis.titleColor, `ChartShape.${label}.titleColor`);
     const grid = axis?.gridlines;
     if (grid && typeof grid === "object" && grid.color) assertHex(grid.color, `ChartShape.${label}.gridlines.color`);
   }
@@ -148,26 +165,59 @@ function legendXmlOf(shape: ChartShape, showLegend: boolean): string {
   const position = shape.legend?.position ?? "bottom";
   const pos = position === "top" ? "t" : position === "left" ? "l" : position === "right" ? "r" : "b";
   const overlay = shape.legend?.overlay ? 1 : 0;
-  return `<c:legend><c:legendPos val="${pos}"/><c:overlay val="${overlay}"/></c:legend>`;
+  const legendColor = shape.legendTextColor ?? shape.axisTextColor ?? shape.textColor;
+  const txPr = legendColor ? chartTextPrXml(legendColor, 1000) : "";
+  return `<c:legend><c:legendPos val="${pos}"/><c:overlay val="${overlay}"/>${txPr}</c:legend>`;
 }
 
 function plotAreaLayoutXml(shape: ChartShape): string {
   const p = shape.plotArea;
   if (!p) return `<c:layout/>`;
   const parts: string[] = [`<c:layoutTarget val="inner"/>`];
-  const x = typeof p.x === "number" ? clampFactor(p.x) : undefined;
-  const y = typeof p.y === "number" ? clampFactor(p.y) : undefined;
-  const w = typeof p.w === "number" ? clampFactor(p.w, 0.01, x === undefined ? 1 : Math.max(0.01, 1 - x)) : undefined;
-  const h = typeof p.h === "number" ? clampFactor(p.h, 0.01, y === undefined ? 1 : Math.max(0.01, 1 - y)) : undefined;
-  if (x !== undefined) parts.push(`<c:xMode val="factor"/><c:x val="${x}"/>`);
-  if (y !== undefined) parts.push(`<c:yMode val="factor"/><c:y val="${y}"/>`);
-  if (w !== undefined) parts.push(`<c:wMode val="factor"/><c:w val="${w}"/>`);
-  if (h !== undefined) parts.push(`<c:hMode val="factor"/><c:h val="${h}"/>`);
+  const normalized = normalizePlotArea(shape);
+  const { x, y, w, h } = normalized;
+  if (x !== undefined) parts.push(`<c:xMode val="factor"/><c:x val="${formatFactor(x)}"/>`);
+  if (y !== undefined) parts.push(`<c:yMode val="factor"/><c:y val="${formatFactor(y)}"/>`);
+  if (w !== undefined) parts.push(`<c:wMode val="factor"/><c:w val="${formatFactor(w)}"/>`);
+  if (h !== undefined) parts.push(`<c:hMode val="factor"/><c:h val="${formatFactor(h)}"/>`);
   return `<c:layout><c:manualLayout>${parts.join("")}</c:manualLayout></c:layout>`;
+}
+
+function normalizePlotArea(shape: ChartShape): { x?: number; y?: number; w?: number; h?: number } {
+  const p = shape.plotArea;
+  if (!p) return {};
+
+  const hasCmLikeValue = [p.x, p.y, p.w, p.h].some((v) => typeof v === "number" && Math.abs(v) > 1);
+  const widthCm = Math.max(0.01, shape.xfrm.cx / EMU_PER_CM);
+  const heightCm = Math.max(0.01, shape.xfrm.cy / EMU_PER_CM);
+  const toFactor = (value: number | undefined, spanCm: number): number | undefined => {
+    if (typeof value !== "number") return undefined;
+    return hasCmLikeValue ? value / spanCm : value;
+  };
+
+  const x = toFactor(p.x, widthCm);
+  const y = toFactor(p.y, heightCm);
+  const clampedX = x === undefined ? undefined : clampFactor(x);
+  const clampedY = y === undefined ? undefined : clampFactor(y);
+  const maxW = clampedX === undefined ? 1 : Math.max(0.01, 1 - clampedX);
+  const maxH = clampedY === undefined ? 1 : Math.max(0.01, 1 - clampedY);
+  const w = toFactor(p.w, widthCm);
+  const h = toFactor(p.h, heightCm);
+
+  return {
+    x: clampedX,
+    y: clampedY,
+    w: w === undefined ? undefined : clampFactor(w, 0.01, maxW),
+    h: h === undefined ? undefined : clampFactor(h, 0.01, maxH),
+  };
 }
 
 function clampFactor(value: number, min = 0, max = 1): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function formatFactor(value: number): string {
+  return Number(value.toFixed(4)).toString();
 }
 
 // ---- Bar / Line / Pie chart bodies --------------------------------------
@@ -250,19 +300,16 @@ function pieChartXml(shape: ChartShape, colors: HexColor[], doughnut: boolean, r
   const series = shape.series[0] ?? { name: "Series", values: [] };
   const elem = doughnut ? "doughnutChart" : "pieChart";
   const holeXml = doughnut ? `<c:holeSize val="50"/>` : "";
-  const dataLabelsXml = dataLabelsXmlOf(shape, {
-    position: "bestFit",
+  const dataLabelsXml = doughnut ? "" : dataLabelsXmlOf(shape, {
+    position: "outsideEnd",
     showValue: false,
     showCategoryName: true,
     showSeriesName: false,
     showPercent: true,
     showLeaderLines: true,
-  // PowerPoint for Mac repairs pie/doughnut charts when c:dLblPos is emitted
-  // in this series-level label block. Let Office choose the position; labels
-  // remain enabled and editable without corrupting the package.
   }, {
     pointCount: shape.labels.length,
-    omitPosition: true,
+    omitNumberFormatAndTextPr: true,
     hiddenPointIndexes: hiddenPieLabelIndexes(series.values, shape.dataLabels?.minPercent ?? 0.03),
   });
   return (
@@ -277,10 +324,10 @@ function pieChartXml(shape: ChartShape, colors: HexColor[], doughnut: boolean, r
       `<c:spPr><a:solidFill><a:srgbClr val="${colors[i % colors.length]!}"/></a:solidFill></c:spPr>` +
       `</c:dPt>`,
     ).join("") +
-    dataLabelsXml +
     catRefXml(shape.labels, refContext) +
     valRefXml(series.values, refContext, 0) +
     `</c:ser>` +
+    dataLabelsXml +
     `<c:firstSliceAng val="0"/>` +
     holeXml +
     `</c:${elem}>`
@@ -311,12 +358,21 @@ function seriesXml(
         lineStyleXml(color, s.lineWidth, s.lineDash) + `</c:spPr>`
       : `<c:spPr><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></c:spPr>`;
 
-  const dLbls = dataLabelsXmlOf({ showValues, dataLabels: s.dataLabels ?? shape?.dataLabels }, {
+  const dLbls = dataLabelsXmlOf({
+    showValues,
+    dataLabels: s.dataLabels ?? shape?.dataLabels,
+    textColor: shape?.textColor,
+    dataLabelColor: shape?.dataLabelColor,
+  }, {
     position: undefined,
     showValue: true,
     showCategoryName: false,
     showSeriesName: false,
     showPercent: false,
+  }, {
+    // Forced label positions such as outEnd are reliable for bars/pies but
+    // PowerPoint may repair line/area charts that carry the same native XML.
+    omitPosition: isLine || isArea,
   });
 
   return (
@@ -366,7 +422,7 @@ function markerSymbolXml(symbol: NonNullable<ChartMarkerSpec["symbol"]>): string
 }
 
 function dataLabelsXmlOf(
-  shape: Pick<ChartShape, "showValues" | "dataLabels">,
+  shape: Pick<ChartShape, "showValues" | "dataLabels" | "textColor" | "dataLabelColor">,
   defaults: {
     position?: NonNullable<ChartShape["dataLabels"]>["position"];
     showValue: boolean;
@@ -376,7 +432,7 @@ function dataLabelsXmlOf(
     showLegendKey?: boolean;
     showLeaderLines?: boolean;
   },
-  options: { pointCount?: number; omitPosition?: boolean; hiddenPointIndexes?: Set<number> } = {},
+  options: { pointCount?: number; omitPosition?: boolean; omitNumberFormatAndTextPr?: boolean; hiddenPointIndexes?: Set<number> } = {},
 ): string {
   const labels = shape.dataLabels;
   const show = labels?.show ?? shape.showValues ?? false;
@@ -390,6 +446,7 @@ function dataLabelsXmlOf(
   const showPercent = labels?.showPercent ?? defaults.showPercent;
   const showLeaderLines = labels?.showLeaderLines ?? defaults.showLeaderLines;
   const leaderLinesXml = typeof showLeaderLines === "boolean" ? `<c:showLeaderLines val="${showLeaderLines ? 1 : 0}"/>` : "";
+  const labelColor = labels?.color ?? shape.dataLabelColor ?? shape.textColor ?? DEFAULT_CHART_TEXT_COLOR;
   const showFlagsXml =
     `<c:showLegendKey val="${showLegendKey ? 1 : 0}"/>` +
     `<c:showVal val="${showValue ? 1 : 0}"/>` +
@@ -397,24 +454,17 @@ function dataLabelsXmlOf(
     `<c:showSerName val="${showSeriesName ? 1 : 0}"/>` +
     `<c:showPercent val="${showPercent ? 1 : 0}"/>` +
     `<c:showBubbleSize val="0"/>`;
-  const pointLabelsXml = options.pointCount && options.pointCount > 0
-    ? Array.from({ length: options.pointCount }, (_, idx) =>
-      options.hiddenPointIndexes?.has(idx)
-        ? `<c:dLbl><c:idx val="${idx}"/><c:delete val="1"/></c:dLbl>`
-        : `<c:dLbl><c:idx val="${idx}"/>` +
-          `<c:numFmt formatCode="General" sourceLinked="0"/>` +
-          `<c:spPr/>` +
-          defaultDataLabelTextPrXml() +
-          showFlagsXml +
-          `</c:dLbl>`,
-    ).join("")
+  const pointLabelsXml = options.hiddenPointIndexes
+    ? Array.from(options.hiddenPointIndexes)
+      .sort((a, b) => a - b)
+      .map((index) => `<c:dLbl><c:idx val="${index}"/><c:delete val="1"/></c:dLbl>`)
+      .join("")
     : "";
   return (
     `<c:dLbls>` +
     pointLabelsXml +
-    `<c:numFmt formatCode="General" sourceLinked="0"/>` +
-    defaultDataLabelTextPrXml() +
     positionXml +
+    (options.omitNumberFormatAndTextPr ? "" : `<c:numFmt formatCode="General" sourceLinked="0"/>` + defaultDataLabelTextPrXml(labelColor)) +
     showFlagsXml +
     leaderLinesXml +
     `</c:dLbls>`
@@ -434,14 +484,20 @@ function hiddenPieLabelIndexes(values: Array<number | null>, minPercent: number 
   return hidden.size ? hidden : undefined;
 }
 
-function defaultDataLabelTextPrXml(): string {
-  return (
-    `<c:txPr>` +
-    `<a:bodyPr/>` +
-    `<a:lstStyle/>` +
-    `<a:p><a:pPr><a:defRPr sz="1200"><a:solidFill><a:srgbClr val="111827"/></a:solidFill><a:latin typeface="Arial"/></a:defRPr></a:pPr></a:p>` +
-    `</c:txPr>`
-  );
+function defaultDataLabelTextPrXml(color: HexColor): string {
+  return chartTextPrXml(color, 1200);
+}
+
+function chartTextPrXml(color: HexColor, size = 1000): string {
+  return `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr>${defaultRunPrXml(color, size)}</a:pPr></a:p></c:txPr>`;
+}
+
+function defaultRunPrXml(color: HexColor, size = 1000, bold = false): string {
+  return `<a:defRPr sz="${size}"${bold ? ` b="1"` : ""}>${solidFillXml(color)}<a:latin typeface="Arial"/></a:defRPr>`;
+}
+
+function solidFillXml(color: HexColor): string {
+  return `<a:solidFill><a:srgbClr val="${color.toUpperCase()}"/></a:solidFill>`;
 }
 
 function dataLabelPositionXml(position: NonNullable<ChartShape["dataLabels"]>["position"]): string {
@@ -761,18 +817,18 @@ function waterfallChartXml(
   );
 }
 
-function scatterAxesXml(xAxId: number, yAxId: number, xAxis: ChartAxisSpec | undefined, yAxis: ChartAxisSpec | undefined, numFmt: string): string {
+function scatterAxesXml(xAxId: number, yAxId: number, xAxis: ChartAxisSpec | undefined, yAxis: ChartAxisSpec | undefined, numFmt: string, fallbackTextColor?: HexColor): string {
   return (
     `<c:valAx>` +
     `<c:axId val="${xAxId}"/>` +
     scalingXml(xAxis) +
     `<c:delete val="${xAxis?.show === false ? 1 : 0}"/>` +
     `<c:axPos val="b"/>` +
-    axisTitleXml(xAxis) +
     axisGridlinesXml(xAxis) +
+    axisTitleXml(xAxis, 0, fallbackTextColor) +
     `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(xAxis?.numberFormat ?? "General"))}" sourceLinked="${xAxis?.numberFormat ? 0 : 1}"/>` +
     axisTicksXml(xAxis) +
-    axisTextXml(xAxis) +
+    axisTextXml(xAxis, fallbackTextColor) +
     `<c:crossAx val="${yAxId}"/>` +
     `</c:valAx>` +
     `<c:valAx>` +
@@ -780,11 +836,11 @@ function scatterAxesXml(xAxId: number, yAxId: number, xAxis: ChartAxisSpec | und
     scalingXml(yAxis) +
     `<c:delete val="${yAxis?.show === false ? 1 : 0}"/>` +
     `<c:axPos val="l"/>` +
-    axisTitleXml(yAxis) +
     axisGridlinesXml(yAxis) +
+    axisTitleXml(yAxis, -90, fallbackTextColor) +
     `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(yAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` +
     axisTicksXml(yAxis) +
-    axisTextXml(yAxis) +
+    axisTextXml(yAxis, fallbackTextColor) +
     `<c:crossAx val="${xAxId}"/>` +
     `</c:valAx>`
   );
@@ -803,6 +859,7 @@ function axesXmlOf(
   secondaryValAxId?: number,
   secondaryYAxis?: ChartAxisSpec,
   orientation: "vertical" | "horizontal" = "vertical",
+  fallbackTextColor?: HexColor,
 ): string {
   const horizontal = orientation === "horizontal";
   return (
@@ -811,10 +868,10 @@ function axesXmlOf(
     scalingXml(xAxis) +
     `<c:delete val="${xAxis?.show === false ? 1 : 0}"/>` +
     `<c:axPos val="${horizontal ? "l" : "b"}"/>` +
-    axisTitleXml(xAxis) +
     axisGridlinesXml(xAxis) +
+    axisTitleXml(xAxis, horizontal ? -90 : 0, fallbackTextColor) +
     axisTicksXml(xAxis) +
-    axisTextXml(xAxis) +
+    axisTextXml(xAxis, fallbackTextColor) +
     `<c:crossAx val="${valAxId}"/>` +
     `</c:catAx>` +
     `<c:valAx>` +
@@ -822,13 +879,13 @@ function axesXmlOf(
     scalingXml(yAxis) +
     `<c:delete val="${yAxis?.show === false ? 1 : 0}"/>` +
     `<c:axPos val="${horizontal ? "b" : "l"}"/>` +
-    axisTitleXml(yAxis) +
     axisGridlinesXml(yAxis) +
+    axisTitleXml(yAxis, horizontal ? 0 : -90, fallbackTextColor) +
     `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(yAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` +
-    axisUnitXml(yAxis) +
     axisTicksXml(yAxis) +
-    axisTextXml(yAxis) +
+    axisTextXml(yAxis, fallbackTextColor) +
     `<c:crossAx val="${catAxId}"/>` +
+    axisUnitXml(yAxis) +
     `</c:valAx>` +
     (secondaryValAxId ? (
       `<c:valAx>` +
@@ -836,13 +893,14 @@ function axesXmlOf(
       scalingXml(secondaryYAxis) +
       `<c:delete val="${secondaryYAxis?.show === false ? 1 : 0}"/>` +
       `<c:axPos val="${horizontal ? "t" : "r"}"/>` +
-      axisTitleXml(secondaryYAxis) +
       axisGridlinesXml(secondaryYAxis) +
+      axisTitleXml(secondaryYAxis, horizontal ? 0 : 90, fallbackTextColor) +
       `<c:numFmt formatCode="${formatCodeAttr(numberFormatCode(secondaryYAxis?.numberFormat ?? numFmt))}" sourceLinked="0"/>` +
-      axisUnitXml(secondaryYAxis) +
       axisTicksXml(secondaryYAxis) +
-      axisTextXml(secondaryYAxis) +
+      axisTextXml(secondaryYAxis, fallbackTextColor) +
       `<c:crossAx val="${catAxId}"/>` +
+      `<c:crosses val="max"/>` +
+      axisUnitXml(secondaryYAxis) +
       `</c:valAx>`
     ) : "")
   );
@@ -873,19 +931,24 @@ function tickMarkXml(value: NonNullable<ChartAxisSpec["majorTickMark"]>): string
   return value === "in" ? "in" : value === "cross" ? "cross" : value === "none" ? "none" : "out";
 }
 
-function axisTextXml(axis: ChartAxisSpec | undefined): string {
-  if (typeof axis?.tickLabelRotation !== "number") return "";
-  const rot = Math.round(-axis.tickLabelRotation * 60000);
-  return `<c:txPr><a:bodyPr rot="${rot}"/><a:lstStyle/><a:p><a:pPr/><a:endParaRPr lang="en-US"/></a:p></c:txPr>`;
+function axisTextXml(axis: ChartAxisSpec | undefined, fallbackTextColor?: HexColor): string {
+  const color = axis?.color ?? fallbackTextColor;
+  if (typeof axis?.tickLabelRotation !== "number" && !color) return "";
+  const rot = typeof axis?.tickLabelRotation === "number" ? Math.round(-axis.tickLabelRotation * 60000) : undefined;
+  const bodyAttrs = rot === undefined ? "" : ` rot="${rot}"`;
+  const pPr = color ? `<a:pPr>${defaultRunPrXml(color, 1000)}</a:pPr>` : `<a:pPr/>`;
+  return `<c:txPr><a:bodyPr${bodyAttrs}/><a:lstStyle/><a:p>${pPr}<a:endParaRPr lang="en-US"/></a:p></c:txPr>`;
 }
 
-function axisTitleXml(axis: ChartAxisSpec | undefined): string {
+function axisTitleXml(axis: ChartAxisSpec | undefined, rotationDegrees = 0, fallbackTextColor?: HexColor): string {
   if (!axis?.title) return "";
+  const rot = Math.round(rotationDegrees * 60000);
+  const titleColor = axis.titleColor ?? axis.color ?? fallbackTextColor ?? DEFAULT_CHART_TEXT_COLOR;
   return (
     `<c:title><c:tx><c:rich>` +
-    `<a:bodyPr rot="0" spcFirstLastPara="1" vertOverflow="ellipsis" wrap="square" anchor="ctr" anchorCtr="1"/>` +
-    `<a:lstStyle/><a:p><a:pPr algn="ctr"><a:defRPr sz="1000" b="1"/></a:pPr>` +
-    `<a:r><a:rPr lang="en-US" sz="1000" b="1"/><a:t>${xmlEscapeText(axis.title)}</a:t></a:r>` +
+    `<a:bodyPr rot="${rot}" spcFirstLastPara="1" vertOverflow="ellipsis" wrap="square" anchor="ctr" anchorCtr="1"/>` +
+    `<a:lstStyle/><a:p><a:pPr algn="ctr">${defaultRunPrXml(titleColor, 1000, true)}</a:pPr>` +
+    `<a:r><a:rPr lang="en-US" sz="1000" b="1">${solidFillXml(titleColor)}</a:rPr><a:t>${xmlEscapeText(axis.title)}</a:t></a:r>` +
     `</a:p></c:rich></c:tx><c:layout/><c:overlay val="0"/></c:title>`
   );
 }

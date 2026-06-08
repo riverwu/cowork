@@ -23,7 +23,6 @@ const BLOCKING_CODES: ReadonlySet<LayoutDiagnostic["code"]> = new Set<LayoutDiag
   "COLLISION",
   "TINY_RECT",
   "SQUASHED",
-  "LOW_CONTRAST",
   "UNKNOWN_COLOR",
   "UNKNOWN_STYLE",
 ]);
@@ -37,7 +36,7 @@ function buildDeckWithSlide(slide: SlideV2): Slideml2SourceDeck {
 }
 
 function blocking(): LayoutDiagnostic[] {
-  return getRenderDiagnostics().filter((d) => BLOCKING_CODES.has(d.code) && d.severity !== "info");
+  return getRenderDiagnostics().filter((d) => d.severity === "error" || (BLOCKING_CODES.has(d.code) && d.severity !== "info"));
 }
 
 describe("uehi0g regressions", () => {
@@ -135,6 +134,53 @@ describe("uehi0g regressions", () => {
 
     expect(neutralCell?.fill).toBe("surface.subtle");
     expect(neutralCell?.line).toBe("divider");
+  });
+
+  it("matrix-2x2 axis mode preserves configurable line heads, label positions, and borders", () => {
+    const expanded = expandComponent("matrix-axis-config", {
+      id: "matrix-axis-config.matrix",
+      type: "matrix-2x2",
+      xAxis: { low: "结果难验证", high: "结果可验证" },
+      yAxis: { low: "业务价值低", high: "业务价值高" },
+      quadrantLabels: {
+        tl: "先治理上下文：数据语义化 / API / 权限 / Eval",
+        tr: "优先改造：广告投放 / 客服工单",
+        bl: "暂缓：开放闲聊",
+        br: "可以自动化：报表 / 摘要",
+      },
+      axisLabelPosition: "inside",
+      quadrantLabelPosition: "center",
+      axisLine: {
+        line: "danger",
+        lineWidth: 0.06,
+        lineDash: "dash",
+        heads: "both",
+        xTailEnd: { type: "stealth", width: "lg", length: "lg" },
+        yHeadEnd: { type: "oval", width: "med", length: "med" },
+      },
+      quadrantBorder: {
+        line: "brand.primary",
+        lineWidth: 0.04,
+        lineDash: "dot",
+        cornerRadius: 0.22,
+      },
+    } as unknown as DomNode);
+
+    const xAxis = findNode(expanded, "matrix-axis-config.matrix.x-axis.line");
+    const yAxis = findNode(expanded, "matrix-axis-config.matrix.y-axis.line");
+    const topLeft = findNode(expanded, "matrix-axis-config.matrix.tl");
+    const xLowLabel = findNode(expanded, "matrix-axis-config.matrix.xlo");
+
+    expect(xAxis?.line).toBe("danger");
+    expect(xAxis?.lineWidth).toBe(0.06);
+    expect(xAxis?.lineDash).toBe("dash");
+    expect(xAxis?.tailEnd).toMatchObject({ type: "stealth", width: "lg", length: "lg" });
+    expect(yAxis?.headEnd).toMatchObject({ type: "oval", width: "med", length: "med" });
+    expect(topLeft?.line).toBe("brand.primary");
+    expect(topLeft?.lineWidth).toBe(0.04);
+    expect(topLeft?.lineDash).toBe("dot");
+    expect(topLeft?.cornerRadius).toBe(0.22);
+    expect(xLowLabel?.at?.[1]).toBeGreaterThan((xAxis?.at?.[1] ?? 0) - 0.1);
   });
 
   it("matrix-2x2 with neither items nor quadrantLabels produces a clear error", () => {
@@ -317,6 +363,45 @@ describe("uehi0g regressions", () => {
     expect(expanded.type).toBe("stack");
     expect(expanded.children?.map((child) => child.role)).toEqual(["axis-ruler-row", "axis-ruler-row"]);
     expect(findNode(expanded, "uehi0g-axis-wrap.ar.row0.items")?.columns).toBe(4);
+  });
+
+  it("axis-ruler defaults to gradient rail, supports segmented/tick styles, and minimal keeps the legacy divider", () => {
+    const base = {
+      id: "uehi0g-axis-rail.ar",
+      type: "axis-ruler",
+      direction: "horizontal",
+      items: [
+        { label: "Low", body: "Manual" },
+        { label: "Mid", body: "Assisted" },
+        { label: "High", body: "Autonomous" },
+      ],
+    } as unknown as DomNode;
+    const rail = expandComponent("uehi0g-axis-rail", base);
+    expect(rail.children?.map((child) => child.role || child.type)).toEqual(["axis-ruler-rail", "grid"]);
+    expect(rail.children?.[0]?.type).toBe("positioned-group");
+    expect(findNode(rail, "uehi0g-axis-rail.ar.rail.track.segment.0")?.type).toBe("shape");
+    expect(findNode(rail, "uehi0g-axis-rail.ar.rail.track.segment.95")?.type).toBe("shape");
+    expect(findNode(rail, "uehi0g-axis-rail.ar.0.rail")?.type).toBe("text");
+    expect(findNode(rail, "uehi0g-axis-rail.ar.0.rail")?.noWrap).toBe(true);
+    const gradientRail = rail.children?.[0] as DomNode | undefined;
+    const firstStem = findNode(rail, "uehi0g-axis-rail.ar.0.stem") as DomNode | undefined;
+    const lastStem = findNode(rail, "uehi0g-axis-rail.ar.2.stem") as DomNode | undefined;
+    expect(gradientRail?.contentWidth).toBeCloseTo(15.4);
+    expect(Array.isArray(firstStem?.at) ? firstStem.at[0] + firstStem.at[2] / 2 : undefined).toBeCloseTo(gradientRail!.contentWidth / 6);
+    expect(Array.isArray(lastStem?.at) ? lastStem.at[0] + lastStem.at[2] / 2 : undefined).toBeCloseTo((gradientRail!.contentWidth * 5) / 6);
+    expect(rail.children?.[1]?.gap).toBe(0);
+
+    const segmented = expandComponent("uehi0g-axis-segmented", { ...base, id: "uehi0g-axis-segmented.ar", railStyle: "segmented" } as unknown as DomNode);
+    expect(segmented.children?.[0]?.type).toBe("grid");
+    expect(findNode(segmented, "uehi0g-axis-segmented.ar.0.rail")?.type).toBe("text");
+
+    const tick = expandComponent("uehi0g-axis-tick", { ...base, id: "uehi0g-axis-tick.ar", railStyle: "tick" } as unknown as DomNode);
+    expect(tick.children?.[0]?.type).toBe("stack");
+    expect(findNode(tick, "uehi0g-axis-tick.ar.0.rail")?.type).toBe("shape");
+
+    const minimal = expandComponent("uehi0g-axis-minimal", { ...base, id: "uehi0g-axis-minimal.ar", variant: "minimal" } as unknown as DomNode);
+    expect(minimal.children?.[0]?.type).toBe("divider");
+    expect(findNode(minimal, "uehi0g-axis-minimal.ar.0.marker")?.type).toBe("shape");
   });
 
   it("dense numbered-grid uses one compact tone chip, not a second marker badge", () => {

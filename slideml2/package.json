@@ -12,18 +12,21 @@
     "test:components": "vitest run src/component-isolation.test.ts src/llm-misuse.test.ts",
     "test:llm": "RUN_SLIDEML2_REAL_LLM=1 vitest run src/llm-authoring.test.ts",
     "test:llm:record": "SLIDEML2_LLM_RECORD=1 RUN_SLIDEML2_REAL_LLM=1 vitest run src/llm-authoring.test.ts",
-    "check": "tsc --noEmit && vitest run",
+    "check": "tsc --noEmit && tsx tools/lint-design-tokens.ts && vitest run",
+    "lint:tokens": "tsx tools/lint-design-tokens.ts",
     "generate:font-metrics": "node tools/generate-font-metrics-pack.mjs --download-missing",
     "snapshot": "pnpm exec jiti tools/render-snapshot.ts",
     "snapshot:png": "pnpm exec jiti tools/render-snapshot.ts --png"
   },
   "dependencies": {
+    "@lume/kiwi": "^0.4.4",
     "jpeg-js": "^0.4.4",
     "jszip": "^3.10.1"
   },
   "devDependencies": {
     "@types/node": "^20.12.0",
     "fontkit": "^2.0.4",
+    "tsx": "^4.20.0",
     "typescript": "^5.4.0",
     "vitest": "^1.6.0"
   },

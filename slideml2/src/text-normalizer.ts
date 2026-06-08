@@ -18,6 +18,7 @@ export function inferTextKind(node: DomNode, parent?: DomNode): InferredTextKind
   if (name.includes("title") && parent?.role) return { kind: "card-title", confidence: 0.78, reason: "title inside component/card" };
   if (name.includes("title")) return { kind: "section-title", confidence: 0.68, reason: "node name suggests title" };
   if (name.includes("summary") || name.includes("thesis") || name.includes("insight")) return { kind: "lead", confidence: 0.7, reason: "node name suggests lead insight" };
+  if (name.includes("callout")) return { kind: "callout", confidence: 0.78, reason: "node name suggests callout" };
   if (name.includes("quote")) return { kind: "quote", confidence: 0.75, reason: "node name suggests quote" };
   if (name.includes("code")) return { kind: "code", confidence: 0.75, reason: "node name suggests code" };
   const text = typeof node.text === "string" ? node.text.trim() : "";

@@ -1,6 +1,13 @@
 import { xmlEscape } from "./emitter/xml.js";
 
 const COMMAND_SYMBOLS: Record<string, string> = {
+  "%": "%",
+  "&": "&",
+  "$": "$",
+  "#": "#",
+  "_": "_",
+  "{": "{",
+  "}": "}",
   alpha: "\u03B1",
   beta: "\u03B2",
   gamma: "\u03B3",
@@ -158,6 +165,7 @@ class LatexParser {
     const name = this.source.slice(start, this.index) || this.source[this.index++] || "";
     if (IGNORED_COMMANDS.has(name)) return { kind: "text", text: name === "quad" || name === "qquad" || name === "," || name === ";" || name === ":" ? " " : "" };
     if (name === "\\") return { kind: "text", text: "\n" };
+    if (name === " " || name === "~") return { kind: "text", text: " " };
     if (name === "frac") return { kind: "frac", num: this.readRequiredGroup(name), den: this.readRequiredGroup(name) };
     if (name === "sqrt") return { kind: "sqrt", body: this.readRequiredGroup(name) };
     if (name === "boxed") return { kind: "box", body: this.readRequiredGroup(name) };

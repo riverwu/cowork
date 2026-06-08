@@ -23,12 +23,14 @@ function deck(slides: SlideV2[]): Slideml2SourceDeck {
 type AstTextShape = { type: "text"; paragraphs: Array<{ runs: Array<{ text: string; letterSpacing?: number; highlight?: string; bold?: boolean; color?: string; italic?: boolean }> }>; autoFit?: string };
 
 function findRunByText(shapes: Array<{ type: string }>, needle: string) {
+  const normalizedNeedle = needle.replace(/\u2060/g, "");
   for (const sh of shapes) {
     if (sh.type !== "text") continue;
     const t = sh as AstTextShape;
     for (const p of t.paragraphs || []) {
       for (const r of p.runs || []) {
-        if (r.text === needle || r.text.includes(needle)) return r;
+        const normalizedText = r.text.replace(/\u2060/g, "");
+        if (normalizedText === normalizedNeedle || normalizedText.includes(normalizedNeedle)) return r;
       }
     }
   }

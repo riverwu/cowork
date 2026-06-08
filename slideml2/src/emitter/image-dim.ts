@@ -15,6 +15,26 @@ export interface ImageDimensions {
   height: number;
 }
 
+export function detectImageExt(bytes: Uint8Array): ImageExt | undefined {
+  if (bytes.length >= 24 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return "png";
+  if (bytes.length >= 4 && bytes[0] === 0xFF && bytes[1] === 0xD8) return "jpg";
+  if (bytes.length >= 10 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "gif";
+  if (
+    bytes.length >= 30
+    && bytes[0] === 0x52
+    && bytes[1] === 0x49
+    && bytes[2] === 0x46
+    && bytes[3] === 0x46
+    && bytes[8] === 0x57
+    && bytes[9] === 0x45
+    && bytes[10] === 0x42
+    && bytes[11] === 0x50
+  ) return "webp";
+  const head = new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(0, Math.min(bytes.length, 512))).trimStart();
+  if (/^(?:<\?xml\b[\s\S]*?)?<svg[\s>]/i.test(head)) return "svg";
+  return undefined;
+}
+
 export function probeImageDimensions(bytes: Uint8Array, ext: ImageExt): ImageDimensions | undefined {
   switch (ext) {
     case "png":  return probePng(bytes);

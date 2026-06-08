@@ -75,20 +75,27 @@ function collectShapeIds(shapes: SlideAst["shapes"], out = new Map<string, numbe
 function transitionXml(slide: SlideAst): string {
   const t = slide.transition;
   if (!t || t.type === "none") return "";
-  const dur = typeof t.durationMs === "number" && Number.isFinite(t.durationMs)
-    ? ` dur="${Math.max(0, Math.round(t.durationMs))}"`
-    : "";
+  const speed = transitionSpeed(t.durationMs);
+  const speedAttr = speed ? ` spd="${speed}"` : "";
   const dir = t.direction === "left" ? "l" : t.direction === "right" ? "r" : t.direction === "up" ? "u" : t.direction === "down" ? "d" : undefined;
   const dirAttr = dir ? ` dir="${dir}"` : "";
   switch (t.type) {
-    case "push": return `<p:transition${dur}><p:push${dirAttr}/></p:transition>`;
-    case "wipe": return `<p:transition${dur}><p:wipe${dirAttr}/></p:transition>`;
-    case "split": return `<p:transition${dur}><p:split orient="horz"/></p:transition>`;
-    case "cover": return `<p:transition${dur}><p:cover${dirAttr}/></p:transition>`;
-    case "uncover": return `<p:transition${dur}><p:uncover${dirAttr}/></p:transition>`;
+    case "push": return `<p:transition${speedAttr}><p:push${dirAttr}/></p:transition>`;
+    case "wipe": return `<p:transition${speedAttr}><p:wipe${dirAttr}/></p:transition>`;
+    case "split": return `<p:transition${speedAttr}><p:split orient="horz"/></p:transition>`;
+    case "cover": return `<p:transition${speedAttr}><p:cover${dirAttr}/></p:transition>`;
+    case "uncover": return `<p:transition${speedAttr}><p:uncover${dirAttr}/></p:transition>`;
     case "fade":
-    default: return `<p:transition${dur}><p:fade/></p:transition>`;
+    default: return `<p:transition${speedAttr}><p:fade/></p:transition>`;
   }
+}
+
+function transitionSpeed(durationMs: unknown): "fast" | "med" | "slow" | undefined {
+  if (typeof durationMs !== "number" || !Number.isFinite(durationMs)) return undefined;
+  const ms = Math.max(0, durationMs);
+  if (ms <= 500) return "fast";
+  if (ms <= 1000) return "med";
+  return "slow";
 }
 
 function backgroundXml(slide: SlideAst, rels: SlideRels): string {

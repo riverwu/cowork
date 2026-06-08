@@ -1,4 +1,5 @@
 import type { DomNode, SurfaceOverride } from "./types.js";
+import { spacing, radius, rail, type Density } from "./design-tokens.js";
 
 /**
  * Agent-facing surface customization. ANY composite component accepts these
@@ -352,6 +353,7 @@ export function metricCard(
     trend?: "up" | "down" | "flat";
     delta?: string;
     status?: "positive" | "warning" | "danger" | "neutral" | "brand";
+    statusText?: string;
     source?: string;
     comparison?: string;
     sparkline?: Array<number | string>;
@@ -362,6 +364,7 @@ export function metricCard(
 ): DomNode {
   const trend = options.trend;
   const unit = options.unit && options.unit.trim() ? options.unit.trim() : "";
+  const statusText = options.statusText && options.statusText.trim() ? options.statusText.trim() : "";
   // Trend semantics are conveyed by *coloring* the value (and label) — no
   // extra glyph, so narrow cards never have to make room for an arrow that
   // would otherwise force the value text to wrap.
@@ -386,9 +389,10 @@ export function metricCard(
   // value text inside still autoFit-shrinks to fit short strings.
   const valueSize = metricValueSize(value, dense);
   const peerAligned = options.peerAligned === true;
-  const valueBandHeight = peerAligned ? (dense ? 1.15 : 1.65) : undefined;
-  const labelBandHeight = peerAligned ? (dense ? 0.72 : 1.05) : undefined;
-  const deltaBandHeight = peerAligned ? (dense ? 0.3 : 0.36) : undefined;
+  const hasMetricMeta = Boolean(statusText || options.delta || options.comparison);
+  const valueBandHeight = peerAligned ? (dense ? (hasMetricMeta ? 0.96 : 0.74) : 1.65) : undefined;
+  const labelBandHeight = peerAligned ? (dense ? (hasMetricMeta ? 0.42 : 0.34) : 1.05) : undefined;
+  const deltaBandHeight = peerAligned ? (dense ? 0.34 : 0.36) : undefined;
   const valueNode: DomNode = {
     id: `${slideId}.${id}.value`,
     type: "text",
@@ -400,6 +404,7 @@ export function metricCard(
     autoFit: "shrink",
     noWrap: true,
     ...(valueSize ? { size: valueSize } : {}),
+    ...(dense && peerAligned && metricValueNeedsCompactScale(value) ? { fontScale: 0.92 } : {}),
     ...(content.length > 0 ? { content } : {}),
   };
   // maxHeight on the wrap stack flexes downward — tight rows (timeline
@@ -414,6 +419,7 @@ export function metricCard(
     gap: 0,
     align: "center",
     valign: "bottom",
+    justify: "end",
     ...(valueBandHeight !== undefined
       ? { fixedHeight: valueBandHeight, maxHeight: valueBandHeight }
       : { maxHeight: dense ? 1.55 : metricValueNeedsCompactScale(value) ? 1.85 : 2.4, layoutWeight: 2 }),
@@ -446,11 +452,12 @@ export function metricCard(
       optional: true,
     },
   ];
-  if (options.delta || options.comparison) {
+  const metaText = [statusText, options.delta, options.comparison].filter(Boolean).join(" · ");
+  if (metaText) {
     children.push({
-      id: `${slideId}.${id}.delta`,
+      id: `${slideId}.${id}.${statusText && !options.delta && !options.comparison ? "status" : "delta"}`,
       type: "text",
-      text: [options.delta, options.comparison].filter(Boolean).join(" · "),
+      text: metaText,
       style: "label",
       color: valueColor,
       align: "center",
@@ -482,6 +489,7 @@ export function metricCard(
     gap: dense ? 0.1 : 0.18,
     role: "metric-card",
     valign: "middle",
+    justify: "center",
     ...(options.variant === "card" ? { fill: "surface", line: "divider", padding: 0.45, cornerRadius: 0.1 } : {}),
     children,
   } as DomNode, options);
@@ -490,11 +498,11 @@ export function metricCard(
 function metricValueNeedsCompactScale(value: string): boolean {
   const weighted = weightedTextLength(value);
   const cjkCount = Array.from(value).filter((char) => /[\u4e00-\u9fff]/.test(char)).length;
-  return weighted >= 4.2 || (cjkCount >= 2 && weighted >= 3.0) || /^[-+]/.test(value.trim());
+  return weighted >= 6.2 || (cjkCount >= 4 && weighted >= 4.8) || /^[-+−]/.test(value.trim());
 }
 
 function metricValueSize(value: string, dense: boolean): "xs" | "sm" | undefined {
-  if (dense) return "xs";
+  if (dense) return metricValueNeedsCompactScale(value) ? "sm" : undefined;
   return metricValueNeedsCompactScale(value) ? "sm" : undefined;
 }
 
@@ -682,45 +690,536 @@ export function numberedList(slideId: string, id: string, items: Array<string | 
   return { id: `${slideId}.${id}`, type: "bullets", items: items.map(numberedListItem).filter(Boolean), density, numbered: true };
 }
 
+export type QuoteVariant = "plain" | "pull" | "card" | "editorial" | "portrait";
+
+export interface QuoteSource {
+  name?: string;
+  role?: string;
+  org?: string;
+  /** Image src for portrait variant. Falls back to name initials if missing. */
+  portrait?: string;
+}
+
+export type QuoteSourceInput = string | QuoteSource | null | undefined;
+
+export interface QuoteOptions {
+  ornament?: boolean;
+  variant?: QuoteVariant;
+}
+
 export function quoteBlock(
   slideId: string,
   id: string,
   text: string,
-  source?: string,
-  opts: { ornament?: boolean } & { surface?: AgentSurface } & AgentSurface = {},
+  source?: QuoteSourceInput,
+  opts: QuoteOptions & { surface?: AgentSurface } & AgentSurface = {},
 ): DomNode {
+  const normalized = normalizeQuoteSource(source);
+  const variant = pickQuoteVariant(opts.variant, text, normalized);
+  switch (variant) {
+    case "pull":
+      return quoteBlockPull(slideId, id, text, normalized, opts);
+    case "card":
+      return quoteBlockCard(slideId, id, text, normalized, opts);
+    case "editorial":
+      return quoteBlockEditorial(slideId, id, text, normalized, opts);
+    case "portrait":
+      return quoteBlockPortrait(slideId, id, text, normalized, opts);
+    case "plain":
+    default:
+      return quoteBlockPlain(slideId, id, text, normalized, opts);
+  }
+}
+
+function normalizeQuoteSource(source: QuoteSourceInput): QuoteSource | undefined {
+  if (!source) return undefined;
+  if (typeof source === "string") {
+    const trimmed = source.trim();
+    return trimmed ? { name: trimmed } : undefined;
+  }
+  if (typeof source !== "object") return undefined;
+  const name = typeof source.name === "string" ? source.name.trim() : "";
+  const role = typeof source.role === "string" ? source.role.trim() : "";
+  const org = typeof source.org === "string" ? source.org.trim() : "";
+  const portrait = typeof source.portrait === "string" ? source.portrait.trim() : "";
+  if (!name && !role && !org && !portrait) return undefined;
+  const out: QuoteSource = {};
+  if (name) out.name = name;
+  if (role) out.role = role;
+  if (org) out.org = org;
+  if (portrait) out.portrait = portrait;
+  return out;
+}
+
+function pickQuoteVariant(
+  explicit: QuoteVariant | undefined,
+  text: string,
+  source: QuoteSource | undefined,
+): QuoteVariant {
+  if (explicit === "plain" || explicit === "pull" || explicit === "card" || explicit === "editorial" || explicit === "portrait") {
+    return explicit;
+  }
+  if (source?.portrait) return "portrait";
+  // Editorial is a hero / section-opener treatment. Only auto-promote a quote
+  // into it when the agent has not supplied any attribution — otherwise short
+  // quotes with a normal byline ("CEO", "Alan Kay") would lose the byline to
+  // a centered uppercase lockup, which surprises existing decks.
+  if (!source && weightedTextLength(text) <= 30) return "editorial";
+  return "plain";
+}
+
+function flattenQuoteSource(source: QuoteSource | undefined, separator: string = ", "): string {
+  if (!source) return "";
+  const parts: string[] = [];
+  if (source.name) parts.push(source.name);
+  if (source.role) parts.push(source.role);
+  if (source.org) parts.push(source.org);
+  return parts.join(separator);
+}
+
+function quoteInitials(name: string | undefined): string {
+  if (!name) return "";
+  const cleaned = name.replace(/[“”"']/g, "").trim();
+  if (!cleaned) return "";
+  if (/[一-鿿]/.test(cleaned)) return cleaned.slice(0, 2);
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return "";
+  const first = tokens[0]!;
+  const last = tokens.length > 1 ? tokens[tokens.length - 1]! : "";
+  const a = first.charAt(0);
+  const b = last ? last.charAt(0) : "";
+  return (a + b).toUpperCase();
+}
+
+function quoteBlockPlain(
+  slideId: string,
+  id: string,
+  text: string,
+  source: QuoteSource | undefined,
+  opts: QuoteOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const sourceLine = flattenQuoteSource(source);
+  const textWeight = weightedTextLength(text);
+  const hasSource = Boolean(sourceLine);
+  const compact = textWeight > 42 || (hasSource && textWeight > 32);
+  const veryCompact = textWeight > 64;
+  // Padding scales with text density. xs/sm/md keep the same step shape the
+  // pre-token code had (0.14 / 0.28 / 0.42) — close to the original 0.28 /
+  // 0.36 / 0.48 cascade but on the 4pt design grid.
+  const quotePadding = veryCompact ? spacing("xs") : compact ? spacing("sm") : spacing("md");
+  const quoteFontScale = veryCompact ? 0.72 : compact ? 0.82 : undefined;
+  const quoteMinHeight = veryCompact
+    ? (hasSource ? 2.0 : 1.55)
+    : compact
+      ? (hasSource ? 1.75 : 1.35)
+      : (hasSource ? 1.55 : 1.15);
   // Decorative oversized opening quote glyph (❝). Reads as typographic
   // ornament without an extra image. Suppress with `ornament:false`.
+  // It is intentionally layered behind the text so it never consumes vertical
+  // flow space or squeezes the actual quote/source out of the component.
   const wantOrnament = opts.ornament !== false;
   const children: DomNode[] = [];
   if (wantOrnament) {
     children.push({
       id: `${slideId}.${id}.ornament`,
       type: "text",
-      text: "\u201C",
+      text: "“",
       // Display-tier glyph in muted accent — visually subordinate to the
       // quote text itself.
       style: "hero",
       color: "brand.primary",
       align: "left",
       valign: "top",
-      fixedHeight: 1.4,
+      layer: "behind",
       autoFit: "shrink",
       optional: true,
     });
   }
-  children.push({ id: `${slideId}.${id}.text`, type: "text", text: `\u201C${text}\u201D`, style: "quote", align: "left", valign: "middle", autoFit: "shrink", minHeight: 0.75 });
-  if (source && source.trim()) {
-    children.push({ id: `${slideId}.${id}.source`, type: "text", text: `\u2014 ${source.trim()}`, style: "quote-source", align: "left", minHeight: 0.32, autoFit: "shrink", optional: true });
+  children.push({
+    id: `${slideId}.${id}.text`,
+    type: "text",
+    text: `“${text}”`,
+    style: "quote",
+    align: "left",
+    valign: "middle",
+    autoFit: "shrink",
+    autoGrow: true,
+    layoutWeight: 1,
+    maxFontScale: veryCompact ? 1.14 : compact ? 1.34 : 1.52,
+    minHeight: compact ? 0.62 : 0.75,
+    ...(quoteFontScale ? { fontScale: quoteFontScale } : {}),
+  });
+  if (hasSource) {
+    children.push({ id: `${slideId}.${id}.source`, type: "text", text: `— ${sourceLine}`, style: "quote-source", align: "left", minHeight: 0.32, autoFit: "shrink", optional: true });
   }
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.12,
+    gap: spacing("xs"),
     role: "quote",
+    padding: quotePadding,
+    minHeight: quoteMinHeight,
     children,
   } as DomNode, opts);
+}
+
+function quoteBlockPull(
+  slideId: string,
+  id: string,
+  text: string,
+  source: QuoteSource | undefined,
+  opts: QuoteOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const textWeight = weightedTextLength(text);
+  const compact = textWeight > 56;
+  const sourceLine = source
+    ? [source.name, source.role, source.org].filter(Boolean).join(" • ").toUpperCase()
+    : "";
+  const padding = compact ? spacing("md") : spacing("lg");
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: spacing("lg"),
+    role: "quote",
+    align: "start",
+    valign: "middle",
+    padding,
+    minHeight: sourceLine ? 1.7 : 1.4,
+    children: [
+      {
+        id: `${slideId}.${id}.rule`,
+        type: "shape",
+        preset: "rect",
+        fill: "brand.primary",
+        line: "transparent",
+        fixedWidth: 0.18,
+        align: "start",
+        valign: "stretch",
+      },
+      {
+        id: `${slideId}.${id}.body`,
+        type: "stack",
+        direction: "vertical",
+        gap: spacing("sm"),
+        layoutWeight: 1,
+        align: "start",
+        valign: "middle",
+        children: [
+          {
+            id: `${slideId}.${id}.text`,
+            type: "text",
+            text: `“${text}”`,
+            style: "quote",
+            align: "left",
+            valign: "top",
+            autoFit: "shrink",
+            autoGrow: true,
+            layoutWeight: 1,
+            italic: false,
+            bold: true,
+            maxFontScale: compact ? 1.18 : 1.36,
+            minHeight: 0.75,
+          },
+          ...(sourceLine
+            ? [{
+                id: `${slideId}.${id}.source`,
+                type: "text" as const,
+                text: sourceLine,
+                style: "quote-source",
+                align: "left" as const,
+                color: "text.muted",
+                tracking: "wider",
+                bold: true,
+                minHeight: 0.32,
+                autoFit: "shrink" as const,
+                optional: true,
+              } as DomNode]
+            : []),
+        ],
+      },
+    ],
+  } as DomNode, opts);
+}
+
+function quoteBlockCard(
+  slideId: string,
+  id: string,
+  text: string,
+  source: QuoteSource | undefined,
+  opts: QuoteOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const textWeight = weightedTextLength(text);
+  const compact = textWeight > 56;
+  const sourceLine = flattenQuoteSource(source);
+  const wantOrnament = opts.ornament !== false;
+  const children: DomNode[] = [];
+  if (wantOrnament) {
+    children.push({
+      id: `${slideId}.${id}.ornament`,
+      type: "text",
+      text: "“",
+      style: "hero",
+      color: "brand.primary",
+      align: "left",
+      valign: "top",
+      layer: "behind",
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  children.push({
+    id: `${slideId}.${id}.text`,
+    type: "text",
+    text: `“${text}”`,
+    style: "quote",
+    align: "left",
+    valign: "middle",
+    autoFit: "shrink",
+    autoGrow: true,
+    layoutWeight: 1,
+    maxFontScale: compact ? 1.22 : 1.42,
+    minHeight: 0.75,
+  });
+  if (sourceLine) {
+    children.push({
+      id: `${slideId}.${id}.source`,
+      type: "text",
+      text: `— ${sourceLine}`,
+      style: "quote-source",
+      align: "right",
+      minHeight: 0.32,
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: spacing("sm"),
+    role: "quote",
+    padding: compact ? spacing("lg") : spacing("xl"),
+    minHeight: sourceLine ? 1.85 : 1.45,
+    fill: "brand.tint",
+    line: "divider",
+    cornerRadius: radius("md"),
+    children,
+  } as DomNode, opts);
+}
+
+function quoteBlockEditorial(
+  slideId: string,
+  id: string,
+  text: string,
+  source: QuoteSource | undefined,
+  opts: QuoteOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const wantOrnament = opts.ornament !== false;
+  const name = source?.name || flattenQuoteSource(source);
+  // Spaced uppercase lockup, e.g. "A L A N   K A Y". CJK names already read
+  // with intrinsic visual rhythm — adding spaces would break substring search
+  // and look awkward — so we keep them as-is.
+  const lockup = name
+    ? (/[一-鿿]/.test(name) ? name : Array.from(name.toUpperCase()).join(" ").replace(/  +/g, "  "))
+    : "";
+  const children: DomNode[] = [];
+  if (wantOrnament) {
+    // Behind the text so it acts as a visual flourish without stealing the
+    // vertical budget the centered hero text expects to grow into.
+    children.push({
+      id: `${slideId}.${id}.ornament`,
+      type: "text",
+      text: "“",
+      style: "hero",
+      color: "brand.primary",
+      align: "center",
+      valign: "top",
+      layer: "behind",
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  children.push({
+    id: `${slideId}.${id}.text`,
+    type: "text",
+    text: `“${text}”`,
+    style: "quote",
+    align: "center",
+    valign: "middle",
+    autoFit: "shrink",
+    autoGrow: true,
+    layoutWeight: 1,
+    italic: true,
+    maxFontScale: 1.65,
+    minHeight: 0.85,
+  });
+  if (lockup) {
+    children.push({
+      id: `${slideId}.${id}.source`,
+      type: "text",
+      text: lockup,
+      style: "quote-source",
+      align: "center",
+      tracking: "widest",
+      bold: true,
+      color: "text.primary",
+      minHeight: 0.36,
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: spacing("sm"),
+    role: "quote",
+    align: "center",
+    valign: "middle",
+    padding: spacing("lg"),
+    minHeight: lockup ? 1.9 : 1.5,
+    children,
+  } as DomNode, opts);
+}
+
+function quoteBlockPortrait(
+  slideId: string,
+  id: string,
+  text: string,
+  source: QuoteSource | undefined,
+  opts: QuoteOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const name = source?.name?.trim() || "";
+  const roleLine = [source?.role, source?.org].filter(Boolean).join(" • ");
+  const avatar = quoteAvatarNode(slideId, id, source);
+  const bodyChildren: DomNode[] = [
+    {
+      id: `${slideId}.${id}.text`,
+      type: "text",
+      text: `“${text}”`,
+      style: "quote",
+      align: "left",
+      valign: "middle",
+      autoFit: "shrink",
+      autoGrow: true,
+      layoutWeight: 1,
+      maxFontScale: 1.34,
+      minHeight: 0.75,
+    },
+  ];
+  if (name || roleLine) {
+    bodyChildren.push({
+      id: `${slideId}.${id}.divider`,
+      type: "divider",
+      orientation: "horizontal",
+      line: "divider",
+      thickness: 0.02,
+      fixedHeight: 0.06,
+    });
+    const attribChildren: DomNode[] = [];
+    if (name) {
+      attribChildren.push({
+        id: `${slideId}.${id}.name`,
+        type: "text",
+        text: name.toUpperCase(),
+        style: "quote-source",
+        align: "left",
+        bold: true,
+        tracking: "wide",
+        color: "text.primary",
+        minHeight: 0.34,
+        autoFit: "shrink",
+      });
+    }
+    if (roleLine) {
+      attribChildren.push({
+        id: `${slideId}.${id}.role`,
+        type: "text",
+        text: roleLine,
+        style: "quote-source",
+        align: "left",
+        color: "text.muted",
+        minHeight: 0.32,
+        autoFit: "shrink",
+        optional: true,
+      });
+    }
+    bodyChildren.push({
+      id: `${slideId}.${id}.attribution`,
+      type: "stack",
+      direction: "vertical",
+      gap: spacing("2xs"),
+      align: "start",
+      children: attribChildren,
+    });
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: spacing("lg"),
+    role: "quote",
+    align: "start",
+    valign: "middle",
+    padding: spacing("lg"),
+    minHeight: 2.1,
+    children: [
+      avatar,
+      {
+        id: `${slideId}.${id}.body`,
+        type: "stack",
+        direction: "vertical",
+        gap: spacing("sm"),
+        layoutWeight: 1,
+        align: "start",
+        valign: "middle",
+        children: bodyChildren,
+      },
+    ],
+  } as DomNode, opts);
+}
+
+function quoteAvatarNode(slideId: string, id: string, source: QuoteSource | undefined): DomNode {
+  const portrait = source?.portrait?.trim() || "";
+  const initials = quoteInitials(source?.name);
+  if (portrait) {
+    return {
+      id: `${slideId}.${id}.avatar`,
+      type: "image",
+      src: portrait,
+      alt: source?.name || "portrait",
+      clip: "circle",
+      fit: "cover",
+      fixedWidth: 1.9,
+      fixedHeight: 1.9,
+      align: "start",
+      valign: "middle",
+    } as DomNode;
+  }
+  return {
+    id: `${slideId}.${id}.avatar`,
+    type: "shape",
+    preset: "ellipse",
+    fill: "brand.tint",
+    line: "brand.primary",
+    lineWidth: 0.04,
+    fixedWidth: 1.9,
+    fixedHeight: 1.9,
+    align: "start",
+    valign: "middle",
+    ...(initials
+      ? {
+          text: initials,
+          style: "card-title",
+          color: "brand.primary",
+          bold: true,
+          autoFit: "shrink",
+          noWrap: true,
+        }
+      : {}),
+  } as DomNode;
 }
 
 export function iconText(slideId: string, id: string, options: { icon: string; text: string; iconColor?: string; iconBackground?: string; tone?: string }): DomNode {
@@ -1223,7 +1722,7 @@ export function profileCard(slideId: string, id: string, options: { image: strin
     children.push({ id: `${slideId}.${id}.role`, type: "text", text: options.role.trim(), style: "label", color: "text.muted", align: "center", minHeight: 0.42, autoFit: "shrink", tracking: "wide" } as DomNode);
   }
   if (options.bio && options.bio.trim()) {
-    children.push({ id: `${slideId}.${id}.bio`, type: "text", text: options.bio.trim(), style: "caption", align: "center", valign: "top" });
+    children.push({ id: `${slideId}.${id}.bio`, type: "text", text: options.bio.trim(), style: "caption", align: "center", valign: "top", minHeight: 0.45, autoFit: "shrink" });
   }
   return {
     id: `${slideId}.${id}`,
@@ -1244,19 +1743,22 @@ export function kpiGrid(slideId: string, id: string, metrics: Array<{
   trend?: "up" | "down" | "flat";
   delta?: string;
   status?: "positive" | "warning" | "danger" | "neutral" | "brand";
+  statusText?: string;
   source?: string;
   comparison?: string;
   sparkline?: Array<number | string>;
 }>, columns?: number, options: { variant?: "plain" | "card" | "compact"; density?: "comfortable" | "compact" } & { surface?: AgentSurface } & AgentSurface = {}): DomNode {
+  const autoColumns = columns === undefined;
   const cols = Math.max(1, columns || Math.min(4, metrics.length));
   const dense = options.density === "compact" || options.variant === "compact" || metrics.length >= 5;
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "grid",
     columns: cols,
+    ...(autoColumns ? { __autoColumns: true } : {}),
     gap: dense ? 0.32 : 0.5,
     role: "kpi-grid",
-    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable", peerAligned: true })),
+    children: metrics.map((m, index) => metricCard(slideId, `${id}-m${index + 1}`, m.value, m.label, { unit: m.unit, trend: m.trend, delta: m.delta, status: m.status, statusText: m.statusText, source: m.source, comparison: m.comparison, sparkline: m.sparkline, variant: options.variant === "card" ? "card" : dense ? "compact" : "plain", density: dense ? "compact" : "comfortable", peerAligned: true })),
   } as DomNode, options);
 }
 
@@ -1369,6 +1871,7 @@ export function ctaButton(slideId: string, id: string, options: { text: string; 
     color: fg,
     cornerRadius: 0.3,
     fixedHeight: 1.15,
+    autoFit: "shrink",
     role: "cta",
     ...(content ? { content } : {}),
   };
@@ -1465,7 +1968,8 @@ export function featureCard(slideId: string, id: string, options: {
   if (options.ctaText) {
     textChildren.push({ id: `${slideId}.${id}.cta`, type: "text", text: options.ctaText, style: "label", color: "text.inverse", fill: "brand.primary", cornerRadius: 0.2, align: "center", valign: "middle", fixedHeight: 0.46, autoFit: "shrink", optional: true });
   }
-  const children: DomNode[] = layout === "horizontal" && decorationNode
+  const effectiveLayout: FeatureCardLayout = layout === "horizontal" && !decorationNode ? "vertical" : layout;
+  const children: DomNode[] = effectiveLayout === "horizontal" && decorationNode
     ? [
         decorationNode,
         {
@@ -1486,8 +1990,8 @@ export function featureCard(slideId: string, id: string, options: {
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
-    direction: layout,
-    gap: layout === "horizontal" ? (dense ? 0.28 : 0.36) : (dense ? 0.1 : 0.16),
+    direction: effectiveLayout,
+    gap: effectiveLayout === "horizontal" ? (dense ? 0.28 : 0.36) : (dense ? 0.1 : 0.16),
     role: "feature-card",
     valign: "top",
     ...defaultSurface,
@@ -1534,6 +2038,8 @@ function featureCardDecorationNode(
   const spec = options.decoration;
   const explicitKind = spec?.kind;
   if (explicitKind === "none") return undefined;
+  const hasExplicitDecoration = spec !== undefined || Boolean(options.iconSrc) || Boolean(options.icon);
+  if (!hasExplicitDecoration) return undefined;
   const tone = spec?.tone || markerToneFromFeatureTone(ctx.semanticTone);
   const size = featureDecorationSizeCm(spec?.size, ctx.dense, ctx.layout);
   if (explicitKind === "marker") {
@@ -1698,7 +2204,7 @@ function isRatingLikeMetric(value: string): boolean {
   return /[\u2605\u2606]/.test(value);
 }
 
-export function checklist(slideId: string, id: string, items: Array<{ text: string; status?: "checked" | "unchecked" | "warning" }>, density: "comfortable" | "compact" = "comfortable", opts: { markStyle?: "chip" | "plain" } = {}): DomNode {
+export function checklist(slideId: string, id: string, items: Array<{ text: string; status?: "checked" | "unchecked" | "warning" | "neutral" }>, density: "comfortable" | "compact" = "comfortable", opts: { markStyle?: "chip" | "plain" } = {}): DomNode {
   const compact = density === "compact";
   // Chip-style marks (default): small rounded square with the tone color
   // as fill and white glyph on top — much louder than a bare colored
@@ -1714,17 +2220,18 @@ export function checklist(slideId: string, id: string, items: Array<{ text: stri
     gap: compact ? 0.1 : 0.18,
     role: "checklist",
     children: items.map((item, index) => {
-      const status = item.status === "warning" ? "warning" : item.status === "unchecked" ? "unchecked" : "checked";
-      const mark = status === "checked" ? "✓" : status === "warning" ? "!" : "✗";
-      const markColor = status === "checked" ? "success" : status === "warning" ? "warning" : "danger";
+      const status = item.status === "checked" || item.status === "warning" || item.status === "unchecked" ? item.status : "neutral";
+      const mark = status === "checked" ? "✓" : status === "warning" ? "!" : status === "unchecked" ? "✗" : "•";
+      const markColor = status === "checked" ? "success" : status === "warning" ? "warning" : status === "unchecked" ? "danger" : "text.muted";
       const markNode: DomNode = chipStyle
         ? {
             id: `${slideId}.${id}.${index}.mark`,
             type: "text",
             text: mark,
             style: compact ? "label" : "card-title",
-            color: "text.inverse",
-            fill: markColor,
+            color: status === "neutral" ? "text.muted" : "text.inverse",
+            fill: status === "neutral" ? "surface.subtle" : markColor,
+            line: status === "neutral" ? "divider" : undefined,
             align: "center",
             valign: "middle",
             fixedWidth: markSize,
@@ -1779,6 +2286,8 @@ export function progressBar(slideId: string, id: string, options: { label: strin
     direction: "vertical",
     gap: 0.18,
     role: "progress-bar",
+    basisHeight: 1.08,
+    maxHeight: 1.18,
     children: [
       {
         id: `${slideId}.${id}.header`,
@@ -1786,8 +2295,8 @@ export function progressBar(slideId: string, id: string, options: { label: strin
         direction: "horizontal",
         gap: 0.3,
         children: [
-          { id: `${slideId}.${id}.label`, type: "text", text: options.label, style: "label", align: "left", layoutWeight: 5 },
-          { id: `${slideId}.${id}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", layoutWeight: 1, bold: true },
+          { id: `${slideId}.${id}.label`, type: "text", text: options.label, style: "label", align: "left", layoutWeight: 5, minHeight: 0.32, autoFit: "shrink" },
+          { id: `${slideId}.${id}.value`, type: "text", text: valueLabel, style: "label", color: "text.primary", align: "right", layoutWeight: 1, bold: true, minHeight: 0.32, autoFit: "shrink" },
         ],
         fixedHeight: 0.5,
       },
@@ -2143,32 +2652,47 @@ export function processFlow(slideId: string, id: string, options: {
 }
 
 export function logoStrip(slideId: string, id: string, logos: Array<{ src: string; alt?: string }>, options: { caption?: string; columns?: number } = {}): DomNode {
-  const columns = options.columns && options.columns > 0 ? options.columns : Math.min(6, logos.length);
+  const columns = Math.max(1, Math.floor(options.columns && options.columns > 0 ? options.columns : Math.min(6, Math.max(1, logos.length))));
+  const rows = Math.max(1, Math.ceil(Math.max(1, logos.length) / columns));
+  const logoHeight = 1.4;
+  const logoGap = 0.6;
+  const gridHeight = rows * logoHeight + Math.max(0, rows - 1) * logoGap;
   const grid: DomNode = {
     id: `${slideId}.${id}.row`,
     type: "grid",
     columns,
-    gap: 0.6,
+    gap: logoGap,
     role: "logo-strip",
+    basisHeight: gridHeight,
+    minHeight: Math.max(logoHeight, gridHeight - rows * 0.12),
+    maxHeight: gridHeight + 0.16,
+    rowWeights: Array.from({ length: rows }, () => logoHeight),
     children: logos.map((logo, index) => ({
       id: `${slideId}.${id}.logo${index + 1}`,
       type: "image",
       src: logo.src,
       alt: logo.alt || `logo-${index + 1}`,
       fit: "contain",
-      fixedHeight: 1.4,
+      fixedHeight: logoHeight,
     })),
   };
-  if (!options.caption) return grid;
+  const captionText = (options.caption || "").trim();
+  if (!captionText) return grid;
+  const captionLines = Math.max(1, Math.ceil(weightedTextLength(captionText) / 58));
+  const captionHeight = Math.max(0.4, Math.min(0.92, captionLines * 0.32 + 0.08));
+  const naturalHeight = gridHeight + 0.25 + captionHeight;
   return {
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
     gap: 0.25,
     role: "logo-strip",
+    basisHeight: naturalHeight,
+    minHeight: Math.max(1.55, naturalHeight - 0.18),
+    maxHeight: naturalHeight + 0.16,
     children: [
       grid,
-      { id: `${slideId}.${id}.caption`, type: "text", text: options.caption, style: "caption", align: "center", color: "text.muted", minHeight: 0.4, autoFit: "shrink" },
+      { id: `${slideId}.${id}.caption`, type: "text", text: captionText, style: "caption", align: "center", color: "text.muted", minHeight: 0.4, basisHeight: captionHeight, maxHeight: captionHeight + 0.08, autoFit: "shrink" },
     ],
   };
 }
@@ -2249,7 +2773,7 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
       align: "center",
       valign: "middle",
       autoFit: "shrink",
-      minHeight: 1.3,
+      minHeight: 1.05,
     },
     {
       id: `${slideId}.${id}.label`,
@@ -2260,7 +2784,7 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
       color: "text.primary",
       align: "center",
       valign: "top",
-      minHeight: 0.55,
+      minHeight: 0.42,
       autoFit: "shrink",
     },
   ];
@@ -2292,7 +2816,7 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
       align: "center",
       valign: "top",
       color: "text.muted",
-      minHeight: 0.45,
+      minHeight: 0.34,
       autoFit: "shrink",
       optional: true,
     });
@@ -2301,7 +2825,7 @@ export function heroStat(slideId: string, id: string, options: { value: string; 
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.25,
+    gap: 0.18,
     role: "hero-stat",
     align: "center",
     justify: "center",
@@ -2398,51 +2922,167 @@ export function barList(slideId: string, id: string, options: { items: Array<{ l
   };
 }
 
+export type KeyTakeawayVariant = "panel" | "banner" | "minimal" | "metric" | "grid";
+export type KeyTakeawayTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+
+export interface KeyTakeawayMetric {
+  value: string;
+  label?: string;
+  delta?: string;
+  unit?: string;
+  trend?: "up" | "down" | "flat";
+}
+
+export interface KeyTakeawaySubItem {
+  headline: string;
+  detail?: string;
+  bullets?: string[];
+  kicker?: string;
+  tone?: KeyTakeawayTone;
+  metric?: KeyTakeawayMetric;
+}
+
+export interface KeyTakeawayOptions {
+  headline: string;
+  detail?: string;
+  content?: unknown;
+  bullets?: string[];
+  tone?: KeyTakeawayTone;
+  variant?: KeyTakeawayVariant;
+  density?: "comfortable" | "compact";
+  kicker?: string;
+  metric?: KeyTakeawayMetric;
+  items?: KeyTakeawaySubItem[];
+  source?: string;
+}
+
+interface KeyTakeawayToneSurface {
+  fill: string;
+  rail: string;
+  headlineColor: string;
+  kickerColor: string;
+  bannerFill: string;
+  bannerText: string;
+  bannerKicker: string;
+  metricColor: string;
+  line: string;
+}
+
+function keyTakeawayToneSurface(tone: KeyTakeawayTone): KeyTakeawayToneSurface {
+  // Kicker stays a quiet slate label across all tones — pairing tone-color
+  // small text on the matching tone tint (e.g. success on success.tint) lands
+  // at ~4.48:1, just under the WCAG 4.5 threshold for small text. The tone
+  // signal is already carried by the rail + surface fill, so the kicker can
+  // afford to be high-contrast neutral. metricColor stays tone-colored only
+  // for the hero value (which passes the AA Large threshold of 3.0:1).
+  switch (tone) {
+    case "positive":
+      return { fill: "success.tint", rail: "success", headlineColor: "text.primary", kickerColor: "text.muted", bannerFill: "success", bannerText: "text.inverse", bannerKicker: "text.inverse", metricColor: "success", line: "success" };
+    case "warning":
+      return { fill: "warning.tint", rail: "warning", headlineColor: "text.primary", kickerColor: "text.muted", bannerFill: "warning", bannerText: "text.inverse", bannerKicker: "text.inverse", metricColor: "warning", line: "warning" };
+    case "danger":
+      return { fill: "danger.tint", rail: "danger", headlineColor: "text.primary", kickerColor: "text.muted", bannerFill: "danger", bannerText: "text.inverse", bannerKicker: "text.inverse", metricColor: "danger", line: "danger" };
+    case "neutral":
+      return { fill: "surface.subtle", rail: "divider", headlineColor: "text.primary", kickerColor: "text.muted", bannerFill: "text.primary", bannerText: "text.inverse", bannerKicker: "text.inverse", metricColor: "text.primary", line: "divider" };
+    case "brand":
+    default:
+      return { fill: "brand.tint", rail: "brand.primary", headlineColor: "text.primary", kickerColor: "brand.primary", bannerFill: "brand.primary", bannerText: "text.inverse", bannerKicker: "text.inverse", metricColor: "brand.primary", line: "brand.primary" };
+  }
+}
+
+function pickKeyTakeawayVariant(options: KeyTakeawayOptions): KeyTakeawayVariant {
+  const explicit = options.variant;
+  if (explicit === "panel" || explicit === "banner" || explicit === "minimal" || explicit === "metric" || explicit === "grid") {
+    return explicit;
+  }
+  if (options.metric && typeof options.metric.value === "string" && options.metric.value.trim()) return "metric";
+  if (options.items && options.items.length >= 2) return "grid";
+  return "panel";
+}
+
 export function keyTakeaway(
   slideId: string,
   id: string,
-  options: {
-    headline: string;
-    detail?: string;
-    content?: unknown;
-    bullets?: string[];
-    tone?: "brand" | "positive" | "warning" | "danger";
-    variant?: "panel" | "banner" | "minimal";
-    density?: "comfortable" | "compact";
-  } & { surface?: AgentSurface } & AgentSurface,
+  options: KeyTakeawayOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const variant = pickKeyTakeawayVariant(options);
+  switch (variant) {
+    case "banner":
+      return keyTakeawayBanner(slideId, id, options);
+    case "minimal":
+      return keyTakeawayMinimal(slideId, id, options);
+    case "metric":
+      return keyTakeawayMetric(slideId, id, options);
+    case "grid":
+      return keyTakeawayGrid(slideId, id, options);
+    case "panel":
+    default:
+      return keyTakeawayPanel(slideId, id, options);
+  }
+}
+
+function keyTakeawayKickerNode(slideId: string, id: string, kicker: string | undefined, tone: KeyTakeawayToneSurface, inverse: boolean): DomNode | undefined {
+  if (!kicker || !kicker.trim()) return undefined;
+  return {
+    id: `${slideId}.${id}.kicker`,
+    type: "text",
+    text: kicker.trim().toUpperCase(),
+    style: "label",
+    color: inverse ? tone.bannerKicker : tone.kickerColor,
+    bold: true,
+    tracking: "widest",
+    minHeight: 0.3,
+    autoFit: "shrink",
+    optional: true,
+  } as DomNode;
+}
+
+function keyTakeawaySourceNode(slideId: string, id: string, source: string | undefined): DomNode | undefined {
+  if (!source || !source.trim()) return undefined;
+  return {
+    id: `${slideId}.${id}.source`,
+    type: "text",
+    text: source.trim(),
+    style: "footnote",
+    color: "text.muted",
+    minHeight: 0.3,
+    autoFit: "shrink",
+    optional: true,
+  } as DomNode;
+}
+
+function keyTakeawayPanel(
+  slideId: string,
+  id: string,
+  options: KeyTakeawayOptions & { surface?: AgentSurface } & AgentSurface,
 ): DomNode {
   const tone = options.tone || "brand";
-  const fillToken = tone === "brand" ? "brand.tint" : tone === "positive" ? "success.tint" : tone === "warning" ? "warning.tint" : "danger.tint";
-  const accentToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
+  const surface = keyTakeawayToneSurface(tone);
+  const headline = (options.headline || "").trim();
   const detail = textWithRichContent(options.detail?.trim() || "", options.content);
   const detailPlain = detail.text || richTextPlain(detail.content);
-  const denseHeadline = options.density === "compact" || weightedTextLength(options.headline) > 46;
+  const hasBullets = Boolean(options.bullets && options.bullets.length);
+  const denseHeadline = options.density === "compact" || weightedTextLength(headline) > 36;
   const denseDetail = weightedTextLength(detailPlain) > 44 || (options.bullets || []).length >= 4;
   const compact = options.density === "compact" || denseHeadline || denseDetail;
-  // Thicker accent bar (0.18cm vs the previous 0.12) + a longer rule
-  // (3.2cm) to give the takeaway visual weight against a busy slide.
-  const children: DomNode[] = [
-    {
-      id: `${slideId}.${id}.accent`,
-      type: "shape",
-      preset: "rect",
-      fill: accentToken,
-      fixedHeight: 0.18,
-      fixedWidth: 3.2,
-      align: "start",
-    },
-    {
+  const compactBulletHeadline = compact && hasBullets;
+
+  const children: DomNode[] = [];
+  const kickerNode = keyTakeawayKickerNode(slideId, id, options.kicker, surface, false);
+  if (kickerNode) children.push(kickerNode);
+  if (headline) {
+    children.push({
       id: `${slideId}.${id}.headline`,
       type: "text",
-      text: options.headline,
-      style: denseHeadline ? "lead" : "section-title",
-      size: denseHeadline ? "md" : "lg",
-      color: "text.primary",
+      text: headline,
+      style: compactBulletHeadline ? "card-title" : denseHeadline ? "lead" : "section-title",
+      size: compactBulletHeadline ? undefined : denseHeadline ? "md" : "lg",
+      color: surface.headlineColor,
       align: "left",
       autoFit: "shrink",
-      minHeight: denseHeadline ? 0.55 : undefined,
-    },
-  ];
+      minHeight: estimateTakeawayHeadlineMinHeight(headline, compact, hasBullets),
+    } as DomNode);
+  }
   if (detail.text || detail.content) {
     children.push({
       id: `${slideId}.${id}.detail`,
@@ -2453,25 +3093,494 @@ export function keyTakeaway(
       align: "left",
       valign: "top",
       autoFit: "shrink",
+      layoutWeight: 1,
       minHeight: estimateTakeawayDetailMinHeight(detailPlain, compact),
       optional: compact ? true : undefined,
-    });
+    } as DomNode);
   }
-  if (options.bullets && options.bullets.length) {
-    children.push(bulletList(slideId, `${id}.bullets`, options.bullets.slice(0, 5), compact ? "compact" : "comfortable"));
+  if (hasBullets) {
+    children.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets!.slice(0, 5), compact ? "compact" : "comfortable"), spaceAfter: compact ? 1.2 : 2.0 });
   }
-  const minimal = options.variant === "minimal";
+  const sourceNode = keyTakeawaySourceNode(slideId, id, options.source);
+  if (sourceNode) children.push(sourceNode);
+
+  // type:"card" with native accent:"left" rendering avoids inserting a sibling
+  // shape into the layout tree — the renderer paints the rail in its own
+  // chrome layer so the vertical stack semantics (and downstream cohort/budget
+  // tracking) match the pre-upgrade key-takeaway exactly.
   return applyAgentSurface({
     id: `${slideId}.${id}`,
-    type: "stack",
+    type: "card",
     direction: "vertical",
-    gap: compact ? 0.14 : 0.3,
+    gap: compact ? spacing("xs") : spacing("sm"),
     role: "key-takeaway",
-    ...(!minimal ? { fill: fillToken, line: accentToken, padding: compact ? 0.38 : options.variant === "banner" ? 0.55 : 0.7, cornerRadius: 0.12, elevation: "raised" } : {}),
+    fill: surface.fill,
+    line: surface.line,
+    accent: "left",
+    accentColor: surface.rail,
+    accentWidth: rail("thick"),
+    cornerRadius: radius("md"),
+    elevation: "raised",
+    padding: compact ? spacing("md") : spacing("lg"),
     children,
   } as DomNode, options);
 }
 
+function keyTakeawayBanner(
+  slideId: string,
+  id: string,
+  options: KeyTakeawayOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const tone = options.tone || "brand";
+  const surface = keyTakeawayToneSurface(tone);
+  const headline = (options.headline || "").trim();
+  const detail = textWithRichContent(options.detail?.trim() || "", options.content);
+  const detailPlain = detail.text || richTextPlain(detail.content);
+  const compact = options.density === "compact" || weightedTextLength(headline) > 60;
+
+  const bodyChildren: DomNode[] = [];
+  const kickerNode = keyTakeawayKickerNode(slideId, id, options.kicker, surface, true);
+  if (kickerNode) bodyChildren.push(kickerNode);
+  if (headline) {
+    bodyChildren.push({
+      id: `${slideId}.${id}.headline`,
+      type: "text",
+      text: headline,
+      style: compact ? "lead" : "section-title",
+      size: compact ? "md" : "lg",
+      color: surface.bannerText,
+      bold: true,
+      align: "left",
+      autoFit: "shrink",
+      minHeight: estimateTakeawayHeadlineMinHeight(headline, compact, false),
+    } as DomNode);
+  }
+  if (detail.text || detail.content) {
+    bodyChildren.push({
+      id: `${slideId}.${id}.detail`,
+      type: "text",
+      ...detail,
+      style: "paragraph",
+      color: surface.bannerText,
+      align: "left",
+      valign: "top",
+      autoFit: "shrink",
+      minHeight: estimateTakeawayDetailMinHeight(detailPlain, compact),
+      optional: true,
+    } as DomNode);
+  }
+
+  const rowChildren: DomNode[] = [
+    {
+      id: `${slideId}.${id}.body`,
+      type: "stack",
+      direction: "vertical",
+      gap: compact ? spacing("xs") : spacing("sm"),
+      padding: 0,
+      layoutWeight: 1,
+      align: "start",
+      valign: "middle",
+      children: bodyChildren,
+    } as DomNode,
+  ];
+
+  if (options.metric && options.metric.value && options.metric.value.trim()) {
+    const m = options.metric;
+    const metricChildren: DomNode[] = [
+      {
+        id: `${slideId}.${id}.metric.value`,
+        type: "text",
+        text: m.value.trim() + (m.unit ? m.unit.trim() : ""),
+        style: "hero",
+        color: surface.bannerText,
+        bold: true,
+        align: "right",
+        autoFit: "shrink",
+        noWrap: true,
+        minHeight: 0.8,
+      } as DomNode,
+    ];
+    if (m.label && m.label.trim()) {
+      metricChildren.push({
+        id: `${slideId}.${id}.metric.label`,
+        type: "text",
+        text: m.label.trim(),
+        style: "caption",
+        color: surface.bannerText,
+        align: "right",
+        autoFit: "shrink",
+        minHeight: 0.3,
+        optional: true,
+      } as DomNode);
+    }
+    rowChildren.push({
+      id: `${slideId}.${id}.metric`,
+      type: "stack",
+      direction: "vertical",
+      gap: spacing("2xs"),
+      align: "end",
+      valign: "middle",
+      fixedWidth: 4.2,
+      children: metricChildren,
+    } as DomNode);
+  }
+
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: spacing("md"),
+    role: "key-takeaway",
+    fill: surface.bannerFill,
+    line: "transparent",
+    cornerRadius: radius("md"),
+    padding: compact ? spacing("md") : spacing("lg"),
+    align: "start",
+    valign: "middle",
+    children: rowChildren,
+  } as DomNode, options);
+}
+
+function keyTakeawayMinimal(
+  slideId: string,
+  id: string,
+  options: KeyTakeawayOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const tone = options.tone || "brand";
+  const surface = keyTakeawayToneSurface(tone);
+  const headline = (options.headline || "").trim();
+  const detail = textWithRichContent(options.detail?.trim() || "", options.content);
+  const detailPlain = detail.text || richTextPlain(detail.content);
+  const hasBullets = Boolean(options.bullets && options.bullets.length);
+  const denseHeadline = options.density === "compact" || weightedTextLength(headline) > 36;
+  const denseDetail = weightedTextLength(detailPlain) > 44 || (options.bullets || []).length >= 4;
+  const compact = options.density === "compact" || denseHeadline || denseDetail;
+  const compactBulletHeadline = compact && hasBullets;
+
+  // Minimal stays as a chrome-free vertical stack so cohort/peer-cohort logic
+  // for repeated minimal takeaways keeps measuring the same shape they did
+  // before the upgrade. The visual cue is a short top accent bar.
+  const children: DomNode[] = [
+    {
+      id: `${slideId}.${id}.accent`,
+      type: "shape",
+      preset: "rect",
+      fill: surface.rail,
+      fixedHeight: 0.16,
+      fixedWidth: 2.8,
+      align: "start",
+    } as DomNode,
+  ];
+  const kickerNode = keyTakeawayKickerNode(slideId, id, options.kicker, surface, false);
+  if (kickerNode) children.push(kickerNode);
+  if (headline) {
+    children.push({
+      id: `${slideId}.${id}.headline`,
+      type: "text",
+      text: headline,
+      style: compactBulletHeadline ? "card-title" : denseHeadline ? "lead" : "section-title",
+      size: compactBulletHeadline ? undefined : denseHeadline ? "md" : "lg",
+      color: surface.headlineColor,
+      align: "left",
+      autoFit: "shrink",
+      minHeight: estimateTakeawayHeadlineMinHeight(headline, compact, hasBullets),
+    } as DomNode);
+  }
+  if (detail.text || detail.content) {
+    children.push({
+      id: `${slideId}.${id}.detail`,
+      type: "text",
+      ...detail,
+      style: compact ? "paragraph" : "lead",
+      color: "text.primary",
+      align: "left",
+      valign: "top",
+      autoFit: "shrink",
+      layoutWeight: 1,
+      minHeight: estimateTakeawayDetailMinHeight(detailPlain, compact),
+      optional: compact ? true : undefined,
+    } as DomNode);
+  }
+  if (hasBullets) {
+    children.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets!.slice(0, 5), compact ? "compact" : "comfortable"), spaceAfter: compact ? 1.2 : 2.0 });
+  }
+
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: compact ? spacing("xs") : spacing("sm"),
+    role: "key-takeaway",
+    children,
+  } as DomNode, options);
+}
+
+function keyTakeawayMetric(
+  slideId: string,
+  id: string,
+  options: KeyTakeawayOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const tone = options.tone || "brand";
+  const surface = keyTakeawayToneSurface(tone);
+  const m = options.metric || { value: "" };
+  const headline = (options.headline || "").trim();
+  const detail = textWithRichContent(options.detail?.trim() || "", options.content);
+  const detailPlain = detail.text || richTextPlain(detail.content);
+  const hasBullets = Boolean(options.bullets && options.bullets.length);
+
+  const metricChildren: DomNode[] = [];
+  metricChildren.push({
+    id: `${slideId}.${id}.metric.value`,
+    type: "text",
+    text: (m.value || "").trim() + (m.unit ? m.unit.trim() : ""),
+    style: "hero",
+    color: surface.metricColor,
+    bold: true,
+    align: "left",
+    autoFit: "shrink",
+    noWrap: true,
+    minHeight: 1.1,
+  } as DomNode);
+  if (m.label && m.label.trim()) {
+    metricChildren.push({
+      id: `${slideId}.${id}.metric.label`,
+      type: "text",
+      text: m.label.trim(),
+      style: "caption",
+      color: "text.muted",
+      align: "left",
+      autoFit: "shrink",
+      minHeight: 0.32,
+      tracking: "wide",
+      bold: true,
+      optional: true,
+    } as DomNode);
+  }
+  if (m.delta && m.delta.trim()) {
+    // delta uses text.muted (slate-gray) for stable readability across all
+    // tones — pairing tone-color caption text on tone.tint surfaces sits at
+    // ~4.48:1, just under WCAG 4.5 for small text.
+    metricChildren.push({
+      id: `${slideId}.${id}.metric.delta`,
+      type: "text",
+      text: m.delta.trim(),
+      style: "caption",
+      color: "text.muted",
+      align: "left",
+      autoFit: "shrink",
+      minHeight: 0.32,
+      optional: true,
+    } as DomNode);
+  }
+
+  const bodyChildren: DomNode[] = [];
+  const kickerNode = keyTakeawayKickerNode(slideId, id, options.kicker, surface, false);
+  if (kickerNode) bodyChildren.push(kickerNode);
+  if (headline) {
+    bodyChildren.push({
+      id: `${slideId}.${id}.headline`,
+      type: "text",
+      text: headline,
+      style: "lead",
+      color: surface.headlineColor,
+      bold: true,
+      align: "left",
+      autoFit: "shrink",
+      minHeight: estimateTakeawayHeadlineMinHeight(headline, true, hasBullets),
+    } as DomNode);
+  }
+  if (detail.text || detail.content) {
+    bodyChildren.push({
+      id: `${slideId}.${id}.detail`,
+      type: "text",
+      ...detail,
+      style: "paragraph",
+      color: "text.primary",
+      align: "left",
+      valign: "top",
+      autoFit: "shrink",
+      layoutWeight: 1,
+      minHeight: estimateTakeawayDetailMinHeight(detailPlain, true),
+      optional: true,
+    } as DomNode);
+  }
+  if (hasBullets) {
+    bodyChildren.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets!.slice(0, 4), "compact"), spaceAfter: 1.2 });
+  }
+  const sourceNode = keyTakeawaySourceNode(slideId, id, options.source);
+  if (sourceNode) bodyChildren.push(sourceNode);
+
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: spacing("lg"),
+    role: "key-takeaway",
+    fill: surface.fill,
+    line: surface.line,
+    cornerRadius: radius("md"),
+    padding: spacing("lg"),
+    align: "start",
+    valign: "middle",
+    children: [
+      {
+        id: `${slideId}.${id}.metric`,
+        type: "stack",
+        direction: "vertical",
+        gap: spacing("xs"),
+        align: "start",
+        valign: "middle",
+        fixedWidth: 5.4,
+        children: metricChildren,
+      } as DomNode,
+      {
+        id: `${slideId}.${id}.divider`,
+        type: "divider",
+        orientation: "vertical",
+        line: surface.line,
+        thickness: 0.04,
+        fixedWidth: 0.04,
+        valign: "stretch",
+        optional: true,
+      } as DomNode,
+      {
+        id: `${slideId}.${id}.body`,
+        type: "stack",
+        direction: "vertical",
+        gap: spacing("xs"),
+        padding: 0,
+        layoutWeight: 1,
+        align: "start",
+        valign: "middle",
+        children: bodyChildren,
+      } as DomNode,
+    ],
+  } as DomNode, options);
+}
+
+function keyTakeawayGridMini(slideId: string, id: string, item: KeyTakeawaySubItem, ownerTone: KeyTakeawayTone): DomNode {
+  const tone = item.tone || ownerTone;
+  const surface = keyTakeawayToneSurface(tone);
+  const children: DomNode[] = [];
+  if (item.kicker && item.kicker.trim()) {
+    children.push({
+      id: `${slideId}.${id}.kicker`,
+      type: "text",
+      text: item.kicker.trim().toUpperCase(),
+      style: "label",
+      color: surface.kickerColor,
+      bold: true,
+      tracking: "wider",
+      minHeight: 0.28,
+      autoFit: "shrink",
+      optional: true,
+    } as DomNode);
+  }
+  const headline = (item.headline || "").trim();
+  if (headline) {
+    children.push({
+      id: `${slideId}.${id}.headline`,
+      type: "text",
+      text: headline,
+      style: "card-title",
+      color: surface.headlineColor,
+      align: "left",
+      autoFit: "shrink",
+      minHeight: 0.48,
+    } as DomNode);
+  }
+  if (item.detail && item.detail.trim()) {
+    children.push({
+      id: `${slideId}.${id}.detail`,
+      type: "text",
+      text: item.detail.trim(),
+      style: "paragraph",
+      color: "text.primary",
+      align: "left",
+      valign: "top",
+      autoFit: "shrink",
+      layoutWeight: 1,
+      minHeight: estimateTakeawayDetailMinHeight(item.detail, true),
+      optional: true,
+    } as DomNode);
+  }
+  if (item.bullets && item.bullets.length) {
+    children.push({ ...bulletList(slideId, `${id}.bullets`, item.bullets.slice(0, 3), "compact"), spaceAfter: 1.0, optional: true });
+  }
+  return {
+    id: `${slideId}.${id}`,
+    type: "card",
+    direction: "vertical",
+    gap: spacing("xs"),
+    role: "key-takeaway-item",
+    fill: surface.fill,
+    line: surface.line,
+    accent: "left",
+    accentColor: surface.rail,
+    accentWidth: rail("thick"),
+    cornerRadius: radius("sm"),
+    padding: spacing("md"),
+    layoutWeight: 1,
+    children,
+  } as DomNode;
+}
+
+function keyTakeawayGrid(
+  slideId: string,
+  id: string,
+  options: KeyTakeawayOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const tone = options.tone || "brand";
+  const items = options.items || [];
+  const surface = keyTakeawayToneSurface(tone);
+  const headerChildren: DomNode[] = [];
+  const kickerNode = keyTakeawayKickerNode(slideId, id, options.kicker, surface, false);
+  if (kickerNode) headerChildren.push(kickerNode);
+  const masterHeadline = (options.headline || "").trim();
+  if (masterHeadline) {
+    headerChildren.push({
+      id: `${slideId}.${id}.headline`,
+      type: "text",
+      text: masterHeadline,
+      style: "section-title",
+      color: surface.headlineColor,
+      align: "left",
+      autoFit: "shrink",
+      minHeight: 0.6,
+    } as DomNode);
+  }
+  const masterDetail = textWithRichContent(options.detail?.trim() || "", options.content);
+  if (masterDetail.text || masterDetail.content) {
+    headerChildren.push({
+      id: `${slideId}.${id}.detail`,
+      type: "text",
+      ...masterDetail,
+      style: "paragraph",
+      color: "text.muted",
+      minHeight: 0.36,
+      autoFit: "shrink",
+      optional: true,
+    } as DomNode);
+  }
+
+  const columns = Math.min(Math.max(items.length, 1), 4);
+  const grid: DomNode = {
+    id: `${slideId}.${id}.grid`,
+    type: "grid",
+    columns,
+    gap: spacing("sm"),
+    children: items.slice(0, 4).map((item, i) => keyTakeawayGridMini(slideId, `${id}.${i + 1}`, item, tone)),
+  } as DomNode;
+
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: headerChildren.length ? spacing("sm") : 0,
+    role: "key-takeaway",
+    children: [...headerChildren, grid],
+  } as DomNode, options);
+}
 function weightedTextLength(text: string): number {
   let length = 0;
   for (const char of text) {
@@ -2501,6 +3610,23 @@ function estimateTakeawayDetailMinHeight(text: string, compact: boolean): number
   const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / (compact ? 46 : 40)));
   const lineHeight = compact ? 0.46 : 0.58;
   return Math.max(compact ? 0.68 : 0.82, Math.min(compact ? 2.1 : 2.6, estimatedLines * lineHeight + 0.14));
+}
+
+function estimateTakeawayHeadlineMinHeight(text: string, compact: boolean, hasBullets: boolean): number | undefined {
+  if (!text.trim()) return undefined;
+  if (!compact) return undefined;
+  const explicitLines = text.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const weighted = weightedTextLength(text);
+  // Compact rail takeaways often pair a short headline with bullets. In that
+  // shape the headline uses card-title scale and must reserve two-line height
+  // before the bullet list starts; otherwise PowerPoint renders the wrapped
+  // second line over the first bullet even though the DOM boxes do not overlap.
+  const capacity = hasBullets ? 17 : 24;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weighted / capacity));
+  const lineHeight = hasBullets ? 0.54 : 0.62;
+  const min = hasBullets ? 0.72 : 0.62;
+  const max = hasBullets ? 1.7 : 1.85;
+  return Math.max(min, Math.min(max, estimatedLines * lineHeight + 0.14));
 }
 
 export function numberedGrid(
@@ -2655,6 +3781,9 @@ function numberedGridBodyMinHeight(text: string, dense: boolean, twoByTwo = fals
 
 export function statStrip(slideId: string, id: string, options: { items: Array<{ value: string; label: string; tone?: StatStripTone }>; tone?: StatStripTone }): DomNode {
   const stripTone: StatStripTone = options.tone || "brand";
+  const compact = options.items.length >= 4 || options.items.some((item) => item.label.includes("\n"));
+  const valueBandHeight = Math.max(...options.items.map((item) => statStripValueMinHeight(item.value, compact)), compact ? 0.78 : 0.9);
+  const labelBandHeight = Math.max(...options.items.map((item) => statStripLabelMinHeight(item.label)), 0.36);
   // Inline KPI row — no card chrome, just bold values + small labels separated
   // by thin vertical accent rules. Reads as a tighter alternative to kpi-grid
   // for the "headline numbers in one row" pattern (OOXML / consulting-deck
@@ -2675,7 +3804,7 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
         preset: "rect",
         fill: "divider",
         fixedWidth: 0.04,
-        fixedHeight: 1.35,
+        fixedHeight: compact ? 1.2 : 1.35,
         align: "center",
         valign: "middle",
       });
@@ -2684,15 +3813,15 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
       id: `${slideId}.${id}.${index}`,
       type: "stack",
       direction: "vertical",
-      gap: 0.15,
+      gap: compact ? 0.08 : 0.15,
       align: "center",
       justify: "center",
       valign: "middle",
       fixedHeight: 2.05,
       layoutWeight: 4,
       children: [
-        { id: `${slideId}.${id}.${index}.value`, type: "text", text: item.value, style: "metric-value", size: metricValueSize(item.value, false), color: valueColor, align: "center", valign: "bottom", autoFit: "shrink", minHeight: metricValueNeedsCompactScale(item.value) ? 1.0 : 0.9 },
-        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "metric-label", color: "text.muted", align: "center", valign: "top", uppercase: !/[\u4e00-\u9fff]/.test(item.label), letterSpacing: /[\u4e00-\u9fff]/.test(item.label) ? 0 : 60, autoFit: "shrink", minHeight: 0.36 },
+        { id: `${slideId}.${id}.${index}.value`, type: "text", text: item.value, style: "metric-value", size: statStripValueSize(item.value, compact), color: valueColor, align: "center", valign: "bottom", autoFit: "shrink", fixedHeight: valueBandHeight, minHeight: valueBandHeight, maxHeight: valueBandHeight },
+        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "metric-label", color: "text.muted", align: "center", valign: "top", uppercase: !/[\u4e00-\u9fff]/.test(item.label), letterSpacing: /[\u4e00-\u9fff]/.test(item.label) ? 0 : 60, autoFit: "shrink", fixedHeight: labelBandHeight, minHeight: labelBandHeight },
       ],
     });
   });
@@ -2704,10 +3833,27 @@ export function statStrip(slideId: string, id: string, options: { items: Array<{
     role: "stat-strip",
     align: "stretch",
     valign: "middle",
+    basisHeight: 2.05,
     minHeight: 2.05,
     maxHeight: 2.35,
     children: items,
   };
+}
+
+function statStripValueSize(value: string, compact: boolean): "xs" | "sm" | undefined {
+  if (compact) return "xs";
+  return metricValueSize(value, false);
+}
+
+function statStripValueMinHeight(value: string, compact: boolean): number {
+  if (compact) return metricValueNeedsCompactScale(value) ? 0.86 : 0.78;
+  return metricValueNeedsCompactScale(value) ? 1.0 : 0.9;
+}
+
+function statStripLabelMinHeight(label: string): number {
+  const explicitLines = label.split(/\n+/).map((line) => line.trim()).filter(Boolean).length;
+  const estimatedLines = Math.max(explicitLines || 1, Math.ceil(weightedTextLength(label) / 12));
+  return Math.max(0.36, Math.min(0.84, estimatedLines * 0.28 + 0.08));
 }
 
 export type StatStripTone = "brand" | "positive" | "neutral" | "warning" | "danger";
@@ -2732,6 +3878,10 @@ export function legend(slideId: string, id: string, options: { items: Array<{ la
   const markerPreset = marker === "square" ? "rect" : marker === "bar" ? "rect" : "ellipse";
   const markerWidth = marker === "bar" ? 0.85 : 0.55;
   const markerHeight = marker === "bar" ? 0.22 : 0.55;
+  const itemHeight = 0.64;
+  const naturalHeight = direction === "horizontal"
+    ? itemHeight
+    : options.items.length * itemHeight + Math.max(0, options.items.length - 1) * 0.28;
   return {
     id: `${slideId}.${id}`,
     type: "stack",
@@ -2740,6 +3890,8 @@ export function legend(slideId: string, id: string, options: { items: Array<{ la
     role: "legend",
     align: "start",
     valign: "middle",
+    basisHeight: naturalHeight,
+    maxHeight: naturalHeight + 0.12,
     children: options.items.map((item, index) => ({
       id: `${slideId}.${id}.${index}`,
       type: "stack",
@@ -2747,6 +3899,9 @@ export function legend(slideId: string, id: string, options: { items: Array<{ la
       gap: 0.25,
       align: "start",
       valign: "middle",
+      basisHeight: itemHeight,
+      minHeight: 0.54,
+      maxHeight: itemHeight + 0.08,
       children: [
         {
           id: `${slideId}.${id}.${index}.dot`,
@@ -2762,7 +3917,7 @@ export function legend(slideId: string, id: string, options: { items: Array<{ la
         // Label color upgraded text.muted → text.primary so legend items
         // read at the same priority as their colored markers. Muted gray
         // labels disappeared next to vivid dots (yajush log).
-        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle" },
+        { id: `${slideId}.${id}.${index}.label`, type: "text", text: item.label, style: "label", color: "text.primary", align: "left", valign: "middle", minHeight: 0.32, autoFit: "shrink" },
       ],
     })),
   };
@@ -2793,6 +3948,7 @@ export function badge(slideId: string, id: string, options: { text: string; tone
     cornerRadius: 0.5,
     fixedHeight: 0.7,
     fixedWidth: intrinsic,
+    autoFit: "shrink",
     noWrap: true,
     role: "badge",
   };
@@ -2831,6 +3987,7 @@ export function flowArrow(slideId: string, id: string, options: { label?: string
       uppercase: true,
       letterSpacing: 80,
       minHeight: 0.5,
+      autoFit: "shrink",
     });
   }
   // Snug cluster width: a flow-arrow with a label should read as ONE compact
@@ -2846,6 +4003,9 @@ export function flowArrow(slideId: string, id: string, options: { label?: string
   const clusterWidth = direction === "right"
     ? arrowWidth + 0.4 + labelWidth
     : Math.max(arrowWidth, labelWidth);
+  const clusterHeight = direction === "right"
+    ? 0.9
+    : 1.6 + (options.label && options.label.trim() ? 0.18 + 0.5 : 0);
   return {
     id: `${slideId}.${id}`,
     type: "stack",
@@ -2856,6 +4016,9 @@ export function flowArrow(slideId: string, id: string, options: { label?: string
     valign: "middle",
     justify: "center",
     fixedWidth: clusterWidth,
+    basisHeight: clusterHeight,
+    minHeight: Math.max(0.85, clusterHeight - 0.12),
+    maxHeight: clusterHeight + 0.12,
     children,
   };
 }
@@ -2873,12 +4036,23 @@ export function tagList(slideId: string, id: string, options: { items: Array<str
   // Arrange tags as an auto-wrapping grid; default to 4-6 per row depending
   // on item count, so a tight panel doesn't force tags off the edge.
   const columns = options.columns && options.columns > 0 ? options.columns : Math.min(6, Math.max(2, itemCount <= 4 ? itemCount : 4));
+  const rows = Math.max(1, Math.ceil(Math.max(1, itemCount) / columns));
+  const chipHeight = 0.92;
+  const compactChipHeight = 0.72;
+  const gap = 0.3;
+  const naturalHeight = rows * chipHeight + Math.max(0, rows - 1) * gap;
+  const minHeight = rows * compactChipHeight + Math.max(0, rows - 1) * Math.min(gap, 0.18);
+  const comfortableSlack = rows === 1 ? 0.34 : 0.48;
   return {
     id: `${slideId}.${id}`,
     type: "grid",
     columns,
-    gap: 0.3,
+    gap,
     role: "tag-list",
+    basisHeight: naturalHeight,
+    minHeight,
+    maxHeight: naturalHeight + comfortableSlack,
+    rowWeights: Array.from({ length: rows }, () => chipHeight),
     children: options.items.map((item, index) => {
       const text = typeof item === "string" ? item : (item && typeof item.text === "string" ? item.text : "");
       const tone = typeof item === "string" ? defaultTone : (item.tone || defaultTone);
@@ -2888,13 +4062,15 @@ export function tagList(slideId: string, id: string, options: { items: Array<str
         type: "text",
         text,
         style: "label",
-        size: "sm",
+        size: "md",
         color,
         fill,
         align: "center",
         valign: "middle",
         cornerRadius: 0.4,
-        minHeight: 0.55,
+        basisHeight: chipHeight,
+        minHeight: compactChipHeight,
+        maxHeight: chipHeight + Math.min(0.28, comfortableSlack / rows),
         autoFit: "shrink",
       };
     }),
@@ -3338,7 +4514,7 @@ export function outline(
       id: `${slideId}.${id}.${idx}.col`,
       type: "stack",
       direction: "vertical",
-      gap: compact ? 0.06 : 0.12,
+      gap: veryCompact ? 0.02 : compact ? 0.06 : 0.08,
       valign: "top",
       layoutWeight: 1,
       children: [
@@ -3351,7 +4527,7 @@ export function outline(
           style: veryCompact ? "label" : compact ? "card-title" : "h2",
           color: "text.primary",
           align: "left",
-          minHeight: veryCompact ? 0.4 : compact ? 0.5 : 0.6,
+          minHeight: veryCompact ? 0.4 : compact ? 0.5 : 0.54,
           autoFit: "shrink",
         },
         ...((!veryCompact && item.body && item.body.trim()) ? [{
@@ -3362,7 +4538,7 @@ export function outline(
           color: "text.muted",
           align: "left" as const,
           valign: "top" as const,
-          minHeight: compact ? 0.42 : 0.5,
+          minHeight: 0.42,
           autoFit: "shrink" as const,
           optional: true,
         }] : []),
@@ -3609,14 +4785,15 @@ export function comparisonTable(
   } & { surface?: AgentSurface } & AgentSurface,
 ): DomNode {
   const features = (options.features || []).slice(0, 8);
-  const opts = (options.options || []).slice(0, 4);
+  const opts = (options.options || []).slice(0, 6);
+  const dense = opts.length >= 5 || features.length >= 6;
   const colCount = opts.length + 1; // +1 for the feature label column
   // Header row: empty corner + option names
   const headerRow: DomNode[] = [
     {
       id: `${slideId}.${id}.h0`,
       type: "spacer",
-      fixedHeight: 0.9,
+      fixedHeight: dense ? 0.78 : 0.9,
     },
     ...opts.map((opt, idx) => ({
       id: `${slideId}.${id}.h${idx + 1}`,
@@ -3625,7 +4802,7 @@ export function comparisonTable(
       gap: 0.08,
       align: "center" as const,
       valign: "middle" as const,
-      fixedHeight: 0.9,
+      fixedHeight: dense ? 0.78 : 0.9,
       fill: opt.recommended ? "brand.tint" : undefined,
       cornerRadius: opt.recommended ? 0.08 : undefined,
       children: [
@@ -3645,11 +4822,11 @@ export function comparisonTable(
           id: `${slideId}.${id}.h${idx + 1}.name`,
           type: "text" as const,
           text: opt.name,
-          style: "card-title",
+          style: dense ? "label" : "card-title",
           weight: "bold" as const,
           color: "text.primary",
           align: "center" as const,
-          minHeight: 0.5,
+          minHeight: dense ? 0.42 : 0.5,
           autoFit: "shrink" as const,
         },
       ],
@@ -3662,13 +4839,13 @@ export function comparisonTable(
         id: `${slideId}.${id}.r${fIdx}.f`,
         type: "text",
         text: feature,
-        style: "card-title",
+        style: dense ? "paragraph" : "card-title",
         weight: "semibold",
         color: "text.primary",
         align: "left",
         valign: "middle",
         fill: "surface.subtle",
-        minHeight: 0.7,
+        minHeight: dense ? 0.62 : 0.7,
         autoFit: "shrink",
       },
       ...opts.map((opt, oIdx) => {
@@ -3683,10 +4860,10 @@ export function comparisonTable(
           style: "paragraph",
           color: isCheck ? "success" : isCross ? "danger" : "text.primary",
           weight: (isCheck || isCross ? "bold" : undefined) as ("bold" | undefined),
-          align: "center" as const,
+          align: dense || cellText.length > 18 ? "left" as const : "center" as const,
           valign: "middle" as const,
           fill: opt.recommended ? "brand.tint" : undefined,
-          minHeight: 0.7,
+          minHeight: dense ? 0.62 : 0.7,
           autoFit: "shrink" as const,
         };
       }),
@@ -3697,10 +4874,16 @@ export function comparisonTable(
     id: `${slideId}.${id}`,
     type: "grid",
     columns: colCount,
+    colWidths: comparisonTableColumnWeights(opts.length),
     gap: 0.04,
     role: "comparison-table",
     children: [...headerRow, ...featureRows],
   } as DomNode, options);
+}
+
+function comparisonTableColumnWeights(optionCount: number): number[] {
+  const featureWeight = optionCount >= 5 ? 0.82 : 1;
+  return [featureWeight, ...Array.from({ length: optionCount }, () => 1)];
 }
 
 /* ============================================================
@@ -4084,15 +5267,75 @@ function heatmapColor(palette: "warm" | "cool" | "diverging", t: number): string
 export function matrix2x2(
   slideId: string,
   id: string,
-  options: {
-    xAxis: { low: string; high: string };
-    yAxis: { low: string; high: string };
-    items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: "brand" | "positive" | "warning" | "danger" }>;
-    quadrantLabels?: { tl?: string; tr?: string; bl?: string; br?: string };
-    quadrantTones?: { tl?: "brand" | "positive" | "warning" | "danger" | "neutral"; tr?: "brand" | "positive" | "warning" | "danger" | "neutral"; bl?: "brand" | "positive" | "warning" | "danger" | "neutral"; br?: "brand" | "positive" | "warning" | "danger" | "neutral" };
-  } & { surface?: AgentSurface } & AgentSurface,
+  options: Matrix2x2Options,
+): DomNode {
+  if (options.variant !== "cards") return matrix2x2Axis(slideId, id, options);
+  return matrix2x2Cards(slideId, id, options);
+}
+
+type MatrixQuadrantKey = "tl" | "tr" | "bl" | "br";
+type MatrixQuadrantTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+type Matrix2x2Options = {
+  xAxis: { low: string; high: string };
+  yAxis: { low: string; high: string };
+  items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: "brand" | "positive" | "warning" | "danger" }>;
+  quadrantLabels?: { tl?: string; tr?: string; bl?: string; br?: string };
+  quadrantTones?: Partial<Record<MatrixQuadrantKey, MatrixQuadrantTone>>;
+  variant?: "axis" | "cards";
+  density?: "comfortable" | "compact" | "auto";
+  showXAxis?: boolean;
+  showYAxis?: boolean;
+  axisLabelPosition?: "outside" | "inside" | "none";
+  quadrantLabelPosition?: "corner" | "center";
+  axisLine?: MatrixAxisLineOptions;
+  quadrantBorder?: boolean | MatrixQuadrantBorderOptions;
+} & { surface?: AgentSurface } & AgentSurface;
+type MatrixLineEnd = {
+  type?: "none" | "triangle" | "stealth" | "diamond" | "oval" | "arrow";
+  width?: "sm" | "med" | "lg";
+  length?: "sm" | "med" | "lg";
+};
+type MatrixAxisLineOptions = {
+  color?: string;
+  line?: string;
+  lineWidth?: number;
+  width?: number;
+  dash?: "solid" | "dash" | "dashDot" | "dot";
+  lineDash?: "solid" | "dash" | "dashDot" | "dot";
+  heads?: "positive" | "both" | "none";
+  headEnd?: MatrixLineEnd;
+  tailEnd?: MatrixLineEnd;
+  xHeadEnd?: MatrixLineEnd;
+  xTailEnd?: MatrixLineEnd;
+  yHeadEnd?: MatrixLineEnd;
+  yTailEnd?: MatrixLineEnd;
+};
+type MatrixQuadrantBorderOptions = {
+  line?: string;
+  color?: string;
+  lineWidth?: number;
+  width?: number;
+  dash?: "solid" | "dash" | "dashDot" | "dot";
+  lineDash?: "solid" | "dash" | "dashDot" | "dot";
+  cornerRadius?: number;
+};
+
+function matrix2x2Cards(
+  slideId: string,
+  id: string,
+  options: Matrix2x2Options,
 ): DomNode {
   const items = options.items || [];
+  const compact = options.density !== "comfortable";
+  const rootGap = compact ? 0.10 : 0.18;
+  const gridGap = compact ? 0.16 : 0.25;
+  const cellPadding = compact ? 0.24 : 0.4;
+  const cellGap = compact ? 0.10 : 0.15;
+  const labelMinHeight = compact ? 0.38 : 0.52;
+  const itemMinHeight = compact ? 0.34 : 0.45;
+  const axisMinHeight = compact ? 0.28 : 0.36;
+  const showXAxis = options.showXAxis !== false;
+  const showYAxis = options.showYAxis !== false;
   // Group items by quadrant — stack item labels inside each quadrant.
   const quadrants: Record<"tl" | "tr" | "bl" | "br", Array<{ label: string; tone: string }>> = { tl: [], tr: [], bl: [], br: [] };
   for (const it of items) {
@@ -4103,13 +5346,11 @@ export function matrix2x2(
   const ql = options.quadrantLabels || {};
   const qt = options.quadrantTones || {};
   // Label-only mode: when no items are placed, the quadrantLabels become the
-  // primary content of each cell — render them at section-title weight on a
-  // tinted surface so the matrix communicates the four-quadrant story even
-  // without per-item dots. Default per-quadrant tones differentiate the
-  // cells visually (BCG / 2x2 priority conventions): top-right is the
-  // headline quadrant (positive), top-left and bottom-right are caveats
-  // (warning), bottom-left is the de-prioritized cell (neutral). Authors
-  // override via quadrantTones.
+  // primary content of each cell. Keep the typography at card-title scale,
+  // not section-title scale: a matrix cell is often placed inside a split or
+  // rail, and four section-title blocks consume too much of that region.
+  // Default per-quadrant tones differentiate the cells visually (BCG / 2x2
+  // priority conventions). Authors override via quadrantTones.
   const labelOnly = items.length === 0;
   const tintFor = (tone: string | undefined): { fill: string; ink: string; line: string } => {
     if (tone === "positive") return { fill: "success.tint", ink: "success", line: "success" };
@@ -4133,13 +5374,13 @@ export function matrix2x2(
       type: "card",
       fill: tint.fill,
       line: tint.line,
-      padding: 0.4,
+      padding: cellPadding,
       elevation: "flat",
       children: [{
         id: `${slideId}.${id}.${key}.stack`,
         type: "stack",
         direction: "vertical",
-        gap: 0.15,
+        gap: cellGap,
         align: labelOnly ? "center" as const : "start" as const,
         valign: labelOnly ? "middle" as const : "top" as const,
         children: [
@@ -4147,12 +5388,12 @@ export function matrix2x2(
             id: `${slideId}.${id}.${key}.qlabel`,
             type: "text" as const,
             text: qLabel,
-            style: labelOnly ? "section-title" : "label",
+            style: labelOnly ? "card-title" : "label",
             color: labelOnly ? tint.ink : "text.muted",
             tracking: labelOnly ? undefined : "wide" as const,
             weight: labelOnly ? "semibold" as const : undefined,
             align: labelOnly ? "center" as const : "left" as const,
-            minHeight: labelOnly ? 0.6 : 0.32,
+            minHeight: labelOnly ? labelMinHeight : 0.30,
             autoFit: "shrink" as const,
           }] : []),
           ...quadrants[key]!.map((it, idx) => {
@@ -4169,7 +5410,7 @@ export function matrix2x2(
               fill,
               align: "left" as const,
               cornerRadius: 0.08,
-              minHeight: 0.45,
+              minHeight: itemMinHeight,
               autoFit: "shrink" as const,
             };
           }),
@@ -4188,7 +5429,7 @@ export function matrix2x2(
     fill: "surface.subtle",
     line: "divider",
     cornerRadius: 0.08,
-    padding: 0.10,
+    padding: compact ? 0.06 : 0.10,
     children: [{
       id: `${slideId}.${id}.${idSuffix}.text`,
       type: "text",
@@ -4198,45 +5439,517 @@ export function matrix2x2(
       color: "text.primary",
       align: "center",
       tracking: "wide",
-      minHeight: 0.36,
+      minHeight: axisMinHeight,
       autoFit: "shrink",
     }],
   } as unknown as DomNode);
+  const grid: DomNode = {
+    id: `${slideId}.${id}.grid`,
+    type: "grid",
+    columns: 2,
+    gap: gridGap,
+    layoutWeight: 1,
+    children: [
+      renderQuadrant("tl", ql.tl),
+      renderQuadrant("tr", ql.tr),
+      renderQuadrant("bl", ql.bl),
+      renderQuadrant("br", ql.br),
+    ],
+  } as DomNode;
+  const xAxisRow: DomNode = {
+    id: `${slideId}.${id}.x-axis`,
+    type: "stack",
+    direction: "horizontal",
+    gap: compact ? 0.28 : 0.4,
+    children: [
+      { id: `${slideId}.${id}.xlo`, type: "text", text: options.xAxis.low, style: "label", color: "text.muted", align: "left", tracking: "wide", layoutWeight: 1, minHeight: compact ? 0.28 : 0.32, autoFit: "shrink" },
+      { id: `${slideId}.${id}.xhi`, type: "text", text: options.xAxis.high, style: "label", color: "text.muted", align: "right", tracking: "wide", layoutWeight: 1, minHeight: compact ? 0.28 : 0.32, autoFit: "shrink" },
+    ],
+  } as DomNode;
+  const children: DomNode[] = [
+    ...(showYAxis ? [yAxisBand(options.yAxis.high, "yhi")] : []),
+    grid,
+    ...(showYAxis ? [yAxisBand(options.yAxis.low, "ylo")] : []),
+    ...(showXAxis ? [xAxisRow] : []),
+  ];
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.18,
+    gap: rootGap,
     role: "matrix-2x2",
-    children: [
-      yAxisBand(options.yAxis.high, "yhi"),
-      {
-        id: `${slideId}.${id}.grid`,
-        type: "grid",
-        columns: 2,
-        gap: 0.25,
-        layoutWeight: 1,
-        children: [
-          renderQuadrant("tl", ql.tl),
-          renderQuadrant("tr", ql.tr),
-          renderQuadrant("bl", ql.bl),
-          renderQuadrant("br", ql.br),
-        ],
-      },
-      yAxisBand(options.yAxis.low, "ylo"),
-      // x-axis labels row
-      {
-        id: `${slideId}.${id}.x-axis`,
-        type: "stack",
-        direction: "horizontal",
-        gap: 0.4,
-        children: [
-          { id: `${slideId}.${id}.xlo`, type: "text", text: options.xAxis.low, style: "label", color: "text.muted", align: "left", tracking: "wide", layoutWeight: 1, minHeight: 0.32, autoFit: "shrink" },
-          { id: `${slideId}.${id}.xhi`, type: "text", text: options.xAxis.high, style: "label", color: "text.muted", align: "right", tracking: "wide", layoutWeight: 1, minHeight: 0.32, autoFit: "shrink" },
-        ],
-      },
-    ],
+    children,
   } as DomNode, options);
+}
+
+function matrix2x2Axis(
+  slideId: string,
+  id: string,
+  options: Matrix2x2Options,
+): DomNode {
+  const items = options.items || [];
+  const compact = options.density !== "comfortable";
+  const showXAxis = options.showXAxis !== false && options.axisLabelPosition !== "none";
+  const showYAxis = options.showYAxis !== false && options.axisLabelPosition !== "none";
+  const labelInside = options.axisLabelPosition === "inside";
+  const labelOnly = items.length === 0;
+  const ql = options.quadrantLabels || {};
+  const qt = options.quadrantTones || {};
+  const quadrantItems = matrixQuadrantItems(items);
+  const contentWidth = 18.4;
+  const contentHeight = compact ? 5.05 : 5.85;
+  const labelTop = labelInside || !showYAxis ? 0.28 : compact ? 0.66 : 0.72;
+  const labelBottom = labelInside || !showXAxis ? 0.38 : compact ? 0.64 : 0.70;
+  const plotX = 0.9;
+  const plotY = labelTop;
+  const plotW = contentWidth - 1.8;
+  const plotH = contentHeight - labelTop - labelBottom;
+  const axisX = plotX + plotW / 2;
+  const axisY = plotY + plotH / 2;
+  const outerGapX = compact ? 0.34 : 0.45;
+  const outerGapY = compact ? 0.14 : 0.18;
+  const crossGapX = compact ? 0.42 : 0.52;
+  const crossGapY = compact ? 0.36 : 0.44;
+  const qW = (plotW - outerGapX * 2 - crossGapX) / 2;
+  const qH = (plotH - outerGapY * 2 - crossGapY) / 2;
+  const basisHeight = contentHeight;
+  const axis = matrixAxisLineOptions(options.axisLine);
+  const border = matrixQuadrantBorderOptions(options.quadrantBorder);
+
+  const quadrantRect = (key: MatrixQuadrantKey): [number, number, number, number] => {
+    const left = key.endsWith("l");
+    const top = key.startsWith("t");
+    return [
+      left ? plotX + outerGapX : axisX + crossGapX / 2,
+      top ? plotY + outerGapY : axisY + crossGapY / 2,
+      qW,
+      qH,
+    ];
+  };
+
+  const children: DomNode[] = [
+    {
+      id: `${slideId}.${id}.frame`,
+      type: "shape",
+      preset: "roundRect",
+      fill: "surface",
+      fillOpacity: 0.28,
+      line: "divider",
+      lineOpacity: 0.55,
+      lineWidth: 0.014,
+      cornerRadius: 0.12,
+      at: [0.05, 0.05, contentWidth - 0.1, contentHeight - 0.1],
+      zIndex: 0,
+    },
+    ...(["tl", "tr", "bl", "br"] as MatrixQuadrantKey[]).flatMap((key) => {
+      const rect = quadrantRect(key);
+      return matrixAxisQuadrantNodes(
+        slideId,
+        id,
+        key,
+        rect,
+        ql[key],
+        qt[key],
+        quadrantItems[key],
+        labelOnly,
+        compact,
+        options.quadrantLabelPosition || "corner",
+        border,
+      );
+    }),
+    ...matrixAxisLineNodes(slideId, id, axis, plotX, plotY, plotW, plotH, axisX, axisY),
+    ...matrixAxisLabelNodes(slideId, id, options, {
+      showXAxis,
+      showYAxis,
+      inside: labelInside,
+      compact,
+      plotX,
+      plotY,
+      plotW,
+      plotH,
+      axisX,
+      axisY,
+      contentWidth,
+      contentHeight,
+    }),
+  ];
+
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "positioned-group",
+    role: "matrix-2x2",
+    contentWidth,
+    contentHeight,
+    fit: "fill",
+    align: "center",
+    valign: "top",
+    basisHeight,
+    minHeight: compact ? 4.15 : 4.9,
+    maxHeight: compact ? 5.45 : 6.4,
+    children,
+  } as DomNode, options);
+}
+
+function matrixQuadrantItems(items: Array<{ label: string; x: "low" | "high"; y: "low" | "high"; tone?: "brand" | "positive" | "warning" | "danger" }>): Record<MatrixQuadrantKey, Array<{ label: string; tone: string }>> {
+  const quadrants: Record<MatrixQuadrantKey, Array<{ label: string; tone: string }>> = { tl: [], tr: [], bl: [], br: [] };
+  for (const it of items) {
+    const key = `${it.y === "high" ? "t" : "b"}${it.x === "low" ? "l" : "r"}` as MatrixQuadrantKey;
+    quadrants[key]!.push({ label: it.label, tone: it.tone || "brand" });
+  }
+  return quadrants;
+}
+
+function matrixTint(tone: MatrixQuadrantTone | undefined): { fill: string; ink: string; line: string } {
+  if (tone === "positive") return { fill: "success.tint", ink: "success", line: "success" };
+  if (tone === "warning") return { fill: "warning.tint", ink: "warning", line: "warning" };
+  if (tone === "danger") return { fill: "danger.tint", ink: "danger", line: "danger" };
+  if (tone === "brand") return { fill: "brand.tint", ink: "brand.primary", line: "brand.primary" };
+  if (tone === "neutral") return { fill: "surface.subtle", ink: "text.primary", line: "divider" };
+  return { fill: "surface.subtle", ink: "text.primary", line: "divider" };
+}
+
+function matrixDefaultQuadrantTone(key: MatrixQuadrantKey): MatrixQuadrantTone {
+  if (key === "tr") return "positive";
+  if (key === "bl") return "neutral";
+  return "warning";
+}
+
+function matrixAxisQuadrantNodes(
+  slideId: string,
+  id: string,
+  key: MatrixQuadrantKey,
+  rect: [number, number, number, number],
+  label: string | undefined,
+  toneRaw: MatrixQuadrantTone | undefined,
+  items: Array<{ label: string; tone: string }>,
+  labelOnly: boolean,
+  compact: boolean,
+  labelPosition: "corner" | "center",
+  border: Required<MatrixQuadrantBorderOptions> & { show: boolean },
+): DomNode[] {
+  const tone = toneRaw || (labelOnly ? matrixDefaultQuadrantTone(key) : "neutral");
+  const tint = labelOnly ? matrixTint(tone) : matrixTint("neutral");
+  const [x, y, w, h] = rect;
+  const pad = compact ? 0.32 : 0.46;
+  const zBase = key === "tr" ? 2 : 1;
+  const nodes: DomNode[] = [{
+    id: `${slideId}.${id}.${key}`,
+    type: "shape",
+    preset: "roundRect",
+    role: "matrix-quadrant",
+    fill: tint.fill,
+    fillOpacity: labelOnly ? 0.74 : 0.54,
+    line: border.show ? (toneRaw ? tint.line : border.line) : "none",
+    lineWidth: border.show ? border.lineWidth : 0,
+    lineDash: border.lineDash,
+    cornerRadius: border.cornerRadius,
+    at: [x, y, w, h],
+    zIndex: zBase,
+  }];
+  if (label) {
+    const labelParts = matrixSplitQuadrantLabel(label);
+    const center = labelPosition === "center" && labelOnly;
+    const chipH = compact ? 0.40 : 0.46;
+    const chipToTitleGap = compact ? 0.16 : 0.20;
+    const blockH = labelParts.kicker ? (compact ? 1.24 : 1.44) : (compact ? 0.68 : 0.82);
+    const labelX = x + pad;
+    const labelY = center ? y + Math.max(0.2, (h - blockH) / 2) : y + (compact ? 0.26 : 0.30);
+    const labelW = w - pad * 2;
+    if (labelParts.kicker) {
+      nodes.push({
+        id: `${slideId}.${id}.${key}.kicker`,
+        type: "text",
+        text: labelParts.kicker,
+        style: "label",
+        size: "sm",
+        weight: "bold",
+        color: tint.ink,
+        fill: "surface",
+        fillOpacity: 0.95,
+        line: tint.line,
+        lineWidth: 0.01,
+        cornerRadius: 0.12,
+        align: center ? "center" : "left",
+        valign: "middle",
+        noWrap: true,
+        autoFit: "shrink",
+        at: [labelX, labelY, Math.min(labelW, textChipWidthCm(labelParts.kicker, { min: 1.45, max: 4.8, padding: 0.92 })), chipH],
+        zIndex: zBase + 2,
+      });
+      nodes.push({
+        id: `${slideId}.${id}.${key}.qlabel`,
+        type: "text",
+        text: labelParts.title,
+        style: labelOnly ? "card-title" : "label",
+        size: labelOnly && !compact && !labelParts.kicker ? "lg" : undefined,
+        weight: "semibold",
+        color: labelOnly && !labelParts.kicker ? tint.ink : "text.primary",
+        align: center ? "center" : "left",
+        valign: labelParts.detail ? "top" : center ? "middle" : "top",
+        autoFit: "shrink",
+        noWrap: !labelParts.detail,
+        at: [
+          labelX,
+          labelY + chipH + chipToTitleGap,
+          labelW,
+          labelParts.detail
+            ? compact ? 0.52 : 0.66
+            : Math.max(compact ? 0.66 : 0.78, h - (labelY - y) - (compact ? 0.36 : 0.42)),
+        ],
+        zIndex: zBase + 2,
+      });
+      if (labelParts.detail) {
+        nodes.push({
+          id: `${slideId}.${id}.${key}.detail`,
+          type: "text",
+          text: labelParts.detail,
+          style: compact ? "caption" : "paragraph",
+          weight: "semibold",
+          color: "text.primary",
+          align: center ? "center" : "left",
+          valign: "top",
+          autoFit: "shrink",
+          at: [labelX, labelY + (compact ? 1.02 : 1.28), labelW, Math.max(0.5, h - (labelY - y) - (compact ? 1.22 : 1.54))],
+          zIndex: zBase + 2,
+        });
+      }
+    } else {
+      nodes.push({
+        id: `${slideId}.${id}.${key}.qlabel`,
+        type: "text",
+        text: labelParts.title,
+        style: labelOnly ? "card-title" : "label",
+        size: labelOnly && !compact ? "lg" : undefined,
+        weight: "semibold",
+        color: labelOnly ? tint.ink : "text.primary",
+        align: center ? "center" : "left",
+        valign: center ? "middle" : "top",
+        autoFit: "shrink",
+        at: [labelX, center ? y + h * 0.28 : labelY, labelW, center ? h * 0.44 : compact ? 0.68 : 0.82],
+        zIndex: zBase + 2,
+      });
+    }
+  }
+  if (!labelOnly && items.length) {
+    const chipH = compact ? 0.32 : 0.40;
+    const chipGap = compact ? 0.08 : 0.10;
+    const startY = y + (label ? (compact ? 0.98 : 1.12) : pad);
+    const visible = items.length > 5 ? items.slice(0, 4) : items.slice(0, 5);
+    visible.forEach((item, index) => {
+      const itemTone = matrixItemTone(item.tone);
+      nodes.push({
+        id: `${slideId}.${id}.${key}.${index}`,
+        type: "text",
+        text: item.label,
+        style: "label",
+        size: "sm",
+        weight: "semibold",
+        color: itemTone.ink,
+        fill: itemTone.fill,
+        align: "left",
+        valign: "middle",
+        cornerRadius: 0.08,
+        autoFit: "shrink",
+        at: [x + pad, startY + index * (chipH + chipGap), w - pad * 2, chipH],
+        zIndex: zBase + 3,
+      });
+    });
+    if (items.length > visible.length) {
+      nodes.push({
+        id: `${slideId}.${id}.${key}.overflow`,
+        type: "text",
+        text: `+${items.length - visible.length} more`,
+        style: "label",
+        size: "sm",
+        color: "text.muted",
+        fill: "surface",
+        align: "center",
+        valign: "middle",
+        cornerRadius: 0.08,
+        autoFit: "shrink",
+        at: [x + pad, startY + visible.length * (chipH + chipGap), 1.6, chipH],
+        zIndex: zBase + 3,
+      });
+    }
+  }
+  return nodes;
+}
+
+function matrixSplitQuadrantLabel(label: string): { kicker?: string; title: string; detail?: string } {
+  const trimmed = label.trim();
+  const match = trimmed.match(/^(.{2,18}?)[：:]\s*(.+)$/);
+  if (!match) return { title: trimmed };
+  const head = match[1]!.trim();
+  const rest = match[2]!.trim();
+  const detailMatch = rest.match(/^(.{2,36}?)[；;。]\s*(.+)$/);
+  if (detailMatch) {
+    return { kicker: head, title: detailMatch[1]!.trim(), detail: detailMatch[2]!.trim() };
+  }
+  return { kicker: head, title: rest };
+}
+
+function matrixItemTone(tone: string): { fill: string; ink: string } {
+  if (tone === "positive") return { fill: "success.tint", ink: "success" };
+  if (tone === "warning") return { fill: "warning.tint", ink: "warning" };
+  if (tone === "danger") return { fill: "danger.tint", ink: "danger" };
+  return { fill: "brand.tint", ink: "brand.primary" };
+}
+
+function matrixAxisLineOptions(axisLine: MatrixAxisLineOptions | undefined): Required<MatrixAxisLineOptions> {
+  const heads = axisLine?.heads || "both";
+  const positiveHead: MatrixLineEnd | undefined = heads === "none" ? { type: "none" } : { type: "triangle", width: "lg", length: "lg" };
+  const lowHead: MatrixLineEnd | undefined = heads === "both" ? { type: "triangle", width: "lg", length: "lg" } : { type: "none" };
+  return {
+    color: axisLine?.color || axisLine?.line || "brand.primary",
+    line: axisLine?.line || axisLine?.color || "brand.primary",
+    lineWidth: axisLine?.lineWidth ?? axisLine?.width ?? 0.04,
+    width: axisLine?.width ?? axisLine?.lineWidth ?? 0.04,
+    dash: axisLine?.dash || axisLine?.lineDash || "solid",
+    lineDash: axisLine?.lineDash || axisLine?.dash || "solid",
+    heads,
+    headEnd: axisLine?.headEnd || lowHead || { type: "none" },
+    tailEnd: axisLine?.tailEnd || positiveHead || { type: "none" },
+    xHeadEnd: axisLine?.xHeadEnd || axisLine?.headEnd || lowHead || { type: "none" },
+    xTailEnd: axisLine?.xTailEnd || axisLine?.tailEnd || positiveHead || { type: "none" },
+    yHeadEnd: axisLine?.yHeadEnd || axisLine?.headEnd || positiveHead || { type: "none" },
+    yTailEnd: axisLine?.yTailEnd || axisLine?.tailEnd || lowHead || { type: "none" },
+  };
+}
+
+function matrixQuadrantBorderOptions(border: boolean | MatrixQuadrantBorderOptions | undefined): Required<MatrixQuadrantBorderOptions> & { show: boolean } {
+  if (border === false) {
+    return { show: false, line: "none", color: "none", lineWidth: 0, width: 0, dash: "solid", lineDash: "solid", cornerRadius: 0.12 };
+  }
+  const rec = border && typeof border === "object" ? border : {};
+  return {
+    show: true,
+    line: rec.line || rec.color || "divider",
+    color: rec.color || rec.line || "divider",
+    lineWidth: rec.lineWidth ?? rec.width ?? 0.018,
+    width: rec.width ?? rec.lineWidth ?? 0.018,
+    dash: rec.dash || rec.lineDash || "solid",
+    lineDash: rec.lineDash || rec.dash || "solid",
+    cornerRadius: rec.cornerRadius ?? 0.10,
+  };
+}
+
+function matrixAxisLineNodes(
+  slideId: string,
+  id: string,
+  axis: Required<MatrixAxisLineOptions>,
+  plotX: number,
+  plotY: number,
+  plotW: number,
+  plotH: number,
+  axisX: number,
+  axisY: number,
+): DomNode[] {
+  const dash = axis.lineDash === "solid" ? undefined : axis.lineDash;
+  const lineBox = 0.06;
+  return [
+    {
+      id: `${slideId}.${id}.x-axis.line`,
+      type: "shape",
+      preset: "line",
+      fill: "none",
+      line: axis.line,
+      lineWidth: axis.lineWidth,
+      lineDash: dash,
+      headEnd: axis.xHeadEnd,
+      tailEnd: axis.xTailEnd,
+      at: [plotX, axisY - lineBox / 2, plotW, lineBox],
+      zIndex: 8,
+    },
+    {
+      id: `${slideId}.${id}.y-axis.line`,
+      type: "shape",
+      preset: "line",
+      fill: "none",
+      line: axis.line,
+      lineWidth: axis.lineWidth,
+      lineDash: dash,
+      headEnd: axis.yHeadEnd,
+      tailEnd: axis.yTailEnd,
+      at: [axisX - lineBox / 2, plotY, lineBox, plotH],
+      zIndex: 8,
+    },
+    {
+      id: `${slideId}.${id}.axis.center`,
+      type: "shape",
+      preset: "ellipse",
+      fill: axis.line,
+      line: "surface",
+      lineWidth: 0.025,
+      at: [axisX - 0.08, axisY - 0.08, 0.16, 0.16],
+      zIndex: 9,
+    },
+  ];
+}
+
+function matrixAxisLabelNodes(
+  slideId: string,
+  id: string,
+  options: Matrix2x2Options,
+  layout: {
+    showXAxis: boolean;
+    showYAxis: boolean;
+    inside: boolean;
+    compact: boolean;
+    plotX: number;
+    plotY: number;
+    plotW: number;
+    plotH: number;
+    axisX: number;
+    axisY: number;
+    contentWidth: number;
+    contentHeight: number;
+  },
+): DomNode[] {
+  const nodes: DomNode[] = [];
+  const labelH = layout.compact ? 0.44 : 0.48;
+  const yPillW = Math.min(4.6, Math.max(2.35, layout.plotW * 0.22));
+  const xLabelW = Math.min(3.8, Math.max(2.35, layout.plotW / 2 - 0.34));
+  const axisLabel = (suffix: string, text: string, at: [number, number, number, number], align: "left" | "center" | "right" = "center"): DomNode => ({
+    id: `${slideId}.${id}.${suffix}`,
+    type: "text",
+    text,
+    style: "label",
+    weight: "semibold",
+    color: "text.primary",
+    fill: "none",
+    line: "none",
+    align,
+    valign: "middle",
+    tracking: "wide",
+    noWrap: true,
+    autoFit: "shrink",
+    at,
+    zIndex: 12,
+  });
+  if (layout.showYAxis) {
+    const yHighW = Math.min(yPillW, textChipWidthCm(options.yAxis.high, { min: 2.15, max: yPillW, padding: 0.78 }));
+    const yLowW = Math.min(yPillW, textChipWidthCm(options.yAxis.low, { min: 2.15, max: yPillW, padding: 0.78 }));
+    nodes.push(axisLabel(
+      "yhi",
+      options.yAxis.high,
+      layout.inside
+        ? [layout.axisX + 0.18, layout.plotY + 0.12, yHighW, labelH]
+        : [layout.axisX - yHighW / 2, 0.13, yHighW, labelH],
+    ));
+    nodes.push(axisLabel(
+      "ylo",
+      options.yAxis.low,
+      layout.inside
+        ? [layout.axisX + 0.18, layout.plotY + layout.plotH - labelH - 0.12, yLowW, labelH]
+        : [layout.axisX - yLowW / 2, layout.contentHeight - labelH - 0.12, yLowW, labelH],
+    ));
+  }
+  if (layout.showXAxis) {
+    const y = layout.inside ? layout.axisY + 0.18 : layout.contentHeight - labelH - 0.12;
+    nodes.push(axisLabel("xlo", options.xAxis.low, [Math.max(0.1, layout.plotX - 0.45), y, xLabelW, labelH], "left"));
+    nodes.push(axisLabel("xhi", options.xAxis.high, [Math.min(layout.contentWidth - xLabelW - 0.1, layout.plotX + layout.plotW - xLabelW + 0.45), y, xLabelW, labelH], "right"));
+  }
+  return nodes;
 }
 
 /**
@@ -4526,6 +6239,12 @@ export function calloutMarker(
   const tone = options.tone || "brand";
   const fillToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "surface";
   const fgToken = tone === "neutral" ? "text.primary" : "text.inverse";
+  const width = Number.isFinite(options.width) && (options.width || 0) > 0
+    ? Math.max(2.4, Math.min(8.0, options.width!))
+    : textChipWidthCm(options.text, { min: 3.2, max: 7.0, padding: 0.9, latin: 0.2, cjk: 0.34 });
+  const height = Number.isFinite(options.height) && (options.height || 0) > 0
+    ? Math.max(0.8, Math.min(4.0, options.height!))
+    : estimateCalloutMarkerHeightCm(options.text, width);
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "text",
@@ -4536,12 +6255,21 @@ export function calloutMarker(
     fill: fillToken,
     align: "center",
     valign: "middle",
+    autoFit: "shrink",
     cornerRadius: 0.15,
     role: "callout-marker",
     anchor: options.anchor || "top-right",
-    width: options.width || 4,
-    height: options.height || 1.2,
+    width,
+    height,
   } as unknown as DomNode, options);
+}
+
+function estimateCalloutMarkerHeightCm(text: string, widthCm: number): number {
+  const capacity = Math.max(8, Math.floor((Math.max(2.4, widthCm) - 0.8) / 0.32));
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .reduce((sum, line) => sum + Math.max(1, Math.ceil(weightedTextLength(line.trim() || " ") / capacity)), 0);
+  return Math.max(1.05, Math.min(3.2, 0.6 + lines * 0.42));
 }
 
 /**
@@ -4738,9 +6466,8 @@ export function cornerMark(
   const fillToken = tone === "brand" ? "brand.primary" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "text.muted";
   const corner = options.corner || "top-right";
   const style = options.style || "tag";
-  // Estimate width per char
-  let width = 0.7;
-  for (const ch of options.text) width += /[\u4e00-\u9fff]/.test(ch) ? 0.5 : 0.18;
+  const renderedText = style !== "ribbon" ? options.text.toUpperCase() : options.text;
+  const width = textChipWidthCm(renderedText, { min: 2.0, max: 7.2, padding: 0.9, latin: 0.24, cjk: 0.48 });
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "text",
@@ -4753,9 +6480,11 @@ export function cornerMark(
     fill: fillToken,
     align: "center",
     valign: "middle",
+    autoFit: "shrink",
+    noWrap: true,
     cornerRadius: style === "ribbon" ? 0 : style === "stamp" ? 0.2 : 0.08,
-    fixedHeight: 0.7,
-    fixedWidth: Math.max(2, Math.min(6, width)),
+    width,
+    height: style === "ribbon" ? 0.76 : 0.72,
     role: "corner-mark",
     anchor: corner,
   } as unknown as DomNode, options);
@@ -4785,6 +6514,7 @@ export function brandMark(
       : tone === "neutral" ? "text.secondary"
         : "text.muted";
   const align = corner.endsWith("-right") ? "right" : "left";
+  const width = options.width ?? textChipWidthCm(options.text, { min: 2.4, max: 6.4, padding: 0.75, latin: 0.19, cjk: 0.36 });
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "text",
@@ -4794,10 +6524,11 @@ export function brandMark(
     align,
     valign: "middle",
     autoFit: "shrink",
+    noWrap: true,
     role: "brand-mark",
     anchor: corner,
-    width: options.width || 3.2,
-    height: options.height || 0.45,
+    width,
+    height: options.height || 0.58,
     offsetX: options.offsetX ?? 0.75,
     offsetY: options.offsetY ?? 0.55,
     zIndex: 5,
@@ -4975,8 +6706,21 @@ export function pointerArrow(
   const tone = options.tone || "brand";
   const accent = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : "danger";
   const horizontal = direction === "right" || direction === "left";
-  const hasLabel = Boolean(options.label && options.label.trim());
-  const width = Math.max(options.width || (horizontal ? 3.4 : 1.6), horizontal ? (hasLabel ? 2.2 : 1.8) : 1.2);
+  const labelText = (options.label ?? "").trim();
+  const hasLabel = Boolean(labelText);
+  const labelWidth = hasLabel
+    ? textChipWidthCm(labelText, {
+      min: horizontal ? 2.2 : 1.4,
+      max: horizontal ? 6.8 : 3.2,
+      padding: 0.75,
+      latin: 0.2,
+      cjk: 0.34,
+    })
+    : 0;
+  const defaultWidth = horizontal
+    ? Math.max(3.4, labelWidth)
+    : Math.max(1.6, Math.min(3.2, labelWidth || 1.6));
+  const width = Math.max(options.width || defaultWidth, horizontal ? (hasLabel ? 2.2 : 1.8) : 1.2);
   const height = Math.max(options.height || (horizontal ? (hasLabel ? 1.1 : 0.75) : 2.4), horizontal ? (hasLabel ? 1.4 : 0.85) : (hasLabel ? 2.8 : 2.1));
   const arrowPreset = horizontal ? "arrow-right" : "arrow-down";
   const arrow: DomNode = {
@@ -4995,13 +6739,14 @@ export function pointerArrow(
   const label = hasLabel ? {
     id: `${slideId}.${id}.label`,
     type: "text" as const,
-    text: (options.label ?? "").trim(),
+    text: labelText,
     style: "label",
     weight: "bold",
     color: accent,
     align: "center" as const,
     valign: "middle" as const,
     autoFit: "shrink" as const,
+    noWrap: true,
     minHeight: 0.35,
   } : null;
   return applyAgentSurface({
@@ -5167,12 +6912,18 @@ export function scaleBar(
     const v = min + ((max - min) * i) / (tickCount - 1);
     labels.push(`${Math.round(v * 100) / 100}${options.unit || ""}`);
   }
+  const labelWeight = labels.reduce((maxWeight, label) => Math.max(maxWeight, weightedTextLength(label)), 0);
+  const labelHeight = labelWeight > 62 ? 1.2 : labelWeight > 36 ? 0.92 : labelWeight > 18 ? 0.62 : 0.36;
+  const naturalHeight = 0.3 + 0.04 + labelHeight + 0.16;
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
     gap: 0.08,
     role: "scale-bar",
+    basisHeight: naturalHeight,
+    minHeight: Math.max(0.72, naturalHeight - 0.08),
+    maxHeight: naturalHeight + 0.08,
     children: [
       // tick row: short vertical bars
       {
@@ -5201,6 +6952,9 @@ export function scaleBar(
         type: "stack",
         direction: "horizontal",
         gap: 0,
+        basisHeight: labelHeight,
+        minHeight: Math.max(0.32, labelHeight - 0.08),
+        maxHeight: labelHeight + 0.08,
         children: labels.map((lbl, i) => ({
           id: `${slideId}.${id}.lbl${i}`,
           type: "text" as const,
@@ -5209,7 +6963,9 @@ export function scaleBar(
           color: "text.muted",
           align: i === 0 ? "left" as const : i === labels.length - 1 ? "right" as const : "center" as const,
           autoFit: "shrink" as const,
-          minHeight: 0.32,
+          minHeight: Math.max(0.32, labelHeight - 0.08),
+          basisHeight: labelHeight,
+          maxHeight: labelHeight + 0.08,
           layoutWeight: 1,
         })),
       },
