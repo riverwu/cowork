@@ -25,6 +25,8 @@ import { containsCjkOrFullWidth, createTextMeasurer, hasCjkLineStartPunctuationR
 import { detectImageExt, probeImageDimensions } from "./emitter/image-dim.js";
 import { normalizeSlideTransition } from "./transition.js";
 import { protectTextRunsForCjkLineBreaks } from "./emitter/text-protection.js";
+import { applyLayerCascade } from "./layer-cascade.js";
+import { auditSlideBudgets } from "./slide-budget-audit.js";
 
 /** Resolve a TextStyle's weight (string or numeric) into the boolean
  *  emitter flag. Anything ≥ 600 reads as bold so the OOXML `b` attribute
@@ -2629,7 +2631,14 @@ function materializeAndCompactify(slideDom: DomNode, slideId: string, theme: Sim
     .flatMap((child) => child.type === "fragment" ? (child.children || []) : [child])
     .map(compactifyNode)
     .filter((c): c is DomNode => c !== null);
-  return normalizeAuthoredSemanticCohorts(theme, { ...materialized, children: compactedChildren });
+  const cohorts = normalizeAuthoredSemanticCohorts(theme, { ...materialized, children: compactedChildren });
+  // Layer cascade — enforce the DESIGN.md §2.1 / §5.4 contract: depth-3+
+  // surface chrome is stripped so nested cards don't accumulate visual weight.
+  const cascaded = applyLayerCascade(cohorts, slideId);
+  // Slide budget audit (M5.3 + M5.4) — warn (don't auto-demote) when the
+  // slide blows the "one loud component" or "one chromatic moment" budget.
+  auditSlideBudgets(cascaded, slideId);
+  return cascaded;
 }
 
 interface LayoutResult {
@@ -6794,7 +6803,13 @@ function splitToStack(node: DomNode): DomNode {
   const children = Array.isArray(node.children) ? node.children : [];
   const direction = node.direction === "vertical" ? "vertical" : "horizontal";
   const ratioRaw = Array.isArray(node.ratio) ? node.ratio.filter((n) => typeof n === "number" && Number.isFinite(n) && n > 0) : null;
-  const defaultRatio = children.length === 2 ? [0.62, 0.38] : children.length === 3 ? [0.4, 0.3, 0.3] : children.map(() => 1);
+  // DESIGN.md §5.1 — asymmetric defaults preferred for editorial reading:
+  // horizontal split → golden ratio; vertical split → rule of thirds.
+  const defaultRatio = children.length === 2
+    ? (direction === "vertical" ? [0.66, 0.34] : [0.62, 0.38])
+    : children.length === 3
+      ? [0.4, 0.3, 0.3]
+      : children.map(() => 1);
   const ratio = ratioRaw && ratioRaw.length === children.length ? ratioRaw : defaultRatio;
   return {
     ...node,

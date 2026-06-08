@@ -93,11 +93,14 @@ describe("PR4: keyTakeaway visual upgrade", () => {
     expect(node.elevation).toBe("raised");
   });
 
-  it("accent bar is 0.18cm tall and 3.2cm long", () => {
+  it("panel variant declares a left accent rail at the rail.thick token width painted by the renderer", () => {
     const node = keyTakeaway("s", "kt", { headline: "x" }) as DomNode;
-    const accent = (node.children || []).find((c) => c.id === "s.kt.accent")!;
-    expect(accent.fixedHeight).toBe(0.18);
-    expect(accent.fixedWidth).toBe(3.2);
+    expect(node.type).toBe("card");
+    expect(node.accent).toBe("left");
+    // rail.thick = 6pt ≈ 0.212cm — the token-consolidated rail width from the
+    // M2 / DESIGN.md spatial system; the pre-token implementation used 0.32cm.
+    expect(node.accentWidth).toBeCloseTo(0.212, 3);
+    expect(node.accentColor).toBe("brand.primary");
   });
 
   it("agent-supplied borderColor flows through applyAgentSurface", () => {

@@ -45,6 +45,19 @@ export interface SimpleTheme {
     defaultGap: number;
     columnGap: number;
     cardPadding: number;
+    /**
+     * Baseline grid unit in pt (DESIGN.md M4.2 contract).
+     *
+     * **Reserved field; the render pass does NOT snap text baselines yet.**
+     * `baseline-snap.ts` exposes the math (`baselineSnapDeltaCm`,
+     * `isBaselineAligned`) for analysis, but the actual snap pass that would
+     * align text first-baselines to multiples of this value is a deferred
+     * layout-solver change tracked as M4.2 in DESIGN.md.
+     *
+     * Default 12pt. Themes may set it for forward-compatibility; effectively
+     * it's only consumed today by tooling that wants to report misalignment.
+     */
+    baselineGridPt: number;
     areas: Record<string, ThemeLayoutArea>;
     regionBudget: {
       headingScale: number;
@@ -1180,6 +1193,7 @@ const DENSITY_PROFILE_SPECS: Record<DensityProfileName, DensityProfileSpec> = {
       defaultGap: 0.42,
       columnGap: 0.58,
       cardPadding: 0.44,
+      baselineGridPt: 12,
     },
     regionBudget: {
       headingScale: 0.68,
@@ -1237,6 +1251,7 @@ const DENSITY_PROFILE_SPECS: Record<DensityProfileName, DensityProfileSpec> = {
       defaultGap: 0.34,
       columnGap: 0.46,
       cardPadding: 0.36,
+      baselineGridPt: 12,
     },
     regionBudget: {
       headingScale: 0.72,
@@ -1437,6 +1452,7 @@ function defaultBase(brandPrimary: string): SimpleTheme {
       defaultGap: 0.5,
       columnGap: 0.7,
       cardPadding: 0.55,
+      baselineGridPt: 12,
       areas: {},
       regionBudget: {
         headingScale: 0.62,

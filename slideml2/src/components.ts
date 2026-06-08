@@ -1,4 +1,5 @@
 import type { DomNode, SurfaceOverride } from "./types.js";
+import { spacing, radius, rail, type Density } from "./design-tokens.js";
 
 /**
  * Agent-facing surface customization. ANY composite component accepts these
@@ -689,18 +690,123 @@ export function numberedList(slideId: string, id: string, items: Array<string | 
   return { id: `${slideId}.${id}`, type: "bullets", items: items.map(numberedListItem).filter(Boolean), density, numbered: true };
 }
 
+export type QuoteVariant = "plain" | "pull" | "card" | "editorial" | "portrait";
+
+export interface QuoteSource {
+  name?: string;
+  role?: string;
+  org?: string;
+  /** Image src for portrait variant. Falls back to name initials if missing. */
+  portrait?: string;
+}
+
+export type QuoteSourceInput = string | QuoteSource | null | undefined;
+
+export interface QuoteOptions {
+  ornament?: boolean;
+  variant?: QuoteVariant;
+}
+
 export function quoteBlock(
   slideId: string,
   id: string,
   text: string,
-  source?: string,
-  opts: { ornament?: boolean } & { surface?: AgentSurface } & AgentSurface = {},
+  source?: QuoteSourceInput,
+  opts: QuoteOptions & { surface?: AgentSurface } & AgentSurface = {},
 ): DomNode {
+  const normalized = normalizeQuoteSource(source);
+  const variant = pickQuoteVariant(opts.variant, text, normalized);
+  switch (variant) {
+    case "pull":
+      return quoteBlockPull(slideId, id, text, normalized, opts);
+    case "card":
+      return quoteBlockCard(slideId, id, text, normalized, opts);
+    case "editorial":
+      return quoteBlockEditorial(slideId, id, text, normalized, opts);
+    case "portrait":
+      return quoteBlockPortrait(slideId, id, text, normalized, opts);
+    case "plain":
+    default:
+      return quoteBlockPlain(slideId, id, text, normalized, opts);
+  }
+}
+
+function normalizeQuoteSource(source: QuoteSourceInput): QuoteSource | undefined {
+  if (!source) return undefined;
+  if (typeof source === "string") {
+    const trimmed = source.trim();
+    return trimmed ? { name: trimmed } : undefined;
+  }
+  if (typeof source !== "object") return undefined;
+  const name = typeof source.name === "string" ? source.name.trim() : "";
+  const role = typeof source.role === "string" ? source.role.trim() : "";
+  const org = typeof source.org === "string" ? source.org.trim() : "";
+  const portrait = typeof source.portrait === "string" ? source.portrait.trim() : "";
+  if (!name && !role && !org && !portrait) return undefined;
+  const out: QuoteSource = {};
+  if (name) out.name = name;
+  if (role) out.role = role;
+  if (org) out.org = org;
+  if (portrait) out.portrait = portrait;
+  return out;
+}
+
+function pickQuoteVariant(
+  explicit: QuoteVariant | undefined,
+  text: string,
+  source: QuoteSource | undefined,
+): QuoteVariant {
+  if (explicit === "plain" || explicit === "pull" || explicit === "card" || explicit === "editorial" || explicit === "portrait") {
+    return explicit;
+  }
+  if (source?.portrait) return "portrait";
+  // Editorial is a hero / section-opener treatment. Only auto-promote a quote
+  // into it when the agent has not supplied any attribution — otherwise short
+  // quotes with a normal byline ("CEO", "Alan Kay") would lose the byline to
+  // a centered uppercase lockup, which surprises existing decks.
+  if (!source && weightedTextLength(text) <= 30) return "editorial";
+  return "plain";
+}
+
+function flattenQuoteSource(source: QuoteSource | undefined, separator: string = ", "): string {
+  if (!source) return "";
+  const parts: string[] = [];
+  if (source.name) parts.push(source.name);
+  if (source.role) parts.push(source.role);
+  if (source.org) parts.push(source.org);
+  return parts.join(separator);
+}
+
+function quoteInitials(name: string | undefined): string {
+  if (!name) return "";
+  const cleaned = name.replace(/[“”"']/g, "").trim();
+  if (!cleaned) return "";
+  if (/[一-鿿]/.test(cleaned)) return cleaned.slice(0, 2);
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return "";
+  const first = tokens[0]!;
+  const last = tokens.length > 1 ? tokens[tokens.length - 1]! : "";
+  const a = first.charAt(0);
+  const b = last ? last.charAt(0) : "";
+  return (a + b).toUpperCase();
+}
+
+function quoteBlockPlain(
+  slideId: string,
+  id: string,
+  text: string,
+  source: QuoteSource | undefined,
+  opts: QuoteOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const sourceLine = flattenQuoteSource(source);
   const textWeight = weightedTextLength(text);
-  const hasSource = Boolean(source && source.trim());
+  const hasSource = Boolean(sourceLine);
   const compact = textWeight > 42 || (hasSource && textWeight > 32);
   const veryCompact = textWeight > 64;
-  const quotePadding = veryCompact ? 0.28 : compact ? 0.36 : 0.48;
+  // Padding scales with text density. xs/sm/md keep the same step shape the
+  // pre-token code had (0.14 / 0.28 / 0.42) — close to the original 0.28 /
+  // 0.36 / 0.48 cascade but on the 4pt design grid.
+  const quotePadding = veryCompact ? spacing("xs") : compact ? spacing("sm") : spacing("md");
   const quoteFontScale = veryCompact ? 0.72 : compact ? 0.82 : undefined;
   const quoteMinHeight = veryCompact
     ? (hasSource ? 2.0 : 1.55)
@@ -717,7 +823,7 @@ export function quoteBlock(
     children.push({
       id: `${slideId}.${id}.ornament`,
       type: "text",
-      text: "\u201C",
+      text: "“",
       // Display-tier glyph in muted accent — visually subordinate to the
       // quote text itself.
       style: "hero",
@@ -732,7 +838,7 @@ export function quoteBlock(
   children.push({
     id: `${slideId}.${id}.text`,
     type: "text",
-    text: `\u201C${text}\u201D`,
+    text: `“${text}”`,
     style: "quote",
     align: "left",
     valign: "middle",
@@ -744,18 +850,376 @@ export function quoteBlock(
     ...(quoteFontScale ? { fontScale: quoteFontScale } : {}),
   });
   if (hasSource) {
-    children.push({ id: `${slideId}.${id}.source`, type: "text", text: `\u2014 ${source!.trim()}`, style: "quote-source", align: "left", minHeight: 0.32, autoFit: "shrink", optional: true });
+    children.push({ id: `${slideId}.${id}.source`, type: "text", text: `— ${sourceLine}`, style: "quote-source", align: "left", minHeight: 0.32, autoFit: "shrink", optional: true });
   }
   return applyAgentSurface({
     id: `${slideId}.${id}`,
     type: "stack",
     direction: "vertical",
-    gap: 0.12,
+    gap: spacing("xs"),
     role: "quote",
     padding: quotePadding,
     minHeight: quoteMinHeight,
     children,
   } as DomNode, opts);
+}
+
+function quoteBlockPull(
+  slideId: string,
+  id: string,
+  text: string,
+  source: QuoteSource | undefined,
+  opts: QuoteOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const textWeight = weightedTextLength(text);
+  const compact = textWeight > 56;
+  const sourceLine = source
+    ? [source.name, source.role, source.org].filter(Boolean).join(" • ").toUpperCase()
+    : "";
+  const padding = compact ? spacing("md") : spacing("lg");
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: spacing("lg"),
+    role: "quote",
+    align: "start",
+    valign: "middle",
+    padding,
+    minHeight: sourceLine ? 1.7 : 1.4,
+    children: [
+      {
+        id: `${slideId}.${id}.rule`,
+        type: "shape",
+        preset: "rect",
+        fill: "brand.primary",
+        line: "transparent",
+        fixedWidth: 0.18,
+        align: "start",
+        valign: "stretch",
+      },
+      {
+        id: `${slideId}.${id}.body`,
+        type: "stack",
+        direction: "vertical",
+        gap: spacing("sm"),
+        layoutWeight: 1,
+        align: "start",
+        valign: "middle",
+        children: [
+          {
+            id: `${slideId}.${id}.text`,
+            type: "text",
+            text: `“${text}”`,
+            style: "quote",
+            align: "left",
+            valign: "top",
+            autoFit: "shrink",
+            autoGrow: true,
+            layoutWeight: 1,
+            italic: false,
+            bold: true,
+            maxFontScale: compact ? 1.18 : 1.36,
+            minHeight: 0.75,
+          },
+          ...(sourceLine
+            ? [{
+                id: `${slideId}.${id}.source`,
+                type: "text" as const,
+                text: sourceLine,
+                style: "quote-source",
+                align: "left" as const,
+                color: "text.muted",
+                tracking: "wider",
+                bold: true,
+                minHeight: 0.32,
+                autoFit: "shrink" as const,
+                optional: true,
+              } as DomNode]
+            : []),
+        ],
+      },
+    ],
+  } as DomNode, opts);
+}
+
+function quoteBlockCard(
+  slideId: string,
+  id: string,
+  text: string,
+  source: QuoteSource | undefined,
+  opts: QuoteOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const textWeight = weightedTextLength(text);
+  const compact = textWeight > 56;
+  const sourceLine = flattenQuoteSource(source);
+  const wantOrnament = opts.ornament !== false;
+  const children: DomNode[] = [];
+  if (wantOrnament) {
+    children.push({
+      id: `${slideId}.${id}.ornament`,
+      type: "text",
+      text: "“",
+      style: "hero",
+      color: "brand.primary",
+      align: "left",
+      valign: "top",
+      layer: "behind",
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  children.push({
+    id: `${slideId}.${id}.text`,
+    type: "text",
+    text: `“${text}”`,
+    style: "quote",
+    align: "left",
+    valign: "middle",
+    autoFit: "shrink",
+    autoGrow: true,
+    layoutWeight: 1,
+    maxFontScale: compact ? 1.22 : 1.42,
+    minHeight: 0.75,
+  });
+  if (sourceLine) {
+    children.push({
+      id: `${slideId}.${id}.source`,
+      type: "text",
+      text: `— ${sourceLine}`,
+      style: "quote-source",
+      align: "right",
+      minHeight: 0.32,
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: spacing("sm"),
+    role: "quote",
+    padding: compact ? spacing("lg") : spacing("xl"),
+    minHeight: sourceLine ? 1.85 : 1.45,
+    fill: "brand.tint",
+    line: "divider",
+    cornerRadius: radius("md"),
+    children,
+  } as DomNode, opts);
+}
+
+function quoteBlockEditorial(
+  slideId: string,
+  id: string,
+  text: string,
+  source: QuoteSource | undefined,
+  opts: QuoteOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const wantOrnament = opts.ornament !== false;
+  const name = source?.name || flattenQuoteSource(source);
+  // Spaced uppercase lockup, e.g. "A L A N   K A Y". CJK names already read
+  // with intrinsic visual rhythm — adding spaces would break substring search
+  // and look awkward — so we keep them as-is.
+  const lockup = name
+    ? (/[一-鿿]/.test(name) ? name : Array.from(name.toUpperCase()).join(" ").replace(/  +/g, "  "))
+    : "";
+  const children: DomNode[] = [];
+  if (wantOrnament) {
+    // Behind the text so it acts as a visual flourish without stealing the
+    // vertical budget the centered hero text expects to grow into.
+    children.push({
+      id: `${slideId}.${id}.ornament`,
+      type: "text",
+      text: "“",
+      style: "hero",
+      color: "brand.primary",
+      align: "center",
+      valign: "top",
+      layer: "behind",
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  children.push({
+    id: `${slideId}.${id}.text`,
+    type: "text",
+    text: `“${text}”`,
+    style: "quote",
+    align: "center",
+    valign: "middle",
+    autoFit: "shrink",
+    autoGrow: true,
+    layoutWeight: 1,
+    italic: true,
+    maxFontScale: 1.65,
+    minHeight: 0.85,
+  });
+  if (lockup) {
+    children.push({
+      id: `${slideId}.${id}.source`,
+      type: "text",
+      text: lockup,
+      style: "quote-source",
+      align: "center",
+      tracking: "widest",
+      bold: true,
+      color: "text.primary",
+      minHeight: 0.36,
+      autoFit: "shrink",
+      optional: true,
+    });
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: spacing("sm"),
+    role: "quote",
+    align: "center",
+    valign: "middle",
+    padding: spacing("lg"),
+    minHeight: lockup ? 1.9 : 1.5,
+    children,
+  } as DomNode, opts);
+}
+
+function quoteBlockPortrait(
+  slideId: string,
+  id: string,
+  text: string,
+  source: QuoteSource | undefined,
+  opts: QuoteOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const name = source?.name?.trim() || "";
+  const roleLine = [source?.role, source?.org].filter(Boolean).join(" • ");
+  const avatar = quoteAvatarNode(slideId, id, source);
+  const bodyChildren: DomNode[] = [
+    {
+      id: `${slideId}.${id}.text`,
+      type: "text",
+      text: `“${text}”`,
+      style: "quote",
+      align: "left",
+      valign: "middle",
+      autoFit: "shrink",
+      autoGrow: true,
+      layoutWeight: 1,
+      maxFontScale: 1.34,
+      minHeight: 0.75,
+    },
+  ];
+  if (name || roleLine) {
+    bodyChildren.push({
+      id: `${slideId}.${id}.divider`,
+      type: "divider",
+      orientation: "horizontal",
+      line: "divider",
+      thickness: 0.02,
+      fixedHeight: 0.06,
+    });
+    const attribChildren: DomNode[] = [];
+    if (name) {
+      attribChildren.push({
+        id: `${slideId}.${id}.name`,
+        type: "text",
+        text: name.toUpperCase(),
+        style: "quote-source",
+        align: "left",
+        bold: true,
+        tracking: "wide",
+        color: "text.primary",
+        minHeight: 0.34,
+        autoFit: "shrink",
+      });
+    }
+    if (roleLine) {
+      attribChildren.push({
+        id: `${slideId}.${id}.role`,
+        type: "text",
+        text: roleLine,
+        style: "quote-source",
+        align: "left",
+        color: "text.muted",
+        minHeight: 0.32,
+        autoFit: "shrink",
+        optional: true,
+      });
+    }
+    bodyChildren.push({
+      id: `${slideId}.${id}.attribution`,
+      type: "stack",
+      direction: "vertical",
+      gap: spacing("2xs"),
+      align: "start",
+      children: attribChildren,
+    });
+  }
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: spacing("lg"),
+    role: "quote",
+    align: "start",
+    valign: "middle",
+    padding: spacing("lg"),
+    minHeight: 2.1,
+    children: [
+      avatar,
+      {
+        id: `${slideId}.${id}.body`,
+        type: "stack",
+        direction: "vertical",
+        gap: spacing("sm"),
+        layoutWeight: 1,
+        align: "start",
+        valign: "middle",
+        children: bodyChildren,
+      },
+    ],
+  } as DomNode, opts);
+}
+
+function quoteAvatarNode(slideId: string, id: string, source: QuoteSource | undefined): DomNode {
+  const portrait = source?.portrait?.trim() || "";
+  const initials = quoteInitials(source?.name);
+  if (portrait) {
+    return {
+      id: `${slideId}.${id}.avatar`,
+      type: "image",
+      src: portrait,
+      alt: source?.name || "portrait",
+      clip: "circle",
+      fit: "cover",
+      fixedWidth: 1.9,
+      fixedHeight: 1.9,
+      align: "start",
+      valign: "middle",
+    } as DomNode;
+  }
+  return {
+    id: `${slideId}.${id}.avatar`,
+    type: "shape",
+    preset: "ellipse",
+    fill: "brand.tint",
+    line: "brand.primary",
+    lineWidth: 0.04,
+    fixedWidth: 1.9,
+    fixedHeight: 1.9,
+    align: "start",
+    valign: "middle",
+    ...(initials
+      ? {
+          text: initials,
+          style: "card-title",
+          color: "brand.primary",
+          bold: true,
+          autoFit: "shrink",
+          noWrap: true,
+        }
+      : {}),
+  } as DomNode;
 }
 
 export function iconText(slideId: string, id: string, options: { icon: string; text: string; iconColor?: string; iconBackground?: string; tone?: string }): DomNode {
@@ -2458,43 +2922,154 @@ export function barList(slideId: string, id: string, options: { items: Array<{ l
   };
 }
 
+export type KeyTakeawayVariant = "panel" | "banner" | "minimal" | "metric" | "grid";
+export type KeyTakeawayTone = "brand" | "positive" | "warning" | "danger" | "neutral";
+
+export interface KeyTakeawayMetric {
+  value: string;
+  label?: string;
+  delta?: string;
+  unit?: string;
+  trend?: "up" | "down" | "flat";
+}
+
+export interface KeyTakeawaySubItem {
+  headline: string;
+  detail?: string;
+  bullets?: string[];
+  kicker?: string;
+  tone?: KeyTakeawayTone;
+  metric?: KeyTakeawayMetric;
+}
+
+export interface KeyTakeawayOptions {
+  headline: string;
+  detail?: string;
+  content?: unknown;
+  bullets?: string[];
+  tone?: KeyTakeawayTone;
+  variant?: KeyTakeawayVariant;
+  density?: "comfortable" | "compact";
+  kicker?: string;
+  metric?: KeyTakeawayMetric;
+  items?: KeyTakeawaySubItem[];
+  source?: string;
+}
+
+interface KeyTakeawayToneSurface {
+  fill: string;
+  rail: string;
+  headlineColor: string;
+  kickerColor: string;
+  bannerFill: string;
+  bannerText: string;
+  bannerKicker: string;
+  metricColor: string;
+  line: string;
+}
+
+function keyTakeawayToneSurface(tone: KeyTakeawayTone): KeyTakeawayToneSurface {
+  // Kicker stays a quiet slate label across all tones — pairing tone-color
+  // small text on the matching tone tint (e.g. success on success.tint) lands
+  // at ~4.48:1, just under the WCAG 4.5 threshold for small text. The tone
+  // signal is already carried by the rail + surface fill, so the kicker can
+  // afford to be high-contrast neutral. metricColor stays tone-colored only
+  // for the hero value (which passes the AA Large threshold of 3.0:1).
+  switch (tone) {
+    case "positive":
+      return { fill: "success.tint", rail: "success", headlineColor: "text.primary", kickerColor: "text.muted", bannerFill: "success", bannerText: "text.inverse", bannerKicker: "text.inverse", metricColor: "success", line: "success" };
+    case "warning":
+      return { fill: "warning.tint", rail: "warning", headlineColor: "text.primary", kickerColor: "text.muted", bannerFill: "warning", bannerText: "text.inverse", bannerKicker: "text.inverse", metricColor: "warning", line: "warning" };
+    case "danger":
+      return { fill: "danger.tint", rail: "danger", headlineColor: "text.primary", kickerColor: "text.muted", bannerFill: "danger", bannerText: "text.inverse", bannerKicker: "text.inverse", metricColor: "danger", line: "danger" };
+    case "neutral":
+      return { fill: "surface.subtle", rail: "divider", headlineColor: "text.primary", kickerColor: "text.muted", bannerFill: "text.primary", bannerText: "text.inverse", bannerKicker: "text.inverse", metricColor: "text.primary", line: "divider" };
+    case "brand":
+    default:
+      return { fill: "brand.tint", rail: "brand.primary", headlineColor: "text.primary", kickerColor: "brand.primary", bannerFill: "brand.primary", bannerText: "text.inverse", bannerKicker: "text.inverse", metricColor: "brand.primary", line: "brand.primary" };
+  }
+}
+
+function pickKeyTakeawayVariant(options: KeyTakeawayOptions): KeyTakeawayVariant {
+  const explicit = options.variant;
+  if (explicit === "panel" || explicit === "banner" || explicit === "minimal" || explicit === "metric" || explicit === "grid") {
+    return explicit;
+  }
+  if (options.metric && typeof options.metric.value === "string" && options.metric.value.trim()) return "metric";
+  if (options.items && options.items.length >= 2) return "grid";
+  return "panel";
+}
+
 export function keyTakeaway(
   slideId: string,
   id: string,
-  options: {
-    headline: string;
-    detail?: string;
-    content?: unknown;
-    bullets?: string[];
-    tone?: "brand" | "positive" | "warning" | "danger" | "neutral";
-    variant?: "panel" | "banner" | "minimal";
-    density?: "comfortable" | "compact";
-  } & { surface?: AgentSurface } & AgentSurface,
+  options: KeyTakeawayOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const variant = pickKeyTakeawayVariant(options);
+  switch (variant) {
+    case "banner":
+      return keyTakeawayBanner(slideId, id, options);
+    case "minimal":
+      return keyTakeawayMinimal(slideId, id, options);
+    case "metric":
+      return keyTakeawayMetric(slideId, id, options);
+    case "grid":
+      return keyTakeawayGrid(slideId, id, options);
+    case "panel":
+    default:
+      return keyTakeawayPanel(slideId, id, options);
+  }
+}
+
+function keyTakeawayKickerNode(slideId: string, id: string, kicker: string | undefined, tone: KeyTakeawayToneSurface, inverse: boolean): DomNode | undefined {
+  if (!kicker || !kicker.trim()) return undefined;
+  return {
+    id: `${slideId}.${id}.kicker`,
+    type: "text",
+    text: kicker.trim().toUpperCase(),
+    style: "label",
+    color: inverse ? tone.bannerKicker : tone.kickerColor,
+    bold: true,
+    tracking: "widest",
+    minHeight: 0.3,
+    autoFit: "shrink",
+    optional: true,
+  } as DomNode;
+}
+
+function keyTakeawaySourceNode(slideId: string, id: string, source: string | undefined): DomNode | undefined {
+  if (!source || !source.trim()) return undefined;
+  return {
+    id: `${slideId}.${id}.source`,
+    type: "text",
+    text: source.trim(),
+    style: "footnote",
+    color: "text.muted",
+    minHeight: 0.3,
+    autoFit: "shrink",
+    optional: true,
+  } as DomNode;
+}
+
+function keyTakeawayPanel(
+  slideId: string,
+  id: string,
+  options: KeyTakeawayOptions & { surface?: AgentSurface } & AgentSurface,
 ): DomNode {
   const tone = options.tone || "brand";
-  const fillToken = tone === "brand" ? "brand.tint" : tone === "positive" ? "success.tint" : tone === "warning" ? "warning.tint" : tone === "neutral" ? "surface.subtle" : "danger.tint";
-  const accentToken = tone === "brand" ? "brand.primary" : tone === "positive" ? "success" : tone === "warning" ? "warning" : tone === "neutral" ? "divider" : "danger";
-  const headline = options.headline.trim();
+  const surface = keyTakeawayToneSurface(tone);
+  const headline = (options.headline || "").trim();
   const detail = textWithRichContent(options.detail?.trim() || "", options.content);
   const detailPlain = detail.text || richTextPlain(detail.content);
+  const hasBullets = Boolean(options.bullets && options.bullets.length);
   const denseHeadline = options.density === "compact" || weightedTextLength(headline) > 36;
   const denseDetail = weightedTextLength(detailPlain) > 44 || (options.bullets || []).length >= 4;
   const compact = options.density === "compact" || denseHeadline || denseDetail;
-  const hasBullets = Boolean(options.bullets && options.bullets.length);
   const compactBulletHeadline = compact && hasBullets;
-  // Thicker accent bar (0.18cm vs the previous 0.12) + a longer rule
-  // (3.2cm) to give the takeaway visual weight against a busy slide.
-  const children: DomNode[] = [
-    {
-      id: `${slideId}.${id}.accent`,
-      type: "shape",
-      preset: "rect",
-      fill: accentToken,
-      fixedHeight: 0.18,
-      fixedWidth: 3.2,
-      align: "start",
-    },
-  ];
+
+  const children: DomNode[] = [];
+  const kickerNode = keyTakeawayKickerNode(slideId, id, options.kicker, surface, false);
+  if (kickerNode) children.push(kickerNode);
   if (headline) {
     children.push({
       id: `${slideId}.${id}.headline`,
@@ -2502,11 +3077,11 @@ export function keyTakeaway(
       text: headline,
       style: compactBulletHeadline ? "card-title" : denseHeadline ? "lead" : "section-title",
       size: compactBulletHeadline ? undefined : denseHeadline ? "md" : "lg",
-      color: "text.primary",
+      color: surface.headlineColor,
       align: "left",
       autoFit: "shrink",
       minHeight: estimateTakeawayHeadlineMinHeight(headline, compact, hasBullets),
-    });
+    } as DomNode);
   }
   if (detail.text || detail.content) {
     children.push({
@@ -2521,23 +3096,491 @@ export function keyTakeaway(
       layoutWeight: 1,
       minHeight: estimateTakeawayDetailMinHeight(detailPlain, compact),
       optional: compact ? true : undefined,
-    });
+    } as DomNode);
   }
-  if (options.bullets && options.bullets.length) {
-    children.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets.slice(0, 5), compact ? "compact" : "comfortable"), spaceAfter: compact ? 1.2 : 2.0 });
+  if (hasBullets) {
+    children.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets!.slice(0, 5), compact ? "compact" : "comfortable"), spaceAfter: compact ? 1.2 : 2.0 });
   }
-  const minimal = options.variant === "minimal";
+  const sourceNode = keyTakeawaySourceNode(slideId, id, options.source);
+  if (sourceNode) children.push(sourceNode);
+
+  // type:"card" with native accent:"left" rendering avoids inserting a sibling
+  // shape into the layout tree — the renderer paints the rail in its own
+  // chrome layer so the vertical stack semantics (and downstream cohort/budget
+  // tracking) match the pre-upgrade key-takeaway exactly.
   return applyAgentSurface({
     id: `${slideId}.${id}`,
-    type: "stack",
+    type: "card",
     direction: "vertical",
-    gap: compact ? 0.14 : 0.3,
+    gap: compact ? spacing("xs") : spacing("sm"),
     role: "key-takeaway",
-    ...(!minimal ? { fill: fillToken, line: accentToken, padding: compact ? 0.38 : options.variant === "banner" ? 0.55 : 0.7, cornerRadius: 0.12, elevation: "raised" } : {}),
+    fill: surface.fill,
+    line: surface.line,
+    accent: "left",
+    accentColor: surface.rail,
+    accentWidth: rail("thick"),
+    cornerRadius: radius("md"),
+    elevation: "raised",
+    padding: compact ? spacing("md") : spacing("lg"),
     children,
   } as DomNode, options);
 }
 
+function keyTakeawayBanner(
+  slideId: string,
+  id: string,
+  options: KeyTakeawayOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const tone = options.tone || "brand";
+  const surface = keyTakeawayToneSurface(tone);
+  const headline = (options.headline || "").trim();
+  const detail = textWithRichContent(options.detail?.trim() || "", options.content);
+  const detailPlain = detail.text || richTextPlain(detail.content);
+  const compact = options.density === "compact" || weightedTextLength(headline) > 60;
+
+  const bodyChildren: DomNode[] = [];
+  const kickerNode = keyTakeawayKickerNode(slideId, id, options.kicker, surface, true);
+  if (kickerNode) bodyChildren.push(kickerNode);
+  if (headline) {
+    bodyChildren.push({
+      id: `${slideId}.${id}.headline`,
+      type: "text",
+      text: headline,
+      style: compact ? "lead" : "section-title",
+      size: compact ? "md" : "lg",
+      color: surface.bannerText,
+      bold: true,
+      align: "left",
+      autoFit: "shrink",
+      minHeight: estimateTakeawayHeadlineMinHeight(headline, compact, false),
+    } as DomNode);
+  }
+  if (detail.text || detail.content) {
+    bodyChildren.push({
+      id: `${slideId}.${id}.detail`,
+      type: "text",
+      ...detail,
+      style: "paragraph",
+      color: surface.bannerText,
+      align: "left",
+      valign: "top",
+      autoFit: "shrink",
+      minHeight: estimateTakeawayDetailMinHeight(detailPlain, compact),
+      optional: true,
+    } as DomNode);
+  }
+
+  const rowChildren: DomNode[] = [
+    {
+      id: `${slideId}.${id}.body`,
+      type: "stack",
+      direction: "vertical",
+      gap: compact ? spacing("xs") : spacing("sm"),
+      padding: 0,
+      layoutWeight: 1,
+      align: "start",
+      valign: "middle",
+      children: bodyChildren,
+    } as DomNode,
+  ];
+
+  if (options.metric && options.metric.value && options.metric.value.trim()) {
+    const m = options.metric;
+    const metricChildren: DomNode[] = [
+      {
+        id: `${slideId}.${id}.metric.value`,
+        type: "text",
+        text: m.value.trim() + (m.unit ? m.unit.trim() : ""),
+        style: "hero",
+        color: surface.bannerText,
+        bold: true,
+        align: "right",
+        autoFit: "shrink",
+        noWrap: true,
+        minHeight: 0.8,
+      } as DomNode,
+    ];
+    if (m.label && m.label.trim()) {
+      metricChildren.push({
+        id: `${slideId}.${id}.metric.label`,
+        type: "text",
+        text: m.label.trim(),
+        style: "caption",
+        color: surface.bannerText,
+        align: "right",
+        autoFit: "shrink",
+        minHeight: 0.3,
+        optional: true,
+      } as DomNode);
+    }
+    rowChildren.push({
+      id: `${slideId}.${id}.metric`,
+      type: "stack",
+      direction: "vertical",
+      gap: spacing("2xs"),
+      align: "end",
+      valign: "middle",
+      fixedWidth: 4.2,
+      children: metricChildren,
+    } as DomNode);
+  }
+
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: spacing("md"),
+    role: "key-takeaway",
+    fill: surface.bannerFill,
+    line: "transparent",
+    cornerRadius: radius("md"),
+    padding: compact ? spacing("md") : spacing("lg"),
+    align: "start",
+    valign: "middle",
+    children: rowChildren,
+  } as DomNode, options);
+}
+
+function keyTakeawayMinimal(
+  slideId: string,
+  id: string,
+  options: KeyTakeawayOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const tone = options.tone || "brand";
+  const surface = keyTakeawayToneSurface(tone);
+  const headline = (options.headline || "").trim();
+  const detail = textWithRichContent(options.detail?.trim() || "", options.content);
+  const detailPlain = detail.text || richTextPlain(detail.content);
+  const hasBullets = Boolean(options.bullets && options.bullets.length);
+  const denseHeadline = options.density === "compact" || weightedTextLength(headline) > 36;
+  const denseDetail = weightedTextLength(detailPlain) > 44 || (options.bullets || []).length >= 4;
+  const compact = options.density === "compact" || denseHeadline || denseDetail;
+  const compactBulletHeadline = compact && hasBullets;
+
+  // Minimal stays as a chrome-free vertical stack so cohort/peer-cohort logic
+  // for repeated minimal takeaways keeps measuring the same shape they did
+  // before the upgrade. The visual cue is a short top accent bar.
+  const children: DomNode[] = [
+    {
+      id: `${slideId}.${id}.accent`,
+      type: "shape",
+      preset: "rect",
+      fill: surface.rail,
+      fixedHeight: 0.16,
+      fixedWidth: 2.8,
+      align: "start",
+    } as DomNode,
+  ];
+  const kickerNode = keyTakeawayKickerNode(slideId, id, options.kicker, surface, false);
+  if (kickerNode) children.push(kickerNode);
+  if (headline) {
+    children.push({
+      id: `${slideId}.${id}.headline`,
+      type: "text",
+      text: headline,
+      style: compactBulletHeadline ? "card-title" : denseHeadline ? "lead" : "section-title",
+      size: compactBulletHeadline ? undefined : denseHeadline ? "md" : "lg",
+      color: surface.headlineColor,
+      align: "left",
+      autoFit: "shrink",
+      minHeight: estimateTakeawayHeadlineMinHeight(headline, compact, hasBullets),
+    } as DomNode);
+  }
+  if (detail.text || detail.content) {
+    children.push({
+      id: `${slideId}.${id}.detail`,
+      type: "text",
+      ...detail,
+      style: compact ? "paragraph" : "lead",
+      color: "text.primary",
+      align: "left",
+      valign: "top",
+      autoFit: "shrink",
+      layoutWeight: 1,
+      minHeight: estimateTakeawayDetailMinHeight(detailPlain, compact),
+      optional: compact ? true : undefined,
+    } as DomNode);
+  }
+  if (hasBullets) {
+    children.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets!.slice(0, 5), compact ? "compact" : "comfortable"), spaceAfter: compact ? 1.2 : 2.0 });
+  }
+
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: compact ? spacing("xs") : spacing("sm"),
+    role: "key-takeaway",
+    children,
+  } as DomNode, options);
+}
+
+function keyTakeawayMetric(
+  slideId: string,
+  id: string,
+  options: KeyTakeawayOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const tone = options.tone || "brand";
+  const surface = keyTakeawayToneSurface(tone);
+  const m = options.metric || { value: "" };
+  const headline = (options.headline || "").trim();
+  const detail = textWithRichContent(options.detail?.trim() || "", options.content);
+  const detailPlain = detail.text || richTextPlain(detail.content);
+  const hasBullets = Boolean(options.bullets && options.bullets.length);
+
+  const metricChildren: DomNode[] = [];
+  metricChildren.push({
+    id: `${slideId}.${id}.metric.value`,
+    type: "text",
+    text: (m.value || "").trim() + (m.unit ? m.unit.trim() : ""),
+    style: "hero",
+    color: surface.metricColor,
+    bold: true,
+    align: "left",
+    autoFit: "shrink",
+    noWrap: true,
+    minHeight: 1.1,
+  } as DomNode);
+  if (m.label && m.label.trim()) {
+    metricChildren.push({
+      id: `${slideId}.${id}.metric.label`,
+      type: "text",
+      text: m.label.trim(),
+      style: "caption",
+      color: "text.muted",
+      align: "left",
+      autoFit: "shrink",
+      minHeight: 0.32,
+      tracking: "wide",
+      bold: true,
+      optional: true,
+    } as DomNode);
+  }
+  if (m.delta && m.delta.trim()) {
+    // delta uses text.muted (slate-gray) for stable readability across all
+    // tones — pairing tone-color caption text on tone.tint surfaces sits at
+    // ~4.48:1, just under WCAG 4.5 for small text.
+    metricChildren.push({
+      id: `${slideId}.${id}.metric.delta`,
+      type: "text",
+      text: m.delta.trim(),
+      style: "caption",
+      color: "text.muted",
+      align: "left",
+      autoFit: "shrink",
+      minHeight: 0.32,
+      optional: true,
+    } as DomNode);
+  }
+
+  const bodyChildren: DomNode[] = [];
+  const kickerNode = keyTakeawayKickerNode(slideId, id, options.kicker, surface, false);
+  if (kickerNode) bodyChildren.push(kickerNode);
+  if (headline) {
+    bodyChildren.push({
+      id: `${slideId}.${id}.headline`,
+      type: "text",
+      text: headline,
+      style: "lead",
+      color: surface.headlineColor,
+      bold: true,
+      align: "left",
+      autoFit: "shrink",
+      minHeight: estimateTakeawayHeadlineMinHeight(headline, true, hasBullets),
+    } as DomNode);
+  }
+  if (detail.text || detail.content) {
+    bodyChildren.push({
+      id: `${slideId}.${id}.detail`,
+      type: "text",
+      ...detail,
+      style: "paragraph",
+      color: "text.primary",
+      align: "left",
+      valign: "top",
+      autoFit: "shrink",
+      layoutWeight: 1,
+      minHeight: estimateTakeawayDetailMinHeight(detailPlain, true),
+      optional: true,
+    } as DomNode);
+  }
+  if (hasBullets) {
+    bodyChildren.push({ ...bulletList(slideId, `${id}.bullets`, options.bullets!.slice(0, 4), "compact"), spaceAfter: 1.2 });
+  }
+  const sourceNode = keyTakeawaySourceNode(slideId, id, options.source);
+  if (sourceNode) bodyChildren.push(sourceNode);
+
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "horizontal",
+    gap: spacing("lg"),
+    role: "key-takeaway",
+    fill: surface.fill,
+    line: surface.line,
+    cornerRadius: radius("md"),
+    padding: spacing("lg"),
+    align: "start",
+    valign: "middle",
+    children: [
+      {
+        id: `${slideId}.${id}.metric`,
+        type: "stack",
+        direction: "vertical",
+        gap: spacing("xs"),
+        align: "start",
+        valign: "middle",
+        fixedWidth: 5.4,
+        children: metricChildren,
+      } as DomNode,
+      {
+        id: `${slideId}.${id}.divider`,
+        type: "divider",
+        orientation: "vertical",
+        line: surface.line,
+        thickness: 0.04,
+        fixedWidth: 0.04,
+        valign: "stretch",
+        optional: true,
+      } as DomNode,
+      {
+        id: `${slideId}.${id}.body`,
+        type: "stack",
+        direction: "vertical",
+        gap: spacing("xs"),
+        padding: 0,
+        layoutWeight: 1,
+        align: "start",
+        valign: "middle",
+        children: bodyChildren,
+      } as DomNode,
+    ],
+  } as DomNode, options);
+}
+
+function keyTakeawayGridMini(slideId: string, id: string, item: KeyTakeawaySubItem, ownerTone: KeyTakeawayTone): DomNode {
+  const tone = item.tone || ownerTone;
+  const surface = keyTakeawayToneSurface(tone);
+  const children: DomNode[] = [];
+  if (item.kicker && item.kicker.trim()) {
+    children.push({
+      id: `${slideId}.${id}.kicker`,
+      type: "text",
+      text: item.kicker.trim().toUpperCase(),
+      style: "label",
+      color: surface.kickerColor,
+      bold: true,
+      tracking: "wider",
+      minHeight: 0.28,
+      autoFit: "shrink",
+      optional: true,
+    } as DomNode);
+  }
+  const headline = (item.headline || "").trim();
+  if (headline) {
+    children.push({
+      id: `${slideId}.${id}.headline`,
+      type: "text",
+      text: headline,
+      style: "card-title",
+      color: surface.headlineColor,
+      align: "left",
+      autoFit: "shrink",
+      minHeight: 0.48,
+    } as DomNode);
+  }
+  if (item.detail && item.detail.trim()) {
+    children.push({
+      id: `${slideId}.${id}.detail`,
+      type: "text",
+      text: item.detail.trim(),
+      style: "paragraph",
+      color: "text.primary",
+      align: "left",
+      valign: "top",
+      autoFit: "shrink",
+      layoutWeight: 1,
+      minHeight: estimateTakeawayDetailMinHeight(item.detail, true),
+      optional: true,
+    } as DomNode);
+  }
+  if (item.bullets && item.bullets.length) {
+    children.push({ ...bulletList(slideId, `${id}.bullets`, item.bullets.slice(0, 3), "compact"), spaceAfter: 1.0, optional: true });
+  }
+  return {
+    id: `${slideId}.${id}`,
+    type: "card",
+    direction: "vertical",
+    gap: spacing("xs"),
+    role: "key-takeaway-item",
+    fill: surface.fill,
+    line: surface.line,
+    accent: "left",
+    accentColor: surface.rail,
+    accentWidth: rail("thick"),
+    cornerRadius: radius("sm"),
+    padding: spacing("md"),
+    layoutWeight: 1,
+    children,
+  } as DomNode;
+}
+
+function keyTakeawayGrid(
+  slideId: string,
+  id: string,
+  options: KeyTakeawayOptions & { surface?: AgentSurface } & AgentSurface,
+): DomNode {
+  const tone = options.tone || "brand";
+  const items = options.items || [];
+  const surface = keyTakeawayToneSurface(tone);
+  const headerChildren: DomNode[] = [];
+  const kickerNode = keyTakeawayKickerNode(slideId, id, options.kicker, surface, false);
+  if (kickerNode) headerChildren.push(kickerNode);
+  const masterHeadline = (options.headline || "").trim();
+  if (masterHeadline) {
+    headerChildren.push({
+      id: `${slideId}.${id}.headline`,
+      type: "text",
+      text: masterHeadline,
+      style: "section-title",
+      color: surface.headlineColor,
+      align: "left",
+      autoFit: "shrink",
+      minHeight: 0.6,
+    } as DomNode);
+  }
+  const masterDetail = textWithRichContent(options.detail?.trim() || "", options.content);
+  if (masterDetail.text || masterDetail.content) {
+    headerChildren.push({
+      id: `${slideId}.${id}.detail`,
+      type: "text",
+      ...masterDetail,
+      style: "paragraph",
+      color: "text.muted",
+      minHeight: 0.36,
+      autoFit: "shrink",
+      optional: true,
+    } as DomNode);
+  }
+
+  const columns = Math.min(Math.max(items.length, 1), 4);
+  const grid: DomNode = {
+    id: `${slideId}.${id}.grid`,
+    type: "grid",
+    columns,
+    gap: spacing("sm"),
+    children: items.slice(0, 4).map((item, i) => keyTakeawayGridMini(slideId, `${id}.${i + 1}`, item, tone)),
+  } as DomNode;
+
+  return applyAgentSurface({
+    id: `${slideId}.${id}`,
+    type: "stack",
+    direction: "vertical",
+    gap: headerChildren.length ? spacing("sm") : 0,
+    role: "key-takeaway",
+    children: [...headerChildren, grid],
+  } as DomNode, options);
+}
 function weightedTextLength(text: string): number {
   let length = 0;
   for (const char of text) {
